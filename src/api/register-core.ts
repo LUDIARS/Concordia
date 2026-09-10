@@ -60,6 +60,8 @@ import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
+import { sessionPushCheckRouter } from "./session-push-check.js";
+import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { domainReviewRouter, type DomainReviewApiDeps } from "./domain-review.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { delegationRouter } from "./delegation.js";
@@ -307,6 +309,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   gateRoutes("test", ["/v1/testing", "/v1/confirm"]);
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
   mountRouteGroups([{ name: "session-runtime", mount: () => {
+  app.route("/v1/sessions", sessionPushCheckRouter({ sessions: deps.repo, revisor: deps.revisorAdmin,
+    workspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
   app.route(
     "/v1/sessions",
     sessionsRouter({
@@ -329,6 +333,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       isThinkingEnabled: () => deps.adminState.getThinkingMessagesEnabled(),
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
+      resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {
+        if (!deps.revisorAdmin) return "unknown";
+        return selectProjectStartupWorkflow(await deps.revisorAdmin.listRepositories(), repoPath, repoOrigin);
+      },
       harnessAudit: deps.harnessAudit,
     }),
   );

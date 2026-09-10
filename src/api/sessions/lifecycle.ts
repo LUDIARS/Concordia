@@ -16,6 +16,7 @@ import {
 } from "../../control/session-work-policy.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, HANDOVER_INJECT_SOURCE, HANDOVER_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { endSessionNow } from "../../control/end-session-command.js";
+import { buildSharedStartupContext } from "../../control/shared-startup-context.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
@@ -119,13 +120,30 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (spawnId && !claimed && !successor) {
         return c.json({ error: "invalid_or_consumed_session_enrollment" }, 401);
       }
+      const workflow = await deps.resolveProjectStartupWorkflow?.(input.repo_path, input.repo_origin ?? null)
+        .catch(() => "unknown" as const) ?? "unknown";
+      // Sessions usually run in a worktree (`<root>/Concordia-feat-x`), so the cwd
+      // fallback must use findByRepoPath (exact -> inside -> `<project>-` sibling).
+      // isWorkspaceRootCwd only compares for equality and would leave every
+      // worktree session without its project rules and memory index.
+      const projectRegistration = (input.repo_origin
+        ? deps.projectCodes?.findByRepoOrigin(input.repo_origin)
+        : null) ?? deps.projectCodes?.findByRepoPath(input.repo_path) ?? null;
       const workPolicy = buildSessionWorkPolicy({
+        workflow,
         repoPath: input.repo_path,
         observedBranch: input.branch ?? null,
         pendingSpawn: claimed,
         workspaceRoots,
       });
-      sessionWorkPolicyText = workPolicy.text;
+      // Only the new-row registration path receives shared startup guidance.
+      // Existing session re-registration, heartbeat and task changes never inject it.
+      sessionWorkPolicyText = `${workPolicy.text}\n\n${await buildSharedStartupContext({
+        workflow,
+        projectRoot: projectRegistration?.repo_path,
+        repoPath: input.repo_path,
+        workspaceRoots,
+      })}`;
       const claimedProjectTarget = claimed?.project
         ? projectResolver.targetFromText(claimed.project)
         : null;

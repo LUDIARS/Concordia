@@ -19,7 +19,7 @@ describe("buildSessionWorkPolicy", () => {
     expect(policy.branchMismatch).toBe(false);
   });
 
-  it("surfaces branch mismatch and the commit+PR/no-test/no-merge boundary", () => {
+  it("surfaces branch mismatch and routes static rules separately from workflow", () => {
     const policy = buildSessionWorkPolicy({
       repoPath: "E:/Document/Ars/Concordia",
       observedBranch: "main",
@@ -28,9 +28,8 @@ describe("buildSessionWorkPolicy", () => {
     });
     expect(policy.branchMismatch).toBe(true);
     expect(policy.text).toContain("branch mismatch");
-    expect(policy.text).toContain("PR 作成後は停止");
-    expect(policy.text).toContain("テストを実行しない");
-    expect(policy.text).toContain("auto-merge");
+    expect(policy.text).toContain("session-work.md");
+    expect(policy.text).toContain("未判定");
   });
 
   it("warns about destructive git ops on Castra when cwd is the workspace root", () => {

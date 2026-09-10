@@ -72,6 +72,7 @@ export interface ChannelDirectory {
 }
 
 export interface SessionsApiDeps {
+  resolveProjectStartupWorkflow?: (repoPath: string, repoOrigin: string | null) => Promise<import("../../control/project-startup-workflow.js").ProjectStartupWorkflow>;
   repo: SessionsRepo;
   tasks: TasksRepo;
   /** エスカレーションモードの状態 + 監査 (spec/feature/escalation-mode.md)。 */

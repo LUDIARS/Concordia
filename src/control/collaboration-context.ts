@@ -196,7 +196,7 @@ function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
       "Identify the individual project first; never use the workspace/Castra root as the working directory.",
       "Confirm the requested branch against the actual checkout and register that branch in Cc before editing; do not work directly on main.",
       "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
-      "When implementation is complete, push the branch and open a PR.",
+      "When implementation is complete, follow the project workflow identified by Cc in the startup policy. Do not infer permission to push or choose a PR submission route when the workflow is unknown.",
       "PR の自動提出内容は対象リポの spec/tasks/ にある当該 session の task md から作られます。PR タイトル、目的、完了条件を日本語で空欄なく記録してください。",
       "Do not spawn subagents yourself (Agent/Task tool). Delegate parallel or split work through Concordia delegation (POST /v1/delegation/invoke) so the child gets its own surface, status card, and PR — unless the user explicitly asked for an in-session agent.",
       "Do not run any test unless the user explicitly requested it for this Session.",
@@ -206,7 +206,7 @@ function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
     interrupt_policy:
       "If the user interrupts with additional work, append it after the current queue unless the user explicitly marks it as priority.",
     completion_policy: [
-      "The default Session completion boundary is commit, push, and PR creation.",
+      "The default Session completion boundary is commit and PR submission through the workflow identified by Cc for the target project.",
       "After creating the PR, stop and report it; do not automatically monitor/fix CI, test, or merge.",
       "Only continue into tests or merge when the user explicitly adds that instruction.",
     ],

@@ -37,6 +37,7 @@
  */
 
 import { open, stat } from "node:fs/promises";
+import { renderSessionFollowup, type SessionFollowupSnapshot } from "./session-followup-state.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
@@ -63,6 +64,7 @@ export const STALL_NUDGE_SENTINEL = "[自動確認]";
 const TAIL_BYTES = 64 * 1024;
 
 export interface StalledSessionNudgeOptions {
+  resolveWorkState?: (session: SessionRow) => Promise<SessionFollowupSnapshot>;
   repo: SessionsRepo;
   /** scan 周期 (ms)。 既定 10 分。 */
   intervalMs?: number;
@@ -266,7 +268,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  * Lictor shutdown まで走って勝手に閉じる事故が起きた (2026-08-17)。 nudge は
  * 「止まった理由を説明せよ」 までしか要求せず、 終了の可否は必ず人間に投げさせる。
  */
-export function buildNudgeText(_provider: string): string {
+export function buildNudgeText(_provider: string, snapshot?: SessionFollowupSnapshot): string {
+  if (snapshot) return renderSessionFollowup(snapshot);
   return [
     `${STALL_NUDGE_SENTINEL} しばらく応答が止まっているようです。`,
     "",
@@ -376,6 +379,9 @@ export function startStalledSessionNudge(
         log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
+      const workState = await opts.resolveWorkState?.(s).catch(() => undefined);
+      // The registry request may outlive the user's transition to a question card.
+      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id)) continue;
       // A transcript update can be an AI reply to our own nudge. Keep waiting until
       // an explicit human response reopens the durable confirmation gate.
       if (!claimHumanResponseConfirmation(opts.repo, s.id)) continue;
@@ -383,7 +389,11 @@ export function startStalledSessionNudge(
       eventBus.emit({
         type: "session.inject",
         target_session_id: s.id,
-        text: buildNudgeText(s.provider),
+        // buildNudgeText already routes a resolved snapshot to renderSessionFollowup.
+        // Passing the snapshot (rather than branching on resolveWorkState) keeps the
+        // descriptive fallback text when the registry lookup failed, instead of
+        // sending a bare `state=unknown` with no explanation of what to do.
+        text: buildNudgeText(s.provider, workState),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });

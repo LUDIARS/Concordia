@@ -95,6 +95,8 @@ import { startReaper } from "../control/reaper.js";
 import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/question-escalation.js";
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
+import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
@@ -1870,6 +1872,24 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,
+        resolveWorkState: async (session) => {
+          const registrations = await revisorRepositoryClient.listRepositories();
+          const workflow = selectProjectStartupWorkflow(registrations, session.repo_path, session.repo_origin);
+          const localPrs = workflow === "revisor" ? await revisorClient.listLocalPrs() : [];
+          return {
+            workflow,
+            tasks: sessionTaskRecords.listBySession(session.id),
+            delegations: delegationRepo.listRunsByParentSession(session.id),
+            prs: workflow === "github"
+              ? prs.list({ author_session_id: session.id, limit: 100 })
+                .filter((pr) => pr.head_branch === session.branch
+                  && normalizeRepoOrigin(pr.repo_origin).toLowerCase() === normalizeRepoOrigin(session.repo_origin ?? "").toLowerCase())
+                .map((pr) => ({ status: pr.state === "draft" ? "open" : pr.state,
+                  checkStatus: pr.ci_status === "failure" || pr.review_state === "changes_requested" ? "failed"
+                    : pr.ci_status === "success" && pr.review_state === "approved" ? "test_ok" : "running" }))
+              : localPrs.filter((pr) => pr.sessionId === session.id && pr.headRef === session.branch),
+          };
+        },
         enabled: cfg.stallNudgeEnabled,
         intervalMs: cfg.stallNudgeIntervalMs,
         idleSec: cfg.stallIdleSec,

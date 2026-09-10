@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/control/session-git-hooks(\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/provider-preset(\\.test)?\\.ts$"
     },
@@ -21,6 +22,7 @@
     "provider-runtime-arguments"
   ],
   "specRefs": [
+    "spec/feature/shared-startup-context.md",
     "spec/feature/delegation.md#132-codex-sdk-satelles-ヘッドレスレーン",
     "spec/feature/delegation.md#131-なぜ論理プリセットか",
     "spec/feature/goal-and-go.md",

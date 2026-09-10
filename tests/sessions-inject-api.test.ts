@@ -160,7 +160,7 @@ describe("sessions API — inject / title / title-suggestion", () => {
     const detail = await (await app.request("/v1/sessions/iw")).json() as any;
     const injectEv = detail.events.find((e: any) => e.kind === "inject");
     expect(injectEv?.payload.source).toBe("cc-session-work-policy");
-    expect(injectEv?.payload.text).toContain("Session の既定完了範囲は commit・push・PR 作成まで");
+    expect(injectEv?.payload.text).toContain("プロジェクトの workflow は未判定です");
     const ctx = await (await app.request("/v1/sessions/iw/context")).json() as any;
     expect(ctx.context_packet.session_id).toBe("iw");
   });

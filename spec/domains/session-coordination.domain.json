@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)tools/session-git-hook\\.mjs$" },
     {
       "pathPattern": "(^|/)src/control(?:/.*)?$"
     },
@@ -25,6 +26,7 @@
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
   "specRefs": [
+    "spec/feature/shared-startup-context.md",
     "spec/feature/human-response-confirmation.md",
     "spec/ux/session-coordination.md",
     "spec/architecture/ddd.md",

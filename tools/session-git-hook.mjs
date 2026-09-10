@@ -1,0 +1,62 @@
+// @implements spec/feature/shared-startup-context.md — enforce push before forwarding existing Git hooks
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const hook = process.argv[2];
+const args = process.argv.slice(3);
+const env = { ...process.env };
+const index = Number(env.CONCORDIA_SESSION_HOOK_CONFIG_INDEX);
+const count = Number(env.GIT_CONFIG_COUNT);
+if (!Number.isInteger(index) || index < 0 || count !== index + 1
+  || env[`GIT_CONFIG_KEY_${index}`] !== 'core.hooksPath') {
+  process.stderr.write('[Cc hook] Git hook environment is inconsistent; operation blocked.\n');
+  process.exit(1);
+}
+delete env[`GIT_CONFIG_KEY_${index}`];
+delete env[`GIT_CONFIG_VALUE_${index}`];
+env.GIT_CONFIG_COUNT = String(index);
+const git = (values) => execFileSync('git', values, { env, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const receivesInput = ['pre-push', 'post-rewrite', 'reference-transaction'].includes(hook);
+const input = receivesInput ? readFileSync(0) : undefined;
+let inputDirectory;
+let inputPath;
+try {
+  if (hook === 'pre-push') {
+    const port = Number(process.env.LICTOR_PORT);
+    const ccPort = Number(process.env.CONCORDIA_PORT);
+    if (![port, ccPort].every((value) => Number.isInteger(value) && value > 0 && value < 65536)) throw new Error('Cc/Lictor address is unavailable');
+    const read = async (url, options = {}) => {
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`Policy request failed (${response.status})`);
+      return response.json();
+    };
+    const session = await read(`http://127.0.0.1:${port}/v1/concordia/session`);
+    if (typeof session.session_id !== 'string' || !session.session_id) throw new Error('Session identity unavailable');
+    const result = await read(`http://127.0.0.1:${ccPort}/v1/sessions/${encodeURIComponent(session.session_id)}/push-check`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cwd: git(['rev-parse', '--show-toplevel']) }),
+    });
+    if (result.allowed !== true) throw new Error(result.reason || 'Push is not allowed by the project workflow');
+  }
+  // Removing only our injected config restores global/local hook precedence and LFS behavior.
+  // git hook run closes stdin by default; --to-stdin preserves pre-push/LFS ref input.
+  if (input !== undefined) {
+    inputDirectory = mkdtempSync(join(tmpdir(), 'cc-hook-input-'));
+    inputPath = join(inputDirectory, 'stdin');
+    writeFileSync(inputPath, input, { mode: 0o600 });
+  }
+  const result = spawnSync('git', ['hook', 'run', '--ignore-missing',
+    ...(inputPath ? [`--to-stdin=${inputPath}`] : []), hook, '--', ...args], {
+    env, stdio: ['inherit', 'inherit', 'inherit'], windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  process.exitCode = result.status ?? 1;
+} catch (error) {
+  process.stderr.write(`[Cc hook] ${error.message}\n`);
+  process.exitCode = 1;
+} finally {
+  if (inputPath) { try { unlinkSync(inputPath); } catch { /* Retain the original hook result. */ } }
+  if (inputDirectory) { try { rmdirSync(inputDirectory); } catch { /* Never recursively remove a directory. */ } }
+}

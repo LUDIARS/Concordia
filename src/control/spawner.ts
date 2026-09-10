@@ -10,6 +10,7 @@ import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
 import { readConfiguredWorkspaceRoots } from "../config/workspace-roots.js";
+import { prepareSessionGitHooks, applySessionGitHooks } from "./session-git-hooks.js";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -44,6 +45,8 @@ export function isSpawnProvider(v: unknown): v is SpawnProvider {
 }
 
 export interface SpawnRequest {
+  /** Internal only: prepared by spawnSession, never taken from HTTP/env input. */
+  gitHooksDirectory?: string;
   provider: SpawnProvider;
   args?: string[];
   cwd?: string;
@@ -436,6 +439,7 @@ export function buildSessionSpawnEnvironment(
     ...inheritedEnv,
     ...sanitizeSpawnEnv(req.env),
   };
+  if (req.gitHooksDirectory) applySessionGitHooks(env, req.gitHooksDirectory);
   // Windows treats environment variable names case-insensitively. Delete by
   // normalized name so a differently-cased inherited key cannot retain a
   // Revisor credential when this object is passed to the child process.
@@ -474,12 +478,24 @@ export function buildSessionSpawnEnvironment(
 export function buildSpawnEnvDelta(
   req: SpawnRequest,
   spawnId: string = req.spawnId?.trim() || randomUUID(),
+  inheritedEnv: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const env: Record<string, string> = {
     ...sanitizeSpawnEnv(req.env),
     ...buildSpawnIdentityEnv(req, spawnId),
     ...currentConcordiaAddressEnv(),
   };
+  if (req.gitHooksDirectory) {
+    // The delta is exported into a Terminal.app shell that inherits the ambient
+    // environment, so the hook entry must be appended after any GIT_CONFIG_*
+    // pairs already present. Seeding the count from the delta alone would always
+    // write index 0 and silently drop an existing operator git config entry.
+    const seeded: NodeJS.ProcessEnv = { GIT_CONFIG_COUNT: inheritedEnv.GIT_CONFIG_COUNT, ...env };
+    applySessionGitHooks(seeded, req.gitHooksDirectory);
+    for (const [key, value] of Object.entries(seeded)) {
+      if (typeof value === "string" && env[key] !== value) env[key] = value;
+    }
+  }
   for (const key of Object.keys(env)) {
     const normalized = key.toUpperCase();
     if (normalized === "CONCORDIA_REVISOR_WORKFLOW_TOKEN" || normalized === "CONCORDIA_REVISOR_TOKEN") delete env[key];
@@ -790,6 +806,11 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   if (projectCwdErr) return { ok: false, error: projectCwdErr };
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
+  try {
+    req = { ...req, gitHooksDirectory: prepareSessionGitHooks() };
+  } catch {
+    return { ok: false, error: "Session Git hook preparation failed" };
+  }
   if (isHeadless) return spawnHeadlessSession(req);
   if (process.platform === "darwin") {
     try {
@@ -807,7 +828,18 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   // 任意コード実行に至るため、 prefix allowlist でそれらを構造的に排除する。
   // CONCORDIA_HOST / CONCORDIA_PORT は最後に Concordia 自身の listen アドレスで上書きし、
   // ambient env の継承に頼らず spawning Concordia を必ず指すようにする。
-  const env = buildSessionSpawnEnvironment(req);
+  // A malformed ambient GIT_CONFIG_COUNT makes the Git hook injection throw. Keep
+  // that fail-closed, but return it as a result so a bad operator environment
+  // cannot escape spawnSession as an exception (see the wt.exe note below).
+  let env: NodeJS.ProcessEnv;
+  try {
+    env = buildSessionSpawnEnvironment(req);
+  } catch (err) {
+    const msg = `spawn environment invalid: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
   // spawn の失敗 (ENOENT / EACCES / EMFILE 等) は非同期の `error` イベントで届く。
   // リスナーが無いと uncaughtException として Concordia 本体を巻き込むため、
   // 同期 throw と合わせて必ず捕捉する (spawn 自体は成功扱いで返っているので

@@ -46,9 +46,9 @@ describe("Cc workflow context injection", () => {
     expect(workflow.inject_source).toBe("session-start:cc-workflow");
     expect(workflow.task_api.update_todos).toContain("/v1/sessions/ccwf/event");
     expect(workflow.rules.join("\n")).toContain("task_update");
-    expect(workflow.rules.join("\n")).toContain("open a PR");
+    expect(workflow.rules.join("\n")).toContain("post task_update through the Concordia API");
     expect(workflow.interrupt_policy).toContain("append");
-    expect(workflow.completion_policy.join("\n")).toContain("commit, push, and PR creation");
+    expect(workflow.completion_policy.join("\n")).toContain("commit and PR submission through the workflow identified by Cc");
     expect(workflow.completion_policy.join("\n")).toContain("user explicitly adds that instruction");
   });
 

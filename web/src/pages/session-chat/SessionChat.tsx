@@ -15,6 +15,7 @@ import { loadAttachmentMessages, type AttachmentMessage } from "./Attachments.js
 export function SessionChat() {
   const { id } = useParams<{ id: string }>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof api.sessions>>["sessions"]>([]);
+  const menuSessions = useMemo(() => sessions.filter((item) => item.status !== "ended"), [sessions]);
   const [session, setSession] = useState<Awaited<ReturnType<typeof api.session>>["session"] | null>(null);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [attachmentMessages, setAttachmentMessages] = useState<AttachmentMessage[]>([]);
@@ -68,12 +69,12 @@ export function SessionChat() {
   useEffect(() => {
     let cancelled = false;
     void Promise.all(
-      sessions.map(async (item) => [item.id, (await api.sessionUnread(item.id, browserId)).unread] as const),
+      menuSessions.map(async (item) => [item.id, (await api.sessionUnread(item.id, browserId)).unread] as const),
     )
       .then((values) => { if (!cancelled) setUnread(new Map(values)); })
       .catch((cause) => { if (!cancelled) setPageError((cause as Error).message); });
     return () => { cancelled = true; };
-  }, [sessions, browserId]);
+  }, [menuSessions, browserId]);
 
   const latestMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
@@ -153,20 +154,20 @@ export function SessionChat() {
     if (typeof requestId !== "string") throw new Error("request_id がありません");
     await api.permissionRespond(id, { request_id: requestId, decision: allow ? "allow" : "deny" });
   };
-  const sidebar = <SessionList sessions={sessions} activeId={id} unread={unread} />;
+  const sidebar = <SessionList sessions={menuSessions} activeId={id} unread={unread} />;
 
   return (
-    <div className="-mx-3 -my-4 flex h-[calc(100vh-8rem)] min-h-[32rem] bg-bg" style={{ touchAction: "manipulation" }}>
-      <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-border md:block">{sidebar}</aside>
+    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-bg" style={{ touchAction: "manipulation" }}>
+      <aside className="hidden min-h-0 w-72 shrink-0 overflow-y-auto overscroll-contain border-r border-border md:block">{sidebar}</aside>
       {drawer && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setDrawer(false)}>
-          <aside className="h-full w-72 bg-surface" onClick={(event) => event.stopPropagation()}>
+          <aside className="h-full w-72 overflow-y-auto overscroll-contain bg-surface" onClick={(event) => event.stopPropagation()}>
             {sidebar}
           </aside>
         </div>
       )}
-      <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b border-border bg-surface p-3">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface p-3">
           <button type="button" className="md:hidden" onClick={() => setDrawer(true)} aria-label="セッション一覧を開く">☰</button>
           <div className="min-w-0 flex-1 truncate font-semibold">{session?.current_task || id}</div>
           <Link to={`/sessions/${encodeURIComponent(id)}/logs`} className="text-sm text-accent">ログ</Link>

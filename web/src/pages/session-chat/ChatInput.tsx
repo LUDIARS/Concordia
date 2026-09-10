@@ -48,7 +48,7 @@ export function ChatInput({ onSubmit, disabled }: { onSubmit: (text: string) => 
         event.preventDefault();
         void submit();
       }}
-      className="border-t border-border bg-surface p-3"
+      className="shrink-0 border-t border-border bg-surface p-3"
     >
       <textarea
         ref={textarea}

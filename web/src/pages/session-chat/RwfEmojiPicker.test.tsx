@@ -9,7 +9,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("inserts a registered emoji at the selection without submitting", async () => {
   const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("reaction-mappings")
     ? { defaults: { "☀️": "old", "🙏": "ask" }, overrides: { "☀": null }, action_help: {} }
-    : { entries: [{ emoji: "🙏", skill: "ask", label: "確認" }] })));
+    : { entries: [
+      { emoji: "🙏", skill: "ask", label: "確認" },
+      { emoji: "❓", skill: "ask", label: "質問" },
+    ] })));
   vi.stubGlobal("fetch", fetcher);
   const submit = vi.fn().mockResolvedValue(null);
   render(<ChatInput onSubmit={submit} disabled={false} />);
@@ -17,6 +20,8 @@ it("inserts a registered emoji at the selection without submitting", async () =>
   fireEvent.change(input, { target: { value: "前後" } });
   input.setSelectionRange(1, 1);
   fireEvent.click(screen.getByRole("button", { name: "RWF絵文字" }));
+  expect(await screen.findByText("/ask")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "❓ 質問" })).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "🙏 確認" }));
   expect(input.value).toBe("前🙏後");
   expect(submit).not.toHaveBeenCalled();

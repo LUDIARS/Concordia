@@ -59,6 +59,35 @@ describe("recorded chat attachment preview", () => {
     expect(await (await app.request(`/one/chat-attachments/${row.id}/0`)).json()).toEqual({ kind: "image", media_type: "image/png", data: data.toString("base64") });
   });
 
+  it("streams allowlisted media with byte ranges and HEAD metadata", async () => {
+    const { app, attach } = fixture();
+    const row = attach("clip.mp4", "0123456789");
+    const url = `/one/chat-attachments/${row.id}/0?raw=1`;
+    const partial = await app.request(url, { headers: { Range: "bytes=2-5" } });
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get("content-type")).toBe("video/mp4");
+    expect(partial.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(partial.headers.get("content-length")).toBe("4");
+    expect(partial.headers.get("cache-control")).toContain("no-store");
+    expect(partial.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await partial.text()).toBe("2345");
+
+    const head = await app.request(url, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-length")).toBe("10");
+    expect(await head.text()).toBe("");
+
+    const unsatisfied = await app.request(url, { headers: { Range: "bytes=10-" } });
+    expect(unsatisfied.status).toBe(416);
+    expect(unsatisfied.headers.get("content-range")).toBe("bytes */10");
+  });
+
+  it("does not expose non-media files through the raw response", async () => {
+    const { app, attach } = fixture();
+    const row = attach("notes.txt", "private notes");
+    expect((await app.request(`/one/chat-attachments/${row.id}/0?raw=1`)).status).toBe(415);
+  });
+
   it("rejects binary text and bounds large file reads", async () => {
     const { app, attach } = fixture();
     const binary = attach("binary.txt", Buffer.from([0, 255]));

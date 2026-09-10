@@ -16,7 +16,7 @@ export function MessageList({ messages, onAnswer, onPermission, attachmentMessag
     ...attachmentMessages.map((message) => ({ ts: message.ts, id: message.id, key: `attachment:${message.id}`, node: <AttachmentMessageItem sessionId={sessionId} message={message} /> })),
   ].sort((a, b) => a.ts - b.ts || a.id - b.id);
   return (
-    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-4">
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
       {items.map((item) => <div key={item.key}>{item.node}</div>)}
       <div ref={bottom} />
     </div>

@@ -8,6 +8,7 @@ import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
 import { configuredAttachmentRoots } from "../config/attachment-policy.js";
+import { attachmentMediaType, streamAttachmentMedia } from "./attachment-media.js";
 
 const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
 
@@ -48,9 +49,16 @@ export function chatAttachmentsRouter(deps: {
     if (!checked.ok) return c.json({ error: "添付が削除されたか、閲覧できない場所にあります" }, 404);
     try {
       const handle = await open(checked.realPath, "r");
+      let streamOwnsHandle = false;
       try {
         const stat = await handle.stat();
         if (!stat.isFile()) return c.json({ error: "not_a_file" }, 400);
+        if (c.req.query("raw") === "1") {
+          const mediaType = attachmentMediaType(path.extname(file));
+          if (!mediaType) return c.json({ error: "この形式はメディア表示できません" }, 415);
+          streamOwnsHandle = true;
+          return await streamAttachmentMedia(handle, stat.size, mediaType, c.req.header("Range"), c.req.method === "HEAD");
+        }
         if (stat.size > MAX_PREVIEW_BYTES) return c.json({ error: "8MiBを超える添付は表示できません" }, 413);
         const buffer = Buffer.alloc(stat.size);
         let offset = 0;
@@ -65,7 +73,7 @@ export function chatAttachmentsRouter(deps: {
         if (images[ext]) return c.json({ kind: "image", media_type: images[ext], data: data.toString("base64") });
         if (!isUtf8(data) || data.includes(0)) return c.json({ error: "この形式はテキスト表示できません" }, 415);
         return c.json({ kind: "text", content: data.toString("utf8") });
-      } finally { await handle.close(); }
+      } finally { if (!streamOwnsHandle) await handle.close(); }
     } catch { return c.json({ error: "添付ファイルを読み込めませんでした" }, 404); }
   });
   return app;

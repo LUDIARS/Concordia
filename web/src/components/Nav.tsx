@@ -86,7 +86,7 @@ export function Nav({ items }: { items: readonly NavItem[] }) {
       )}
       <nav
         aria-label="メインメニュー"
-        className={`hidden md:flex shrink-0 flex-col border-r border-border bg-surface p-3 transition-[width] ${collapsed ? "w-16" : "w-56"}`}
+        className={`hidden md:flex min-h-0 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-border bg-surface p-3 transition-[width] ${collapsed ? "w-16" : "w-56"}`}
       >
         <button type="button" className="mb-4 self-end rounded px-2 py-1 text-subtle hover:bg-muted" aria-label={collapsed ? "サイドバーを展開" : "サイドバーを折りたたむ"} onClick={toggleCollapsed}>
           {collapsed ? "›" : "‹"}

@@ -34,6 +34,22 @@ it("aborts a pending preview when it leaves the chat", async () => {
   expect(signal?.aborted).toBe(true);
 });
 
+it("shows saved media by default and removes it when collapsed", () => {
+  const { container } = render(<AttachmentMessageItem sessionId="one" message={{
+    id: 2, ts: 1, author_label: "AI", content: "", files: [{ index: 0, name: "clip.mp4" }],
+  }} />);
+  const details = container.querySelector("details")!;
+  const video = container.querySelector("video")!;
+  expect(video.getAttribute("src")).toBe("/v1/sessions/one/chat-attachments/2/0?raw=1");
+  expect(video.controls).toBe(true);
+  expect(video.autoplay).toBe(false);
+  expect(video.getAttribute("preload")).toBe("metadata");
+
+  details.open = false;
+  fireEvent(details, new Event("toggle"));
+  expect(container.querySelector("video")).toBeNull();
+});
+
 it("does not embed SVG or remote image sources", () => {
   const { container } = render(<InlineAttachments attachments={[
     { kind: "image", media_type: "image/svg+xml", data: "PHN2Zz4=" },

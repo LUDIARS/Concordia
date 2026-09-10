@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fmtTs } from "../../api.js";
+import { MediaPreview } from "./MediaPreview.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — 添付の閲覧 */
 export interface AttachmentMessage {
@@ -25,7 +26,7 @@ function imageSource(value: unknown): string | null {
 export function InlineAttachments({ attachments }: { attachments: unknown[] | null }) {
   return <>{attachments?.map((attachment, index) => {
     const source = imageSource(attachment);
-    return source ? <details key={index} className="my-2 rounded border border-border p-2">
+    return source ? <details open key={index} className="my-2 rounded border border-border p-2">
       <summary className="cursor-pointer">画像 {index + 1} を表示</summary>
       <img src={source} alt={`添付画像 ${index + 1}`} loading="lazy" className="mt-2 max-h-[70vh] max-w-full object-contain" />
     </details> : <p key={index} className="text-xs text-subtle">表示できない添付形式です</p>;
@@ -62,7 +63,12 @@ export function AttachmentMessageItem({ sessionId, message }: { sessionId: strin
   return <article className="rounded px-2 py-1.5">
     <div className="text-xs text-subtle">{message.author_label} · {fmtTs(message.ts)}</div>
     <div className="whitespace-pre-wrap break-words">{message.content}</div>
-    {message.files.map((file) => <FilePreview key={file.index} name={file.name}
-      url={`/v1/sessions/${encodeURIComponent(sessionId)}/chat-attachments/${message.id}/${file.index}`} />)}
+    {message.files.map((file) => {
+      const url = `/v1/sessions/${encodeURIComponent(sessionId)}/chat-attachments/${message.id}/${file.index}`;
+      const video = /\.(mp4|m4v|webm|mov)$/i.test(file.name);
+      return video || /\.(png|jpe?g|gif|webp)$/i.test(file.name)
+        ? <MediaPreview key={`${url}:${file.name}`} name={file.name} url={url} video={video} />
+        : <FilePreview key={file.index} name={file.name} url={url} />;
+    })}
   </article>;
 }

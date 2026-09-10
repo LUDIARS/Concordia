@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useMatch } from "react-router-dom";
 import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
@@ -53,10 +53,11 @@ const NAV: NavItem[] = [
 ];
 
 export function App() {
+  const isChat = useMatch("/sessions/:id") !== null;
   return (
     <TeamFilterProvider>
-    <div className="min-h-full flex flex-col">
-      <header className="border-b border-border bg-surface px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className={`flex flex-col ${isChat ? "h-dvh overflow-hidden" : "min-h-full"}`}>
+      <header className="shrink-0 border-b border-border bg-surface px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-lg font-semibold whitespace-nowrap">
           <span className="text-accent">●</span> Concordia
         </span>
@@ -66,7 +67,7 @@ export function App() {
       </header>
       <div className="flex min-h-0 flex-1">
         <Nav items={NAV} />
-      <main className="min-w-0 flex-1 px-3 sm:px-6 py-4">
+      <main className={`min-h-0 min-w-0 flex-1 ${isChat ? "flex overflow-hidden" : "px-3 sm:px-6 py-4"}`}>
         <Routes>
           <Route path="/" element={<Monitor />} />
           <Route path="/inbox" element={<Inbox />} />
@@ -97,7 +98,7 @@ export function App() {
       </main>
       </div>
 
-      <footer className="border-t border-border bg-surface px-3 sm:px-6 py-2 text-xs text-subtle">
+      <footer className="shrink-0 border-t border-border bg-surface px-3 sm:px-6 py-2 text-xs text-subtle">
         <a href="https://github.com/LUDIARS/Concordia" target="_blank" rel="noreferrer">
           LUDIARS/Concordia
         </a>

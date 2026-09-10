@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RwfEmojiPicker } from "./RwfEmojiPicker.js";
 
-/** @implements spec/feature/session-message-webui-chat.md — D4 command input */
+/** @implements spec/feature/session-message-webui-chat.md §1.2 — チャット入力 */
 
 export function ChatInput({ onSubmit, disabled }: { onSubmit: (text: string) => Promise<string | null>; disabled: boolean }) {
   const [value, setValue] = useState("");
@@ -50,29 +50,25 @@ export function ChatInput({ onSubmit, disabled }: { onSubmit: (text: string) => 
       }}
       className="shrink-0 border-t border-border bg-surface p-3"
     >
-      <textarea
-        ref={textarea}
-        aria-label="メッセージ"
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (!event.nativeEvent.isComposing && event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-        disabled={disabled || busy}
-        rows={3}
-        className="foundation-form w-full resize-none"
-        placeholder="メッセージ、または /stop /rename /enter /stat"
-      />
-      <div className="mt-2 flex items-center gap-2">
-        <button type="submit" disabled={disabled || busy} className="rounded bg-accent px-3 py-1 text-sm text-white disabled:opacity-50">
-          送信
-        </button>
-        {error && <span className="text-xs text-danger">{error}</span>}
+      <div className="flex items-stretch gap-2">
+        <textarea
+          ref={textarea}
+          aria-label="メッセージ"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          disabled={disabled || busy}
+          rows={3}
+          className="foundation-form min-w-0 flex-1 resize-none"
+          placeholder="メッセージ、または /stop /rename /enter /stat"
+        />
+        <div className="flex shrink-0 flex-col gap-2">
+          <button type="submit" disabled={disabled || busy} className="min-h-11 rounded bg-accent px-3 py-1 text-sm text-white disabled:opacity-50">
+            送信
+          </button>
+          <RwfEmojiPicker disabled={disabled || busy} onPick={insertEmoji} />
+        </div>
       </div>
-      <div className="mt-2"><RwfEmojiPicker disabled={disabled || busy} onPick={insertEmoji} /></div>
+      {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
     </form>
   );
 }

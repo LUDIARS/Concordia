@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-/** @implements spec/feature/session-message-webui-chat.md — RWF絵文字入力 */
+/** @implements spec/feature/session-message-webui-chat.md §1.2, §5 — チャット入力・RWF絵文字入力 */
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatInput } from "./ChatInput.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -31,4 +31,18 @@ it("inserts a registered emoji at the selection without submitting", async () =>
 it("does not offer emoji input for an inactive session", () => {
   render(<ChatInput onSubmit={vi.fn()} disabled />);
   expect((screen.getByRole("button", { name: "RWF絵文字" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("submits only from the send button while Enter remains available for newlines", async () => {
+  const submit = vi.fn().mockResolvedValue(null);
+  render(<ChatInput onSubmit={submit} disabled={false} />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "1行目\n2行目" } });
+
+  expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(true);
+  expect(fireEvent.keyDown(input, { key: "Enter", shiftKey: true })).toBe(true);
+  expect(submit).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "送信" }));
+  await waitFor(() => expect(submit).toHaveBeenCalledWith("1行目\n2行目"));
 });

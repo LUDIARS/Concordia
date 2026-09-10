@@ -49,8 +49,8 @@ export function RwfEmojiPicker({ onPick, disabled }: { onPick: (emoji: string) =
     return () => controller.abort();
   }, [open]);
   return <div className="relative">
-    <button type="button" disabled={disabled} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded border border-border px-3 py-1 text-sm">RWF絵文字</button>
-    {open && <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-[min(24rem,50dvh)] overflow-y-auto overscroll-contain rounded border border-border bg-surface p-2 shadow-lg" aria-label="RWF登録済み絵文字">
+    <button type="button" disabled={disabled} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 w-full whitespace-nowrap rounded border border-border px-3 py-1 text-sm">RWF絵文字</button>
+    {open && <div className="absolute bottom-full right-0 z-20 mb-2 max-h-[min(24rem,50dvh)] w-[min(28rem,calc(100dvw-2rem))] overflow-y-auto overscroll-contain rounded border border-border bg-surface p-2 shadow-lg" aria-label="RWF登録済み絵文字">
       {loading && <span role="status">読み込み中…</span>}
       {error && <span role="alert">{error}</span>}
       {!loading && !error && choices.length === 0 && <span>登録済みの絵文字はありません</span>}

@@ -11,7 +11,7 @@
       "pathPattern": "(^|/)tests/sessions-repo\\.test\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/api/sessions/(lifecycle|shared|events|end|runtime|skills|title-goal|qa)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/contract/[^/]+$"

@@ -58,7 +58,7 @@ describe("verifyCompletionEvidence — 契約書式の受け入れ条件の突�
 
   function makeWorktree(withContract: boolean): string {
     const dir = mkdtempSync(join(tmpdir(), "cc-evidence-"));
-    if (withContract) writeFileSync(join(dir, AUGUR_CONTRACTS_FILE), "{}", "utf8");
+    if (withContract) writeFileSync(join(dir, AUGUR_CONTRACTS_FILE), JSON.stringify({ version: 1, contracts: REPORT.map((entry) => ({ id: entry.criterion.split(" ")[0], criterion: entry.criterion })) }), "utf8");
     return dir;
   }
 
@@ -71,7 +71,7 @@ describe("verifyCompletionEvidence — 契約書式の受け入れ条件の突�
     return verifyContractAcceptance(dir, run, options);
   }
 
-  it("契約ファイルが無い委託は Augur を呼ばずに従来判定のまま通る", async () => {
+  it("受入報告があるのに契約ファイルが無い委託は拒否する", async () => {
     const dir = makeWorktree(false);
     try {
       let called = false;
@@ -79,11 +79,20 @@ describe("verifyCompletionEvidence — 契約書式の受け入れ条件の突�
         acceptanceReport: REPORT,
         resolveAugurCli: () => { called = true; return "augur.mjs"; },
       });
-      expect(verdict).toEqual({ ok: true, checked: true });
+      expect(verdict).toEqual({ ok: false, reason: "acceptance report supplied but its Augur contract is missing" });
       expect(called).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("契約ありで集計と自己申告が両方空でも完了にしない", async () => {
+    const dir = makeWorktree(true);
+    try {
+      const verdict = await verifyContract(dir, { acceptanceReport: [], resolveAugurCli: () => "augur.mjs", augurRunner: runner([]) });
+      expect(verdict.ok).toBe(false);
+      expect(verdict.ok === false && verdict.reason).toContain("no acceptance evidence");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it("自己申告と集計が一致する項目だけなら未達を出さない", () => {

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "contractsDir": "src/harness/reliability/contracts",
+  "importFrom": "./ontime-runtime.js",
+  "contracts": [
+    { "id": "HR-sampling-budget", "criterion": "HR-sampling-budget: cap and time-slot exclusion hold for observed sampling decisions", "symbol": "sampleDecision", "file": "src/harness/reliability/guidance.ts", "module": "src/harness/reliability/contracts/sampling.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "HR-workflow-source", "criterion": "HR-workflow-source: automatic control packets never create workflow requests", "symbol": "workflowGuidance", "file": "src/harness/reliability/workflow-guidance.ts", "module": "src/harness/reliability/contracts/workflow.contract.ts", "mode": "observe", "sample": 1 }
+  ]
+}

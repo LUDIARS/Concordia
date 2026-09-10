@@ -763,6 +763,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         acceptanceReport: parsed.data.acceptance_report ?? null,
         workspaceRoots: deps.workspaceRoots?.() ?? [],
       });
+      for (const sessionId of new Set([row.child_session_id, row.parent_session_id].filter((value): value is string => !!value))) {
+        deps.sessions?.appendEvent({ session_id: sessionId, ts: nowSec(), kind: "completion.evidence",
+          payload: { run_id: row.id, ok: evidence.ok, checked: evidence.ok ? evidence.checked : true,
+            acceptance: evidence.ok ? evidence.acceptance ?? "not_checked" : "rejected", reason: evidence.ok ? null : evidence.reason } });
+        eventBus.emit({ type: "session.event", session_id: sessionId, kind: "completion.evidence", ts: nowSec() });
+      }
       const hasMergedChildPr = !evidence.ok
         && evidence.reason === "spawned checkout has no recorded feature branch"
         && !row.spawn_branch

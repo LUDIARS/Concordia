@@ -16,6 +16,7 @@ import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { evaluateAction } from "../harness/session-gate.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
+import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { hasDddEvidence } from "../harness/ddd-evidence.js";
 import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
@@ -33,6 +34,7 @@ import {
 } from "../harness/local-prompt-analyzer.js";
 import { collectPromptResearch } from "../harness/prompt-research.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
+import { workflowGuidance } from "../harness/reliability/workflow-guidance.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
 
@@ -242,6 +244,18 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]
       : basePredicates;
     const deterministic = evaluateAction(enrichedAction, predicates);
+    const acceptance = acceptanceRequirements(policy);
+    if (acceptance.length && action.cwd && /\bgit\s+(?:[^\r\n]*\s)?(?:commit|push)\b|\/v1\/prs\/local|\bimplement\s+submit\b/i.test(action.command ?? "")) {
+      const evidence = await inspectCodeAcceptance(action.cwd, policy);
+      if (!evidence.ok) {
+        const reason = `コード受入条件未達: ${evidence.missing.slice(0, 12).join("; ")}`;
+        deterministic.hits.push({ rule: "code-acceptance", decision: "deny", reason });
+        deterministic.decision = "deny"; deterministic.blocked = true; deterministic.reason += ` / ${reason}`;
+      }
+    } else if (acceptance.length && action.filePath) {
+      deterministic.hits.push({ rule: "code-acceptance-requirements", decision: "warn", reason: `提出までに必要: ${acceptance.join("、")}; 実行結果は別途検証する。` });
+      if (deterministic.decision === "allow") deterministic.decision = "warn";
+    }
     if (needsDddEvidence(action, policy) && !hasDddEvidence(action.cwd!, action.filePath!)) {
       deterministic.hits.push({ rule: "ddd-evidence", decision: "deny", reason: DDD_INSTRUCTION });
       deterministic.decision = "deny";
@@ -373,6 +387,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         ? await analyzePromptWithClaudeModel(intentContext, deps.runClaude, { model: mode === "haiku" ? "haiku" : INTENT_MODEL })
         : await analyzePromptWithLocalLlm(intentContext);
     const { raw, analysis, source } = analyzed;
+    const workflowGuides = workflowGuidance(prompt, analysis.search_tags);
     let verdict = analyzed.verdict;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideIntent"]>> | undefined;
     let blackboxError: string | undefined;
@@ -403,6 +418,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         target_services: analysis.target_services,
         safety: analysis.safety,
         research,
+        workflow_guidance: workflowGuides,
         blackbox: compactBlackboxMeta(blackbox?.meta),
         ...(blackboxError ? { blackbox_error: blackboxError } : {}),
         raw: raw.slice(0, 2000),
@@ -427,6 +443,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       target_services: analysis.target_services,
       safety: analysis.safety,
       research,
+      workflow_guidance: workflowGuides,
       audit_ok: rec.ok,
       ...(blackbox ? { blackbox: blackbox.meta } : {}),
       ...(blackboxError ? { blackbox_error: blackboxError } : {}),

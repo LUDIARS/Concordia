@@ -19,6 +19,8 @@ type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_pa
   domain_review: boolean;
   ddd_enabled: boolean;
   contract_enabled: boolean;
+  tests_required: boolean;
+  ontime_tests_required: boolean;
 };
 
 const RepoOriginSchema = z.string().trim().min(1).max(1_000).refine(
@@ -45,6 +47,8 @@ const UpdateSchema = z.object({
   domain_review: z.boolean().optional(),
   ddd_enabled: z.boolean().optional(),
   contract_enabled: z.boolean().optional(),
+  tests_required: z.boolean().optional(),
+  ontime_tests_required: z.boolean().optional(),
 }).strict();
 
 const AssignTeamsSchema = z.object({
@@ -139,6 +143,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           domain_review: row.domain_review === 1,
           ddd_enabled: row.ddd_enabled === 1,
           contract_enabled: row.contract_enabled === 1,
+    tests_required: row.tests_required === 1,
+    ontime_tests_required: row.ontime_tests_required === 1,
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
@@ -195,6 +201,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       domainReview: parsed.data.domain_review,
       dddEnabled: parsed.data.ddd_enabled,
       contractEnabled: parsed.data.contract_enabled,
+      testsRequired: parsed.data.tests_required,
+      ontimeTestsRequired: parsed.data.ontime_tests_required,
     };
     if (parsed.data.repo_path !== undefined) {
       // repo_path の変更は登録時と同じ検査 (workspace 内 + git repo) を通し、
@@ -390,13 +398,15 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
     domain_review: row.domain_review === 1,
     ddd_enabled: row.ddd_enabled === 1,
     contract_enabled: row.contract_enabled === 1,
+    tests_required: row.tests_required === 1,
+    ontime_tests_required: row.ontime_tests_required === 1,
   };
 }
 
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
 function toAdminRow(
   row: ProjectCodeRow,
-): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean } {
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean } {
   return {
     code: row.code,
     project: row.project,
@@ -405,5 +415,7 @@ function toAdminRow(
     domain_review: row.domain_review === 1,
     ddd_enabled: row.ddd_enabled === 1,
     contract_enabled: row.contract_enabled === 1,
+    tests_required: row.tests_required === 1,
+    ontime_tests_required: row.ontime_tests_required === 1,
   };
 }

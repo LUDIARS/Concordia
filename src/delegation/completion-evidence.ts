@@ -10,6 +10,7 @@ import {
   type AugurRunner,
 } from "./augur-acceptance.js";
 import { formatUnmetAcceptance, reconcileAcceptance, type ReportedAcceptanceItem } from "./acceptance-reconcile.js";
+import { readAcceptanceManifest, type AcceptanceManifest } from "./acceptance-manifest.js";
 
 export interface CompletionEvidenceRun {
   spawn_cwd?: string | null;
@@ -52,11 +53,12 @@ export interface CompletionEvidenceOptions {
   /** Augur CLI パス解決の差し替え (テスト用)。 null = 解決不能。 */
   resolveAugurCli?: (workspaceRoots: readonly string[]) => string | null;
   env?: NodeJS.ProcessEnv;
+  readManifest?: (cwd: string) => AcceptanceManifest;
 }
 
 export type CompletionEvidenceVerdict =
-  | { ok: true; checked: false }
-  | { ok: true; checked: true }
+  | { ok: true; checked: false; acceptance?: "not_checked" }
+  | { ok: true; checked: true; acceptance?: "verified" | "not_configured" }
   | { ok: false; reason: string };
 
 const execFileAsync = promisify(execFile);
@@ -158,7 +160,10 @@ export async function verifyContractAcceptance(
   options: CompletionEvidenceOptions = {},
 ): Promise<CompletionEvidenceVerdict> {
   const hasContract = options.hasContract ?? hasAcceptanceContract;
-  if (!hasContract(cwd)) return { ok: true, checked: true };
+  if (!hasContract(cwd)) {
+    if (options.acceptanceReport?.length) return { ok: false, reason: "acceptance report supplied but its Augur contract is missing" };
+    return { ok: true, checked: true, acceptance: "not_configured" };
+  }
 
   const workspaceRoots = options.workspaceRoots ?? [];
   const cliPath = options.resolveAugurCli
@@ -192,7 +197,13 @@ export async function verifyContractAcceptance(
     // and non-sensitive while still identifying the failed boundary.
     return { ok: false, reason: "acceptance contract present but the Augur report execution or parsing failed" };
   }
-  const unmet = reconcileAcceptance(options.acceptanceReport ?? [], aggregated);
+  if (aggregated.length === 0) return { ok: false, reason: "acceptance contract present but Augur returned no acceptance evidence for this run" };
+  if (!options.acceptanceReport?.length) return { ok: false, reason: "acceptance contract present but acceptance_report is empty" };
+  const unmet = reconcileAcceptance(options.acceptanceReport, aggregated);
+  const manifest = (options.readManifest ?? readAcceptanceManifest)(cwd);
+  if (manifest.status !== "present") return { ok: false, reason: "acceptance manifest is missing, empty or invalid" };
+  // Every declared criterion needs evidence, even when both the agent and report omit it.
+  unmet.push(...reconcileAcceptance(manifest.criteria.map((criterion) => ({ criterion, met: true })), aggregated.map((item) => ({ ...item, met: true }))));
   if (unmet.length > 0) return { ok: false, reason: formatUnmetAcceptance(unmet) };
-  return { ok: true, checked: true };
+  return { ok: true, checked: true, acceptance: "verified" };
 }

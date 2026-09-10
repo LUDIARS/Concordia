@@ -141,16 +141,18 @@ describe("generateHandoff", () => {
 function makeDeps(overrides: Partial<CompactionDeps> = {}) {
   const injects: Array<{ text: string; source: string }> = [];
   const posts: string[] = [];
+  let metadata: Record<string, unknown> = {};
   const deps: CompactionDeps = {
     sessions: {
-      findSession: () => ({ id: "s1", status: "active", current_task: "タスク", metadata: null }),
+      findSession: () => ({ id: "s1", status: "active", current_task: "タスク", metadata: JSON.stringify(metadata) }),
+      updateMetadata: (_id: string, update: (current: Record<string, unknown>) => Record<string, unknown>) => { metadata = update(metadata); },
       mergeMetadata: vi.fn(),
     } as unknown as CompactionDeps["sessions"],
     // 既定: セッションが自筆 handoff を出す (id=10 の assistant 地の文)。
     transcriptLogs: makeTranscript([assistantFrame(10, "### 現在のタスク\nセッション自筆の引き継ぎ")]),
     runClaude: async () => ({ ok: true, stdout: "### 現在のタスク\n切り離し生成", stderr: "" }),
     inject: async (_id, text, source) => { injects.push({ text, source }); return true; },
-    postHandoff: async (_id, md) => { posts.push(md); },
+    postHandoff: async (_id, md) => { posts.push(md); return { delivery: "confirmed" }; },
     clearWaitMs: 0,
     sleep: async () => {},
     elicitPollMs: 1,
@@ -165,7 +167,8 @@ describe("runCompaction", () => {
   it("handoff 依頼→capture→投稿→/clear+Enter→再投入+Enter の順で処理する", async () => {
     const { deps, injects, posts } = makeDeps();
     const r = await runCompaction(deps, "s1");
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("confirmation");
     // セッション自筆の handoff が投稿される (切り離し生成ではない)。
     expect(posts[0]).toContain("📌");
     expect(posts[0]).toContain("セッション自筆の引き継ぎ");
@@ -185,7 +188,6 @@ describe("runCompaction", () => {
     expect(injects[4].text).toContain("セッション自筆の引き継ぎ");
     // フェーズ文脈索引: 直近 handoff の抜粋を metadata に残す。
     expect(deps.sessions.mergeMetadata).toHaveBeenCalledWith("s1", expect.objectContaining({
-      last_compaction_at: expect.any(Number),
       last_handoff: expect.stringContaining("セッション自筆の引き継ぎ"),
     }));
   });
@@ -210,7 +212,7 @@ describe("runCompaction", () => {
       log: { info: vi.fn(), warn },
     });
     const r = await runCompaction(deps, "s1");
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
     expect(posts[0]).toContain("切り離し生成");
     expect(warn).toHaveBeenCalled();
   });
@@ -231,5 +233,29 @@ describe("runCompaction", () => {
     const r = await runCompaction(deps, "s1");
     expect(r.ok).toBe(false);
     expect(r.error).toContain("/clear");
+  });
+
+  it("投稿受付だけなら資料を保存してclearを送らない", async () => {
+    const { deps, injects } = makeDeps({ postHandoff: async () => ({ delivery: "unconfirmed" }) });
+    const result = await runCompaction(deps, "s1");
+    expect(result.error).toContain("delivery unconfirmed");
+    expect(injects.some((item) => item.text === "/clear")).toBe(false);
+    expect(JSON.parse(deps.sessions.findSession("s1")!.metadata!).compaction_recovery.state).toBe("saved");
+  });
+
+  it("保存失敗時には投稿とclearを行わない", async () => {
+    const { deps, injects, posts } = makeDeps();
+    deps.sessions.updateMetadata = () => { throw new Error("disk unavailable"); };
+    expect((await runCompaction(deps, "s1")).error).toContain("persistence failed");
+    expect(posts).toHaveLength(0);
+    expect(injects.some((item) => item.text === "/clear")).toBe(false);
+  });
+
+  it("clearの結果不明時は再送しない", async () => {
+    const { deps, injects } = makeDeps();
+    await runCompaction(deps, "s1");
+    const count = injects.length;
+    expect((await runCompaction(deps, "s1")).error).toContain("previous clear outcome");
+    expect(injects).toHaveLength(count);
   });
 });

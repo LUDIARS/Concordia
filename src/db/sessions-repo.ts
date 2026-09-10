@@ -1,3 +1,4 @@
+// @spec ハーネス信頼性の実装境界
 /**
  * sessions / session_events / session_reports の DB アクセス層.
  */
@@ -269,6 +270,17 @@ export class SessionsRepo {
       else current[k] = v;
     }
     this.setMetadata(id, JSON.stringify(current));
+  }
+
+  /** Atomic read-modify-write for bounded session-owned feature state. */
+  updateMetadata(id: string, update: (current: Record<string, unknown>) => Record<string, unknown>): void {
+    this.db.transaction(() => {
+      const row = this.findSession(id);
+      if (!row) throw new Error("session not found");
+      const current: unknown = row.metadata ? JSON.parse(row.metadata) : {};
+      if (!current || typeof current !== "object" || Array.isArray(current)) throw new Error("invalid session metadata");
+      this.setMetadata(id, JSON.stringify(update(current as Record<string, unknown>)));
+    }).immediate();
   }
 
   countEvents(sessionId: string): number {

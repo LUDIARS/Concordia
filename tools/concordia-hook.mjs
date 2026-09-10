@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname, homedir } from "node:os";
 import { execSync } from "node:child_process";
+import { observeReliability } from "./concordia-reliability-hook.mjs";
 import {
   resolveSessionId,
   pickActiveSessionId,
@@ -43,7 +44,8 @@ const HOOK_ENV_OPT_IN = process.env.CONCORDIA_HOOK === "1";
 if (process.env.CONCORDIA_DISABLE === "1") process.exit(0);
 
 const URL_BASE = (process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
-const PROVIDER = process.env.CONCORDIA_PROVIDER ?? "claude-code";
+const PROVIDER = process.argv.find((arg) => arg.startsWith("--provider="))?.slice("--provider=".length)
+  ?? process.env.CONCORDIA_PROVIDER ?? "claude-code";
 // 非数値 env だと NaN → setTimeout(fn, NaN) は 0ms 発火で全 fetch が即 abort し
 // 報告が無音で全滅するため、 数値検証して既定値へフォールバックする。
 const TIMEOUT_MS = (() => {
@@ -97,10 +99,21 @@ async function main() {
 
   switch (event) {
     case "session-start":
+      if (await isSessionActive(sessionId)) {
+        await checkStartupPolicy(sessionId, cwd);
+      }
+      if (ctx?.source === "compact" || ctx?.source === "clear") {
+        const result = await observeReliability({ event: "resume-compact", ctx, sessionId, post: postJson });
+        if (result?.context) process.stdout.write(result.context + "\n");
+        return;
+      }
       await sessionStart({ sessionId, cwd, transcriptPath });
       return;
     case "prompt": {
+      await checkStartupPolicy(sessionId, cwd);
       const text = resolvePromptText(ctx);
+      const observation = await observeReliability({ event, ctx: { ...ctx, prompt: text }, sessionId, post: postJson });
+      if (observation?.context) process.stdout.write(observation.context + "\n");
       await appendEvent(sessionId, "prompt", {
         summary: text.slice(0, 200),
         length: text.length,
@@ -114,11 +127,24 @@ async function main() {
       });
       return;
     case "compact":
+      await observeReliability({ event, ctx, sessionId, post: postJson });
       // Claude Code は `kept_messages`、 Codex CLI は `trigger` ("manual"|"auto") を渡す.
       await appendEvent(sessionId, "compact", {
         kept_messages: ctx?.kept_messages ?? null,
         trigger: ctx?.trigger ?? null,
       });
+      return;
+    case "post-compact":
+      await observeReliability({ event, ctx, sessionId, post: postJson });
+      return;
+    case "tool-result":
+    case "tool-failure":
+      {
+        const result = await observeReliability({ event, ctx, sessionId, post: postJson });
+        if (result?.context) process.stdout.write(JSON.stringify({ hookSpecificOutput: {
+          hookEventName: event === "tool-failure" ? "PostToolUseFailure" : "PostToolUse", additionalContext: result.context,
+        } }) + "\n");
+      }
       return;
     case "session-end":
       await sessionEnd({ sessionId });
@@ -133,6 +159,9 @@ async function main() {
 
 async function sessionStart({ sessionId, cwd, transcriptPath }) {
   if (!sessionId) return;
+  // Lictor registration is authoritative; observing a native hook must not
+  // replace an explicit worktree binding with the client's original cwd.
+  if (await isSessionActive(sessionId)) return;
   const repoOrigin = tryGitRemote(cwd);
   const branch = tryGitBranch(cwd);
   const isWorktree = resolveIsWorktree(cwd, (command, gitCwd) => execSync(command, {
@@ -146,9 +175,10 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     branch,
     host: hostname(),
     transcript_path: transcriptPath,
-    ...(isWorktree === undefined ? {} : { metadata: { is_worktree: isWorktree } }),
+    metadata: { cc_hook_observation: true, ...(isWorktree === undefined ? {} : { is_worktree: isWorktree }) },
   };
   const res = await postJson("/v1/sessions", body);
+  if (res?.session) await checkStartupPolicy(sessionId, cwd);
   // hook stdout は Claude Code が `additionalContext` として AI に流す.
   if (res?.advisory) {
     const a = res.advisory;
@@ -196,6 +226,18 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
       for (const o of options) lines.push(`  - ${o.label ?? String(o)}`);
     }
     process.stdout.write(lines.join("\n") + "\n");
+  }
+}
+
+async function checkStartupPolicy(sessionId, cwd) {
+  if (!sessionId) return;
+  const result = await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/startup-policy-check`, {
+    cwd, branch: tryGitBranch(cwd), provider: PROVIDER,
+  });
+  if (result?.context) process.stdout.write(result.context + "\n");
+  if (!result?.ok) process.stderr.write("[concordia-hook] Startup policy verification unavailable or mismatched; do not infer push permission.\n");
+  else if (event === "session-start" && result.delivery === "unconfirmed") {
+    process.stderr.write(`[concordia-hook] Policy ${result.revision}: injection queued; recipient delivery unconfirmed.\n`);
   }
 }
 

@@ -83,6 +83,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
+import { harnessReliabilityRouter } from "./harness-reliability.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 import { injectManualsRouter } from "./inject-manuals.js";
 import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
@@ -291,6 +292,8 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  app.route("/v1/harness/reliability", harnessReliabilityRouter({ repo: deps.repo, messages: deps.sessionMessages,
+    questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude }));
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;
   // 未回答の質問は blocker: 回答が来るまで自動 inject を出さない。
   const hasPendingQuestion = pendingQuestionProbe(deps.pendingQuestions);
@@ -553,7 +556,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const inspected = await inspectImplementationRepo(cwd);
           const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :
             deps.projectCodes.list().find((entry) => entry.repo_path.replace(/\\/g, "/").toLowerCase() === inspected.repoPath.replace(/\\/g, "/").toLowerCase());
-          return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1 };
+          return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1, testsRequired: row?.tests_required === 1, ontimeTestsRequired: row?.ontime_tests_required === 1 };
         },
         audit: deps.harnessAudit,
         rules: deps.harnessRules,
@@ -621,7 +624,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           }
           return {
             model: `${s.provider}/${model}`,
-            projectPolicy: { ddd: projectPolicyRow?.ddd_enabled === 1, contract: projectPolicyRow?.contract_enabled === 1 },
+            projectPolicy: { ddd: projectPolicyRow?.ddd_enabled === 1, contract: projectPolicyRow?.contract_enabled === 1, testsRequired: projectPolicyRow?.tests_required === 1, ontimeTestsRequired: projectPolicyRow?.ontime_tests_required === 1 },
             implUnlocked: metadata.impl_unlocked === true,
             isWorktree: typeof metadata.is_worktree === "boolean" ? metadata.is_worktree : undefined,
             contractComplete: isContractComplete(contract),

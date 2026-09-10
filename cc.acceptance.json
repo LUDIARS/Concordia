@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "implementations": [
+    { "source": "src/harness/reliability/guidance.ts", "tests": ["tests/harness-reliability/reliability.test.ts", "tests/harness-reliability/ontime-roundtrip.test.ts"], "contracts": ["HR-sampling-budget"] },
+    { "source": "src/harness/reliability/workflow-guidance.ts", "tests": ["tests/harness-reliability/ontime.test.ts", "tests/harness-reliability/ontime-roundtrip.test.ts"], "contracts": ["HR-workflow-source"] }
+  ]
+}

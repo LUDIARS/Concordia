@@ -1,3 +1,4 @@
+// @spec ハーネス信頼性の実装境界
 import { useEffect, useState } from "react";
 import { api, type ProjectCodeAdminEntry, type ProjectCodesAdminResult } from "../api.js";
 
@@ -232,14 +233,15 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       </td>
       <td className="py-1.5 pr-2">
         <div className="flex gap-3 text-xs">
-          {(["ddd_enabled", "contract_enabled"] as const).map((key) => (
+          {(["ddd_enabled", "contract_enabled", "tests_required", "ontime_tests_required"] as const).map((key) => (
             <label key={key} className="flex gap-1 items-center">
               <input type="checkbox" checked={entry[key]} disabled={busy}
                 onChange={(event) => { void onAction(entry.code, () => api.projectCodeUpdate(entry.code, { [key]: event.target.checked })); }} />
-              {key === "ddd_enabled" ? "DDD" : "契約"}
+              {({ ddd_enabled: "DDD定義必須", contract_enabled: "作業契約", tests_required: "テスト実装必須", ontime_tests_required: "オンタイムテスト必須" })[key]}
             </label>
           ))}
         </div>
+        <p className="text-[10px] text-subtle">設定のみ。実際の適用記録はセッションの関連作業欄で確認。Augur受入契約は別管理。</p>
       </td>
       <td className="py-1.5 pr-2">
         {entry.revisor?.registered ? (

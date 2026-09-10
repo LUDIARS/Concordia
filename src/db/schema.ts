@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 98;
+export const SCHEMA_VERSION = 99;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2405,6 +2405,17 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       if (!columns.some(column => column.name === name)) {
         db.exec(`ALTER TABLE discord_pending_questions ADD COLUMN ${name} ${type}`);
       }
+    }
+  },
+},
+{
+  version: 99,
+  name: "project-code-acceptance-requirements",
+  source: "project_codes tests_required and ontime_tests_required opt-in v1",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    for (const name of ["tests_required", "ontime_tests_required"]) {
+      if (!columns.some(column => column.name === name)) db.exec(`ALTER TABLE project_codes ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK (${name} IN (0, 1))`);
     }
   },
 },

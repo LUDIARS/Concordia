@@ -52,6 +52,7 @@ const SERVICE_NAMES = [
   "Lictor",
   "Memoria",
   "Peregrinatio",
+  "Praeforma",
   "Quaestor",
   "Schedula",
   "Vestigium",
@@ -64,6 +65,9 @@ const SERVICE_ALIASES: Record<string, string> = {
   ex: "Excubitor",
   fa: "Famulus",
   ve: "Vestigium",
+  pf: "Praeforma",
+  an: "Anatomia",
+  at: "Actio",
 };
 
 function uniqueClean(values: unknown[], max: number): string[] {
@@ -200,6 +204,9 @@ function buildAnalyzerPrompt(ctx: PromptIntentContext): string {
     "- intent: one short Japanese or English summary",
     "- concerns: short machine-readable strings",
     "- search_tags: 2-8 tags useful for retrieval/search",
+    "Use feature-investigation for investigating a feature/specification/implementation and work-management for organizing tasks/progress/backlog.",
+    "Feature investigation should consult Praeforma (spec/UX) and Anatomia (implementation); work management should consult Actio (task ownership/state) and Memoria (task references/worklogs).",
+    "These are workflow helpers, not automatically the target repositories. Reuse the cc-feature-investigation and cc-work-management skills instead of inventing a procedure.",
     "- target_services: service/repository names mentioned or strongly implied",
     '- safety: {"level":"safe"|"caution"|"danger","reasons":[...]}',
     "",

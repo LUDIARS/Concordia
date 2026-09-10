@@ -10,8 +10,8 @@ status: implemented
 2026-09-10 neco 指示。「今後の起動のみ」。UX-CC-W1/W4/W5、CC-INV-01/02/04。
 プロジェクト cwd から起動した人間操作のセッションが共通手順を見失わないための入口。
 
-- session-lifecycle の新規 session 行登録分岐だけで、既存の作業ポリシー通知へ追加する。
-  既存セッションの再登録・復帰・heartbeat・task変更へ再注入しない。既存セッションへの配布処理は作らない。
+- 初期Injectを主経路とし、SessionStartと入力時のフックは同じCc判定を照合する。
+  同じ設定版では再注入せず、branch・project・workflow・必須設定の変更時だけ訂正する。
 - session-coordination の `shared-startup-context.ts` が探索と案内を所有する。
   configured workspace roots のうち cwd を含む最長 root を選ぶ。範囲外は設定 root が1つの場合のみ選択し、
   複数候補・未設定なら不足を明示する。プロジェクト cwd、権限、session binding を変更しない。
@@ -35,6 +35,17 @@ status: implemented
   古いmemoryからpush・merge・test等の権限を取得しない。作業ポリシーもRevisorのno-pushと矛盾させない。
 
 ## ルール・スキル・自動確認
+
+### 初期ポリシーの版と照合
+
+UX-CC-W1/W4/W5、CC-INV-01/02/04。`startup-policy.ts` が初期案内と照合の共通組立てを所有する。
+workflow、登録repo/branch/provider、本体root、DDD・通常テスト・オンタイム・作業契約の設定と案内版からrevisionを作る。
+設定不明はfalseと区別し、必須設定は実行許可を追加しない。`startup-policy-check.ts` はSessionStart・入力境界で再照合する。
+初回は全案内、変更時は変わった項目だけをInjectする。資料の選択が変わる場合は該当する資料案内も渡す。
+フックが報告したcwd/branch/providerは登録の上書きに使わず、不一致を返す。Castra起点の明示的な子repo登録も保つ。
+同時照合と古い非同期応答で新しい版を上書きしない。保存する配送状態はqueuedであり、AIの読了・受領済みとは扱わない。
+SessionStartで版記録が欠けていれば初期案内を補完する。配送確認がない場合はunconfirmedと表示し、盲目的に同じInjectを繰り返さない。
+設定変更の通知は次の登録更新・SessionStart・入力境界で行い、常駐監視を増やさない。
 
 初回Injectのお願いは `rule/session-work.md` と `rule/shared-context.md` に分離し、起動文は
 資料パスとCcが解決したworkflow/branchを中心にする。スキル候補の基準は `rule/skill-selection.md`。

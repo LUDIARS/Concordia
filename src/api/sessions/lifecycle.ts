@@ -8,7 +8,6 @@ import { findConflictPeers } from "../../control/conflict-scope.js";
 import { clampListLimit, clampListOffset } from "../../db/list-limit.js";
 import { withSlimMetadata } from "./metadata-slim.js";
 import {
-  buildSessionWorkPolicy,
   isCastraSessionBinding,
   isWorkspaceRootCwd,
   SESSION_WORK_POLICY_SOURCE,
@@ -16,7 +15,8 @@ import {
 } from "../../control/session-work-policy.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, HANDOVER_INJECT_SOURCE, HANDOVER_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { endSessionNow } from "../../control/end-session-command.js";
-import { buildSharedStartupContext } from "../../control/shared-startup-context.js";
+import { STARTUP_POLICY_KEY, readStartupPolicy } from "../../control/startup-policy.js";
+import { resolveStartupPolicy, refreshStartupPolicy } from "./startup-policy-check.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
@@ -56,7 +56,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     const existing = deps.repo.findSession(input.id);
     const resumed = !!existing && existing.status !== "active";
     if (existing) {
-      const preserveWorkingRepo = Boolean(
+      const preserveWorkingRepo = input.metadata?.cc_hook_observation === true || Boolean(
         isWorkspaceRootCwd(input.repo_path, workspaceRoots)
         && !isWorkspaceRootCwd(existing.repo_path, workspaceRoots)
         && isCastraSessionBinding({
@@ -120,30 +120,14 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (spawnId && !claimed && !successor) {
         return c.json({ error: "invalid_or_consumed_session_enrollment" }, 401);
       }
-      const workflow = await deps.resolveProjectStartupWorkflow?.(input.repo_path, input.repo_origin ?? null)
-        .catch(() => "unknown" as const) ?? "unknown";
       // Sessions usually run in a worktree (`<root>/Concordia-feat-x`), so the cwd
       // fallback must use findByRepoPath (exact -> inside -> `<project>-` sibling).
       // isWorkspaceRootCwd only compares for equality and would leave every
       // worktree session without its project rules and memory index.
-      const projectRegistration = (input.repo_origin
-        ? deps.projectCodes?.findByRepoOrigin(input.repo_origin)
-        : null) ?? deps.projectCodes?.findByRepoPath(input.repo_path) ?? null;
-      const workPolicy = buildSessionWorkPolicy({
-        workflow,
-        repoPath: input.repo_path,
-        observedBranch: input.branch ?? null,
-        pendingSpawn: claimed,
-        workspaceRoots,
-      });
-      // Only the new-row registration path receives shared startup guidance.
-      // Existing session re-registration, heartbeat and task changes never inject it.
-      sessionWorkPolicyText = `${workPolicy.text}\n\n${await buildSharedStartupContext({
-        workflow,
-        projectRoot: projectRegistration?.repo_path,
-        repoPath: input.repo_path,
-        workspaceRoots,
-      })}`;
+      const workPolicy = await resolveStartupPolicy(deps, { ...input, repo_origin: input.repo_origin ?? null,
+        branch: input.branch ?? null }, claimed?.branch ?? null);
+      sessionWorkPolicyText = workPolicy.policy.text;
+      meta[STARTUP_POLICY_KEY] = { ...workPolicy.policy, delivery: "scheduled" };
       const claimedProjectTarget = claimed?.project
         ? projectResolver.targetFromText(claimed.project)
         : null;
@@ -297,6 +281,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }
     }
 
+    if (existing) await refreshStartupPolicy(deps, input.id);
     const freshSession = deps.repo.findSession(input.id)!;
     const contextPacket = await buildCollaborationContextPacket({
       repo: deps.repo,
@@ -320,6 +305,16 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // Lictor opens its session-scoped WS immediately after register returns.
       // Delay mirrors relictor handoff delivery and avoids racing that attach.
       setTimeout(() => {
+        // A newer binding/configuration may have superseded the initial packet.
+        try {
+          if (readStartupPolicy(deps.repo.findSession(input.id)?.metadata ?? null)?.text !== sessionWorkPolicyText) return;
+          deps.repo.updateMetadata(input.id, (metadata) => ({ ...metadata,
+            [STARTUP_POLICY_KEY]: { ...readStartupPolicy(JSON.stringify(metadata)), delivery: "queued" } }));
+        } catch {
+          // Shutdown can close the repository before this delayed delivery runs.
+          log.warn("startup policy delivery skipped: repository unavailable");
+          return;
+        }
         eventBus.emit({
           type: "session.inject",
           target_session_id: input.id,
@@ -473,6 +468,9 @@ app.patch("/:id", async (c) => {
     const didChangeTask = parsed.data.current_task !== undefined && parsed.data.current_task !== session.current_task;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);
+    if (didChangeBranch || columnPatch.repo_path !== undefined || columnPatch.repo_origin !== undefined) {
+      await refreshStartupPolicy(deps, id);
+    }
     deps.repo.updateHeartbeat(id, patchTs);
     reviveIfLost(deps.repo, session, patchTs);
     if (didChangeBranch) {

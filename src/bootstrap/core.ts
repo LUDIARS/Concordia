@@ -1,3 +1,6 @@
+// @spec ハーネス信頼性の実装境界
+import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
+import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 /**
  * Concordia backend エントリポイント.
  */
@@ -959,17 +962,23 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   // direct 提出 (session 非依存)。 repo_path の境界は implementation-tools と同じ
   // workspace roots を使う。
-  const submitDirectLocalPrRequest = (request: {
+  const submitDirectLocalPrRequest = async (request: {
     repoPath: string;
     branch?: string;
     sessionId?: string;
     prContent?: string;
     fastLane?: boolean;
-  }) =>
-    submitDirectLocalPr(
+  }) => {
+    const inspected = await inspectImplementationRepo(request.repoPath);
+    const project = (inspected.repoOrigin ? projectCodesRepo.findByRepoOrigin(inspected.repoOrigin) : null) ?? projectCodesRepo.findByRepoPath(inspected.repoPath);
+    const acceptance = await inspectCodeAcceptance(inspected.repoPath, { ddd: project?.ddd_enabled === 1, contract: project?.contract_enabled === 1,
+      testsRequired: project?.tests_required === 1, ontimeTestsRequired: project?.ontime_tests_required === 1 }, request.branch);
+    if (!acceptance.ok) return { submitted: false as const, reason: "error" as const, detail: "code_acceptance_incomplete: " + acceptance.missing.join("; ") };
+    return submitDirectLocalPr(
       { ...localPrDeps, resolveWorkspaceRoots: () => adminState.getWorkspaceRoots() },
       request,
     );
+  };
   const resolveSessionTeam = (session: { team_id?: string | null; repo_origin: string | null; repo_path: string }) => {
     if (session.team_id) return teamsRepo.find(session.team_id) ?? undefined;
     const teams = teamsRepo.forRepo(session.repo_origin ?? session.repo_path);
@@ -981,6 +990,11 @@ export async function startBackend(): Promise<BackendHandle> {
   ) => {
     const session = repo.findSession(sessionId);
     if (!session) return { submitted: false as const, reason: "session_not_found" as const };
+    const project = (session.repo_origin ? projectCodesRepo.findByRepoOrigin(session.repo_origin) : null) ?? projectCodesRepo.findByRepoPath(session.repo_path);
+    const acceptance = await inspectCodeAcceptance(session.repo_path, { ddd: project?.ddd_enabled === 1, contract: project?.contract_enabled === 1,
+      testsRequired: project?.tests_required === 1, ontimeTestsRequired: project?.ontime_tests_required === 1 }, session.branch);
+    repo.appendEvent({ session_id: sessionId, ts: Math.floor(Date.now() / 1000), kind: "code.acceptance", payload: acceptance });
+    if (!acceptance.ok) return { submitted: false as const, reason: "error" as const, detail: "code_acceptance_incomplete: " + acceptance.missing.join("; ") };
     return submitSessionLocalPr(
       localPrDeps,
       {

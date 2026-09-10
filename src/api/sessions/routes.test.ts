@@ -56,6 +56,7 @@ describe("sessionsRouter route table", () => {
       "POST /:id/resume",
       "POST /:id/session-end-done",
       "POST /:id/skill",
+      "POST /:id/startup-policy-check",
       "POST /:id/title",
       "POST /:id/title-suggestion",
       "POST /:id/transcript-frame",

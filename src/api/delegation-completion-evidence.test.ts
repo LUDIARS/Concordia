@@ -114,7 +114,8 @@ describe("delegation completed evidence", () => {
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("accepts an orchestrator run without a feature branch when its direct child PR merged", async () => {
-    const { app, repo, prs } = makeApp(process.cwd(), null);
+    // Do not inherit the host repository's live Augur contracts.
+    const { app, repo, prs } = makeApp(await makeFeatureWorktree(), null);
     repo.claimChildSession("source-run", "child-session");
     const childPr = prs.upsertFromStat({
       repo_origin: "https://github.com/example/repo.git",
@@ -131,10 +132,10 @@ describe("delegation completed evidence", () => {
 
     expect(response.status).toBe(200);
     expect(repo.findRun("source-run")?.status).toBe("completed");
-  });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("rejects an orchestrator run without a merged direct child PR", async () => {
-    const { app, repo, prs } = makeApp(process.cwd(), null);
+    const { app, repo, prs } = makeApp(await makeFeatureWorktree(), null);
     repo.claimChildSession("source-run", "child-session");
     prs.upsertFromStat({
       repo_origin: "https://github.com/example/repo.git",
@@ -156,7 +157,7 @@ describe("delegation completed evidence", () => {
 
     expect(response.status).toBe(409);
     expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
-  });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("does not let a merged child PR override invalid feature-branch evidence", async () => {
     const cwd = await makeFeatureWorktree();

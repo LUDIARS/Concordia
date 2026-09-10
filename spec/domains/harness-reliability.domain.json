@@ -1,0 +1,12 @@
+{
+  "name": "harness-reliability",
+  "description": "Session checkpoint, hook observations and non-blocking official-guidance advisory. Session rows remain owned by session-lifecycle; acceptance remains owned by agent-delegation.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/harness/reliability/.*\\.ts$" },
+    { "pathPattern": "(^|/)tests/harness-reliability/.*\\.ts$" }
+  ],
+  "specRefs": ["spec/feature/harness-reliability.md", "spec/ux/product.md"],
+  "cardTemplate": "Describe checkpoint recovery, observed applicability and bounded advisory; never equate hook installation with successful execution."
+}

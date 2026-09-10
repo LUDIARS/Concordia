@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { workflowSkillInstall } from "./setup-workflow-skills.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_PATH = join(__dirname, "..", "skills", "concordia.md");
@@ -40,18 +41,23 @@ export function setupRouter(deps: SetupApiDeps): Hono {
     const repoPath = c.req.query("repo_path") ?? "";
     const repoOrigin = c.req.query("repo_origin") ?? null;
 
-    const targetPath = repoPath
+    const targetPath = provider === "codex-cli" ? `${repoPath ? repoPath.replace(/\\/g, "/").replace(/\/$/, "") + "/.agents" : "~/.codex"}/skills/concordia/SKILL.md` : repoPath
       ? joinSkillPath(repoPath)
       : "~/.claude/skills/concordia/SKILL.md";
 
     // Windows shell 経由で backslash が消える問題を回避するため forward slash 化 + quote.
     const toolPath = deps.toolPath.replace(/\\/g, "/");
-    const hookCommand = (event: string) => `node "${toolPath}" ${event}`;
+    const supportedProvider = provider === "claude-code" || provider === "codex-cli";
+    const hookCommand = (event: string) => `node "${toolPath}" ${event} --provider=${provider === "codex-cli" ? "codex-cli" : "claude-code"}`;
 
     return c.json({
       service: "concordia",
       url: deps.url,
       provider,
+      hook_support: supportedProvider ? "requires-client-hook-support" : "unsupported",
+      hook_notes: "Install only events supported by the installed client version. Codex requires hooks enabled; absence of observations is unknown. PostToolUseFailure is Claude-only.",
+      hook_settings_target: provider === "codex-cli" ? "<repo>/.codex/hooks.json" : "<repo>/.claude/settings.json",
+      hook_trust: provider === "codex-cli" ? "Review changed definitions with /hooks; setup does not grant hook trust" : "Follow the installed client's hook settings policy",
       skill_version: skill.version,
       placement: repoPath ? "per-repo" : "user-level",
       install: {
@@ -60,6 +66,7 @@ export function setupRouter(deps: SetupApiDeps): Hono {
             target_path: targetPath,
             content: skill.content,
           },
+          ...workflowSkillInstall(repoPath, provider),
         ],
         settings_merge: {
           hooks: {
@@ -71,6 +78,10 @@ export function setupRouter(deps: SetupApiDeps): Hono {
             ],
             PostToolUse: [
               {
+                matcher: ".*",
+                hooks: [{ type: "command", command: hookCommand("tool-result") }],
+              },
+              {
                 matcher: "Edit|Write|MultiEdit",
                 hooks: [{ type: "command", command: hookCommand("edit") }],
               },
@@ -78,7 +89,13 @@ export function setupRouter(deps: SetupApiDeps): Hono {
             PreCompact: [
               { hooks: [{ type: "command", command: hookCommand("compact") }] },
             ],
-            Stop: [
+            PostCompact: [
+              { hooks: [{ type: "command", command: hookCommand("post-compact") }] },
+            ],
+            ...(provider === "claude-code" ? { PostToolUseFailure: [
+              { matcher: ".*", hooks: [{ type: "command", command: hookCommand("tool-failure") }] },
+            ] } : {}),
+            SessionEnd: [
               { hooks: [{ type: "command", command: hookCommand("session-end") }] },
             ],
           },
@@ -94,7 +111,9 @@ export function setupRouter(deps: SetupApiDeps): Hono {
           },
         },
       },
-      instructions: repoPath
+      instructions: provider === "codex-cli"
+        ? "install.skillsを各target_pathへ配置し、install.settings_mergeを<repo>/.codex/hooks.jsonへ既存定義を維持してマージしてください。/hooksで変更した定義の信頼を確認し、実際のフック観測をセッションの関連作業欄で確認してください。導入だけで適用成功とは扱いません。"
+        : repoPath
         ? "1) skill ファイルを target_path (per-repo) に Write. 既存があれば overwrite.\n" +
           "2) 同じ内容を POST /v1/skills/snapshot に投げて初回 snapshot を登録 (poison/growth 監視のベースライン).\n" +
           "3) ~/.claude/settings.json (もしくは <repo>/.claude/settings.local.json) を読み、 install.settings_merge.hooks をマージ (既存 hooks 維持).\n" +

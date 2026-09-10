@@ -5,14 +5,24 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)vitest\\.harness\\.config\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/concordia-reliability-hook\\.mjs$"
+    },
+    {
       "pathPattern": "(^|/)tests/[^/]+$"
     },
     {
       "pathPattern": "(^|/)tests/helpers/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tools/concordia-ontime\\.mjs$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "specRefs": [
-    "spec/feature/domain-taxonomy.concordia.md#tooling"
+    "spec/feature/domain-taxonomy.concordia.md#tooling",
+    "spec/feature/harness-reliability.md"
   ]
 }

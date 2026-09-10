@@ -43,6 +43,8 @@ describe("projectCodesRouter", () => {
         domain_review: true,
         ddd_enabled: false,
         contract_enabled: false,
+        tests_required: false,
+        ontime_tests_required: false,
       }],
       categories: [{ name: "Concordia registry", entries: [["Cc", "Concordia"]] }],
     });
@@ -90,6 +92,8 @@ describe("projectCodesRouter", () => {
         domain_review: true,
         ddd_enabled: false,
         contract_enabled: false,
+        tests_required: false,
+        ontime_tests_required: false,
       },
       created: true,
     });

@@ -2,7 +2,7 @@
 import type { HarnessAction, Predicate } from "./predicates.js";
 import { isEditTool } from "./predicates.js";
 
-export interface ProjectHarnessPolicy { ddd: boolean; contract: boolean }
+export interface ProjectHarnessPolicy { ddd: boolean; contract: boolean; testsRequired?: boolean; ontimeTestsRequired?: boolean }
 
 /**
  * `contract_enabled` は「契約の確定・承認を **追加で** 要求するか」の opt-in であって、

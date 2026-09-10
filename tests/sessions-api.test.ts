@@ -10,6 +10,18 @@ describe("sessions API", () => {
   let app: ReturnType<typeof buildTestApp>;
   beforeEach(() => { app = buildTestApp(); });
 
+  it("does not rebind an existing session from a native hook registration", async () => {
+    const initial = { id: "hook-observer", provider: "codex-cli", repo_path: "/workspace/task-worktree",
+      repo_origin: "https://example.invalid/project.git", host: "fixture", branch: "feat/task" };
+    const register = (body: unknown) => app.request("/v1/sessions", { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await register(initial)).status).toBe(200);
+    const observed = await register({ ...initial, repo_path: "/workspace", branch: "main", metadata: { cc_hook_observation: true } });
+    expect(observed.status).toBe(200);
+    const result = await observed.json() as { session: { repo_path: string; branch: string } };
+    expect(result.session).toMatchObject({ repo_path: initial.repo_path, branch: initial.branch });
+  });
+
   it("POST /v1/sessions creates and returns peers/advisory", async () => {
     const body1 = {
       id: "a", provider: "claude-code", repo_path: "/x",

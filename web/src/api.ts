@@ -790,6 +790,8 @@ export const api = {
       domain_review?: boolean;
       ddd_enabled?: boolean;
       contract_enabled?: boolean;
+      tests_required?: boolean;
+      ontime_tests_required?: boolean;
     },
   ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
   projectCodeDelete: (code: string) =>
@@ -1490,6 +1492,8 @@ export interface ProjectCodeAdminEntry {
   domain_review: boolean;
   ddd_enabled: boolean;
   contract_enabled: boolean;
+  tests_required: boolean;
+  ontime_tests_required: boolean;
   added_by: string;
   updated_at: number;
   teams: Array<{ id: string; name: string }>;

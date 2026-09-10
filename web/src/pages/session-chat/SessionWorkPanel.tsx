@@ -1,7 +1,9 @@
+// @spec ハーネス信頼性の実装境界
 import { Link } from "react-router-dom";
 import { api, type SessionRow } from "../../api.js";
 import { useLiveQuery } from "../../hooks/useWsEvent.js";
 import { isSessionPr, isSessionTask } from "./related-work.js";
+import { SessionHarnessPanel } from "./SessionHarnessPanel.js";
 
 /** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
 export function SessionWorkPanel({ session, onClose }: { session: SessionRow; onClose: () => void }) {
@@ -46,6 +48,7 @@ export function SessionWorkPanel({ session, onClose }: { session: SessionRow; on
         {prs.data?.configured && !prs.data.error && linkedPrs.length === 0 && <p className="text-subtle">関連 PR はありません</p>}
         <Link to="/prs" className="inline-block text-accent">PR 一覧を開く →</Link>
       </section>
+      <SessionHarnessPanel sessionId={session.id} />
     </aside>
   );
 }

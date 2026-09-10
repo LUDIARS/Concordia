@@ -10,12 +10,14 @@ import { registerSkillRoutes } from "./skills.js";
 import { registerMessagesRoutes } from "./messages.js";
 import { registerContractRoutes } from "./contract.js";
 import { registerEscalationRoutes } from "./escalation.js";
+import { registerStartupPolicyCheck } from "./startup-policy-check.js";
 
 export type { SessionsApiDeps } from "./deps.js";
 
 export function sessionsRouter(deps: SessionsApiDeps): Hono {
   const app = new Hono();
   registerLifecycleRoutes(app, deps);
+  registerStartupPolicyCheck(app, deps);
   registerEventsRoutes(app, deps);
   registerQaRoutes(app, deps);
   registerRelayRoutes(app, deps);

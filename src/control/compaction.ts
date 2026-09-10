@@ -14,6 +14,7 @@ import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import { eventBus } from "../events.js";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
+import { redactSecrets } from "../shared/redact-secrets.js";
 
 export type RunClaudeFn = (
   prompt: string,
@@ -41,7 +42,7 @@ export interface CompactionDeps {
   /** セッションへ文字列を inject する (HTTP /v1/sessions/:id/inject 相当)。 */
   inject: (sessionId: string, text: string, source: string) => Promise<boolean>;
   /** handoff を session のチャンネル (Discord/Slack) へ投稿する。 */
-  postHandoff: (sessionId: string, markdown: string) => Promise<void>;
+  postHandoff: (sessionId: string, markdown: string) => Promise<void | { delivery: "confirmed" | "unconfirmed" }>;
   /** clear と再投入の間の待ち (テストで 0 にできる)。 */
   clearWaitMs?: number;
   /** 待機関数 (テスト差し替え用)。 */
@@ -314,6 +315,10 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
   const session = deps.sessions.findSession(sessionId);
   if (!session) return { ok: false, error: "session not found" };
   if (session.status !== "active") return { ok: false, error: `session is ${session.status}` };
+  const previous = session.metadata ? JSON.parse(session.metadata) : {};
+  if (previous.compaction_recovery?.state === "clear_requested" || previous.compaction_recovery?.state === "reinject_requested") {
+    return { ok: false, error: "previous clear outcome is unconfirmed; reconcile the session before retrying" };
+  }
 
   const currentTask = session.current_task ?? "";
 
@@ -341,38 +346,52 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
     handoff = await generateHandoff(deps, currentTask, recent);
   }
 
-  // 1) チャンネルへ投稿 (= 活かす durable ログ)。 失敗しても続行はするが警告。
+  // Save first. A chat queue receipt alone is not evidence of delivery.
+  handoff = redactSecrets(handoff).slice(0, 48000);
+  if (!handoff.trim()) return { ok: false, error: "empty handoff; clear not sent" };
   try {
-    await deps.postHandoff(sessionId, `📌 **引き継ぎ資料 (コンパクション)**\n\n${handoff}`);
+    deps.sessions.updateMetadata(sessionId, (metadata) => ({ ...metadata,
+      compaction_recovery: { state: "saved", at: Date.now(), handoff } }));
+    const saved = JSON.parse(deps.sessions.findSession(sessionId)?.metadata ?? "{}");
+    if (saved.compaction_recovery?.handoff !== handoff) throw new Error("handoff readback mismatch");
+  } catch {
+    return { ok: false, handoff, error: "handoff persistence failed; clear not sent" };
+  }
+  try {
+    const receipt = await deps.postHandoff(sessionId, `📌 **引き継ぎ資料 (コンパクション)**\n\n${handoff}`);
+    if (receipt?.delivery !== "confirmed") return { ok: false, handoff, error: "handoff delivery unconfirmed; clear not sent (use native compaction with saved checkpoint)" };
   } catch (e) {
     deps.log?.warn(`compaction: handoff 投稿失敗 session=${sessionId}: ${(e as Error).message}`);
+    return { ok: false, handoff, error: "handoff delivery failed; clear not sent" };
   }
 
   // 2) /clear を inject (TUI スラッシュコマンド + Enter)。
+  deps.sessions.updateMetadata(sessionId, (metadata) => ({ ...metadata,
+    compaction_recovery: { state: "clear_requested", at: Date.now(), handoff } }));
   const clearedOk = await deps.inject(sessionId, "/clear", "compaction-clear");
-  await deps.inject(sessionId, ENTER_KEY_TEXT, "compaction-clear-enter");
   if (!clearedOk) {
     deps.log?.warn(`compaction: /clear inject 失敗 session=${sessionId}`);
     return { ok: false, handoff, error: "/clear inject failed" };
   }
+  if (!await deps.inject(sessionId, ENTER_KEY_TEXT, "compaction-clear-enter")) return { ok: false, handoff, error: "clear Enter failed; result unconfirmed" };
 
   // 3) clear の反映を待つ。
   const wait = deps.clearWaitMs ?? CLEAR_WAIT_MS;
   if (wait > 0) await (deps.sleep ?? defaultSleep)(wait);
 
   // 4) 引き継ぎを読んで続行するよう再投入 (資料本文も冗長化のため同梱)。
+  deps.sessions.updateMetadata(sessionId, (metadata) => ({ ...metadata,
+    compaction_recovery: { state: "reinject_requested", at: Date.now(), handoff } }));
   const reinjected = await deps.inject(sessionId, `${REINJECT_HEADER}${handoff}`, "compaction-reinject");
-  await deps.inject(sessionId, ENTER_KEY_TEXT, "compaction-reinject-enter");
   if (!reinjected) {
     deps.log?.warn(`compaction: 再投入 inject 失敗 session=${sessionId}`);
     return { ok: false, handoff, error: "reinject failed" };
   }
+  if (!await deps.inject(sessionId, ENTER_KEY_TEXT, "compaction-reinject-enter")) return { ok: false, handoff, error: "reinject Enter failed; result unconfirmed" };
 
-  // 5) コンパクション時刻と直近 handoff を記録する (時刻はコンテキスト残量表示、
-  //    handoff はフェーズ文脈索引 — phase-compaction §2 参照層)。
+  // Keep a handoff reference, but do not reset context usage without a native acknowledgement.
   try {
     deps.sessions.mergeMetadata(sessionId, {
-      last_compaction_at: Date.now(),
       last_handoff: handoff.slice(0, LAST_HANDOFF_METADATA_LIMIT),
     });
   } catch (e) {
@@ -380,7 +399,7 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
   }
 
   deps.log?.info(`compaction: done session=${sessionId} handoff_len=${handoff.length}`);
-  return { ok: true, handoff };
+  return { ok: false, handoff, error: "clear/reinject requested; native resume confirmation is still required" };
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -402,13 +421,14 @@ export function makeCompactionIO(deps: { sessions: SessionsRepo; chat: ChatRepo 
     },
     postHandoff: async (sessionId, markdown) => {
       const msg = deps.chat.insert({
-        channel: "報告", session_id: sessionId, author_label: "Concordia (compaction)",
+        channel: "system", session_id: sessionId, author_label: "Concordia (compaction)",
         text: markdown, in_reply_to: null, is_actionable: false, metadata: null,
       });
       eventBus.emit({
         type: "chat.posted", message_id: msg.id, channel: msg.channel, author_label: msg.author_label,
         session_id: msg.session_id, ts: msg.ts, is_actionable: false,
       });
+      return { delivery: "unconfirmed" };
     },
   };
 }

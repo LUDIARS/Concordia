@@ -9,6 +9,8 @@ import { clientId, subscribePush } from "./push.js";
 import { SessionList } from "./SessionList.js";
 import { StatusOverlay } from "./StatusOverlay.js";
 import { loadAttachmentMessages, type AttachmentMessage } from "./Attachments.js";
+import { isResponseWorking } from "./response-turns.js";
+import { SessionWorkPanel } from "./SessionWorkPanel.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 chat, unread, and push UI */
 
@@ -22,6 +24,8 @@ export function SessionChat() {
   const [unread, setUnread] = useState(new Map<string, number>());
   const [drawer, setDrawer] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [workOpen, setWorkOpen] = useState(false);
+  const [pendingInput, setPendingInput] = useState<{ sessionId: string; after: number } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
@@ -63,6 +67,9 @@ export function SessionChat() {
     setAttachmentMessages([]);
     setAttachmentError(null);
     setDrawer(false);
+    setStatusOpen(false);
+    setWorkOpen(false);
+    setPendingInput(null);
     void refresh();
   }, [id]);
 
@@ -97,7 +104,8 @@ export function SessionChat() {
     };
   }, [id, latestMessageId, browserId]);
 
-  useWsEvent(["chat.posted", "session.message", "session.message.summary", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], (event) => {
+  useWsEvent(["hello", "chat.posted", "session.message", "session.message.summary", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], (event) => {
+    if (event.type === "hello") void refresh();
     if (event.type === "chat.posted" && event.session_id === id) void refresh();
     if (event.type === "session.message" && event.target_session_id === id) {
       setMessages((current) => mergeMessage(current, event.message));
@@ -108,7 +116,7 @@ export function SessionChat() {
         .then((result) => setUnread((current) => new Map(current).set(event.target_session_id, result.unread)))
         .catch((cause) => setPageError((cause as Error).message));
     }
-    if ((event.type === "session.ended" || event.type === "session.lost" || event.type === "session.event") && event.session_id === id) {
+    if ((event.type === "session.ended" || event.type === "session.lost" || event.type === "session.event" || event.type === "session.task_changed") && event.session_id === id) {
       void refresh();
     }
     if (event.type === "session.started" || event.type === "session.ended" || event.type === "session.lost" || event.type === "session.task_changed") {
@@ -125,7 +133,9 @@ export function SessionChat() {
     try {
       if (command.kind === "error") return command.message;
       if (command.kind === "inject" || command.kind === "enter") {
+        const after = messages[messages.length - 1]?.id ?? 0;
         await api.sessionInject(id, command.kind === "enter" ? "\n" : command.text, "web-ui");
+        if (selectedSessionRef.current === id) setPendingInput({ sessionId: id, after });
       }
       if (command.kind === "rename") await api.sessionRename(id, command.text);
       if (command.kind === "stat") await api.sessionRequestStat(id);
@@ -148,11 +158,14 @@ export function SessionChat() {
         ? { question_id: questionId, answer_indices: value }
         : { question_id: questionId, answer_index: value },
     );
+    if (selectedSessionRef.current === id) setPendingInput({ sessionId: id, after: messages[messages.length - 1]?.id ?? 0 });
   };
+  /** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
   const permission = async (message: SessionMessage, allow: boolean): Promise<void> => {
     const requestId = message.metadata?.request_id;
     if (typeof requestId !== "string") throw new Error("request_id がありません");
     await api.permissionRespond(id, { request_id: requestId, decision: allow ? "allow" : "deny" });
+    if (selectedSessionRef.current === id) setPendingInput({ sessionId: id, after: messages[messages.length - 1]?.id ?? 0 });
   };
   const sidebar = <SessionList sessions={menuSessions} activeId={id} unread={unread} />;
 
@@ -171,6 +184,7 @@ export function SessionChat() {
           <button type="button" className="md:hidden" onClick={() => setDrawer(true)} aria-label="セッション一覧を開く">☰</button>
           <div className="min-w-0 flex-1 truncate font-semibold">{session?.current_task || id}</div>
           <Link to={`/sessions/${encodeURIComponent(id)}/logs`} className="text-sm text-accent">ログ</Link>
+          <button type="button" disabled={!session} aria-expanded={workOpen} aria-controls="session-work-panel" onClick={() => setWorkOpen((open) => !open)} className="shrink-0 rounded border border-border px-2 py-1 text-xs text-accent">タスク・テスト/PR</button>
           <button type="button" onClick={() => setStatusOpen(true)} title="状態">ⓘ</button>
           <button
             type="button"
@@ -183,7 +197,10 @@ export function SessionChat() {
         {pageError && <div className="px-3 py-1 text-xs text-danger">更新エラー: {pageError}</div>}
         {attachmentError && <div role="alert" className="px-3 py-1 text-xs text-danger">{attachmentError} <button type="button" onClick={() => void refresh()}>再試行</button></div>}
         {pushError && <div className="px-3 text-xs text-danger">{pushError}</div>}
-        <MessageList messages={messages} attachmentMessages={attachmentMessages} sessionId={id} onAnswer={answer} onPermission={permission} />
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <MessageList messages={messages} attachmentMessages={attachmentMessages} sessionId={id} working={isResponseWorking(messages, session?.status, pendingInput?.sessionId === id ? pendingInput.after : null)} onAnswer={answer} onPermission={permission} />
+          {workOpen && session && <SessionWorkPanel key={id} session={session} onClose={() => setWorkOpen(false)} />}
+        </div>
         <ChatInput onSubmit={submit} disabled={session?.status !== "active"} />
       </section>
       {statusOpen && session && <StatusOverlay session={session} onClose={() => setStatusOpen(false)} />}

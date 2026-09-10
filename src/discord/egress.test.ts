@@ -115,6 +115,19 @@ describe("handleEvent chat.posted relay", () => {
 });
 
 describe("handleEvent session.message relay", () => {
+  it.each([
+    { author_type: "assistant" as const, metadata: { phase: "final_answer" }, heading: true },
+    { author_type: "summary" as const, metadata: null, heading: true },
+    { author_type: "assistant" as const, metadata: { phase: "commentary" }, heading: false },
+  ])("formats final report heading only at a completion boundary: %j", async ({ heading, ...fields }) => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    handleEvent(deps, sessionMessage(sessionId, "create", { ...fields, content: "result" }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      content: heading ? "***FINAL ANSWER***\n\nresult" : "result",
+      allowedMentions: { parse: [] },
+    }));
+  });
   it("creates a Discord post and records its delivery id", async () => {
     const { deps, webhooks, deliveryRepo, sessionId } = makeSessionMessageDeps();
     handleEvent(deps, sessionMessage(sessionId, "create", { id: 7, content: "hello" }));
@@ -339,16 +352,18 @@ async function flushEgress(): Promise<void> {
 // 発火しない。コンテキスト使用量の通知を completion に繋いだ最初の実装は、実測でほぼ
 // 鳴らなかった (2026-09-07)。アイドル判定には別 signal を使う。
 describe("isTurnEndMessage", () => {
-  const message = (author_type: string): SessionMessagePayload =>
-    ({ author_type } as unknown as SessionMessagePayload);
+  const message = (author_type: string, phase?: string): SessionMessagePayload =>
+    ({ author_type, metadata: phase ? { phase } : null } as unknown as SessionMessagePayload);
 
   it("最終応答と会話要約でターン終了とみなす", () => {
-    expect(isTurnEndMessage(message("assistant"))).toBe(true);
+    expect(isTurnEndMessage(message("assistant", "final_answer"))).toBe(true);
     expect(isTurnEndMessage(message("summary"))).toBe(true);
   });
 
   it("途中経過ではターン終了にしない", () => {
     // 含めるとターン中に何度も『終わった』ことになる。
+    expect(isTurnEndMessage(message("assistant", "commentary"))).toBe(false);
+    expect(isTurnEndMessage(message("assistant"))).toBe(false);
     expect(isTurnEndMessage(message("thinking"))).toBe(false);
     expect(isTurnEndMessage(message("tool"))).toBe(false);
     expect(isTurnEndMessage(message("user"))).toBe(false);

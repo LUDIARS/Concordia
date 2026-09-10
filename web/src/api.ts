@@ -122,6 +122,21 @@ export interface SessionMessage {
   reference_id: number | null; metadata: Record<string, unknown> | null; dedupe_key: string | null;
 }
 
+export interface SessionTaskRecord {
+  id: number;
+  session_id: string;
+  task_text: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+export interface SessionTestingClaim {
+  id: number;
+  session_id: string;
+  service: string;
+  note: string;
+  branch: string | null;
+}
+
 export interface MonitorPayload {
   active: SessionRow[];
   lost: SessionRow[];
@@ -720,6 +735,8 @@ export const api = {
     return get<{ sessions: SessionRow[] }>(`/v1/sessions${qs ? "?" + qs : ""}`);
   },
   sessionMessages: (id: string, after?: number) => get<{ messages: SessionMessage[] }>(`/v1/sessions/${encodeURIComponent(id)}/messages${after ? `?after=${after}` : ""}`),
+  sessionTasks: (id: string) => get<{ items: SessionTaskRecord[] }>(`/v1/sessions/${encodeURIComponent(id)}/tasks`),
+  testingClaims: () => get<{ claims: SessionTestingClaim[] }>("/v1/testing"),
   sessionUnread: (id: string, clientId: string) => get<{ last_read_id: number; unread: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/unread?client_id=${encodeURIComponent(clientId)}`),
   inbox: (clientId: string) =>
     get<InboxResult>(`/v1/inbox?client_id=${encodeURIComponent(clientId)}`),
@@ -1196,6 +1213,7 @@ export interface RevisorLocalPr {
   repository: string;
   title: string;
   author: string;
+  sessionId?: string | null;
   status: string;
   checkStatus: string;
   draft?: boolean;

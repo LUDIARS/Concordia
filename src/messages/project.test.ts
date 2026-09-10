@@ -30,6 +30,16 @@ describe("projectEvent / transcript.frame", () => {
     expect(projectEvent(frame("text", { role: "system", text: "x" }), ctx)).toEqual([]);
   });
 
+  it("preserves assistant phase for final reports without accepting user phase", () => {
+    for (const phase of ["commentary", "final_answer"]) {
+      const [msg] = projectEvent(frame("text", { role: "assistant", text: "report", phase }), ctx);
+      expect(msg.metadata?.phase).toBe(phase);
+    }
+    expect(projectEvent(frame("text", { role: "user", text: "hi", phase: "final_answer" }), ctx)[0].metadata).toBeUndefined();
+    expect(projectEvent(frame("summary", { summary: "finished" }), ctx)[0].content).toBe("finished");
+    expect(projectEvent(frame("summary", { text: "", summary: "fallback" }), ctx)[0].content).toBe("fallback");
+  });
+
   it("kind=thinking → author_type=thinking", () => {
     const [msg] = projectEvent(frame("thinking", { role: "assistant", preview: "hmm" }), ctx);
     expect(msg.author_type).toBe("thinking");

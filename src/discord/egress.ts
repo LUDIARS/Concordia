@@ -250,8 +250,12 @@ async function handleSessionMessage(
   });
 }
 
+/** @implements SPEC-SESSION-CHAT-RESPONSE-WORK — Discord-only final report decoration */
 function formatSessionMessageContent(message: SessionMessagePayload): string {
   const content = message.content || "(attachment)";
+  if (isFinalReportMessage(message)) {
+    return `***FINAL ANSWER***\n\n${content}`;
+  }
   if (message.author_type === "thinking") return content.split("\n").map((line) => `> ${line}`).join("\n");
   if (message.author_type === "task") return `**Task**\n${content}`;
   if (message.author_type === "tool") return `${formatToolLabel(message.author_label)}: ${content}`;
@@ -314,16 +318,21 @@ function isToolFailure(message: SessionMessagePayload): boolean {
 /**
  * セッションがターンを終えた合図。
  *
- * `assistant` = 最終応答の本文、 `summary` = 会話要約。 どちらもモデルが喋り終えた
- * 時点で 1 度出る。 途中経過 (thinking / tool) は含めない — 含めるとターン中に
- * 何度も『終わった』ことになる。
+ * Codex の `assistant` は `phase=final_answer` のみ、Claude 系は `summary` を
+ * ターン境界とする。phase のない旧 assistant や途中経過を含めると、ターン中に
+ * 何度も「終わった」ことになるため推測で補完しない。
  *
  * `isCompletionMessage` と分けているのは、 あちらが **delegation の task カード**
  * (status=completed/failed の embed) だけを見ており、 セッション自身の応答では
  * 発火しないため。 チャンネル名の状態タグはあちらの意味のまま据え置く。
  */
 export function isTurnEndMessage(message: SessionMessagePayload): boolean {
-  return message.author_type === "assistant" || message.author_type === "summary";
+  return isFinalReportMessage(message);
+}
+
+function isFinalReportMessage(message: SessionMessagePayload): boolean {
+  return message.author_type === "summary"
+    || (message.author_type === "assistant" && message.metadata?.phase === "final_answer");
 }
 
 function isCompletionMessage(message: SessionMessagePayload): boolean {

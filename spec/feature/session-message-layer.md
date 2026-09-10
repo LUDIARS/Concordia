@@ -17,7 +17,7 @@ related:
   - ./trust-boundaries.md
   - ../interface/service-schema.md
   - ../data/schema.md
-updated: 2026-09-04
+updated: 2026-09-10
 ---
 
 # Session message layer — canonical work stream
@@ -65,6 +65,11 @@ Their transport/storage-neutral TypeScript contract lives in `src/shared/session
 the persistence layer does not depend on projector implementation details.
 
 ### 3.2 Update semantics
+
+Assistant text frames retain their string `phase` in canonical `metadata.phase` (2026-09-10).
+`final_answer` marks the report boundary; commentary and missing phases are not inferred to be final.
+Summary frames accept `text` or `summary` as their body. The WebUI folds work at these boundaries;
+Discord prefixes final reports in its adapter without changing stored content.
 
 Projector updates are patches over the existing canonical row. Fields omitted by an update retain
 their stored value. Metadata keys are merged. This is required for stateful items:

@@ -19,6 +19,7 @@ type ConcordiaEventPayload =
   | { type: "session.lost";     session_id: string; ts: number }
   | { type: "session.ended";    session_id: string; ts: number }
   | { type: "session.event";    session_id: string; kind: string; ts: number }
+  | { type: "operational.claim.opened" | "operational.claim.released"; target_session_id: string; ts: number }
   | { type: "session.task_changed"; session_id: string; previous_task: string | null; current_task: string | null; ts: number }
   | { type: "session.message"; target_session_id: string; op: "create" | "update"; message: import("../api.js").SessionMessage; ts: number }
   | { type: "session.message.summary"; target_session_id: string; latest_id: number; ts: number }
@@ -80,6 +81,8 @@ const KNOWN_WS_TYPES = new Set<string>([
   "session.lost",
   "session.ended",
   "session.event",
+  "operational.claim.opened",
+  "operational.claim.released",
   "session.task_changed",
   "session.message",
   "session.message.summary",

@@ -61,6 +61,7 @@
     "テストフォーラムの操作面 — テスト開始 / マージ",
     "Revisor Test Forum 同期",
     "spec/feature/discord-image-ingress.md",
+    "spec/feature/session-message-webui-chat.md#121-応答の進行と関連作業2026-09-10",
     "spec/feature/cost-observability.md#rate-limit-の表示と通知",
     "spec/feature/teams.md"
   ],

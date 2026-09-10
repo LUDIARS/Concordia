@@ -152,6 +152,7 @@ function projectTranscriptFrame(
         author_label: role === "user" ? "User" : "Assistant",
         author_platform: null,
         content: text,
+        ...(role === "assistant" && typeof p.phase === "string" ? { metadata: { phase: p.phase } } : {}),
       }];
     }
     case "thinking": {
@@ -167,7 +168,11 @@ function projectTranscriptFrame(
       }];
     }
     case "summary": {
-      const text = typeof p.text === "string" ? p.text : "";
+      const text = typeof p.text === "string" && p.text
+        ? p.text
+        : typeof p.summary === "string"
+          ? p.summary
+          : "";
       if (!text) return [];
       return [{
         op: "create",

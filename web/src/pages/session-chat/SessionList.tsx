@@ -1,9 +1,13 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import type { SessionRow } from "../../api.js";
+import { SessionSpawnDialog } from "./SessionSpawnDialog.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 session sidebar and unread badges */
 
+/** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
 export function SessionList({ sessions, activeId, unread }: { sessions: SessionRow[]; activeId?: string; unread: Map<string, number> }) {
+  const [spawnOpen, setSpawnOpen] = useState(false);
   return (
     <nav className="space-y-1 p-2" aria-label="セッション一覧">
       {sessions.map((session) => {
@@ -25,6 +29,8 @@ export function SessionList({ sessions, activeId, unread }: { sessions: SessionR
           </Link>
         );
       })}
+      <button type="button" onClick={() => setSpawnOpen(true)} className="mt-2 block w-full rounded border border-border px-3 py-2 text-left text-sm text-accent hover:bg-muted">＋ 新規セッション</button>
+      {spawnOpen && <SessionSpawnDialog onClose={() => setSpawnOpen(false)} />}
     </nav>
   );
 }

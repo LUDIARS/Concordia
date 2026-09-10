@@ -13,7 +13,7 @@ tags:
 status: partially-implemented
 related:
   - ./session-message-layer.md
-updated: 2026-09-01
+updated: 2026-09-10
 ---
 
 # セッションメッセージ層 — 後続フェーズ設計
@@ -80,6 +80,44 @@ updated: 2026-09-01
   「モニターからセッションを開くと真っ黒 + `TypeError: q is not a function`」が発生した
   (障害が起きた Chromium 環境では `scrollIntoView` が Promise を返した)。回帰は
   `MessageList.test.tsx` が固定している。
+
+### 1.2.1 応答の進行と関連作業（2026-09-10）
+
+**Requirement ID: `SPEC-SESSION-CHAT-RESPONSE-WORK`**
+
+UX-CC-W2/W3/W4、CC-INV-01/04/05/08。TypeScript/React の既存構成を維持する。
+表示状態は session-message-webui、phase の保存は session-message-layer が所有する。
+
+- user 入力・assistant の途中報告・thinking/tool/task の後は会話末尾に「作業中...」を表示する。
+  最終回答、質問・許可待ち、session の終了・lost では止める。active というだけで作業中とは推定しない。
+- Codex の assistant `metadata.phase=final_answer` と Claude の `summary` を最終報告として表示する。
+  最終報告までの同一応答内の作業表示を既定で閉じた「作業内容」へまとめ、原文を再展開できる。
+  user の入力、質問・許可、成果添付は隠さない。phase のない旧 assistant を最終報告と推定しない。
+  正本のメッセージを削除・書換えせず、再読込後も保存済みの区切りから再構成する。
+- 右上の「タスク・テスト/PR」トグルで関連作業を開く。session tasks、Taskflow の明示的 session 関連、
+  現在の testing claim、Revisor PR の審査状態を区別する。PR は Revisor の `sessionId`（author session）または同じ repository と
+  専用 branch の一致で結ぶ。main/master/develop の共有だけでは関連付けない。
+  各取得失敗・未設定を空一覧と区別して示し、再取得可能にする。開いている間だけ取得し、セッション移動時は閉じる。
+- セッション一覧の末尾に「新規セッション」ボタンを置き、Monitor の DelegationSpawnForm を再利用する。
+  開いただけでは spawn せず、フォームの送信で既存 API を呼ぶ。PC とモバイルの両方から利用可能。
+- Discord は Codex final_answer と Claude summary の本文先頭へ `***FINAL ANSWER***` を付ける。
+  この装飾は Discord adapter が所有し、WebUI の保存本文へ混入させない。通常の途中報告には付けない。
+
+検証計画: phase 投影、複数応答の折りたたみ、質問待ち・最終報告・停止時の進行表示、関連対象の分離、
+spawn UI の再利用、Discord の最終報告装飾を既存テストと同じ境界で確認する。実行結果は PR に別記する。
+復旧は本変更の revert。DB migration は不要。過去の phase 欠落行を推測補完しない。
+
+表示の実装対応（すべて `web/src/pages/session-chat/`）:
+
+| ファイル | 所有する表示・操作 |
+|---|---|
+| `SessionChat.tsx` | セッション更新、入力後の待機、関連一覧トグルの開閉 |
+| `response-turns.ts` | 保存済み最終報告を根拠にした応答区切りと作業中判定 |
+| `MessageList.tsx` | 作業内容の details、最終報告・添付・末尾の進行表示 |
+| `SessionWorkPanel.tsx` | 正本 API の読取、取得状態・失敗・再取得と関連一覧 |
+| `related-work.ts` | タスクの明示 session 関係と PR の repo/専用 branch 照合 |
+| `SessionList.tsx` | 一覧末尾の新規セッション入口 |
+| `SessionSpawnDialog.tsx` | Monitor 共通フォームを載せるダイアログと focus/close の寿命 |
 
 ### 1.3 ログ確認画面
 

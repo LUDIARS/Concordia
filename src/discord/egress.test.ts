@@ -124,7 +124,7 @@ describe("handleEvent session.message relay", () => {
     handleEvent(deps, sessionMessage(sessionId, "create", { ...fields, content: "result" }));
     await flushEgress();
     expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      content: heading ? "***FINAL ANSWER***\n\nresult" : "result",
+      content: heading ? " 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 \n\nresult" : "result",
       allowedMentions: { parse: [] },
     }));
   });

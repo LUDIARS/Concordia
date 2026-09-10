@@ -254,7 +254,7 @@ async function handleSessionMessage(
 function formatSessionMessageContent(message: SessionMessagePayload): string {
   const content = message.content || "(attachment)";
   if (isFinalReportMessage(message)) {
-    return `***FINAL ANSWER***\n\n${content}`;
+    return ` 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 \n\n${content}`;
   }
   if (message.author_type === "thinking") return content.split("\n").map((line) => `> ${line}`).join("\n");
   if (message.author_type === "task") return `**Task**\n${content}`;

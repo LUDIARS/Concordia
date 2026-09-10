@@ -100,7 +100,7 @@ UX-CC-W2/W3/W4、CC-INV-01/04/05/08。TypeScript/React の既存構成を維持�
   各取得失敗・未設定を空一覧と区別して示し、再取得可能にする。開いている間だけ取得し、セッション移動時は閉じる。
 - セッション一覧の末尾に「新規セッション」ボタンを置き、Monitor の DelegationSpawnForm を再利用する。
   開いただけでは spawn せず、フォームの送信で既存 API を呼ぶ。PC とモバイルの両方から利用可能。
-- Discord は Codex final_answer と Claude summary の本文先頭へ `***FINAL ANSWER***` を付ける。
+- Discord は Codex final_answer と Claude summary の本文先頭へ ` 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 ` を付ける（2026-09-10 neco 指定）。
   この装飾は Discord adapter が所有し、WebUI の保存本文へ混入させない。通常の途中報告には付けない。
 
 検証計画: phase 投影、複数応答の折りたたみ、質問待ち・最終報告・停止時の進行表示、関連対象の分離、

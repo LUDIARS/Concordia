@@ -354,6 +354,7 @@ export interface SessionLogMeta {
   seq: number;
   title: string;
   projects: string[];
+  deploy_notify?: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>;
   sections: string[];
   size_bytes: number;
   mtime: number;
@@ -1137,6 +1138,8 @@ export const api = {
   subsidiaryCreate: (body: SubsidiaryInput) => post<{ subsidiary: SubsidiarySummary }>("/v1/subsidiaries", body),
   subsidiaryUpdate: (id: string, body: Partial<SubsidiaryInput>) =>
     patch<{ subsidiary: SubsidiarySummary }>(`/v1/subsidiaries/${encodeURIComponent(id)}`, body),
+  subsidiaryDeployNotifyUpdate: (id: string, body: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>) =>
+    put<{ deploy_notify: Array<{ kind: string; target: string; enabled: boolean }> }>(`/v1/subsidiaries/${encodeURIComponent(id)}/deploy-notify`, body),
   subsidiaryDelete: (id: string) => del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}`),
   // 所有 delegation: 1 件 upsert (可搬 JSON 貼付) / 削除 / 既定設定 / export(コピー) / clone。
   subsidiaryDelegationUpsert: (id: string, callName: string, body: PortableDelegation) =>
@@ -1429,6 +1432,8 @@ export interface SubsidiarySummary {
   guard_scope: string;
   home_cwd: string | null;
   daily_token_budget: number;
+  /** 子会社ごとのデプロイ反映通知先 (GET /v1/subsidiaries/:id が同梱、一覧では省略されることがある)。 */
+  deploy_notify?: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>;
   default_team_id: string | null;
   /** この子会社の Test forum に載せる PR の範囲 (project 名 = repo 名)。 空 = 掲載なし。 */
   projects: string[];
@@ -1496,6 +1501,7 @@ export interface ProjectCodeAdminEntry {
   tests_required: boolean;
   ontime_tests_required: boolean;
   deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
+  revisor_workflow: "revisor" | "github" | null;
   added_by: string;
   updated_at: number;
   teams: Array<{ id: string; name: string }>;

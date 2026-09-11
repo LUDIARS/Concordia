@@ -46,6 +46,7 @@ describe("projectCodesRouter", () => {
         tests_required: false,
         ontime_tests_required: false,
         deploy_notify: [],
+        revisor_workflow: null,
       }],
       categories: [{ name: "Concordia registry", entries: [["Cc", "Concordia"]] }],
     });
@@ -96,6 +97,7 @@ describe("projectCodesRouter", () => {
         tests_required: false,
         ontime_tests_required: false,
         deploy_notify: [],
+        revisor_workflow: null,
       },
       created: true,
     });

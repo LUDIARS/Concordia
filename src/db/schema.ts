@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 102;
+export const SCHEMA_VERSION = 103;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2466,6 +2466,24 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       PRIMARY KEY(article_id, target_key)
     );
     CREATE INDEX idx_ai_note_sending ON ai_note_publications(status, updated_at);`);
+  },
+},
+{
+  version: 103,
+  name: "subsidiary-deploy-notify",
+  source: "subsidiary deploy notification targets and project workflow mirror",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "revisor_workflow")) {
+      db.exec("ALTER TABLE project_codes ADD COLUMN revisor_workflow TEXT CHECK (revisor_workflow IN ('revisor', 'github') OR revisor_workflow IS NULL)");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS subsidiary_deploy_notify (
+      subsidiary_id TEXT NOT NULL REFERENCES subsidiaries(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('discord', 'slack', 'subsidiary-channel')),
+      target TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      PRIMARY KEY (subsidiary_id, kind, target)
+    )`);
   },
 },
 ];

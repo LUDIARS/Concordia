@@ -110,6 +110,9 @@ export interface SubsidiaryRequestRow {
   created_at: number;
 }
 
+export type SubsidiaryDeployNotifyKind = "discord" | "slack" | "subsidiary-channel";
+export interface SubsidiaryDeployNotifyRow { subsidiary_id: string; kind: SubsidiaryDeployNotifyKind; target: string; enabled: number; }
+
 export interface CreateSubsidiaryInput {
   name: string;
   display_name?: string;
@@ -148,6 +151,19 @@ export interface UpdateSubsidiaryInput {
 
 export class SubsidiaryRepo {
   constructor(private readonly db: Database.Database) {}
+
+  listDeployNotify(subsidiaryId: string): SubsidiaryDeployNotifyRow[] {
+    return this.db.prepare("SELECT subsidiary_id, kind, target, enabled FROM subsidiary_deploy_notify WHERE subsidiary_id = ? ORDER BY kind, target").all(subsidiaryId) as SubsidiaryDeployNotifyRow[];
+  }
+
+  replaceDeployNotify(subsidiaryId: string, targets: readonly Omit<SubsidiaryDeployNotifyRow, "subsidiary_id">[]): void {
+    const run = this.db.transaction(() => {
+      this.db.prepare("DELETE FROM subsidiary_deploy_notify WHERE subsidiary_id = ?").run(subsidiaryId);
+      const insert = this.db.prepare("INSERT INTO subsidiary_deploy_notify(subsidiary_id, kind, target, enabled) VALUES (?, ?, ?, ?)");
+      for (const target of targets) insert.run(subsidiaryId, target.kind, target.target, target.enabled);
+    });
+    run.immediate();
+  }
 
   // ── subsidiaries ──────────────────────────────────────────
 

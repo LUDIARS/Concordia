@@ -48,6 +48,7 @@ const CreateSchema = z.object({
 });
 
 const PatchSchema = CreateSchema.partial().omit({ name: true });
+const DeployNotifySchema = z.array(z.object({ kind: z.enum(["discord", "slack", "subsidiary-channel"]), target: z.string().trim().max(200), enabled: z.boolean().default(true) }).strict()).max(50);
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
@@ -127,6 +128,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     return {
       ...rest,
       projects: deps.repo.listProjects(row.id),
+      deploy_notify: deps.repo.listDeployNotify(row.id).map((target) => ({ ...target, enabled: target.enabled === 1 })),
       enabled: row.enabled === 1,
       bot_token_set: !!bot_token_enc,
       app_token_set: !!app_token_enc,
@@ -268,6 +270,16 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       app_token_enc: encField(app_token),
     });
     return c.json({ subsidiary: row ? await serialize(row) : null });
+  });
+
+  app.put("/:id/deploy-notify", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    const parsed = DeployNotifySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_deploy_notify", detail: parsed.error.flatten() }, 400);
+    const targets = parsed.data.map((target) => ({ kind: target.kind, target: target.target, enabled: target.enabled ? 1 : 0 }));
+    deps.repo.replaceDeployNotify(id, targets);
+    return c.json({ deploy_notify: deps.repo.listDeployNotify(id).map((target) => ({ ...target, enabled: target.enabled === 1 })) });
   });
 
   app.delete("/:id", async (c) => {

@@ -3,6 +3,8 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
+import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
+import { resolveDeploymentTargets } from "./deployment-targets.js";
 import type {
   DeploymentDelivery,
   DeploymentLedger,
@@ -23,12 +25,35 @@ export class SqliteDeploymentLedger implements DeploymentLedger {
 
 export function createDeploymentLookup(input: {
   projects: ProjectCodesRepo;
+  subsidiaries: Pick<SubsidiaryRepo, "list" | "listProjects" | "listDeployNotify">;
   excubitor: Pick<ExcubitorClient, "findService">;
+  hqTargets: () => Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
 }): DeploymentLookup {
   return {
     findProject: (code) => {
       const row = input.projects.findByCode(code);
-      return row ? { repo_origin: row.repo_origin, deploy_notify: parseTargets(row.deploy_notify) } : null;
+      if (!row) return null;
+      const subsidiaries = input.subsidiaries.list().flatMap((subsidiary) => input.subsidiaries.listDeployNotify(subsidiary.id)
+        .filter((target) => target.enabled === 1)
+        .map((target) => ({
+          subsidiaryId: subsidiary.id,
+          enabled: subsidiary.enabled === 1,
+          projects: input.subsidiaries.listProjects(subsidiary.id),
+          kind: target.kind,
+          target: target.target,
+          intakeChannelId: subsidiary.channel_id,
+          botTokenEnc: subsidiary.bot_token_enc,
+        })));
+      return {
+        repo_origin: row.repo_origin,
+        deploy_notify: resolveDeploymentTargets({
+          project: row.project,
+          hq: input.hqTargets(),
+          projectTargets: parseTargets(row.deploy_notify),
+          workflow: row.revisor_workflow,
+          subsidiaries,
+        }).targets,
+      };
     },
     changes: async (repository, from, to) => {
       const service = await input.excubitor.findService("revisor");
@@ -54,6 +79,7 @@ export function createDeploymentLookup(input: {
 export function createDeploymentDelivery(input: {
   webhookUrl: (name: string) => string | null;
   postCcChannel: (content: string) => Promise<void>;
+  decryptBotToken: (encrypted: string) => string;
 }): DeploymentDelivery {
   const post = async (name: string, content: string, slack: boolean) => {
     const url = input.webhookUrl(name);
@@ -65,7 +91,19 @@ export function createDeploymentDelivery(input: {
     });
     if (!response.ok) throw new Error(`deployment webhook rejected request (${response.status})`);
   };
-  return { discord: (name, content) => post(name, content, false), slack: (name, content) => post(name, content, true), ccChannel: input.postCcChannel };
+  return {
+    discord: (name, content) => post(name, content, false),
+    slack: (name, content) => post(name, content, true),
+    ccChannel: input.postCcChannel,
+    subsidiaryChannel: async (channelId, encryptedToken, content) => {
+      const response = await fetch(`https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}/messages`, {
+        method: "POST",
+        headers: { authorization: `Bot ${input.decryptBotToken(encryptedToken)}`, "content-type": "application/json" },
+        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      });
+      if (!response.ok) throw new Error(`subsidiary deployment channel rejected request (${response.status})`);
+    },
+  };
 }
 
 function parseTargets(value: string | undefined): Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }> {

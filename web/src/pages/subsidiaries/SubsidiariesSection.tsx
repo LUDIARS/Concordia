@@ -50,6 +50,7 @@ export function SubsidiariesSection() {
   } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [deployNotifyJson, setDeployNotifyJson] = useState("[]");
 
   const load = useCallback(() => {
     api.subsidiariesList().then((r) => setSubs(r.subsidiaries)).catch((e) => setErr(String(e)));
@@ -80,6 +81,7 @@ export function SubsidiariesSection() {
       projects: r.subsidiary.projects ?? [],
     });
     setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests, teams: r.teams });
+    setDeployNotifyJson(JSON.stringify(r.subsidiary.deploy_notify ?? []));
       },
     });
   };
@@ -322,6 +324,18 @@ export function SubsidiariesSection() {
           <div className="border-t border-border pt-2 mt-1">
             <div className="text-xs text-subtle mb-1">プロジェクト指定 spawn</div>
             <SubsidiaryProjectSpawnForm subsidiaryId={editId} />
+          </div>
+        )}
+
+        {editId && (
+          <div className="border-t border-border pt-2 mt-1 flex flex-col gap-1">
+            <label className="text-xs text-subtle">デプロイ通知先 (discord / slack / subsidiary-channel)</label>
+            <textarea className="foundation-form text-xs font-mono" rows={2} value={deployNotifyJson} onChange={(e) => setDeployNotifyJson(e.target.value)} />
+            <button className="self-start text-xs px-2 py-1 rounded-md border border-border" onClick={async () => {
+              try { await api.subsidiaryDeployNotifyUpdate(editId, JSON.parse(deployNotifyJson)); await openDetail(editId); }
+              catch { setErr("通知先は kind / target / enabled を持つ JSON 配列で入力してください"); }
+            }}>通知先を保存</button>
+            <p className="text-[10px] text-subtle">subsidiary-channel の target は空なら受付チャンネルへ、専用 Bot で mention 無効のまま配送します。</p>
           </div>
         )}
 

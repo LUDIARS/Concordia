@@ -822,7 +822,16 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorRepositoryClient = createRevisorRepositoryClient(excubitorClient, resolveRevisorToken);
   const serviceDeployed = {
     ledger: new SqliteDeploymentLedger(db),
-    lookup: createDeploymentLookup({ projects: projectCodesRepo, excubitor: excubitorClient }),
+    lookup: createDeploymentLookup({
+      projects: projectCodesRepo,
+      subsidiaries: subsidiaryRepo,
+      excubitor: excubitorClient,
+      hqTargets: () => [
+        ...(discordConfig.get("deploy_notify_channel_id") ? [{ kind: "cc-channel" as const, target: "" }] : []),
+        ...(discordConfig.get("deploy_webhook_url_enc") ? [{ kind: "discord" as const, target: "discord" }] : []),
+        ...(slackConfig.get("deploy_webhook_url_enc") ? [{ kind: "slack" as const, target: "slack" }] : []),
+      ],
+    }),
     delivery: createDeploymentDelivery({
       // 名前付き webhook (discord / slack) は 設定 > デプロイ通知 で各 chat store に
       // 暗号化保存された URL を配送時にだけ復号する。 project 行には URL を持たない。
@@ -844,12 +853,14 @@ export async function startBackend(): Promise<BackendHandle> {
         });
         if (!response.ok) throw new Error(`deployment Discord channel rejected request (${response.status})`);
       },
+      decryptBotToken: (encrypted) => secretBox.decrypt(encrypted),
     }),
     // Same shared secret as Excubitor's existing dispatch. Loopback-only deployments may omit it.
     authorize: (header: string | undefined) => {
       const expected = discordConfig.get("excubitor_dispatch_token");
       return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
     },
+    log: createChildLogger("service-deployed"),
   };
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const githubLog = createChildLogger("github-issue-workflow");

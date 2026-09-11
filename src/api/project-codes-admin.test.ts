@@ -23,6 +23,8 @@ function adminDeps(overrides: Record<string, unknown> = {}) {
     repo: {
       list: () => [storedRow],
       findByCode: (code: string) => (code === storedRow.code ? storedRow : null),
+      // Revisor から解決した workflow を project_codes.revisor_workflow へ書き戻すミラー。
+      setRevisorWorkflow: (_code: string, workflow: "revisor" | "github" | null) => ({ ...storedRow, revisor_workflow: workflow }),
     },
     resolveWorkspaceRoots: () => ["E:/Document/Ars"],
     teams: {

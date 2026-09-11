@@ -22,6 +22,7 @@ type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_pa
   tests_required: boolean;
   ontime_tests_required: boolean;
   deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
+  revisor_workflow: "revisor" | "github" | null;
 };
 
 const RepoOriginSchema = z.string().trim().min(1).max(1_000).refine(
@@ -137,6 +138,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
         const revisorEntry = revisorRepos.list
           ? findRevisorRecord(revisorRepos.list, row) ?? null
           : undefined;
+        const workflow = revisorEntry === undefined ? row.revisor_workflow ?? null : revisorEntry?.workflow ?? "revisor";
+        if (revisorEntry !== undefined && workflow !== (row.revisor_workflow ?? null)) deps.repo.setRevisorWorkflow(row.code, workflow);
         return {
           code: row.code,
           project: row.project,
@@ -148,6 +151,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
+          revisor_workflow: workflow,
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
@@ -299,6 +303,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     const updated = await deps.revisor.setRepositoryWorkflow(record, parsed.data.workflow)
       .then(() => true, () => false);
     if (!updated) return c.json({ error: "revisor_workflow_update_failed" }, 502);
+    deps.repo.setRevisorWorkflow(row.code, parsed.data.workflow);
     return c.json({ ok: true, workflow: parsed.data.workflow });
   });
 
@@ -415,13 +420,14 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
+    revisor_workflow: row.revisor_workflow ?? null,
   };
 }
 
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
 function toAdminRow(
   row: ProjectCodeRow,
-): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }> } {
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; revisor_workflow: "revisor" | "github" | null } {
   return {
     code: row.code,
     project: row.project,
@@ -433,5 +439,6 @@ function toAdminRow(
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
+    revisor_workflow: row.revisor_workflow ?? null,
   };
 }

@@ -14,6 +14,8 @@ export interface ProjectCodeRow {
   tests_required?: number;
   ontime_tests_required?: number;
   deploy_notify?: string;
+  /** Revisor registry workflow の最後に確認できた値。null は未登録または未確認。 */
+  revisor_workflow?: "revisor" | "github" | null;
   /**
    * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
    * 既定 0 — 登録しただけの repository では発火しない。
@@ -170,6 +172,13 @@ export class ProjectCodesRepo {
     const info = this.db.prepare(
       "UPDATE project_codes SET github_issue_workflow = ?, updated_at = ? WHERE code = ? COLLATE BINARY",
     ).run(enabled ? 1 : 0, Date.now(), code);
+    return info.changes === 0 ? null : this.findByCode(code);
+  }
+
+  setRevisorWorkflow(code: string, workflow: "revisor" | "github" | null): ProjectCodeRow | null {
+    const info = this.db.prepare(
+      "UPDATE project_codes SET revisor_workflow = ?, updated_at = ? WHERE code = ? COLLATE BINARY",
+    ).run(workflow, Date.now(), code);
     return info.changes === 0 ? null : this.findByCode(code);
   }
 

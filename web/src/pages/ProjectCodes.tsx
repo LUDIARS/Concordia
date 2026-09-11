@@ -282,6 +282,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
             {data.revisor_available ? "Rv未登録" : "Rv不明"}
           </span>
         )}
+        <div className="text-[10px] text-subtle mt-1">通知ミラー: {entry.revisor_workflow ?? "未確認"}</div>
       </td>
       <td className="py-1.5 pr-2">
         <label className="flex items-center gap-1 text-[11px] text-subtle">

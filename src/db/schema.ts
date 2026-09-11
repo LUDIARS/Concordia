@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 101;
+export const SCHEMA_VERSION = 102;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2441,6 +2441,31 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       received_at INTEGER NOT NULL,
       PRIMARY KEY (code, current_hash)
     )`);
+  },
+},
+{
+  version: 102,
+  name: "ai-note-publication",
+  source: "ai_note_targets and ai_note_publications per-page per-destination snapshots, attempts and reconciliation v1",
+  up(db) {
+    db.exec(`CREATE TABLE ai_note_targets (
+      target_key TEXT PRIMARY KEY,
+      target_json TEXT NOT NULL
+    );
+    CREATE TABLE ai_note_publications (
+      article_id TEXT NOT NULL,
+      target_key TEXT NOT NULL,
+      article_json TEXT NOT NULL,
+      target_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'sending', 'sent', 'failed', 'unknown')),
+      attempt_id TEXT,
+      receipt_json TEXT,
+      error_code TEXT,
+      resolution TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(article_id, target_key)
+    );
+    CREATE INDEX idx_ai_note_sending ON ai_note_publications(status, updated_at);`);
   },
 },
 ];

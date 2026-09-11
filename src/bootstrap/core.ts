@@ -183,6 +183,7 @@ import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { makeSlackSessionChannelsRepo } from "../slack/session-channels-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
+import { createAiNotePublication } from "./ai-note-publication.js";
 import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
@@ -1614,6 +1615,10 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorLocalPrPromoter: revisorClient,
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
+    aiNotePublication: createAiNotePublication({ db,
+      discordConfig: () => resolveDiscordConfig(discordConfig, secretBox),
+      slackConfig: () => resolveSlackConfig(slackConfig, secretBox),
+    }),
     githubIssueWorkflow: {
       runs: githubIssueRuns,
       config: githubWorkflowConfig,

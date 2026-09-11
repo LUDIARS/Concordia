@@ -1,0 +1,16 @@
+{
+  "name": "ai-note-publication",
+  "description": "セッションで完成した AIノートの記事を、明示設定された Discord/Slack の投稿先へ届ける。記事執筆、宛先設定、配送結果を区別する。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/ai-notes/" },
+    { "pathPattern": "(^|/)src/api/ai-notes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/ai-note-publication(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/bootstrap/ai-note-publication\\.ts$" }
+  ],
+  "cardTemplate": "Describe publication identity, explicit destinations, durable per-destination delivery results and unknown-outcome recovery.",
+  "mechanics": ["explicit-publication", "destination-snapshot", "durable-idempotency", "unknown-outcome-reconciliation"],
+  "specRefs": ["spec/feature/ai-note-publication.md", "spec/ux/product.md"],
+  "rationale": "UX-CC-W3/W4/W5、CC-INV-03/04/06。記事の保存完了と外部通知の成功を混同しない。"
+}

@@ -2,47 +2,34 @@
 task: ai-note-discord-intake
 project: Concordia
 kind: 実装
-status: pending
 created: 2026-07-24
-source_session: lictor-fe4563c3-c143-4720-a108-e6be40ff2526
-memoria_task_id: 563
-actio_task_id: null
 memory_links:
   - project-discord-forum-migration.md
   - project-ai-note-opus-articles.md
 ---
-# Discord に AIノート専用窓口(専用フォーラムチャンネル)を作る
+# AIノート完成記事を Discord / Slack に通知・投稿する窓口
 
 ## 目的
 
-neco 指示 (2026-07-18, Memoria #563)。Discord 側に Notion AIノートへの記事依頼を受け付ける
-専用窓口を作りたい。2026-07-24 の朝タスク処理で実装方式を確認し、以下で決定した:
+元依頼は 2026-07-18 neco / Memoria #563。2026-07-24 に Discord フォーラムでの依頼受付案を記録した。
+2026-09-11 の neco 指示により、**執筆はセッションで行い、書き上げた時の通知・投稿を窓口が担う**仕様へ変更する。
+既存タスク ID を維持し、新しい依頼受付・自動執筆タスクを重複起票しない。
 
-- **専用フォーラムチャンネルを新設**し、既存の Discord フォーラム移行 (spec Cc#326, 決定 1b/2a/3a/4a)
-  と統一する。フォーラムの新規スレ = 1依頼として扱う。
-- 実装は Lictor 側の新規サービスではなく **Concordia の既存 Discord フォーラム基盤
-  (`src/discord/forum-project-code.ts`, `channel-directory.ts` 等) の拡張** で完結させる方針。
-
-設計フローは: Discord フォーラム新規スレ (窓口チャンネル) 投稿 → Concordia が検知 →
-Memoria タスク化 (category: AIノート) → 別セッションが `/mmtask` 等で拾って
-Notion AIノートに記事作成 → 完了報告をスレへ返信。
+流れ: セッションで Notion 保存確認 → Cc に完成記事を通知 → 設定した Discord チャンネル/フォーラム、
+Slack チャンネルへタイトル・紹介・Notion URL を投稿 → 宛先ごとの実送信結果をセッションへ返す。
+詳細: [AIノートの記事完成通知](../feature/ai-note-publication.md)。
 
 ## 完了条件
 
-- [ ] 専用フォーラムチャンネルの作成方針を確定 (チャンネル名・カテゴリ、既存フォーラム移行の
-      チャンネル一覧との整合)。実チャンネル作成が必要な場合は人間 (neco) の Discord 操作が要るため、
-      その手順を明記して引き継ぐ。
-- [ ] 新規スレ (依頼) 検知 → Memoria タスク起票 の経路を実装する
-      (`src/discord/` 側で新規スレのメッセージイベントを拾い、`src/memoria/client.ts` の
-      `createTask` 経路で category=AIノート のタスクを作る)。
-- [ ] タスク完了時、元スレへ完了報告 (Notion ページリンク等) を返信する経路を実装する。
-- [ ] 手動で新規スレを立てても、担当外のフォーラムへ投稿しても誤作動しないことを確認する
-      (§2.3 相当の「タスク無し」判定に近い安全側動作)。
-- [ ] spec/feature/ 配下 (Discord フォーラム移行 spec の近く) に本機能の仕様を追記する。
+- Discord 通常チャンネル、フォーラム、Slack チャンネルを明示設定できる。
+- 記事ごとの通知プレビューと投稿ができ、送信後の投稿リンクを返す。
+- 同一記事・同一宛先への重複依頼は再送しない。部分失敗は宛先単位で扱う。
+- 結果不明の送信は照合または人間の未投稿確認まで再送しない。
+- 執筆手順から通知 API への導線と、実宛先設定・Bot 権限の条件を記す。
+- 実宛先を neco が指定した後、設定と許可された実投稿を行い到達を確認する。
 
 ## スコープ (編集可ディレクトリ)
 
-- `src/discord/` (forum-project-code.ts, channel-directory.ts, commands/ 等)
-- `src/memoria/` (タスク起票経路)
-- `spec/feature/` (フォーラム移行 spec への追記)
-- `spec/tasks/` (この md)
+- `src/ai-notes/`、`src/api/`、`src/db/`、`src/bootstrap/` (Cc 内の通知機能)
+- `skills/` (セッションからの利用手順)
+- `spec/feature/`、`spec/domains/`、`spec/tasks/`

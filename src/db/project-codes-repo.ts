@@ -13,6 +13,7 @@ export interface ProjectCodeRow {
   contract_enabled?: number;
   tests_required?: number;
   ontime_tests_required?: number;
+  deploy_notify?: string;
   /**
    * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
    * 既定 0 — 登録しただけの repository では発火しない。
@@ -124,6 +125,7 @@ export class ProjectCodesRepo {
     contractEnabled?: boolean;
     testsRequired?: boolean;
     ontimeTestsRequired?: boolean;
+    deployNotify?: string;
   }): ProjectCodeRow | null {
     const run = this.db.transaction((): ProjectCodeRow | null => {
       const existing = this.findByCode(code);
@@ -147,7 +149,7 @@ export class ProjectCodesRepo {
 
       this.db.prepare(`
         UPDATE project_codes
-        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, updated_at = ?
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, deploy_notify = ?, updated_at = ?
         WHERE code = ? COLLATE BINARY
       `).run(
         nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview,
@@ -155,6 +157,7 @@ export class ProjectCodesRepo {
         patch.contractEnabled === undefined ? existing.contract_enabled ?? 0 : Number(patch.contractEnabled),
         patch.testsRequired === undefined ? existing.tests_required ?? 0 : Number(patch.testsRequired),
         patch.ontimeTestsRequired === undefined ? existing.ontime_tests_required ?? 0 : Number(patch.ontimeTestsRequired),
+        patch.deployNotify === undefined ? existing.deploy_notify ?? "[]" : patch.deployNotify,
         Date.now(), existing.code,
       );
       return this.findByCode(nextCode);

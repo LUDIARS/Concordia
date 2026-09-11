@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 99;
+export const SCHEMA_VERSION = 101;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2417,6 +2417,30 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     for (const name of ["tests_required", "ontime_tests_required"]) {
       if (!columns.some(column => column.name === name)) db.exec(`ALTER TABLE project_codes ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK (${name} IN (0, 1))`);
     }
+  },
+},
+{
+  version: 100,
+  name: "project-code-deploy-notify",
+  source: "project_codes.deploy_notify targets for service.deployed notifications",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "deploy_notify")) {
+      db.exec("ALTER TABLE project_codes ADD COLUMN deploy_notify TEXT NOT NULL DEFAULT '[]'");
+    }
+  },
+},
+{
+  version: 101,
+  name: "service-deployment-ledger",
+  source: "service_deployment_ledger durable (code,current_hash) idempotency for deploy notifications",
+  up(db) {
+    db.exec(`CREATE TABLE IF NOT EXISTS service_deployment_ledger (
+      code TEXT NOT NULL,
+      current_hash TEXT NOT NULL,
+      received_at INTEGER NOT NULL,
+      PRIMARY KEY (code, current_hash)
+    )`);
   },
 },
 ];

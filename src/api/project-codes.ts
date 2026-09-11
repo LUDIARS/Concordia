@@ -21,6 +21,7 @@ type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_pa
   contract_enabled: boolean;
   tests_required: boolean;
   ontime_tests_required: boolean;
+  deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
 };
 
 const RepoOriginSchema = z.string().trim().min(1).max(1_000).refine(
@@ -49,6 +50,7 @@ const UpdateSchema = z.object({
   contract_enabled: z.boolean().optional(),
   tests_required: z.boolean().optional(),
   ontime_tests_required: z.boolean().optional(),
+  deploy_notify: z.array(z.object({ kind: z.enum(["discord", "slack", "cc-channel"]), target: z.string().trim().max(200) }).strict()).max(50).optional(),
 }).strict();
 
 const AssignTeamsSchema = z.object({
@@ -145,6 +147,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    deploy_notify: parseDeployNotify(row.deploy_notify),
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
@@ -202,7 +205,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       dddEnabled: parsed.data.ddd_enabled,
       contractEnabled: parsed.data.contract_enabled,
       testsRequired: parsed.data.tests_required,
-      ontimeTestsRequired: parsed.data.ontime_tests_required,
+    ontimeTestsRequired: parsed.data.ontime_tests_required,
+    deployNotify: parsed.data.deploy_notify === undefined ? undefined : JSON.stringify(parsed.data.deploy_notify),
     };
     if (parsed.data.repo_path !== undefined) {
       // repo_path の変更は登録時と同じ検査 (workspace 内 + git repo) を通し、
@@ -319,6 +323,16 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
   return app;
 }
 
+function parseDeployNotify(value: string | undefined): Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }> {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((row): row is { kind: "discord" | "slack" | "cc-channel"; target: string } => {
+      const item = row as { kind?: unknown; target?: unknown };
+      return !!item && typeof item.target === "string" && (item.kind === "discord" || item.kind === "slack" || item.kind === "cc-channel");
+    }) : [];
+  } catch { return []; }
+}
+
 async function inspectWorkspaceRepo(
   deps: ProjectCodesRouterDeps,
   repoPath: string,
@@ -400,13 +414,14 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
     contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    deploy_notify: parseDeployNotify(row.deploy_notify),
   };
 }
 
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
 function toAdminRow(
   row: ProjectCodeRow,
-): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean } {
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }> } {
   return {
     code: row.code,
     project: row.project,
@@ -417,5 +432,6 @@ function toAdminRow(
     contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    deploy_notify: parseDeployNotify(row.deploy_notify),
   };
 }

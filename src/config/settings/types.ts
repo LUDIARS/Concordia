@@ -48,6 +48,7 @@ export type SettingSectionId =
   | "logging"
   | "cache"
   | "pr-queue"
+  | "deploy-notify"
   | "github"
   | "federation"
   | "runtime";

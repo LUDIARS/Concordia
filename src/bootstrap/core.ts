@@ -82,6 +82,7 @@ import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/mod
 import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
+import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { DomainReviewRepo } from "../db/domain-review-repo.js";
 import { DomainReviewService, type DomainReviewPostPort } from "../domain-review/service.js";
 import { parseTeamSettings } from "../api/teams.js";
@@ -818,6 +819,37 @@ export async function startBackend(): Promise<BackendHandle> {
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
   const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
   const revisorRepositoryClient = createRevisorRepositoryClient(excubitorClient, resolveRevisorToken);
+  const serviceDeployed = {
+    ledger: new SqliteDeploymentLedger(db),
+    lookup: createDeploymentLookup({ projects: projectCodesRepo, excubitor: excubitorClient }),
+    delivery: createDeploymentDelivery({
+      // 名前付き webhook (discord / slack) は 設定 > デプロイ通知 で各 chat store に
+      // 暗号化保存された URL を配送時にだけ復号する。 project 行には URL を持たない。
+      webhookUrl: (name) => {
+        const store = name === "discord" ? discordConfig : name === "slack" ? slackConfig : null;
+        const encrypted = store?.get("deploy_webhook_url_enc");
+        if (!encrypted) return null;
+        try { return secretBox.decrypt(encrypted); } catch { return null; }
+      },
+      postCcChannel: async (content) => {
+        const channelId = discordConfig.get("deploy_notify_channel_id");
+        if (!channelId) throw new Error("deployment Discord channel is not configured");
+        const token = resolveDiscordConfig(discordConfig, secretBox).token;
+        if (!token) throw new Error("Discord bot token is not configured");
+        const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: "POST",
+          headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+        });
+        if (!response.ok) throw new Error(`deployment Discord channel rejected request (${response.status})`);
+      },
+    }),
+    // Same shared secret as Excubitor's existing dispatch. Loopback-only deployments may omit it.
+    authorize: (header: string | undefined) => {
+      const expected = discordConfig.get("excubitor_dispatch_token");
+      return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
+    },
+  };
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const githubLog = createChildLogger("github-issue-workflow");
   /** webhook delivery 記録の保持期間。 GitHub の再送はこれより遥かに短い。 */
@@ -1581,6 +1613,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorLocalPrCloser: revisorClient,
     revisorLocalPrPromoter: revisorClient,
     revisorConfig: revisorConfigRepo,
+    serviceDeployed,
     githubIssueWorkflow: {
       runs: githubIssueRuns,
       config: githubWorkflowConfig,

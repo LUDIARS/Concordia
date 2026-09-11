@@ -4,6 +4,9 @@
   "importFrom": "./ontime-runtime.js",
   "contracts": [
     { "id": "HR-sampling-budget", "criterion": "HR-sampling-budget: cap and time-slot exclusion hold for observed sampling decisions", "symbol": "sampleDecision", "file": "src/harness/reliability/guidance.ts", "module": "src/harness/reliability/contracts/sampling.contract.ts", "mode": "observe", "sample": 1 },
-    { "id": "HR-workflow-source", "criterion": "HR-workflow-source: automatic control packets never create workflow requests", "symbol": "workflowGuidance", "file": "src/harness/reliability/workflow-guidance.ts", "module": "src/harness/reliability/contracts/workflow.contract.ts", "mode": "observe", "sample": 1 }
+    { "id": "HR-workflow-source", "criterion": "HR-workflow-source: automatic control packets never create workflow requests", "symbol": "workflowGuidance", "file": "src/harness/reliability/workflow-guidance.ts", "module": "src/harness/reliability/contracts/workflow.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-1", "criterion": "C-1 handleServiceDeployment(event): (code,currentHash) が既処理なら配送しない", "symbol": "handleServiceDeployment", "file": "src/deploy/service-deployed.ts", "module": "src/deploy/service-deployed.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-2", "criterion": "C-2 composeDeploymentNotice(input): Revisor 取得不能でも反映のみの通知本文を返す", "symbol": "composeDeploymentNotice", "file": "src/deploy/service-deployed.ts", "module": "src/deploy/service-deployed.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-3", "criterion": "C-3 deliverDeploymentNotice(input): cc-channel は allowedMentions を空で配送する", "symbol": "deliverDeploymentNotice", "file": "src/deploy/service-deployed.ts", "module": "src/deploy/service-deployed.contract.ts", "mode": "observe", "sample": 1 }
   ]
 }

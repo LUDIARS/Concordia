@@ -150,6 +150,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
     project: entry.project,
     repo_path: entry.repo_path,
     repo_origin: entry.repo_origin ?? "",
+    deploy_notify: JSON.stringify(entry.deploy_notify),
   });
   // 他セッションの変更で行が入れ替わったら編集前の値も追随させる。
   /** @implements spec/feature/project-code-registry.md — 管理 UI refresh after external edits */
@@ -159,6 +160,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       project: entry.project,
       repo_path: entry.repo_path,
       repo_origin: entry.repo_origin ?? "",
+      deploy_notify: JSON.stringify(entry.deploy_notify),
     });
     setConfirmingDelete(false);
   }, [entry.code, entry.project, entry.repo_path, entry.repo_origin]);
@@ -170,6 +172,10 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
     if (draft.project !== entry.project) body.project = draft.project.trim();
     if (draft.repo_path !== entry.repo_path) body.repo_path = draft.repo_path.trim();
     if ((draft.repo_origin || null) !== entry.repo_origin) body.repo_origin = draft.repo_origin.trim() || null;
+    if (draft.deploy_notify !== JSON.stringify(entry.deploy_notify)) {
+      try { body.deploy_notify = JSON.parse(draft.deploy_notify) as Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; }
+      catch { onError("デプロイ通知先は JSON 配列で入力してください"); return; }
+    }
     if (Object.keys(body).length === 0) {
       setEditing(false);
       return;
@@ -185,6 +191,11 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
         <td className="py-1.5 pr-2">
           <input className={`${inputClass} w-16`} value={draft.code}
             onChange={(e) => setDraft({ ...draft, code: e.target.value })} />
+        </td>
+        <td className="py-1.5 pr-2" colSpan={2}>
+          <input className={inputClass} value={draft.deploy_notify} placeholder='[{"kind":"discord","target":"release"}]'
+            onChange={(e) => setDraft({ ...draft, deploy_notify: e.target.value })} />
+          <p className="text-[10px] text-subtle">discord/slack の target は 設定ページ「デプロイ通知」に登録した名前 (discord / slack)、cc-channel は target を空文字にします。</p>
         </td>
         <td className="py-1.5 pr-2">
           <input className={inputClass} value={draft.project}
@@ -218,6 +229,9 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle break-all">{entry.repo_path}</td>
       <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle break-all">
         {entry.repo_origin ?? <span className="text-subtle/60">(なし)</span>}
+      </td>
+      <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle max-w-40 break-all">
+        {entry.deploy_notify.length ? entry.deploy_notify.map((target) => `${target.kind}:${target.target || "専用ch"}`).join(" / ") : "(なし)"}
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input
@@ -407,6 +421,7 @@ export function ProjectCodes() {
               <th className="py-1 pr-2 font-medium">プロジェクト名</th>
               <th className="py-1 pr-2 font-medium">パス</th>
               <th className="py-1 pr-2 font-medium">GitHub URL</th>
+              <th className="py-1 pr-2 font-medium">デプロイ通知先</th>
               <th className="py-1 pr-2 font-medium text-center">ドメイン<br />レビュー</th>
               <th className="py-1 pr-2 font-medium">DDD / 契約</th>
               <th className="py-1 pr-2 font-medium">Rvモード</th>
@@ -428,7 +443,7 @@ export function ProjectCodes() {
               />
             ))}
             {data && data.entries.length === 0 && (
-              <tr><td colSpan={11} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
+              <tr><td colSpan={12} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
             )}
           </tbody>
         </table>

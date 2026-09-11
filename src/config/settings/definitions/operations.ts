@@ -130,6 +130,37 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
     managedBy: "設定 > Revisor",
   },
+  // デプロイ反映通知 (service.deployed) の webhook。 project registry の deploy_notify は
+  // 名前 (discord / slack) だけを持ち、 URL 本体はここで各 chat store に secret-box 暗号化して保存する。
+  // env からは読まない ([[feedback-secret-single-source-not-env]])。
+  {
+    key: "deploy_notify.webhook_discord",
+    section: "deploy-notify",
+    label: "デプロイ通知 Discord webhook",
+    description:
+      "project registry の deploy_notify で kind=discord, target=discord を指定したときに使う"
+      + " Discord incoming webhook URL。 正本は DB (discord_config) で secret-box 暗号化。",
+    kind: "secret",
+    envName: null,
+    dbKey: "deploy_webhook_url_enc",
+    dbStore: "discord",
+    defaultValue: null,
+    editable: true,
+  },
+  {
+    key: "deploy_notify.webhook_slack",
+    section: "deploy-notify",
+    label: "デプロイ通知 Slack webhook",
+    description:
+      "project registry の deploy_notify で kind=slack, target=slack を指定したときに使う"
+      + " Slack incoming webhook URL。 正本は DB (slack_config) で secret-box 暗号化。",
+    kind: "secret",
+    envName: null,
+    dbKey: "deploy_webhook_url_enc",
+    dbStore: "slack",
+    defaultValue: null,
+    editable: true,
+  },
 ] as const;
 
 /**

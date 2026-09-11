@@ -792,6 +792,7 @@ export const api = {
       contract_enabled?: boolean;
       tests_required?: boolean;
       ontime_tests_required?: boolean;
+      deploy_notify?: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
     },
   ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
   projectCodeDelete: (code: string) =>
@@ -1494,6 +1495,7 @@ export interface ProjectCodeAdminEntry {
   contract_enabled: boolean;
   tests_required: boolean;
   ontime_tests_required: boolean;
+  deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
   added_by: string;
   updated_at: number;
   teams: Array<{ id: string; name: string }>;

@@ -9,6 +9,18 @@ import type { SettingDefinition } from "../types.js";
 
 export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
   {
+    key: "discord.deploy_notify_channel_id",
+    section: "discord",
+    label: "デプロイ通知チャンネル",
+    description: "service.deployed の cc-channel 配送だけに使う専用 Discord チャンネル ID。セッション通知チャンネルとは共用しない。",
+    kind: "string",
+    envName: null,
+    dbKey: "deploy_notify_channel_id",
+    dbStore: "discord",
+    defaultValue: null,
+    editable: true,
+  },
+  {
     key: "discord.enabled",
     section: "discord",
     label: "Discord bot を有効化",

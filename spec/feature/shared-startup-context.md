@@ -22,7 +22,8 @@ status: implemented
   originなしの場合のみrootPathの完全一致を使い、フォルダ名や全体のCc workflowフラグから推測しない。
   登録レコードのworkflow省略は管理UIと同じ既存契約でrevisorと扱う。
   `github` はGitHubへのcommit/push/PR手順を注入し、Rvスキルは探索も案内もしない。
-  未登録・重複・照会失敗はunknownを明示し、提出/push前にCc設定確認を促す。登録は失敗させない。
+  正常取得した一覧で未登録と確認でき、remoteがGitHub repositoryを識別できる場合は通常のgithub workflowとする。
+  未登録と照会失敗を混同しない。remote不明・重複・不正応答・照会失敗はunknownとし、push許可へ倒さない。
   作業ポリシーと共通資料は同一の判定結果を使う。汎用Cc startup packetも一律pushを指示しない。
   Castra の `.claude/skills/<name>/SKILL.md` と旧 `<name>.md` 形式を扱い、必要なら user `.codex/skills` を参照する。
   session-end は Castra `.claude/commands/session-end.md` を優先する。
@@ -64,17 +65,21 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
   子プロセスの環境にcore.hooksPathを追加し、既存config countを保持する。準備失敗時は起動を失敗として返す。
 - `pre-push` は自分のLictor sidecarからsession同一性を取得し、Ccの `POST /v1/sessions/:id/push-check`
   へ実checkout rootを渡す。Ccはworkspace内の実git状態、sessionのrepo/origin/branch、現在のworkflowを照合する。
-  GitHub workflowだけ許可し、Rv/unknown/未登録/不一致/照会失敗/Castra rootを拒否する。
+  GitHub workflowだけ許可し、Rv/unknown/不一致/照会失敗/Castra rootを拒否する。
+  Rv未登録と確認済みのGitHub repoは、GitHub Appの導入やRv登録をpushの前提にしない。
   登録・workflow・refの変更やpushそのものをAPI側で実行しない。決定はsession eventへ記録する。
 - Ccのアドレスは既存のcatalog由来spawn environment、LictorはLICTOR_PORTから取得し固定ポートを持たない。
   サービスの起動や再起動をhookから行わない。headless等でsidecar同一性が取れないpushは拒否する。
 - 元のglobal/local hook設定を復元した子プロセスで既存hookを呼び、stdin/argv/終了コードを引き継ぐ。
+  Ccの挿入スロット以後に追加されたGit設定も保持する。後続の別hooksPath、欠損・不正な設定配列は拒否し、Ccのスロットだけを除去して後続を詰め直す。
   main pushやLFSなどの既存hookを削除しない。Revisor本体の公開プロセスにはこのsession環境を設定しない。
 - この変更はGit hookが呼ばれる操作を対象とする。`--no-verify`、環境削除、別Gitライブラリ等の
   意図的迂回に対するOS sandboxではない。provider固有の全ツール実行を捕捉したとは主張しない。
   command routing/作業イベントの既存hookは維持し、任意shellをAIの文章判定で代替する仕組みを追加しない。
 
 ## 検証・復旧
+
+登録テストの一時Git fixtureはセッション対象repoではない。fixtureの準備はローカルbare repoからfetchし、セッションのpush許可やGitフックを無効化しない。develop clone検証では公開adapterだけをローカルfixture操作へ差し替え、CLIは既存のpush実装を用いる。
 
 確認対象: 子repo/worktree・複数root・旧形式skill・欠落ファイル・共有索引のみ・既存sessionへの非再送。
 ローカルでは型検査のみ。テスト・起動・再起動はユーザの明示指示なしに実行しない。

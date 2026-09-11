@@ -6,7 +6,7 @@ const excubitor = {
 };
 
 describe("RevisorRepositoryClient", () => {
-  it("lists validated registrations and drops malformed rows", async () => {
+  it("lists validated registrations without requiring a workflow token or GitHub App", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
       repositories: [{
         repository: "LUDIARS/Concordia",
@@ -14,7 +14,7 @@ describe("RevisorRepositoryClient", () => {
         baseRef: "main",
         workflow: "github",
         testCases: [{ name: "test", command: "npm", args: ["test"], cwd: ".", timeoutMs: 600_000 }],
-      }, { repository: "broken", rootPath: "E:/broken", baseRef: "main" }],
+      }],
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const client = new RevisorRepositoryClient({ excubitor, fetchImpl });
 
@@ -27,6 +27,14 @@ describe("RevisorRepositoryClient", () => {
       "http://127.0.0.1:4240/v1/repositories",
       expect.objectContaining({ headers: { "x-concordia-actor": "concordia" } }),
     );
+  });
+
+  it("rejects malformed rows instead of treating their repositories as unregistered", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ repositories: [
+      { repository: "LUDIARS/Concordia", rootPath: "E:/Concordia", baseRef: "main" },
+    ] }), { status: 200 }));
+    const client = new RevisorRepositoryClient({ excubitor, fetchImpl });
+    await expect(client.listRepositories()).rejects.toThrow("invalid repository record");
   });
 
   it("authenticates workflow updates and preserves registration tests", async () => {

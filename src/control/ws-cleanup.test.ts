@@ -50,8 +50,10 @@ describe("inUseBranchSet", () => {
 
 // 実 git でのエンドツーエンド (コマンド文字列の正しさを裏取りする)。
 describe("cleanupRepo (real git)", () => {
-  function git(cwd: string, args: string[]) {
-    return defaultGitRunner(cwd, args);
+  async function git(cwd: string, args: string[]) {
+    const result = await defaultGitRunner(cwd, args);
+    if (!result.ok) throw new Error(`Fixture git ${args.join(" ")}: ${result.stderr}`);
+    return result;
   }
   async function setup(): Promise<{ root: string; work: string }> {
     const root = mkdtempSync(join(tmpdir(), "wsclean-"));
@@ -65,7 +67,13 @@ describe("cleanupRepo (real git)", () => {
     writeFileSync(join(work, "f.txt"), "a\n", "utf-8");
     await git(work, ["add", "-A"]);
     await git(work, ["commit", "-m", "init"]);
-    await git(work, ["push", "-u", "origin", "main"]);
+    // Seed the local bare fixture by fetching; no session push authorization is needed.
+    async function publishFixtureBranch(branch: string) {
+      await git(origin, ["fetch", work, `refs/heads/${branch}:refs/heads/${branch}`]);
+      await git(work, ["fetch", "origin"]);
+      await git(work, ["branch", `--set-upstream-to=origin/${branch}`, branch]);
+    }
+    await publishFixtureBranch("main");
 
     // merged-feat: main に取り込む (ancestor)
     await git(work, ["checkout", "-b", "merged-feat"]);
@@ -79,7 +87,7 @@ describe("cleanupRepo (real git)", () => {
     writeFileSync(join(work, "g.txt"), "x\n", "utf-8");
     await git(work, ["add", "-A"]);
     await git(work, ["commit", "-m", "wip"]);
-    await git(work, ["push", "-u", "origin", "unmerged-feat"]);
+    await publishFixtureBranch("unmerged-feat");
     await git(work, ["checkout", "main"]);
 
     // ghost-feat: push 後に origin 側を削除 (= PR squash-merge + delete 相当)
@@ -87,9 +95,9 @@ describe("cleanupRepo (real git)", () => {
     writeFileSync(join(work, "h.txt"), "y\n", "utf-8");
     await git(work, ["add", "-A"]);
     await git(work, ["commit", "-m", "ghost"]);
-    await git(work, ["push", "-u", "origin", "ghost-feat"]);
+    await publishFixtureBranch("ghost-feat");
     await git(work, ["checkout", "main"]);
-    await git(work, ["push", "origin", "--delete", "ghost-feat"]);
+    await git(origin, ["update-ref", "-d", "refs/heads/ghost-feat"]);
 
     return { root, work };
   }
@@ -113,7 +121,7 @@ describe("cleanupRepo (real git)", () => {
   it("dry-run plans deletions but does not mutate; apply deletes the right branches", async () => {
     const { root, work } = await setup();
     try {
-      const runner: GitRunner = git;
+      const runner: GitRunner = defaultGitRunner;
       const dry = await cleanupRepo(repoStatus(work), { apply: false, fetch: true }, runner);
       const dryText = [...dry.actions, ...dry.deferred].join("\n");
       expect(dryText).toContain("merged-feat");

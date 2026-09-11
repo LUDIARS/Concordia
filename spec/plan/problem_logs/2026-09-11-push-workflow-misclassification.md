@@ -1,0 +1,14 @@
+# Revisor未登録とGitフック環境の誤判定
+
+necoから、Rv未登録repoでpushが拒否されたりGitHub Appを要求されたりするとの報告。
+現行コードは正常取得した登録一覧の未登録をunknownへ分類し、pre-pushが拒否していた。
+またCcの挿入Git設定が配列の末尾にあることを必須とし、sandbox等が追加した無関係な設定でGit操作が失敗する。
+
+未登録確定のGitHub remoteはgithub workflowとし、照会失敗・不正応答・重複はunknownを維持する。
+Git設定はCcのスロットだけ除去し、後続の無関係な設定を保持する。後続hooksPath上書きは拒否する。
+既存Git hook、main保護、実git認証は維持する。GitHub App不足の具体的な発生箇所は対象repo・操作の回答待ちで、原因確定としない。
+
+## Revisor #1690 登録テスト
+
+全体テストで一時repoへのfixture用pushがCcの対象一致検査に拒否された。develop cloneの4件とworkspace cleanupの1件に影響し、後者は準備コマンドの失敗を見逃していた。
+fixtureは一時bare repoからのfetchで構成する。develop作成の公開処理だけテストで差し替え、CLIの実pushと既存ガードは保持する。cleanupの準備はGit失敗を即時報告し、整理対象とupstream消失を実Gitで検証する。

@@ -3,20 +3,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { restoreInheritedGitEnvironment } from './session-git-hook-env.mjs';
 
 const hook = process.argv[2];
 const args = process.argv.slice(3);
-const env = { ...process.env };
-const index = Number(env.CONCORDIA_SESSION_HOOK_CONFIG_INDEX);
-const count = Number(env.GIT_CONFIG_COUNT);
-if (!Number.isInteger(index) || index < 0 || count !== index + 1
-  || env[`GIT_CONFIG_KEY_${index}`] !== 'core.hooksPath') {
-  process.stderr.write('[Cc hook] Git hook environment is inconsistent; operation blocked.\n');
+let env;
+try { env = restoreInheritedGitEnvironment(process.env); } catch (error) {
+  process.stderr.write(`[Cc hook] ${error.message}\n`);
   process.exit(1);
 }
-delete env[`GIT_CONFIG_KEY_${index}`];
-delete env[`GIT_CONFIG_VALUE_${index}`];
-env.GIT_CONFIG_COUNT = String(index);
 const git = (values) => execFileSync('git', values, { env, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const receivesInput = ['pre-push', 'post-rewrite', 'reference-transaction'].includes(hook);
 const input = receivesInput ? readFileSync(0) : undefined;

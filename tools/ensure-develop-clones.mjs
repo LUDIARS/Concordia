@@ -231,7 +231,8 @@ export async function ensureDevelopClones(options) {
       }
 
       if (!developExists) {
-        createDevelopBranch(repository, sourceBranch);
+        // Keep publication replaceable in local fixture tests; CLI uses real Git.
+        (options.createDevelopBranch ?? createDevelopBranch)(repository, sourceBranch);
         summary.branchesCreated += 1;
       }
       if (cloneDirty) {

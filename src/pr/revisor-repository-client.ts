@@ -59,7 +59,11 @@ export class RevisorRepositoryClient implements RevisorRepositoryAdmin {
     if (!Array.isArray(body?.repositories)) {
       throw new Error("Revisor returned an invalid repository listing");
     }
-    return body.repositories.flatMap(parseRepositoryRecord);
+    const records = body.repositories.flatMap(parseRepositoryRecord);
+    // Dropping invalid rows would turn an unreadable registration into an
+    // apparently unregistered repository, incorrectly enabling GitHub pushes.
+    if (records.length !== body.repositories.length) throw new Error("Revisor returned an invalid repository record");
+    return records;
   }
 
   async setRepositoryWorkflow(

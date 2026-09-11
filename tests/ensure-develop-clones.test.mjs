@@ -11,7 +11,17 @@ let runGit;
 
 beforeAll(async () => {
   const module = await import(/* @vite-ignore */ toolUrl);
-  ({ ensureDevelopClones, findMainRepositories, parseArgs, runGit } = module);
+  ({ findMainRepositories, parseArgs, runGit } = module);
+  ensureDevelopClones = (options) => module.ensureDevelopClones({ ...options,
+    createDevelopBranch(repository, sourceBranch) {
+      // Replace only publication: fixture data stays inside this test's root.
+      expect(repository).toBe(join(options.root, basename(repository)));
+      expect(sourceBranch).toBe("main");
+      const remote = join(options.root, `${basename(repository)}.git-remote`);
+      git(remote, "fetch", pathToFileURL(repository).href,
+        `refs/remotes/origin/${sourceBranch}:refs/heads/develop`);
+    },
+  });
 });
 
 const temporaryRoots = [];
@@ -57,7 +67,9 @@ function createRepository(root, name = "Repo") {
   git(repository, "add", "README.md");
   git(repository, "commit", "-m", "initial");
   git(repository, "remote", "add", "origin", pathToFileURL(remote).href);
-  git(repository, "push", "-u", "origin", "main");
+  git(remote, "fetch", pathToFileURL(repository).href, "refs/heads/main:refs/heads/main");
+  git(repository, "fetch", "origin");
+  git(repository, "branch", "--set-upstream-to=origin/main", "main");
   return { remote, repository };
 }
 
@@ -101,7 +113,7 @@ describe("ensure-develop-clones", () => {
     writeFileSync(join(repository, "updated.txt"), "updated\n", "utf8");
     git(repository, "add", "updated.txt");
     git(repository, "commit", "-m", "update develop");
-    git(repository, "push", "origin", "HEAD:develop");
+    git(remote, "fetch", pathToFileURL(repository).href, "HEAD:refs/heads/develop");
 
     const second = await ensureDevelopClones({ root, apply: true, write: () => {} });
     expect(second).toMatchObject({ branchesCreated: 0, clonesCreated: 0, updated: 1, failed: 0 });

@@ -25,7 +25,7 @@ function responseFor(
   input: string | URL | Request,
   products: readonly unknown[] = [projection],
 ): Response {
-  const url = String(input);
+  const url = new URL(String(input)).pathname;
   if (url.endsWith("/v1/test-workflow")) {
     return new Response(JSON.stringify({ products }), { status: 200 });
   }
@@ -140,12 +140,15 @@ describe("RevisorTestWorkflowClient", () => {
   });
 
   it("reads terminal local PRs for Test Forum close announcements", async () => {
+    const requested: string[] = [];
     const client = new RevisorTestWorkflowClient({
       excubitor: {
         findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })),
       },
       fetchImpl: vi.fn(async (input: string | URL | Request) => {
-        if (String(input).endsWith("/v1/local-prs")) {
+        const url = new URL(String(input));
+        requested.push(url.pathname + url.search);
+        if (url.pathname === "/v1/local-prs") {
           return new Response(JSON.stringify({
             pullRequests: [
               { repository: "LUDIARS/Concordia", number: 42, status: "merged", mergeCommitSha: "a".repeat(40) },
@@ -164,6 +167,26 @@ describe("RevisorTestWorkflowClient", () => {
       { repository: "LUDIARS/Lictor", number: 43, status: "closed", mergeCommitSha: null },
       { repository: "LUDIARS/Augur", number: 45, status: "merged", mergeCommitSha: null },
     ]);
+    // 終局投稿に要るのは (リポ, 番号, 状態, マージ先) だけなので summary 表示で足りる。
+    expect(requested).toEqual(["/v1/local-prs?view=summary"]);
+  });
+
+  it("reads only open PRs for forum candidates and products, sharing one fetch", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input));
+    const client = createRevisorTestWorkflowClient(
+      { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      () => undefined,
+      { fetchImpl, readCacheTtlMs: 1000, now: () => 0 },
+    );
+
+    await client.listProducts();
+    await client.listOpenLocalPrs();
+
+    const localPrLists = fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname === "/v1/local-prs")
+      .map((url) => url.search);
+    expect(localPrLists).toEqual(["?state=open"]);
   });
 
   it("rejects malformed products instead of silently dropping them", async () => {
@@ -218,7 +241,7 @@ describe("RevisorTestWorkflowClient", () => {
   // Discord client (本社 + 子会社) ごとに走る定期 reconcile が、 同じ約 1MB の一覧を
   // 何度も取り直してイベントループを止めていた
   // ([[2026-09-03-test-forum-reconcile-event-loop-stall]])。
-  it("serves the open and terminal PR lists from one upstream fetch inside the TTL", async () => {
+  it("serves the open and terminal PR lists from one upstream fetch each inside the TTL", async () => {
     const findService = vi.fn(async () => ({
       code: "revisor",
       name: "Revisor",
@@ -237,16 +260,19 @@ describe("RevisorTestWorkflowClient", () => {
     await Promise.all([client.listOpenLocalPrs(), client.listTerminalLocalPrs()]);
     await Promise.all([client.listOpenLocalPrs(), client.listTerminalLocalPrs()]);
 
-    const paths = fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname);
-    expect(paths.filter((path) => path === "/v1/local-prs")).toHaveLength(1);
-    expect(paths.filter((path) => path === "/v1/repositories")).toHaveLength(1);
+    const requests = () => fetchImpl.mock.calls.map(([input]) => {
+      const url = new URL(String(input));
+      return url.pathname + url.search;
+    });
+    expect(requests().filter((path) => path === "/v1/local-prs?state=open")).toHaveLength(1);
+    expect(requests().filter((path) => path === "/v1/local-prs?view=summary")).toHaveLength(1);
+    expect(requests().filter((path) => path === "/v1/repositories")).toHaveLength(1);
     // Excubitor の catalog 引きも同じ TTL で 1 回に畳む。
     expect(findService).toHaveBeenCalledTimes(1);
 
     now = 1000;
     await client.listOpenLocalPrs();
-    expect(fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname)
-      .filter((path) => path === "/v1/local-prs")).toHaveLength(2);
+    expect(requests().filter((path) => path === "/v1/local-prs?state=open")).toHaveLength(2);
   });
 
   it("invalidateReads forces the next list to hit Revisor again", async () => {

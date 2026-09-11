@@ -16,6 +16,13 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_READ_CACHE_TTL_MS = 5_000;
 /** キャッシュキー。 Revisor の path と Excubitor の catalog 引きを 1 つの cache に載せる。 */
 const SERVICE_LOOKUP_CACHE_KEY = `service:${REVISOR_SERVICE_CODE}`;
+/**
+ * 一覧の取り方。 Test Forum に載せるのは open な PR だけで、 決着済みの PR は終局投稿の
+ * (リポ, 番号, 状態, マージ先) しか使わない。 全件・全フィールドの一覧は 100MB を超え
+ * (1,685 件で 142MB)、 取得とパースでイベントループが秒単位で止まっていた。
+ */
+const OPEN_LOCAL_PRS_PATH = "/v1/local-prs?state=open";
+const TERMINAL_LOCAL_PRS_PATH = "/v1/local-prs?view=summary";
 
 export interface RevisorTestWorkflowProduct {
   repository: string;
@@ -201,7 +208,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   async listProducts(): Promise<readonly RevisorTestWorkflowProduct[]> {
     const [workflowBody, prsBody, repositoriesBody] = await Promise.all([
       this.getListJson("/v1/test-workflow"),
-      this.getListJson("/v1/local-prs"),
+      this.getListJson(OPEN_LOCAL_PRS_PATH),
       this.getListJson("/v1/repositories"),
     ]) as Array<Record<string, unknown> | null>;
     const rawProducts = workflowBody?.products;
@@ -247,7 +254,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
 
   async listOpenLocalPrs(): Promise<readonly RevisorOpenLocalPr[]> {
     const [prsBody, repositoriesBody] = await Promise.all([
-      this.getListJson("/v1/local-prs"),
+      this.getListJson(OPEN_LOCAL_PRS_PATH),
       this.getListJson("/v1/repositories"),
     ]) as Array<Record<string, unknown> | null>;
     const rows = prsBody?.pullRequests;
@@ -272,7 +279,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   }
 
   async listTerminalLocalPrs(): Promise<readonly RevisorTerminalLocalPr[]> {
-    const body = await this.getListJson("/v1/local-prs") as Record<string, unknown> | null;
+    const body = await this.getListJson(TERMINAL_LOCAL_PRS_PATH) as Record<string, unknown> | null;
     const rows = body?.pullRequests;
     if (!Array.isArray(rows)) {
       throw new Error("Revisor returned an invalid local PR list response");
@@ -299,8 +306,8 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   /**
    * 一覧系 GET。 同じ path への重複取得を TTL + single-flight で 1 回に畳む。
    *
-   * 応答は約 1MB あり、 パースはメインスレッドで走る。 client ごと・用途ごとに
-   * 取り直すとイベントループがその回数ぶん止まるため、 一覧はここを通す。
+   * 応答のパースはメインスレッドで走る。 client ごと・用途ごとに取り直すと
+   * イベントループがその回数ぶん止まるため、 一覧はここを通す。 キーは query 込みの path。
    * 単一 PR の詳細 ({@link getProductDetail}) は鮮度が要るので通さない。
    */
   private getListJson(path: string): Promise<unknown> {

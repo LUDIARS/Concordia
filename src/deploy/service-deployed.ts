@@ -8,7 +8,12 @@ export interface ServiceDeployedEvent { code: string; previousHash: string; curr
 export interface RevisorChanges { from: string; to: string; commits: Array<{ sha: string; subject: string }>; pullRequests: Array<{ number: number; title: string; author: string; mergedAt: string | null }>; markdown: string; notice: string; }
 export interface DeploymentLedger { claim(code: string, currentHash: string): boolean; }
 export interface DeploymentDelivery { discord(target: string, content: string): Promise<void>; slack(target: string, content: string): Promise<void>; ccChannel(content: string): Promise<void>; subsidiaryChannel(target: string, botTokenEnc: string, content: string): Promise<void>; }
-export interface DeploymentLookup { findProject(code: string): { repo_origin: string | null; deploy_notify: DeployNotifyTarget[] } | null; changes(repository: string, from: string, to: string): Promise<RevisorChanges | null>; }
+export interface DeploymentLookup {
+  findProject(code: string): { repo_origin: string | null; deploy_notify: DeployNotifyTarget[] } | null;
+  changes(repository: string, from: string, to: string): Promise<RevisorChanges | null>;
+  /** 本社の無条件宛先。 project registry に行が無いサービスでも本社には反映を知らせる (CC-INV-06)。 */
+  hqTargets?(): DeployNotifyTarget[];
+}
 export interface DeploymentDeliveryResult {
   target: Pick<DeployNotifyTarget, "kind" | "target" | "subsidiaryId">;
   error?: string;
@@ -55,7 +60,12 @@ deliverDeploymentNotice = contract(deliverDeploymentNotice, { ...augurContract_5
 export async function handleServiceDeployment(input: { event: ServiceDeployedEvent; ledger: DeploymentLedger; lookup: DeploymentLookup; delivery: DeploymentDelivery }): Promise<DeploymentOutcome> {
   if (!input.ledger.claim(input.event.code, input.event.currentHash)) return { duplicate: true, delivered: [], failed: [], fallback: false };
   const project = input.lookup.findProject(input.event.code);
-  if (!project) return { duplicate: false, delivered: [], failed: [], fallback: true };
+  if (!project) {
+    // registry に無いサービス (Excubitor だけが知るもの) でも本社には「反映のみ」で知らせる。
+    const hq = input.lookup.hqTargets?.() ?? [];
+    const results = await deliverDeploymentNotice({ targets: hq, content: composeDeploymentNotice(input.event, null), delivery: input.delivery });
+    return { duplicate: false, ...results, fallback: true };
+  }
   let changes: RevisorChanges | null = null;
   if (project.repo_origin) { try { changes = await input.lookup.changes(project.repo_origin, input.event.previousHash, input.event.currentHash); } catch { changes = null; } }
   const results = await deliverDeploymentNotice({ targets: project.deploy_notify, content: composeDeploymentNotice(input.event, changes), delivery: input.delivery });

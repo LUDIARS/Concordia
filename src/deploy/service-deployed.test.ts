@@ -10,6 +10,19 @@ describe("service deployed notification", () => {
     expect(result).toEqual({ duplicate: true, delivered: [], failed: [], fallback: false });
   });
 
+  it("still notifies HQ when the service has no project registry row", async () => {
+    const hqDelivery: DeploymentDelivery = { discord: vi.fn(), slack: vi.fn(), ccChannel: vi.fn(), subsidiaryChannel: vi.fn() };
+    const result = await handleServiceDeployment({
+      event: { ...event, code: "genius" },
+      ledger: { claim: () => true },
+      lookup: { findProject: () => null, changes: async () => null, hqTargets: () => [{ kind: "cc-channel", target: "" }] },
+      delivery: hqDelivery,
+    });
+    expect(result.fallback).toBe(true);
+    expect(result.delivered).toEqual([{ target: { kind: "cc-channel", target: "" } }]);
+    expect(hqDelivery.ccChannel).toHaveBeenCalledWith(expect.stringContaining("[genius] デプロイ反映"));
+  });
+
   it("C-2 falls back to deployment-only wording when Revisor is unavailable", () => {
     expect(composeDeploymentNotice(event, null)).toContain("反映のみ");
   });

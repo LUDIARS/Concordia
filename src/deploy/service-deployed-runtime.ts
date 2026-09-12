@@ -3,6 +3,7 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
+import { matchProjectRow } from "./service-code-match.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { resolveDeploymentTargets } from "./deployment-targets.js";
 import type {
@@ -30,8 +31,12 @@ export function createDeploymentLookup(input: {
   hqTargets: () => Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
 }): DeploymentLookup {
   return {
+    // 本社宛先は project 行の有無に関わらず配る (handleServiceDeployment が行無しのとき参照する)。
+    hqTargets: () => input.hqTargets(),
     findProject: (code) => {
-      const row = input.projects.findByCode(code);
+      // Excubitor のサービスコード (`revisor` / `memoria-server`) は Cc の project code (`Rv`) と
+      // 一致しないので、 完全一致 → project 名 → repo_origin 末尾 の順で引く。
+      const row = input.projects.findByCode(code) ?? matchProjectRow(input.projects.list(), code);
       if (!row) return null;
       const subsidiaries = input.subsidiaries.list().flatMap((subsidiary) => input.subsidiaries.listDeployNotify(subsidiary.id)
         .filter((target) => target.enabled === 1)

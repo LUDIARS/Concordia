@@ -117,7 +117,10 @@ async function main() {
   try {
     process.exitCode = await runSessionGitHook({
       hook, args, environment: process.env, restoreEnvironment: restoreInheritedGitEnvironment,
-      readGlobalHooksPath, isExecutable, runManagedHook,
+      readGlobalHooksPath, isExecutable,
+      // runSessionGitHook は (restoredEnv, environment) で呼ぶ。hook 名と引数はここで閉じ込める
+      // (直接渡すと hook に env が入り `args is not iterable` で全 ref 更新が止まる)。
+      runManagedHook: (env) => runManagedHook(hook, args, env),
       runOriginalHook: (path, originalArgs, env) => {
         const result = spawnSync(path, originalArgs, { env, stdio: ['inherit', 'inherit', 'inherit'], windowsHide: true });
         if (result.error) throw result.error;

@@ -1,4 +1,5 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
+import { createDiscordPushWarning } from "./push-warning.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -328,6 +329,7 @@ export interface DiscordBotDeps {
    * standalone chat-worker は未指定のまま → HTTP + リトライにフォールバック。
    */
   answerQuestion?: DiscordCommandDeps["answerQuestion"];
+  pushWarningBridge?: import("../platform/push-warning.js").PushWarningBridge;
   /**
    * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
@@ -481,6 +483,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
   const permissionActions: PermissionActionStore = new Map();
+  const pushWarning = deps.pushWarningBridge ? createDiscordPushWarning({ client, sessions: deps.sessionsRepo, channels: sessionChannelsRepo,
+    bridge: deps.pushWarningBridge,
+    owns: ownsSession, isAllowed: (userId) => deps.isKillSwitchUserAllowed?.(userId) === true,
+    warn: (message) => log.warn(message) }) : null;
   const spawnApprovals: SpawnApprovalStore = new Map();
   const forumSpawnApprovals: ForumSpawnApprovalStore = new Map();
   // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。
@@ -694,6 +700,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let reconcileRunning = false;
   const clientListenerCleanup: Array<() => void> = [];
   const detachClientListeners = (): void => {
+    pushWarning?.stop();
     for (const detach of clientListenerCleanup.splice(0).reverse()) detach();
     client.off(Events.MessageReactionAdd, onMessageReactionAdd);
     client.off(Events.MessageReactionRemove, onMessageReactionRemove);
@@ -1773,6 +1780,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // already been acknowledged」/「Unknown interaction」になる。 また子会社 guild の
     // /spawn を本社 runtime が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
+    if (pushWarning?.handles(interaction)) {
+      void pushWarning.handle(interaction).catch(() => log.warn("push warning interaction failed"));
+      return;
+    }
     if (!layout) {
       // 起動/再起動直後は layout 未準備。 旧実装は黙って捨てて "This interaction failed"
       // に見えていた (spawn が効いたり効かなかったりする一因)。 明示的に案内する。
@@ -2593,6 +2604,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     throw error;
   }
   if (gatewayClosed) throw new Error("discord gateway closed during startup");
+  pushWarning?.start();
 
   return {
     name: "discord",
@@ -2696,6 +2708,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     },
     async stop() {
       stopping = true;
+      pushWarning?.stop();
       // 自分が登録した場合だけ外す。子会社 Bot の停止で本社の egress を落とさない。
       if (federationEgressRegistered) {
         federationEgressRegistered = false;

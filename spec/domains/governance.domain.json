@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/control/push-warning-dispatch(?:\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/push-warning(?:-dialog)?(?:\\.test)?\\.ts$"
     },

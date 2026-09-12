@@ -23,7 +23,7 @@ try {
     const ccPort = Number(process.env.CONCORDIA_PORT);
     if (![port, ccPort].every((value) => Number.isInteger(value) && value > 0 && value < 65536)) throw new Error('Cc/Lictor address is unavailable');
     const read = async (url, options = {}) => {
-      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(120000) });
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(660000) });
       if (!response.ok) throw new Error(`Policy request failed (${response.status})`);
       return response.json();
     };

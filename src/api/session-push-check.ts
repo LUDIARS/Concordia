@@ -8,7 +8,7 @@ import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-
 import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { PushWarningSchema, isWarningRemoteAllowed, type PushWarningPrompt, type PushWarningDecision } from "../control/push-warning.js";
-import { requestPushWarning } from "../control/push-warning-dialog.js";
+import { requestDiscordPushWarning } from "../control/push-warning-dispatch.js";
 
 export function sessionPushCheckRouter(deps: {
   sessions: SessionsRepo;
@@ -49,7 +49,7 @@ export function sessionPushCheckRouter(deps: {
             const requestId = randomUUID();
             deps.sessions.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000),
               kind: "push_warning_requested", payload: { requestId, ...prompt } });
-            const decision = await (deps.requestWarning ?? requestPushWarning)(prompt);
+            const decision = await (deps.requestWarning ?? requestDiscordPushWarning)(prompt);
             deps.sessions.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000),
               kind: "push_warning_decided", payload: { requestId, ...prompt, decision } });
             reason = `WARNING: ${decision}; push blocked`;

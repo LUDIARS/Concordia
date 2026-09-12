@@ -56,6 +56,9 @@ import { seedHarnessRules } from "../subsidiary/harness-seed.js";
 import { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { seedInjectManuals } from "../control/inject-manual-seed.js";
 import { answerPendingQuestion, questionStoreFromRepo } from "../control/answer-question.js";
+import { registerPushWarningChannel } from "../control/push-warning-dispatch.js";
+import { pushWarningText } from "../control/push-warning.js";
+import { lastHumanRequester } from "../control/requester.js";
 import { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import { runClaude } from "../rules/claude-runner.js";
@@ -1459,6 +1462,11 @@ export async function startBackend(): Promise<BackendHandle> {
     setDomainReviewPoster: (poster) => { domainReviewPoster = poster; },
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
     // 「fetch failed」でユーザに何も返らない事故になるため使わない)。
+    pushWarningBridge: {
+      register: registerPushWarningChannel,
+      format: pushWarningText,
+      requester: (sessionId) => lastHumanRequester(repo.recentEvents(sessionId, 100)),
+    },
     answerQuestion: (sessionId, body) =>
       answerPendingQuestion(
         { sessions: repo, questions: questionStoreFromRepo(pendingQuestions) },

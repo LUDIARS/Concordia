@@ -125,6 +125,7 @@ import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
 import { createRevisorClient } from "../pr/revisor-client.js";
+import { RevisorServiceVersionsClient } from "../service-versions/revisor-versions-client.js";
 import { createRevisorRepositoryClient } from "../pr/revisor-repository-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
@@ -1642,6 +1643,9 @@ export async function startBackend(): Promise<BackendHandle> {
     staff: staffRepo,
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
+    revisorServiceVersions: revisorClient
+      ? new RevisorServiceVersionsClient({ revisor: revisorClient })
+      : undefined,
     revisorAdmin: revisorRepositoryClient,
     revisorLocalPrMerger: revisorClient,
     revisorLocalPrCloser: revisorClient,

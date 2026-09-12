@@ -103,11 +103,17 @@ export class RevisorRepositoryClient implements RevisorRepositoryAdmin {
   }
 
   private async request(init?: RequestInit): Promise<Response> {
-    const service = await this.options.excubitor.findService(REVISOR_SERVICE_CODE);
+    // catalog 照会と Revisor 本体への往復で予算を共有する。 catalog 照会を予算の外に置くと、
+    // Excubitor が詰まったときに待ち時間が青天井になり、 呼び出し元の HTTP handler ごと
+    // event loop を止める (2026-09-12: PATCH /v1/sessions/:id が 753 秒 in-flight)。
+    const deadline = Date.now() + this.timeoutMs;
+    const service = await this.options.excubitor.findService(REVISOR_SERVICE_CODE, this.timeoutMs);
     const port = resolveServicePort(service);
     if (port === null) throw new Error(`Excubitor service "${REVISOR_SERVICE_CODE}" has no valid port`);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new Error(`Revisor repository request timed out resolving "${REVISOR_SERVICE_CODE}"`);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), remainingMs);
     try {
       return await this.fetchImpl(`http://127.0.0.1:${port}/v1/repositories`, {
         ...init,

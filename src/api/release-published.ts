@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { handleReleasePublished, type ReleaseNoticeDelivery, type ReleaseNoticeLedger } from "../deploy/release-published.js";
+import {
+  handleReleasePublished,
+  type ReleaseNoticeDelivery,
+  type ReleaseNoticeLedger,
+  type ReleaseNoticeLookup,
+} from "../deploy/release-published.js";
 
 const EventSchema = z.object({
   repository: z.string().trim().min(1).max(512),
@@ -16,7 +21,7 @@ const EventSchema = z.object({
 
 export function releasePublishedRouter(deps: {
   ledger: ReleaseNoticeLedger;
-  channelConfigured: () => boolean;
+  lookup: ReleaseNoticeLookup;
   delivery: ReleaseNoticeDelivery;
   authorize: (header: string | undefined) => boolean;
   log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
@@ -26,10 +31,19 @@ export function releasePublishedRouter(deps: {
     if (!deps.authorize(c.req.header("x-excubitor-token"))) return c.json({ error: "unauthorized" }, 401);
     const parsed = EventSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
-    const outcome = await handleReleasePublished({ event: parsed.data, ledger: deps.ledger, channelConfigured: deps.channelConfigured(), delivery: deps.delivery });
-    const detail = { repository: parsed.data.repository, tag: parsed.data.tag, ...outcome };
-    if (outcome.failed) deps.log?.warn(detail, "release-published delivery failed");
-    else if (outcome.unconfigured) deps.log?.info(detail, "release-published delivery skipped because no channel is configured");
+    const outcome = await handleReleasePublished({ event: parsed.data, ledger: deps.ledger, lookup: deps.lookup, delivery: deps.delivery });
+    const detail = {
+      repository: parsed.data.repository,
+      tag: parsed.data.tag,
+      duplicate: outcome.duplicate,
+      unconfigured: outcome.unconfigured,
+      delivered: outcome.delivered.map((result) => result.target),
+      failed: outcome.failed.map((result) => ({ ...result.target, error: result.error })),
+    };
+    // 一部の宛先だけ落ちる構成になったので、 失敗の有無は件数で見る。 1 件でも落ちていれば
+    // 残りが届いていても warn に出す — 子会社だけ届いていない状態を info に埋めない。
+    if (outcome.failed.length > 0) deps.log?.warn(detail, "release-published delivery failed");
+    else if (outcome.unconfigured) deps.log?.info(detail, "release-published delivery skipped because no destination is configured");
     else deps.log?.info(detail, "release-published delivery completed");
     return c.json(outcome, outcome.duplicate ? 200 : 202);
   });

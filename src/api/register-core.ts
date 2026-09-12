@@ -67,7 +67,7 @@ import { releasePublishedRouter } from "./release-published.js";
 import { aiNotesRouter } from "./ai-notes.js";
 import type { PublicationService } from "../ai-notes/publication-service.js";
 import type { DeploymentDelivery, DeploymentLedger, DeploymentLookup } from "../deploy/service-deployed.js";
-import type { ReleaseNoticeDelivery, ReleaseNoticeLedger } from "../deploy/release-published.js";
+import type { ReleaseNoticeDelivery, ReleaseNoticeLedger, ReleaseNoticeLookup } from "../deploy/release-published.js";
 import { sessionPushCheckRouter } from "./session-push-check.js";
 import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { domainReviewRouter, type DomainReviewApiDeps } from "./domain-review.js";
@@ -285,7 +285,7 @@ export interface CoreRuntimeDeps {
   /** Excubitor の service.deployed を受理する adapter 群。未注入なら受信面を公開しない。 */
   serviceDeployed?: { ledger: DeploymentLedger; lookup: DeploymentLookup; delivery: DeploymentDelivery; authorize: (header: string | undefined) => boolean };
   /** Revisor の release-published を受理する adapter 群。 */
-  releasePublished?: { ledger: ReleaseNoticeLedger; channelConfigured: () => boolean; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
+  releasePublished?: { ledger: ReleaseNoticeLedger; lookup: ReleaseNoticeLookup; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
   /** 新規プロジェクトの本社通知 (登録で控え、初回 push で 1 回だけ送る)。 */
   projectNotice?: { arm: (event: ProjectCreatedEvent) => void; notifyPushed: (repository: string) => Promise<void> };
   aiNotePublication?: PublicationService;

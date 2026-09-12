@@ -86,7 +86,7 @@ import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
-import { SqliteReleaseNoticeLedger, createReleaseNoticeDelivery } from "../deploy/release-published-runtime.js";
+import { SqliteReleaseNoticeLedger, createReleaseNoticeLookup } from "../deploy/release-published-runtime.js";
 import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
 import { handleProjectPushed } from "../deploy/project-created.js";
 import { DomainReviewRepo } from "../db/domain-review-repo.js";
@@ -871,18 +871,33 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   const releasePublished = {
     ledger: new SqliteReleaseNoticeLedger(db),
-    channelConfigured: () => Boolean(readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id")),
-    delivery: createReleaseNoticeDelivery(async (content) => {
-      const channelId = readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id");
-      if (!channelId) throw new Error("release Discord channel is not configured");
-      const token = resolveDiscordConfig(discordConfig, secretBox).token;
-      if (!token) throw new Error("Discord bot token is not configured");
-      const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-        method: "POST",
-        headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-      });
-      if (!response.ok) throw new Error(`release Discord channel rejected request (${response.status})`);
+    // 本社はリリース専用チャンネル。 子会社はデプロイ通知と同じ担当判定 (CC-INV-06) で
+    // 絞る。 プロジェクト個別の deploy_notify は渡さない — 「反映した」 の宛先に
+    // 「公開した」 を流さないため (spec/feature/release-published-notify.md)。
+    lookup: createReleaseNoticeLookup({
+      projects: projectCodesRepo,
+      subsidiaries: subsidiaryRepo,
+      hqTargets: () => (readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id")
+        ? [{ kind: "cc-channel" as const, target: "" }]
+        : []),
+    }),
+    delivery: createDeploymentDelivery({
+      // リリース通知は名前付き webhook を宛先に持たない (本社チャンネルと子会社チャンネル
+      // だけ)。 transport を共有するために口だけ埋める。
+      webhookUrl: () => null,
+      postCcChannel: async (content) => {
+        const channelId = readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id");
+        if (!channelId) throw new Error("release Discord channel is not configured");
+        const token = resolveDiscordConfig(discordConfig, secretBox).token;
+        if (!token) throw new Error("Discord bot token is not configured");
+        const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: "POST",
+          headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+        });
+        if (!response.ok) throw new Error(`release Discord channel rejected request (${response.status})`);
+      },
+      decryptBotToken: (encrypted) => secretBox.decrypt(encrypted),
     }),
     authorize: (header: string | undefined) => {
       const expected = discordConfig.get("excubitor_dispatch_token");

@@ -1,6 +1,6 @@
 {
   "name": "concordia",
-  "version": "0.1.0",
+  "version": "2.4.0",
   "description": "Multi-agent CLI session coordinator. Tracks active Claude Code / Gemini CLI / Codex CLI sessions per repo.",
   "type": "module",
   "private": true,

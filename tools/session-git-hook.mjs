@@ -23,15 +23,23 @@ try {
     const ccPort = Number(process.env.CONCORDIA_PORT);
     if (![port, ccPort].every((value) => Number.isInteger(value) && value > 0 && value < 65536)) throw new Error('Cc/Lictor address is unavailable');
     const read = async (url, options = {}) => {
-      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(120000) });
       if (!response.ok) throw new Error(`Policy request failed (${response.status})`);
       return response.json();
     };
     const session = await read(`http://127.0.0.1:${port}/v1/concordia/session`);
     if (typeof session.session_id !== 'string' || !session.session_id) throw new Error('Session identity unavailable');
+    // Git supplies resolved object IDs, including zero IDs for create/delete; never infer them from command text.
+    const updates = input.toString('utf8').trim().split(/\r?\n/).filter(Boolean).map((line) => {
+      const fields = line.split(' ');
+      if (fields.length !== 4) throw new Error('Invalid Git pre-push input');
+      const [localRef, localSha, remoteRef, remoteSha] = fields;
+      return { localRef, localSha, remoteRef, remoteSha };
+    });
     const result = await read(`http://127.0.0.1:${ccPort}/v1/sessions/${encodeURIComponent(session.session_id)}/push-check`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cwd: git(['rev-parse', '--show-toplevel']) }),
+      body: JSON.stringify({ cwd: git(['rev-parse', '--show-toplevel']),
+        ...(updates.length ? { push: { remoteName: args[0], remoteUrl: args[1], updates } } : {}) }),
     });
     if (result.allowed !== true) throw new Error(result.reason || 'Push is not allowed by the project workflow');
   }

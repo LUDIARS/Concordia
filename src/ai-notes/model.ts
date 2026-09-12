@@ -1,5 +1,5 @@
 /** @implements spec/feature/ai-note-publication.md — 状態と境界 */
-export interface Article { page_id: string; title: string; summary: string; url: string; }
+export interface Article { page_id: string; title: string; url: string; }
 export type Destination =
   | { kind: "discord-channel"; guild_id: string; channel_id: string }
   | { kind: "discord-forum"; guild_id: string; channel_id: string; applied_tags: string[] }
@@ -28,7 +28,7 @@ export function destinationKey(target: Destination): string {
 }
 
 export function composeNotice(article: Article): string {
-  return ["AIノートを公開しました", article.title, article.summary, article.url].filter(Boolean).join("\n\n");
+  return `AI記事を作成しました\n\n${article.title}\n${article.url}`;
 }
 
 export interface PublicationStore {

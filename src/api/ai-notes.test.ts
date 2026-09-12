@@ -7,7 +7,7 @@ import { PublicationService } from "../ai-notes/publication-service.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
-const article = { page_id: "3d839cbf-bab9-8174-bb4e-f6787481efc9", title: "記事", summary: "紹介",
+const article = { page_id: "3d839cbf-bab9-8174-bb4e-f6787481efc9", title: "記事",
   url: "https://app.notion.com/p/3d839cbfbab98174bb4ef6787481efc9" };
 function setup() {
   const db = new Database(":memory:"); databases.push(db);

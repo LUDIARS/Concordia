@@ -5,7 +5,7 @@ import { SqlitePublicationStore } from "../db/ai-note-publication.js";
 import { destinationKey, type Article, type Destination, type SendResult } from "./model.js";
 import { PublicationService } from "./publication-service.js";
 
-const article: Article = { page_id: "3d839cbfbab98174bb4ef6787481efc9", title: "記事", summary: "紹介",
+const article: Article = { page_id: "3d839cbfbab98174bb4ef6787481efc9", title: "記事",
   url: "https://app.notion.com/p/3d839cbfbab98174bb4ef6787481efc9" };
 const target: Destination = { kind: "discord-channel", guild_id: "111111111111111111", channel_id: "222222222222222222" };
 const receipt = { message_id: "333333333333333333", channel_id: target.channel_id, message_url: "https://discord.com/channels/1/2/3" };

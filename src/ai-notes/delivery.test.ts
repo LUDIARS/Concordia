@@ -3,7 +3,7 @@ import { sendDiscordPublication } from "./discord-delivery.js";
 import { sendSlackPublication } from "./slack-delivery.js";
 import type { Publication } from "./model.js";
 
-const article = { page_id: "3d839cbfbab98174bb4ef6787481efc9", title: "<!channel> <@USERID>", summary: "紹介",
+const article = { page_id: "3d839cbfbab98174bb4ef6787481efc9", title: "<!channel> <@USERID>",
   url: "https://app.notion.com/p/3d839cbfbab98174bb4ef6787481efc9" };
 const base: Omit<Publication, "target"> = { article_id: article.page_id, target_key: "test", article, status: "sending",
   attempt_id: "one", receipt: null, error_code: null, resolution: null, updated_at: 1_000 };

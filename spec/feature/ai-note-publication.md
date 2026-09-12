@@ -47,8 +47,9 @@ Cc の既存 loopback 管理境界で `/v1/ai-notes` を提供する。外部 we
 - `POST /publications/:page_id/confirm-absent`: `{ "target_key": "...", "confirmed_by_human": true, "reason": "..." }`。
   宛先を人間が確認した記録を残す。unknown を failed に戻すだけで投稿はしない。
 
-Article は `{ "page_id": "Notion UUID", "title": "記事タイトル", "summary": "短い紹介", "url": "https://app.notion.com/p/PAGE_ID" }`。
-Notion の HTTPS URL と同じ page ID が必要。title 200、summary 600、URL 400 文字まで。
+Article は `{ "page_id": "Notion UUID", "title": "記事タイトル", "url": "https://app.notion.com/p/PAGE_ID" }`。
+Notion の HTTPS URL と同じ page ID が必要。title 200、URL 400 文字まで。紹介文は受け取らない。
+通知本文は「AI記事を作成しました」の後に空行 1 つを置き、タイトルと URL をそれぞれの行に出す。
 同じ記事を再度依頼しても既存通知を編集・再送しない。新しい宛先だけ追加通知できる。
 
 宛先形式:

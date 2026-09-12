@@ -18,7 +18,6 @@ export const TargetsSchema = z.object({ targets: z.array(DestinationSchema).max(
 export const ArticleSchema = z.object({
   page_id: PageIdSchema,
   title: z.string().trim().min(1).max(200).pipe(PlainText).refine(value => !/[\r\n]/u.test(value), "title must be one line"),
-  summary: z.string().trim().max(600).pipe(PlainText).default(""),
   url: z.string().max(400).url(),
 }).strict().refine(article => {
   const url = new URL(article.url);

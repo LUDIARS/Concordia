@@ -51,7 +51,7 @@ export async function sendSlackPublication(deps: SlackPublicationDeps, row: Publ
       channel: row.target.channel_id, text: slackNotice(row), mrkdwn: false, parse: "none", link_names: false,
       unfurl_links: false, unfurl_media: false,
       blocks: [
-        { type: "section", text: { type: "plain_text", text: ["AIノートを公開しました", row.article.title, row.article.summary].filter(Boolean).join("\n\n") } },
+        { type: "section", text: { type: "plain_text", text: `AI記事を作成しました\n\n${row.article.title}` } },
         { type: "section", text: { type: "mrkdwn", text: `<${new URL(row.article.url).href}|記事を読む>` } },
       ],
     }));

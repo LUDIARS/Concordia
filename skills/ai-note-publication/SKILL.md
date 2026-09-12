@@ -10,7 +10,7 @@ description: セッションで保存を確認した AIノートの記事を、�
 
 1. Notion への保存・本文・配置を fetch で確認する。読者に必要な共有範囲も確認する。
 2. Cc の現行 `excubitor.catalog.yaml` から backend endpoint を解決し、`GET /v1/ai-notes/targets` を読む。
-   未設定なら投稿先の指定を求め、タイトル・紹介・URL のプレビューを残す。404 は未導入であり通知成功ではない。
+   未設定なら投稿先の指定を求め、タイトル・URL のプレビューを残す。404 は未導入であり通知成功ではない。
 3. 必要なら `POST /v1/ai-notes/preview` で見た目と宛先を確認する。
 4. `POST /v1/ai-notes/publications` に以下を JSON で送る。日本語の body は UTF-8 ファイルから送信する。
 
@@ -18,7 +18,6 @@ description: セッションで保存を確認した AIノートの記事を、�
 {
   "page_id": "保存済みページの UUID",
   "title": "記事のタイトル",
-  "summary": "記事の読みどころを短く紹介する文",
   "url": "保存済みページの Notion HTTPS URL"
 }
 ```

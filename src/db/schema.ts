@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 104;
+export const SCHEMA_VERSION = 105;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2496,6 +2496,21 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       tag TEXT NOT NULL,
       received_at INTEGER NOT NULL,
       PRIMARY KEY (repository, tag)
+    )`);
+  },
+},
+{
+  version: 105,
+  name: "project-notice-ledger",
+  source: "project_notice_ledger arms a new project at registration and claims it once on the first push",
+  up(db) {
+    db.exec(`CREATE TABLE IF NOT EXISTS project_notice_ledger (
+      repository TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      project TEXT NOT NULL,
+      repo_url TEXT NOT NULL,
+      armed_at INTEGER NOT NULL,
+      notified_at INTEGER
     )`);
   },
 },

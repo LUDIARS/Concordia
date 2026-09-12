@@ -6,7 +6,9 @@ import {
   type ProjectCodeRow,
   type ProjectCodesRepo,
 } from "../db/project-codes-repo.js";
+import type { ProjectCreatedEvent } from "../deploy/project-created.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
+import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 import type {
   RevisorRepositoryAdmin,
   RevisorRepositoryRecord,
@@ -84,6 +86,11 @@ export interface ProjectCodesRouterDeps {
   };
   /** Revisor の登録リポと workflow (Rv モード) の read/update。 未注入なら欄は unknown。 */
   revisor?: RevisorRepositoryAdmin;
+  /**
+   * 新規登録を「未通知」として控える口 (未注入なら控えない)。 発火は初回 push 時で、
+   * ここでは本社通知そのものを送らない。
+   */
+  armProjectNotice?: (event: ProjectCreatedEvent) => void;
   /**
    * git 検査の差し替え口 (テスト用)。 vi.mock は isolate:false の registry 共有で
    * ロード順に依存して効かないことがあるため、 module mock でなく DI で差し替える。
@@ -186,6 +193,15 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
         repoOrigin: parsed.data.repo_origin ?? inspected.repoOrigin,
         addedBy: parsed.data.added_by,
       });
+      const repository = normalizeRepoOrigin(result.row.repo_origin ?? "");
+      if (result.created && isOwnerRepo(repository)) {
+        deps.armProjectNotice?.({
+          repository,
+          code: result.row.code,
+          project: result.row.project,
+          repoUrl: `https://github.com/${repository}`,
+        });
+      }
       return c.json({ project_code: toResponseRow(result.row), created: result.created }, result.created ? 201 : 200);
     } catch (error) {
       if (error instanceof ProjectCodeConflictError) {

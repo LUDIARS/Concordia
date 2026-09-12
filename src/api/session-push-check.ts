@@ -15,6 +15,11 @@ export function sessionPushCheckRouter(deps: {
   revisor?: Pick<RevisorRepositoryAdmin, "listRepositories">;
   workspaceRoots: () => string[];
   requestWarning?: (prompt: PushWarningPrompt) => Promise<PushWarningDecision>;
+  /**
+   * 登録時に控えた新規プロジェクトを、最初に push が許可された時点で 1 回だけ本社へ通知する
+   * (spec/feature/project-created-notify.md)。未注入なら通知しない。
+   */
+  notifyProjectPushed?: (repository: string) => Promise<void>;
 }): Hono {
   const app = new Hono();
   app.post("/:id/push-check", async (c) => {
@@ -24,6 +29,7 @@ export function sessionPushCheckRouter(deps: {
       .strict().safeParse(await c.req.json().catch(() => null));
     let allowed = false;
     let reason = "Project workflow or checkout could not be verified";
+    let repoOrigin = "";
     try {
       if (parsed.success && deps.revisor && await isWithinWorkspace(parsed.data.cwd, deps.workspaceRoots())) {
         const repo = await inspectImplementationRepo(parsed.data.cwd);
@@ -31,6 +37,7 @@ export function sessionPushCheckRouter(deps: {
         if (norm(repo.repoPath) === norm(session.repo_path) && repo.branch === session.branch
           && normalizeRepoOrigin(repo.repoOrigin ?? "").toLowerCase() === normalizeRepoOrigin(session.repo_origin ?? "").toLowerCase()
           && !deps.workspaceRoots().some((root) => norm(root) === norm(repo.repoPath))) {
+          repoOrigin = normalizeRepoOrigin(repo.repoOrigin ?? "");
           const workflow = selectProjectStartupWorkflow(await deps.revisor.listRepositories(), repo.repoPath, repo.repoOrigin);
           allowed = workflow === "github";
           reason = workflow === "revisor" ? "Revisor Workflow: submit a local PR through Cc; session push is blocked"
@@ -66,6 +73,10 @@ export function sessionPushCheckRouter(deps: {
     } catch { /* Never turn an unavailable policy service into push permission. */ }
     deps.sessions.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "push_hook_decision",
       payload: { allowed, reason } });
+    // 通知は push の可否に影響させない。控えが無ければ何もしないので、既存リポでは走らない。
+    if (allowed && repoOrigin) {
+      await deps.notifyProjectPushed?.(repoOrigin).catch(() => { /* 配送失敗で push を止めない */ });
+    }
     return c.json({ allowed, reason });
   });
   return app;

@@ -59,6 +59,7 @@ import type { ChannelDirectory } from "./sessions/deps.js";
 import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
+import type { ProjectCreatedEvent } from "../deploy/project-created.js";
 import { projectCodesRouter } from "./project-codes.js";
 import { serviceVersionsRouter } from "./service-versions.js";
 import { serviceDeployedRouter } from "./service-deployed.js";
@@ -285,6 +286,8 @@ export interface CoreRuntimeDeps {
   serviceDeployed?: { ledger: DeploymentLedger; lookup: DeploymentLookup; delivery: DeploymentDelivery; authorize: (header: string | undefined) => boolean };
   /** Revisor の release-published を受理する adapter 群。 */
   releasePublished?: { ledger: ReleaseNoticeLedger; channelConfigured: () => boolean; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
+  /** 新規プロジェクトの本社通知 (登録で控え、初回 push で 1 回だけ送る)。 */
+  projectNotice?: { arm: (event: ProjectCreatedEvent) => void; notifyPushed: (repository: string) => Promise<void> };
   aiNotePublication?: PublicationService;
   /**
    * GitHub Issue ワークフロー。 未注入なら /v1/github と /v1/admin/github は生えない
@@ -330,7 +333,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
   mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route("/v1/sessions", sessionPushCheckRouter({ sessions: deps.repo, revisor: deps.revisorAdmin,
-    workspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
+    workspaceRoots: () => deps.adminState.getWorkspaceRoots(), notifyProjectPushed: deps.projectNotice?.notifyPushed }));
   app.route(
     "/v1/sessions",
     sessionsRouter({
@@ -526,6 +529,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       teams: deps.teams,
       subsidiaries: deps.subsidiary,
       revisor: deps.revisorAdmin,
+      armProjectNotice: deps.projectNotice?.arm,
     }),
   );
   app.route("/v1/delegation", delegationRouter({

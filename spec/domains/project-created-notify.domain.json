@@ -1,0 +1,19 @@
+{
+  "name": "project-created-notify",
+  "description": "新規プロジェクトの登録を控え、最初に許可された push で本社チャンネルへ 1 回だけ通知する。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/deploy/project-created(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/deploy/project-created-runtime(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/project-codes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/session-push-check(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/register-core\\.ts$" },
+    { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
+    { "pathPattern": "(^|/)src/db/schema\\.ts$" }
+  ],
+  "cardTemplate": "Describe the two-step trigger (arm at registration, claim on the first allowed push), the at-most-once ledger and the head-office-only destination.",
+  "mechanics": ["durable-idempotency", "two-phase-trigger", "non-blocking-delivery"],
+  "specRefs": ["spec/feature/project-created-notify.md", "spec/feature/release-published-notify.md"],
+  "rationale": "「作った」と「push した」は別の時点なので、控えと発火を分けたうえで repository 単位の台帳に閉じる。配送の失敗が push の可否に漏れない境界を保つ。"
+}

@@ -84,6 +84,8 @@ import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { SqliteReleaseNoticeLedger, createReleaseNoticeDelivery } from "../deploy/release-published-runtime.js";
+import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
+import { handleProjectPushed } from "../deploy/project-created.js";
 import { DomainReviewRepo } from "../db/domain-review-repo.js";
 import { DomainReviewService, type DomainReviewPostPort } from "../domain-review/service.js";
 import { parseTeamSettings } from "../api/teams.js";
@@ -885,6 +887,27 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     log: createChildLogger("release-published"),
   };
+  /**
+   * 新規プロジェクトの本社通知 (spec/feature/project-created-notify.md)。
+   * 宛先と Bot 送信はリリース通知と同じ本社チャンネルを流用する。
+   */
+  const projectNoticeLedger = new SqliteProjectNoticeLedger(db);
+  const projectNoticeLog = createChildLogger("project-created");
+  const projectNoticeDelivery = createProjectNoticeDelivery((content) => releasePublished.delivery.ccChannel(content));
+  const notifyProjectPushed = async (repository: string): Promise<void> => {
+    const outcome = await handleProjectPushed({
+      repository,
+      ledger: projectNoticeLedger,
+      channelConfigured: Boolean(discordConfig.get("release_notify_channel_id")),
+      delivery: projectNoticeDelivery,
+      now: Date.now(),
+    });
+    if (outcome.skipped) return;
+    const detail = { repository, ...outcome };
+    if (outcome.failed) projectNoticeLog.warn(detail, "project-created delivery failed");
+    else if (outcome.unconfigured) projectNoticeLog.info(detail, "project-created delivery skipped because no channel is configured");
+    else projectNoticeLog.info(detail, "project-created delivery completed");
+  };
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const githubLog = createChildLogger("github-issue-workflow");
   /** webhook delivery 記録の保持期間。 GitHub の再送はこれより遥かに短い。 */
@@ -1653,6 +1676,10 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
     releasePublished,
+    projectNotice: {
+      arm: (event) => { projectNoticeLedger.arm(event, Date.now()); },
+      notifyPushed: notifyProjectPushed,
+    },
     aiNotePublication: createAiNotePublication({ db,
       discordConfig: () => resolveDiscordConfig(discordConfig, secretBox),
       slackConfig: () => resolveSlackConfig(slackConfig, secretBox),

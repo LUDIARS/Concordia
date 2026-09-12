@@ -9,7 +9,7 @@
   },
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
-    "build": "npm run sync:skill && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
+    "build": "npm run sync:skill && npm run check:src-emitted && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
     "build:spec-index": "node tools/build-spec-index.mjs",
     "build:harness": "tsc -p tsconfig.harness.json && node tools/package-harness.mjs",
     "dev": "npm run sync:skill && concurrently --kill-others-on-fail -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
@@ -24,7 +24,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "lint": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && npm run depcruise",
+    "check:src-emitted": "node tools/check-src-emitted.mjs",
+    "lint": "npm run check:src-emitted && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && npm run depcruise",
     "depcruise": "depcruise src --config .dependency-cruiser.cjs",
     "sync:skill": "node tools/sync-skill.mjs"
   },

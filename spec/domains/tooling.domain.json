@@ -18,6 +18,9 @@
     },
     {
       "pathPattern": "(^|/)tools/concordia-ontime\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/check-src-emitted\\.mjs$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",

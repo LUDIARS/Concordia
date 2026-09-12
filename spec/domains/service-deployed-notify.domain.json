@@ -6,9 +6,8 @@
   "membership": [
     { "pathPattern": "(^|/)src/deploy/service-deployed(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/release-published(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/deploy/release-published\\.contract\\.js$" },
-    { "pathPattern": "(^|/)src/deploy/release-published\\.contract\\.d\\.ts$" },
-    { "pathPattern": "(^|/)src/deploy/service-deployed\\.contract\\.js$" },
+    { "pathPattern": "(^|/)src/deploy/release-published\\.contract\\.ts$" },
+    { "pathPattern": "(^|/)src/deploy/service-deployed\\.contract\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/service-deployed-runtime(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/deployment-targets(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/ontime-runtime\\.ts$" },

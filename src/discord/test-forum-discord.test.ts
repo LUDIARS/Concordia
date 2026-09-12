@@ -132,7 +132,7 @@ describe("statusChangeMessage", () => {
   it("tells the thread what the review concluded", () => {
     const passed = statusChangeMessage(candidate({ checkStatus: "test_ok" }));
     expect(passed).toContain("審査を通過");
-    expect(passed).toContain("テスト開始OK");
+    expect(passed).toContain("スキップ理由");
     expect(passed).toContain("マージOK");
     expect(statusChangeMessage(candidate({ checkStatus: "failed" }))).toContain("動作確認が必要");
     const actionRequired = statusChangeMessage(candidate({ checkStatus: "action_required" }));

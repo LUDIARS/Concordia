@@ -1,11 +1,10 @@
 /**
- * Test Forum スレッド内のユーザ投稿の検知。 投稿を指示として、 テストセッションを
- * 起動する (既に生きていれば inject で引き継ぐ)。
+ * Review-thread comments never start sessions. Explicitly started test sessions
+ * can still receive replies in their existing thread.
  * @implements spec/feature/revisor-test-forum-sync.md — テストセッションとスレッド投稿
  */
 import { ChannelType, type Message } from "discord.js";
 import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
-import { requestTestSpawn } from "./test-forum-actions.js";
 
 export interface TestForumMessageDeps {
   testForumId: string;
@@ -41,45 +40,12 @@ export async function handleTestForumMessage(
   const text = msg.content.trim();
   if (!text) return true;
 
-  // 既にテストセッションが生きていれば、 新しく立てず指示として届ける。
-  if (surface.session_id && deps.isSessionAlive(surface.session_id)) {
-    const source = `discord:${msg.author.id}:${msg.channelId}:${msg.id}`;
-    deps.injectToSession(surface.session_id, text, source);
-    await msg.react("📨").catch(() => { /* best-effort */ });
-    return true;
-  }
+  // Reports and ordinary discussion are the primary UX. Only the explicit test
+  // control may start a session; an already-started session still receives replies.
+  if (!surface.session_id || !deps.isSessionAlive(surface.session_id)) return true;
 
-  // button / 直前の投稿が spawn 済みで session.started 待ちなら、同じ投稿から別の
-  // session を立てない。session_id 確定後は上の inject 経路へ自動的に切り替わる。
-  if (surface.run_state === "starting") {
-    await msg.react("⏳").catch(() => { /* best-effort */ });
-    return true;
-  }
-
-  // 投稿からの起動はテスト開始ボタンと同じ特権 spawn なので、 同じ権限で守る。
-  if (deps.isLaunchUserAllowed?.(msg.author.id) !== true) {
-    deps.log.info(
-      `test-forum message spawn denied user=${msg.author.id} thread=${channel.id}`,
-    );
-    await msg.react("🚫").catch(() => { /* best-effort */ });
-    return true;
-  }
-  if (surface.run_state !== "candidate") {
-    // testing でセッションが死んでいる場合など。 状態機械を乱さず案内だけ返す。
-    await msg.react("⚠️").catch(() => { /* best-effort */ });
-    return true;
-  }
-  const result = await requestTestSpawn(surface, deps, text);
-  if (!result.ok) {
-    deps.log.warn(
-      `test-forum message spawn failed ${surface.repo_origin}#${surface.pr_number}: ${result.error}`,
-    );
-    await msg.react("⚠️").catch(() => { /* best-effort */ });
-    return true;
-  }
-  deps.log.info(
-    `test-forum message spawned ${surface.repo_origin}#${surface.pr_number} pid=${result.pid ?? "n/a"}`,
-  );
-  await msg.react("🧪").catch(() => { /* best-effort */ });
+  const source = `discord:${msg.author.id}:${msg.channelId}:${msg.id}`;
+  deps.injectToSession(surface.session_id, text, source);
+  await msg.react("📨").catch(() => { /* Reaction is best-effort; the reply was already injected. */ });
   return true;
 }

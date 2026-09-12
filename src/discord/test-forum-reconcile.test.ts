@@ -86,6 +86,7 @@ function surface(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSur
 function harness(open: DiscordTestSurfaceRow[] = []) {
   const rows = [...open];
   const surfaces: DiscordTestSurfacesRepo = {
+    hasRecordedPr: vi.fn((origin, number) => rows.some((row) => row.repo_origin === origin && row.pr_number === number)),
     listOpen: vi.fn(() => rows.filter((row) => row.status === "open")),
     create: vi.fn((input) => {
       const row = surface({
@@ -149,6 +150,46 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
   return { surfaces, adapter, qa, rows };
 }
 
+describe("review report delivery lifecycle", () => {
+  const terminal = { pullRequestId: "local-pr-42", reviewReportVersion: 1,
+    repoOrigin: "LUDIARS/Concordia", prNumber: 42, status: "merged" as const, mergeCommitSha: "merged-sha" };
+  const finalDetail = () => detail({ reviewReport: { version: 1, attemptId: "job-1", headSha: "sha-head", entries: [] } });
+
+  it("backfills a quick terminal review once and posts its final detail before closing", async () => {
+    const h = harness();
+    h.adapter.postReviewReport = vi.fn(async () => undefined);
+    const getTerminalDetail = vi.fn(async () => finalDetail());
+    const input = { ...h, candidates: [], terminalPullRequests: [terminal], getTerminalDetail };
+    expect((await reconcileTestForum(input)).created).toBe(1);
+    expect(h.adapter.postReviewReport).toHaveBeenCalledTimes(1);
+    expect((await reconcileTestForum(input)).closed).toBe(1);
+    expect(h.adapter.postReviewReport).toHaveBeenCalledTimes(2);
+    expect((await reconcileTestForum(input)).created).toBe(0);
+    expect(h.adapter.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a thread open when terminal detail fails", async () => {
+    const h = harness([surface()]);
+    h.adapter.postReviewReport = vi.fn(async () => undefined);
+    const result = await reconcileTestForum({ ...h, candidates: [], terminalPullRequests: [terminal],
+      getTerminalDetail: async () => { throw new Error("unavailable"); } });
+    expect(result.failed).toBe(1);
+    expect(h.adapter.close).not.toHaveBeenCalled();
+    expect(h.rows[0].status).toBe("open");
+  });
+
+  it("retries a partial report without creating another thread or advancing its hash", async () => {
+    const h = harness();
+    h.adapter.postReviewReport = vi.fn().mockRejectedValueOnce(new Error("delivery lost")).mockResolvedValue(undefined);
+    const input = { ...h, candidates: [candidate()] };
+    expect((await reconcileTestForum(input)).failed).toBe(1);
+    expect(h.rows[0].content_hash).toBeNull();
+    expect((await reconcileTestForum(input)).updated).toBe(1);
+    expect(h.rows[0].content_hash).toBe(input.candidates[0].contentHash);
+    expect(h.adapter.create).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("buildTestForumCandidates", () => {
   it("projects every open local PR (any check status) with its detail and mentions", () => {
     const mentions = new Map([["sess-1", ["111", "222"]]]);
@@ -189,7 +230,7 @@ describe("reconcileTestForum", () => {
       headBranch: "feat/test-forum",
     }));
     expect(h.surfaces.updateContent).toHaveBeenCalledWith(10, {
-      headSha: "sha-1",
+      headSha: "sha-head",
       contentHash: built.contentHash,
       checkStatus: "queued",
     });
@@ -351,7 +392,7 @@ describe("reconcileTestForum", () => {
     // 審査の決着 (running → test_ok) はスレッドへ通常メッセージで知らせる。
     expect(h.adapter.postStatusChange).toHaveBeenCalledWith(expect.anything(), fresh);
     expect(h.surfaces.updateContent).toHaveBeenCalledWith(7, {
-      headSha: "sha-1",
+      headSha: "sha-head",
       contentHash: fresh.contentHash,
       checkStatus: "test_ok",
     });
@@ -359,11 +400,11 @@ describe("reconcileTestForum", () => {
     expect(h.qa.start).not.toHaveBeenCalled();
   });
 
-  it("announces a review failure but not a queued/running churn", async () => {
+  it("announces both actual review start and review failure", async () => {
     const queued = candidate({ checkStatus: "queued" });
     const h = harness([surface({ content_hash: queued.contentHash, check_status: "queued" })]);
     await reconcileTestForum({ candidates: [candidate({ checkStatus: "running" })], ...h });
-    expect(h.adapter.postStatusChange).not.toHaveBeenCalled();
+    expect(h.adapter.postStatusChange).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ checkStatus: "running" }));
 
     const running = candidate({ checkStatus: "running" });
     const h2 = harness([surface({ content_hash: running.contentHash, check_status: "running" })]);

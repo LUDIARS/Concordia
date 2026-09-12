@@ -32,6 +32,8 @@ import type {
 } from "./test-forum-reconcile.js";
 import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
 import { writeKeepingArchiveState } from "./thread-archive.js";
+import { reviewDocuments } from "./test-forum-report.js";
+import { postReviewDocuments } from "./test-forum-report-delivery.js";
 
 // 投稿本文には PR タイトル・説明・判断事項がそのまま載る。 これらは Revisor 経由の
 // 外部由来テキストなので、 `@everyone` 等が混ざっても誰にも通知が飛ばないようにする
@@ -122,8 +124,7 @@ function detailLines(detail: RevisorLocalPrDetail, includeFailureDetails = false
     if (detail.blockers.length > 8) lines.push(`- 他 ${detail.blockers.length - 8} 件`);
   }
   if (detail.body) {
-    lines.push("**PR 説明 (抜粋)**");
-    lines.push(clip(detail.body, 400));
+    lines.push("**PR 説明** 全文はこのスレッドの「PR 本文」レポートに掲載します。");
   }
   return lines;
 }
@@ -147,15 +148,15 @@ export function checkStatusLabel(
 }
 
 export function statusChangeMessage(candidate: TestForumCandidate): string {
+  if (candidate.checkStatus === "running") return "🔎 審査を開始しました。各チェックとレビューの実行内容・結果をこのスレッドへ記録します。";
+  if (candidate.checkStatus === "queued") return "⏳ 審査待ちです。PR 本文と、開始後の詳細レポートをこのスレッドで確認できます。";
   if (candidate.checkStatus === "test_ok") {
     // 操作面は detail が明示的に mergeable と判定した場合だけ出す。詳細を取得できない
     // 途中状態で「マージOK」と案内すると、実際には実行できない操作を約束してしまう。
     const mergeable = candidate.detail?.mergeable === true;
     return [
       "✅ 審査を通過しました (Test OK)。",
-      mergeable
-        ? "🧪 テスト開始OK: 操作面の「テスト開始」で確認セッションを起動できます。"
-        : "🧪 テスト開始OK: このスレッドへ確認指示を投稿するとセッションを起動できます。",
+      "チェック・レビュー・スキップ理由の詳細は、このスレッドのレポートをご確認ください。",
       !mergeable
         ? "⏸️ マージ保留: Revisor のブロック理由を解消してください。"
         : "🔀 マージOK: 確認後、操作面の「マージ」で squash merge できます。",
@@ -207,16 +208,14 @@ export function mergedMessage(terminal: TestForumTerminalPr): string {
 
 export function starterContent(candidate: TestForumCandidate): string {
   const lines = [
-    `**Test candidate** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
+    `**Revisor 審査レポート** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
     `**Repo** \`${candidate.repoOrigin}\``,
     `**状態** ${checkStatusLabel(candidate.checkStatus, candidate.detail)}`,
     `**Head** \`${candidate.headBranch}\` @ \`${candidate.headSha}\``,
-    `**Spawn root** \`${candidate.repoRootPath}\``,
-    `**Active worktree** ${candidate.worktreePath ? `\`${candidate.worktreePath}\`` : "テスト開始時に解決"}`,
     ...(candidate.detail
       ? detailLines(candidate.detail, candidate.checkStatus === "failed")
       : []),
-    "Revisor に登録された時点で掲載されます。内容が変わると Cc がこの投稿を編集で更新し、マージ・取り下げで対象外になると閉じます。このスレッドに書き込むとテストセッションが対応します。",
+    "PR 本文、審査開始、各チェックの実行・結果、レビュー内容、スキップ理由と最終結果をこのスレッドへ記録します。長い内容は添付テキストで読めます。通常のコメントではテストセッションを起動しません。必要な場合だけ操作面の「テスト開始」を使ってください。",
   ];
   return clip(lines.join("\n"), 2000);
 }
@@ -342,6 +341,10 @@ export function createTestForumDiscordAdapter(
   forumId: string,
 ): TestForumSurfaceAdapter {
   return {
+    async postReviewReport(surface, candidate) {
+      await writeToSurfaceThread(guild, surface.thread_id, "Revisor review report", (thread) =>
+        postReviewDocuments(thread, reviewDocuments(candidate)));
+    },
     async create(candidate) {
       const forum = findTestForum(guild, forumId);
       if (!forum) throw new Error(`Test forum is unavailable: ${forumId || "(empty id)"}`);

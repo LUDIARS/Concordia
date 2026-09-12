@@ -4,6 +4,7 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { SharedReadCache } from "./revisor-read-cache.js";
 import { toTokenResolver } from "./revisor-token.js";
+import { parseReviewReport, type RevisorReviewReport } from "./revisor-review-report.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -41,6 +42,11 @@ export interface RevisorTestWorkflowProduct {
  * `GET /v1/local-prs/:id` (loopback 読み取り) の decision 部分の抜粋。
  */
 export interface RevisorLocalPrDetail {
+  title?: string | null;
+  headSha?: string | null;
+  reviewReport?: RevisorReviewReport | null;
+  checks?: readonly (RevisorFailedTest & { status: string })[];
+  checkStatus?: string | null;
   author: string | null;
   headRef: string | null;
   baseRef: string | null;
@@ -93,6 +99,8 @@ export interface RevisorOpenLocalPr {
 
 /** Test Forum の終局投稿に使う、Revisor で決着済みの local PR。 */
 export interface RevisorTerminalLocalPr {
+  pullRequestId?: string;
+  reviewReportVersion?: number;
   repository: string;
   number: number;
   status: "merged" | "closed";
@@ -449,6 +457,8 @@ function parseTerminalLocalPr(value: unknown): RevisorTerminalLocalPr | null {
     return null;
   }
   return {
+    ...(nonEmptyString(row.id) ? { pullRequestId: row.id } : {}),
+    ...(row.reviewReportVersion === 1 ? { reviewReportVersion: 1 } : {}),
     repository: row.repository,
     number: row.number,
     status: row.status,
@@ -493,6 +503,22 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
     ? pr.autoMerge
     : null) as Record<string, unknown> | null;
   return {
+    reviewReport: parseReviewReport(pr.reviewReport),
+    title: asStringOrNull(pr.title),
+    headSha: asStringOrNull(pr.headSha),
+    checkStatus: asStringOrNull(pr.checkStatus),
+    checks: (ci ?? []).map((entry) => {
+      const output = entry.output && typeof entry.output === "object"
+        ? entry.output as Record<string, unknown> : null;
+      return {
+        name: asStringOrNull(entry.name) ?? "名称未取得",
+        status: asStringOrNull(entry.status) ?? "unknown",
+        exitCode: asNumberOrNull(entry.exitCode),
+        reason: asStringOrNull(entry.reason),
+        output: output && typeof output.text === "string"
+          ? { text: output.text, truncated: output.truncated === true } : null,
+      };
+    }),
     author: asStringOrNull(pr.author),
     headRef: asStringOrNull(pr.headRef),
     baseRef: asStringOrNull(pr.baseRef),

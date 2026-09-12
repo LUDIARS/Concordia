@@ -32,6 +32,8 @@ export interface DiscordTestSurfaceRow {
 }
 
 export interface DiscordTestSurfacesRepo {
+  /** Includes archived surfaces so fast terminal reviews are backfilled only once. */
+  hasRecordedPr?(repoOrigin: string, prNumber: number): boolean;
   listOpen(): DiscordTestSurfaceRow[];
   findOpen(id: number): DiscordTestSurfaceRow | null;
   create(input: {
@@ -68,6 +70,11 @@ export function makeDiscordTestSurfacesRepo(
   nowSec: () => number = () => Math.floor(Date.now() / 1000),
 ): DiscordTestSurfacesRepo {
   return {
+    hasRecordedPr(repoOrigin, prNumber) {
+      return !!db.prepare(`SELECT 1 FROM discord_test_surfaces
+        WHERE scope = ? AND lower(repo_origin) = lower(?) AND pr_number = ? LIMIT 1`)
+        .get(scope, repoOrigin, prNumber);
+    },
     listOpen() {
       return db.prepare(
         `SELECT * FROM discord_test_surfaces

@@ -112,26 +112,23 @@ describe("handleTestForumMessage", () => {
     expect(react).toHaveBeenCalledWith("📨");
   });
 
-  it("spawns a test session with the post as the instruction", async () => {
+  it("keeps an ordinary review comment without starting a session", async () => {
     const { msg, react } = message();
     const d = deps();
     expect(await handleTestForumMessage(msg, d)).toBe(true);
-    expect(requestTestSpawn).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 7 }),
-      d,
-      "この PR を確認して",
-    );
-    expect(react).toHaveBeenCalledWith("🧪");
+    expect(requestTestSpawn).not.toHaveBeenCalled();
+    expect(d.injectToSession).not.toHaveBeenCalled();
+    expect(react).not.toHaveBeenCalled();
   });
 
   it("refuses to spawn for users without the launch capability, and fails closed when unwired", async () => {
     const denied = message();
     expect(await handleTestForumMessage(denied.msg, deps({ isLaunchUserAllowed: () => false }))).toBe(true);
-    expect(denied.react).toHaveBeenCalledWith("🚫");
+    expect(denied.react).not.toHaveBeenCalled();
 
     const unwired = message();
     expect(await handleTestForumMessage(unwired.msg, deps({ isLaunchUserAllowed: undefined }))).toBe(true);
-    expect(unwired.react).toHaveBeenCalledWith("🚫");
+    expect(unwired.react).not.toHaveBeenCalled();
     expect(requestTestSpawn).not.toHaveBeenCalled();
   });
 
@@ -143,7 +140,7 @@ describe("handleTestForumMessage", () => {
     );
     expect(handled).toBe(true);
     expect(requestTestSpawn).not.toHaveBeenCalled();
-    expect(react).toHaveBeenCalledWith("⚠️");
+    expect(react).not.toHaveBeenCalled();
   });
 
   it("waits for the reserved session instead of spawning from another thread message", async () => {
@@ -154,16 +151,17 @@ describe("handleTestForumMessage", () => {
     );
     expect(handled).toBe(true);
     expect(requestTestSpawn).not.toHaveBeenCalled();
-    expect(react).toHaveBeenCalledWith("⏳");
+    expect(react).not.toHaveBeenCalled();
   });
 
-  it("reports a failed spawn on the post itself", async () => {
+  it("does not invoke even an unavailable spawn backend for comments", async () => {
     requestTestSpawn.mockResolvedValue({ ok: false, error: "spawn refused" });
     const { msg, react } = message();
     const warn = vi.fn();
     expect(await handleTestForumMessage(msg, deps({ log: { info: vi.fn(), warn } }))).toBe(true);
-    expect(react).toHaveBeenCalledWith("⚠️");
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("spawn refused"));
+    expect(react).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(requestTestSpawn).not.toHaveBeenCalled();
   });
 
   it("swallows an empty post without spawning", async () => {

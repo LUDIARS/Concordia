@@ -3,7 +3,7 @@ title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
 domain: release-coordination
-updated: 2026-08-20
+updated: 2026-09-12
 ---
 
 # Revisor Test Workflow synchronization
@@ -12,8 +12,9 @@ updated: 2026-08-20
 
 CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを掲載する
 (審査中・失敗・判断待ちも全部)。GitHub PR台帳は候補の正本にしない。
-投稿にはPRの詳細と判断事項を載せ、テストセッション操作面
-(spec/feature/test-forum-controls.md) の起点にする。
+投稿は審査レポートを読む場所とする。PR 本文、審査の開始、各チェックの実行・結果・
+スキップ理由、レビュー内容、最終判断を Discord 内で読めるようにする。
+既存の明示的なテスト開始・マージ操作面 (spec/feature/test-forum-controls.md) は補助機能。
 
 ## Source and lifecycle
 
@@ -21,7 +22,9 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   `/v1/local-prs?state=open` と `/v1/repositories` を併読して **open な local PR 全件** を
   候補にする (checkStatus は問わない)。ポートは設定やソースへ固定しない。
   終局投稿に使う決着済み PR は `/v1/local-prs?view=summary` (リポ・番号・状態・
-  `mergeCommitSha`) で読み、全件・全フィールドの一覧は取らない。
+  `mergeCommitSha`・id・`reviewReportVersion`) で読み、全件・全フィールドの一覧は取らない。
+  同期の間に終了した新形式の未掲載 PR は、軽量一覧の version を手掛かりに個別詳細を
+  取得してレポートを掲載する。閉鎖済みを含む掲載台帳で同じ PR の再掲載を防ぐ。
 - 各行の decision (判定・判断事項 blockers・マージリスク・テスト結果・
   セキュリティスキャン・動作確認要否) と checkStatus を投稿本文に描画する。
   `failed` と、decision が `failed` と分類した `action_required` では、worker error、
@@ -38,19 +41,19 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
 - 候補は描画元データの指紋 (content hash) を持つ。**内容 (head SHA・タイトル・
   checkStatus・詳細) が変わった場合は投稿を閉じず、スターターメッセージの
   編集でリフレッシュする**。指紋が一致する限りDiscordへ編集を投げない (rate limit保護)。
-- checkStatus の決着遷移 (→ test_ok / failed / action_required) は、
+- checkStatus の待機・開始・決着遷移 (→ queued / running / test_ok / failed / action_required) は、
   スレッドへ通常メッセージで知らせる。失敗遷移はその時点の詳細証跡を載せ、
-  Test OK 遷移は「テスト開始OK」と「マージOK」を同じ投稿で明示する。
+  Test OK 遷移は審査詳細へ案内し、マージ可能な場合は既存の権限付き操作を表示する。
 - 操作面 (provider/effort セレクタ + テスト開始 / マージ) は **Test OK かつ Revisor が
   mergeable と判定した候補だけ**に付ける (spec/feature/test-forum-controls.md)。
   審査前・失敗・判断待ち・draft の候補には
   出さない。
 - repository rootまたはhead refが変わった場合は、安全なspawn targetを更新するため
   旧投稿を閉じて現在の候補を作り直す。
-- Revisor一覧から消えた候補は投稿を閉じ、関連するテストセッションも終わらせる。
+- 終局状態を確認できた候補は、最終詳細を取得・掲載してから投稿を閉じ、関連するテストセッションも終わらせる。
   終局一覧で **merged** と確認できる場合は、archive 前に「マージしました」と
-  統合コミットをスレッドへ通常メッセージで残す。closed / 終局状態を取得できない場合は
-  終局理由を推測して投稿せず、従来どおり close だけを行う。
+  統合コミットをスレッドへ通常メッセージで残す。終局一覧・個別詳細・投稿が失敗した場合は
+  開いたまま保持し、次周期に再試行する。
 - Revisorへの接続または応答検証に失敗した場合は同期全体を失敗として扱い、
   既存投稿を一括で閉じない。
 - Discord側の失敗 (自動archive・権限・rate limit) は投稿1件の範囲に閉じ込め、
@@ -58,19 +61,28 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   DBを書き戻さないので次の周期で再試行する。掲載継続中の投稿がarchiveされて
   いた場合は、編集の前にarchiveを解除する。
 
+## Detailed review reports
+
+> ### SPEC-DISCORD-REVIEW-REPORT: 詳細審査レポートの配送
+
+- Revisor の `reviewReport` v1 は attemptId、headSha、安定した id を持つ entries
+  (kind / label / status / at / content) を正本とする。Cc は実行時刻や結果を捏造しない。
+- PR 本文と各履歴を個別投稿にする。長い本文はプレビューと UTF-8 テキスト添付で
+  全文を保持し、大きい文書は Unicode 文字を壊さず分割する。秘密値は再度マスクし、
+  本文・添付からのメンション通知を抑制する。
+- 旧 Revisor で履歴が無い場合はその制限を明記し、取得できたチェック結果・出力を掲載する。
+  不正な v1 履歴は未取得扱いで黙って捨てず、読取エラーとする。
+- PR、履歴 id、内容の指紋を Bot の投稿に受領印として付ける。再試行前に同じ Bot の
+  投稿履歴を読み、配送済みの本文を再送しない。履歴読取失敗は送信を止める。
+  レポート配送の完了後にだけ台帳の content hash を進める。
+
 ## テストセッションとスレッド投稿
 
-- テストセッションの起動点は2つ: 操作面の「テスト開始」ボタンと、
-  **スレッドへの人間の投稿の検知**。同期は自動起動しない
-  (登録時点の掲載は審査前で、テスト対象が定まらないため)。
+- テストセッションは操作面の「テスト開始」ボタンで明示的に起動する。
+  レポート掲載と普通のコメント投稿では起動しない。
 - スレッドに人間が投稿したとき:
   - surface の `session_id` が生きていれば、投稿本文を inject で届ける (📨)。
-  - 起動要求済みで `session.started` 待ち (`starting`) なら、別 session は起動せず待つ (⏳)。
-  - 無ければ、テスト開始ボタンと同じ設定・同じ経路 (`/v1/admin/spawn-session`) で
-    workspace root からセッションを起動し、対象ディレクトリ・branch・投稿本文を
-    起動後の指示として渡す (🧪)。特権 spawn なので
-    ボタンと同じ権限 (session_spawn, 管理職以上) で守り、権限が無ければ 🚫。
-  - run_state が candidate でない (テスト中だがセッション消滅等) は ⚠️ で案内する。
+  - 生きた session が無ければ普通のフォーラムコメントとして扱い、起動しない。
 - Test Forum session は検証と報告だけを担当する。Revisor の workflow token は委譲せず、
   提出・再審査・マージ・クローズなどの状態変更を session に実行させない。
   人間の明示 merge は Cc の権限付き構造化操作、オートマージは Revisor の状態機械が

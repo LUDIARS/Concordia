@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/pr/revisor-review-report(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/api/prs(\\.test)?\\.ts$"
     },
     {

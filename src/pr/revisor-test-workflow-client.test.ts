@@ -360,6 +360,15 @@ describe("parseLocalPrDetail", () => {
       autoMerge: { merged: false, reason: "閾値超過" },
     });
     expect(detail).toEqual({
+      title: null,
+      headSha: null,
+      checkStatus: null,
+      reviewReport: null,
+      checks: [
+        { name: "unit", status: "passed", exitCode: null, reason: null, output: null },
+        { name: "lint", status: "failed", exitCode: 1, reason: "lint error", output: { text: "masked failure output", truncated: true } },
+        { name: "e2e", status: "skipped", exitCode: null, reason: null, output: null },
+      ],
       author: "neco",
       headRef: "feat/x",
       baseRef: "main",

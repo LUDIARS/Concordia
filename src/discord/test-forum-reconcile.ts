@@ -32,6 +32,7 @@ export interface TestForumCandidate {
 }
 
 export interface TestForumSurfaceAdapter {
+  postReviewReport?(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
   create(candidate: TestForumCandidate): Promise<{ threadId: string }>;
   /** 内容が変わった投稿を、 作り直さずスターターメッセージの編集でリフレッシュする。 */
   update(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
@@ -47,6 +48,8 @@ export interface TestForumSurfaceAdapter {
 }
 
 export interface TestForumTerminalPr {
+  pullRequestId?: string;
+  reviewReportVersion?: number;
   repoOrigin: string;
   prNumber: number;
   status: "merged" | "closed";
@@ -102,7 +105,7 @@ export function buildTestForumCandidates(
     title: pullRequest.title,
     url: null,
     headBranch: pullRequest.headRef,
-    headSha: pullRequest.reviewedHeadSha ?? pullRequest.headSha,
+    headSha: pullRequest.headSha,
     repoRootPath: pullRequest.repositoryRootPath,
     worktreePath: null,
     checkStatus: pullRequest.checkStatus,
@@ -122,23 +125,23 @@ function contentHashOf(pullRequest: RevisorOpenLocalPr): string {
   return createHash("sha256")
     .update(JSON.stringify({
       title: pullRequest.title,
-      headSha: pullRequest.reviewedHeadSha ?? pullRequest.headSha,
+      headSha: pullRequest.headSha,
       checkStatus: pullRequest.checkStatus,
       detail: pullRequest.detail,
     }))
     .digest("hex");
 }
 
-/** スレッドへ知らせる価値のある遷移: 審査の決着 (通過 / 失敗 / 判断待ち)。 */
-function isSettledStatus(checkStatus: string): boolean {
-  return checkStatus === "test_ok"
+/** 審査の待機・開始・決着をスレッドへ知らせる。 */
+function isAnnouncedStatus(checkStatus: string): boolean {
+  return checkStatus === "queued" || checkStatus === "running" || checkStatus === "test_ok"
     || checkStatus === "failed"
     || checkStatus === "action_required";
 }
 
 function isAnnouncedTransition(previous: string | null, next: string): boolean {
   if (previous === next) return false;
-  return isSettledStatus(next);
+  return isAnnouncedStatus(next);
 }
 
 function hasTestControls(candidate: TestForumCandidate): boolean {
@@ -186,6 +189,7 @@ function hasChangedSpawnTarget(
 export async function reconcileTestForum(input: {
   candidates: readonly TestForumCandidate[];
   terminalPullRequests?: readonly TestForumTerminalPr[];
+  getTerminalDetail?: (id: string) => Promise<RevisorLocalPrDetail>;
   surfaces: DiscordTestSurfacesRepo;
   adapter: TestForumSurfaceAdapter;
   qa?: TestForumQaHooks;
@@ -197,7 +201,31 @@ export async function reconcileTestForum(input: {
   resolveMentions?: (sessionId: string) => readonly string[];
   log?: { warn(message: string): void };
 }): Promise<TestForumReconcileResult> {
-  const candidatesByPr = new Map(input.candidates.map((candidate) => [
+  const candidates = [...input.candidates];
+  let backfillFailed = 0;
+  // A quick review can merge between open-list polls. Only fetch new report-capable
+  // terminal PRs, never all historic detailed PRs (the summary list stays small).
+  for (const terminal of input.terminalPullRequests ?? []) {
+    if (terminal.reviewReportVersion !== 1 || !terminal.pullRequestId || !input.getTerminalDetail
+      || !input.surfaces.hasRecordedPr || input.surfaces.hasRecordedPr(terminal.repoOrigin, terminal.prNumber)
+      || candidates.some((candidate) => prKey(candidate.repoOrigin, candidate.prNumber) === prKey(terminal.repoOrigin, terminal.prNumber))) continue;
+    try {
+      const detail = await input.getTerminalDetail(terminal.pullRequestId);
+      if (!detail.reviewReport) throw new Error("Terminal review history is unavailable");
+      candidates.push({
+        repoOrigin: terminal.repoOrigin, prNumber: terminal.prNumber,
+        pullRequestId: terminal.pullRequestId, title: detail.title ?? `#${terminal.prNumber}`,
+        url: null, headBranch: detail.headRef ?? "unknown", headSha: detail.headSha ?? detail.reviewReport.headSha,
+        repoRootPath: "", worktreePath: null, checkStatus: terminal.status,
+        sessionId: null, mentionUserIds: [], detail,
+        contentHash: createHash("sha256").update(JSON.stringify(detail)).digest("hex"),
+      });
+    } catch (error) {
+      backfillFailed++;
+      input.log?.warn(`test-forum terminal report unavailable #${terminal.prNumber}: ${(error as Error).message}`);
+    }
+  }
+  const candidatesByPr = new Map(candidates.map((candidate) => [
     prKey(candidate.repoOrigin, candidate.prNumber),
     candidate,
   ]));
@@ -209,7 +237,7 @@ export async function reconcileTestForum(input: {
   const keptKeys = new Set<string>();
   let closed = 0;
   let updated = 0;
-  let failed = 0;
+  let failed = backfillFailed;
 
   // 1 投稿の Discord 失敗 (archive / 権限 / rate limit) で同期全体を止めない。
   // 失敗した投稿は DB を書き戻さないので、 次周期に同じ処理をやり直す。
@@ -226,10 +254,29 @@ export async function reconcileTestForum(input: {
     const key = prKey(surface.repo_origin, surface.pr_number);
     const candidate = candidatesByPr.get(key);
     if (!candidate) {
+      if (input.getTerminalDetail && !terminalByPr.has(key)) {
+        // An unavailable terminal list is not evidence that the report is complete.
+        // Keep the thread until we can post its actual final state.
+        continue;
+      }
       // マージ・取り下げ・再審査落ちで候補から消えた。 投稿を閉じ、 関連する
       // テスト・QA セッションも一緒に終わらせる (end-session で先に閉じていれば no-op)。
       await isolate(key, async () => {
         const terminal = terminalByPr.get(key);
+        if (terminal?.pullRequestId && input.getTerminalDetail && input.adapter.postReviewReport) {
+          // Fetch only this closing surface, not the full terminal PR archive. A failed
+          // detail/delivery read must leave it open so the final report can be retried.
+          const detail = await input.getTerminalDetail(terminal.pullRequestId);
+          await input.adapter.postReviewReport(surface, {
+            repoOrigin: surface.repo_origin, prNumber: surface.pr_number,
+            pullRequestId: terminal.pullRequestId, title: detail.title ?? `#${surface.pr_number}`,
+            url: null, headBranch: detail.headRef ?? surface.head_branch ?? "unknown",
+            headSha: detail.headSha ?? detail.reviewReport?.headSha ?? surface.head_sha,
+            repoRootPath: surface.repo_root_path ?? "", worktreePath: surface.worktree_path,
+            checkStatus: detail.checkStatus ?? terminal.status, sessionId: null,
+            mentionUserIds: [], detail, contentHash: "terminal",
+          });
+        }
         const closeReason = terminal?.status === "merged" ? "merged" : "candidate-unavailable";
         // archive 後は通常メッセージを送れない。終局通知を先に残してから閉じる。
         if (terminal?.status === "merged") await input.adapter.postMerged(surface, terminal);
@@ -272,6 +319,7 @@ export async function reconcileTestForum(input: {
       // head 前進や判断事項の変化は投稿の作り直しではなく編集で反映する。
       await isolate(key, async () => {
         await input.adapter.update(surface, candidate);
+        await input.adapter.postReviewReport?.(surface, candidate);
         if (isAnnouncedTransition(surface.check_status, candidate.checkStatus)) {
           await input.adapter.postStatusChange(surface, candidate);
         }
@@ -288,7 +336,7 @@ export async function reconcileTestForum(input: {
   let created = 0;
   // 同じ提出セッションから複数 PR が新規掲載されても、重い event 走査は周期内で 1 回に畳む。
   const resolvedMentions = new Map<string, readonly string[]>();
-  for (const candidate of input.candidates) {
+  for (const candidate of candidates) {
     const key = prKey(candidate.repoOrigin, candidate.prNumber);
     if (keptKeys.has(key)) continue;
     await isolate(key, async () => {
@@ -308,7 +356,8 @@ export async function reconcileTestForum(input: {
         checkStatus: null,
       });
       created += 1;
-      if (isSettledStatus(posted.checkStatus)) {
+      await input.adapter.postReviewReport?.(row, posted);
+      if (isAnnouncedStatus(posted.checkStatus)) {
         await input.adapter.postStatusChange(row, posted);
       }
       input.surfaces.updateContent(row.id, {
@@ -316,7 +365,7 @@ export async function reconcileTestForum(input: {
         contentHash: candidate.contentHash,
         checkStatus: candidate.checkStatus,
       });
-      // テスト・QA セッションの起動点は「テスト開始」ボタンとスレッドへのユーザ投稿。
+      // テスト・QA セッションの起動点は明示的な「テスト開始」ボタン。
       // 掲載は登録時点 (審査前) に起きるので、 ここでは自動起動しない。
       // 操作面 (テスト開始/マージ) は Test OK かつ mergeable な候補だけに付ける。
       // 失敗しても投稿は残り、 次周期の backfill が操作面を貼り直す。

@@ -73,6 +73,30 @@ function decryptStored(repo: DiscordConfigRepo, box: SecretBox, key: string): st
 }
 
 /**
+ * 設定 UI から書かれた Discord 設定を読む。
+ *
+ * 設定 API は Discord store の値を種類を問わず暗号化して保存するため
+ * (`settings/db-bindings.ts` の writeDiscord)、 チャンネル ID のような非秘密の値も
+ * 暗号文で残る。 配送側がそのまま使うと暗号文を ID として Discord に投げてしまい、
+ * 404 を「チャンネルが無い / 権限が無い」と読み違える。
+ *
+ * bot 自身が書いた行は平文なので、 暗号文のときだけ解いてそのまま返す。
+ * `decryptStored` と違い平文を暗号化して書き戻さない — 同じ行を平文のまま読む
+ * 利用者が他にいるため、 読み出しが保存形式を変えてはいけない。
+ * 解けない値は未設定として扱う。 壊れた ID で投稿を試みるより送らない方が安全。
+ */
+export function readDiscordSetting(repo: DiscordConfigRepo, box: SecretBox, key: string): string | null {
+  const stored = repo.get(key);
+  if (!stored) return null;
+  if (!isEncrypted(stored)) return stored;
+  try {
+    return box.decrypt(stored) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 実効設定を解決する (bot 起動に渡す形)。 DB 優先、 未設定は env フォールバック。
  */
 export function resolveDiscordConfig(

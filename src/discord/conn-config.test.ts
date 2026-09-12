@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeDiscordConfigRepo, type DiscordConfigRepo } from "../db/discord-repo.js";
 import { SecretBox, isEncrypted } from "../shared/secret-box.js";
-import { resolveDiscordConfig, setDiscordConfig, discordConfigStatus } from "./conn-config.js";
+import { readDiscordSetting, resolveDiscordConfig, setDiscordConfig, discordConfigStatus } from "./conn-config.js";
 
 let repo: DiscordConfigRepo;
 let box: SecretBox;
@@ -17,6 +17,31 @@ beforeEach(() => {
 const EMPTY_ENV = {} as NodeJS.ProcessEnv;
 
 describe("discord/conn-config", () => {
+  describe("readDiscordSetting", () => {
+    it("decrypts a channel id that the settings UI stored encrypted", () => {
+      repo.set("release_notify_channel_id", box.encrypt("1548180599263723571"));
+      expect(readDiscordSetting(repo, box, "release_notify_channel_id")).toBe("1548180599263723571");
+    });
+
+    it("returns a plaintext value as it is and leaves it plaintext", () => {
+      repo.set("houkoku_channel_id", "1522585558897922122");
+      expect(readDiscordSetting(repo, box, "houkoku_channel_id")).toBe("1522585558897922122");
+      expect(isEncrypted(repo.get("houkoku_channel_id"))).toBe(false);
+    });
+
+    it("treats an undecryptable value as unset so no request carries a broken id", () => {
+      repo.set("release_notify_channel_id", "enc:v1:AAAA:BBBB:CCCC");
+      expect(readDiscordSetting(repo, box, "release_notify_channel_id")).toBeNull();
+    });
+
+    it("treats a missing or empty value as unset", () => {
+      expect(readDiscordSetting(repo, box, "release_notify_channel_id")).toBeNull();
+      repo.set("release_notify_channel_id", "");
+      expect(readDiscordSetting(repo, box, "release_notify_channel_id")).toBeNull();
+    });
+  });
+
+
   it("stores every UI setting encrypted at rest and resolves it decrypted", () => {
     setDiscordConfig(repo, box, {
       enabled: true,

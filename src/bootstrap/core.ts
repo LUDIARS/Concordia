@@ -186,7 +186,7 @@ import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { makeSlackSessionChannelsRepo } from "../slack/session-channels-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
-import { resolveDiscordConfig } from "../discord/conn-config.js";
+import { readDiscordSetting, resolveDiscordConfig } from "../discord/conn-config.js";
 import { createAiNotePublication } from "./ai-note-publication.js";
 import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
@@ -831,7 +831,7 @@ export async function startBackend(): Promise<BackendHandle> {
       subsidiaries: subsidiaryRepo,
       excubitor: excubitorClient,
       hqTargets: () => [
-        ...(discordConfig.get("deploy_notify_channel_id") ? [{ kind: "cc-channel" as const, target: "" }] : []),
+        ...(readDiscordSetting(discordConfig, secretBox, "deploy_notify_channel_id") ? [{ kind: "cc-channel" as const, target: "" }] : []),
         ...(discordConfig.get("deploy_webhook_url_enc") ? [{ kind: "discord" as const, target: "discord" }] : []),
         ...(slackConfig.get("deploy_webhook_url_enc") ? [{ kind: "slack" as const, target: "slack" }] : []),
       ],
@@ -846,7 +846,7 @@ export async function startBackend(): Promise<BackendHandle> {
         try { return secretBox.decrypt(encrypted); } catch { return null; }
       },
       postCcChannel: async (content) => {
-        const channelId = discordConfig.get("deploy_notify_channel_id");
+        const channelId = readDiscordSetting(discordConfig, secretBox, "deploy_notify_channel_id");
         if (!channelId) throw new Error("deployment Discord channel is not configured");
         const token = resolveDiscordConfig(discordConfig, secretBox).token;
         if (!token) throw new Error("Discord bot token is not configured");
@@ -868,9 +868,9 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   const releasePublished = {
     ledger: new SqliteReleaseNoticeLedger(db),
-    channelConfigured: () => Boolean(discordConfig.get("release_notify_channel_id")),
+    channelConfigured: () => Boolean(readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id")),
     delivery: createReleaseNoticeDelivery(async (content) => {
-      const channelId = discordConfig.get("release_notify_channel_id");
+      const channelId = readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id");
       if (!channelId) throw new Error("release Discord channel is not configured");
       const token = resolveDiscordConfig(discordConfig, secretBox).token;
       if (!token) throw new Error("Discord bot token is not configured");
@@ -898,7 +898,7 @@ export async function startBackend(): Promise<BackendHandle> {
     const outcome = await handleProjectPushed({
       repository,
       ledger: projectNoticeLedger,
-      channelConfigured: Boolean(discordConfig.get("release_notify_channel_id")),
+      channelConfigured: Boolean(readDiscordSetting(discordConfig, secretBox, "release_notify_channel_id")),
       delivery: projectNoticeDelivery,
       now: Date.now(),
     });

@@ -66,6 +66,15 @@ export interface ModelCatalogItem {
   updated_at: number;
 }
 
+export interface SessionWorkPhase {
+  phase: "design" | "confirmation" | "implementation" | "adjustment" | "unknown";
+  revision: number;
+  design_summary: string;
+  reason: string;
+  approval_reference: string | null;
+  updated_at: number | null;
+}
+
 export interface SessionRow {
   id: string;
   provider: string;
@@ -80,6 +89,7 @@ export interface SessionRow {
   status: "active" | "ended" | "lost" | "abandoned";
   last_seen_at: number;
   current_task: string | null;
+  work_phase?: SessionWorkPhase;
   metadata: Record<string, any> | null;
   /**
    * 一覧応答で metadata から落としたキー (プロンプト全文級)。

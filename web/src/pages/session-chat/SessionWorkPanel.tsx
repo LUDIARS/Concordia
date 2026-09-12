@@ -1,9 +1,11 @@
 // @spec ハーネス信頼性の実装境界
+// @spec セッションの設計・開始確認・実装・調整
 import { Link } from "react-router-dom";
 import { api, type SessionRow } from "../../api.js";
 import { useLiveQuery } from "../../hooks/useWsEvent.js";
 import { isSessionPr, isSessionTask } from "./related-work.js";
 import { SessionHarnessPanel } from "./SessionHarnessPanel.js";
+import { SessionWorkPhaseDetails } from "./SessionWorkPhase.js";
 
 /** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
 export function SessionWorkPanel({ session, onClose }: { session: SessionRow; onClose: () => void }) {
@@ -24,6 +26,7 @@ export function SessionWorkPanel({ session, onClose }: { session: SessionRow; on
         <button type="button" onClick={refresh} className="text-sm text-accent">更新</button>
         <button type="button" onClick={onClose} aria-label="関連作業を閉じる">×</button>
       </div>
+      <SessionWorkPhaseDetails value={session.work_phase} />
       <section className="mt-4 space-y-2 text-sm">
         <h3 className="font-semibold">タスク</h3>
         {session.current_task && <p className="break-words text-subtle">{session.current_task}</p>}

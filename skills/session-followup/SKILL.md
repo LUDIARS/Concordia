@@ -7,6 +7,11 @@ description: Ccの自動確認に付いた作業・委託・審査状態を読�
 
 Ccが注入したworkflowとstateを使う。状態が不明・古い場合は所属sessionの記録を確認する。
 
+- design-assessment: `../session-work-phase/SKILL.md` を読み、会話と現状から設計の状態を判断して Cc に記録する。設計不足なら調査し、固まっていれば開始確認へ進む。同じ範囲の開始指示がすでにあれば根拠を記録して実装を続ける。
+- start-confirmation: 人間の開始確認待ちを維持する。直近に回答が届いている場合だけ対象設計と照合し、開始指示なら implementation、設計変更なら design へ記録する。質問を繰り返さず、無応答で実装へ進めない。
+- implementation: 記録された設計・人間の開始指示と最新の会話を照合して、許可範囲の未完了実装を進める。実装後の指摘対応は adjustment、範囲変更は design へ記録する。
+- adjustment: 合意済みの範囲で指摘・結果に応じた調整を進める。新しい範囲は設計と開始確認へ戻す。調整の状態だけを理由にテスト・再起動・マージを実行しない。
+
 - task-active: 直近の差分と失敗記録を確認し、未完了タスクを既存の許可範囲で続ける。
 - delegation-wait: 子の終了通知を待つ。子の作業を重複実行・再起動しない。
 - review-needed: 対象workflowの提出手順を確認する。RvはCc経由local PR、GitHubはそのprojectのPR手順。

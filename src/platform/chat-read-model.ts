@@ -1,6 +1,7 @@
 import type { CostTimestampFormat } from "../cost/cost-report.js";
 import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
+import type { WorkPhaseView } from "../work/session-work-phase.js";
 
 export type ChatPlatformName = "discord" | "slack";
 
@@ -124,6 +125,7 @@ export interface SessionCacheSnapshot {
 }
 
 export interface SessionStatusSnapshot {
+  workPhase?: WorkPhaseView;
   sessionId: string;
   provider: string;
   model: string | null;

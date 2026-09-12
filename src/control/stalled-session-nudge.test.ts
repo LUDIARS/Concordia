@@ -293,7 +293,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect("mention_user_id" in notices[0]).toBe(false);
   });
 
-  it("goal metadata に関係なく同じ協働復帰 nudge を流す", async () => {
+  it("goal metadata があっても未記録の設計を確認し、再実装を決めつけない", async () => {
     const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
     const h = startStalledSessionNudge({
       repo: fakeRepo([s]),
@@ -305,8 +305,11 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual(["watch-1"]);
     h.stop();
     const ev = injects()[0];
-    expect(ev.text).toContain("再実装");
-    expect(ev.text).toContain("worktree");
+    expect(ev.text).toContain("state=design-assessment");
+    expect(ev.text).toContain("work_phase=unknown; revision=0");
+    expect(ev.text).toContain("審査・委託状態は取得できていません");
+    expect(ev.text).toContain("人間の確認待ちは維持");
+    expect(ev.text).not.toContain("再実装してください");
   });
 
   it("idle が閾値未満なら nudge しない", async () => {

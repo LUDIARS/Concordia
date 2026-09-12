@@ -1,4 +1,5 @@
 import type { ChatRepo, ChatMessageRow } from "../db/chat-repo.js";
+import { readSessionWorkPhase } from "../work/session-work-phase.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
@@ -141,6 +142,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         currentTask: session.current_task,
         status: session.status,
         ageSec,
+        workPhase: readSessionWorkPhase(session),
         roleLabel: state.roleLabel,
         sessionChannelId,
         inProgress: openTasks

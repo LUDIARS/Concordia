@@ -20,7 +20,7 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
   const fields = {
-    rules: "startup-policy-v1",
+    rules: "startup-policy-v2-work-phases",
     workflow: input.workflow ?? "unknown",
     repo: input.repoPath, branch: input.observedBranch ?? "unknown", provider: input.provider,
     origin: input.repoOrigin ?? "unknown",

@@ -10,6 +10,9 @@ it("includes required implementation settings without granting execution permiss
   expect(required.revision).not.toBe(unknown.revision);
   expect(required.text).toContain("DDD=true; tests=true; ontime=true");
   expect(required.text).toContain("実行許可を追加しません");
+  expect(required.text).toContain("開始前に人間に確認してください");
+  expect(required.text).toContain("同じ範囲の開始指示をすでに受けている場合");
+  expect(required.text).toMatch(/session-work-phase[\\/]+SKILL\.md/);
   expect(startupPolicyDelta(unknown, required)).toContain("requirements:");
   expect(startupPolicyDelta(unknown, required)).not.toContain("resources:");
   // If initial delivery is still delayed, its replacement must be self-contained.

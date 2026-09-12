@@ -21,6 +21,7 @@ import {
   type EscalationStatus,
 } from "../harness/escalation-status.js";
 
+import { WORK_PHASE_LABELS, type WorkPhaseView } from "../work/session-work-phase.js";
 const ACTIVE_WINDOW_SEC = 60;
 const WAITING_WINDOW_SEC = 5 * 60;
 
@@ -125,6 +126,7 @@ export async function upsertSessionStatusCard(
 }
 
 export interface StatusEmbedInput {
+  workPhase?: WorkPhaseView;
   sessionId: string;
   provider: string;
   model?: string | null;
@@ -203,6 +205,7 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
     .setDescription(descParts.join("\n"))
     .addFields(
       { name: "状態", value: statusValue, inline: true },
+      { name: "作業段階", value: WORK_PHASE_LABELS[i.workPhase?.phase ?? "unknown"], inline: true },
       { name: "Agent", value: `\`${i.provider}\``, inline: true },
       { name: "作業ブランチ", value: formatWorkingBranch(i.branch), inline: true },
       { name: "Model", value: `\`${i.model ?? "-"}\``, inline: true },

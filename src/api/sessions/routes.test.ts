@@ -29,6 +29,7 @@ describe("sessionsRouter route table", () => {
       "GET /:id/pending-tasks",
       "GET /:id/tasks",
       "GET /:id/transcript",
+      "GET /:id/work-phase",
       "PATCH /:id",
       "PATCH /:id/contract",
       "POST /",
@@ -60,6 +61,7 @@ describe("sessionsRouter route table", () => {
       "POST /:id/title",
       "POST /:id/title-suggestion",
       "POST /:id/transcript-frame",
+      "PUT /:id/work-phase",
     ].sort());
   });
 });

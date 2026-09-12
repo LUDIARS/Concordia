@@ -34,6 +34,7 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
   return { reason: open.reason, started_at: open.started_at, actor: open.actor };
 }
 import { BLANK_SESSION_TASK } from "../../shared/session-task.js";
+import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -224,6 +225,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (claimed?.memoriaTaskTitle) {
         deps.repo.patchSession(input.id, { current_task: claimed.memoriaTaskTitle });
       }
+      updateSessionWorkPhase(deps.repo, input.id, {
+        expected_revision: 0, phase: "design", design_summary: "",
+        reason: "初期起動。依頼と設計の状態を確認する。",
+      }, now);
       deps.repo.appendEvent({
         session_id: input.id,
         ts: now,

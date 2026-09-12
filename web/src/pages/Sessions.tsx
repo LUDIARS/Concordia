@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
+// @spec セッションの設計・開始確認・実装・調整
 import { api } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 import { useTeamFilter } from "../lib/TeamFilterContext.js";
+import { SessionWorkPhaseBadge } from "./session-chat/SessionWorkPhase.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D5 sessions index */
 
@@ -9,7 +11,7 @@ export function Sessions() {
   const { teamId, team } = useTeamFilter();
   const { data, error } = useLiveQuery(
     () => api.sessions({ teamId: teamId ?? undefined }),
-    ["session.started", "session.ended", "session.lost", "session.task_changed"],
+    ["session.started", "session.ended", "session.lost", "session.task_changed", "session.event"],
     teamId,
   );
   if (error) return <div className="text-danger">load error: {error.message}</div>;
@@ -32,6 +34,7 @@ export function Sessions() {
           key={session.id}
         >
           <div>{session.current_task || session.id}</div>
+          <div className="text-xs"><SessionWorkPhaseBadge value={session.work_phase} /></div>
           <div className="text-xs text-subtle">{session.status} · {session.branch ?? "-"} · {session.repo_path}</div>
         </Link>
       ))}

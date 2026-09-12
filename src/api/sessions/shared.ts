@@ -5,6 +5,7 @@ import type { SpawnProvider } from "../../control/spawner.js";
 import { createChildLogger } from "../../shared/logger.js";
 import { REACTION_WORKFLOW_SOURCE } from "../../shared/injection-provenance.js";
 import { InjectionProvenanceSchema } from "../../shared/injection-provenance-schema.js";
+import { readSessionWorkPhase, WORK_PHASE_KEY } from "../../work/session-work-phase.js";
 
 export const log = createChildLogger("sessions-api");
 
@@ -49,6 +50,11 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
   }
 }
 
+const WritableMetadataSchema = z.record(z.unknown()).refine(
+  (metadata) => !Object.prototype.hasOwnProperty.call(metadata, WORK_PHASE_KEY),
+  "cc_work_phase must be updated through /work-phase",
+);
+
 export const StartSchema = z.object({
   id: z.string().min(1).max(128),
   provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
@@ -57,7 +63,7 @@ export const StartSchema = z.object({
   branch: z.string().nullable().optional(),
   host: z.string().min(1),
   transcript_path: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: WritableMetadataSchema.optional(),
   /** 作業衝突監視で使う「実際に扱う個別プロジェクト」の宣言 (conflict-scope.ts)。 */
   target_project: z.string().nullable().optional(),
   active_repos: z.array(z.string().min(1)).optional(),
@@ -86,7 +92,7 @@ export const PatchSchema = z.object({
    * Lictor uses this post-spawn to publish `lictor_port` once the sidecar
    * is bound (the initial register happens BEFORE the port is known).
    */
-  metadata: z.record(z.unknown()).optional(),
+  metadata: WritableMetadataSchema.optional(),
 });
 
 export const EventSchema = z.object({
@@ -225,6 +231,7 @@ export function serializeSession(s: SessionRow) {
     status: s.status,
     last_seen_at: s.last_seen_at,
     current_task: s.current_task,
+    work_phase: readSessionWorkPhase(s),
     escalation_mode: (s.escalation_mode ?? 0) === 1,
     metadata: s.metadata ? safeParse(s.metadata) : null,
   };

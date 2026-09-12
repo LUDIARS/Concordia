@@ -11,7 +11,7 @@
       "pathPattern": "(^|/)tests/sessions-repo\\.test\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa|work-phase)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/contract/[^/]+$"
@@ -28,6 +28,7 @@
     "transcript-path-authority-intake"
   ],
   "specRefs": [
+    "spec/feature/session-work-phases.md",
     "spec/feature/session-shutdown.md",
     "spec/feature/session-process-reaper.md",
     "spec/feature/session-compaction.md"

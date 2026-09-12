@@ -38,6 +38,8 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
   const lines = [
     "[Cc Session policy]",
     `Read the applicable rules: ${JSON.stringify(fileURLToPath(new URL("../../rule/session-work.md", import.meta.url)))}`,
+    "- 設計が固まったら実装へ進みます。開始前に人間に確認してください。同じ範囲の開始指示をすでに受けている場合は、その根拠を確認して進め、重ねて確認しないでください。",
+    `- Cc の作業段階（設計・確認・実装・調整）を確認・記録してください: ${JSON.stringify(fileURLToPath(new URL("../../skills/session-work-phase/SKILL.md", import.meta.url)))}`,
     renderProjectStartupWorkflow(input.workflow ?? "unknown"),
   ];
   if (requestedBranch) lines.push(`- Cc 指定 branch: ${requestedBranch}`);

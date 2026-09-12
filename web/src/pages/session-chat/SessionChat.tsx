@@ -14,6 +14,7 @@ import { SessionWorkPanel } from "./SessionWorkPanel.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 chat, unread, and push UI */
 
+// @spec セッションの設計・開始確認・実装・調整
 export function SessionChat() {
   const { id } = useParams<{ id: string }>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof api.sessions>>["sessions"]>([]);
@@ -119,7 +120,8 @@ export function SessionChat() {
     if ((event.type === "session.ended" || event.type === "session.lost" || event.type === "session.event" || event.type === "session.task_changed") && event.session_id === id) {
       void refresh();
     }
-    if (event.type === "session.started" || event.type === "session.ended" || event.type === "session.lost" || event.type === "session.task_changed") {
+    if (event.type === "session.started" || event.type === "session.ended" || event.type === "session.lost" || event.type === "session.task_changed"
+      || (event.type === "session.event" && event.kind === "work_phase_changed")) {
       void api.sessions()
         .then((result) => setSessions(result.sessions))
         .catch((cause) => setPageError((cause as Error).message));

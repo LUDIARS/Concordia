@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
+// @spec セッションの設計・開始確認・実装・調整
 import { useState } from "react";
 import type { SessionRow } from "../../api.js";
 import { SessionSpawnDialog } from "./SessionSpawnDialog.js";
+import { SessionWorkPhaseBadge } from "./SessionWorkPhase.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 session sidebar and unread badges */
 
@@ -25,7 +27,7 @@ export function SessionList({ sessions, activeId, unread }: { sessions: SessionR
                 <span className="ml-auto rounded-full bg-accent px-1.5 text-xs text-white">{unreadCount}</span>
               )}
             </div>
-            <div className="truncate pl-4 text-xs text-subtle">{session.branch ?? session.provider}</div>
+            <div className="truncate pl-4 text-xs text-subtle">{session.branch ?? session.provider} · <SessionWorkPhaseBadge value={session.work_phase} /></div>
           </Link>
         );
       })}

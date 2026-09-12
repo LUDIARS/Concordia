@@ -60,6 +60,7 @@ import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
+import { serviceVersionsRouter } from "./service-versions.js";
 import { serviceDeployedRouter } from "./service-deployed.js";
 import { releasePublishedRouter } from "./release-published.js";
 import { aiNotesRouter } from "./ai-notes.js";
@@ -218,6 +219,8 @@ export interface CoreDelegationDeps {
   staff?: StaffRepo;
   /** Revisor local PR の読み取り口。 未注入なら /v1/prs/revisor は configured=false。 */
   revisorLocalPrs?: RevisorLocalPrReader;
+  /** Revisor へのサービス版照会。 未注入なら /v1/service-versions は 503。 */
+  revisorServiceVersions?: import("../service-versions/revisor-versions-client.js").ServiceVersionReader;
   /** project registry (Rv モード表示/変更) 用の Revisor repository 管理口。 */
   revisorAdmin?: RevisorRepositoryAdmin;
   /** Revisor workflow token の設定ストア。 未注入なら /v1/admin/revisor は生えない。 */
@@ -401,6 +404,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
+  // 版の照会は読み取りだけ。 Revisor が正本で、 Cc は project_codes で「誰に聞くか」を決める。
+  app.route("/v1/service-versions", serviceVersionsRouter({
+    projectCodes: deps.projectCodes,
+    versions: deps.revisorServiceVersions,
+    inspectRepo: async (cwd) => {
+      const inspected = await inspectImplementationRepo(cwd);
+      return { repoPath: inspected.repoPath, repoOrigin: inspected.repoOrigin };
+    },
+  }));
   app.route("/v1/prs", prsRouter({
     prs: deps.prs,
     revisor: deps.revisorLocalPrs,

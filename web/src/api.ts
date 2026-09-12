@@ -1148,6 +1148,8 @@ export const api = {
   subsidiaryCreate: (body: SubsidiaryInput) => post<{ subsidiary: SubsidiarySummary }>("/v1/subsidiaries", body),
   subsidiaryUpdate: (id: string, body: Partial<SubsidiaryInput>) =>
     patch<{ subsidiary: SubsidiarySummary }>(`/v1/subsidiaries/${encodeURIComponent(id)}`, body),
+  subsidiaryDeployProjectsUpdate: (id: string, projects: string[]) =>
+    put<{ deploy_notify_projects: string[] }>(`/v1/subsidiaries/${encodeURIComponent(id)}/deploy-notify-projects`, { projects }),
   subsidiaryDeployNotifyUpdate: (id: string, body: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>) =>
     put<{ deploy_notify: Array<{ kind: string; target: string; enabled: boolean }> }>(`/v1/subsidiaries/${encodeURIComponent(id)}/deploy-notify`, body),
   subsidiaryDelete: (id: string) => del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}`),
@@ -1444,6 +1446,8 @@ export interface SubsidiarySummary {
   daily_token_budget: number;
   /** 子会社ごとのデプロイ反映通知先 (GET /v1/subsidiaries/:id が同梱、一覧では省略されることがある)。 */
   deploy_notify?: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>;
+  /** 通知対象 project (デプロイ / リリース通知の配送判定にだけ使う。関係 project とは別)。 */
+  deploy_notify_projects?: string[];
   default_team_id: string | null;
   /** この子会社の Test forum に載せる PR の範囲 (project 名 = repo 名)。 空 = 掲載なし。 */
   projects: string[];

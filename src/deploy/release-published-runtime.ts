@@ -28,7 +28,7 @@ export class SqliteReleaseNoticeLedger implements ReleaseNoticeLedger {
  */
 export function createReleaseNoticeLookup(input: {
   projects: Pick<ProjectCodesRepo, "findByRepoOrigin">;
-  subsidiaries: Pick<SubsidiaryRepo, "list" | "listProjects" | "listDeployNotify">;
+  subsidiaries: Pick<SubsidiaryRepo, "list" | "listDeployProjects" | "listDeployNotify">;
   hqTargets: () => Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
 }): ReleaseNoticeLookup {
   return {
@@ -42,7 +42,7 @@ export function createReleaseNoticeLookup(input: {
           .map((target) => ({
             subsidiaryId: subsidiary.id,
             enabled: subsidiary.enabled === 1,
-            projects: input.subsidiaries.listProjects(subsidiary.id),
+            projects: input.subsidiaries.listDeployProjects(subsidiary.id),
             kind: target.kind,
             target: target.target,
             intakeChannelId: subsidiary.channel_id,

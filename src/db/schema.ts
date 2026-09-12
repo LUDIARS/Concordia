@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 105;
+export const SCHEMA_VERSION = 106;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2512,6 +2512,21 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       armed_at INTEGER NOT NULL,
       notified_at INTEGER
     )`);
+  },
+},
+{
+  version: 106,
+  name: "subsidiary-deploy-projects",
+  source: "subsidiary_deploy_projects separates notification scope from the operational related-project scope",
+  up(db) {
+    // 関係プロジェクト (subsidiary_projects) は Test forum / spawn / ゲートの範囲を決める。
+    // 通知だけ受けたいプロジェクトを同じ集合に足すとそれらも開くので、通知対象は別表で持つ。
+    db.exec(`CREATE TABLE IF NOT EXISTS subsidiary_deploy_projects (
+      subsidiary_id TEXT NOT NULL REFERENCES subsidiaries(id) ON DELETE CASCADE,
+      project TEXT NOT NULL COLLATE NOCASE,
+      PRIMARY KEY (subsidiary_id, project)
+    )`);
+    db.exec("CREATE INDEX IF NOT EXISTS idx_subsidiary_deploy_projects_project ON subsidiary_deploy_projects(project)");
   },
 },
 ];

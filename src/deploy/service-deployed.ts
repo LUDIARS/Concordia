@@ -7,7 +7,7 @@ export type DeployNotifyTarget = { kind: "discord" | "slack" | "cc-channel" | "s
 export interface ServiceDeployedEvent { code: string; previousHash: string; currentHash: string; version: string; startedAt: string; restartCount: number; }
 export interface RevisorChanges { from: string; to: string; commits: Array<{ sha: string; subject: string }>; pullRequests: Array<{ number: number; title: string; author: string; mergedAt: string | null }>; markdown: string; notice: string; }
 export interface DeploymentLedger { claim(code: string, currentHash: string): boolean; }
-export interface DeploymentDelivery { discord(target: string, content: string): Promise<void>; slack(target: string, content: string): Promise<void>; ccChannel(content: string): Promise<void>; subsidiaryChannel(target: string, botTokenEnc: string, content: string): Promise<void>; }
+export interface DeploymentDelivery { discord(target: string, content: string): Promise<void>; slack(target: string, content: string): Promise<void>; ccChannel(content: string): Promise<void>; subsidiaryChannel(target: string, botTokenEnc: string | null, content: string): Promise<void>; }
 export interface DeploymentLookup {
   findProject(code: string): { repo_origin: string | null; deploy_notify: DeployNotifyTarget[] } | null;
   changes(repository: string, from: string, to: string): Promise<RevisorChanges | null>;
@@ -44,8 +44,8 @@ export async function deliverDeploymentNotice(input: { targets: readonly DeployN
       if (target.kind === "discord") await input.delivery.discord(target.target, input.content);
       else if (target.kind === "slack") await input.delivery.slack(target.target, input.content);
       else if (target.kind === "cc-channel") await input.delivery.ccChannel(input.content);
-      else if (target.botTokenEnc) await input.delivery.subsidiaryChannel(target.target, target.botTokenEnc, input.content);
-      else throw new Error("subsidiary deployment channel has no bot credential");
+      // 子会社 Bot 未設定 (botTokenEnc null) は runtime 側で本社 Bot へ倒す。 ここでは弾かない。
+      else await input.delivery.subsidiaryChannel(target.target, target.botTokenEnc ?? null, input.content);
       delivered.push({ target: resultTarget });
     } catch (error) {
       failed.push({ target: resultTarget, error: error instanceof Error ? error.message : "delivery failed" });

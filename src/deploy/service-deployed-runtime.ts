@@ -26,7 +26,7 @@ export class SqliteDeploymentLedger implements DeploymentLedger {
 
 export function createDeploymentLookup(input: {
   projects: ProjectCodesRepo;
-  subsidiaries: Pick<SubsidiaryRepo, "list" | "listProjects" | "listDeployNotify">;
+  subsidiaries: Pick<SubsidiaryRepo, "list" | "listDeployProjects" | "listDeployNotify">;
   excubitor: Pick<ExcubitorClient, "findService">;
   hqTargets: () => Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
 }): DeploymentLookup {
@@ -43,7 +43,8 @@ export function createDeploymentLookup(input: {
         .map((target) => ({
           subsidiaryId: subsidiary.id,
           enabled: subsidiary.enabled === 1,
-          projects: input.subsidiaries.listProjects(subsidiary.id),
+          // 通知対象 project (関係 project ではない)。 未設定の子会社には何も届かない。
+          projects: input.subsidiaries.listDeployProjects(subsidiary.id),
           kind: target.kind,
           target: target.target,
           intakeChannelId: subsidiary.channel_id,
@@ -85,6 +86,8 @@ export function createDeploymentDelivery(input: {
   webhookUrl: (name: string) => string | null;
   postCcChannel: (content: string) => Promise<void>;
   decryptBotToken: (encrypted: string) => string;
+  /** 子会社 Bot 未設定時に使う本社 Bot のトークン (未設定なら null)。 */
+  hqBotToken?: () => string | null;
 }): DeploymentDelivery {
   const post = async (name: string, content: string, slack: boolean) => {
     const url = input.webhookUrl(name);
@@ -101,14 +104,36 @@ export function createDeploymentDelivery(input: {
     slack: (name, content) => post(name, content, true),
     ccChannel: input.postCcChannel,
     subsidiaryChannel: async (channelId, encryptedToken, content) => {
+      const token = resolveSubsidiaryBotToken({ encryptedToken, decrypt: input.decryptBotToken, hqToken: input.hqBotToken });
+      if (!token) throw new Error("subsidiary deployment channel has no bot credential (subsidiary token unset and HQ bot token unavailable)");
       const response = await fetch(`https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}/messages`, {
         method: "POST",
-        headers: { authorization: `Bot ${input.decryptBotToken(encryptedToken)}`, "content-type": "application/json" },
+        headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
       });
       if (!response.ok) throw new Error(`subsidiary deployment channel rejected request (${response.status})`);
     },
   };
+}
+
+/**
+ * 子会社チャンネルへ投稿する Bot トークン。 子会社 Bot が設定されていればそれ、
+ * 無ければ本社 Bot (Cc 本体) で代替する。 どちらも無ければ null (配送失敗として記録)。
+ */
+export function resolveSubsidiaryBotToken(input: {
+  encryptedToken: string | null | undefined;
+  decrypt: (encrypted: string) => string;
+  hqToken?: () => string | null;
+}): string | null {
+  if (input.encryptedToken) {
+    try {
+      const token = input.decrypt(input.encryptedToken);
+      if (token) return token;
+    } catch {
+      // 復号できない子会社トークンは本社 Bot へ倒す (投稿できないよりは届く方を選ぶ)。
+    }
+  }
+  return input.hqToken?.() ?? null;
 }
 
 function parseTargets(value: string | undefined): Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }> {

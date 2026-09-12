@@ -861,6 +861,8 @@ export async function startBackend(): Promise<BackendHandle> {
         if (!response.ok) throw new Error(`deployment Discord channel rejected request (${response.status})`);
       },
       decryptBotToken: (encrypted) => secretBox.decrypt(encrypted),
+      // 子会社 Bot 未設定時は本社 Bot (Cc 本体) で投稿する (neco 2026-09-12)。
+      hqBotToken: () => resolveDiscordConfig(discordConfig, secretBox).token ?? null,
     }),
     // Same shared secret as Excubitor's existing dispatch. Loopback-only deployments may omit it.
     authorize: (header: string | undefined) => {
@@ -898,6 +900,8 @@ export async function startBackend(): Promise<BackendHandle> {
         if (!response.ok) throw new Error(`release Discord channel rejected request (${response.status})`);
       },
       decryptBotToken: (encrypted) => secretBox.decrypt(encrypted),
+      // 子会社 Bot 未設定時は本社 Bot (Cc 本体) で投稿する (neco 2026-09-12)。
+      hqBotToken: () => resolveDiscordConfig(discordConfig, secretBox).token ?? null,
     }),
     authorize: (header: string | undefined) => {
       const expected = discordConfig.get("excubitor_dispatch_token");

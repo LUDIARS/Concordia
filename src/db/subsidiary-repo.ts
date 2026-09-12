@@ -278,6 +278,30 @@ export class SubsidiaryRepo {
     return this.listProjects(subsidiaryId);
   }
 
+  /**
+   * 通知対象 project (デプロイ / リリース通知の配送判定にだけ使う)。
+   * 関係 project (`subsidiary_projects`) とは独立で、Test forum / spawn / ゲートには効かない。
+   */
+  listDeployProjects(subsidiaryId: string): string[] {
+    return (this.db.prepare(
+      `SELECT project FROM subsidiary_deploy_projects WHERE subsidiary_id = ? ORDER BY project ASC`,
+    ).all(subsidiaryId) as Array<{ project: string }>).map((row) => row.project);
+  }
+
+  /** 通知対象 project を丸ごと置き換える (空配列で未設定 = その子会社へは通知しない)。 */
+  setDeployProjects(subsidiaryId: string, projects: readonly string[]): string[] {
+    const normalized = [...new Set(projects.map((p) => p.trim()).filter(Boolean))];
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM subsidiary_deploy_projects WHERE subsidiary_id = ?`).run(subsidiaryId);
+      const insert = this.db.prepare(
+        `INSERT OR IGNORE INTO subsidiary_deploy_projects(subsidiary_id, project) VALUES (?, ?)`,
+      );
+      for (const project of normalized) insert.run(subsidiaryId, project);
+    });
+    tx();
+    return this.listDeployProjects(subsidiaryId);
+  }
+
   /** 全子会社の関係 project 割当を一括で返す (project registry の所属表示用)。 */
   listProjectAssignments(): Array<{ subsidiary_id: string; project: string }> {
     return this.db.prepare("SELECT subsidiary_id, project FROM subsidiary_projects ORDER BY subsidiary_id")

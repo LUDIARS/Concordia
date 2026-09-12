@@ -51,6 +51,7 @@ export function SubsidiariesSection() {
   const [err, setErr] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [deployNotifyJson, setDeployNotifyJson] = useState("[]");
+  const [deployProjectsText, setDeployProjectsText] = useState("");
 
   const load = useCallback(() => {
     api.subsidiariesList().then((r) => setSubs(r.subsidiaries)).catch((e) => setErr(String(e)));
@@ -82,6 +83,7 @@ export function SubsidiariesSection() {
     });
     setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests, teams: r.teams });
     setDeployNotifyJson(JSON.stringify(r.subsidiary.deploy_notify ?? []));
+    setDeployProjectsText((r.subsidiary.deploy_notify_projects ?? []).join(", "));
       },
     });
   };
@@ -335,7 +337,15 @@ export function SubsidiariesSection() {
               try { await api.subsidiaryDeployNotifyUpdate(editId, JSON.parse(deployNotifyJson)); await openDetail(editId); }
               catch { setErr("通知先は kind / target / enabled を持つ JSON 配列で入力してください"); }
             }}>通知先を保存</button>
-            <p className="text-[10px] text-subtle">subsidiary-channel の target は空なら受付チャンネルへ、専用 Bot で mention 無効のまま配送します。</p>
+            <p className="text-[10px] text-subtle">subsidiary-channel の target は空なら受付チャンネルへ、子会社 Bot (未設定なら本社 Bot) で mention 無効のまま配送します。</p>
+            <label className="text-xs text-subtle mt-1">通知対象プロジェクト (カンマ区切り。関係プロジェクトとは別で、デプロイ / リリース通知の配送判定にだけ使う)</label>
+            <input className="foundation-form text-xs" value={deployProjectsText} onChange={(e) => setDeployProjectsText(e.target.value)} placeholder="Concordia, Pagus" />
+            <button className="self-start text-xs px-2 py-1 rounded-md border border-border" onClick={async () => {
+              try {
+                await api.subsidiaryDeployProjectsUpdate(editId, deployProjectsText.split(",").map((s) => s.trim()).filter(Boolean));
+                await openDetail(editId);
+              } catch { setErr("通知対象プロジェクトの保存に失敗しました"); }
+            }}>通知対象を保存</button>
           </div>
         )}
 

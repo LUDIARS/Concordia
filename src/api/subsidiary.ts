@@ -50,6 +50,10 @@ const CreateSchema = z.object({
 const PatchSchema = CreateSchema.partial().omit({ name: true });
 const DeployNotifySchema = z.array(z.object({ kind: z.enum(["discord", "slack", "subsidiary-channel"]), target: z.string().trim().max(200), enabled: z.boolean().default(true) }).strict()).max(50);
 
+const DeployNotifyProjectsSchema = z.object({
+  projects: z.array(z.string().trim().min(1).max(120)).max(200),
+}).strict();
+
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
 
@@ -128,6 +132,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     return {
       ...rest,
       projects: deps.repo.listProjects(row.id),
+      deploy_notify_projects: deps.repo.listDeployProjects(row.id),
       deploy_notify: deps.repo.listDeployNotify(row.id).map((target) => ({ ...target, enabled: target.enabled === 1 })),
       enabled: row.enabled === 1,
       bot_token_set: !!bot_token_enc,
@@ -280,6 +285,16 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     const targets = parsed.data.map((target) => ({ kind: target.kind, target: target.target, enabled: target.enabled ? 1 : 0 }));
     deps.repo.replaceDeployNotify(id, targets);
     return c.json({ deploy_notify: deps.repo.listDeployNotify(id).map((target) => ({ ...target, enabled: target.enabled === 1 })) });
+  });
+
+  // 通知対象 project (関係 project とは別の集合)。 Test forum / spawn の範囲は変えずに
+  // デプロイ・リリース通知の配送先だけを広げる。
+  app.put("/:id/deploy-notify-projects", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    const parsed = DeployNotifyProjectsSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_deploy_notify_projects", detail: parsed.error.flatten() }, 400);
+    return c.json({ deploy_notify_projects: deps.repo.setDeployProjects(id, parsed.data.projects) });
   });
 
   app.delete("/:id", async (c) => {

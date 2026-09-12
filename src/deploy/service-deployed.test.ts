@@ -23,6 +23,18 @@ describe("service deployed notification", () => {
     expect(hqDelivery.ccChannel).toHaveBeenCalledWith(expect.stringContaining("[genius] デプロイ反映"));
   });
 
+  it("delivers to a subsidiary channel without a subsidiary bot token (runtime falls back to the HQ bot)", async () => {
+    const subDelivery: DeploymentDelivery = { discord: vi.fn(), slack: vi.fn(), ccChannel: vi.fn(), subsidiaryChannel: vi.fn() };
+    const result = await handleServiceDeployment({
+      event,
+      ledger: { claim: () => true },
+      lookup: { findProject: () => ({ repo_origin: null, deploy_notify: [{ kind: "subsidiary-channel", target: "123", subsidiaryId: "sub-1", botTokenEnc: null }] }), changes: async () => null },
+      delivery: subDelivery,
+    });
+    expect(result.failed).toEqual([]);
+    expect(subDelivery.subsidiaryChannel).toHaveBeenCalledWith("123", null, expect.stringContaining("デプロイ反映"));
+  });
+
   it("C-2 falls back to deployment-only wording when Revisor is unavailable", () => {
     expect(composeDeploymentNotice(event, null)).toContain("反映のみ");
   });

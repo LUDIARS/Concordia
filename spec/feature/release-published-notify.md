@@ -15,3 +15,6 @@ Revisor は major/minor Release の公開後、同じ loopback dispatch 認可�
 暗号文をそのまま ID として投げると Discord が 404 を返し、 チャンネル不在や権限不足と
 区別できない障害になる。 復号できない値は未設定として扱い、 壊れた ID で投稿を試みない。
 この規則はデプロイ通知 (`deploy_notify_channel_id`) と新規プロジェクト通知にも同じく適用する。
+
+子会社への配送判定はデプロイ通知と同じく通知対象 project (`subsidiary_deploy_projects`) を使う。
+関係 project (`subsidiary_projects`) は通知の判定に使わない。

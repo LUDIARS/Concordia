@@ -15,3 +15,11 @@ Revisor の repository / changes が未登録または利用不能でも、デ�
 HQ 宛先（専用 Discord チャンネルと設定済み Discord/Slack webhook）はすべての project のイベントに含む。`project_codes.deploy_notify` はその project にだけ加える追加宛先である。`subsidiary_deploy_notify` は子会社ごとの `discord`、`slack`、`subsidiary-channel` 宛先を保存する。最後の種別は子会社固有の暗号化 bot token を復号して、target（空なら intake channel）へ `allowed_mentions: { parse: [] }` で送る。
 
 子会社宛先は `subsidiary_projects` が project 名を含み、かつ `project_codes.revisor_workflow` のミラーが `revisor` の時だけ合成する。ミラーが `github` または null（Revisor 未登録・未確認）なら fail-closed で送らない。解決中の Revisor 照会は行わない。同じ webhook 名または同じ bot/channel 宛先は一度だけ配送する。
+
+## 通知対象プロジェクト (関係プロジェクトとは別定義)
+
+子会社への配送判定は `subsidiary_deploy_projects` (通知対象 project) で行い、`subsidiary_projects`
+(関係 project = Test forum / spawn / 受付ゲートの範囲) は使わない (neco 2026-09-12)。通知だけ受けたい
+project を関係 project に足すと Test forum 等まで開いてしまうため。`PUT /v1/subsidiaries/:id/deploy-notify-projects`
+`{ "projects": [...] }` で置き換え、子会社詳細に `deploy_notify_projects` を同梱する。未設定 (空) の子会社には
+配送しない。子会社 Bot トークンが未設定の場合は本社 Bot で投稿する (`resolveSubsidiaryBotToken`)。

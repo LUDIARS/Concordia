@@ -79,6 +79,7 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
   サービスの起動や再起動をhookから行わない。headless等でsidecar同一性が取れないpushは拒否する。
 - 元のglobal/local hook設定を復元した子プロセスで既存hookを呼び、stdin/argv/終了コードを引き継ぐ。
   Ccの挿入スロット以後に追加されたGit設定も保持する。後続の別hooksPath、欠損・不正な設定配列は拒否し、Ccのスロットだけを除去して後続を詰め直す。
+  wrapper は起動ごとに `CONCORDIA_SESSION_HOOK_DEPTH` を加算する。depth が 1 以上の再入では環境復元の不整合を失敗にせず、`git config --global core.hooksPath`（未設定時 `~/.git-hooks`）の同名実行可能 hook を stdin・argv と終了コードを保って直接実行する。候補の有無にかかわらず stderr へ `[Cc hook] reentry: <hook> → <path>` を 1 行出し、実行可能な候補がなければ成功として終了する。
   main pushやLFSなどの既存hookを削除しない。Revisor本体の公開プロセスにはこのsession環境を設定しない。
 - この変更はGit hookが呼ばれる操作を対象とする。`--no-verify`、環境削除、別Gitライブラリ等の
   意図的迂回に対するOS sandboxではない。provider固有の全ツール実行を捕捉したとは主張しない。

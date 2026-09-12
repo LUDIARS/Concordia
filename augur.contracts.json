@@ -11,6 +11,7 @@
     { "id": "C-4", "criterion": "C-4 resolveDeploymentTargets(input): HQ 宛先は常に含み、子会社宛先は Revisor workflow と project scope の双方を満たすときだけ含む", "symbol": "resolveDeploymentTargets", "file": "src/deploy/deployment-targets.ts", "module": "src/deploy/service-deployed.contract.js", "mode": "observe", "sample": 1 },
     { "id": "C-5", "criterion": "C-5 handleReleasePublished(event): (repository,tag) が既処理なら配送しない", "symbol": "handleReleasePublished", "file": "src/deploy/release-published.ts", "module": "src/deploy/release-published.contract.js", "mode": "observe", "sample": 1 },
     { "id": "C-6", "criterion": "C-6 composeReleaseNotice(event): title、最大10行の notice、releaseUrl を含む本文を返す", "symbol": "composeReleaseNotice", "file": "src/deploy/release-published.ts", "module": "src/deploy/release-published.contract.js", "mode": "observe", "sample": 1 },
-    { "id": "C-7", "criterion": "C-7 decideReleaseNotice(input): 未設定の宛先には配送を試行しない", "symbol": "decideReleaseNotice", "file": "src/deploy/release-published.ts", "module": "src/deploy/release-published.contract.js", "mode": "observe", "sample": 1 }
+    { "id": "C-7", "criterion": "C-7 decideReleaseNotice(input): 未設定の宛先には配送を試行しない", "symbol": "decideReleaseNotice", "file": "src/deploy/release-published.ts", "module": "src/deploy/release-published.contract.js", "mode": "observe", "sample": 1 },
+    { "id": "C-8", "criterion": "C-8 resolveReentryHook(input): 再入時はグローバル hooksPath 内の同名で実行可能な hook だけを選ぶ", "symbol": "resolveReentryHook", "file": "tools/session-git-hook.mjs", "module": "tools/session-git-hook.contract.mjs", "mode": "observe", "sample": 1 }
   ]
 }

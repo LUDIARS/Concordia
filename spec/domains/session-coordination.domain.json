@@ -4,7 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)tools/session-git-hook(?:-env)?(?:\\.test)?\\.mjs$" },
+    { "pathPattern": "(^|/)tools/session-git-hook(?:-env)?(?:\\.(?:test|contract))?\\.mjs$" },
     {
       "pathPattern": "(^|/)src/control(?:/.*)?$"
     },

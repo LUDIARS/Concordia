@@ -61,9 +61,11 @@ import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
 import { serviceDeployedRouter } from "./service-deployed.js";
+import { releasePublishedRouter } from "./release-published.js";
 import { aiNotesRouter } from "./ai-notes.js";
 import type { PublicationService } from "../ai-notes/publication-service.js";
 import type { DeploymentDelivery, DeploymentLedger, DeploymentLookup } from "../deploy/service-deployed.js";
+import type { ReleaseNoticeDelivery, ReleaseNoticeLedger } from "../deploy/release-published.js";
 import { sessionPushCheckRouter } from "./session-push-check.js";
 import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { domainReviewRouter, type DomainReviewApiDeps } from "./domain-review.js";
@@ -278,6 +280,8 @@ export interface CoreRuntimeDeps {
   director?: DirectorService;
   /** Excubitor の service.deployed を受理する adapter 群。未注入なら受信面を公開しない。 */
   serviceDeployed?: { ledger: DeploymentLedger; lookup: DeploymentLookup; delivery: DeploymentDelivery; authorize: (header: string | undefined) => boolean };
+  /** Revisor の release-published を受理する adapter 群。 */
+  releasePublished?: { ledger: ReleaseNoticeLedger; channelConfigured: () => boolean; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
   aiNotePublication?: PublicationService;
   /**
    * GitHub Issue ワークフロー。 未注入なら /v1/github と /v1/admin/github は生えない
@@ -301,6 +305,7 @@ export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
+  if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));
   app.route("/v1/harness/reliability", harnessReliabilityRouter({ repo: deps.repo, messages: deps.sessionMessages,
     questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude }));
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;

@@ -83,6 +83,7 @@ import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
+import { SqliteReleaseNoticeLedger, createReleaseNoticeDelivery } from "../deploy/release-published-runtime.js";
 import { DomainReviewRepo } from "../db/domain-review-repo.js";
 import { DomainReviewService, type DomainReviewPostPort } from "../domain-review/service.js";
 import { parseTeamSettings } from "../api/teams.js";
@@ -862,6 +863,27 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     log: createChildLogger("service-deployed"),
   };
+  const releasePublished = {
+    ledger: new SqliteReleaseNoticeLedger(db),
+    channelConfigured: () => Boolean(discordConfig.get("release_notify_channel_id")),
+    delivery: createReleaseNoticeDelivery(async (content) => {
+      const channelId = discordConfig.get("release_notify_channel_id");
+      if (!channelId) throw new Error("release Discord channel is not configured");
+      const token = resolveDiscordConfig(discordConfig, secretBox).token;
+      if (!token) throw new Error("Discord bot token is not configured");
+      const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: "POST",
+        headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      });
+      if (!response.ok) throw new Error(`release Discord channel rejected request (${response.status})`);
+    }),
+    authorize: (header: string | undefined) => {
+      const expected = discordConfig.get("excubitor_dispatch_token");
+      return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
+    },
+    log: createChildLogger("release-published"),
+  };
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const githubLog = createChildLogger("github-issue-workflow");
   /** webhook delivery 記録の保持期間。 GitHub の再送はこれより遥かに短い。 */
@@ -1626,6 +1648,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorLocalPrPromoter: revisorClient,
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
+    releasePublished,
     aiNotePublication: createAiNotePublication({ db,
       discordConfig: () => resolveDiscordConfig(discordConfig, secretBox),
       slackConfig: () => resolveSlackConfig(slackConfig, secretBox),

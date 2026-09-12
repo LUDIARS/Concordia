@@ -9,6 +9,18 @@ import type { SettingDefinition } from "../types.js";
 
 export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
   {
+    key: "discord.release_notify_channel_id",
+    section: "discord",
+    label: "リリース通知チャンネル",
+    description: "Revisor が公開した Release を Concordia Bot で通知する専用 Discord チャンネル ID。デプロイ・セッション通知チャンネルとは共用しない。",
+    kind: "string",
+    envName: null,
+    dbKey: "release_notify_channel_id",
+    dbStore: "discord",
+    defaultValue: null,
+    editable: true,
+  },
+  {
     key: "discord.deploy_notify_channel_id",
     section: "discord",
     label: "デプロイ通知チャンネル",

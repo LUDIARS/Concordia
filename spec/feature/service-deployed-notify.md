@@ -8,6 +8,8 @@ Revisor の repository / changes が未登録または利用不能でも、デ�
 
 `deploy_notify` の `discord` と `slack` の `target` は名前付き webhook secret を指し、URL は project registry に保存しない。`cc-channel` は Settings の「デプロイ通知チャンネル」だけへ投稿し、session 用チャンネルへ混在させない。Discord の allowed mentions は常に空である。
 
+公開済み Release の通知は [公開リリース通知](release-published-notify.md) が所有する。`service.deployed` の台帳・配送先とは別のイベントであり、同じ専用チャンネルを暗黙に共用しない。
+
 ## 本社・子会社の対象範囲
 
 HQ 宛先（専用 Discord チャンネルと設定済み Discord/Slack webhook）はすべての project のイベントに含む。`project_codes.deploy_notify` はその project にだけ加える追加宛先である。`subsidiary_deploy_notify` は子会社ごとの `discord`、`slack`、`subsidiary-channel` 宛先を保存する。最後の種別は子会社固有の暗号化 bot token を復号して、target（空なら intake channel）へ `allowed_mentions: { parse: [] }` で送る。

@@ -5,14 +5,19 @@
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/deploy/service-deployed(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/deploy/release-published(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/deploy/release-published\\.contract\\.js$" },
+    { "pathPattern": "(^|/)src/deploy/release-published\\.contract\\.d\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/service-deployed\\.contract\\.js$" },
     { "pathPattern": "(^|/)src/deploy/service-deployed-runtime(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/deployment-targets(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/deploy/ontime-runtime\\.ts$" },
     { "pathPattern": "(^|/)src/api/service-deployed(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/release-published(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/register-core\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/db/(schema|project-codes-repo)\\.ts$" },
+    { "pathPattern": "(^|/)src/db/migration-ledger(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/subsidiary-repo\\.ts$" },
     { "pathPattern": "(^|/)src/api/subsidiary\\.ts$" },
     { "pathPattern": "(^|/)src/config/settings/definitions/chat\\.ts$" },
@@ -20,6 +25,6 @@
   ],
   "cardTemplate": "Describe unconditional HQ destinations, project additions, fail-closed subsidiary scope and per-destination delivery.",
   "mechanics": ["durable-idempotency", "destination-deduplication", "fail-closed-subsidiary-scope"],
-  "specRefs": ["spec/feature/service-deployed-notify.md", "spec/ux/product.md"],
+  "specRefs": ["spec/feature/service-deployed-notify.md", "spec/feature/release-published-notify.md", "spec/ux/product.md"],
   "rationale": "受信 HTTP、重複排除、Revisor 差分の照会、通知配送を service.deployed という一つの業務イベントの境界に閉じる。"
 }

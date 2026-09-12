@@ -27,6 +27,15 @@ export interface ServiceVersion {
   packageVersion: string | null;
   releaseVersion: string | null;
   releaseStatus: string | null;
+  /** 公開済みの最新リリースタグ (`v2.4.0`)。版管理が未初期化でも公開済み版が分かる。 */
+  latestReleaseTag: string | null;
+  /** 最新リリース以降の未公開コミット数。 */
+  unreleasedCommits: number | null;
+  /**
+   * 情報源どうしの食い違いの種類。 どれとどれが違うかを表示側で組み立て直さずに
+   * 済ませるためのもので、 数値そのものは各欄に残っている。
+   */
+  drift: string[];
 }
 
 export interface ServiceVersionResult {
@@ -77,6 +86,11 @@ function service(value: unknown): ServiceVersion | null {
     packageVersion: text(source, "packageVersion"),
     releaseVersion: text(source, "releaseVersion"),
     releaseStatus: text(source, "releaseStatus"),
+    latestReleaseTag: text(source, "latestReleaseTag"),
+    unreleasedCommits: integer(source, "unreleasedCommits"),
+    drift: Array.isArray(source.drift)
+      ? source.drift.filter((kind): kind is string => typeof kind === "string")
+      : [],
   };
 }
 

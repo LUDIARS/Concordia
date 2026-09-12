@@ -29,6 +29,9 @@ function versionOf(service: string): ServiceVersionResult {
       packageVersion: "0.1.0",
       releaseVersion: "0.8.0",
       releaseStatus: "ready",
+      latestReleaseTag: "v0.8.0",
+      unreleasedCommits: 118,
+      drift: ["running_differs_from_release"],
     }],
   };
 }

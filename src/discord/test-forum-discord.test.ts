@@ -72,7 +72,8 @@ describe("starterContent", () => {
   it("falls back to the skeleton when the detail is unavailable", () => {
     const content = starterContent(candidate({ detail: null }));
     expect(content).toContain("**Repo** `LUDIARS/Concordia`");
-    expect(content).toContain("**Head** `feat/forum` @ `sha-1`");
+    expect(content).toContain("**Head** `feat/forum`");
+    expect(content).not.toContain("sha-1");
     expect(content).not.toContain("**判定**");
   });
 
@@ -169,6 +170,9 @@ describe("statusChangeMessage", () => {
     }), 42)).toEqual([]);
     expect(statusChangeComponents(candidate({ detail: null }), 42)).toEqual([]);
     expect(statusChangeComponents(candidate({ checkStatus: "failed" }), 42)).toEqual([]);
+    // マージ受付中・マージ済みの候補に、新しい通知からマージの入口を戻さない。
+    expect(statusChangeComponents(candidate({ checkStatus: "test_ok" }), 42, "merging")).toEqual([]);
+    expect(statusChangeComponents(candidate({ checkStatus: "test_ok" }), 42, "merged")).toEqual([]);
   });
 
   it("posts concrete action_required failures with test output instead of calling them a human decision", () => {
@@ -482,5 +486,11 @@ describe("renderTestForumControls", () => {
     expect(starting.components).toEqual([]);
     expect(starting.content).toContain("起動しています");
     expect(renderTestForumControls({ ...controlSurface, run_state: "merged" }).components).toEqual([]);
+  });
+
+  it("shows the accepted merge without any control while Revisor has not settled it", () => {
+    const merging = renderTestForumControls({ ...controlSurface, run_state: "merging" });
+    expect(merging.components).toEqual([]);
+    expect(merging.content).toContain("マージを受け付けました");
   });
 });

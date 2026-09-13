@@ -8,6 +8,7 @@
  * 状態:
  *   candidate — Revisor が Open / Test OK にした直後。 「テスト開始」を出す
  *   testing   — セッション起動済み。 ボタンは「マージ」に変わる
+ *   merging   — マージを受け付け、Revisor の結果を待っている。 操作は出さない
  *   merged    — マージ済み。 操作は出さない
  *
  * @implements spec/feature/test-forum-controls.md — 状態遷移
@@ -65,7 +66,7 @@ export function isEffortSupported(provider: TestProvider, value: string): value 
   return (testEffortChoices(provider) as readonly string[]).includes(value);
 }
 
-export type TestSurfaceState = "candidate" | "starting" | "testing" | "merged";
+export type TestSurfaceState = "candidate" | "starting" | "testing" | "merging" | "merged";
 
 /** customId の名前空間。 既存の `ctrl:` (コントロールパネル) とは別に切る。 */
 const PREFIX = "test";
@@ -108,7 +109,7 @@ export function providerChoiceValue(config: TestRunConfig): string {
  * 要求をここ 1 箇所で表す (描画側は素直に従うだけ)。
  */
 export interface TestControlLayout {
-  /** 主ボタン。 null なら操作を出さない (merged)。 */
+  /** 主ボタン。 null なら操作を出さない (merging / merged)。 */
   primary: { action: "start" | "merge"; label: string; style: "primary" | "success" } | null;
   /** provider / effort の選択を出すか (テスト開始前だけ調整できる)。 */
   selectors: boolean;
@@ -120,7 +121,7 @@ export interface TestControlLayout {
  * 「マージOK」の通知にはその場で押せるマージボタンを添える (test-forum-discord.ts)
  * ため、 テスト開始前 (`candidate`) のマージも受け付ける。 Revisor が mergeable と
  * 判定した PR に対して案内文だけ出し、 押せる場所が無い状態を作らないための対。
- * `starting` は spawn 予約中なので受け付けない。
+ * `starting` は spawn 予約中、 `merging` は受付済みなので受け付けない。
  */
 export function isMergeAllowedState(state: TestSurfaceState): boolean {
   return state === "candidate" || state === "testing";
@@ -136,6 +137,9 @@ export function testControlLayout(state: TestSurfaceState): TestControlLayout {
     case "testing":
       // 起動後に provider を変えても走っているセッションは変わらないので選択は畳む。
       return { primary: { action: "merge", label: "マージ", style: "success" }, selectors: false };
+    case "merging":
+      // 受付から結果確定まで、再押下や別投稿からの二重マージの入口を出さない。
+      return { primary: null, selectors: false };
     case "merged":
       return { primary: null, selectors: false };
   }

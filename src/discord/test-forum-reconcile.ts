@@ -38,6 +38,8 @@ export interface TestForumSurfaceAdapter {
   update(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
   /** DB id を customId に埋めるため、作成後に操作面を追加する。 */
   render?(surface: DiscordTestSurfaceRow): Promise<{ controlsMessageId: string }>;
+  /** 表示済みの操作面を、その行の現在の状態で描き直す。 */
+  refreshControls?(surface: DiscordTestSurfaceRow): Promise<void>;
   /** 審査状態が戻った候補から、既存の特権操作を取り外す。 */
   clearControls?(surface: DiscordTestSurfaceRow): Promise<void>;
   /** 審査の決着遷移をスレッドへ通常メッセージとして知らせる。 */
@@ -250,6 +252,22 @@ export async function reconcileTestForum(input: {
     }
   };
 
+  /**
+   * 新しい操作面を描く。 周期の始めに読んだ行ではなく描く直前の行を使い、描いている間に
+   * マージ受付などで状態が進んだら、古い状態のボタンを残さず今の状態で描き直す。
+   */
+  const renderControls = async (surfaceId: number): Promise<void> => {
+    if (!input.adapter.render) return;
+    const current = input.surfaces.findOpen(surfaceId);
+    if (!current || current.controls_message_id) return;
+    const rendered = await input.adapter.render(current);
+    input.surfaces.setControlsMessageId(surfaceId, rendered.controlsMessageId);
+    const latest = input.surfaces.findOpen(surfaceId);
+    if (latest && latest.run_state !== current.run_state && input.adapter.refreshControls) {
+      await input.adapter.refreshControls(latest);
+    }
+  };
+
   for (const surface of existing) {
     const key = prKey(surface.repo_origin, surface.pr_number);
     const candidate = candidatesByPr.get(key);
@@ -308,12 +326,10 @@ export async function reconcileTestForum(input: {
       });
     }
     // 操作面の導入前に立った投稿 (controls_message_id 未設定) には、 head が変わるまで
-    // 操作が一切出ない。 保持する候補にも遅れて操作面を足す。
+    // 操作が一切出ない。 保持する候補にも遅れて操作面を足す。 マージ受付中の行は
+    // 描く直前の状態で描くのでボタンは出ない。
     if (!surface.controls_message_id && hasTestControls(candidate) && input.adapter.render) {
-      await isolate(`${key}:controls`, async () => {
-        const rendered = await input.adapter.render!(surface);
-        input.surfaces.setControlsMessageId(surface.id, rendered.controlsMessageId);
-      });
+      await isolate(`${key}:controls`, () => renderControls(surface.id));
     }
     if (surface.content_hash !== candidate.contentHash) {
       // head 前進や判断事項の変化は投稿の作り直しではなく編集で反映する。
@@ -321,7 +337,8 @@ export async function reconcileTestForum(input: {
         await input.adapter.update(surface, candidate);
         await input.adapter.postReviewReport?.(surface, candidate);
         if (isAnnouncedTransition(surface.check_status, candidate.checkStatus)) {
-          await input.adapter.postStatusChange(surface, candidate);
+          // 通知に添えるマージボタンは、送る直前の受付状態で出し分ける。
+          await input.adapter.postStatusChange(input.surfaces.findOpen(surface.id) ?? surface, candidate);
         }
         input.surfaces.updateContent(surface.id, {
           headSha: candidate.headSha,
@@ -370,10 +387,7 @@ export async function reconcileTestForum(input: {
       // 操作面 (テスト開始/マージ) は Test OK かつ mergeable な候補だけに付ける。
       // 失敗しても投稿は残り、 次周期の backfill が操作面を貼り直す。
       if (hasTestControls(posted) && input.adapter.render) {
-        await isolate(`${key}:controls`, async () => {
-          const rendered = await input.adapter.render!(row);
-          input.surfaces.setControlsMessageId(row.id, rendered.controlsMessageId);
-        });
+        await isolate(`${key}:controls`, () => renderControls(row.id));
       }
     });
   }

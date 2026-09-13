@@ -385,4 +385,9 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     name: "subsidiary-deploy-projects",
     checksum: "066fcad83448d72a0bc97dc34018d2d2fd6e68f220c2793b86bfa22567a39164",
   },
+  {
+    version: 107,
+    name: "test-forum-report-receipts",
+    checksum: "7f7dcbca5f4502167d6cec5a6ad326f7fd664ee858c225db5cbe471181548a45",
+  },
 ];

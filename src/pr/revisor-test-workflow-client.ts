@@ -45,8 +45,15 @@ export interface RevisorLocalPrDetail {
   title?: string | null;
   headSha?: string | null;
   reviewReport?: RevisorReviewReport | null;
-  checks?: readonly (RevisorFailedTest & { status: string })[];
+  checks?: readonly RevisorCheckResult[];
   checkStatus?: string | null;
+  /**
+   * マージリスクの内訳 (Revisor 画面「マージリスクの内訳」)。 Revisor が内訳を返さない
+   * 場合は null。 空配列は「加点要因なし」で、未取得とは区別する。
+   */
+  mergeRiskFactors?: readonly RevisorRiskFactor[] | null;
+  /** 動作確認の必要性の判定詳細。 未判定・旧 Revisor では null。 */
+  runtimeVerification?: RevisorRuntimeVerification | null;
   author: string | null;
   headRef: string | null;
   baseRef: string | null;
@@ -76,6 +83,28 @@ export interface RevisorFailedTest {
   exitCode: number | null;
   reason: string | null;
   output: { text: string; truncated: boolean } | null;
+}
+
+/** 登録チェック 1 件の結果 (通過・スキップを含む)。 */
+export interface RevisorCheckResult extends RevisorFailedTest {
+  status: string;
+  /** 所要時間。 旧 Revisor・スキップでは null。 */
+  durationMs?: number | null;
+}
+
+/** マージリスク / 動作確認スコアの加点要因 1 件 (Revisor merge-risk.mjs の factor)。 */
+export interface RevisorRiskFactor {
+  code: string;
+  points: number;
+  detail: string;
+}
+
+export interface RevisorRuntimeVerification {
+  required: boolean;
+  score: number | null;
+  /** 通過した runtime テストケース名。 */
+  evidence: readonly string[];
+  factors: readonly RevisorRiskFactor[];
 }
 
 /**
@@ -404,6 +433,24 @@ function asGitObjectIdOrNull(value: unknown): string | null {
 }
 
 /**
+ * `mergeRisk` / `runtimeVerification` の factors。 factors 配列を持たない場合は null
+ * (内訳未取得) を返し、空配列 (加点要因なし) と区別する。
+ */
+function parseRiskFactors(value: unknown): RevisorRiskFactor[] | null {
+  if (!value || typeof value !== "object") return null;
+  const factors = (value as Record<string, unknown>).factors;
+  if (!Array.isArray(factors)) return null;
+  return factors.flatMap((item): RevisorRiskFactor[] => {
+    if (!item || typeof item !== "object") return [];
+    const factor = item as Record<string, unknown>;
+    const points = asNumberOrNull(factor.points);
+    const detail = asStringOrNull(factor.detail);
+    if (points === null || !detail) return [];
+    return [{ code: asStringOrNull(factor.code) ?? "", points, detail }];
+  });
+}
+
+/**
  * open 行だけを掲載候補にする。 骨格 (id/repository/番号/head/rootPath) が欠けた行は
  * 候補から外す (null)。 detail の欠落フィールドは parseLocalPrDetail が null へ落とす。
  */
@@ -502,6 +549,9 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
   const autoMerge = (pr.autoMerge && typeof pr.autoMerge === "object"
     ? pr.autoMerge
     : null) as Record<string, unknown> | null;
+  const runtime = (pr.runtimeVerification && typeof pr.runtimeVerification === "object"
+    ? pr.runtimeVerification
+    : null) as Record<string, unknown> | null;
   return {
     reviewReport: parseReviewReport(pr.reviewReport),
     title: asStringOrNull(pr.title),
@@ -514,11 +564,23 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
         name: asStringOrNull(entry.name) ?? "名称未取得",
         status: asStringOrNull(entry.status) ?? "unknown",
         exitCode: asNumberOrNull(entry.exitCode),
+        durationMs: asNumberOrNull(entry.durationMs),
         reason: asStringOrNull(entry.reason),
         output: output && typeof output.text === "string"
           ? { text: output.text, truncated: output.truncated === true } : null,
       };
     }),
+    mergeRiskFactors: parseRiskFactors(pr.mergeRisk),
+    runtimeVerification: runtime && typeof runtime.required === "boolean"
+      ? {
+          required: runtime.required,
+          score: asNumberOrNull(runtime.score),
+          evidence: Array.isArray(runtime.evidence)
+            ? runtime.evidence.filter((item): item is string => typeof item === "string")
+            : [],
+          factors: parseRiskFactors(runtime) ?? [],
+        }
+      : null,
     author: asStringOrNull(pr.author),
     headRef: asStringOrNull(pr.headRef),
     baseRef: asStringOrNull(pr.baseRef),

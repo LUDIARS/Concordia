@@ -2529,6 +2529,32 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec("CREATE INDEX IF NOT EXISTS idx_subsidiary_deploy_projects_project ON subsidiary_deploy_projects(project)");
   },
 },
+{
+  version: 107,
+  name: "test-forum-report-receipts",
+  source: "discord_review_report_receipts ledger + legacy receipt import marker",
+  up(db) {
+    // 詳細レポートの配送受領は Bot 投稿の footer に表示していた。 表示から外すため受領を
+    // Cc の台帳へ移す。 pending は送信結果が不明な行で、次の配送前にスレッド履歴と照合する。
+    db.exec(`CREATE TABLE IF NOT EXISTS discord_review_report_receipts (
+      scope        TEXT NOT NULL DEFAULT '',
+      thread_id    TEXT NOT NULL,
+      report_key   TEXT NOT NULL,
+      state        TEXT NOT NULL CHECK (state IN ('pending', 'delivered')),
+      message_id   TEXT,
+      attempted_at INTEGER NOT NULL,
+      PRIMARY KEY (scope, thread_id, report_key)
+    )`);
+    // 旧 footer 受領印の取り込みを終えたスレッド。 取り込んだ受領と同じ transaction で書き、
+    // 途中で落ちた部分的な取り込みを完了扱いにしない。
+    db.exec(`CREATE TABLE IF NOT EXISTS discord_review_report_threads (
+      scope                       TEXT NOT NULL DEFAULT '',
+      thread_id                   TEXT NOT NULL,
+      legacy_receipts_imported_at INTEGER NOT NULL,
+      PRIMARY KEY (scope, thread_id)
+    )`);
+  },
+},
 ];
 
 /**

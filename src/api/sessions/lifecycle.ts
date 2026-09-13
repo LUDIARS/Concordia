@@ -473,7 +473,8 @@ app.patch("/:id", async (c) => {
     const didChangeTask = parsed.data.current_task !== undefined && parsed.data.current_task !== session.current_task;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);
-    if (didChangeBranch || columnPatch.repo_path !== undefined || columnPatch.repo_origin !== undefined) {
+    if (didChangeBranch || columnPatch.repo_path !== undefined || columnPatch.repo_origin !== undefined
+      || (columnPatch.target_project !== undefined && columnPatch.target_project !== session.target_project)) {
       // ポリシー再計算は Excubitor → Revisor の 2 段 HTTP を挟むので、 応答を待つと
       // 上流の停止がそのまま event loop 停止になる (2026-09-12: 753 秒 in-flight)。
       // 結果は inject イベントとして届き、 この応答は使わないので待たない。

@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
 import { access, utimes } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -331,13 +332,22 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   gateRoutes("task", ["/v1/taskflow", "/v1/tasks"]);
   gateRoutes("test", ["/v1/testing", "/v1/confirm"]);
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
+  const startupPolicyDeps: PolicyDeps = {
+    repo: deps.repo,
+    projectCodes: deps.projectCodes,
+    resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+    resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {
+      if (!deps.revisorAdmin) return "unknown";
+      return selectProjectStartupWorkflow(await deps.revisorAdmin.listRepositories(), repoPath, repoOrigin);
+    },
+  };
   mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route("/v1/sessions", sessionPushCheckRouter({ sessions: deps.repo, revisor: deps.revisorAdmin,
     workspaceRoots: () => deps.adminState.getWorkspaceRoots(), notifyProjectPushed: deps.projectNotice?.notifyPushed }));
   app.route(
     "/v1/sessions",
     sessionsRouter({
-      repo: deps.repo,
+      ...startupPolicyDeps,
       controlJobs: deps.controlJobs,
       tasks: deps.tasks,
       escalations: deps.escalations,
@@ -352,14 +362,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       sessionMessages: deps.sessionMessages,
       sessionMessageReads: deps.sessionMessageReads,
       projectSessionEvent: deps.projectSessionEvent,
-      projectCodes: deps.projectCodes,
       isThinkingEnabled: () => deps.adminState.getThinkingMessagesEnabled(),
-      resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
-      resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {
-        if (!deps.revisorAdmin) return "unknown";
-        return selectProjectStartupWorkflow(await deps.revisorAdmin.listRepositories(), repoPath, repoOrigin);
-      },
       harnessAudit: deps.harnessAudit,
     }),
   );
@@ -450,7 +454,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.implementationTools) {
     app.route(
       "/v1/implementation-tools",
-      implementationToolsRouter({ tools: deps.implementationTools }),
+      implementationToolsRouter({ tools: deps.implementationTools,
+        requestPolicyRefresh: (id) => requestStartupPolicyRefresh(startupPolicyDeps, id) }),
     );
   }
   // 設定レジストリ (W5): DB / env にしかない設定を 1 本の API に集約して出す。

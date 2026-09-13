@@ -15,7 +15,7 @@ export interface StartupPolicySnapshot {
 export const STARTUP_POLICY_KEY = "cc_startup_policy";
 
 export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
-  provider: string; repoOrigin?: string | null; projectRoot?: string; requirements: StartupRequirements | null;
+  provider: string; repoOrigin?: string | null; projectRoot?: string; projectCode?: string; requirements: StartupRequirements | null;
 }): Promise<{ policy: StartupPolicySnapshot; registeredBranch: string | null; branchMismatch: boolean }> {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
@@ -25,6 +25,7 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
     repo: input.repoPath, branch: input.observedBranch ?? "unknown", provider: input.provider,
     origin: input.repoOrigin ?? "unknown",
     projectRoot: input.projectRoot ?? "unknown",
+    projectCode: input.projectCode ?? "unknown",
     requestedBranch: input.pendingSpawn?.branch ?? "",
     requirements: required ? `DDD=${required.ddd}; tests=${required.tests}; ontime=${required.ontime}; workContract=${required.workContract}` : "unknown",
     workPolicy: work.text,

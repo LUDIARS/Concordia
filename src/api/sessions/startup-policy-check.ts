@@ -6,17 +6,22 @@ import type { SessionRow } from "../../shared/types.js";
 import { eventBus } from "../../events.js";
 import { buildStartupPolicy, readStartupPolicy, startupPolicyDelta, STARTUP_POLICY_KEY } from "../../control/startup-policy.js";
 import { SESSION_WORK_POLICY_SOURCE } from "../../control/session-work-policy.js";
+import { selectStartupPolicyProject } from "../../control/startup-policy-project.js";
+import { createChildLogger } from "../../shared/logger.js";
 
-type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots">;
+export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots">;
+const log = createChildLogger("startup-policy");
 const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
-export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider">, requestedBranch: string | null = null): ReturnType<typeof buildStartupPolicy> {
-  const workflow = await deps.resolveProjectStartupWorkflow?.(session.repo_path, session.repo_origin).catch(() => "unknown" as const) ?? "unknown";
-  const project = (session.repo_origin ? deps.projectCodes?.findByRepoOrigin(session.repo_origin) : null)
-    ?? deps.projectCodes?.findByRepoPath(session.repo_path);
+export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project">>, requestedBranch: string | null = null): ReturnType<typeof buildStartupPolicy> {
+  const project = selectStartupPolicyProject(deps.projectCodes?.list() ?? [], session);
+  const unresolvedTarget = !!session.target_project?.trim() && !project;
+  const workflow = unresolvedTarget ? "unknown" : await deps.resolveProjectStartupWorkflow?.(
+    project?.repo_path ?? session.repo_path, project ? project.repo_origin : session.repo_origin,
+  ).catch(() => "unknown" as const) ?? "unknown";
   return buildStartupPolicy({ workflow, repoPath: session.repo_path, repoOrigin: session.repo_origin, observedBranch: session.branch,
     provider: session.provider, pendingSpawn: requestedBranch ? { branch: requestedBranch, project: null } : null,
-    workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [], projectRoot: project?.repo_path,
+    workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [], projectRoot: project?.repo_path, projectCode: project?.code,
     requirements: project ? { ddd: !!project.ddd_enabled, tests: !!project.tests_required,
       ontime: !!project.ontime_tests_required, workContract: !!project.contract_enabled } : null });
 }
@@ -29,7 +34,8 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
   const { policy } = await resolveStartupPolicy(deps, session, baseline?.fields.requestedBranch || null);
   const current = deps.repo.findSession(id);
   if (!current || current.repo_path !== session.repo_path || current.branch !== session.branch
-    || current.repo_origin !== session.repo_origin || readStartupPolicy(current.metadata)?.revision !== baseline?.revision) {
+    || current.repo_origin !== session.repo_origin || current.target_project !== session.target_project
+    || readStartupPolicy(current.metadata)?.revision !== baseline?.revision) {
     return { revision: readStartupPolicy(current?.metadata ?? null)?.revision ?? null, changed: false, delivery: "unconfirmed", stale: true };
   }
   const text = startupPolicyDelta(baseline, policy);
@@ -40,6 +46,11 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
     eventBus.emit({ type: "session.inject", target_session_id: id, text, source: SESSION_WORK_POLICY_SOURCE, ts });
   }
   return { revision: policy.revision, changed: !!text, delivery: "unconfirmed" };
+}
+
+/** Binding remains responsive while registry lookup and resource discovery run. */
+export function requestStartupPolicyRefresh(deps: PolicyDeps, id: string): void {
+  void refreshStartupPolicy(deps, id).catch((err) => log.warn({ err }, "startup policy refresh failed"));
 }
 
 export function registerStartupPolicyCheck(app: Hono, deps: PolicyDeps): void {

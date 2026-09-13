@@ -87,6 +87,16 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
 
 ## 検証・復旧
 
+### 最後に登録した作業プロジェクト
+
+実装: `src/control/startup-policy-project.ts`、`src/control/startup-policy.ts`、`src/api/sessions/startup-policy-check.ts`、`src/api/sessions/lifecycle.ts`、`src/api/implementation-tools.ts`、`src/api/register-core.ts`。
+回帰確認: `src/api/sessions/startup-policy-check.test.ts`、`src/api/implementation-tools.test.ts`。
+
+Inject の workflow・必須設定・本体資料は、session の最新 `target_project` を project-code registry の code・本体path・project名で解決した同じ登録から決める。
+起動時の Castra repo より最新の作業登録を優先する。明示対象が未登録なら unknown とし、起動repoへ戻して推測しない。
+対象未指定の旧sessionだけは登録repo/originで解決する。実checkoutのrepo/branchとCastra操作ガードは維持する（UX-CC-W1、UX-CC-W4、CC-INV-01、CC-INV-02）。
+実装bind成功とtarget変更で非同期に再照合し、target変更前の古い応答は破棄する。版にはproject codeを含め、配送確認済みとは扱わない（CC-INV-06）。
+
 登録テストの一時Git fixtureはセッション対象repoではない。fixtureの準備はローカルbare repoからfetchし、セッションのpush許可やGitフックを無効化しない。develop clone検証では公開adapterだけをローカルfixture操作へ差し替え、CLIは既存のpush実装を用いる。
 
 確認対象: 子repo/worktree・複数root・旧形式skill・欠落ファイル・共有索引のみ・既存sessionへの非再送。

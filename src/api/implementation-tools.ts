@@ -11,17 +11,19 @@ const ServiceSchema = SessionSchema.extend({
   note: z.string().max(500).optional(),
 });
 
-export function implementationToolsRouter(deps: { tools: ImplementationToolsService }): Hono {
+export function implementationToolsRouter(deps: { tools: ImplementationToolsService; requestPolicyRefresh: (id: string) => void }): Hono {
   const app = new Hono();
   app.post("/bind", async (c) => {
     const parsed = BindSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     try {
-      return c.json(await deps.tools.bind({
+      const result = await deps.tools.bind({
         sessionId: parsed.data.session_id,
         cwd: parsed.data.cwd,
         task: parsed.data.task,
-      }));
+      });
+      deps.requestPolicyRefresh(parsed.data.session_id);
+      return c.json(result);
     } catch {
       return c.json({ error: "implementation_bind_failed" }, 409);
     }

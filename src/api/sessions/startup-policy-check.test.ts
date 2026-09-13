@@ -79,3 +79,55 @@ it("deduplicates simultaneous checks", async () => {
   await Promise.all([refreshStartupPolicy(deps, "policy-fixture"), refreshStartupPolicy(deps, "policy-fixture")]);
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(1);
 });
+
+it("selects the last registered work project over the startup repository", async () => {
+  const { deps, repo } = fixture();
+  deps.projectCodes.register({ code: "GLab", project: "GLAB", repoPath: "E:/fixture/GLAB",
+    repoOrigin: "https://example.invalid/glab.git", addedBy: "fixture" });
+  deps.projectCodes.update("GLab", { dddEnabled: true, testsRequired: true });
+  const lookups: unknown[] = [];
+  const policyDeps = { ...deps, resolveProjectStartupWorkflow: async (path: string, origin: string | null) => {
+    lookups.push([path, origin]);
+    return "revisor" as const;
+  } };
+  for (const target of ["GLab", "E:\\fixture\\GLAB", "GLAB"]) {
+    repo.patchSession("policy-fixture", { target_project: target });
+    const { policy } = await resolveStartupPolicy(policyDeps, repo.findSession("policy-fixture")!);
+    expect(policy.fields).toMatchObject({ workflow: "revisor", projectCode: "GLab",
+      projectRoot: "E:/fixture/GLAB", repo: "E:/fixture/project", branch: "feat/policy" });
+    expect(policy.fields.requirements).toContain("DDD=true; tests=true");
+  }
+  expect(lookups).toEqual(Array(3).fill(["E:/fixture/GLAB", "https://example.invalid/glab.git"]));
+});
+
+it("does not fall back to the startup workflow for an unresolved explicit target", async () => {
+  const { deps, repo } = fixture();
+  repo.patchSession("policy-fixture", { target_project: "missing-code" });
+  let called = false;
+  deps.resolveProjectStartupWorkflow = async () => { called = true; return "github"; };
+  const { policy } = await resolveStartupPolicy(deps, repo.findSession("policy-fixture")!);
+  expect(policy.fields).toMatchObject({ workflow: "unknown", projectCode: "unknown", requirements: "unknown" });
+  expect(called).toBe(false);
+});
+
+it("does not reuse the startup origin for a local-only work project", async () => {
+  const { deps, repo } = fixture();
+  deps.projectCodes.register({ code: "Local", project: "Local", repoPath: "E:/fixture/local", repoOrigin: null, addedBy: "fixture" });
+  repo.patchSession("policy-fixture", { target_project: "Local" });
+  let observed: unknown;
+  await resolveStartupPolicy({ ...deps, resolveProjectStartupWorkflow: async (path, origin) => {
+    observed = [path, origin]; return "unknown";
+  } }, repo.findSession("policy-fixture")!);
+  expect(observed).toEqual(["E:/fixture/local", null]);
+});
+
+it("discards a resolution when only the work target changed while lookup was pending", async () => {
+  const { deps, repo } = fixture();
+  let finish!: (value: ProjectStartupWorkflow) => void;
+  deps.resolveProjectStartupWorkflow = () => new Promise((resolve) => { finish = resolve; });
+  const pending = refreshStartupPolicy(deps, "policy-fixture");
+  repo.patchSession("policy-fixture", { target_project: "new-project" });
+  finish("github");
+  expect(await pending).toMatchObject({ stale: true, changed: false });
+  expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
+});

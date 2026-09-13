@@ -4,6 +4,8 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/control/startup-policy-project(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/implementation-tools(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/project-codes-repo(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/(schema|migration-ledger)\\.ts$" },
     { "pathPattern": "(^|/)src/projects/project-resolver(\\.test)?\\.ts$" },

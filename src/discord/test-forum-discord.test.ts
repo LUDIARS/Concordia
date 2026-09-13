@@ -203,15 +203,17 @@ describe("statusChangeMessage", () => {
 });
 
 describe("mergedMessage", () => {
-  it("records the merge and its commit before the thread is closed", () => {
+  it("records the merge before the thread is closed without showing the commit hash", () => {
+    const sha = "a".repeat(40);
     const message = mergedMessage({
       repoOrigin: "LUDIARS/Concordia",
       prNumber: 42,
       status: "merged",
-      mergeCommitSha: "a".repeat(40),
+      mergeCommitSha: sha,
     });
-    expect(message).toContain("マージしました");
-    expect(message).toContain("統合コミット");
+    expect(message).toContain("#42 をマージしました");
+    expect(message).not.toContain(sha);
+    expect(message).not.toContain("統合コミット");
   });
 
   it("does not interpolate a malformed commit value into Discord Markdown", () => {
@@ -222,7 +224,6 @@ describe("mergedMessage", () => {
       mergeCommitSha: `${"a".repeat(2_000)}\n@everyone`,
     });
     expect(message).toContain("マージしました");
-    expect(message).not.toContain("統合コミット");
     expect(message).not.toContain("@everyone");
     expect(message.length).toBeLessThanOrEqual(2_000);
   });

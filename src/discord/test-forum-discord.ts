@@ -191,14 +191,13 @@ export function statusChangeComponents(
   return mergeButtonRows(surfaceId);
 }
 
+/**
+ * 終局のマージ投稿。 統合コミットの識別子は Revisor の記録 (mergeCommitSha) で照合でき、
+ * 利用者の投稿にはハッシュを出さない。 外部由来の文字列を載せないので、Markdown 注入や
+ * 2,000 文字上限超過で close が止まることもない。
+ */
 export function mergedMessage(terminal: TestForumTerminalPr): string {
-  // Source の差し替え時にも外部文字列を無制限に Discord へ渡さない。Git SHA-1 / SHA-256
-  // 以外は表示せず、Markdown 注入と 2,000 文字上限超過による close の永久失敗を防ぐ。
-  const mergeCommitSha = terminal.mergeCommitSha?.trim();
-  const commit = mergeCommitSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(mergeCommitSha)
-    ? `\n統合コミット: \`${mergeCommitSha}\``
-    : "";
-  return `✅ #${terminal.prNumber} をマージしました。テスト・QA セッションを終了して、このスレッドを閉じます。${commit}`;
+  return `✅ #${terminal.prNumber} をマージしました。テスト・QA セッションを終了して、このスレッドを閉じます。`;
 }
 
 export function starterContent(candidate: TestForumCandidate): string {

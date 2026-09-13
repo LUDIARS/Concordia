@@ -38,12 +38,13 @@ updated: 2026-07-02
 利用者の問題・価値・回復シナリオの正本は [ux/product.md](ux/product.md)。
 コアの [セッション協調](ux/session-coordination.md) と [作業委任](ux/agent-delegation.md) を
 既存ドメインから参照する。今後の実装方針は [architecture/ddd.md](architecture/ddd.md)。
+サービスの採用技術と守る原則は [Node.js 採用とサービス原則](architecture/nodejs-service-principles.md)。
 これらの UX 文書は Pf/An 共通参照形式の draft であり、承認・実測結果とは区別する。
 
 ```
 spec/
 ├── ux/          # プロダクトとコアドメインの UX 定義書（Pf/An 共通正本）
-├── architecture/ # DDD の用語・境界・不変条件・開発手順
+├── architecture/ # 採用技術・サービス原則、DDD の境界・不変条件・開発手順
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
 ├── feature/     # 機能（Discord 連携 / 委託 / multi-provider / FAQ）
 ├── interface/   # API・schema 正本（service-schema.md）

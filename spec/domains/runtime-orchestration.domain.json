@@ -31,6 +31,7 @@
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
   "specRefs": [
+    "spec/architecture/nodejs-service-principles.md#必須原則",
     "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
     "spec/feature/delegation.md#dependency-sweep-parttimer",
     "spec/feature/delegation.md#メール監視-parttimer",

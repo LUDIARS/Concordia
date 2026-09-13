@@ -5,6 +5,7 @@
 ## 変更前に読む
 
 - [プロダクト UX](spec/ux/product.md)
+- [Node.js 採用とサービス原則](spec/architecture/nodejs-service-principles.md)
 - [DDD 実装方針](spec/architecture/ddd.md)
 - 変更対象の `spec/domains/*.domain.json` と、そこから参照する feature / UX 文書
 

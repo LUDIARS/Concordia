@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 106;
+export const SCHEMA_VERSION = 107;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime

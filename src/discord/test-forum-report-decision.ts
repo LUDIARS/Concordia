@@ -23,7 +23,7 @@ function riskBlock(detail: RevisorLocalPrDetail): string {
       + (detail.riskThreshold !== null ? ` · 閾値 ${detail.riskThreshold}` : "");
   const factors = detail.mergeRiskFactors;
   let breakdown: string[];
-  if (factors) breakdown = bulletLines(factors.map(factorLine), "加点要因はありません。");
+  if (factors) breakdown = bulletLines(factors.map((factor) => factorLine(factor)), "加点要因はありません。");
   else if (detail.riskScore === null) breakdown = ["マージリスクは算定されていません。"];
   else breakdown = ["内訳は Revisor から取得できませんでした。"];
   return section("マージリスク", [score, "内訳:", ...breakdown]);
@@ -37,7 +37,7 @@ function runtimeBlock(detail: RevisorLocalPrDetail): string {
     `スコア: ${runtime.score ?? "未算定"} / 100`,
     `動作テストの通過: ${runtime.evidence.join(", ") || "—"}`,
     "内訳:",
-    ...bulletLines(runtime.factors.map(factorLine), "加点要因はありません。"),
+    ...bulletLines(runtime.factors.map((factor) => factorLine(factor)), "加点要因はありません。"),
   ]);
 }
 

@@ -20,8 +20,9 @@ import {
 import { checkSections, checkSummary, reportChecksOf } from "./test-forum-report-checks.js";
 import { reviewStageLabel, securityStatusLabel } from "./test-forum-labels.js";
 
-function present<T>(value: T | null): value is T {
-  return value !== null;
+/** 読み取れなかった項目を行に含めない。 */
+function optionalLine(line: string | null): string[] {
+  return line === null ? [] : [line];
 }
 
 function locationOf(fields: Fields): string {
@@ -73,13 +74,12 @@ export function anatomiaStageBlocks(value: unknown): string[] {
   const fields = asFields(value);
   if (!fields) return ["Anatomia 解析の結果を読み取れませんでした。"];
   const domains = listOf(fields.domains)
-    .map((domain) => textOf(domain) ?? textOf(asFields(domain)?.name))
-    .filter(present);
+    .flatMap((domain) => optionalLine(textOf(domain) ?? textOf(asFields(domain)?.name)));
   const verify = asFields(fields.verify);
   const verdict = verify && typeof verify.pass === "boolean" ? (verify.pass ? "通過" : "不合格") : "未取得";
-  const gates = listOf(verify?.gates).map(gateLine).filter(present);
-  const violations = listOf(fields.changedViolations).map(violationLine).filter(present);
-  const functions = listOf(fields.changedFunctions).map(functionLine).filter(present);
+  const gates = listOf(verify?.gates).flatMap((gate) => optionalLine(gateLine(gate)));
+  const violations = listOf(fields.changedViolations).flatMap((violation) => optionalLine(violationLine(violation)));
+  const functions = listOf(fields.changedFunctions).flatMap((changed) => optionalLine(functionLine(changed)));
   return [
     [
       `対象ドメイン: ${domains.length > 0 ? domains.join(", ") : "なし"}`,
@@ -204,7 +204,7 @@ export function finalOutcomeBlocks(value: unknown, options: FinalOutcomeOptions)
     ...(gate ? [`Anatomia 前段ゲート: ${textOf(gate.status) ?? "結果不明"} — ${textOf(gate.message) ?? "説明なし"}`] : []),
     securityLine(fields.security),
     ...(hasField(fields, "reusedStages")
-      ? [`引き継いだ審査段階: ${reused.map(reviewStageLabel).join(", ") || "なし"}`]
+      ? [`引き継いだ審査段階: ${reused.map((stage) => reviewStageLabel(stage)).join(", ") || "なし"}`]
       : []),
   ];
   const reviewTitle = reviewReused ? "レビュー本文 (前回の審査から引き継ぎ)" : "レビュー本文";

@@ -95,6 +95,12 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
     (`discord_review_report_threads`) は 1 transaction で書き、部分的な取り込みを完了扱いにしない。
   - 台帳・スレッド履歴・添付の読取失敗は空扱いにせず送信を止める。
   レポート配送の完了後にだけ台帳の content hash を進める。
+- 実装: 文書の組み立て `src/discord/test-forum-report.ts`、記録内容の読み取り
+  `test-forum-report-content.ts`、各記録の文章化 `test-forum-report-entry.ts` /
+  `test-forum-report-stage.ts` / `test-forum-report-checks.ts` / `test-forum-report-decision.ts` /
+  `test-forum-labels.ts`、旧受領鍵 `test-forum-report-legacy-keys.ts`、分割 `test-forum-report-split.ts`、
+  投稿分割と配送 `test-forum-report-delivery.ts`、受領の照合 `test-forum-report-receipts.ts`、
+  Discord 配送 `test-forum-report-thread.ts`、台帳 `src/db/discord-review-report-receipts-repo.ts`。
 
 ## テストセッションとスレッド投稿
 

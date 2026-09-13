@@ -99,7 +99,7 @@ export function checkSections(checks: readonly ReportCheck[]): string[] {
   for (const [title, matches] of groups) {
     const members = checks.filter(matches);
     if (members.length === 0) continue;
-    lines.push(`${title}:`, ...members.flatMap(checkLines));
+    lines.push(`${title}:`, ...members.flatMap((check) => checkLines(check)));
   }
   return lines;
 }

@@ -54,13 +54,21 @@ const STAGE_NOTES: Readonly<Record<string, string>> = {
     "同じ内容で完了済みの審査段階の結果を引き継いだため、この段階は実行していません。",
 };
 
-/** 段階の完了記録 (reviewReportEntry) として Revisor が保存する形式。 */
-const STAGE_RENDERERS: Readonly<Record<string, (value: unknown) => string[]>> = {
-  tests: testsStageBlocks,
-  anatomia: anatomiaStageBlocks,
-  security: securityStageBlocks,
-  review: reviewStageBlocks,
-};
+/** 段階の完了記録 (Revisor reviewReportEntry) として保存される形式ごとの文章化。 */
+function stageBlocks(stage: string, value: unknown): string[] {
+  switch (stage) {
+    case "tests":
+      return testsStageBlocks(value);
+    case "anatomia":
+      return anatomiaStageBlocks(value);
+    case "security":
+      return securityStageBlocks(value);
+    case "review":
+      return reviewStageBlocks(value);
+    default:
+      return [UNSUPPORTED_CONTENT_NOTICE];
+  }
+}
 
 /** 文章として記録される内容。 構造化データが来た場合は未対応の形式として扱う。 */
 function textBlocks(content: EntryContent): string[] {
@@ -83,10 +91,7 @@ function startEntry(content: EntryContent): EntryBody {
 
 function stageEntry(stage: string, entry: RevisorReviewReportEntry, content: EntryContent): EntryBody {
   const title = `${reviewStageLabel(stage)} — ${reportEntryStatusLabel(entry.status)}`;
-  if (content.kind === "structured") {
-    const render = STAGE_RENDERERS[stage];
-    return { title, blocks: render ? render(content.value) : [UNSUPPORTED_CONTENT_NOTICE] };
-  }
+  if (content.kind === "structured") return { title, blocks: stageBlocks(stage, content.value) };
   if (content.kind !== "text") return { title, blocks: textBlocks(content) };
   const note = STAGE_NOTES[content.text.trim()] ?? content.text;
   return { title, blocks: [entry.status === "skipped" ? `スキップ理由: ${note}` : note] };

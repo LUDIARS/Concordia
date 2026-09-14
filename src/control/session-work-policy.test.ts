@@ -29,7 +29,7 @@ describe("buildSessionWorkPolicy", () => {
     expect(policy.branchMismatch).toBe(true);
     expect(policy.text).toContain("branch mismatch");
     expect(policy.text).toContain("session-work.md");
-    expect(policy.text).toContain("未判定");
+    expect(policy.text).not.toMatch(/Workflow|未判定/);
   });
 
   it("warns about destructive git ops on Castra when cwd is the workspace root", () => {

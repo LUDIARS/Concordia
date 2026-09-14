@@ -82,7 +82,7 @@ describe("sessions API", () => {
           event.payload.source === "cc-session-work-policy",
       );
       expect(inject?.payload.text).toContain("[Cc Session policy]");
-      expect(inject?.payload.text).toContain("プロジェクトの workflow は未判定です");
+      expect(inject?.payload.text).not.toMatch(/Cc 判定:|Workflow|プロジェクトの workflow/);
     },
   );
 

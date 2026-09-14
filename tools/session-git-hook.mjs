@@ -93,6 +93,7 @@ async function runManagedHook(hook, args, env) {
           ...(updates.length ? { push: { remoteName: args[0], remoteUrl: args[1], updates } } : {}) }),
       });
       if (result.allowed !== true) throw new Error(result.reason || 'Push is not allowed by the project workflow');
+      process.stderr.write(`[Cc hook] ${result.reason}\n`);
     }
     if (input !== undefined) {
       inputDirectory = mkdtempSync(join(tmpdir(), 'cc-hook-input-'));

@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { PendingDelegationSpawn } from "./pending-delegation-spawns.js";
 import { resolve } from "node:path";
-import { renderProjectStartupWorkflow, type ProjectStartupWorkflow } from "./project-startup-workflow.js";
+import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
 
 export const SESSION_WORK_POLICY_SOURCE = "cc-session-work-policy";
 export const EXPLICIT_WORKING_BRANCH_METADATA_KEY = "cc_explicit_working_branch";
@@ -40,7 +40,6 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
     `Read the applicable rules: ${JSON.stringify(fileURLToPath(new URL("../../rule/session-work.md", import.meta.url)))}`,
     "- 設計が固まったら実装へ進みます。開始前に人間に確認してください。同じ範囲の開始指示をすでに受けている場合は、その根拠を確認して進め、重ねて確認しないでください。",
     `- Cc の作業段階（設計・確認・実装・調整）を確認・記録してください: ${JSON.stringify(fileURLToPath(new URL("../../skills/session-work-phase/SKILL.md", import.meta.url)))}`,
-    renderProjectStartupWorkflow(input.workflow ?? "unknown"),
   ];
   if (requestedBranch) lines.push(`- Cc 指定 branch: ${requestedBranch}`);
   if (registeredBranch) lines.push(`- Cc 登録 branch: ${registeredBranch}`);

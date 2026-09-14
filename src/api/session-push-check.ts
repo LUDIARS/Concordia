@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { RevisorRepositoryAdmin } from "../pr/revisor-repository-client.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
-import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
+import { selectProjectStartupWorkflow, type ProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { PushWarningSchema, isWarningRemoteAllowed, type PushWarningPrompt, type PushWarningDecision } from "../control/push-warning.js";
 import { requestDiscordPushWarning } from "../control/push-warning-dispatch.js";
@@ -28,6 +28,7 @@ export function sessionPushCheckRouter(deps: {
     const parsed = z.object({ cwd: z.string().min(1).max(4096), push: z.unknown().optional() })
       .strict().safeParse(await c.req.json().catch(() => null));
     let allowed = false;
+    let workflow: ProjectStartupWorkflow = "unknown";
     let reason = "Project workflow or checkout could not be verified";
     let repoOrigin = "";
     try {
@@ -38,7 +39,7 @@ export function sessionPushCheckRouter(deps: {
           && normalizeRepoOrigin(repo.repoOrigin ?? "").toLowerCase() === normalizeRepoOrigin(session.repo_origin ?? "").toLowerCase()
           && !deps.workspaceRoots().some((root) => norm(root) === norm(repo.repoPath))) {
           repoOrigin = normalizeRepoOrigin(repo.repoOrigin ?? "");
-          const workflow = selectProjectStartupWorkflow(await deps.revisor.listRepositories(), repo.repoPath, repo.repoOrigin);
+          workflow = selectProjectStartupWorkflow(await deps.revisor.listRepositories(), repo.repoPath, repo.repoOrigin);
           allowed = workflow === "github";
           reason = workflow === "revisor" ? "Revisor Workflow: submit a local PR through Cc; session push is blocked"
             : allowed ? "GitHub Workflow; existing Git hooks still apply" : "Project workflow is unknown; push blocked";
@@ -72,12 +73,12 @@ export function sessionPushCheckRouter(deps: {
       }
     } catch { /* Never turn an unavailable policy service into push permission. */ }
     deps.sessions.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "push_hook_decision",
-      payload: { allowed, reason } });
+      payload: { allowed, reason, workflow } });
     // 通知は push の可否に影響させない。控えが無ければ何もしないので、既存リポでは走らない。
     if (allowed && repoOrigin) {
       await deps.notifyProjectPushed?.(repoOrigin).catch(() => { /* 配送失敗で push を止めない */ });
     }
-    return c.json({ allowed, reason });
+    return c.json({ allowed, reason, workflow });
   });
   return app;
 }

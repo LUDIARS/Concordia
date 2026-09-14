@@ -25,22 +25,19 @@ function fixture() {
 it("uses the initial resolver snapshot without injecting it twice", async () => {
   const { repo, deps } = fixture();
   const { policy } = await resolveStartupPolicy(deps, repo.findSession("policy-fixture")!);
-  expect(policy.text).toContain("作業 branch の push");
+  expect(policy.text).not.toContain("Workflow");
   repo.mergeMetadata("policy-fixture", { [STARTUP_POLICY_KEY]: policy });
   expect(await refreshStartupPolicy(deps, "policy-fixture")).toMatchObject({ changed: false, delivery: "unconfirmed" });
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
 });
 
-it("repairs missing policy and emits only the workflow correction on change", async () => {
+it("repairs missing policy without tracking workflow changes", async () => {
   const { repo, deps, state } = fixture();
   expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(true);
   state.workflow = "revisor";
-  expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(true);
+  expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(false);
   const events = repo.recentEvents("policy-fixture", 10);
-  expect(events).toHaveLength(2);
-  const update = events.map((event) => JSON.parse(event.payload).text as string).find((text) => text.includes("[Cc policy update]"))!;
-  expect(update).toContain("session 自身は push");
-  expect(update).not.toContain("resources:");
+  expect(events).toHaveLength(1);
   expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(false);
 });
 
@@ -53,23 +50,22 @@ it("reports a hook binding mismatch without replacing the registered worktree", 
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
 });
 
-it("downgrades to unknown when workflow lookup is unavailable", async () => {
+it("does not query workflow when its registry is unavailable", async () => {
   const { deps, repo } = fixture();
   await refreshStartupPolicy(deps, "policy-fixture");
-  deps.resolveProjectStartupWorkflow = async () => { throw new Error("unavailable"); };
+  let called = false;
+  deps.resolveProjectStartupWorkflow = async () => { called = true; throw new Error("unavailable"); };
   await refreshStartupPolicy(deps, "policy-fixture");
   const snapshot = readStartupPolicy(repo.findSession("policy-fixture")!.metadata)!;
-  expect(snapshot.fields.workflow).toBe("unknown");
-  expect(snapshot.text).toContain("workflow を推測しない");
+  expect(snapshot.fields).not.toHaveProperty("workflow");
+  expect(snapshot.text).not.toContain("Workflow");
+  expect(called).toBe(false);
 });
 
 it("does not publish a stale resolution after the branch changes", async () => {
   const { deps, repo } = fixture();
-  let finish!: (value: ProjectStartupWorkflow) => void;
-  deps.resolveProjectStartupWorkflow = () => new Promise((resolve) => { finish = resolve; });
   const pending = refreshStartupPolicy(deps, "policy-fixture");
   repo.patchSession("policy-fixture", { branch: "feat/new" });
-  finish("github");
   expect(await pending).toMatchObject({ stale: true, changed: false });
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
 });
@@ -93,11 +89,11 @@ it("selects the last registered work project over the startup repository", async
   for (const target of ["GLab", "E:\\fixture\\GLAB", "GLAB"]) {
     repo.patchSession("policy-fixture", { target_project: target });
     const { policy } = await resolveStartupPolicy(policyDeps, repo.findSession("policy-fixture")!);
-    expect(policy.fields).toMatchObject({ workflow: "revisor", projectCode: "GLab",
+    expect(policy.fields).toMatchObject({ projectCode: "GLab",
       projectRoot: "E:/fixture/GLAB", repo: "E:/fixture/project", branch: "feat/policy" });
     expect(policy.fields.requirements).toContain("DDD=true; tests=true");
   }
-  expect(lookups).toEqual(Array(3).fill(["E:/fixture/GLAB", "https://example.invalid/glab.git"]));
+  expect(lookups).toEqual([]);
 });
 
 it("does not fall back to the startup workflow for an unresolved explicit target", async () => {
@@ -106,7 +102,7 @@ it("does not fall back to the startup workflow for an unresolved explicit target
   let called = false;
   deps.resolveProjectStartupWorkflow = async () => { called = true; return "github"; };
   const { policy } = await resolveStartupPolicy(deps, repo.findSession("policy-fixture")!);
-  expect(policy.fields).toMatchObject({ workflow: "unknown", projectCode: "unknown", requirements: "unknown" });
+  expect(policy.fields).toMatchObject({ projectCode: "unknown", requirements: "unknown" });
   expect(called).toBe(false);
 });
 
@@ -118,16 +114,13 @@ it("does not reuse the startup origin for a local-only work project", async () =
   await resolveStartupPolicy({ ...deps, resolveProjectStartupWorkflow: async (path, origin) => {
     observed = [path, origin]; return "unknown";
   } }, repo.findSession("policy-fixture")!);
-  expect(observed).toEqual(["E:/fixture/local", null]);
+  expect(observed).toBeUndefined();
 });
 
 it("discards a resolution when only the work target changed while lookup was pending", async () => {
   const { deps, repo } = fixture();
-  let finish!: (value: ProjectStartupWorkflow) => void;
-  deps.resolveProjectStartupWorkflow = () => new Promise((resolve) => { finish = resolve; });
   const pending = refreshStartupPolicy(deps, "policy-fixture");
   repo.patchSession("policy-fixture", { target_project: "new-project" });
-  finish("github");
   expect(await pending).toMatchObject({ stale: true, changed: false });
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
 });

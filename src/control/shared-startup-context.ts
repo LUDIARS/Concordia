@@ -37,7 +37,6 @@ export async function buildSharedStartupContext(input: SharedStartupContextInput
   const projectKey = projectRoot ? projectRoot.replace(/[:\\/]/g, "-") : "";
   const resources: Array<{ label: string; paths: string[] }> = [
     { label: "作業対象・branch 登録", paths: skill("lictor-task-protocol") },
-    ...(input.workflow === "revisor" ? [{ label: "Revisor 作業手順", paths: skill("revisor-cc-workflow") }] : []),
     { label: "session-end 終了手順", paths: [join(root, ".claude", "commands", "session-end.md"), ...skill("session-end")] },
     { label: "セッションログ保存", paths: skill("save-session-log") },
     ...(projectRoot ? [

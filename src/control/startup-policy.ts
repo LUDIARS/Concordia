@@ -20,8 +20,7 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
   const fields = {
-    rules: "startup-policy-v2-work-phases",
-    workflow: input.workflow ?? "unknown",
+    rules: "startup-policy-v3-workflow-at-push",
     repo: input.repoPath, branch: input.observedBranch ?? "unknown", provider: input.provider,
     origin: input.repoOrigin ?? "unknown",
     projectRoot: input.projectRoot ?? "unknown",
@@ -40,7 +39,10 @@ export function startupPolicyDelta(previous: StartupPolicySnapshot | null, next:
   if (previous?.revision === next.revision) return null;
   if (!previous || previous.delivery === "scheduled") return next.text;
   const changed = Object.entries(next.fields).filter(([key, value]) => previous.fields[key] !== value);
-  return `[Cc policy update]\n${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n必須設定は実行許可を追加しません。\n[Cc policy revision: ${next.revision}]`;
+  const withdrawal = Object.hasOwn(previous.fields, "workflow")
+    ? "過去の起動案内に含まれるワークフロー判定・提出手順は無効です。push 検討時のフックで現在の対象設定を確認してください。\n"
+    : "";
+  return `[Cc policy update]\n${withdrawal}${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n必須設定は実行許可を追加しません。\n[Cc policy revision: ${next.revision}]`;
 }
 
 export function readStartupPolicy(metadata: string | null): StartupPolicySnapshot | null {

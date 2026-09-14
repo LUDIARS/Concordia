@@ -18,20 +18,14 @@ Cc は設計・確認・実装・調整を稼働状態とは別に保存する�
 プロジェクト cwd から起動した人間操作のセッションが共通手順を見失わないための入口。
 
 - 初期Injectを主経路とし、SessionStartと入力時のフックは同じCc判定を照合する。
-  同じ設定版では再注入せず、branch・project・workflow・必須設定の変更時だけ訂正する。
+  同じ設定版では再注入せず、branch・project・必須設定の変更時だけ訂正する。
 - session-coordination の `shared-startup-context.ts` が探索と案内を所有する。
   configured workspace roots のうち cwd を含む最長 root を選ぶ。範囲外は設定 root が1つの場合のみ選択し、
   複数候補・未設定なら不足を明示する。プロジェクト cwd、権限、session binding を変更しない。
 - 共通リストは task/branch登録、session-end、ログ保存の最小手順。
   プロジェクト別のAGENTS.md（なければCLAUDE.md）、rule/README.md、メモリ索引はCc registryで確定した本体rootだけから選ぶ。
-  Revisor手順はCcが対象projectを `revisor` workflowと判定した場合にだけ追加する。
-  Cc管理UIと同じ登録リポ一覧のworkflowを読み、実repo origin（worktreeでも共通）を照合する。
-  originなしの場合のみrootPathの完全一致を使い、フォルダ名や全体のCc workflowフラグから推測しない。
-  登録レコードのworkflow省略は管理UIと同じ既存契約でrevisorと扱う。
-  `github` はGitHubへのcommit/push/PR手順を注入し、Rvスキルは探索も案内もしない。
-  正常取得した一覧で未登録と確認でき、remoteがGitHub repositoryを識別できる場合は通常のgithub workflowとする。
-  未登録と照会失敗を混同しない。remote不明・重複・不正応答・照会失敗はunknownとし、push許可へ倒さない。
-  作業ポリシーと共通資料は同一の判定結果を使う。汎用Cc startup packetも一律pushを指示しない。
+  spawn・初期案内・案内更新は workflow を照会・保存・案内せず、workflow に応じた Revisor 手順も注入しない。
+  workflow の判断は push 検討時のフックで行う（後述）。起動時の cwd に対する判断を後の作業へ持ち越さない。
   Castra の `.claude/skills/<name>/SKILL.md` と旧 `<name>.md` 形式を扱い、必要なら user `.codex/skills` を参照する。
   session-end は Castra `.claude/commands/session-end.md` を優先する。
 - メモリは選定プロジェクトに対応する Claude project key の MEMORY.md だけを案内する。
@@ -47,7 +41,7 @@ Cc は設計・確認・実装・調整を稼働状態とは別に保存する�
 ### 初期ポリシーの版と照合
 
 UX-CC-W1/W4/W5、CC-INV-01/02/04。`startup-policy.ts` が初期案内と照合の共通組立てを所有する。
-workflow、登録repo/branch/provider、本体root、DDD・通常テスト・オンタイム・作業契約の設定と案内版からrevisionを作る。
+登録repo/branch/provider、本体root、DDD・通常テスト・オンタイム・作業契約の設定と案内版からrevisionを作る。workflow は版の構成要素に含めない。
 設定不明はfalseと区別し、必須設定は実行許可を追加しない。`startup-policy-check.ts` はSessionStart・入力境界で再照合する。
 初回は全案内、変更時は変わった項目だけをInjectする。資料の選択が変わる場合は該当する資料案内も渡す。
 フックが報告したcwd/branch/providerは登録の上書きに使わず、不一致を返す。Castra起点の明示的な子repo登録も保つ。
@@ -56,7 +50,7 @@ SessionStartで版記録が欠けていれば初期案内を補完する。配�
 設定変更の通知は次の登録更新・SessionStart・入力境界で行い、常駐監視を増やさない。
 
 初回Injectのお願いは `rule/session-work.md` と `rule/shared-context.md` に分離し、起動文は
-資料パスとCcが解決したworkflow/branchを中心にする。スキル候補の基準は `rule/skill-selection.md`。
+資料パスとCcが解決したbranchを中心にする。旧版に workflow が保存されていた場合は、過去の判定・提出手順を無効化する訂正を一度だけ通知する。スキル候補の基準は `rule/skill-selection.md`。
 Geniusの判断が頻回かつ安定、または頻回作業の損失が大きい手順だけをスキル化する。
 `skills/session-followup/SKILL.md` は反復する確認手順を所有し、自動実行の許可は与えない。
 
@@ -72,6 +66,10 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
   子プロセスの環境にcore.hooksPathを追加し、既存config countを保持する。準備失敗時は起動を失敗として返す。
 - `pre-push` は自分のLictor sidecarからsession同一性を取得し、Ccの `POST /v1/sessions/:id/push-check`
   へ実checkout rootを渡す。Ccはworkspace内の実git状態、sessionのrepo/origin/branch、現在のworkflowを照合する。
+  push を検討する照会は `push` ref 情報なしでも同じ endpoint を利用できる。毎回最新の登録一覧から判定し、初期ポリシーを参照しない。
+  応答と判定イベントに workflow / allowed / reason を返す。フックは許可時も判断理由を表示する。
+  登録レコードの workflow 省略は既存契約で revisor。正常取得した一覧で未登録と確認できる GitHub remote は github。
+  origin 不明・重複・不正応答・照会失敗は許可しない。origin がある場合は origin、ない場合は rootPath で照合する。
   GitHub workflowだけ許可し、Rv/unknown/不一致/照会失敗/Castra rootを拒否する。
   Rv未登録と確認済みのGitHub repoは、GitHub Appの導入やRv登録をpushの前提にしない。
   登録・workflow・refの変更やpushそのものをAPI側で実行しない。決定はsession eventへ記録する。
@@ -92,7 +90,7 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
 実装: `src/control/startup-policy-project.ts`、`src/control/startup-policy.ts`、`src/api/sessions/startup-policy-check.ts`、`src/api/sessions/lifecycle.ts`、`src/api/implementation-tools.ts`、`src/api/register-core.ts`。
 回帰確認: `src/api/sessions/startup-policy-check.test.ts`、`src/api/implementation-tools.test.ts`。
 
-Inject の workflow・必須設定・本体資料は、session の最新 `target_project` を project-code registry の code・本体path・project名で解決した同じ登録から決める。
+Inject の必須設定・本体資料は、session の最新 `target_project` を project-code registry の code・本体path・project名で解決した同じ登録から決める。workflow は Inject に含めない。
 起動時の Castra repo より最新の作業登録を優先する。明示対象が未登録なら unknown とし、起動repoへ戻して推測しない。
 対象未指定の旧sessionだけは登録repo/originで解決する。実checkoutのrepo/branchとCastra操作ガードは維持する（UX-CC-W1、UX-CC-W4、CC-INV-01、CC-INV-02）。
 実装bind成功とtarget変更で非同期に再照合し、target変更前の古い応答は破棄する。版にはproject codeを含め、配送確認済みとは扱わない（CC-INV-06）。

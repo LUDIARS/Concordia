@@ -15,11 +15,7 @@ const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/,
 
 export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project">>, requestedBranch: string | null = null): ReturnType<typeof buildStartupPolicy> {
   const project = selectStartupPolicyProject(deps.projectCodes?.list() ?? [], session);
-  const unresolvedTarget = !!session.target_project?.trim() && !project;
-  const workflow = unresolvedTarget ? "unknown" : await deps.resolveProjectStartupWorkflow?.(
-    project?.repo_path ?? session.repo_path, project ? project.repo_origin : session.repo_origin,
-  ).catch(() => "unknown" as const) ?? "unknown";
-  return buildStartupPolicy({ workflow, repoPath: session.repo_path, repoOrigin: session.repo_origin, observedBranch: session.branch,
+  return buildStartupPolicy({ repoPath: session.repo_path, repoOrigin: session.repo_origin, observedBranch: session.branch,
     provider: session.provider, pendingSpawn: requestedBranch ? { branch: requestedBranch, project: null } : null,
     workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [], projectRoot: project?.repo_path, projectCode: project?.code,
     requirements: project ? { ddd: !!project.ddd_enabled, tests: !!project.tests_required,

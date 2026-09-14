@@ -8,6 +8,34 @@ import type { RevisorRepositoryRecord } from "../pr/revisor-repository-client.js
 
 afterEach(() => vi.restoreAllMocks());
 
+it("resolves the current workflow on every push consideration instead of trusting startup metadata", async () => {
+  const db = makeTestDb();
+  try {
+    const sessions = new SessionsRepo(db);
+    const repoPath = "E:/workspace/repo";
+    const repoOrigin = "https://github.com/LUDIARS/Example.git";
+    sessions.insertSession({ id: "fresh-policy", provider: "codex-cli", repo_path: repoPath,
+      repo_origin: repoOrigin, branch: "feat/push", host: "fixture", started_at: 1, last_seen_at: 1,
+      transcript_path: null, metadata: JSON.stringify({ cc_startup_policy: { fields: { workflow: "github" } } }) });
+    vi.spyOn(context, "isWithinWorkspace").mockResolvedValue(true);
+    vi.spyOn(context, "inspectImplementationRepo").mockResolvedValue({ repoPath, repoOrigin, branch: "feat/push" });
+    let workflow: "github" | "revisor" = "revisor";
+    const listRepositories = vi.fn(async (): Promise<RevisorRepositoryRecord[]> => [{
+      repository: "LUDIARS/Example", rootPath: repoPath, baseRef: "main", testCases: [], workflow,
+    }]);
+    const requestWarning = vi.fn();
+    const app = sessionPushCheckRouter({ sessions, revisor: { listRepositories },
+      workspaceRoots: () => ["E:/workspace"], requestWarning });
+    const consider = async () => (await app.request("/fresh-policy/push-check", { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: repoPath }) })).json();
+    expect(await consider()).toMatchObject({ allowed: false, workflow: "revisor" });
+    workflow = "github";
+    expect(await consider()).toMatchObject({ allowed: true, workflow: "github" });
+    expect(listRepositories).toHaveBeenCalledTimes(2);
+    expect(requestWarning).not.toHaveBeenCalled();
+  } finally { db.close(); }
+});
+
 it.each(["approved", "denied", "unavailable", "busy", "rebound", "ended", "remote", "injected", "exception", "root-changed"])(
   "requires a fresh human WARNING and stable binding: %s", async (scenario) => {
     const db = makeTestDb();

@@ -17,6 +17,9 @@ export async function buildContextReport(session: SessionRow): Promise<string> {
 }
 
 export function formatContextReport(estimate: ContextEstimate, threshold: number, lastCompactionAt: number | null): string {
+  if (estimate.windowTokens === null || estimate.pct === null) {
+    return `🧠 直近要求の入力: ${estimate.tokens.toLocaleString()} tokens。窓サイズ不明のため、占有率・残量は算出できません。`;
+  }
   const remaining = Math.max(0, estimate.windowTokens - estimate.tokens);
   const remainingPct = Math.max(0, 1 - estimate.pct);
   const thresholdTokens = Math.round(estimate.windowTokens * threshold);

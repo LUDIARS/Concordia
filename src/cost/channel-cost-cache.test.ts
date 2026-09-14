@@ -71,7 +71,7 @@ describe("makeCachedChannelCostReader", () => {
     expect(tails).toBe(1);
   });
 
-  it("context: tail で決まらなければ全読みへフォールバック", async () => {
+  it("context: missing tail measurement stays unknown without a full read", async () => {
     let fulls = 0;
     const reader = makeCachedChannelCostReader(makeIo({
       readTail: async () => ["{}"],
@@ -80,8 +80,19 @@ describe("makeCachedChannelCostReader", () => {
         return [codexCountLine(500, 77)];
       },
     }));
-    expect(await reader.context(session("c1", "codex-cli"))).toBe(77);
-    expect(fulls).toBe(1);
+    expect(await reader.context(session("c1", "codex-cli"))).toBeNull();
+    expect(fulls).toBe(0);
+  });
+
+  it("follows changed authority even when the old file still exists", async () => {
+    const reader = makeCachedChannelCostReader(makeIo({
+      resolveLogPath: async (s) => s.transcript_path,
+      readTail: async (path) => [codexCountLine(100, path === "/old.jsonl" ? 90 : 20)],
+    }));
+    const s = { ...session("rotation", "codex-cli"), transcript_path: "/old.jsonl" };
+    expect(await reader.context(s)).toBe(90);
+    expect(await reader.context({ ...s, transcript_path: "/new.jsonl" })).toBe(20);
+    expect(await reader.context({ ...s, transcript_path: null })).toBeNull();
   });
 
   it("claude cost: 追記分だけ増分合算する", async () => {

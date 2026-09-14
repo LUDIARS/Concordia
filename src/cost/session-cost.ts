@@ -196,7 +196,9 @@ export function renderUsageMarkdown(usage: SessionUsageSummary): string[] {
     if (cost.unpricedTokens > 0) tail.push(`未価格 ${shortTokens(cost.unpricedTokens)} tok`);
     lines.push(`- 想定コスト (等価API): ${money}${tail.length ? ` (${tail.join(" / ")})` : ""}`);
   }
-  if (context) {
+  if (context && (context.pct === null || context.windowTokens === null)) {
+    lines.push(`- 直近要求の入力: ${shortTokens(context.tokens)} tokens (窓サイズ不明)`);
+  } else if (context && context.pct !== null && context.windowTokens !== null) {
     const pct = Math.round(context.pct * 100);
     lines.push(
       `- コンテキスト占有: ~${pct}% (${shortTokens(context.tokens)} / ${shortTokens(context.windowTokens)})`,

@@ -9,22 +9,22 @@
  */
 
 import type { SessionRow } from "../shared/types.js";
+import { readSessionContextObservation } from "./context-observation-reader.js";
 import {
   nn,
   readLines,
-  resolveSessionTranscript,
 } from "./log-usage.js";
 
-/** コンテキスト窓の既定サイズ (トークン)。 env CONCORDIA_CONTEXT_WINDOW_TOKENS で上書き。 */
+/** Legacy pure-helper default. Runtime observations never assume this window. */
 export const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONCORDIA_CONTEXT_WINDOW_TOKENS ?? "200000") || 200000;
 
 export interface ContextEstimate {
   /** 現在コンテキストに乗っていると推定されるトークン (input + cache)。 */
   tokens: number;
-  /** 母数の窓サイズ。 */
-  windowTokens: number;
-  /** tokens / windowTokens を 0..1 に丸めた占有率。 */
-  pct: number;
+  /** 母数の窓サイズ。不明なら null。 */
+  windowTokens: number | null;
+  /** tokens / windowTokens を 0..1 に丸めた占有率。窓不明なら null。 */
+  pct: number | null;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -99,30 +99,25 @@ export function codexContextFromLines(lines: string[]): number | null {
 }
 
 /** tokens から ContextEstimate を組む (純粋)。 */
-export function toEstimate(tokens: number, windowTokens = DEFAULT_CONTEXT_WINDOW): ContextEstimate {
+export function toEstimate(tokens: number, windowTokens: number | null = DEFAULT_CONTEXT_WINDOW): ContextEstimate {
+  if (windowTokens === null) return { tokens, windowTokens: null, pct: null };
   const w = windowTokens > 0 ? windowTokens : DEFAULT_CONTEXT_WINDOW;
   return { tokens, windowTokens: w, pct: Math.max(0, Math.min(1, tokens / w)) };
 }
 
 /** セッションのコンテキスト占有を概算する。 ログが取れなければ null。 */
-export async function estimateContextTokens(s: SessionRow, windowTokens = DEFAULT_CONTEXT_WINDOW): Promise<ContextEstimate | null> {
-  // 読むのは Lictor が報告した権威 transcript だけ。 時刻マッチの推測は持たない
-  // (resolveSessionTranscript の注記を参照)。 報告が無ければ「推定不能」で null を返し、
-  // 他人のログで埋め合わせない。
-  const path = await resolveSessionTranscript(s);
-  let tokens: number | null = null;
-  if (path) {
-    tokens = s.provider === "codex-cli"
-      ? await readCodexContextTokens(path)
-      : await readClaudeContextTokens(path);
-  }
-  if (tokens === null) return null;
-  return toEstimate(tokens, windowTokens);
+export async function estimateContextTokens(s: SessionRow, windowTokens?: number): Promise<ContextEstimate | null> {
+  const observation = await readSessionContextObservation(s);
+  if (!observation) return null;
+  const configured = windowTokens ?? Number(process.env.CONCORDIA_CONTEXT_WINDOW_TOKENS);
+  const window = observation.windowTokens ?? (Number.isFinite(configured) && configured > 0 ? configured : null);
+  return toEstimate(observation.tokens, window);
 }
 
 /** 状態カード表示用の短い文字列。 例 "🧠 ctx ~62% (124k)"。 null なら空文字。 */
 export function formatContextBadge(est: ContextEstimate | null): string {
   if (!est) return "";
   const k = est.tokens >= 1000 ? `${Math.round(est.tokens / 1000)}k` : String(est.tokens);
+  if (est.pct === null) return `🧠 ctx ${k} (窓サイズ不明)`;
   return `🧠 ctx ~${Math.round(est.pct * 100)}% (${k})`;
 }

@@ -30,7 +30,7 @@ import {
   readLines,
   resolveSessionTranscript,
 } from "./log-usage.js";
-import { claudeContextFromLines, codexContextFromLines } from "./context-estimate.js";
+import { contextObservationFromLines } from "./context-observation.js";
 
 const NEGATIVE_TTL_MS = 60_000;
 const MAX_ENTRIES = 1024;
@@ -166,6 +166,8 @@ export function accumulateClaudeCostLines(lines: string[], state: ClaudeCostStat
 interface PathEntry {
   path: string | null;
   resolvedAt: number;
+  authority: string | null;
+  provider: string;
 }
 
 interface Snap {
@@ -219,10 +221,11 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
 
   const resolve = async (s: SessionRow): Promise<{ path: string; snap: Snap } | null> => {
     let pe = pathCache.get(s.id);
+    if (pe && (pe.authority !== (s.transcript_path ?? null) || pe.provider !== s.provider)) pe = undefined;
     let snap = pe?.path ? await io.statFile(pe.path) : null;
     const negativeExpired = pe && pe.path === null && io.now() - pe.resolvedAt > NEGATIVE_TTL_MS;
     if (!pe || negativeExpired || (pe.path !== null && snap === null)) {
-      pe = { path: await io.resolveLogPath(s), resolvedAt: io.now() };
+      pe = { path: await io.resolveLogPath(s), resolvedAt: io.now(), authority: s.transcript_path ?? null, provider: s.provider };
       pathCache.set(s.id, pe);
       capMap(pathCache);
       snap = pe.path ? await io.statFile(pe.path) : null;
@@ -249,15 +252,9 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
     context: async (s) => {
       if (s.provider !== "claude-code" && s.provider !== "codex-cli") return null;
       return memoized(contextMemo, s, async (path) => {
-        // 「最後の該当エントリ」 だけで決まる値なので tail 読みで足りる。
-        // tail 窓に該当エントリが無い長寿ファイルだけ全読みへフォールバック。
+        // Missing usage in the bounded tail stays unknown; never retry the entire log.
         const tail = await io.readTail(path);
-        const fromTail = tail
-          ? (s.provider === "claude-code" ? claudeContextFromLines(tail) : codexContextFromLines(tail))
-          : null;
-        if (fromTail !== null) return fromTail;
-        const full = await io.readFull(path);
-        return s.provider === "claude-code" ? claudeContextFromLines(full) : codexContextFromLines(full);
+        return tail ? contextObservationFromLines(tail, s.provider)?.tokens ?? null : null;
       });
     },
     cost: async (s) => {

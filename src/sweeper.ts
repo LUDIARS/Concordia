@@ -194,7 +194,7 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
         kind: "lost",
         payload: { last_seen_at: s.last_seen_at },
       });
-      const recovered = await tryRecover(s.id, s.provider, s.repo_path, s.transcript_path);
+      const recovered = await tryRecover(s.provider, s.transcript_path);
       if (recovered) {
         opts.repo.appendEvent({
           session_id: s.id,
@@ -294,14 +294,13 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
 const RECOVERY_READ_CAP_BYTES = 4 * 1024 * 1024;
 
 async function tryRecover(
-  sessionId: string,
   provider: string,
-  cwd: string,
   transcriptPath: string | null,
 ): Promise<unknown | null> {
   const p = getProvider(provider);
   if (!p) return null;
-  const path = transcriptPath ?? (await p.transcriptPath(sessionId, cwd));
+  // Discovery belongs to Lictor; wrapper ids are not provider session ids.
+  const path = transcriptPath;
   if (!path) return null;
   try {
     const content = await readTailCapped(path, RECOVERY_READ_CAP_BYTES);

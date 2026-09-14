@@ -32,6 +32,8 @@ function isObj(v: unknown): v is Record<string, unknown> {
 interface PathEntry {
   path: string | null;
   resolvedAt: number;
+  authority: string | null;
+  provider: string;
 }
 
 interface Snap {
@@ -67,11 +69,12 @@ async function statFile(path: string): Promise<Snap | null> {
  */
 export async function resolveSessionLogPath(s: SessionRow): Promise<{ path: string; snap: Snap } | null> {
   let pe = pathCache.get(s.id);
+  if (pe && (pe.authority !== (s.transcript_path ?? null) || pe.provider !== s.provider)) pe = undefined;
   let snap = pe?.path ? await statFile(pe.path) : null;
   const negativeExpired = pe && pe.path === null && Date.now() - pe.resolvedAt > NEGATIVE_TTL_MS;
   if (!pe || negativeExpired || (pe.path !== null && snap === null)) {
     const resolved = await resolveSessionTranscript(s);
-    pe = { path: resolved, resolvedAt: Date.now() };
+    pe = { path: resolved, resolvedAt: Date.now(), authority: s.transcript_path ?? null, provider: s.provider };
     pathCache.set(s.id, pe);
     capMap(pathCache);
     snap = pe.path ? await statFile(pe.path) : null;

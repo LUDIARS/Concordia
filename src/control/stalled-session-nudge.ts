@@ -41,7 +41,6 @@ import { renderSessionFollowup, type SessionFollowupSnapshot } from "./session-f
 import { readSessionWorkPhase, type WorkPhaseView } from "../work/session-work-phase.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
-import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { claimHumanResponseConfirmation } from "./human-response-confirmation.js";
@@ -97,10 +96,8 @@ export interface StalledSessionNudgeHandle {
 
 /** session の transcript ファイルパスを解決する (sweeper.tryRecover と同じ規約)。 */
 export async function resolveTranscriptPath(s: SessionRow): Promise<string | null> {
-  if (s.transcript_path) return s.transcript_path;
-  const p = getProvider(s.provider);
-  if (!p) return null;
-  return p.transcriptPath(s.id, s.repo_path);
+  // Only Lictor identifies provider logs. Missing reports must not trigger a host-wide scan.
+  return s.transcript_path;
 }
 
 async function defaultMtimeMs(s: SessionRow): Promise<number | null> {

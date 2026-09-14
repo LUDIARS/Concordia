@@ -1,29 +1,13 @@
 /**
- * コンテキスト使用量の 2 つの見方。
- *
- * ## なぜ 2 つ出すのか
- *
- * この環境の Claude セッションは、**最初の assistant ターンの時点で既に窓の 3 割強**を
- * 占めている (2026-09-07 実測: 67,476 tokens / 200k = 34%)。 system prompt + tool schema +
- * MCP + CLAUDE.md + memory index + skill 一覧が全セッション共通で載るためで、 これは
- * そのセッションが何をしたかとは無関係な固定費。
- *
- * 生の占有率だけを見ると、 全セッションが同じゲタを履いて同じ速度で上がるので
- * 「どのセッションも似た数字」 になり、 警告としても比較としても情報量が薄い。
- * 逆に差分だけを見ると、 窓に対する実際の余裕 (= いつ compaction が要るか) が読めない。
- *
- * そこで **窓に対する占有 (raw)** と **会話が積んだ分 (conversation)** の両方を出す。
- * 前者は「あとどれだけ入るか」、 後者は「このセッションが何をどれだけ積んだか」。
- *
- * baseline は transcript の **最初の** usage スナップショット。 実測値なので、
- * 環境やモデルが変わって固定費が動いても追随する (定数で持たない)。
+ * コンテキスト観測の表示。実行時は上限付きの共通 reader を使用する。
+ * 初回要求にはユーザー入力・再開履歴も含まれるため、固定費とは扱わない。
+ * baseline の純粋関数は互換用に残すが、実行時の会話分計算には使わない。
  */
 
 import type { SessionRow } from "../shared/types.js";
-import { nn, readLines, resolveSessionTranscript } from "./log-usage.js";
+import { nn } from "./log-usage.js";
 import {
-  claudeContextFromLines,
-  codexContextFromLines,
+  estimateContextTokens,
   DEFAULT_CONTEXT_WINDOW,
 } from "./context-estimate.js";
 
@@ -32,7 +16,7 @@ function isObj(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Claude JSONL の **最初** の本流 assistant usage (= 会話が始まる前の固定費)。
+ * Claude JSONL の最初の本流 usage。固定費だけの測定ではない (互換用)。
  *
  * `claudeContextFromLines` が最後を採るのと対で、 こちらは最初を採る。 sidechain
  * (Task tool の subagent) は本流の占有ではないので同じく除外する。
@@ -56,7 +40,7 @@ export function claudeBaselineFromLines(lines: readonly string[]): number | null
   return null;
 }
 
-/** Codex JSONL の最初の `token_count` (= 会話前の固定費)。 */
+/** Codex JSONL の最初の `token_count` (互換用。固定費とは扱わない)。 */
 export function codexBaselineFromLines(lines: readonly string[]): number | null {
   for (const line of lines) {
     let o: unknown;
@@ -82,9 +66,9 @@ export interface ContextUsage {
   /** 現在コンテキストに乗っているトークン (固定費を含む)。 */
   tokens: number;
   /** 母数の窓サイズ。 */
-  windowTokens: number;
+  windowTokens: number | null;
   /** tokens / windowTokens (0..1)。 */
-  pct: number;
+  pct: number | null;
   /** 最初のターンで既に乗っていた固定費。 取れなければ null。 */
   baselineTokens: number | null;
   /** 会話が積んだ分 (tokens - baseline)。 baseline 不明なら null。 */
@@ -97,8 +81,11 @@ export interface ContextUsage {
 export function toContextUsage(
   tokens: number,
   baselineTokens: number | null,
-  windowTokens = DEFAULT_CONTEXT_WINDOW,
+  windowTokens: number | null = DEFAULT_CONTEXT_WINDOW,
 ): ContextUsage {
+  if (windowTokens === null) {
+    return { tokens, windowTokens: null, pct: null, baselineTokens: null, conversationTokens: null, conversationPct: null };
+  }
   const w = windowTokens > 0 ? windowTokens : DEFAULT_CONTEXT_WINDOW;
   const pct = Math.max(0, Math.min(1, tokens / w));
   // baseline が窓以上 / 現在値を超える (計測ゆらぎ・/clear 直後) 場合は差分を出さない。
@@ -134,6 +121,9 @@ function short(tokens: number): string {
  * baseline が取れないときは生の占有率だけを出す (欠けた数字を 0 と偽らない)。
  */
 export function formatContextUsageLine(usage: ContextUsage): string {
+  if (usage.windowTokens === null || usage.pct === null) {
+    return `🧠 直近要求の入力 ${short(usage.tokens)} tokens (窓サイズ不明)`;
+  }
   const raw = `🧠 コンテキスト ${short(usage.tokens)} / ${short(usage.windowTokens)} `
     + `(${Math.round(usage.pct * 100)}%)`;
   if (usage.conversationTokens === null || usage.conversationPct === null || usage.baselineTokens === null) {
@@ -145,22 +135,15 @@ export function formatContextUsageLine(usage: ContextUsage): string {
 }
 
 /**
- * セッションの transcript を 1 度だけ読んで 2 つの見方を作る。
- *
- * transcript は Lictor が報告した権威パスだけを読む (`resolveSessionTranscript`)。
- * 報告が無ければ null = 推定不能で、 他人のログでは埋め合わせない。
+ * Lictor の権威パスに対する上限付き観測から表示を作る。
+ * 報告が無ければ null。初回要求を固定費として差し引かない。
  */
 export async function readContextUsage(
   s: SessionRow,
-  windowTokens = DEFAULT_CONTEXT_WINDOW,
+  windowTokens?: number,
 ): Promise<ContextUsage | null> {
-  const path = await resolveSessionTranscript(s);
-  if (!path) return null;
-  const lines = await readLines(path);
-  const isCodex = s.provider === "codex-cli";
-  // 現在値の採り方は context-estimate と同じ関数を使う (2 つ目の実装を作らない)。
-  const current = isCodex ? codexContextFromLines(lines) : claudeContextFromLines(lines);
-  if (current === null) return null;
-  const baseline = isCodex ? codexBaselineFromLines(lines) : claudeBaselineFromLines(lines);
-  return toContextUsage(current, baseline, windowTokens);
+  const estimate = await estimateContextTokens(s, windowTokens);
+  if (!estimate) return null;
+  // The first request includes user input and resumed history; it is not measured fixed overhead.
+  return toContextUsage(estimate.tokens, null, estimate.windowTokens);
 }

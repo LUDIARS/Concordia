@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "テストフォーラムの操作面 — テスト開始 / マージ"
-description: "Revisor が Open / Test OK にした PR の Discord テストフォーラム投稿に、テスト開始ボタン・provider(model)/effort セレクト・マージボタンを載せる。テスト開始で専用セッションを起動して投稿と Lictor で同期し、同じボタンがマージへ変わる。閾値以下はオートマージ、/co-combine で他 PR と連動。"
+description: "Revisor が Open / Test OK にした PR の Discord テストフォーラム投稿に、テスト開始ボタン・provider(model)/effort セレクト・マージボタンを載せる。テスト開始で専用セッションを起動して投稿と Lictor で同期し、同じボタンがマージへ変わる。マージは受付直後にボタンを外し、完了・失敗・結果不明をスレッドへ投稿する。閾値以下はオートマージ、/co-combine で他 PR と連動。"
 service: concordia
 domain: chat-platforms
 tags:
@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./revisor-local-pr-submission.md
   - ./staff-roster.md
-updated: 2026-08-07
+updated: 2026-09-13
 ---
 
 # テストフォーラムの操作面 — テスト開始 / マージ
@@ -34,8 +34,9 @@ updated: 2026-08-07
 ## 2. 状態遷移 (実装済み: `src/discord/test-forum-controls.ts`)
 
 ```
-candidate ──[テスト開始]──> starting ──[session.started]──> testing ──[マージ]──> merged
-     └───────────────────────[マージ (「マージOK」通知のボタン)]──────────────────┘
+candidate ──[テスト開始]──> starting ──[session.started]──> testing ──[マージ受付]──> merging ──[マージを確認]──> merged
+     └──────────────[マージ受付 (「マージOK」通知のボタン)]──────────────────────────┘
+merging ──[Revisor が実行していない根拠のある失敗]──> candidate (session 無し) / testing (session 有り)
 ```
 
 | 状態 | 出す操作 |
@@ -43,13 +44,14 @@ candidate ──[テスト開始]──> starting ──[session.started]──>
 | `candidate` | 「テスト開始」ボタン + provider(model) / effort セレクト。 Revisor が mergeable と判定した場合は、 別途「マージOK」通知にマージボタンを添える |
 | `starting` | 操作を隠し、セッション登録を待つ。スレッド投稿からも再起動しない |
 | `testing` | **同じ場所が「マージ」ボタンに変わる**。 セレクトは畳む (起動済みセッションの設定は変えられないため) |
+| `merging` | 操作を出さない。受付から結果確定まで、再押下・別投稿のボタン・同期の描画から二重マージの入口を作らない |
 | `merged` | 操作を出さない (二重マージの入口を残さない) |
 
 マージ操作を受け付けるのは `candidate` と `testing`。 「🔀 マージOK: 確認後、操作面の
 「マージ」で squash merge できます。」と案内しながら、 Test OK 直後には押せる場所が
 無かった (操作面の主ボタンがマージへ変わるのはテスト開始後のため)。 案内した操作を
 その場で押せるよう、 通知そのものにマージボタンを載せ、 `candidate` でも受け付ける。
-`starting` は spawn 予約中なので受け付けない。
+`starting` は spawn 予約中、 `merging` は受付済みなので受け付けない。
 
 通知のボタンを押した場合、 押された投稿はボタンだけ外す (操作面の描画で上書きすると
 審査結果の記録が消えるため)。 操作面は本来の描画で別途更新する。
@@ -71,7 +73,7 @@ candidate ──[テスト開始]──> starting ──[session.started]──>
 
 | 列 | migration | 意味 |
 | --- | --- | --- |
-| `run_state` | 49 | `candidate` / `starting` / `testing` / `merged` |
+| `run_state` | 49 | `candidate` / `starting` / `testing` / `merging` / `merged` (`merging` は TEXT 列の値追加のみ) |
 | `provider` / `model` / `effort` | 49 | 「テスト開始」前にセレクトで変えられる実行設定 |
 | `session_id` | 49 | 起動した確認セッション |
 | `local_pr_id` | 49 | マージ対象の Revisor local PR |
@@ -80,7 +82,9 @@ candidate ──[テスト開始]──> starting ──[session.started]──>
 
 ## 4. 実装範囲
 
-1. **描画**: `test-forum-discord.ts` がボタン / セレクトを構築し、押下後も同じメッセージを更新
+1. **描画**: `test-forum-discord.ts` がボタン / セレクトを構築し、押下後も同じメッセージを更新。
+   同期が新しく操作面を描くときは、周期の始めに読んだ行ではなく描く直前の行を使い、描いている間に
+   状態が進んだら今の状態で描き直す (マージ受付中にボタンを再表示しない)
 2. **受信配線**: `commands.ts` の interaction dispatch が `test:` を処理
 3. **テスト開始**: 選択された provider/model/effort で、設定済み workspace root を cwd
    として確認セッションを spawn し、スレッドへ束ねて Lictor 同期させる。Revisor に
@@ -93,9 +97,25 @@ candidate ──[テスト開始]──> starting ──[session.started]──>
    Test Forum session は検証と報告だけを担当し、Revisor workflow token を受け取らない。
    interactive session の spawn 境界は inherited env と明示 env の両方から Revisor の
    service credential を除去する。Revisor の mutation を prompt の遵守だけに依存させない。
-4. **マージ**: 管理職以上の構造化ボタン操作だけを受け、Cc サービスが保持する token で
-   Revisor の `POST /v1/local-prs/:id/merge` を叩く。成功で `merged` へ遷移する。
-   スレッドの自然言語を merge command として解釈しない
+4. **マージ** (`test-forum-merge-action.ts`): 管理職以上の構造化ボタン操作だけを受け、Cc サービスが
+   保持する token で Revisor の `POST /v1/local-prs/:id/merge` を叩く。スレッドの自然言語を
+   merge command として解釈しない
+   - **受付**: DB の条件付き更新で Test OK の `candidate` / `testing` を `merging` へ進めてから、
+     押された投稿への受付応答でボタンを外す (操作面なら merging の描画、通知ならボタンだけ)。
+     もう一方の投稿のボタンもマージ要求と並行して外し、押した本人へ受付を ephemeral で知らせる。
+     受付応答を送れなかった場合は Revisor へ何も要求せず受付を戻す
+   - **要求前の確認**: 要求の直前に Revisor の状態を読む。読めない・対象が無い・open でない場合は
+     マージを要求せず受付を戻す。既にマージ済みなら完了として扱う
+   - **完了**: 成功・既にマージ済み・応答喪失後にマージ済みを読めた場合は `merged` を先に記録し、
+     完了をスレッドへ通常メッセージで投稿する。その後の Discord 更新の失敗はログに残すだけで、
+     マージの失敗として報告しない
+   - **失敗**: Revisor が実行していない根拠がある失敗 (要求前の失敗、401/403、409 契約で識別した
+     競合・ゲート未通過・open 以外) だけ受付を戻し、理由をスレッドへ投稿してボタンを戻す
+   - **結果不明**: 打ち切り・通信断・未分類の失敗でマージ済みを確認できない場合は、受付を保持したまま
+     結果を確認できない旨をスレッドへ投稿する。経過時間で受付を戻さず、再実行を許可しない
+     (CC-INV-03 / CC-NODE-03)。Revisor で merged / closed に決着すれば同期がスレッドを閉じる。
+     それまでの状態確認は Revisor の画面で行う
+   - Revisor の原文は機密を含み得るため、ログには分類と HTTP status だけを残す
 5. **オートマージ**: Revisor 側に `autoMergeIfEligible` + `autoMergeRiskThreshold` が既に
    あるので、 Concordia 側の実装は不要。 `autoMergeEnabled` を有効化する運用判断のみ
 

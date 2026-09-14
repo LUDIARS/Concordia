@@ -121,14 +121,19 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
         row.close_reason = reason;
       }
     }),
-    findOpen: vi.fn(() => null),
+    findOpen: vi.fn((id) => rows.find((entry) => entry.id === id && entry.status === "open") ?? null),
     updateRunConfig: vi.fn(),
     markStarting: vi.fn(() => true),
     resetStarting: vi.fn(),
     markTesting: vi.fn(),
     setLocalPrId: vi.fn(),
+    claimMerge: vi.fn(() => false),
+    releaseMerge: vi.fn(),
     markMerged: vi.fn(),
-    setControlsMessageId: vi.fn(),
+    setControlsMessageId: vi.fn((id, messageId) => {
+      const row = rows.find((entry) => entry.id === id);
+      if (row) row.controls_message_id = messageId;
+    }),
     clearControlsMessageId: vi.fn((id) => {
       const row = rows.find((entry) => entry.id === id);
       if (row) row.controls_message_id = null;
@@ -138,6 +143,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
     create: vi.fn(async () => ({ threadId: `thread-${rows.length + 1}` })),
     update: vi.fn(async () => undefined),
     render: vi.fn(async (row) => ({ controlsMessageId: `controls-${row.id}` })),
+    refreshControls: vi.fn(async () => undefined),
     clearControls: vi.fn(async () => undefined),
     postStatusChange: vi.fn(async () => undefined),
     postMerged: vi.fn(async () => undefined),
@@ -466,5 +472,51 @@ describe("reconcileTestForum", () => {
     const result = await reconcileTestForum({ candidates: [candidate()], ...h });
     expect(result).toEqual({ scanned: 1, kept: 0, updated: 0, created: 1, closed: 1, failed: 0 });
     expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "spawn-target-updated");
+  });
+
+  it("draws controls from the current row so an accepted merge does not bring its button back", async () => {
+    const built = candidate();
+    const h = harness([surface({
+      content_hash: built.contentHash, check_status: "test_ok", run_state: "merging", session_id: "sess-1",
+    })]);
+    // 周期の始めに読んだ行はまだ testing (受付はその後に DB へ書かれた)。
+    h.surfaces.listOpen = vi.fn(() => h.rows.map((row) => ({ ...row, run_state: "testing" as const })));
+
+    await reconcileTestForum({ candidates: [built], ...h });
+
+    expect(h.adapter.render).toHaveBeenCalledWith(expect.objectContaining({ id: 7, run_state: "merging" }));
+  });
+
+  it("redraws controls when a merge is accepted while the controls post is being sent", async () => {
+    const built = candidate();
+    const h = harness([surface({
+      content_hash: built.contentHash, check_status: "test_ok", run_state: "testing", session_id: "sess-1",
+    })]);
+    h.adapter.render = vi.fn(async (row: DiscordTestSurfaceRow) => {
+      h.rows[0].run_state = "merging";
+      return { controlsMessageId: `controls-${row.id}` };
+    });
+
+    await reconcileTestForum({ candidates: [built], ...h });
+
+    expect(h.adapter.refreshControls).toHaveBeenCalledWith(expect.objectContaining({
+      id: 7, run_state: "merging", controls_message_id: "controls-7",
+    }));
+  });
+
+  it("keeps a merge claim with an unknown result instead of re-enabling the merge", async () => {
+    const built = candidate();
+    const h = harness([surface({
+      content_hash: built.contentHash, check_status: "test_ok", run_state: "merging",
+      session_id: "sess-1", controls_message_id: "controls-7",
+    })]);
+
+    const result = await reconcileTestForum({ candidates: [built], ...h });
+
+    expect(result.failed).toBe(0);
+    expect(h.surfaces.releaseMerge).not.toHaveBeenCalled();
+    expect(h.adapter.render).not.toHaveBeenCalled();
+    expect(h.adapter.refreshControls).not.toHaveBeenCalled();
+    expect(h.rows[0].run_state).toBe("merging");
   });
 });

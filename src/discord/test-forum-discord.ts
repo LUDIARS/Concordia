@@ -13,17 +13,21 @@ import {
   type Guild,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
+import type { DiscordReviewReportReceiptsRepo } from "../db/discord-review-report-receipts-repo.js";
 import type { DiscordTestSurfaceRow } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrDetail } from "../pr/revisor-test-workflow-client.js";
 import { redactSecrets } from "../shared/redact-secrets.js";
 import {
   buildTestControlId,
   describeRunConfig,
+  isMergeAllowedState,
   providerChoiceValue,
   TEST_PROVIDER_CHOICES,
   testControlLayout,
   testEffortChoices,
+  type TestSurfaceState,
 } from "./test-forum-controls.js";
+import { checkStatusLabel } from "./test-forum-labels.js";
 import type {
   TestForumCandidate,
   TestForumSurfaceAdapter,
@@ -33,7 +37,9 @@ import type {
 import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
 import { writeKeepingArchiveState } from "./thread-archive.js";
 import { reviewDocuments } from "./test-forum-report.js";
-import { postReviewDocuments } from "./test-forum-report-delivery.js";
+import { postReviewDocuments } from "./test-forum-report-thread.js";
+
+export { checkStatusLabel } from "./test-forum-labels.js";
 
 // 投稿本文には PR タイトル・説明・判断事項がそのまま載る。 これらは Revisor 経由の
 // 外部由来テキストなので、 `@everyone` 等が混ざっても誰にも通知が飛ばないようにする
@@ -129,24 +135,6 @@ function detailLines(detail: RevisorLocalPrDetail, includeFailureDetails = false
   return lines;
 }
 
-const CHECK_STATUS_LABELS: Record<string, string> = {
-  queued: "審査待ち",
-  running: "審査中",
-  test_ok: "Test OK",
-  failed: "審査失敗",
-  action_required: "人間の判断が必要",
-};
-
-export function checkStatusLabel(
-  checkStatus: string,
-  detail: RevisorLocalPrDetail | null = null,
-): string {
-  if (checkStatus === "action_required" && detail?.decisionState === "failed") {
-    return "審査失敗";
-  }
-  return CHECK_STATUS_LABELS[checkStatus] ?? checkStatus;
-}
-
 export function statusChangeMessage(candidate: TestForumCandidate): string {
   if (candidate.checkStatus === "running") return "🔎 審査を開始しました。各チェックとレビューの実行内容・結果をこのスレッドへ記録します。";
   if (candidate.checkStatus === "queued") return "⏳ 審査待ちです。PR 本文と、開始後の詳細レポートをこのスレッドで確認できます。";
@@ -172,19 +160,8 @@ export function statusChangeMessage(candidate: TestForumCandidate): string {
   return `⚠️ 審査は完了しましたが人間の判断が必要です。\n${blockers}`;
 }
 
-/**
- * 「🔀 マージOK」を知らせる投稿に添えるマージボタン。
- *
- * 案内文は「操作面の『マージ』で squash merge できます」と言うが、 操作面の主ボタンが
- * マージに変わるのはテスト開始後で、 Test OK 直後には押せる場所が無かった。 案内した
- * 操作をその場で押せるように、 通知そのものにボタンを載せる。 Revisor が mergeable と
- * 判定していないときは何も出さない (実行できない操作を約束しない)。
- */
-export function statusChangeComponents(
-  candidate: TestForumCandidate,
-  surfaceId: number,
-): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  if (candidate.checkStatus !== "test_ok" || candidate.detail?.mergeable !== true) return [];
+/** マージボタン 1 つの行。 通知に添えるボタンと、失敗後に通知へ戻すボタンで共有する。 */
+export function mergeButtonRows(surfaceId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
@@ -196,14 +173,31 @@ export function statusChangeComponents(
   ];
 }
 
+/**
+ * 「🔀 マージOK」を知らせる投稿に添えるマージボタン。
+ *
+ * 案内文は「操作面の『マージ』で squash merge できます」と言うが、 操作面の主ボタンが
+ * マージに変わるのはテスト開始後で、 Test OK 直後には押せる場所が無かった。 案内した
+ * 操作をその場で押せるように、 通知そのものにボタンを載せる。 Revisor が mergeable と
+ * 判定していないとき、マージ受付中・マージ済みのときは何も出さない (実行できない操作を約束しない)。
+ */
+export function statusChangeComponents(
+  candidate: TestForumCandidate,
+  surfaceId: number,
+  runState?: TestSurfaceState,
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  if (candidate.checkStatus !== "test_ok" || candidate.detail?.mergeable !== true) return [];
+  if (runState && !isMergeAllowedState(runState)) return [];
+  return mergeButtonRows(surfaceId);
+}
+
+/**
+ * 終局のマージ投稿。 統合コミットの識別子は Revisor の記録 (mergeCommitSha) で照合でき、
+ * 利用者の投稿にはハッシュを出さない。 外部由来の文字列を載せないので、Markdown 注入や
+ * 2,000 文字上限超過で close が止まることもない。
+ */
 export function mergedMessage(terminal: TestForumTerminalPr): string {
-  // Source の差し替え時にも外部文字列を無制限に Discord へ渡さない。Git SHA-1 / SHA-256
-  // 以外は表示せず、Markdown 注入と 2,000 文字上限超過による close の永久失敗を防ぐ。
-  const mergeCommitSha = terminal.mergeCommitSha?.trim();
-  const commit = mergeCommitSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(mergeCommitSha)
-    ? `\n統合コミット: \`${mergeCommitSha}\``
-    : "";
-  return `✅ #${terminal.prNumber} をマージしました。テスト・QA セッションを終了して、このスレッドを閉じます。${commit}`;
+  return `✅ #${terminal.prNumber} をマージしました。テスト・QA セッションを終了して、このスレッドを閉じます。`;
 }
 
 export function starterContent(candidate: TestForumCandidate): string {
@@ -211,7 +205,7 @@ export function starterContent(candidate: TestForumCandidate): string {
     `**Revisor 審査レポート** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
     `**Repo** \`${candidate.repoOrigin}\``,
     `**状態** ${checkStatusLabel(candidate.checkStatus, candidate.detail)}`,
-    `**Head** \`${candidate.headBranch}\` @ \`${candidate.headSha}\``,
+    `**Head** \`${candidate.headBranch}\``,
     ...(candidate.detail
       ? detailLines(candidate.detail, candidate.checkStatus === "failed")
       : []),
@@ -260,6 +254,12 @@ function appliedStatusTags(
   );
 }
 
+const RUN_STATE_LINES: Partial<Record<TestSurfaceState, string>> = {
+  starting: "\n**状態** テストセッションを起動しています…",
+  merging: "\n**状態** マージを受け付けました。結果はこのスレッドへ投稿します。",
+  merged: "\n**状態** マージ済み",
+};
+
 /** 操作面は状態遷移モジュールから組み立て、Discord API 固有の部品だけをここに閉じ込める。 */
 export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
   content: string;
@@ -293,8 +293,7 @@ export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
         .setStyle(layout.primary.style === "primary" ? ButtonStyle.Primary : ButtonStyle.Success),
     ));
   }
-  const state = surface.run_state === "starting" ? "\n**状態** テストセッションを起動しています…" : "";
-  return { content: `${describeRunConfig(config)}${state}`, components: rows };
+  return { content: `${describeRunConfig(config)}${RUN_STATE_LINES[surface.run_state] ?? ""}`, components: rows };
 }
 
 /**
@@ -325,6 +324,30 @@ export async function refreshTestForumControls(
   });
 }
 
+/** 操作結果をスレッドの通常メッセージで残す。 本文中のメンションは通知しない。 */
+async function postTestForumNotice(
+  guild: Guild,
+  surface: DiscordTestSurfaceRow,
+  content: string,
+): Promise<void> {
+  await writeToSurfaceThread(guild, surface.thread_id, "Concordia test forum notice", async (thread) => {
+    await thread.send({ content: clip(content, 2000), allowedMentions: NO_MENTIONS });
+  });
+}
+
+/** 操作 (マージ) と同期の双方が使う、スレッドへの通知と操作面の更新口。 */
+export interface TestForumSurfaceUi {
+  refreshControls(surface: DiscordTestSurfaceRow): Promise<void>;
+  postNotice(surface: DiscordTestSurfaceRow, content: string): Promise<void>;
+}
+
+export function createTestForumSurfaceUi(guild: Guild): TestForumSurfaceUi {
+  return {
+    refreshControls: (surface) => refreshTestForumControls(guild, surface),
+    postNotice: (surface, content) => postTestForumNotice(guild, surface, content),
+  };
+}
+
 async function clearTestForumControls(
   guild: Guild,
   surface: DiscordTestSurfaceRow,
@@ -339,11 +362,15 @@ async function clearTestForumControls(
 export function createTestForumDiscordAdapter(
   guild: Guild,
   forumId: string,
+  /** 詳細レポートの配送受領台帳。 無い場合はレポートを送らない (重複防止を外して送らない)。 */
+  reviewReportReceipts?: DiscordReviewReportReceiptsRepo,
 ): TestForumSurfaceAdapter {
+  const surfaceUi = createTestForumSurfaceUi(guild);
   return {
     async postReviewReport(surface, candidate) {
+      if (!reviewReportReceipts) throw new Error("Review report receipts ledger is not configured");
       await writeToSurfaceThread(guild, surface.thread_id, "Revisor review report", (thread) =>
-        postReviewDocuments(thread, reviewDocuments(candidate)));
+        postReviewDocuments(thread, reviewDocuments(candidate), reviewReportReceipts));
     },
     async create(candidate) {
       const forum = findTestForum(guild, forumId);
@@ -399,6 +426,7 @@ export function createTestForumDiscordAdapter(
       );
       return { controlsMessageId: message.id };
     },
+    refreshControls: (surface) => surfaceUi.refreshControls(surface),
     async clearControls(surface) {
       await clearTestForumControls(guild, surface);
     },
@@ -409,7 +437,7 @@ export function createTestForumDiscordAdapter(
       await writeKeepingArchiveState(thread, "Concordia test candidate status posted", () =>
         thread.send({
           content: statusChangeMessage(candidate),
-          components: statusChangeComponents(candidate, surface.id),
+          components: statusChangeComponents(candidate, surface.id, surface.run_state),
           allowedMentions: NO_MENTIONS,
         }));
     },

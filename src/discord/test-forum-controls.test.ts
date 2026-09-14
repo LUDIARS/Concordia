@@ -30,6 +30,7 @@ describe("test forum controls", () => {
       selectors: false,
     });
     // マージ済みには操作を出さない (二重マージの入口を残さない)。
+    expect(testControlLayout("merging")).toEqual({ primary: null, selectors: false });
     expect(testControlLayout("merged")).toEqual({ primary: null, selectors: false });
   });
 
@@ -80,6 +81,7 @@ describe("test forum controls", () => {
     expect(isMergeAllowedState("candidate")).toBe(true);
     expect(isMergeAllowedState("testing")).toBe(true);
     expect(isMergeAllowedState("starting")).toBe(false);
+    expect(isMergeAllowedState("merging")).toBe(false);
     expect(isMergeAllowedState("merged")).toBe(false);
   });
 

@@ -20,7 +20,8 @@ export interface DiscordTestSurfaceRow {
   content_hash: string | null;
   /** 投稿と一緒に起動したテスト・QA delegation run。 投稿を閉じるとき session も畳む。 */
   qa_run_id: string | null;
-  run_state: "candidate" | "starting" | "testing" | "merged";
+  /** merging はマージ受付後、Revisor の結果が確定するまで (結果不明のままなら確定まで保持)。 */
+  run_state: "candidate" | "starting" | "testing" | "merging" | "merged";
   provider: "codex" | "claude";
   model: string;
   effort: "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -58,6 +59,17 @@ export interface DiscordTestSurfacesRepo {
   resetStarting(id: number): void;
   markTesting(id: number, sessionId: string, worktreePath?: string | null): void;
   setLocalPrId(id: number, localPrId: string): void;
+  /**
+   * Test OK の candidate / testing を原子的にマージ受付へ進める。 false は受付済み・
+   * マージ済み・状態変化のいずれかで、Revisor へマージを要求してはならない。
+   */
+  claimMerge(id: number): boolean;
+  /**
+   * Revisor がマージを実行していないと根拠を持って言える場合 (要求前の失敗・認可拒否・
+   * 既知の拒否) だけ、受付をテスト起動状況に応じた状態へ戻す。 結果不明では呼ばない。
+   */
+  releaseMerge(id: number): void;
+  /** Revisor でマージを確認した候補を merged にする。 */
   markMerged(id: number): void;
   setControlsMessageId(id: number, messageId: string): void;
   /** 操作を許可しない候補から、表示済みの操作面を取り外す。 */
@@ -163,10 +175,26 @@ export function makeDiscordTestSurfacesRepo(
         `UPDATE discord_test_surfaces SET local_pr_id = ? WHERE id = ? AND scope = ? AND status = 'open'`,
       ).run(localPrId, id, scope);
     },
+    claimMerge(id) {
+      const result = db.prepare(
+        `UPDATE discord_test_surfaces SET run_state = 'merging'
+         WHERE id = ? AND scope = ? AND status = 'open'
+           AND check_status = 'test_ok' AND run_state IN ('candidate', 'testing')`,
+      ).run(id, scope);
+      return result.changes === 1;
+    },
+    releaseMerge(id) {
+      db.prepare(
+        `UPDATE discord_test_surfaces
+         SET run_state = CASE WHEN session_id IS NULL THEN 'candidate' ELSE 'testing' END
+         WHERE id = ? AND scope = ? AND status = 'open' AND run_state = 'merging'`,
+      ).run(id, scope);
+    },
     markMerged(id) {
       db.prepare(
         `UPDATE discord_test_surfaces SET run_state = 'merged'
-         WHERE id = ? AND scope = ? AND status = 'open' AND run_state = 'testing'`,
+         WHERE id = ? AND scope = ? AND status = 'open'
+           AND run_state IN ('candidate', 'testing', 'merging')`,
       ).run(id, scope);
     },
     setControlsMessageId(id, messageId) {

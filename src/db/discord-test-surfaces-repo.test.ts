@@ -125,4 +125,55 @@ describe("DiscordTestSurfacesRepo", () => {
       session_id: "session-43",
     }));
   });
+
+  it("accepts one merge per surface and releases it back to the state it came from", () => {
+    const repo = makeDiscordTestSurfacesRepo(db, "hq", () => 123);
+    const row = repo.create({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 44,
+      headSha: "ghi",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-44",
+      worktreePath: null,
+      threadId: "thread-44",
+      contentHash: null,
+      checkStatus: "test_ok",
+    });
+
+    expect(repo.claimMerge(row.id)).toBe(true);
+    expect(repo.claimMerge(row.id)).toBe(false);
+    expect(repo.findOpen(row.id)?.run_state).toBe("merging");
+    repo.releaseMerge(row.id);
+    expect(repo.findOpen(row.id)?.run_state).toBe("candidate");
+
+    expect(repo.markStarting(row.id)).toBe(true);
+    repo.markTesting(row.id, "session-44");
+    expect(repo.claimMerge(row.id)).toBe(true);
+    repo.releaseMerge(row.id);
+    expect(repo.findOpen(row.id)?.run_state).toBe("testing");
+
+    expect(repo.claimMerge(row.id)).toBe(true);
+    repo.markMerged(row.id);
+    expect(repo.claimMerge(row.id)).toBe(false);
+    repo.releaseMerge(row.id);
+    expect(repo.findOpen(row.id)?.run_state).toBe("merged");
+  });
+
+  it("does not accept a merge for a surface that is not Test OK", () => {
+    const repo = makeDiscordTestSurfacesRepo(db, "hq", () => 123);
+    const row = repo.create({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 45,
+      headSha: "jkl",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-45",
+      worktreePath: null,
+      threadId: "thread-45",
+      contentHash: null,
+      checkStatus: "failed",
+    });
+
+    expect(repo.claimMerge(row.id)).toBe(false);
+    expect(repo.findOpen(row.id)?.run_state).toBe("candidate");
+  });
 });

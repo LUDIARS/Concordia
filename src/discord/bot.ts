@@ -15,6 +15,7 @@ import {
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { makeDiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
+import { makeDiscordReviewReportReceiptsRepo } from "../db/discord-review-report-receipts-repo.js";
 import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
 import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-client.js";
 import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
@@ -436,6 +437,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
   const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
+  const reviewReportReceiptsRepo = makeDiscordReviewReportReceiptsRepo(deps.db, scope);
   // reconcile close / スレッド投稿が共有するテスト・QA hooks。 close 時は旧経路の
   // delegation run (qa_run_id) に加え、 テスト開始で紐付いた session_id も畳む
   // (マージ等で投稿が閉じたら関連セッションも終わらせる)。
@@ -1206,7 +1208,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           }))),
           surfaces: testSurfacesRepo,
           getTerminalDetail: (id) => source.getProductDetail(id),
-          adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
+          adapter: createTestForumDiscordAdapter(guild, lay.testForumId, reviewReportReceiptsRepo),
           qa: testForumQa,
           log,
         });

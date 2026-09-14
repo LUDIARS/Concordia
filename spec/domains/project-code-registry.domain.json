@@ -7,9 +7,11 @@
     { "pathPattern": "(^|/)src/control/startup-policy-project(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/implementation-tools(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/project-codes-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/project-notification-seed(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/(schema|migration-ledger)\\.ts$" },
     { "pathPattern": "(^|/)src/projects/project-resolver(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/project-codes(-admin)?(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/project-notification-preferences(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/(register-core|sessions/(deps|lifecycle|title-goal))\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/discord/(bot|commands)\\.ts$" },
@@ -18,7 +20,9 @@
     { "pathPattern": "(^|/)src/pr/revisor-repository-client(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/project-codes(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/api\\.ts$" },
-    { "pathPattern": "(^|/)web/src/pages/(ProjectCodes|Setup)\\.tsx$" }
+    { "pathPattern": "(^|/)web/src/pages/(ProjectCodes|Setup)\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/project-notification-settings(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/ProjectNotificationSettings\\.tsx$" }
   ],
   "cardTemplate": "Summarise the project-code-registry domain: empty initial state, validated idempotent registration, and restart-free repository resolution.",
   "mechanics": [
@@ -28,8 +32,9 @@
     "idempotent-registration",
     "runtime-resolution-without-restart",
     "loopback-admin-management",
-    "revisor-workflow-round-trip"
+    "revisor-workflow-round-trip",
+    "project-notification-preference-management"
   ],
-  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md"],
+  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md"],
   "rationale": "project code は session binding、Discord forum、title 推定へ横断配信されるため、静的文書の複製ではなく Cc DB の単一正本として変更理由をまとめる。"
 }

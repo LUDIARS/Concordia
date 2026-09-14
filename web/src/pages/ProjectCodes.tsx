@@ -1,6 +1,7 @@
 // @spec ハーネス信頼性の実装境界
 import { useEffect, useState } from "react";
 import { api, type ProjectCodeAdminEntry, type ProjectCodesAdminResult } from "../api.js";
+import { NotificationSettingsPanel, NotificationSummary } from "./ProjectNotificationSettings.js";
 
 // @implements spec/feature/project-code-registry.md — 管理 UI
 
@@ -14,6 +15,8 @@ import { api, type ProjectCodeAdminEntry, type ProjectCodesAdminResult } from ".
 //  - 関係会社 … `subsidiary_projects` (project 名紐付け、複数可。 未選択 = 本社のみ)
 //  - ドメインレビュー … `project_codes.domain_review`。 ON のプロジェクトだけ、
 //    Anatomia のドメイン情報を Discord へ投稿する (spec/feature/domain-review-discord.md)
+//  - 通知 … `project_codes.deploy_notification` / `release_notification` と追加宛先 `deploy_notify`。
+//    チェックボックスと選択式で編集する (spec/feature/project-notification-preferences.md)
 
 const RV_MODE_LABEL: Record<string, string> = {
   revisor: "Revisor (App+Release)",
@@ -145,12 +148,12 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editingNotifications, setEditingNotifications] = useState(false);
   const [draft, setDraft] = useState({
     code: entry.code,
     project: entry.project,
     repo_path: entry.repo_path,
     repo_origin: entry.repo_origin ?? "",
-    deploy_notify: JSON.stringify(entry.deploy_notify),
   });
   // 他セッションの変更で行が入れ替わったら編集前の値も追随させる。
   /** @implements spec/feature/project-code-registry.md — 管理 UI refresh after external edits */
@@ -160,7 +163,6 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       project: entry.project,
       repo_path: entry.repo_path,
       repo_origin: entry.repo_origin ?? "",
-      deploy_notify: JSON.stringify(entry.deploy_notify),
     });
     setConfirmingDelete(false);
   }, [entry.code, entry.project, entry.repo_path, entry.repo_origin]);
@@ -172,10 +174,6 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
     if (draft.project !== entry.project) body.project = draft.project.trim();
     if (draft.repo_path !== entry.repo_path) body.repo_path = draft.repo_path.trim();
     if ((draft.repo_origin || null) !== entry.repo_origin) body.repo_origin = draft.repo_origin.trim() || null;
-    if (draft.deploy_notify !== JSON.stringify(entry.deploy_notify)) {
-      try { body.deploy_notify = JSON.parse(draft.deploy_notify) as Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; }
-      catch { onError("デプロイ通知先は JSON 配列で入力してください"); return; }
-    }
     if (Object.keys(body).length === 0) {
       setEditing(false);
       return;
@@ -192,10 +190,8 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
           <input className={`${inputClass} w-16`} value={draft.code}
             onChange={(e) => setDraft({ ...draft, code: e.target.value })} />
         </td>
-        <td className="py-1.5 pr-2" colSpan={2}>
-          <input className={inputClass} value={draft.deploy_notify} placeholder='[{"kind":"discord","target":"release"}]'
-            onChange={(e) => setDraft({ ...draft, deploy_notify: e.target.value })} />
-          <p className="text-[10px] text-subtle">discord/slack の target は 設定ページ「デプロイ通知」に登録した名前 (discord / slack)、cc-channel は target を空文字にします。</p>
+        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={2}>
+          通知は一覧の「通知設定」から変更します。
         </td>
         <td className="py-1.5 pr-2">
           <input className={inputClass} value={draft.project}
@@ -223,6 +219,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
   }
 
   return (
+    <>
     <tr className="border-b border-border/50">
       <td className="py-1.5 pr-2"><code className="text-accent font-mono">{entry.code}</code></td>
       <td className="py-1.5 pr-2 text-sm">{entry.project}</td>
@@ -230,8 +227,12 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle break-all">
         {entry.repo_origin ?? <span className="text-subtle/60">(なし)</span>}
       </td>
-      <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle max-w-40 break-all">
-        {entry.deploy_notify.length ? entry.deploy_notify.map((target) => `${target.kind}:${target.target || "専用ch"}`).join(" / ") : "(なし)"}
+      <td className="py-1.5 pr-2 max-w-48">
+        <NotificationSummary entry={entry} subsidiaries={data.subsidiaries} />
+        <button type="button" disabled={busy} onClick={() => setEditingNotifications(!editingNotifications)}
+          className="text-accent text-[11px] mt-1 disabled:opacity-40">
+          {editingNotifications ? "通知設定を閉じる" : "通知設定"}
+        </button>
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input
@@ -351,6 +352,21 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
         )}
       </td>
     </tr>
+    {editingNotifications && (
+      <tr className="border-b border-border/50 bg-muted/40">
+        <td className="py-2 px-2" colSpan={12}>
+          <NotificationSettingsPanel
+            key={entry.updated_at}
+            entry={entry}
+            subsidiaries={data.subsidiaries}
+            busy={busy}
+            onSave={(update) => onAction(entry.code, () => api.projectCodeUpdate(entry.code, update))}
+            onClose={() => setEditingNotifications(false)}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -422,7 +438,7 @@ export function ProjectCodes() {
               <th className="py-1 pr-2 font-medium">プロジェクト名</th>
               <th className="py-1 pr-2 font-medium">パス</th>
               <th className="py-1 pr-2 font-medium">GitHub URL</th>
-              <th className="py-1 pr-2 font-medium">デプロイ通知先</th>
+              <th className="py-1 pr-2 font-medium">通知</th>
               <th className="py-1 pr-2 font-medium text-center">ドメイン<br />レビュー</th>
               <th className="py-1 pr-2 font-medium">DDD / 契約</th>
               <th className="py-1 pr-2 font-medium">Rvモード</th>

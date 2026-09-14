@@ -804,6 +804,8 @@ export const api = {
       tests_required?: boolean;
       ontime_tests_required?: boolean;
       deploy_notify?: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
+      deploy_notification?: ProjectNotificationPreferenceInput;
+      release_notification?: ProjectNotificationPreferenceInput;
     },
   ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
   projectCodeDelete: (code: string) =>
@@ -1502,6 +1504,22 @@ export function statusBadge(status: SessionRow["status"]): string {
   }
 }
 
+/** プロジェクト別通知設定の子会社範囲。 */
+export type NotificationSubsidiaryScope = "none" | "operating" | "all" | "selected";
+
+/** 保存時に送るプロジェクト別通知設定 (デプロイ / リリースで独立)。 */
+export interface ProjectNotificationPreferenceInput {
+  enabled: boolean;
+  hq: boolean;
+  subsidiary_scope: NotificationSubsidiaryScope;
+  subsidiary_ids: string[];
+}
+
+/** 一覧で返るプロジェクト別通知設定。 configured=false は未設定 (現行の配送規則)。 */
+export interface ProjectNotificationPreference extends ProjectNotificationPreferenceInput {
+  configured: boolean;
+}
+
 /** 管理 UI 用 project registry の 1 行 (GET /v1/project-codes/admin)。 */
 export interface ProjectCodeAdminEntry {
   code: string;
@@ -1515,6 +1533,8 @@ export interface ProjectCodeAdminEntry {
   tests_required: boolean;
   ontime_tests_required: boolean;
   deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
+  deploy_notification: ProjectNotificationPreference;
+  release_notification: ProjectNotificationPreference;
   revisor_workflow: "revisor" | "github" | null;
   added_by: string;
   updated_at: number;
@@ -1578,6 +1598,7 @@ export interface GithubIssueRun {
 export interface ProjectCodesAdminResult {
   entries: ProjectCodeAdminEntry[];
   teams: Array<{ id: string; name: string }>;
-  subsidiaries: Array<{ id: string; name: string }>;
+  /** 登録済み子会社。 通知設定の個別選択に使い、秘密は含まない。 */
+  subsidiaries: Array<{ id: string; name: string; enabled: boolean }>;
   revisor_available: boolean;
 }

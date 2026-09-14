@@ -40,6 +40,10 @@ session title、forum routing の正本には使わない。
   registry 登録を維持したままモード設定の失敗を表示する。
 - `PATCH /v1/project-codes/:code` は code / project / repo path / repo origin を部分更新する。
   repo path を変える場合は登録時と同じ workspace・Git repository 検査を必須とする。
+- 同じ PATCH はデプロイ / リリース通知の明示設定（`deploy_notification` / `release_notification`）を
+  個別に受け、省略したイベントは変えない。一覧の `subsidiaries` は `{ id, name, enabled }` だけを返し、
+  子会社の Bot token や Webhook URL は返さない。詳細は
+  [プロジェクト別デプロイ・リリース通知設定](project-notification-preferences.md)。
 - project または repo origin を変更した場合、`subsidiary_projects` / `team_repos` の既存の
   複数割当をすべて新しい識別子へ引き継ぐ。登録を削除した場合は、対応する割当行を残さない。
 - `PUT .../team { team_ids }` と `PUT .../subsidiary { subsidiary_ids }` は複数割当を置き換える。

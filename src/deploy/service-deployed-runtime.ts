@@ -6,6 +6,8 @@ import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { matchProjectRow } from "./service-code-match.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { resolveDeploymentTargets } from "./deployment-targets.js";
+import { listSubsidiaryNotificationCandidates } from "./subsidiary-notification-candidates.js";
+import { parseNotificationPolicy } from "./notification-target-policy.js";
 import type {
   DeploymentDelivery,
   DeploymentLedger,
@@ -38,18 +40,8 @@ export function createDeploymentLookup(input: {
       // 一致しないので、 完全一致 → project 名 → repo_origin 末尾 の順で引く。
       const row = input.projects.findByCode(code) ?? matchProjectRow(input.projects.list(), code);
       if (!row) return null;
-      const subsidiaries = input.subsidiaries.list().flatMap((subsidiary) => input.subsidiaries.listDeployNotify(subsidiary.id)
-        .filter((target) => target.enabled === 1)
-        .map((target) => ({
-          subsidiaryId: subsidiary.id,
-          enabled: subsidiary.enabled === 1,
-          // 通知対象 project (関係 project ではない)。 未設定の子会社には何も届かない。
-          projects: input.subsidiaries.listDeployProjects(subsidiary.id),
-          kind: target.kind,
-          target: target.target,
-          intakeChannelId: subsidiary.channel_id,
-          botTokenEnc: subsidiary.bot_token_enc,
-        })));
+      const policy = parseNotificationPolicy(row.deploy_notification);
+      const subsidiaries = listSubsidiaryNotificationCandidates(input.subsidiaries, policy !== null);
       return {
         repo_origin: row.repo_origin,
         deploy_notify: resolveDeploymentTargets({
@@ -58,6 +50,8 @@ export function createDeploymentLookup(input: {
           projectTargets: parseTargets(row.deploy_notify),
           workflow: row.revisor_workflow,
           subsidiaries,
+          // デプロイ通知の明示設定だけを読む。 リリース通知の設定はここに影響しない。
+          policy,
         }).targets,
       };
     },

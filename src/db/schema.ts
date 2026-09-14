@@ -5,8 +5,9 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
+import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 
-export const SCHEMA_VERSION = 107;
+export const SCHEMA_VERSION = 108;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2553,6 +2554,24 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       legacy_receipts_imported_at INTEGER NOT NULL,
       PRIMARY KEY (scope, thread_id)
     )`);
+  },
+},
+{
+  version: 108,
+  name: "project-notification-preferences",
+  // 初期値の表も source に含め、適用後に値を書き換える編集を checksum で止める。
+  source: JSON.stringify({
+    columns: ["project_codes.deploy_notification TEXT", "project_codes.release_notification TEXT"],
+    seeds: PROJECT_NOTIFICATION_SEEDS,
+  }),
+  up(db) {
+    // NULL = 未設定 (現行の配送規則)。 イベントごとに列を分け、片方の保存がもう片方を明示設定にしない。
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    for (const name of ["deploy_notification", "release_notification"] as const) {
+      if (!columns.some((column) => column.name === name)) db.exec(`ALTER TABLE project_codes ADD COLUMN ${name} TEXT`);
+    }
+    // 指定の初期値は既存登録へ一度だけ。 code と project 名が一致し、まだ未設定の列にだけ書く。
+    applyProjectNotificationSeeds(db);
   },
 },
 ];

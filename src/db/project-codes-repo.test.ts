@@ -139,4 +139,15 @@ describe("ProjectCodesRepo update/remove", () => {
     expect(repo.findByRepoOrigin("LUDIARS/not-registered")).toBeNull();
     db.close();
   });
+
+  it("stores deploy and release notification settings independently", () => {
+    const { db, repo } = seeded();
+    const off = JSON.stringify({ enabled: false, hq: false, subsidiary_scope: "none", subsidiary_ids: [] });
+    const hqOnly = JSON.stringify({ enabled: true, hq: true, subsidiary_scope: "none", subsidiary_ids: [] });
+    expect(repo.findByCode("Cc")).toMatchObject({ deploy_notification: null, release_notification: null });
+    expect(repo.update("Cc", { deployNotification: off })).toMatchObject({ deploy_notification: off, release_notification: null });
+    expect(repo.update("Cc", { releaseNotification: hqOnly, domainReview: false }))
+      .toMatchObject({ deploy_notification: off, release_notification: hqOnly });
+    db.close();
+  });
 });

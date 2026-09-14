@@ -7,6 +7,13 @@ import {
   type ProjectCodesRepo,
 } from "../db/project-codes-repo.js";
 import type { ProjectCreatedEvent } from "../deploy/project-created.js";
+import {
+  NotificationPreferenceSchema,
+  findUnregisteredSubsidiary,
+  serializeNotificationPreference,
+  toNotificationPreferenceView,
+  type NotificationPreferenceView,
+} from "./project-notification-preferences.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
 import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 import type {
@@ -54,6 +61,9 @@ const UpdateSchema = z.object({
   tests_required: z.boolean().optional(),
   ontime_tests_required: z.boolean().optional(),
   deploy_notify: z.array(z.object({ kind: z.enum(["discord", "slack", "cc-channel"]), target: z.string().trim().max(200) }).strict()).max(50).optional(),
+  /** デプロイ / リリース通知の明示設定。 片方だけ送ればもう片方の保存値は変えない。 */
+  deploy_notification: NotificationPreferenceSchema.optional(),
+  release_notification: NotificationPreferenceSchema.optional(),
 }).strict();
 
 const AssignTeamsSchema = z.object({
@@ -78,7 +88,7 @@ export interface ProjectCodesRouterDeps {
   };
   /** 関係会社表示/変更 (未注入なら subsidiaries 欄は常に空 / 変更 503)。 */
   subsidiaries?: {
-    list: () => Array<{ id: string; name: string; display_name: string }>;
+    list: () => Array<{ id: string; name: string; display_name: string; enabled: number }>;
     find: (id: string) => { id: string } | null;
     listProjectAssignments: () => Array<{ subsidiary_id: string; project: string }>;
     assignProjectToSubsidiaries: (project: string, subsidiaryIds: readonly string[]) => void;
@@ -134,7 +144,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     const teams = deps.teams?.list() ?? [];
     const teamName = new Map(teams.map((team) => [team.id, team.name]));
     const subsidiaries = (deps.subsidiaries?.list() ?? [])
-      .map((row) => ({ id: row.id, name: row.display_name || row.name }));
+      // 通知設定の個別選択に使うので有効フラグだけ足す。 Bot token など配送の秘密は返さない。
+      .map((row) => ({ id: row.id, name: row.display_name || row.name, enabled: row.enabled === 1 }));
     const subsidiaryName = new Map(subsidiaries.map((row) => [row.id, row.name]));
     const revisorRepos = await listRevisorRepositories(deps);
 
@@ -158,6 +169,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
+          deploy_notification: toNotificationPreferenceView(row.deploy_notification),
+          release_notification: toNotificationPreferenceView(row.release_notification),
           revisor_workflow: workflow,
           added_by: row.added_by,
           updated_at: row.updated_at,
@@ -217,6 +230,11 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
 
     const current = deps.repo.findByCode(c.req.param("code"));
     if (!current) return c.json({ error: "project_code_not_found" }, 404);
+    const unregistered = findUnregisteredSubsidiary(
+      [parsed.data.deploy_notification, parsed.data.release_notification],
+      deps.subsidiaries,
+    );
+    if (unregistered) return c.json(unregistered, unregistered.error === "subsidiary_not_found" ? 404 : 503);
     const patch: Parameters<ProjectCodesRepo["update"]>[1] = {
       code: parsed.data.code,
       project: parsed.data.project,
@@ -227,6 +245,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       testsRequired: parsed.data.tests_required,
     ontimeTestsRequired: parsed.data.ontime_tests_required,
     deployNotify: parsed.data.deploy_notify === undefined ? undefined : JSON.stringify(parsed.data.deploy_notify),
+    deployNotification: serializeNotificationPreference(parsed.data.deploy_notification),
+    releaseNotification: serializeNotificationPreference(parsed.data.release_notification),
     };
     if (parsed.data.repo_path !== undefined) {
       // repo_path の変更は登録時と同じ検査 (workspace 内 + git repo) を通し、
@@ -443,7 +463,7 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
 function toAdminRow(
   row: ProjectCodeRow,
-): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; revisor_workflow: "revisor" | "github" | null } {
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; deploy_notification: NotificationPreferenceView; release_notification: NotificationPreferenceView; revisor_workflow: "revisor" | "github" | null } {
   return {
     code: row.code,
     project: row.project,
@@ -455,6 +475,8 @@ function toAdminRow(
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
+    deploy_notification: toNotificationPreferenceView(row.deploy_notification),
+    release_notification: toNotificationPreferenceView(row.release_notification),
     revisor_workflow: row.revisor_workflow ?? null,
   };
 }

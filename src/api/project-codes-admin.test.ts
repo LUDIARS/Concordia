@@ -35,7 +35,7 @@ function adminDeps(overrides: Record<string, unknown> = {}) {
       moveRepoAssignment: vi.fn(),
     },
     subsidiaries: {
-      list: () => [{ id: "sub-1", name: "ditest", display_name: "DiTest" }],
+      list: () => [{ id: "sub-1", name: "ditest", display_name: "DiTest", enabled: 1, bot_token_enc: "enc:v1:secret-token" }],
       find: (id: string) => (id === "sub-1" ? { id: "sub-1" } : null),
       listProjectAssignments: () => [{ subsidiary_id: "sub-1", project: storedRow.project }],
       assignProjectToSubsidiaries: vi.fn(),
@@ -73,7 +73,7 @@ describe("projectCodesRouter admin surface", () => {
     });
     expect(body.revisor_available).toBe(true);
     expect(body.teams).toEqual([{ id: "team-1", name: "SampleLab" }]);
-    expect(body.subsidiaries).toEqual([{ id: "sub-1", name: "DiTest" }]);
+    expect(body.subsidiaries).toEqual([{ id: "sub-1", name: "DiTest", enabled: true }]);
   });
 
   it("marks unregistered repositories when Revisor is reachable but has no record", async () => {
@@ -196,6 +196,52 @@ describe("projectCodesRouter admin surface", () => {
     expect(response.status).toBe(200);
     expect(deps.teams.moveRepoAssignment).toHaveBeenCalledWith(storedRow.repo_origin, updated.repo_origin);
     expect(deps.subsidiaries.moveProjectAssignment).toHaveBeenCalledWith(storedRow.project, updated.project);
+  });
+
+  it("returns per-event notification settings without subsidiary secrets", async () => {
+    const configured = {
+      ...storedRow,
+      deploy_notification: JSON.stringify({ enabled: true, hq: true, subsidiary_scope: "selected", subsidiary_ids: ["sub-1"] }),
+    };
+    const app = projectCodesRouter(adminDeps({
+      repo: { list: () => [configured], findByCode: () => configured, setRevisorWorkflow: vi.fn() },
+    }) as never);
+    const text = await (await app.request("/admin")).text();
+    const body = JSON.parse(text);
+    expect(body.entries[0].deploy_notification)
+      .toEqual({ configured: true, enabled: true, hq: true, subsidiary_scope: "selected", subsidiary_ids: ["sub-1"] });
+    // 未設定のイベントは現行規則 (本社＋運用対象の子会社) を表示値として返す。
+    expect(body.entries[0].release_notification)
+      .toEqual({ configured: false, enabled: true, hq: true, subsidiary_scope: "operating", subsidiary_ids: [] });
+    expect(text).not.toContain("secret-token");
+    expect(text).not.toContain("bot_token");
+  });
+
+  it("saves only the notification event that was sent", async () => {
+    const update = vi.fn(() => storedRow);
+    const app = projectCodesRouter(adminDeps({ repo: { list: () => [], findByCode: () => storedRow, update } }) as never);
+    const response = await app.request("/Cc", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deploy_notification: { enabled: false, hq: true, subsidiary_scope: "all", subsidiary_ids: ["sub-1"] } }),
+    });
+    expect(response.status).toBe(200);
+    const [, patch] = update.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(patch.deployNotification).toBe(JSON.stringify({ enabled: false, hq: true, subsidiary_scope: "all", subsidiary_ids: [] }));
+    expect(patch.releaseNotification).toBeUndefined();
+  });
+
+  it("rejects a selected subsidiary that is not registered", async () => {
+    const update = vi.fn();
+    const app = projectCodesRouter(adminDeps({ repo: { list: () => [], findByCode: () => storedRow, update } }) as never);
+    const response = await app.request("/Cc", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ release_notification: { enabled: true, hq: false, subsidiary_scope: "selected", subsidiary_ids: ["sub-1", "removed"] } }),
+    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "subsidiary_not_found" });
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("deletes a registration and 404s on unknown codes", async () => {

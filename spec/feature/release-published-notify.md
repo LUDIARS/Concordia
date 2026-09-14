@@ -2,7 +2,7 @@
 
 Revisor は major/minor Release の公開後、同じ loopback dispatch 認可で `POST /v1/events/release-published` へイベントを送る。Concordia は `release_notice_ledger` が所有する `(repository, tag)` を先に claim し、再送で同じ Bot 投稿を増やさない（CC-INV-03）。
 
-宛先は設定 `discord.release_notify_channel_id` の HQ チャンネルと、**対象プロジェクトを担当する子会社チャンネル**。解決は `resolveDeploymentTargets` に委ね、HQ は無条件、子会社は project scope と Revisor workflow の両方が揃ったときだけという fail-closed の規則をデプロイ通知と 1 か所で共有する（CC-INV-06）。リリースだけ緩い経路を作らないためで、判定を二重に持たない。
+宛先は設定 `discord.release_notify_channel_id` の HQ チャンネルと、**対象プロジェクトを担当する子会社チャンネル**。解決は `resolveDeploymentTargets` に委ね、HQ は無条件、子会社は project scope と Revisor workflow の両方が揃ったときだけという fail-closed の規則をデプロイ通知と 1 か所で共有する（CC-INV-06）。リリースだけ緩い経路を作らないためで、判定を二重に持たない。この規則はリリース通知の明示設定を持たない project（`project_codes.release_notification` が NULL）に適用する。明示設定を保存した project は [プロジェクト別デプロイ・リリース通知設定](project-notification-preferences.md) で選んだ範囲だけへ配送し、デプロイ通知の設定はリリースの宛先に影響しない。
 
 **プロジェクト個別の `deploy_notify` には振り分けない。** あれは「反映した」を知らせる宛先で、「公開した」の宛先とは別物。混ぜると、デプロイ通知だけを受けたい webhook にリリースまで流れる。
 

@@ -14,6 +14,10 @@ export interface ProjectCodeRow {
   tests_required?: number;
   ontime_tests_required?: number;
   deploy_notify?: string;
+  /** デプロイ通知の明示設定 (JSON)。 NULL は未設定で、現行の配送規則を使う。 */
+  deploy_notification?: string | null;
+  /** リリース通知の明示設定 (JSON)。 NULL は未設定。 デプロイの設定とは独立。 */
+  release_notification?: string | null;
   /** Revisor registry workflow の最後に確認できた値。null は未登録または未確認。 */
   revisor_workflow?: "revisor" | "github" | null;
   /**
@@ -128,6 +132,8 @@ export class ProjectCodesRepo {
     testsRequired?: boolean;
     ontimeTestsRequired?: boolean;
     deployNotify?: string;
+    deployNotification?: string;
+    releaseNotification?: string;
   }): ProjectCodeRow | null {
     const run = this.db.transaction((): ProjectCodeRow | null => {
       const existing = this.findByCode(code);
@@ -151,7 +157,7 @@ export class ProjectCodesRepo {
 
       this.db.prepare(`
         UPDATE project_codes
-        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, deploy_notify = ?, updated_at = ?
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, deploy_notify = ?, deploy_notification = ?, release_notification = ?, updated_at = ?
         WHERE code = ? COLLATE BINARY
       `).run(
         nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview,
@@ -160,6 +166,8 @@ export class ProjectCodesRepo {
         patch.testsRequired === undefined ? existing.tests_required ?? 0 : Number(patch.testsRequired),
         patch.ontimeTestsRequired === undefined ? existing.ontime_tests_required ?? 0 : Number(patch.ontimeTestsRequired),
         patch.deployNotify === undefined ? existing.deploy_notify ?? "[]" : patch.deployNotify,
+        patch.deployNotification === undefined ? existing.deploy_notification ?? null : patch.deployNotification,
+        patch.releaseNotification === undefined ? existing.release_notification ?? null : patch.releaseNotification,
         Date.now(), existing.code,
       );
       return this.findByCode(nextCode);

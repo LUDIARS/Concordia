@@ -40,7 +40,7 @@ import {
   reconcileActiveSessionForumThreads,
   archiveStaleChannels,
 } from "./session-channel.js";
-import { ChannelWorkState } from "./channel-work-state.js";
+import { ChannelWorkState, classifySessionMessageWorkSignal } from "./channel-work-state.js";
 import type { SessionRelayState } from "../platform/chat-read-model.js";
 import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
@@ -768,8 +768,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     completion: boolean;
     turnEnd: boolean;
   }): void => {
-    if (input.completion) channelWorkState?.noteCompletion(input.sessionId);
-    else if (!input.turnEnd) channelWorkState?.noteProgress(input.sessionId);
+    if (classifySessionMessageWorkSignal(input) === "idle") channelWorkState?.noteCompletion(input.sessionId);
+    else channelWorkState?.noteProgress(input.sessionId);
     // アイドル通知の契機は **セッション自身のターン終了** (assistant / summary)。
     // completion は delegation の task カード専用で、 セッションの応答では鳴らない
     // (最初の実装はこちらに繋いでいて、 実測でほぼ発火しなかった)。

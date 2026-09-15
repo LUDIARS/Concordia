@@ -13,6 +13,21 @@ export interface ChannelWorkStateDeps {
   log?: (m: string) => void;
 }
 
+export type SessionMessageWorkSignal = "idle" | "progress";
+
+/**
+ * Discord へ届いたセッション投稿を作業状態のシグナルへ振り分ける。
+ * 待機へ戻す契機はセッション自身のターン終了 (turnEnd = final_answer / summary)。
+ * completion は委託 task カード専用で、通常セッションでは鳴らない (これだけに繋ぐと
+ * 「作業中」が終了まで外れない)。
+ */
+export function classifySessionMessageWorkSignal(input: {
+  completion: boolean;
+  turnEnd: boolean;
+}): SessionMessageWorkSignal {
+  return input.completion || input.turnEnd ? "idle" : "progress";
+}
+
 interface State {
   working: boolean;
   chain: Promise<void>;
@@ -33,11 +48,16 @@ export class ChannelWorkState {
     this.transition(sessionId, st, true);
   }
 
-  /** summary / final_answer の投稿完了。working なら待機へ戻す。 */
+  /**
+   * summary / final_answer の投稿完了。working なら待機へ戻す。
+   * 追跡状態が無い (Cc 再起動でメモリが消えた) 場合も待機へ戻す — DB と Discord には
+   * 「作業中」が残っており、ここで捨てると次の進捗まで外れない。
+   * 既に待機なら setWorking 側 (onSessionWorkState) が no-op にする。
+   */
   noteCompletion(sessionId: string): void {
     const st = this.state.get(sessionId);
-    if (!st?.working) return;
-    this.transition(sessionId, st, false);
+    if (st && !st.working) return;
+    this.transition(sessionId, st ?? this.ensure(sessionId), false);
   }
 
   /** セッション終了 / lost: state を捨てる (状態タグ更新は status 側が担当)。 */

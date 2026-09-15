@@ -1,5 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChannelWorkState } from "./channel-work-state.js";
+import { ChannelWorkState, classifySessionMessageWorkSignal } from "./channel-work-state.js";
+
+describe("classifySessionMessageWorkSignal", () => {
+  it("セッションのターン終了 (turnEnd) で待機へ戻す", () => {
+    expect(classifySessionMessageWorkSignal({ completion: false, turnEnd: true })).toBe("idle");
+  });
+
+  it("委託 task カードの完了でも待機へ戻す", () => {
+    expect(classifySessionMessageWorkSignal({ completion: true, turnEnd: false })).toBe("idle");
+  });
+
+  it("途中の投稿は進捗として扱う", () => {
+    expect(classifySessionMessageWorkSignal({ completion: false, turnEnd: false })).toBe("progress");
+  });
+});
 
 async function flushStateUpdates(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
@@ -58,6 +72,20 @@ describe("ChannelWorkState", () => {
     releaseWorking();
     await flushStateUpdates();
     expect(calls).toEqual([true, false]);
+  });
+
+  it("追跡状態が無い (再起動後) 完了通知でも待機へ戻す", async () => {
+    const calls: boolean[] = [];
+    const t = new ChannelWorkState({ setWorking: (_sid, w) => { calls.push(w); } });
+    t.noteCompletion("s1");
+    await flushStateUpdates();
+    expect(calls).toEqual([false]);
+    expect(t.isWorking("s1")).toBe(false);
+
+    // 待機と分かっている間は重ねて通知しない。
+    t.noteCompletion("s1");
+    await flushStateUpdates();
+    expect(calls).toEqual([false]);
   });
 
   it("clear で追跡状態を捨てる", () => {

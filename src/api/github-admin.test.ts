@@ -64,7 +64,7 @@ describe("GET /v1/admin/github", () => {
       config: config({ "ludiars/concordia": REPO_SECRET }),
       optedInProjects: () => [
         { code: "Cc", project: "Concordia", repo_origin: "https://github.com/LUDIARS/Concordia.git" },
-        { code: "Mp", project: "MakaiNuiPictor", repo_origin: "https://github.com/MELPOT/MakaiNuiPictor.git" },
+        { code: "Mp", project: "PrivateUnityProjectPictor", repo_origin: "https://github.com/MELPOT/PrivateUnityProjectPictor.git" },
         { code: "X", project: "NoRemote", repo_origin: null },
       ],
     });

@@ -13,14 +13,14 @@ describe("domain_review の初期値 (設計書 §8.3)", () => {
     })).toBe(true);
   });
 
-  it("MELPOT の MakaiNui / MakaiNuiPictor も ON", () => {
+  it("MELPOT の PrivateUnityProject / PrivateUnityProjectPictor も ON", () => {
     expect(seedDomainReview({
-      project: "MakaiNui",
-      repoOrigin: "https://github.com/MELPOT/MakaiNui.git",
+      project: "PrivateUnityProject",
+      repoOrigin: "https://github.com/MELPOT/PrivateUnityProject.git",
     })).toBe(true);
     expect(seedDomainReview({
-      project: "MakaiNuiPictor",
-      repoOrigin: "MELPOT/MakaiNuiPictor",
+      project: "PrivateUnityProjectPictor",
+      repoOrigin: "MELPOT/PrivateUnityProjectPictor",
     })).toBe(true);
   });
 

@@ -50,14 +50,14 @@ describe("project notification initial values", () => {
   });
 
   it("keeps a value saved from the admin UI and leaves unlisted projects on the current rules", () => {
-    const { db, repo, policy } = registryWith([{ code: "Cc", project: "Concordia" }, { code: "KS", project: "KuzuSurvivors" }]);
+    const { db, repo, policy } = registryWith([{ code: "Cc", project: "Concordia" }, { code: "PG", project: "PrivateGame" }]);
     const saved = JSON.stringify({ enabled: false, hq: false, subsidiary_scope: "none", subsidiary_ids: [] });
     repo.update("Cc", { deployNotification: saved });
     applyProjectNotificationSeeds(db);
     applyProjectNotificationSeeds(db);
     expect(repo.findByCode("Cc")?.deploy_notification).toBe(saved);
     expect(policy("Cc", "release_notification")).toEqual(HQ_ONLY);
-    expect([policy("KS", "release_notification"), policy("KS", "deploy_notification")]).toEqual([null, null]);
+    expect([policy("PG", "release_notification"), policy("PG", "deploy_notification")]).toEqual([null, null]);
     db.close();
   });
 });

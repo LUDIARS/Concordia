@@ -22,4 +22,4 @@ memory_links:
 - code と repository の同一登録は冪等で、競合する再利用は拒否される。
 - command/API で追加した code が Cc 再起動なしで次の repository binding に使われる。
 - 既存 `/projects` が静的ファイルではなく Cc registry の現在値を表示する。
-- MakaiNui を `MN` として登録でき、専用 team rules injection の前提にできる。
+- PrivateUnityProject を `MN` として登録でき、専用 team rules injection の前提にできる。

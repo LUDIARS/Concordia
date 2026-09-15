@@ -12,14 +12,14 @@ memory_links:
 
 ## 目的
 
-MELPOT (KuzuSurvivors / MakaiNui) は push を閉じておらず全リポ private なため、
+MELPOT (PrivateGame / PrivateUnityProject) は push を閉じておらず全リポ private なため、
 main へ直接 push してよい。 ハーネスの `no-main-push` をリポ単位の許可リストで例外化し、
 それ以外のリポでは従来どおり deny を維持する。
 
 ## 完了条件
 
 - [x] 許可判定を `src/harness/main-push-allowlist.ts` に集約。 判定対象は `action.cwd` と
-      コマンド中の `git -C <path>` の両方 (例: `git -C C:/repos/KuzuSurvivors push origin main`)。
+      コマンド中の `git -C <path>` の両方 (例: `git -C C:/repos/PrivateGame push origin main`)。
       エントリはディレクトリ名 (パス区切り単位のセグメント一致) / 絶対パス (完全一致 + 配下) の両対応で、
       Windows パス (大小文字・`\`) を正規化して比較する。 複合 shell コマンドは対象との対応を
       安全に確定できないため fail-closed とし、 `.` / `..` を解決してから照合する。 decoy `-C`、
@@ -31,7 +31,7 @@ main へ直接 push してよい。 ハーネスの `no-main-push` をリポ単�
 - [x] シード upsert: 同 key の旧シードを retire してから現行版を投入し、 Cc 再起動だけで新 `when` が効く。
       (従来の insert-once は fingerprint 変更に追従できず旧ルールが発火し続けた)
 - [x] 設定は AdminState `harness.main_push_allowlist` → env `HARNESS_MAIN_PUSH_ALLOWLIST` →
-      既定シード `KuzuSurvivors,MakaiNui` の順で **都度解決** (再起動なしで反映)。
+      既定シード `PrivateGame,PrivateUnityProject` の順で **都度解決** (再起動なしで反映)。
       空配列の保存は「例外なし」の明示指定として尊重し、明示設定の破損時も fail-closed にする。
 - [x] 設計 §2 のテスト項目を unit / blackbox / API route の各層に実装。
 

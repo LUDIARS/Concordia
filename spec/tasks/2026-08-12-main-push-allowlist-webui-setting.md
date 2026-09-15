@@ -26,7 +26,7 @@ memory_links:
 
 ## 備考
 
-- 解決順は 設定 → env `HARNESS_MAIN_PUSH_ALLOWLIST` → 既定 `KuzuSurvivors,MakaiNui`
+- 解決順は 設定 → env `HARNESS_MAIN_PUSH_ALLOWLIST` → 既定 `PrivateGame,PrivateUnityProject`
   (`src/admin/runtime-settings.ts` の `getHarnessMainPushAllowlist`)。
 - env のカンマ / 改行区切りは `listEnvFormat: "comma-or-newline"` で設定レジストリにも明示し、
   gate と設定画面で実効値が食い違わないようにする。

@@ -3,7 +3,7 @@
  *
  * 設計書 §8.3 (DDD 適用範囲) の写し:
  *  - 適用 (= 1): LUDIARS のプロダクト (ゲーム / コアエンジン / ツール / Hub 群) と
- *    MELPOT の MakaiNui / MakaiNuiPictor。
+ *    MELPOT の PrivateUnityProject / PrivateUnityProjectPictor。
  *  - 非適用 (= 0): Castra (= ワークスペース root の Ars。 設定・スキル置き場)、
  *    メタ / インフラ枠、 書類系、 外部リポ。
  *

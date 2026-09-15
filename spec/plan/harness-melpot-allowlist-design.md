@@ -10,14 +10,14 @@
 
 - Cc 設定 (既存の設定機構に合わせる。env fallback 可):
   `HARNESS_MAIN_PUSH_ALLOWLIST` — カンマ区切りで「リポジトリのディレクトリ名
-  または絶対パス」。既定値 (シード): `KuzuSurvivors,MakaiNui` (= 現行 MELPOT ローカル
+  または絶対パス」。既定値 (シード): `PrivateGame,PrivateUnityProject` (= 現行 MELPOT ローカル
   クローン)。設定の読み出し方は Cc の既存 config パターン (他の HARNESS_* / CONCORDIA_*
   がどう読まれているか) に合わせること。
 - 判定は blackbox-engine の特徴量に追加:
   `main_push_allowlisted` = `command_pushes_main` が true かつ、`action.cwd` の
   パス (正規化・小文字比較) が許可リストのいずれかに一致 (絶対パス一致 or
   パス区切り単位でディレクトリ名一致)。`action.command` 内の `git -C <path>` の
-  path も cwd と同様に判定対象にする (例: `git -C C:/repos/KuzuSurvivors push origin main`)。
+  path も cwd と同様に判定対象にする (例: `git -C C:/repos/PrivateGame push origin main`)。
 
 ### 1.2 ルール変更
 
@@ -40,10 +40,10 @@
 
 Cc の既存テスト流儀 (`src/harness/*.test.ts` / vitest) に合わせて:
 
-1. `git -C C:/repos/KuzuSurvivors push origin main` + allowlist 既定 →
+1. `git -C C:/repos/PrivateGame push origin main` + allowlist 既定 →
    verdict allow (または warn) で deny されない。audit に allowlisted 記録。
 2. 同コマンドで allowlist を空に → 従来どおり deny。
-3. `git push origin main` を cwd=KuzuSurvivors 配下で → allow。cwd=Figmentum → deny。
+3. `git push origin main` を cwd=PrivateGame 配下で → allow。cwd=Figmentum → deny。
 4. 許可リストのパス一致が大文字小文字/スラッシュ向きに頑健 (Windows パス)。
 5. 既存の no-main-push テスト (非許可リポ) が全て従来判定のまま green。
 6. シード upsert: 旧ルールが入った状態から再シード → 新 when が有効。

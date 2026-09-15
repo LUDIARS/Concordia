@@ -62,7 +62,7 @@ CREATE TABLE teams (
 );
 CREATE TABLE team_repos (
   team_id   TEXT NOT NULL,
-  repo_path TEXT NOT NULL,                    -- 複数可・別 org 可 (例: MakaiNui)
+  repo_path TEXT NOT NULL,                    -- 複数可・別 org 可 (例: PrivateUnityProject)
   PRIMARY KEY (team_id, repo_path)
 );
 ```
@@ -134,7 +134,7 @@ CREATE TABLE team_repos (
 
 ## 3. チームルール (二層)
 
-MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させる分解:
+PrivateUnityProject (Unity・private・別 org・Revisor push ルール別) を成立させる分解:
 
 ### 3.1 A 層 — typed settings (機械で強制)
 
@@ -234,7 +234,7 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
 - [ ] spawn 時に repo からチームが seed 確定し、 曖昧なら direction チャンネルに質問カード
       が出て、 回答で契約が埋まる。
 - [ ] チーム settings の `revisor_lane` / `worktree` / `test_policy` が契約 seed・ハーネス・
-      Revisor 提出経路に効く (MakaiNui 相当の設定で Unity 運用が成立する)。
+      Revisor 提出経路に効く (PrivateUnityProject 相当の設定で Unity 運用が成立する)。
 - [ ] チームの自然文ルールがガードプロンプトと Lictor 注入の両方に載る。
 - [ ] WebUI `/teams` で目標・case・セッション・コスト・ルールが 1 画面で管理できる。
 - [ ] メニューが左サイドバー化され、 モバイルでスライドイン表示になる。

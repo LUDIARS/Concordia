@@ -10,7 +10,7 @@ memory_links:
 
 ## 目的
 チーム独自ルールを機械強制 (A 層) と自然文 (B 層) で Cc / Lictor に効かせる
-(teams §3 / Phase b)。MakaiNui (Unity・private・別 org) が成立することが基準。
+(teams §3 / Phase b)。PrivateUnityProject (Unity・private・別 org) が成立することが基準。
 
 ## 完了条件
 - `teams.settings` の typed schema (revisor_lane / pr_rules / test_policy / worktree /

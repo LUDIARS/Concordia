@@ -59,12 +59,12 @@ describe("repository webhook secrets", () => {
   it("リポジトリ別に別々の secret を持ち、 表記揺れを畳んで引ける", () => {
     const { db, config } = harness();
     config.setRepoWebhookSecret("LUDIARS/Concordia", REPO_SECRET);
-    config.setRepoWebhookSecret("MELPOT/MakaiNuiPictor", OTHER_REPO_SECRET);
+    config.setRepoWebhookSecret("MELPOT/PrivateUnityProjectPictor", OTHER_REPO_SECRET);
 
     // URL 表記でも小文字でも同じリポジトリとして引ける (project_codes 側は URL 表記)。
     expect(config.repoWebhookSecret("https://github.com/LUDIARS/Concordia.git")).toBe(REPO_SECRET);
     expect(config.repoWebhookSecret("ludiars/concordia")).toBe(REPO_SECRET);
-    expect(config.repoWebhookSecret("MELPOT/MakaiNuiPictor")).toBe(OTHER_REPO_SECRET);
+    expect(config.repoWebhookSecret("MELPOT/PrivateUnityProjectPictor")).toBe(OTHER_REPO_SECRET);
     expect(config.hasRepoWebhookSecret("LUDIARS/Concordia")).toBe(true);
     db.close();
   });
@@ -97,11 +97,11 @@ describe("repository webhook secrets", () => {
   it("削除はそのリポジトリだけを消す", () => {
     const { db, config } = harness();
     config.setRepoWebhookSecret("LUDIARS/Concordia", REPO_SECRET);
-    config.setRepoWebhookSecret("MELPOT/MakaiNuiPictor", OTHER_REPO_SECRET);
+    config.setRepoWebhookSecret("MELPOT/PrivateUnityProjectPictor", OTHER_REPO_SECRET);
     config.clearRepoWebhookSecret("LUDIARS/Concordia");
 
     expect(config.repoWebhookSecret("LUDIARS/Concordia")).toBeNull();
-    expect(config.repoWebhookSecret("MELPOT/MakaiNuiPictor")).toBe(OTHER_REPO_SECRET);
+    expect(config.repoWebhookSecret("MELPOT/PrivateUnityProjectPictor")).toBe(OTHER_REPO_SECRET);
     db.close();
   });
 });

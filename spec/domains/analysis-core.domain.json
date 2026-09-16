@@ -20,5 +20,11 @@
       "pathPattern": "(^|/)src/model-review/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"analysis-core\" domain: Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline"
+  "cardTemplate": "Summarise the \"analysis-core\" domain: Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline",
+  "specRefs": [
+    "spec/setup/anatomia-program-layers.md",
+    "spec/feature/skill-history.md",
+    "spec/feature/model-effort-review.md",
+    "spec/architecture/ddd.md"
+  ]
 }

@@ -1,0 +1,15 @@
+{
+  "name": "task-fallback",
+  "description": "Actio が使えない期間のタスク退避。ローカル保存と Actio への同期、同期済み判定を所有する。Actio 側のタスク状態の意味は Actio が所有し、ここでは複製しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/fallback-tasks/[^/]+(.test)?.ts$"
+    }
+  ],
+  "specRefs": [
+    "spec/feature/cc-task-fallback.md",
+    "spec/architecture/ddd.md"
+  ]
+}

@@ -18,6 +18,7 @@ import { evaluateAction } from "../harness/session-gate.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
 import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { hasDddEvidence } from "../harness/ddd-evidence.js";
+import { buildProcessGuidance } from "../control/process-guidance.js";
 import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
@@ -217,7 +218,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       sessionModel: sessionContext?.model,
       implUnlocked: sessionContext?.implUnlocked,
       isWorktree: action.isWorktree ?? sessionContext?.isWorktree,
-      contractComplete: sessionContext?.contractComplete,
       planApproved: sessionContext?.planApproved,
       contractMode: sessionContext?.contractMode,
       contractScopeDirs: sessionContext?.contractScopeDirs,
@@ -238,7 +238,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // contract opt-in の効果はここだけ: 契約が解決できない (undefined) 場合を fail-closed の
     // false に倒し、 contractIncomplete に deny させる。 未選択プロジェクトは undefined のまま
     // = 追加要件を強制しない。 どちらの場合も述語セット自体は削らない (project-policy.ts 参照)。
-    if (policy?.contract) enrichedAction.contractComplete = sessionContext?.contractComplete === true;
+    // 未選択プロジェクトは undefined (= contract-incomplete を評価しない)。 false にすると契約を
+    // seed しない全プロジェクトのコード編集が一律 deny になる (2026-09-16 supervisor 実走で確認)。
+    enrichedAction.contractComplete = policy?.contract ? sessionContext?.contractComplete === true : undefined;
     const basePredicates = projectPredicates(withMainPushAllowlist(mainPushAllowlist, DEFAULT_PREDICATES), policy);
     const predicates = deps.strongImplModels
       ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]
@@ -348,9 +350,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
 
     const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
     const rules = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
-    if (session_id && deps.sessionContext?.(session_id)?.projectPolicy?.ddd) {
-      rules.push({ kind: "block", title: "DDD実装方針", description: DDD_INSTRUCTION });
-    }
+    const projectPolicy = session_id ? deps.sessionContext?.(session_id)?.projectPolicy : undefined;
+    if (projectPolicy?.ddd) rules.push({ kind: "block", title: "DDD実装方針", description: DDD_INSTRUCTION });
+    // 起動 inject と同じ手順を着手前 supply にも載せる (旗の真偽値だけでは手順が伝わらない)。
+    const guidance = projectPolicy ? buildProcessGuidance({ ddd: projectPolicy.ddd, workContract: projectPolicy.contract,
+      tests: projectPolicy.testsRequired === true, ontime: projectPolicy.ontimeTestsRequired === true }) : null;
+    if (guidance) rules.push({ kind: "block", title: "DDD/契約プロセス", description: guidance });
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
 
     recordSafe(deps.audit, {

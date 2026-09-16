@@ -4,7 +4,9 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/control/session-git-hooks(\\.test)?\\.ts$" },
+    {
+      "pathPattern": "(^|/)src/control/session-git-hooks(\\.test)?\\.ts$"
+    },
     {
       "pathPattern": "(^|/)src/control/provider-preset(\\.test)?\\.ts$"
     },
@@ -13,6 +15,9 @@
     },
     {
       "pathPattern": "(^|/)src/control/interactive-spawn-env(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/concordia-codex-worker(?:-events)?(?:.test)?.mjs$"
     }
   ],
   "cardTemplate": "Summarise the \"delegation-provider\" domain: delegation の論理 provider を CLI 引数・環境変数・headless spawn 経路へ解決する。",

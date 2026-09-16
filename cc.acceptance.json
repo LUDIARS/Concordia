@@ -1,7 +1,48 @@
 {
   "version": 1,
   "implementations": [
-    { "source": "src/harness/reliability/guidance.ts", "tests": ["tests/harness-reliability/reliability.test.ts", "tests/harness-reliability/ontime-roundtrip.test.ts"], "contracts": ["HR-sampling-budget"] },
-    { "source": "src/harness/reliability/workflow-guidance.ts", "tests": ["tests/harness-reliability/ontime.test.ts", "tests/harness-reliability/ontime-roundtrip.test.ts"], "contracts": ["HR-workflow-source"] }
+    {
+      "source": "src/harness/reliability/guidance.ts",
+      "tests": [
+        "tests/harness-reliability/reliability.test.ts",
+        "tests/harness-reliability/ontime-roundtrip.test.ts"
+      ],
+      "contracts": [
+        "HR-sampling-budget"
+      ]
+    },
+    {
+      "source": "src/harness/reliability/workflow-guidance.ts",
+      "tests": [
+        "tests/harness-reliability/ontime.test.ts",
+        "tests/harness-reliability/ontime-roundtrip.test.ts"
+      ],
+      "contracts": [
+        "HR-workflow-source"
+      ]
+    },
+    {
+      "source": "src/control/process-guidance.ts",
+      "tests": [
+        "src/control/process-guidance.test.ts",
+        "src/control/startup-policy.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/startup-policy.ts",
+      "tests": [
+        "src/control/startup-policy.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-session.ts",
+      "tests": [
+        "src/api/harness-session.test.ts",
+        "src/api/harness-session-project-policy.test.ts"
+      ],
+      "contracts": []
+    }
   ]
 }

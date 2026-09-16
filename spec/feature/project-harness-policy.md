@@ -37,3 +37,14 @@ Cc自身のプロセスやDB接続を動作条件にしない。オンライン�
 期限切れや破損、初回の未取得は明示する。復旧経路でも人間の許可や既存の破壊的操作禁止を維持する。
 Ccへ再接続できたら最新の方針へ戻す。オフライン判定と復旧操作の監査をローカルに残す。
 
+
+## 手順の注入
+
+必須設定 (`ddd_enabled` / `contract_enabled` / `tests_required` / `ontime_tests_required`) が
+一つでも有効なプロジェクトでは、旗の真偽値に加えて実装手順そのものを起動 inject と
+着手前 supply (`POST /v1/harness/context`) に載せる。手順は価値 (spec/ux) → 所属
+(spec/domains の membership と specRefs) → 契約 (work-phase の confirmation と人間の開始指示)
+→ 実装 (src と tests を対、`cc.acceptance.json` の対応) → 検証 → 提出の順で、設定に応じて
+該当する手だけを出す。注入は手順の提示であり、ゲート判定や実行許可を置き換えない。
+ゲートの条件 (spec/ux 非空、specRefs 付きドメインの membership 一致) も同じ文で示す。
+実装は `src/control/process-guidance.ts`。

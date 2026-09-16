@@ -33,7 +33,20 @@
     },
     {
       "pathPattern": "(^|/)web/src/pages/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)web/postcss.config.js$"
+    },
+    {
+      "pathPattern": "(^|/)web/[^/]+.(?:js|cjs|mjs)$"
     }
   ],
-  "cardTemplate": "Summarise the \"http-interface\" domain: External access surfaces: the HTTP/Hono REST API that hooks report to, the MCP server, and the web monitoring frontend."
+  "cardTemplate": "Summarise the \"http-interface\" domain: External access surfaces: the HTTP/Hono REST API that hooks report to, the MCP server, and the web monitoring frontend.",
+  "specRefs": [
+    "spec/interface/service-schema.md",
+    "spec/interface/runtime-boundaries.md",
+    "spec/setup/hooks-claude-code.md",
+    "spec/feature/webui-manuals-page.md",
+    "spec/ux/product.md"
+  ]
 }

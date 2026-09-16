@@ -22,5 +22,10 @@
     {
       "pathPattern": "(^|/)web/src/pages/settings/(?:.*/)?[^/]+$"
     }
+  ],
+  "specRefs": [
+    "spec/setup/config-reference.md",
+    "spec/feature/settings-mcp.md",
+    "spec/architecture/ddd.md"
   ]
 }

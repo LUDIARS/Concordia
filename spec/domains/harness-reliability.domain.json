@@ -4,9 +4,28 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/harness/reliability/.*\\.ts$" },
-    { "pathPattern": "(^|/)tests/harness-reliability/.*\\.ts$" }
+    {
+      "pathPattern": "(^|/)src/harness/reliability/.*\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/harness-reliability/.*\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/concordia-hook(?:-resolver)?.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/harness-gate.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/package-harness.mjs$"
+    }
   ],
-  "specRefs": ["spec/feature/harness-reliability.md", "spec/ux/product.md"],
+  "specRefs": [
+    "spec/feature/harness-reliability.md",
+    "spec/ux/product.md",
+    "spec/setup/hooks-claude-code.md",
+    "spec/setup/harness-supervisor.md",
+    "spec/feature/project-harness-policy.md"
+  ],
   "cardTemplate": "Describe checkpoint recovery, observed applicability and bounded advisory; never equate hook installation with successful execution."
 }

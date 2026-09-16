@@ -63,6 +63,15 @@
     },
     {
       "pathPattern": "(^|/)src/deploy/subsidiary-bot-token.test.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/deploy/service-code-match(.test)?.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/deploy/subsidiary-notification-candidates.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/service-versions/[^/]+(.test)?.ts$"
     }
   ],
   "cardTemplate": "Describe per-project explicit deploy/release notification policies, the unconditional HQ destinations and fail-closed subsidiary scope kept for unset projects, project additions and per-destination delivery.",
@@ -76,7 +85,8 @@
     "spec/feature/service-deployed-notify.md",
     "spec/feature/release-published-notify.md",
     "spec/feature/project-notification-preferences.md",
-    "spec/ux/product.md"
+    "spec/ux/product.md",
+    "spec/feature/checkout-published-deploy.md"
   ],
   "rationale": "受信 HTTP、重複排除、Revisor 差分の照会、通知配送を service.deployed という一つの業務イベントの境界に閉じる。"
 }

@@ -42,6 +42,9 @@
     },
     {
       "pathPattern": "(^|/)src/shared/inflight-requests(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/cost-one-shot-client.mjs$"
     }
   ],
   "cardTemplate": "Summarise the \"observability\" domain: Concordia 自身の function metric / host metric / Vg ログ / bounded operational logs / サービス監視レイヤー。",

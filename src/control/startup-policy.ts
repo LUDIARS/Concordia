@@ -2,10 +2,10 @@
 import { createHash } from "node:crypto";
 import { buildSessionWorkPolicy, type SessionWorkPolicyInput } from "./session-work-policy.js";
 import { buildSharedStartupContext } from "./shared-startup-context.js";
+import { buildProcessGuidance } from "./process-guidance.js";
+import type { StartupRequirements } from "./startup-policy-requirements.js";
+export type { StartupRequirements } from "./startup-policy-requirements.js";
 
-export interface StartupRequirements {
-  ddd: boolean; tests: boolean; ontime: boolean; workContract: boolean;
-}
 export interface StartupPolicySnapshot {
   revision: string;
   fields: Record<string, string>;
@@ -28,10 +28,12 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
     requestedBranch: input.pendingSpawn?.branch ?? "",
     requirements: required ? `DDD=${required.ddd}; tests=${required.tests}; ontime=${required.ontime}; workContract=${required.workContract}` : "unknown",
     workPolicy: work.text,
+    process: buildProcessGuidance(required, input.projectRoot) ?? "",
     resources: await buildSharedStartupContext(input),
   };
   const revision = createHash("sha256").update(JSON.stringify(fields)).digest("hex");
-  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n\n${fields.resources}\n[Cc policy revision: ${revision}]`;
+  const process = fields.process ? `\n${fields.process}\n` : "";
+  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n[Cc policy revision: ${revision}]`;
   return { ...work, policy: { revision, fields, text, delivery: "queued" } };
 }
 

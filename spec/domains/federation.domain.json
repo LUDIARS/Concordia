@@ -15,6 +15,9 @@
     },
     {
       "namePattern": "[Ff]ederation"
+    },
+    {
+      "pathPattern": "(^|/)tools/federation-check.mjs$"
     }
   ],
   "cardTemplate": "Summarise the \"federation\" domain: マルチ拠点連合 (本社 ⇄ 拠点 site) の連合リンク基盤。",

@@ -27,6 +27,12 @@
     },
     {
       "pathPattern": "(^|/)src/modules(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/operations/dependency-readiness(.test)?.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/ensure-develop-clones.mjs$"
     }
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
@@ -40,6 +46,7 @@
     "spec/feature/worker-leases.md",
     "spec/feature/delegation-coordination.md#6-並列タスク--実行キュー",
     "spec/feature/module-manifest.md#1-manifest",
-    "spec/feature/module-manifest.md#2-api"
+    "spec/feature/module-manifest.md#2-api",
+    "spec/feature/dependency-readiness.md"
   ]
 }

@@ -21,6 +21,12 @@
     },
     {
       "pathPattern": "(^|/)tools/check-src-emitted\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/build-spec-index.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/sync-skill.mjs$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",

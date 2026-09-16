@@ -42,6 +42,9 @@
     },
     {
       "pathPattern": "(^|/)src/staff/capability-authorization(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/blocks/revisor-local-pr/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the revisor-local-pr domain: local PR review submission and session-authorized merge.",

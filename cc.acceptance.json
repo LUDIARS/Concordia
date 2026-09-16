@@ -43,6 +43,44 @@
         "src/api/harness-session-project-policy.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/api/delegation.ts",
+      "tests": [
+        "tests/blocks/agent-delegation/delegation-template.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/chat.ts",
+      "tests": [
+        "tests/blocks/chat-platforms/chat-message.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/prs.ts",
+      "tests": [
+        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions.ts",
+      "tests": [
+        "tests/blocks/session-coordination/session-registration.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "tools/augur-register-existing.mjs",
+      "tests": [
+        "tests/blocks/agent-delegation/delegation-template.block.test.ts",
+        "tests/blocks/chat-platforms/chat-message.block.test.ts",
+        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts",
+        "tests/blocks/session-coordination/session-registration.block.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

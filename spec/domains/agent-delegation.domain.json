@@ -36,6 +36,9 @@
     },
     {
       "pathPattern": "(^|/)src/implementation-tools/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tests/blocks/agent-delegation/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",

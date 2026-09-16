@@ -27,6 +27,9 @@
     },
     {
       "pathPattern": "(^|/)tools/sync-skill.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/augur-register-existing\\.mjs$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",

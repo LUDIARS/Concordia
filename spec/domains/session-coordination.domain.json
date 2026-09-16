@@ -22,6 +22,9 @@
     },
     {
       "pathPattern": "(^|/)src/providers/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tests/blocks/session-coordination/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",

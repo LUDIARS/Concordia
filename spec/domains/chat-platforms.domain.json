@@ -48,6 +48,9 @@
     },
     {
       "namePattern": "[Tt]est(Forum|Surface|Control)"
+    },
+    {
+      "pathPattern": "(^|/)tests/blocks/chat-platforms/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"chat-platforms\" domain: Discord / Slack のチャット面と、そこから駆動する操作 (Test Forum のテスト開始 / マージ) の責務。",

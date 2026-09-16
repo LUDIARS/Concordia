@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "repository": "Concordia",
+  "defaultBus": "local",
+  "buses": {
+    "local": {
+      "type": "local",
+      "env": []
+    }
+  },
+  "runners": {
+    "vitest": {
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ]
+    }
+  },
+  "quota": {
+    "default": {
+      "max": 12
+    },
+    "domains": {
+      "agent-delegation": { "priority": "high" },
+      "chat-platforms": { "priority": "high" },
+      "revisor-local-pr": { "priority": "high" },
+      "session-coordination": { "priority": "critical" }
+    }
+  },
+  "retirement": {
+    "probationAfterDays": 90,
+    "probationAfterPasses": 30,
+    "retireAfterDays": 180,
+    "incidentHorizonDays": 365,
+    "exemptKinds": ["guardrail"],
+    "exemptAlways": true
+  },
+  "impact": {
+    "callerDepth": 2
+  },
+  "layout": {
+    "newTestPath": "tests/blocks"
+  },
+  "timeoutMs": 600000
+}

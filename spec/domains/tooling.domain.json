@@ -33,11 +33,15 @@
     },
     {
       "pathPattern": "(^|/)tools/ontime-runtime\\.js$"
+    },
+    {
+      "pathPattern": "(^|/)\\.augur/tests\\.jsonl$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "specRefs": [
     "spec/feature/domain-taxonomy.concordia.md#tooling",
-    "spec/feature/harness-reliability.md"
+    "spec/feature/harness-reliability.md",
+    "spec/feature/task-branch-harness.md"
   ]
 }

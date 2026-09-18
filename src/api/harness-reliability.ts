@@ -18,10 +18,15 @@ import { configurationAdvice } from "../harness/reliability/config-advisory.js";
 import { readAcceptanceManifest } from "../delegation/acceptance-manifest.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { contractMetrics } from "../harness/reliability/ontime-metrics.js";
+import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
+import { taskStartWarning } from "../harness/reliability/task-branch-policy.js";
+import { analyzePromptWithLocalLlm } from "../harness/local-prompt-analyzer.js";
+import { createChildLogger } from "../shared/logger.js";
 
 const HookSchema = z.object({
   event: z.enum(["pre-compact", "post-compact", "resume-compact", "tool-result", "prompt"]),
   event_id: z.string().min(1).max(256), trigger: z.string().max(50).optional(),
+  command: z.string().max(20000).optional(),
   tool: z.string().max(256).optional(), failed: z.boolean().optional(), status: z.number().int().optional(),
   code: z.string().max(256).optional(), message: z.string().max(16000).optional(), prompt: z.string().max(16000).optional(),
 });
@@ -32,6 +37,8 @@ export function harnessReliabilityRouter(deps: {
 }): Hono {
   const app = new Hono();
   const store = new ReliabilityStore(deps.repo);
+  const taskBranches = new TaskBranchService(deps.repo);
+  const branchLog = createChildLogger("task-branch-harness");
   const notify = (id: string, text: string, commonSystem = false): number => {
     const session = deps.repo.findSession(id);
     if (!session) throw new Error("session not found");
@@ -49,6 +56,19 @@ export function harnessReliabilityRouter(deps: {
     notify: (id, text) => notify(id, text, true) });
   const service = new ReliabilityHookService({ sessions: deps.repo, messages: deps.messages, store,
     acceptanceManifest: readAcceptanceManifest,
+    observeSubmission: (id, input) => taskBranches.observeSubmission(id, input),
+    checkTaskBranch: (id, prompt) => {
+      const current = deps.repo.findSession(id);
+      const submitted = taskBranches.beginClassification(id);
+      if (submitted) {
+        // Invalidate synchronously; failed or slow classification leaves the gate unresolved.
+        void analyzePromptWithLocalLlm({ prompt, submittedTask: submitted.task,
+          branch: current?.branch ?? undefined, rules: [], gates: ["submitted-task-boundary"] })
+          .then(result => taskBranches.classify(id, submitted, result.analysis.task_relation ?? "unknown"))
+          .catch(() => branchLog.warn({ session_id: id }, "Task classification unavailable; branch gate remains unresolved"));
+      }
+      return taskStartWarning(current?.branch ?? undefined);
+    },
     pendingQuestions: (id) => deps.questions.listUnanswered(id).map((question) => ({ id: question.id, question: question.question })),
     notify, now: Date.now, random: Math.random,
     assess: (id, sampleId) => { void advisor.assess(id, sampleId).catch(() => {

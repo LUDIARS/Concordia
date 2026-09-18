@@ -1,3 +1,5 @@
+import { ConfluxService } from "../harness/reliability/conflux-service.js";
+import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
 import { access, utimes } from "node:fs/promises";
@@ -92,6 +94,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
+import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { harnessReliabilityRouter } from "./harness-reliability.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 import { injectManualsRouter } from "./inject-manuals.js";
@@ -584,9 +587,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/admin/inject-manuals", injectManualsRouter({ repo: deps.injectManuals }));
   }
   if (deps.harnessAudit && deps.harnessRules) {
+    const conflux = new ConfluxService(deps.repo, deps.projectCodes);
+    app.route("/v1/harness/conflux", harnessConfluxRouter(conflux));
     app.route(
       "/v1/harness",
       harnessSessionRouter({
+        taskBranches: new TaskBranchService(deps.repo, undefined, (id, action) => conflux.gate(id, action)),
         projectPolicy: async (cwd) => {
           const inspected = await inspectImplementationRepo(cwd);
           const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :

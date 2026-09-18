@@ -29,7 +29,7 @@ type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_pa
   ddd_enabled: boolean;
   contract_enabled: boolean;
   tests_required: boolean;
-  ontime_tests_required: boolean;
+  ontime_tests_required: boolean; conflux_flow: boolean;
   deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
   revisor_workflow: "revisor" | "github" | null;
 };
@@ -60,6 +60,7 @@ const UpdateSchema = z.object({
   contract_enabled: z.boolean().optional(),
   tests_required: z.boolean().optional(),
   ontime_tests_required: z.boolean().optional(),
+  conflux_flow: z.boolean().optional(),
   deploy_notify: z.array(z.object({ kind: z.enum(["discord", "slack", "cc-channel"]), target: z.string().trim().max(200) }).strict()).max(50).optional(),
   /** デプロイ / リリース通知の明示設定。 片方だけ送ればもう片方の保存値は変えない。 */
   deploy_notification: NotificationPreferenceSchema.optional(),
@@ -168,6 +169,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    conflux_flow: row.conflux_flow === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
           deploy_notification: toNotificationPreferenceView(row.deploy_notification),
           release_notification: toNotificationPreferenceView(row.release_notification),
@@ -244,6 +246,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       contractEnabled: parsed.data.contract_enabled,
       testsRequired: parsed.data.tests_required,
     ontimeTestsRequired: parsed.data.ontime_tests_required,
+    confluxFlow: parsed.data.conflux_flow,
     deployNotify: parsed.data.deploy_notify === undefined ? undefined : JSON.stringify(parsed.data.deploy_notify),
     deployNotification: serializeNotificationPreference(parsed.data.deploy_notification),
     releaseNotification: serializeNotificationPreference(parsed.data.release_notification),
@@ -455,6 +458,7 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
     contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    conflux_flow: row.conflux_flow === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
     revisor_workflow: row.revisor_workflow ?? null,
   };
@@ -463,7 +467,7 @@ function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
 function toAdminRow(
   row: ProjectCodeRow,
-): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; deploy_notification: NotificationPreferenceView; release_notification: NotificationPreferenceView; revisor_workflow: "revisor" | "github" | null } {
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean; ddd_enabled: boolean; contract_enabled: boolean; tests_required: boolean; ontime_tests_required: boolean; conflux_flow: boolean; deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>; deploy_notification: NotificationPreferenceView; release_notification: NotificationPreferenceView; revisor_workflow: "revisor" | "github" | null } {
   return {
     code: row.code,
     project: row.project,
@@ -474,6 +478,7 @@ function toAdminRow(
     contract_enabled: row.contract_enabled === 1,
     tests_required: row.tests_required === 1,
     ontime_tests_required: row.ontime_tests_required === 1,
+    conflux_flow: row.conflux_flow === 1,
     deploy_notify: parseDeployNotify(row.deploy_notify),
     deploy_notification: toNotificationPreferenceView(row.deploy_notification),
     release_notification: toNotificationPreferenceView(row.release_notification),

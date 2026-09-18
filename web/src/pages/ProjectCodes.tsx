@@ -248,11 +248,11 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       </td>
       <td className="py-1.5 pr-2">
         <div className="flex gap-3 text-xs">
-          {(["ddd_enabled", "contract_enabled", "tests_required", "ontime_tests_required"] as const).map((key) => (
+          {(["ddd_enabled", "contract_enabled", "tests_required", "ontime_tests_required", "conflux_flow"] as const).map((key) => (
             <label key={key} className="flex gap-1 items-center">
               <input type="checkbox" checked={entry[key]} disabled={busy}
                 onChange={(event) => { void onAction(entry.code, () => api.projectCodeUpdate(entry.code, { [key]: event.target.checked })); }} />
-              {({ ddd_enabled: "DDD定義必須", contract_enabled: "作業契約", tests_required: "テスト実装必須", ontime_tests_required: "オンタイムテスト必須" })[key]}
+              {({ ddd_enabled: "DDD定義必須", contract_enabled: "作業契約", tests_required: "テスト実装必須", ontime_tests_required: "オンタイムテスト必須", conflux_flow: "Conflux Flow" })[key]}
             </label>
           ))}
         </div>

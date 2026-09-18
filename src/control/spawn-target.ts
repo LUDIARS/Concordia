@@ -200,7 +200,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     ? ["worktree", "add", worktreePath, branch]
     : remoteBranch
       ? ["worktree", "add", "-b", branch, worktreePath, `origin/${branch}`]
-      : ["worktree", "add", "-b", branch, worktreePath, "HEAD"];
+      : ["worktree", "add", "-b", branch, worktreePath, "main"];
   try {
     await retryGitWorktreeAdd(() => git(repoRoot, args));
   } catch (err) {

@@ -803,6 +803,7 @@ export const api = {
       contract_enabled?: boolean;
       tests_required?: boolean;
       ontime_tests_required?: boolean;
+      conflux_flow?: boolean;
       deploy_notify?: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
       deploy_notification?: ProjectNotificationPreferenceInput;
       release_notification?: ProjectNotificationPreferenceInput;
@@ -1532,6 +1533,7 @@ export interface ProjectCodeAdminEntry {
   contract_enabled: boolean;
   tests_required: boolean;
   ontime_tests_required: boolean;
+  conflux_flow: boolean;
   deploy_notify: Array<{ kind: "discord" | "slack" | "cc-channel"; target: string }>;
   deploy_notification: ProjectNotificationPreference;
   release_notification: ProjectNotificationPreference;

@@ -42,7 +42,8 @@
       "source": "src/api/harness-session.ts",
       "tests": [
         "src/api/harness-session.test.ts",
-        "src/api/harness-session-project-policy.test.ts"
+        "src/api/harness-session-project-policy.test.ts",
+        "tests/harness-reliability/task-branch.test.ts"
       ],
       "contracts": []
     },
@@ -88,6 +89,184 @@
       "source": "tools/ontime-runtime.js",
       "tests": [
         "tests/ontime-runtime.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/task-branch-policy.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts",
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/task-branch-git.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/task-branch-service.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/local-prompt-analyzer.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/prompt-intent.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-reliability.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/register-core.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bootstrap/core.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/hook-service.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/pr/ingest.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/supervisor-policy.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/spawn-target.ts",
+      "tests": [
+        "src/control/spawn-target.test.ts",
+        "tests/admin-api.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/task-branch-submission.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "tools/concordia-reliability-hook.mjs",
+      "tests": [
+        "tests/harness-reliability/task-branch-adapters.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/schema.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/project-codes-repo.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/project-codes.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/api.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/ProjectCodes.tsx",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-conflux.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/conflux-policy.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/conflux-git.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/conflux-service.ts",
+      "tests": [
+        "tests/harness-reliability/conflux.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/migration-ledger.ts",
+      "tests": [
+        "src/db/migration-ledger.test.ts"
       ],
       "contracts": []
     }

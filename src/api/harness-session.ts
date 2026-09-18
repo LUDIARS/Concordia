@@ -36,6 +36,8 @@ import {
 import { collectPromptResearch } from "../harness/prompt-research.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { workflowGuidance } from "../harness/reliability/workflow-guidance.js";
+import type { TaskBranchService } from "../harness/reliability/task-branch-service.js";
+import { taskStartWarning } from "../harness/reliability/task-branch-policy.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
 
@@ -117,6 +119,7 @@ interface HarnessSessionContext {
 }
 
 export interface HarnessSessionApiDeps {
+  taskBranches?: TaskBranchService;
   audit: HarnessAuditRepo;
   /** 自然文ハーネスルール (Sonnet guard と共有)。 context 供給で列挙する。 */
   rules: HarnessRulesRepo;
@@ -245,7 +248,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const predicates = deps.strongImplModels
       ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]
       : basePredicates;
-    const deterministic = evaluateAction(enrichedAction, predicates);
+    const branchHit = session_id ? await deps.taskBranches?.gate(session_id, enrichedAction) : null;
+    const deterministic = evaluateAction(enrichedAction, branchHit ? [...predicates, () => branchHit] : predicates);
     const acceptance = acceptanceRequirements(policy);
     if (acceptance.length && action.cwd && /\bgit\s+(?:[^\r\n]*\s)?(?:commit|push)\b|\/v1\/prs\/local|\bimplement\s+submit\b/i.test(action.command ?? "")) {
       const evidence = await inspectCodeAcceptance(action.cwd, policy);
@@ -333,7 +337,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       local_policy: {
         version: 1, capturedAt: Date.now(), sessionId: session_id ?? "", repo: action.cwd ?? "", branch: action.branch ?? "",
         context: { ...sessionContext, contractComplete: enrichedAction.contractComplete, vibesMaxFiles: enrichedAction.vibesMaxFiles }, policy, mainPushAllowlist, strongImplModels: deps.strongImplModels?.() ?? [],
-        editedRepos, editedFiles,
+        editedRepos, editedFiles, taskBranchLiveRequired: Boolean(deps.taskBranches),
       },
       ...(blackboxError ? { blackbox_error: blackboxError } : {}),
       ...(rec.error ? { audit_error: rec.error } : {}),
@@ -384,7 +388,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
     const rules: IntentHarnessRule[] = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
-    const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates };
+    const submittedTask = session_id ? deps.taskBranches?.beginClassification(session_id) ?? null : null;
+    const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates,
+      submittedTask: submittedTask?.task };
     const mode = promptAnalyzerMode();
     const analyzed = mode === "off"
       ? heuristicPromptAnalysis(intentContext)
@@ -392,6 +398,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         ? await analyzePromptWithClaudeModel(intentContext, deps.runClaude, { model: mode === "haiku" ? "haiku" : INTENT_MODEL })
         : await analyzePromptWithLocalLlm(intentContext);
     const { raw, analysis, source } = analyzed;
+    if (session_id) deps.taskBranches?.classify(session_id, submittedTask, analysis.task_relation ?? "unknown");
     const workflowGuides = workflowGuidance(prompt, analysis.search_tags);
     let verdict = analyzed.verdict;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideIntent"]>> | undefined;
@@ -405,6 +412,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         hlog.warn({ err: blackboxError, session_id, project }, "harness blackbox intent failed");
       }
     }
+    const branchWarning = deps.taskBranches ? taskStartWarning(branch) : "";
+    const taskWarning = submittedTask && analysis.task_relation !== "same-task"
+      ? "PR提出後の別作業または同一作業か未確認です。ローカルmain起点で作業を分離し、実ブランチと登録タスクを照合してください。" : "";
+    if (branchWarning || taskWarning) verdict = { ...verdict, decision: "warn",
+      concerns: [...verdict.concerns, "task-branch-boundary"],
+      advice: [verdict.advice, branchWarning, taskWarning].filter(Boolean).join("\n") };
     const research = promptResearchEnabled()
       ? await collectPromptResearch(analysis, { prompt, project })
       : { enabled: false, threshold: 0, query_terms: [], projects: [], anatomia: [], thaleia: [] };

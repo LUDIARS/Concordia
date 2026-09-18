@@ -14,6 +14,7 @@ export function reliabilityPayload(event, ctx) {
   if (event === "tool-result" || event === "tool-failure") {
     const status = response?.status ?? response?.statusCode ?? response?.error?.status;
     return { event: "tool-result", event_id: eventId, tool,
+      ...(typeof ctx?.tool_input?.command === "string" ? { command: ctx.tool_input.command.slice(0, 20000) } : {}),
       failed: event === "tool-failure" || response?.isError === true || response?.is_error === true || ctx?.is_error === true || !!response?.error || (typeof response?.exit_code === "number" && response.exit_code !== 0),
       ...(Number.isInteger(status) ? { status } : {}),
       ...(typeof response?.code === "string" ? { code: response.code.slice(0, 256) } : {}),

@@ -28,6 +28,8 @@ export interface PromptIntentContext {
   prompt: string;
   project?: string;
   branch?: string;
+  /** Server-owned submitted work, never a caller-provided permission. */
+  submittedTask?: string;
   /** 自然文ハーネスルール (harness_rules)。 */
   rules: IntentHarnessRule[];
   /** 参考: per-action で動く決定的述語名 (Sonnet に「機械化済みの観点」を伝える)。 */

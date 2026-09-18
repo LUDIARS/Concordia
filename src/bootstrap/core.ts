@@ -1,5 +1,6 @@
 // @spec ハーネス信頼性の実装境界
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
+import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 /**
  * Concordia backend エントリポイント.
@@ -1117,6 +1118,11 @@ export async function startBackend(): Promise<BackendHandle> {
         fastLane: options.fastLane === true,
       },
     ).then((outcome) => {
+      if ("pullRequest" in outcome && outcome.pullRequest) {
+        new TaskBranchService(repo).submitted(session.id, {
+          repo: session.repo_path, branch: session.branch || "", task: session.current_task || "",
+        }, outcome.pullRequest.id);
+      }
       // 提出できたときだけドメインレビューを流す (設計書 §8.2 C-4 の契機 b)。
       // 投稿は提出の副次的な成果物なので、 待たず失敗も伝播させない。
       if (outcome.submitted) {

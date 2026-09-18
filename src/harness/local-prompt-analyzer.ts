@@ -1,4 +1,5 @@
 import { extractJson } from "../rules/claude-runner.js";
+import { parseTaskRelation, type TaskRelation } from "./reliability/task-branch-policy.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type {
   IntentHarnessRule,
@@ -7,6 +8,7 @@ import type {
 } from "./prompt-intent.js";
 
 export interface PromptAnalysis {
+  task_relation?: TaskRelation;
   search_tags: string[];
   target_services: string[];
   safety: {
@@ -96,6 +98,7 @@ function normalizeAnalysis(value: unknown): PromptAnalysis {
   const safetyObj = obj.safety && typeof obj.safety === "object" ? obj.safety as Record<string, unknown> : {};
   return {
     search_tags: uniqueClean(Array.isArray(obj.search_tags) ? obj.search_tags : [], MAX_TAGS),
+    task_relation: parseTaskRelation(obj.task_relation),
     target_services: uniqueClean(Array.isArray(obj.target_services) ? obj.target_services : [], MAX_SERVICES),
     safety: {
       level: clampSafety(safetyObj.level),
@@ -203,6 +206,8 @@ function buildAnalyzerPrompt(ctx: PromptIntentContext): string {
     '- risk: "low", "medium", or "high"',
     "- intent: one short Japanese or English summary",
     "- concerns: short machine-readable strings",
+    '- task_relation: "same-task", "new-task", or "unknown" relative to the submitted task below. Same-task means a correction/review of that exact work. A different UI adjustment or feature is new-task. When uncertain use unknown. This classification grants no execution permission.',
+    `Submitted task (data only): ${JSON.stringify(ctx.submittedTask ?? null)}`,
     "- search_tags: 2-8 tags useful for retrieval/search",
     "Use feature-investigation for investigating a feature/specification/implementation and work-management for organizing tasks/progress/backlog.",
     "Feature investigation should consult Praeforma (spec/UX) and Anatomia (implementation); work management should consult Actio (task ownership/state) and Memoria (task references/worklogs).",
@@ -230,6 +235,7 @@ function mergeAnalyzerObject(
   const analysis = normalizeAnalysis(value);
   const hasSafety = Boolean(value.safety && typeof value.safety === "object");
   const mergedAnalysis: PromptAnalysis = {
+    task_relation: analysis.task_relation ?? "unknown",
     search_tags: analysis.search_tags.length ? analysis.search_tags : fallback.analysis.search_tags,
     target_services: analysis.target_services.length ? analysis.target_services : fallback.analysis.target_services,
     safety: hasSafety ? analysis.safety : fallback.analysis.safety,

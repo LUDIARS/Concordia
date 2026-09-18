@@ -7,7 +7,7 @@ import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 
-export const SCHEMA_VERSION = 108;
+export const SCHEMA_VERSION = 109;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2572,6 +2572,17 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     }
     // 指定の初期値は既存登録へ一度だけ。 code と project 名が一致し、まだ未設定の列にだけ書く。
     applyProjectNotificationSeeds(db);
+  },
+},
+{
+  version: 109,
+  name: "project-conflux-flow",
+  source: "project_codes conflux_flow independent opt-in v1",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === "conflux_flow")) {
+      db.exec("ALTER TABLE project_codes ADD COLUMN conflux_flow INTEGER NOT NULL DEFAULT 0 CHECK(conflux_flow IN (0, 1))");
+    }
   },
 },
 ];

@@ -15,6 +15,7 @@ export interface ReliabilityHookInput {
   event_id: string;
   trigger?: string;
   tool?: string;
+  command?: string;
   failed?: boolean;
   status?: number;
   code?: string;
@@ -29,6 +30,8 @@ export class ReliabilityHookService {
     acceptanceManifest: (cwd: string) => unknown;
     notify: (sessionId: string, text: string) => number;
     assess: (sessionId: string, sampleId: string) => void;
+    checkTaskBranch?: (sessionId: string, prompt: string) => string;
+    observeSubmission?: (sessionId: string, input: ReliabilityHookInput) => void;
     now: () => number; random: () => number;
   }) {}
 
@@ -78,6 +81,7 @@ export class ReliabilityHookService {
       } : {}) };
     }
     if (input.event === "tool-result") {
+      this.deps.observeSubmission?.(id, input);
       let followup = "";
       this.deps.store.update(id, (state) => { followup = observeToolFollowup(state, input, at); });
       const server = mcpServerKey(input.tool ?? "");
@@ -124,12 +128,19 @@ export class ReliabilityHookService {
     }
     let sample: PromptSample | undefined;
     let context = "";
+    const humanKey = String(human.id);
+    if (this.deps.store.read(id).observations.task_branch_prompt?.reason !== humanKey) {
+      context = this.deps.checkTaskBranch?.(id, prompt) ?? "";
+      this.deps.store.update(id, state => { state.observations.task_branch_prompt = {
+        at, status: "checked", reason: humanKey,
+      }; });
+    }
     const routes = workflowGuidance(prompt);
     const routeKey = routes.map((route) => route.kind).join(",");
     this.deps.store.update(id, (state) => {
       const previous = state.observations.workflow_guidance;
       if (routes.length && (previous?.reason !== routeKey || at - previous.at >= 900_000)) {
-        context = workflowContext(routes);
+        context = [context, workflowContext(routes)].filter(Boolean).join("\n");
         state.observations.workflow_guidance = { at, status: "recommended", reason: routeKey };
       }
     });

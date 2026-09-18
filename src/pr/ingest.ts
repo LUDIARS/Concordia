@@ -13,7 +13,8 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { StatsRepo } from "../db/stats-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
-import { parseOpenPrsFromStat } from "./normalize.js";
+import { parseOpenPrsFromStat, normalizeRepoOrigin } from "./normalize.js";
+import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("pr-ingest");
@@ -63,7 +64,15 @@ export function startPrIngestWatcher(deps: PrIngestDeps): PrIngestHandle {
         persona_id: null,
         persona_name: null,
       });
-      if (!existed) inserted += 1;
+      if (!existed) {
+        inserted += 1;
+        if (pr.head_branch && pr.head_branch === session.branch && session.repo_origin
+          && normalizeRepoOrigin(session.repo_origin) === pr.repo_origin) {
+          new TaskBranchService(deps.sessions).submitted(session.id, {
+            repo: session.repo_path, branch: pr.head_branch, task: session.current_task || "",
+          }, pr.url || pr.repo_origin + "#" + pr.number);
+        }
+      }
     }
 
     if (inserted > 0) {

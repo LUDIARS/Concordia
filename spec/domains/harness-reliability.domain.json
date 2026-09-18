@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/harness/(local-prompt-analyzer|prompt-intent)(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/harness/reliability/.*\\.ts$"
     },
     {
@@ -18,9 +21,16 @@
     },
     {
       "pathPattern": "(^|/)tools/package-harness.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)src/harness/supervisor-policy(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/pr/ingest\\.ts$"
     }
   ],
   "specRefs": [
+    "spec/feature/task-branch-harness.md",
     "spec/feature/harness-reliability.md",
     "spec/ux/product.md",
     "spec/setup/hooks-claude-code.md",

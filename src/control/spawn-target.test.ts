@@ -117,7 +117,7 @@ describe("spawn target branch/worktree", () => {
     }
   });
 
-  it("creates a sibling worktree from HEAD for a new branch", async () => {
+  it("creates a sibling worktree from local main for a new branch", async () => {
     const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-repo-"));
     const calls: string[][] = [];
     const git: SpawnTargetGitRunner = async (_cwd, args) => {
@@ -141,7 +141,7 @@ describe("spawn target branch/worktree", () => {
       if (!result.ok) return;
       expect(result.cwd).toBe(join(tmpdir(), branchWorktreeName(repo, "feat/new")));
       expect(result.worktree_created).toBe(true);
-      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/new", result.cwd!, "HEAD"]);
+      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/new", result.cwd!, "main"]);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

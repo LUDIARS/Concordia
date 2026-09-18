@@ -12,11 +12,15 @@
     },
     {
       "pathPattern": "(^|/)src/auth/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tests/harness-reliability/conflux.*\\.test\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"persistence\" domain: Durable state and cross-cutting infrastructure: SQLite repositories for all entities plus shared config, secrets, and auth helpers.",
   "specRefs": [
     "spec/data/schema.md",
-    "spec/feature/github-issue-workflow.md#状態"
+    "spec/feature/github-issue-workflow.md#状態",
+    "spec/feature/task-branch-harness.md"
   ]
 }

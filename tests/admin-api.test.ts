@@ -573,7 +573,7 @@ async function seedSession(
 }
 
 function initGitRepo(repoRoot: string): void {
-  git(repoRoot, ["init"]);
+  git(repoRoot, ["init", "-b", "main"]);
   git(repoRoot, ["config", "user.email", "concordia-test@example.invalid"]);
   git(repoRoot, ["config", "user.name", "Concordia Test"]);
   writeFileSync(join(repoRoot, "README.md"), "test\n", "utf8");

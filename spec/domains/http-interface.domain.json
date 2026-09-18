@@ -39,6 +39,9 @@
     },
     {
       "pathPattern": "(^|/)web/[^/]+.(?:js|cjs|mjs)$"
+    },
+    {
+      "pathPattern": "(^|/)tests/harness-reliability/conflux.*\\.test\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"http-interface\" domain: External access surfaces: the HTTP/Hono REST API that hooks report to, the MCP server, and the web monitoring frontend.",
@@ -47,6 +50,7 @@
     "spec/interface/runtime-boundaries.md",
     "spec/setup/hooks-claude-code.md",
     "spec/feature/webui-manuals-page.md",
-    "spec/ux/product.md"
+    "spec/ux/product.md",
+    "spec/feature/task-branch-harness.md"
   ]
 }

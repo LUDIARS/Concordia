@@ -45,6 +45,8 @@ describe("projectCodesRouter", () => {
         contract_enabled: false,
         tests_required: false,
         ontime_tests_required: false,
+
+        conflux_flow: false,
         deploy_notify: [],
         revisor_workflow: null,
       }],
@@ -96,6 +98,8 @@ describe("projectCodesRouter", () => {
         contract_enabled: false,
         tests_required: false,
         ontime_tests_required: false,
+
+        conflux_flow: false,
         deploy_notify: [],
         revisor_workflow: null,
       },

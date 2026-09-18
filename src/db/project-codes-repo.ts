@@ -13,6 +13,7 @@ export interface ProjectCodeRow {
   contract_enabled?: number;
   tests_required?: number;
   ontime_tests_required?: number;
+  conflux_flow?: number;
   deploy_notify?: string;
   /** デプロイ通知の明示設定 (JSON)。 NULL は未設定で、現行の配送規則を使う。 */
   deploy_notification?: string | null;
@@ -131,6 +132,7 @@ export class ProjectCodesRepo {
     contractEnabled?: boolean;
     testsRequired?: boolean;
     ontimeTestsRequired?: boolean;
+    confluxFlow?: boolean;
     deployNotify?: string;
     deployNotification?: string;
     releaseNotification?: string;
@@ -157,7 +159,7 @@ export class ProjectCodesRepo {
 
       this.db.prepare(`
         UPDATE project_codes
-        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, deploy_notify = ?, deploy_notification = ?, release_notification = ?, updated_at = ?
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, tests_required = ?, ontime_tests_required = ?, conflux_flow = ?, deploy_notify = ?, deploy_notification = ?, release_notification = ?, updated_at = ?
         WHERE code = ? COLLATE BINARY
       `).run(
         nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview,
@@ -165,6 +167,7 @@ export class ProjectCodesRepo {
         patch.contractEnabled === undefined ? existing.contract_enabled ?? 0 : Number(patch.contractEnabled),
         patch.testsRequired === undefined ? existing.tests_required ?? 0 : Number(patch.testsRequired),
         patch.ontimeTestsRequired === undefined ? existing.ontime_tests_required ?? 0 : Number(patch.ontimeTestsRequired),
+        patch.confluxFlow === undefined ? existing.conflux_flow ?? 0 : Number(patch.confluxFlow),
         patch.deployNotify === undefined ? existing.deploy_notify ?? "[]" : patch.deployNotify,
         patch.deployNotification === undefined ? existing.deploy_notification ?? null : patch.deployNotification,
         patch.releaseNotification === undefined ? existing.release_notification ?? null : patch.releaseNotification,

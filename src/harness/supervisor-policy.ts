@@ -17,6 +17,7 @@ export interface LocalPolicySnapshot {
   strongImplModels: string[];
   editedRepos: string[];
   editedFiles: string[];
+  taskBranchLiveRequired?: boolean;
 }
 
 export function usableSnapshot(value: unknown, action: HarnessAction, sessionId: string, now: number): value is LocalPolicySnapshot {
@@ -33,6 +34,10 @@ export function usableSnapshot(value: unknown, action: HarnessAction, sessionId:
 }
 
 export function evaluateCachedAction(action: HarnessAction, snapshot: LocalPolicySnapshot): GateVerdict {
+  if (snapshot.taskBranchLiveRequired && (["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(action.tool) || action.command)) {
+    return { decision: "deny", blocked: true, reason: "作業境界はCcへ再接続して確認してください。古いキャッシュでPR後の作業を許可しません。",
+      hits: [{ rule: "task-branch-live-required", decision: "deny", reason: "Current task/PR boundary unavailable" }] };
+  }
   return evaluateAction({
     ...snapshot.context, ...action,
     sessionModel: snapshot.context.model,

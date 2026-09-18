@@ -29,7 +29,10 @@
       "pathPattern": "(^|/)tools/sync-skill.mjs$"
     },
     {
-      "pathPattern": "(^|/)tools/augur-register-existing\\.mjs$"
+      "pathPattern": "(^|/)tools/augur-register-existing(?:\\.contract)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/ontime-runtime\\.js$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",

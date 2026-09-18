@@ -27,7 +27,9 @@
         "src/control/process-guidance.test.ts",
         "src/control/startup-policy.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "C-9"
+      ]
     },
     {
       "source": "src/control/startup-policy.ts",
@@ -79,6 +81,13 @@
         "tests/blocks/chat-platforms/chat-message.block.test.ts",
         "tests/blocks/revisor-local-pr/direct-submission.block.test.ts",
         "tests/blocks/session-coordination/session-registration.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "tools/ontime-runtime.js",
+      "tests": [
+        "tests/ontime-runtime.test.ts"
       ],
       "contracts": []
     }

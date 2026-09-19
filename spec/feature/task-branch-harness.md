@@ -19,6 +19,8 @@ domain: harness-reliability
 - TB-PR: PR 提出済みブランチでの別作業は classifier と決定的 gate の二重チェック。classifier 未確認を同一作業とみなさない。
 - TB-PRESERVE: 切替時に既存変更を移送・破棄しない。別作業は main 起点の別 worktree に分離する。
 - TB-AUTHORITY: Cc の設定・分類結果はテスト、デプロイ、マージ等の実行許可を追加しない。
+- TB-MERGED: 提出境界の PR が正本 (Revisor の local PR / GitHub を反映した pr_records) でマージ済みと確認できたら、その境界を外す。照会は境界で拒否する直前だけ行い、読めない・遅い (3 秒)・未マージ (closed を含む) なら外さない (fail-closed)。照会中に別の PR が提出されたら新しい境界を残す。
+- TB-RECOVER: 境界の拒否文には、requiresTaskBranchCheck の例外コマンドだけで組んだ復旧手順 (`lictor cli task set` / `git worktree add -b <b> <path> main`) を載せる。案内したコマンドが例外であることをテストで固定する。
 - TB-REGISTERED: 実checkoutの照合は Cc の登録 (repo_path / branch) を基準にし、シェルの cwd を基準にしない。登録リポジトリ内 (本体・linked worktree を git common dir で同一視) なら登録 branch と一致すれば通す。登録外の cwd からのコマンドは、登録リポジトリに登録 branch の checkout が実在すれば通す。登録外 checkout の編集、登録 branch の checkout が無い登録は拒否する。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
@@ -59,6 +61,26 @@ src/control/spawn-target.ts の新規 worktree 作成に HEAD 指定がある。
 neco 指示「Ccの登録がなされていれば権限を与える」。症状: Cc 登録 (Conflux / main) が実在するのに、シェルの cwd が Castra root に残っただけで全コマンドが task-branch で拒否された。linked worktree も Lictor が本体 checkout のパスで登録するため一致しなかった。TB-REGISTERED を追加し、判定は checkRegisteredCheckout (純関数)、Git 読み取りは readBranchSnapshot に common dir と worktree 一覧を追加した。PR 境界照合は登録パスで行う。
 検証: サーバー TypeScript 静的検査、task-branch / task-branch-adapters / conflux の 3 テストファイル 27 件成功 (実 Git の linked worktree を含む)。Anatomia verify は coupling_delta が readBranchSnapshot の既存超過 (fanOut 77→78) で warn、他 4 項目 PASS。再起動・デプロイは未実施。
 復旧: 本変更を revert すれば cwd 基準の照合へ戻る。データ・migration の変更はない。
+
+## マージ済み境界の解除と復旧案内（2026-09-19）
+
+neco 指示「自力でブランチを戻せる権限を用意」→ 回答「拒否文に復旧手順を載せる / マージ時に自動で解除」。
+症状: Excubitor の local PR を提出する前にセッション登録を PR ブランチへ PATCH したまま、PR が自動マージされた。
+その後の後片付けで Bash / Edit / Write がすべて submitted-task-boundary で拒否された。分類器は不在 (「判断代行が不在」) で
+解除されず、Lictor は自分の見るブランチが変わらないため登録を上書きしなかった。例外コマンド `lictor cli task set` で
+抜け出せたが、拒否文がそれを案内していなかった。
+
+- TB-RECOVER: 案内文は純関数側の定数 `SUBMITTED_BOUNDARY_RECOVERY` に置き、checkSubmittedTask の suggestion に付ける。
+- TB-MERGED: 判断は純関数 `releasesSubmittedBoundary`、正本の照会は adapter `submittedPrStateReader`
+  (`src/harness/reliability/task-branch-merge-state.ts`)、手順は `TaskBranchService.gate` が持つ。境界に記録される
+  PR 参照は 3 形 (Revisor local PR の id / GitHub PR の URL / `<owner>/<repo>#<number>`) で、local PR は Revisor の一覧、
+  GitHub は pr_records の state で判定する。Revisor の完了通知はセッションへの文面 inject で構造化されていないため、
+  通知を購読せず、拒否直前の照会で解除する (照会はまれな拒否時だけで、通常のツール呼び出しには負荷をかけない)。
+- 境界の記録は session metadata の `task_branch_submission` で、解除はそのキーの削除。他の metadata は保つ。
+
+検証: サーバー TypeScript 静的検査。回帰テストは task-branch.test.ts (TB-RECOVER 1 件 / TB-MERGED 3 件) と
+task-branch-merge-state.test.ts (3 件) を追加し、明示許可がないため未実行。再起動・デプロイは未実施。
+復旧: revert すれば、マージ後も境界が残り分類器か `lictor cli task set` でしか抜けられない従来動作に戻る。データ・migration の変更はない。
 
 ## Augur台帳での検証対象
 

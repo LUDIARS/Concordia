@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
-import { checkRegisteredCheckout, checkSubmittedTask, taskStartWarning, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
+import { checkRegisteredCheckout, checkSubmittedTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
 import { makeTestDb } from "../helpers/db.js";
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { analyzePromptWithLocalLlm } from "../../src/harness/local-prompt-analyzer.js";
@@ -109,6 +109,66 @@ describe("submitted work boundary", () => {
       expect(verdict.hits.some(hit => hit.rule === "submitted-task-boundary")).toBe(true);
       expect(JSON.parse(sessions.findSession("task-test")!.metadata!).unrelated).toBe(true);
       expect(await service.gate("task-test", { tool: "Bash", command: "git status" })).toBeNull();
+    } finally { db.close(); }
+  });
+
+  it("tells a blocked session which exempt commands release it (TB-RECOVER)", () => {
+    const hit = checkSubmittedTask({ ...submitted, submitted });
+    expect(hit?.suggestion).toContain(SUBMITTED_BOUNDARY_RECOVERY);
+    // 案内したコマンドが本当にゲートの対象外であること。対象内なら案内しても抜け出せない。
+    for (const command of [
+      'lictor cli task set --branch main --desc "done"',
+      'lictor cli task set --branch fix/next --desc "next"',
+      "git worktree add -b fix/next ../next main",
+    ]) expect(requiresTaskBranchCheck({ tool: "Bash", command })).toBe(false);
+  });
+});
+
+describe("merged submission releases the boundary (TB-MERGED)", () => {
+  const edit = { tool: "Edit", cwd: submitted.repo };
+
+  function setup(state: (pr: string) => Promise<SubmittedPrState>) {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    sessions.insertSession({ id: "merged-test", provider: "claude-code", repo_path: submitted.repo, repo_origin: null,
+      branch: submitted.branch, host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: '{"unrelated":true}' });
+    sessions.patchSession("merged-test", { current_task: "next task" });
+    const service = new TaskBranchService(sessions, async () => ({ repo: submitted.repo, branch: submitted.branch, mainExists: true }), undefined, state);
+    service.submitted("merged-test", submitted, submitted.pr);
+    return { db, sessions, service };
+  }
+
+  it("releases the boundary once the submitted PR is merged", async () => {
+    const asked: string[] = [];
+    const { db, sessions, service } = setup(async (pr) => { asked.push(pr); return "merged"; });
+    try {
+      expect(await service.gate("merged-test", edit)).toBeNull();
+      expect(asked).toEqual([submitted.pr]);
+      expect(service.read("merged-test")).toBeNull();
+      expect(JSON.parse(sessions.findSession("merged-test")!.metadata!).unrelated).toBe(true);
+    } finally { db.close(); }
+  });
+
+  it("keeps the boundary while the PR is unmerged or unreadable", async () => {
+    for (const state of ["unmerged", "unknown"] as const) {
+      const { db, service } = setup(async () => state);
+      try {
+        expect((await service.gate("merged-test", edit))?.rule).toBe("submitted-task-boundary");
+        expect(service.read("merged-test")?.pr).toBe(submitted.pr);
+      } finally { db.close(); }
+    }
+  });
+
+  it("keeps a newer submission recorded while the state was being read", async () => {
+    let target: TaskBranchService | undefined;
+    const { db, service } = setup(async () => {
+      target?.submitted("merged-test", submitted, "pr-2");
+      return "merged";
+    });
+    target = service;
+    try {
+      expect((await service.gate("merged-test", edit))?.rule).toBe("submitted-task-boundary");
+      expect(service.read("merged-test")?.pr).toBe("pr-2");
     } finally { db.close(); }
   });
 });

@@ -95,6 +95,7 @@ import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
+import { submittedPrStateReader } from "../harness/reliability/task-branch-merge-state.js";
 import { harnessReliabilityRouter } from "./harness-reliability.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 import { injectManualsRouter } from "./inject-manuals.js";
@@ -592,7 +593,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route(
       "/v1/harness",
       harnessSessionRouter({
-        taskBranches: new TaskBranchService(deps.repo, undefined, (id, action) => conflux.gate(id, action)),
+        taskBranches: new TaskBranchService(deps.repo, undefined, (id, action) => conflux.gate(id, action),
+          submittedPrStateReader({ revisor: deps.revisorLocalPrs, prs: deps.prs })),
         projectPolicy: async (cwd) => {
           const inspected = await inspectImplementationRepo(cwd);
           const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :

@@ -2,7 +2,7 @@ import type { ConfluxGateResult } from "./conflux-service.js";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { HarnessAction, PredicateHit } from "../predicates.js";
-import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, requiresTaskBranchCheck, parseTaskRelation, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 
@@ -13,7 +13,8 @@ type Store = Pick<SessionsRepo, "findSession" | "mergeMetadata">;
 export class TaskBranchService {
   constructor(private readonly sessions: Store,
     private readonly inspect: (cwd: string) => Promise<BranchSnapshot> = readBranchSnapshot,
-    private readonly conflux?: (id: string, action: HarnessAction) => Promise<ConfluxGateResult>) {}
+    private readonly conflux?: (id: string, action: HarnessAction) => Promise<ConfluxGateResult>,
+    private readonly submittedPrState?: (pr: string) => Promise<SubmittedPrState>) {}
 
   read(id: string): SubmittedTask | null {
     const session = this.sessions.findSession(id);
@@ -77,9 +78,23 @@ export class TaskBranchService {
     const registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
     const mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
     if (mismatch) return mismatch;
-    const hit = checkSubmittedTask({ submitted: this.read(id), repo: registered.repo, branch: registered.branch, task: session.current_task || "" });
-    if (hit) return hit;
+    const submitted = this.read(id);
+    const hit = checkSubmittedTask({ submitted, repo: registered.repo, branch: registered.branch, task: session.current_task || "" });
+    if (hit && !(await this.releaseMerged(id, submitted))) return hit;
     if (!flow?.active && !(registeredRepo ?? acting).mainExists) return { rule: "task-main-origin", decision: "warn", reason: "ローカルmainがありません。新規作業を別のブランチ起点で作成しないでください。" };
     return null;
+  }
+
+  /**
+   * TB-MERGED: 境界の PR が正本でマージ済みなら境界を外す。照会は拒否する直前だけ行い、
+   * 確認できなければ外さない。照会中に別の PR が提出されていたら、その新しい境界は残す。
+   */
+  private async releaseMerged(id: string, submitted: SubmittedTask | null): Promise<boolean> {
+    if (!submitted || !this.submittedPrState) return false;
+    if (!releasesSubmittedBoundary(await this.submittedPrState(submitted.pr))) return false;
+    const current = this.read(id);
+    if (!current || current.pr !== submitted.pr || current.repo !== submitted.repo || current.branch !== submitted.branch) return false;
+    this.sessions.mergeMetadata(id, { [KEY]: null });
+    return true;
   }
 }

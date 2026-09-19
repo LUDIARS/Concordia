@@ -83,6 +83,23 @@ export function taskStartWarning(branch: string | undefined): string {
   return `作業開始時のブランチは ${branch || "不明"} です。新規作業はローカル main を起点に分離してください。同じ作業の継続・PR修正かを確認してください。`;
 }
 
+/** Revisor / GitHub (pr_records) が正本の、提出済み PR の状態。読めないときは unknown。 */
+export type SubmittedPrState = "merged" | "unmerged" | "unknown";
+
+/** TB-MERGED: 正本でマージ済みと確認できた PR の境界だけを外す。unknown は外さない (fail-closed)。 */
+export function releasesSubmittedBoundary(state: SubmittedPrState): boolean {
+  return state === "merged";
+}
+
+/**
+ * TB-RECOVER: requiresTaskBranchCheck の例外コマンドだけで組んだ復旧手順。拒否文に載せないと、
+ * 分類器が不在のときにセッションが自力で抜け出せない (2026-09-19 実例)。
+ */
+export const SUBMITTED_BOUNDARY_RECOVERY =
+  "記号 (; & | < > $ ` や改行) を含めず単独で打つ次のコマンドはこのゲートの対象外です。"
+  + "別作業なら `git worktree add -b <新ブランチ> <パス> main` の後に `lictor cli task set --branch <新ブランチ> --desc \"...\"`、"
+  + "PR がマージ済みで作業を終えたなら `lictor cli task set --branch main --desc \"...\"` で登録を main に戻してください。";
+
 /** The classifier can supply evidence, but cannot override an independently changed task/binding. */
 export function checkSubmittedTask(input: {
   submitted: SubmittedTask | null;
@@ -98,6 +115,7 @@ export function checkSubmittedTask(input: {
     reason: previous.task !== input.task || previous.relation === "new-task"
       ? `PR ${previous.pr} 提出済みの ${input.branch} に別作業を混ぜることはできません。`
       : `PR ${previous.pr} 提出後の作業が同じPRの修正か未確認です。`,
-    suggestion: "同一PRの修正は意図判定を行い、別作業は未コミット変更を保持してローカルmain起点の新しいworktreeへ切り替え、作業登録してください。",
+    suggestion: "同一PRの修正は意図判定を行い、別作業は未コミット変更を保持してローカルmain起点の新しいworktreeへ切り替え、作業登録してください。"
+      + SUBMITTED_BOUNDARY_RECOVERY,
   };
 }

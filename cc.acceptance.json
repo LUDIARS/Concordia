@@ -118,6 +118,14 @@
       "contracts": []
     },
     {
+      "source": "src/harness/reliability/task-branch-merge-state.ts",
+      "tests": [
+        "tests/harness-reliability/task-branch-merge-state.test.ts",
+        "tests/harness-reliability/task-branch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/harness/local-prompt-analyzer.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts"

@@ -148,6 +148,17 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
   },
   {
+    key: "workspace.direct_main_repos",
+    section: "workspace",
+    label: "main 直接コミットのリポジトリ",
+    description: "feature branch も PR も作らず main へ直接コミットするリポジトリ (`;` 区切り)。 Villa 等の共有表示面。",
+    kind: "string-list",
+    envName: "CONCORDIA_DIRECT_MAIN_REPOS",
+    dbKey: null,
+    defaultValue: [],
+    editable: false,
+  },
+  {
     key: "workspace.castra_cwd",
     section: "workspace",
     label: "Castra cwd 明示指定",

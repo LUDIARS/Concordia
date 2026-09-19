@@ -6,6 +6,7 @@ import type { LocalPrSubmissionResult } from "../pr/local-pr-submission.js";
 import { createProjectResolver } from "../projects/project-resolver.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
+import type { WorkSubmissionService } from "../work-submission/service.js";
 import {
   EXPLICIT_WORKING_BRANCH_METADATA_KEY,
   isWorkspaceRootCwd,
@@ -23,6 +24,8 @@ export interface ImplementationToolsDeps {
     reason: "session_not_found";
   }>;
   projectCodes: ProjectCodesRepo;
+  /** 作業成果の commit / 経路判定。 提出の分岐はここ 1 箇所が正本 (spec/feature/work-submission.md) */
+  work: WorkSubmissionService;
   resolveWorkspaceRoots: () => string[];
 }
 
@@ -98,6 +101,40 @@ export class ImplementationToolsService {
     } finally {
       releaseTestingClaims(this.deps.claims, { sessionId: session.id, service: serviceCode, now: nowSec() });
     }
+  }
+
+  /** セッションの作業範囲をコミットする。 判定は委託 run と同じ guard を通る。 */
+  async commitWork(input: { sessionId: string; message: string; paths?: readonly string[] }) {
+    const session = this.requireSession(input.sessionId);
+    return await this.deps.work.commit(session, {
+      message: input.message,
+      ...(input.paths ? { paths: input.paths } : {}),
+    });
+  }
+
+  /** repo path から経路を解く (フック向け。 session を要らない)。 */
+  routeForRepo(repoPath: string) {
+    return this.deps.work.routeForRepo(repoPath);
+  }
+
+  /** セッションの repo の提出経路を解く。 */
+  submissionRoute(sessionId: string) {
+    const session = this.requireSession(sessionId);
+    if (!session.repo_path) throw new Error("session has no repo_path; bind the session first");
+    return this.deps.work.routeForRepo(session.repo_path);
+  }
+
+  /**
+   * 経路に沿って成果を提出する。 Revisor Workflow だけが自動で提出でき、
+   * それ以外は「この経路では何をすべきか」を返して人間 / セッションに返す。
+   */
+  async submitWork(sessionId: string, { fastLane = false } = {}) {
+    const route = this.submissionRoute(sessionId);
+    if (route.route !== "revisor-local-pr") {
+      return { submitted: false as const, route };
+    }
+    const result = await this.submitReview(sessionId, { fastLane });
+    return { route, ...result };
   }
 
   async submitReview(sessionId: string, { fastLane = false } = {}) {

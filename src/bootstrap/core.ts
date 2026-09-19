@@ -200,6 +200,7 @@ import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createFederationRuntime } from "../federation/runtime.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
+import { WorkSubmissionService } from "../work-submission/service.js";
 import { ImplementationToolsService } from "../implementation-tools/service.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
@@ -1169,6 +1170,10 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   const discordPrOperations = makeSessionPrOperations("discord");
   const slackPrOperations = makeSessionPrOperations("slack");
+  const workSubmission = new WorkSubmissionService({
+    projectCodes: projectCodesRepo,
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+  });
   const implementationTools = new ImplementationToolsService({
     sessions: repo,
     claims: testingClaims,
@@ -1176,6 +1181,7 @@ export async function startBackend(): Promise<BackendHandle> {
     submitLocalPr: submitLocalPrForSession,
     projectCodes: projectCodesRepo,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    work: workSubmission,
   });
   // レビュー発火の購読。 workflow.review が無効な間は購読自体を張らない
   // (安全弁 revisor_auto_submit とは別軸: あちらは「発火するか」、 こちらは「そもそも

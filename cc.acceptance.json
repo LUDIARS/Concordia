@@ -269,6 +269,59 @@
         "src/db/migration-ledger.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/work-submission/submission-route.ts",
+      "tests": [
+        "src/work-submission/submission-route.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/work-submission/service.ts",
+      "tests": [
+        "src/work-submission/service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/work-submission/commit-worktree.ts",
+      "tests": [
+        "src/delegation/commit-broker.test.ts",
+        "src/work-submission/service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/implementation-tools.ts",
+      "tests": [
+        "src/api/work-submission-routes.test.ts",
+        "src/api/implementation-tools.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/implementation-tools/service.ts",
+      "tests": [
+        "src/implementation-tools/service.test.ts",
+        "src/api/work-submission-routes.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/config/settings/definitions/core.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/commit-broker.ts",
+      "tests": [
+        "src/delegation/commit-broker.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

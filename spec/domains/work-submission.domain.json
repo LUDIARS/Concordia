@@ -1,0 +1,27 @@
+{
+  "name": "work-submission",
+  "description": "Shared commit entry point and the single decision for how work reaches main (Revisor local PR / GitHub PR / direct main).",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/work-submission/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/work-submission-routes\\.test\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the work-submission domain: the shared commit entry point and the submission route decision.",
+  "mechanics": [
+    "submission-route-decision",
+    "worktree-commit",
+    "session-submit"
+  ],
+  "specRefs": [
+    "spec/feature/work-submission.md#3-判定--resolvesubmissionroute-純関数",
+    "spec/feature/work-submission.md#4-コミット--post-v1implementation-toolscommit",
+    "spec/feature/work-submission.md#5-提出--post-v1implementation-toolssubmit",
+    "spec/feature/work-submission.md#6-経路の照会--get-v1implementation-toolssubmission-routerepopath"
+  ],
+  "rationale": "The workflow branch used to be copied into Castra hooks, the Cc API and skill documents; a stale copy either blocks the正規手段 or lets a GitHub push through. Cc owns the project registration, so the decision lives here and the hooks read it."
+}

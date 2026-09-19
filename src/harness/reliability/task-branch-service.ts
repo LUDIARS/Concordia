@@ -2,7 +2,7 @@ import type { ConfluxGateResult } from "./conflux-service.js";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { HarnessAction, PredicateHit } from "../predicates.js";
-import { checkSubmittedTask, checkNewBranchCommand, requiresTaskBranchCheck, parseTaskRelation, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, requiresTaskBranchCheck, parseTaskRelation, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 
@@ -69,15 +69,17 @@ export class TaskBranchService {
     if (!requiresTaskBranchCheck(action)) return null;
     const session = this.sessions.findSession(id);
     if (!session) return { rule: "task-branch", decision: "deny", reason: "作業セッションが不明です。" };
-    let live: BranchSnapshot;
-    try { live = await this.inspect(action.cwd || session.repo_path); }
+    const registered = { repo: resolve(session.repo_path), branch: session.branch || "" };
+    let acting: BranchSnapshot;
+    try { acting = await this.inspect(action.cwd || registered.repo); }
     catch { return { rule: "task-branch", decision: "deny", reason: "実ブランチを確認できません。編集前にGitの状態を確認してください。" }; }
-    if (!live.branch || resolve(session.repo_path) !== live.repo || session.branch !== live.branch) {
-      return { rule: "task-branch", decision: "deny", reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。" };
-    }
-    const hit = checkSubmittedTask({ submitted: this.read(id), repo: live.repo, branch: live.branch, task: session.current_task || "" });
+    // The registered checkout is read on its own, so a shell parked elsewhere does not decide the boundary.
+    const registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
+    const mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
+    if (mismatch) return mismatch;
+    const hit = checkSubmittedTask({ submitted: this.read(id), repo: registered.repo, branch: registered.branch, task: session.current_task || "" });
     if (hit) return hit;
-    if (!flow?.active && !live.mainExists) return { rule: "task-main-origin", decision: "warn", reason: "ローカルmainがありません。新規作業を別のブランチ起点で作成しないでください。" };
+    if (!flow?.active && !(registeredRepo ?? acting).mainExists) return { rule: "task-main-origin", decision: "warn", reason: "ローカルmainがありません。新規作業を別のブランチ起点で作成しないでください。" };
     return null;
   }
 }

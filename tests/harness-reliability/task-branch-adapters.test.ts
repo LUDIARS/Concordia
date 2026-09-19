@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { readBranchSnapshot } from "../../src/harness/reliability/task-branch-git.js";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
@@ -34,13 +34,22 @@ describe("task branch adapters", () => {
 
   it("reads the checkout instead of trusting the caller's branch", async () => {
     const dir = mkdtempSync(join(tmpdir(), "task-branch-git-"));
+    const linked = join(dir, "..", `${basename(dir)}-wt`);
     const git = (args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8", windowsHide: true });
     try {
       git(["init", "-b", "main"]);
       git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "initial"]);
       git(["switch", "-c", "feature/actual", "main"]);
-      expect(await readBranchSnapshot(dir)).toEqual({ repo: resolve(dir), branch: "feature/actual", mainExists: true });
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+      git(["worktree", "add", "-b", "feature/linked", linked, "main"]);
+      const primary = await readBranchSnapshot(dir);
+      expect(primary).toMatchObject({ repo: resolve(dir), branch: "feature/actual", mainExists: true });
+      const secondary = await readBranchSnapshot(linked);
+      expect(secondary).toMatchObject({ repo: resolve(linked), branch: "feature/linked", commonDir: primary.commonDir });
+      expect(primary.checkouts?.map(checkout => checkout.branch).sort()).toEqual(["feature/actual", "feature/linked"]);
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
     // Several real Git processes need startup headroom under parallel review (same as conflux.test.ts).
   }, 60_000);
 

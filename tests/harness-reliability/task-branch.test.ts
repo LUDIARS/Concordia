@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
-import { checkSubmittedTask, taskStartWarning, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
+import { checkRegisteredCheckout, checkSubmittedTask, taskStartWarning, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
 import { makeTestDb } from "../helpers/db.js";
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { analyzePromptWithLocalLlm } from "../../src/harness/local-prompt-analyzer.js";
@@ -9,6 +9,47 @@ import { Hono } from "hono";
 import { harnessSessionRouter } from "../../src/api/harness-session.js";
 import { HarnessAuditRepo } from "../../src/db/harness-audit-repo.js";
 import { HarnessRulesRepo } from "../../src/db/harness-rules-repo.js";
+
+describe("registered checkout decides the task-branch boundary", () => {
+  const main = resolve("fixture/app"), worktree = resolve("fixture/app-wt"), elsewhere = resolve("fixture/workspace");
+  const registered = { repo: main, branch: "fix/gate" };
+  const appRepo = { repo: main, branch: "main", mainExists: true, commonDir: resolve("fixture/app/.git"),
+    checkouts: [{ repo: main, branch: "main" }, { repo: worktree, branch: "fix/gate" }] };
+  const inWorktree = { repo: worktree, branch: "fix/gate", mainExists: true, commonDir: appRepo.commonDir };
+  const outside = { repo: elsewhere, branch: "main", mainExists: true, commonDir: resolve("fixture/workspace/.git") };
+
+  it("allows a linked worktree of the registered repository on the registered branch", () => {
+    expect(checkRegisteredCheckout({ registered, acting: inWorktree, registeredRepo: appRepo, tool: "Edit" })).toBeNull();
+    expect(checkRegisteredCheckout({ registered, acting: { ...inWorktree, branch: "feature/other" }, registeredRepo: appRepo, tool: "Edit" })?.rule).toBe("task-branch");
+  });
+
+  it("allows a command from a shell parked outside when the registration is real", () => {
+    expect(checkRegisteredCheckout({ registered, acting: outside, registeredRepo: appRepo, tool: "Bash" })).toBeNull();
+    expect(checkRegisteredCheckout({ registered: { ...registered, branch: "fix/gone" }, acting: outside, registeredRepo: appRepo, tool: "Bash" })?.decision).toBe("deny");
+    expect(checkRegisteredCheckout({ registered, acting: outside, registeredRepo: null, tool: "Bash" })?.decision).toBe("deny");
+  });
+
+  it("still denies editing a checkout that is not registered", () => {
+    expect(checkRegisteredCheckout({ registered, acting: outside, registeredRepo: appRepo, tool: "Edit" })?.decision).toBe("deny");
+    expect(checkRegisteredCheckout({ registered: { ...registered, branch: "" }, acting: inWorktree, registeredRepo: appRepo, tool: "Bash" })?.decision).toBe("deny");
+  });
+
+  it("reads the registered checkout separately in the service", async () => {
+    const db = makeTestDb();
+    try {
+      const sessions = new SessionsRepo(db);
+      sessions.insertSession({ id: "reg-test", provider: "claude-code", repo_path: main, repo_origin: null,
+        branch: "fix/gate", host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null });
+      const snapshots: Record<string, typeof appRepo | typeof inWorktree | typeof outside> = { [main]: appRepo, [worktree]: inWorktree, [elsewhere]: outside };
+      const service = new TaskBranchService(sessions, async (cwd) => snapshots[resolve(cwd)]!);
+      expect(await service.gate("reg-test", { tool: "Bash", command: "node build.mjs", cwd: elsewhere })).toBeNull();
+      expect(await service.gate("reg-test", { tool: "Edit", cwd: worktree })).toBeNull();
+      expect((await service.gate("reg-test", { tool: "Edit", cwd: elsewhere }))?.rule).toBe("task-branch");
+      // The registered path itself is on main, so acting there is a real mismatch.
+      expect((await service.gate("reg-test", { tool: "Edit", cwd: main }))?.rule).toBe("task-branch");
+    } finally { db.close(); }
+  });
+});
 
 const submitted: SubmittedTask = { repo: resolve("fixture"), branch: "feature/score", task: "score", pr: "pr-1", relation: "unknown", version: 1 };
 

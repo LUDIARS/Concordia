@@ -1,4 +1,5 @@
 import { isEditTool, type HarnessAction, type PredicateHit } from "../predicates.js";
+import type { BranchSnapshot } from "./task-branch-git.js";
 
 /** Only simple recovery commands bypass a pending task boundary. Opaque shell code is checked. */
 export function branchCommandWords(command: string | undefined): string[] {
@@ -37,6 +38,30 @@ export function requiresTaskBranchCheck(action: HarnessAction): boolean {
   if (/^(?:lictor|lictor.cmd|lictor.exe)$/i.test(words[0] || "") && words[1] === "cli"
     && ((words[2] === "implement" && words[3] === "begin") || (words[2] === "task" && words[3] === "set"))) return false;
   return true;
+}
+
+const CHECKOUT_MISMATCH: PredicateHit = { rule: "task-branch", decision: "deny",
+  reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。" };
+
+/**
+ * The Cc registration (repo + branch) is the authority, not the shell's cwd.
+ * - Acting inside the registered repository (main checkout or any linked worktree): its branch must be the registered one.
+ * - Editing outside the registered repository: denied, the edit would land in an unregistered checkout.
+ * - Running a command from outside it: allowed when the registered repository really has the registered branch checked out.
+ */
+export function checkRegisteredCheckout(input: {
+  registered: { repo: string; branch: string };
+  acting: BranchSnapshot;
+  registeredRepo: BranchSnapshot | null;
+  tool: string;
+}): PredicateHit | null {
+  const { registered, acting, registeredRepo } = input;
+  if (!registered.branch || !acting.branch) return CHECKOUT_MISMATCH;
+  const sameRepository = acting.repo === registered.repo
+    || Boolean(acting.commonDir && acting.commonDir === registeredRepo?.commonDir);
+  if (sameRepository) return acting.branch === registered.branch ? null : CHECKOUT_MISMATCH;
+  if (isEditTool(input.tool)) return CHECKOUT_MISMATCH;
+  return registeredRepo?.checkouts?.some(checkout => checkout.branch === registered.branch) ? null : CHECKOUT_MISMATCH;
 }
 
 export type TaskRelation = "same-task" | "new-task" | "unknown";

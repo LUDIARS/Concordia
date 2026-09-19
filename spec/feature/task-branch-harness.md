@@ -19,6 +19,7 @@ domain: harness-reliability
 - TB-PR: PR 提出済みブランチでの別作業は classifier と決定的 gate の二重チェック。classifier 未確認を同一作業とみなさない。
 - TB-PRESERVE: 切替時に既存変更を移送・破棄しない。別作業は main 起点の別 worktree に分離する。
 - TB-AUTHORITY: Cc の設定・分類結果はテスト、デプロイ、マージ等の実行許可を追加しない。
+- TB-REGISTERED: 実checkoutの照合は Cc の登録 (repo_path / branch) を基準にし、シェルの cwd を基準にしない。登録リポジトリ内 (本体・linked worktree を git common dir で同一視) なら登録 branch と一致すれば通す。登録外の cwd からのコマンドは、登録リポジトリに登録 branch の checkout が実在すれば通す。登録外 checkout の編集、登録 branch の checkout が無い登録は拒否する。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
 
@@ -52,6 +53,12 @@ src/control/spawn-target.ts の新規 worktree 作成に HEAD 指定がある。
 2026-09-18: サーバーとWebのTypeScript静的検査、追加3テストファイルとspawn-targetテストの型検査、hookの構文検査、git diff --checkを実施。Anatomia verifyはrule_conformance / duplication / spec_linkage / coupling_delta / convention_driftの5項目PASS。単体・統合・起動テスト、再起動、デプロイ、マージは未実施。
 
 配備後の復旧はCf設定をOFFにして通常フローへ戻す。保存済みの流れ選択・PR境界を消さず、実ブランチとCc登録を照合する。切替が完了して登録だけ失敗した場合も自動編集を許可せず、Git実状態を確認して再登録する。migrationの列を削除しない。Cf本体の成果物生成・配布・合流UIは別実装であり、この変更だけでは提供済みにならない。
+
+## 登録基準の照合（2026-09-19）
+
+neco 指示「Ccの登録がなされていれば権限を与える」。症状: Cc 登録 (Conflux / main) が実在するのに、シェルの cwd が Castra root に残っただけで全コマンドが task-branch で拒否された。linked worktree も Lictor が本体 checkout のパスで登録するため一致しなかった。TB-REGISTERED を追加し、判定は checkRegisteredCheckout (純関数)、Git 読み取りは readBranchSnapshot に common dir と worktree 一覧を追加した。PR 境界照合は登録パスで行う。
+検証: サーバー TypeScript 静的検査、task-branch / task-branch-adapters / conflux の 3 テストファイル 27 件成功 (実 Git の linked worktree を含む)。Anatomia verify は coupling_delta が readBranchSnapshot の既存超過 (fanOut 77→78) で warn、他 4 項目 PASS。再起動・デプロイは未実施。
+復旧: 本変更を revert すれば cwd 基準の照合へ戻る。データ・migration の変更はない。
 
 ## Augur台帳での検証対象
 

@@ -260,10 +260,18 @@ export function syntheticPurgedSession(id: string, span: { first_ts: number; las
   };
 }
 
-export async function proxyGet(c: { json: (body: any, status: any) => Response }, port: number, path: string): Promise<Response> {
+export async function proxyGet(
+  c: { json: (body: any, status: any) => Response },
+  port: number,
+  path: string,
+  timeoutMs?: number,
+): Promise<Response> {
   let upstream: Response;
   try {
-    upstream = await fetchFromLictor(port, path, { method: "GET" });
+    upstream = await fetchFromLictor(port, path, {
+      method: "GET",
+      ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
+    });
   } catch (err) {
     return c.json({ error: `lictor unreachable: ${(err as Error).message}` }, 502 as 502);
   }

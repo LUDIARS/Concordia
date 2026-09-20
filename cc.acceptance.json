@@ -330,6 +330,30 @@
         "src/delegation/commit-broker.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/control/lictor-proxy.ts",
+      "tests": [
+        "src/control/lictor-proxy.test.ts"
+      ]
+    },
+    {
+      "source": "src/api/sessions/shared.ts",
+      "tests": [
+        "src/control/lictor-proxy.test.ts"
+      ]
+    },
+    {
+      "source": "src/api/sessions/relay.ts",
+      "tests": [
+        "src/control/lictor-proxy.test.ts"
+      ]
+    },
+    {
+      "source": "src/api/sessions/runtime.ts",
+      "tests": [
+        "src/control/lictor-proxy.test.ts"
+      ]
     }
   ]
 }

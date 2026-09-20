@@ -1,7 +1,7 @@
 export { eventBus } from "../../events.js";
 export { runCompaction, makeCompactionIO, collectRecentContext, generateHandoff } from "../../control/compaction.js";
 export { runClaude } from "../../rules/claude-runner.js";
-export { resolveLictorTarget, fetchFromLictor } from "../../control/lictor-proxy.js";
+export { resolveLictorTarget, fetchFromLictor, LICTOR_FETCH_TIMEOUT_MS, LICTOR_SLOW_FETCH_TIMEOUT_MS } from "../../control/lictor-proxy.js";
 export { spawnSession } from "../../control/spawner.js";
 export { claimPendingDelegationSpawn } from "../../control/pending-delegation-spawns.js";
 export {

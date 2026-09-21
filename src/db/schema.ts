@@ -4,10 +4,11 @@
 
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
-import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
+import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instructions.js";
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
+import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 109;
+export const SCHEMA_VERSION = 110;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2584,6 +2585,12 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       db.exec("ALTER TABLE project_codes ADD COLUMN conflux_flow INTEGER NOT NULL DEFAULT 0 CHECK(conflux_flow IN (0, 1))");
     }
   },
+},
+{
+  version: 110,
+  name: "taskflow-v3-actio-instructions",
+  source: "taskflow v3.0 — retire built-in task-file instructions",
+  up: migrateTaskflowV3Instructions,
 },
 ];
 

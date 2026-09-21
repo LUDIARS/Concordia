@@ -63,12 +63,8 @@ export async function collectWalkMaterials(deps: WalkMaterialsDeps): Promise<Wal
       for (const name of specs) {
         materials.push({ repo, kind: "spec", label: `${repo} spec/feature/${name}`, detail: join(root, repo, "spec", "feature", name) });
       }
-      const remaining = maxPerRepo - specs.length;
-      if (remaining > 0) {
-        for (const name of await listMd(join(root, repo, "spec", "tasks"), remaining)) {
-          materials.push({ repo, kind: "task", label: `${repo} spec/tasks/${name}`, detail: join(root, repo, "spec", "tasks", name) });
-        }
-      }
+      // Taskflow v3: task records require scoped Actio retrieval. Do not expose
+      // legacy task-file paths to cross-project exploratory sessions.
     }
   }
 

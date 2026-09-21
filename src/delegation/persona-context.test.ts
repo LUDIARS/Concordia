@@ -74,8 +74,10 @@ describe("buildDelegationContext", () => {
     expect(ctx).toContain("## 言語ポリシー (required)");
     expect(ctx).toContain("人間が読む出力は日本語で書きます");
     expect(ctx).toContain("実装内容は効率が良ければ英語で構いません");
-    expect(ctx).toContain("spec/tasks/");
-    expect(ctx).toContain("# タイトル、## 目的、## 完了条件を日本語で空欄なく設計");
+    // Taskflow v3.0: タスク本文は Actio 参照から取得し、 PR へ自動複製しない。
+    expect(ctx).not.toContain("spec/tasks/");
+    expect(ctx).toContain("タスクは Actio の参照から必要時に取得します");
+    expect(ctx).toContain("変更と検証範囲を日本語で記録し、タスク本文を自動複製しません");
   });
 
   // 作業姿勢は 1 つだけ (spec/feature/delegation-implementation-inject.md §3)。

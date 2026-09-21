@@ -104,6 +104,23 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
   envString("workflow.director_impl_call_name", "workflow", "Director 実装委託テンプレ", "CONCORDIA_DIRECTOR_IMPL_CALL_NAME", "sonnet-mid", "Director 巡回が実装工程の委託に使う call name。"),
   envString("workflow.director_ask_call_name", "workflow", "Director 問診委託テンプレ", "CONCORDIA_DIRECTOR_ASK_CALL_NAME", "claude-sonnet-5-ask", "Director 巡回が人間への問いを組み立てさせる読み取り専用セッションの call name。"),
   envString("workflow.curiosity_call_name", "workflow", "散歩セッション委託テンプレ", "CONCORDIA_CURIOSITY_CALL_NAME", "claude-sonnet-5-walk", "散歩セッションが読み取り専用の投稿に使う call name。"),
+  {
+    // タスクワークフロー v3.0 で Actio がタスク本文・状態の正本になったため、 repo ごとの
+    // 投入先を env で持つ (actio-binding.ts が読む JSON 配列)。 中身は project / owner /
+    // token 名といった環境固有の識別子なので、 `secret` にして API へ実値を出さない
+    // ("設定されているか" だけが分かればよい)。 kind: "json" は map 前提で配列を空に潰す。
+    key: "workflow.actio_task_bindings",
+    section: "workflow",
+    label: "Actio タスク投入先バインディング",
+    description:
+      "リポジトリごとの Actio 投入先 (repoPath / project / projectId / ownerId / tokenEnv / "
+      + "subsidiaryId / teamId) の JSON 配列。 未設定だと Actio へのタスク登録ができない。 変更には再起動が要る。",
+    kind: "secret",
+    envName: "CONCORDIA_ACTIO_TASK_BINDINGS",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
 ] as const;
 
 export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [

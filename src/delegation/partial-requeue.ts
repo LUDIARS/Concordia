@@ -63,10 +63,13 @@ function parseArgs(raw: string): Record<string, unknown> {
 export async function requeuePartialRun(input: {
   run: DelegationRunRow;
   remaining: readonly RemainingWork[];
+  references?: readonly string[];
   service: DelegationService;
   resolvedAnswers?: string;
 }): Promise<Awaited<ReturnType<DelegationService["invoke"]>>> {
-  const remainingText = input.remaining.map((item, index) => [
+  const remainingText = input.references?.length
+    ? `Actio から必要時に取得する残作業:\n${input.references.join("\n")}`
+    : input.remaining.map((item, index) => [
     `${index + 1}. ${item.title}`,
     item.note?.trim() ? `   note: ${item.note.trim()}` : "",
     item.scope_dirs?.length ? `   scope_dirs: ${item.scope_dirs.join(", ")}` : "",

@@ -1,12 +1,12 @@
 import { eventBus } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
-import type { TaskMdStore } from "./md-store.js";
+import type { TaskStore } from "./store.js";
 import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./task-instructions.js";
 
 export const DECOMPOSE_PROMPT = [
-  "作業内容を task-workflow spec §2.1 の形式で分解保存してください。",
+  "作業内容を task-workflow v3.0 の形式で分解し、Actio に登録してください。",
   TASK_MD_CONTENT_RULE,
   TASK_STATE_DB_RULE,
   "残作業として保存すべきタスクが無い場合は『タスク無し』と報告してください。",
@@ -35,7 +35,7 @@ function alreadyInjected(sessions: SessionsRepo, sessionId: string, runId: strin
 export async function injectDecompositionWhenMissing(input: {
   run: DelegationRunRow;
   sessions: SessionsRepo;
-  store: TaskMdStore;
+  store: TaskStore;
   /** 未回答の質問があるセッションには分解プロンプトを送らない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
 }): Promise<boolean> {
@@ -45,7 +45,7 @@ export async function injectDecompositionWhenMissing(input: {
   const project = [args.target_repo, args.repo_path, args.cwd].find((value): value is string => typeof value === "string")
     ?? (input.run.child_session_id ? input.sessions.findSession(input.run.child_session_id)?.repo_path : null);
   if (!project) return false;
-  const existing = await input.store.findForProject(project, ["pending", "delegated"]);
+  const existing = await input.store.findForProject(project, ["pending", "delegated"], input.run.subsidiary_id);
   if (existing.length > 0) return false;
   const target = input.run.parent_session_id ?? input.run.child_session_id;
   if (!target) return false;

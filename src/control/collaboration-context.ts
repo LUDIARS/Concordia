@@ -197,7 +197,7 @@ function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
       "Confirm the requested branch against the actual checkout and register that branch in Cc before editing; do not work directly on main.",
       "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
       "When implementation is complete, follow the project workflow identified by Cc in the startup policy. Do not infer permission to push or choose a PR submission route when the workflow is unknown.",
-      "PR の自動提出内容は対象リポの spec/tasks/ にある当該 session の task md から作られます。PR タイトル、目的、完了条件を日本語で空欄なく記録してください。",
+      "タスクは Actio で参照してください。PR タイトル・本文は変更内容と検証範囲を日本語で記録し、タスク本文や機密情報を自動転記しないでください。",
       "Do not spawn subagents yourself (Agent/Task tool). Delegate parallel or split work through Concordia delegation (POST /v1/delegation/invoke) so the child gets its own surface, status card, and PR — unless the user explicitly asked for an in-session agent.",
       "Do not run any test unless the user explicitly requested it for this Session.",
       "Do not merge, enable auto-merge, or update main unless the user explicitly requested it.",

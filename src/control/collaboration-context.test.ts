@@ -7,7 +7,9 @@ describe("Cc workflow startup inject", () => {
     expect(text).toContain("[concordia/cc-workflow]");
     expect(text).toContain("/v1/sessions/session%2Fa/event");
     expect(text).toContain("register that branch in Cc before editing");
-    expect(text).toContain("spec/tasks/");
-    expect(text).toContain("PR タイトル、目的、完了条件を日本語で空欄なく記録");
+    // Taskflow v3.0: タスク正本は Actio。 task md の path は案内しない。
+    expect(text).not.toContain("spec/tasks/");
+    expect(text).toContain("タスクは Actio で参照してください");
+    expect(text).toContain("PR タイトル・本文は変更内容と検証範囲を日本語で記録");
   });
 });

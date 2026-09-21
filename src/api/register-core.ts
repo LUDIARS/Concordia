@@ -146,7 +146,7 @@ import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { startDetachedBackendRestart } from "../control/backend-restart.js";
-import type { TaskMdStore } from "../taskflow/md-store.js";
+import type { TaskStore } from "../taskflow/store.js";
 import type { TaskflowStateStore } from "../taskflow/state-store.js";
 import { taskflowRouter } from "./taskflow.js";
 import { tasksRouter } from "./tasks.js";
@@ -272,7 +272,7 @@ export interface CoreRuntimeDeps {
   secretBox?: SecretBox;
   /** 設定レジストリが Slack 設定を読み書きするために使う。 未注入なら Slack 設定は env / 既定のみ。 */
   slackConfig?: SlackConfigRepo;
-  taskStore: TaskMdStore;
+  taskStore: TaskStore;
   /** taskflow runtime state の書き込み口 (PATCH /v1/taskflow/tasks/state)。 */
   taskflowState: TaskflowStateStore;
   /** Actio 不在時にも失わない Cc 内蔵 Task と同期 outbox。 */
@@ -815,6 +815,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // 選んだタスクは ①current_task として登録 ②本文を初回 prompt に載せる
     // ③正常終了時に done にする、の 3 つを担う。 Memoria が引けなくても spawn は
     // 続行し、タスク連携だけを諦める (起動できない方が困る)。
+    if (body.memoria_task_id != null && deps.taskStore.create) {
+      return c.json({ error: "Memoria task spawn is retired in v3.0; import the task to Actio and pass its reference" }, 409);
+    }
     const memoriaTask = await resolveSpawnMemoriaTask(deps, body.memoria_task_id);
     if (memoriaTask.error) return c.json({ error: memoriaTask.error }, 400);
     const taskPrompt = memoriaTask.task

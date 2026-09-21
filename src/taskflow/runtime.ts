@@ -3,7 +3,7 @@ import type { ConfirmIntakeDeps } from "../release/confirm-intake.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DelegationRepo, DelegationRunRow } from "../db/delegation-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
-import type { TaskMdStore } from "./md-store.js";
+import type { TaskStore } from "./store.js";
 import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { CompletionBlackbox } from "./completion-blackbox.js";
 import { findSessionLocalPr, findSessionPr, runGoalMachine } from "./goal-machine.js";
@@ -17,13 +17,16 @@ import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { startAskDetachWatch } from "./ask-detach.js";
 import { isWaitingForHumanResponse } from "../control/human-response-confirmation.js";
+import { claimHumanResponseConfirmation } from "../control/human-response-confirmation.js";
+import { notifyUserDecision } from "./notify.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
 export interface TaskflowRuntimeDeps {
   db: Database.Database;
   sessions: SessionsRepo;
   delegation: DelegationRepo;
   prs: PrRecordsRepo;
-  store: TaskMdStore;
+  store: TaskStore;
   confirm: ConfirmIntakeDeps;
   /** Revisor local PR の読み取り口。 未注入なら GitHub PR のみで判断する (従来互換)。 */
   revisor?: RevisorLocalPrReader;
@@ -58,7 +61,7 @@ export class TaskflowRuntime {
   start(): { stop(): void } {
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.event" && ["final_answer", "summary"].includes(event.kind)) {
-        void this.handleInteractiveCompletion(event.session_id);
+        void this.handleInteractiveCompletion(event.session_id).catch(() => this.reportTaskUnavailable(event.session_id));
         return;
       }
       // Revisor の審査終局通知 (session.inject, source="revisor")。 auto-merge は
@@ -66,7 +69,7 @@ export class TaskflowRuntime {
       // 「local PR がマージされたのに confirm キューに入らない」接続断が残る。
       // runGoalMachine 側の intake は冪等なので二重発火しても confirm は増えない。
       if (event.type === "session.inject" && event.source === "revisor") {
-        void this.handleRevisorNotice(event.target_session_id);
+        void this.handleRevisorNotice(event.target_session_id).catch(() => this.reportTaskUnavailable(event.target_session_id));
       }
     });
     const ladder = this.deps.endSession ? startTeardownLadderWatch({ sessions: this.deps.sessions, endSession: this.deps.endSession }) : null;
@@ -85,6 +88,18 @@ export class TaskflowRuntime {
       ? await findSessionLocalPr({ sessionId, sessions: this.deps.sessions, revisor: this.deps.revisor })
       : null;
     if (pr?.state !== "merged" && localPr?.status !== "merged") return;
+    const session = this.deps.sessions.findSession(sessionId);
+    if (session && this.deps.store.updateStatus) {
+      const subsidiaryId = readSubsidiaryId(session.metadata);
+      const tasks = await this.deps.store.findForProject(session.repo_path, ["delegated"], subsidiaryId);
+      for (const task of tasks) {
+        const ownsRun = taskflowRun && task.runtime?.delegation_run_id === taskflowRun.id;
+        const ownsPr = !task.runtime?.delegation_run_id && task.runtime?.source_session === sessionId
+          && pr && task.runtime?.pr_number === pr.number;
+        if (!ownsRun && !ownsPr) continue;
+        await this.deps.store.updateStatus(task.repoPath, task.path, "done", subsidiaryId);
+      }
+    }
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
     const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
     if (!taskflowRun) return;
@@ -125,5 +140,11 @@ export class TaskflowRuntime {
     eventBus.emit({ type: "taskflow.completion_detected", session_id: sessionId, pr_number: pr?.number ?? null, outcome: pr?.state ?? "unknown", decision_id: decision.decisionId, ts: Math.floor(Date.now() / 1000) });
     await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
     await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
+  }
+
+  private reportTaskUnavailable(sessionId: string): void {
+    if (!claimHumanResponseConfirmation(this.deps.sessions, sessionId)) return;
+    notifyUserDecision({ kind: "question", targetSessionId: sessionId, mentionUserId: this.deps.mentionUserId(),
+      text: "Actio のタスクを確認できないため、タスクワークフローを停止しました。接続・認証・プロジェクト設定を確認してください。" });
   }
 }

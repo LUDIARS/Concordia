@@ -74,17 +74,19 @@ describe("collectWalkMaterials", () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "walk-materials-"));
     await mkdir(join(root, "Alpha", "spec", "feature"), { recursive: true });
+    await mkdir(join(root, "Beta", "spec", "feature"), { recursive: true });
     await mkdir(join(root, "Beta", "spec", "tasks"), { recursive: true });
     await mkdir(join(root, "node_modules", "junk"), { recursive: true });
     await writeFile(join(root, "Alpha", "spec", "feature", "one.md"), "# one");
-    await writeFile(join(root, "Beta", "spec", "tasks", "two.md"), "# two");
+    await writeFile(join(root, "Beta", "spec", "feature", "two.md"), "# two");
+    await writeFile(join(root, "Beta", "spec", "tasks", "secret.md"), "# secret");
   });
 
   afterAll(async () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("collects specs/tasks per repo and merges PR/case sources", async () => {
+  it("collects specs per repo and merges PR/case sources", async () => {
     const materials = await collectWalkMaterials({
       workspaceRoots: [root],
       recentlyMergedPrs: () => [{ repo_origin: "LUDIARS/Gamma", number: 12, title: "fix" }],
@@ -96,5 +98,14 @@ describe("collectWalkMaterials", () => {
     expect(repos).toContain("Gamma");
     expect(repos).toContain("Delta");
     expect(repos.has("node_modules")).toBe(false);
+  });
+
+  // Taskflow v3.0: タスク本文は Actio が正本で scoped 取得が要る。
+  // 横断散歩の素材へ legacy な spec/tasks の path を出さない。
+  it("does not expose legacy spec/tasks material", async () => {
+    const materials = await collectWalkMaterials({ workspaceRoots: [root] });
+    expect(materials.some((m) => m.kind === "task")).toBe(false);
+    expect(materials.some((m) => m.label.includes("spec/tasks/"))).toBe(false);
+    expect(materials.some((m) => m.detail.includes("secret.md"))).toBe(false);
   });
 });

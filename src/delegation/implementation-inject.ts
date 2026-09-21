@@ -44,6 +44,7 @@ export interface MemoriaTaskLink {
 }
 
 export interface ImplementationInjectInput {
+  taskReference?: string;
   runId: string;
   title: string;
   /** タスク本文 (= rendered_prompt)。 伏せずに初回で全部渡す。 */
@@ -89,7 +90,7 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "",
     "- コードの配置・既存実装・影響範囲は **Anatomia の解析グラフ**から引きます",
     "  (`/anatomia-analyze` の supply → CLI の `find` / `where` / `context`)。 POSIX `find` は使いません。",
-    "- 仕様・タスク定義は対象リポの `spec/` / `spec/tasks/` を読みます (`/spec-task-supporter`)。",
+    "- 仕様は対象リポの spec/、タスク定義は Actio の参照から必要時に取得します。",
     "- 調査結果を報告して指示を待つ工程はありません。 分かった時点でそのまま実装に入ります。",
     "",
     // AIFormat HARNESS.md §2.0 の着手時バンドル。 Codex には harness hook が効かないので、
@@ -106,10 +107,12 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "5. 検証 (`git diff | anatomia verify`、Revisor gate は enforced、解析不能は fail)",
     "6. 回帰 (変更種別の既存テスト)",
     "",
-    "### Memoria タスク",
+    input.taskReference ? "### Actio タスク" : "### Memoria タスク",
     "",
   ];
-  if (input.memoria) {
+  if (input.taskReference) {
+    lines.push(`- reference: ${input.taskReference}`, "- 本文は Actio から必要時に取得する。取得できなければ停止する。");
+  } else if (input.memoria) {
     lines.push(`- id: ${input.memoria.id}`, `- link: ${input.memoria.url}`);
   } else {
     // 未作成を黙って省略しない。 追跡タスクが無いこと自体が申し送り事項。
@@ -126,7 +129,7 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "タスク本文が Revisor 指摘解消・マージ完了など PR 提出より後段の完了条件を明示している場合は、 その条件を優先します。",
     "その後段条件の実行中に Revisor が failed / action_required で止めたら、 対応完了を goal に置き、 修正・commit・再提出を終局条件まで継続します。",
     "",
-    "- [ ] 仕様を更新した (`spec/feature/` または `spec/tasks/`)",
+    "- [ ] 必要な仕様を更新し、Actio のタスク参照を関連付けた",
     "- [ ] 着地ドメインを Anatomia に登録した",
     "- [ ] 再利用探索の採否と理由を PR 説明に書いた",
     "- [ ] テスト計画 (`augur plan`) に沿って対のテストを実装した",

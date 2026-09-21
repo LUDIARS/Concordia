@@ -283,7 +283,7 @@ describe("delegation partial status", () => {
     })).status).toBe(200);
     expect(repo.findRun("source-run")).toMatchObject({
       status: "failed",
-      error: "partial_requeue_limit: depth=2 remaining=Revisor merge wait",
+      error: "partial_requeue_limit: depth=2 remaining_count=1",
     });
     expect(invoke).not.toHaveBeenCalled();
   });

@@ -2,7 +2,7 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { PrCiStatus, PrRecordRow, PrState } from "../db/pr-records-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
-import type { TaskDocument, TaskStatus } from "./md-store.js";
+import type { TaskDocument, TaskStatus } from "./types.js";
 
 export interface TaskflowOverviewRow {
   path: string;

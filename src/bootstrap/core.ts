@@ -123,7 +123,7 @@ import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
 import { resolveNoticeMention } from "../inbox/session-return-mention.js";
-import { startMorningScheduler } from "../morning/scheduler.js";
+import { startActioMorningScheduler } from "../morning/actio-scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
 import { startStatScheduler } from "../stat/scheduler.js";
@@ -138,7 +138,6 @@ import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
 import { SessionPrOperations } from "../pr/session-pr-operations.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
-import { loadSessionTaskPrContent } from "../pr/session-task-pr-content.js";
 import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
 import { CcTaskRepository } from "../fallback-tasks/repository.js";
 import { ActioTaskClient } from "../fallback-tasks/actio-client.js";
@@ -163,10 +162,11 @@ import { GeniusModelReviewService } from "../model-review/service.js";
 import { applyRuntimeModelReview } from "../model-review/runtime-switch.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { createDependencyReadinessChecker } from "../operations/dependency-readiness.js";
-import { TaskMdStore } from "../taskflow/md-store.js";
+import { ActioTaskStore } from "../taskflow/actio-store.js";
+import { ActioWorkflowClient } from "../taskflow/actio-task-client.js";
+import { ActioTransport } from "../taskflow/actio-transport.js";
+import { readActioBindings } from "../taskflow/actio-binding.js";
 import { TaskflowStateStore } from "../taskflow/state-store.js";
-import { MemoriaBackend } from "../taskflow/backend.js";
-import { startTaskReconciler } from "../taskflow/reconcile.js";
 import { TaskflowRuntime } from "../taskflow/runtime.js";
 import { startCheckoutPublishedDeployWatch } from "../deploy/watch.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
@@ -656,7 +656,7 @@ export async function startBackend(): Promise<BackendHandle> {
       return team ? parseTeamSettings(team).pr_rules ?? null : null;
     },
     // 実装委託の追跡タスク起票先。 memoriaClient はこの後で組むので遅延解決にする。
-    memoria: () => memoriaClient ?? null,
+    taskStore: () => taskStore,
     // パートタイマーの最終報告へ付ける管理者メンション。 以前は「委託先が
     // GET /v1/admin/state を引いて自分で埋める」手順を本文に書いていたが、 変数展開で
     // 空へ潰れて `<@> ` が届いていた。 Cc が知っている値は Cc が埋める。
@@ -973,7 +973,11 @@ export async function startBackend(): Promise<BackendHandle> {
     hasRevisorWorkflowToken: () => Boolean(resolveRevisorToken()),
   });
   const taskflowState = new TaskflowStateStore(db);
-  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, taskflowState);
+  const taskStore = new ActioTaskStore(
+    () => readActioBindings(),
+    new ActioWorkflowClient(new ActioTransport(excubitorClient, (name) => process.env[name])),
+    taskflowState,
+  );
   const fallbackTasks = new CcTaskRepository(db);
   const actioTasks = new ActioTaskClient(excubitorClient);
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -981,7 +985,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const confirmService = new ConfirmService({
     repo: confirmRuns,
     excubitor: excubitorClient,
-    memoria: memoriaClient,
+    taskStore,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
   });
   const taskflowRuntime = new TaskflowRuntime({
@@ -990,7 +994,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegation: delegationRepo,
     prs,
     store: taskStore,
-    confirm: { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+    confirm: { repo: confirmRuns, taskStore, resolveServiceCode },
     // Revisor 運用 (GitHub PR を作らない) でもゴール判断が空転しないよう local PR を見る。
     revisor: revisorClient,
     mentionUserId: () => adminState.getMentionUserId(),
@@ -1063,8 +1067,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const localPrDeps = {
     revisor: revisorLocalPrs,
     listBranchCommits,
-    loadSessionTaskPrContent: (repoPath: string, sessionId: string) =>
-      loadSessionTaskPrContent(repoPath, sessionId),
     resolveSourceLinks: (sessionId: string) => resolveSessionSourceLinks({
       discordChannels,
       slackChannels,
@@ -2176,7 +2178,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // 朝タスクは cron スケジューラと寿命が違う (日次レビュー等は残したまま朝の
     // 自動起動だけ止めたい)。 daily と束ねず専用フラグで切り替える。
     workflowBindings.register(
-      createMorningSchedulerBinding(() => startMorningScheduler({ delegationService })),
+      createMorningSchedulerBinding(() => startActioMorningScheduler({ delegationService, store: taskStore })),
     );
     // 散歩セッション (spec/feature/curiosity-walk.md): ランダムなタイミングで関連の薄い
     // 2 素材を並べ、1 問だけ「ぼやき」へつぶやく。 Director 巡回 (自動実装起動・問診) は
@@ -2244,7 +2246,7 @@ export async function startBackend(): Promise<BackendHandle> {
         // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
         onDevelopMerge: async (event) => {
           const result = await intakeDevelopMerge(
-            { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+            { repo: confirmRuns, taskStore, resolveServiceCode },
             event,
           );
           if (result.created) {
@@ -2265,11 +2267,6 @@ export async function startBackend(): Promise<BackendHandle> {
       key: "review",
       name: "pr-full-sync",
       start: () => startPrFullSync({ prs }),
-    });
-    workflowBindings.register({
-      key: "task",
-      name: "task-reconciler",
-      start: () => startTaskReconciler({ store: taskStore, backend: new MemoriaBackend(memoriaClient) }),
     });
     workflowBindings.register({
       key: "task",

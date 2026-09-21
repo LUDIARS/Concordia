@@ -25,6 +25,7 @@ export interface ConfirmRunRow {
   promotion_approved_by: string | null;
   status: ConfirmStatus;
   memoria_task_id: number | null;
+  actio_task_ref?: string | null;
   error: string | null;
   created_at: number;
   updated_at: number;
@@ -121,6 +122,11 @@ export class ConfirmRunsRepo {
     this.db.prepare(
       `UPDATE confirm_runs SET memoria_task_id = ?, updated_at = ? WHERE id = ?`,
     ).run(taskId, Date.now(), id);
+  }
+
+  setActioTaskReference(id: string, reference: string): void {
+    this.db.prepare("UPDATE confirm_runs SET actio_task_ref = ?, updated_at = ? WHERE id = ?")
+      .run(reference, Date.now(), id);
   }
 
   setDevelopSha(id: string, sha: string | null): void {

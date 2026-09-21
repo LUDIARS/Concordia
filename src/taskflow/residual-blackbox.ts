@@ -1,11 +1,12 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { readGoalAndGoStatus } from "../control/goal-and-go.js";
 import { eventBus } from "../events.js";
-import type { TaskMdStore } from "./md-store.js";
+import type { TaskStore } from "./store.js";
 import { notifyUserDecision } from "./notify.js";
 import { DECOMPOSE_PROMPT } from "./decompose-inject.js";
 import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { claimHumanResponseConfirmation } from "../control/human-response-confirmation.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
 export const RESIDUAL_DOMAIN = "concordia.workflow.residual";
 export type ResidualOutcome = "next-task" | "decompose" | "none" | "waiting";
@@ -13,17 +14,17 @@ export type ResidualOutcome = "next-task" | "decompose" | "none" | "waiting";
 export async function checkResidual(input: {
   sessionId: string;
   sessions: SessionsRepo;
-  store: TaskMdStore;
+  store: TaskStore;
   mentionUserId?: string | null;
   /** 未回答の質問があるセッションには分解プロンプトを送らない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
 }): Promise<ResidualOutcome> {
   const session = input.sessions.findSession(input.sessionId);
   if (!session) return "none";
-  const tasks = await input.store.findForProject(session.repo_path, ["pending"]);
+  const tasks = await input.store.findForProject(session.repo_path, ["pending"], readSubsidiaryId(session.metadata));
   if (tasks.length > 0) {
     const task = tasks[0]!;
-    const text = `次タスク: ${task.title} (${input.store.relativePath(task)})`;
+    const text = `次タスクを Actio から取得してください (${input.store.relativePath(task)})`;
     if (readGoalAndGoStatus(session.metadata).enabled) {
       eventBus.emit({ type: "taskflow.continue_requested", target_session_id: input.sessionId, text, ts: Math.floor(Date.now() / 1000) });
     } else {
@@ -34,7 +35,7 @@ export async function checkResidual(input: {
     eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "next-task", pending_count: tasks.length, ts: Math.floor(Date.now() / 1000) });
     return "next-task";
   }
-  const active = await input.store.findForProject(session.repo_path, ["delegated"]);
+  const active = await input.store.findForProject(session.repo_path, ["delegated"], readSubsidiaryId(session.metadata));
   if (active.length === 0) {
     // Do not emit residual_checked when suppressed: phase-compaction would otherwise
     // inject another prompt and turn the assistant's waiting reply into a new cycle.

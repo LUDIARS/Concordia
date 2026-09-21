@@ -129,6 +129,7 @@ function cacheBypassed(cacheControl: string | undefined): boolean {
 }
 
 function cacheTtlMs(pathname: string): number | null {
+  if (pathname.startsWith("/v1/taskflow")) return null;
   if (pathname === "/health") return null;
   if (pathname.startsWith("/v1/admin/")) return null;
   if (pathname.includes("/pending-tasks")) return null;

@@ -66,16 +66,17 @@ describe("InjectManualsRepo", () => {
 
 describe("実装マニュアルの進行状態ルール", () => {
   /**
-   * migration 59 (taskflow-inject-state-in-db) が既定行へ書き込むリテラル。
+   * migration 110 (taskflow-v3-actio-instructions) が既定行へ書き込むリテラル。
+   * (migration 59 が書いた v2 文言を、 110 がこの v3 文言へ差し替える。)
    * 適用済み migration は書き換えられないので、 seed の既定値がここからずれると
    * 「新規 DB と稼働中 DB で既定文言が違う」 状態になる。 それを検出する。
    */
   const MIGRATED_DEFAULT =
-    "作業ブランチを確定 → worktree を生成 → 作業 → タスクを spec/tasks/ に新規保存で分解 → コミット → PR 作成まで行う。" +
-    "進行状態 (status / 担当 / PR 番号 / 外部タスク ID) は Concordia の DB が正本なので、既存 task md へ書き戻さない。" +
+    "作業ブランチを確定 → worktree を生成 → Actio にタスクを登録・参照 → 作業 → コミット → PR 作成まで行う。" +
+    "タスク本文・状態は Actio が正本。Cc は参照と実行関連だけを保持し、タスクファイルを作成しない。" +
     "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。";
 
-  it("seed の既定文言が migration 59 の書き込む文言と一致する", () => {
+  it("seed の既定文言が migration 110 の書き込む文言と一致する", () => {
     const repo = new InjectManualsRepo(makeTestDb());
     seedInjectManuals(repo);
     expect(repo.get("実装")?.content).toBe(MIGRATED_DEFAULT);

@@ -15,6 +15,7 @@ import type { ConfirmRunRow, ConfirmRunsRepo } from "../db/confirm-runs-repo.js"
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { developServiceCode } from "../excubitor/client.js";
 import type { MemoriaClient } from "../memoria/client.js";
+import type { TaskStore } from "../taskflow/store.js";
 import { buildClone } from "./build.js";
 import { resolveClonePaths } from "./clone-paths.js";
 import { promoteDevelopToMain, syncDevelopClone, syncMainClone } from "./git-ops.js";
@@ -27,6 +28,7 @@ const LIVENESS_TRIES = 10;
 const LIVENESS_INTERVAL_MS = 3_000;
 
 export interface ConfirmServiceDeps {
+  taskStore?: TaskStore;
   repo: ConfirmRunsRepo;
   excubitor: ExcubitorClient;
   memoria?: MemoriaClient;
@@ -200,6 +202,11 @@ export class ConfirmService {
   }
 
   private async completeMemoriaTask(run: ConfirmRunRow): Promise<void> {
+    if (this.deps.taskStore) {
+      if (!run.actio_task_ref || !this.deps.taskStore.updateStatus) throw new Error("Actio confirmation task migration required");
+      await this.deps.taskStore.updateStatus(run.repo_name, run.actio_task_ref, "done", null);
+      return;
+    }
     if (!run.memoria_task_id || !this.deps.memoria) return;
     try {
       await this.deps.memoria.completeTask(run.memoria_task_id);

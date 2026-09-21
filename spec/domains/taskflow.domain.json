@@ -1,0 +1,7 @@
+{
+  "name": "taskflow",
+  "description": "Task workflow v3.0: Actio content authority, scoped retrieval, stable task references and execution associations. UX-CC-W1/W2/W5; CC-INV-01/02/03/04.",
+  "membership": [{ "pathPattern": "(^|/)src/taskflow/(?!completion-blackbox|residual-blackbox)[^/]+$" }, { "pathPattern": "(^|/)src/api/taskflow[^/]*$" }],
+  "presetRules": [],
+  "templateRules": []
+}

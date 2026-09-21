@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
-import type { TaskMdStore } from "../taskflow/md-store.js";
+import type { TaskStore } from "../taskflow/store.js";
 import { injectDecompositionWhenMissing } from "../taskflow/decompose-inject.js";
 import type { PendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { randomUUID } from "node:crypto";
@@ -265,7 +265,7 @@ export interface DelegationApiDeps {
     setDelegationMaxConcurrency: (value: number) => void;
     getDelegationFinishedRunGraceSec?: () => number;
   };
-  taskStore?: TaskMdStore;
+  taskStore?: TaskStore;
   /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
   /** 委託先へ配る協調 API のベース URL。 */
@@ -806,11 +806,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     let requeuedRun = null;
     let partialRequeueClaimed = false;
     let partialFailureError: string | null = null;
+    let remainingReferences: string[] = [];
     if (isPartial) {
       if (continuation === "requeue") {
         const depth = requeueDepth(row, deps.repo);
         if (depth >= partialRequeueMaxDepth()) {
-          partialFailureError = `partial_requeue_limit: depth=${depth} remaining=${workRemaining.map((item) => item.title).join(", ")}`;
+          partialFailureError = `partial_requeue_limit: depth=${depth} remaining_count=${workRemaining.length}`;
         } else {
           const claimed = deps.repo.claimPartialRequeue(id);
           if (!claimed) {
@@ -837,8 +838,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
             repoPath,
             sourceRunId: rootRunId(row, deps.repo),
             project: row.call_name,
+            subsidiaryId: row.subsidiary_id,
             remaining: workRemaining,
           });
+          remainingReferences = [...written.created, ...written.existed];
           if (written.created.length === 0 && written.existed.length > 0) partialFailureError = "partial_no_progress";
         }
         if (!partialFailureError && continuation === "requeue") {
@@ -849,7 +852,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
                 listAnsweredBySession: (sessionId, limit) => answeredQuestions.listAnsweredBySession(sessionId, limit),
               })
             : undefined;
-          const requeued = await requeuePartialRun({ run: row, remaining: workRemaining, service: deps.service, resolvedAnswers });
+          const requeued = await requeuePartialRun({ run: row, remaining: workRemaining, references: remainingReferences, service: deps.service, resolvedAnswers });
           if (!requeued.ok) {
             deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
             return c.json({ error: "partial_requeue_failed", detail: requeued.error }, 500);
@@ -857,7 +860,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
           requeuedRun = requeued.run;
           emitDelegationRunChanged(requeued.run);
         } else if (!partialFailureError && row.child_session_id) {
-          const text = `残作業を同一セッションで継続してください。\n${workRemaining.map((item, index) => `${index + 1}. ${item.title}${item.note ? ` — ${item.note}` : ""}`).join("\n")}`;
+          const text = `残作業を Actio から取得して同一セッションで継続してください。\n${remainingReferences.join("\n")}`;
           const ts = nowSec();
           const source = `delegation:${row.id}:continue`;
           deps.sessions?.appendEvent({
@@ -919,7 +922,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       void deps.queue?.drain();
     }
     if (updated.status === "completed" && !isPartial && deps.sessions && deps.taskStore) {
-      void injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
+      await injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
     }
     if (updated.status === "completed" && !isPartial) void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated), requeued_run: requeuedRun ? serializeRun(requeuedRun) : null });

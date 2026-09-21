@@ -10,7 +10,7 @@ import { TASK_STATE_DB_RULE_SHORT } from "../taskflow/task-instructions.js";
 
 const DEFAULT_MANUALS: Record<InjectManualKind, string> = {
   実装:
-    "作業ブランチを確定 → worktree を生成 → 作業 → タスクを spec/tasks/ に新規保存で分解 → コミット → PR 作成まで行う。" +
+    "作業ブランチを確定 → worktree を生成 → Actio にタスクを登録・参照 → 作業 → コミット → PR 作成まで行う。" +
     TASK_STATE_DB_RULE_SHORT +
     "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
   レビュー:

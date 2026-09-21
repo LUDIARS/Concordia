@@ -9,6 +9,7 @@
 
 import type { ConfirmRunsRepo, ConfirmRunRow } from "../db/confirm-runs-repo.js";
 import type { MemoriaClient } from "../memoria/client.js";
+import type { TaskStore } from "../taskflow/store.js";
 import { repoNameFromOrigin } from "./clone-paths.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -22,6 +23,7 @@ export interface DevelopMergeEvent {
 }
 
 export interface ConfirmIntakeDeps {
+  taskStore?: TaskStore;
   repo: ConfirmRunsRepo;
   memoria?: MemoriaClient;
   /** リポ名 → Excubitor のサービスコード。 起動を伴わないリポは null。 */
@@ -47,12 +49,29 @@ export async function intakeDevelopMerge(
     pr_title: event.pr_title,
     pr_url: event.pr_url,
   });
-  if (!created) return { row, created };
+  if (!created && (!deps.taskStore || row.actio_task_ref)) return { row, created };
 
-  log.info(
-    { repo: event.repo_origin, pr: event.pr_number, service: serviceCode },
-    "develop merge → 確認待ちに積んだ",
-  );
+  if (created) {
+    log.info(
+      { repo: event.repo_origin, pr: event.pr_number, service: serviceCode },
+      "develop merge → 確認待ちに積んだ",
+    );
+  }
+
+  if (deps.taskStore) {
+    // Idempotent on the stable PR identity: a repeated observation reuses the
+    // existing Actio task, and a lost response is reconciled by the same sourceRef.
+    if (!row.actio_task_ref) {
+      if (!deps.taskStore.create) throw new Error("Actio confirmation task store required");
+      const task = await deps.taskStore.create({
+        repoPath: repoName, subsidiaryId: null, sourceRef: `confirm:${event.repo_origin}:${event.pr_number}`,
+        title: `[確認] ${repoName} #${event.pr_number}`, body: buildTaskDetails(repoName, serviceCode, event),
+        kind: "テスト", memoryLinks: [],
+      });
+      deps.repo.setActioTaskReference(row.id, task.path);
+    }
+    return { row: deps.repo.find(row.id) ?? row, created };
+  }
 
   if (deps.memoria) {
     try {

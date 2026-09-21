@@ -21,7 +21,8 @@ describe("seedDelegationTemplates", () => {
     expect(template?.prompt_template).toContain("改善を検知するだけで終わらず");
     expect(template?.prompt_template).toContain("ユーザーがPR作成までと指定した場合はその範囲を優先");
     expect(template?.prompt_template).toContain("委託先にも同じ終了範囲を渡し");
-    expect(template?.prompt_template).toContain("taskflow_task_state");
+    // v3.0 で進行状態の正本は taskflow_task_state から Actio へ移った。
+    expect(template?.prompt_template).toContain("タスク本文・状態の正本は Actio");
     expect(template?.prompt_template).toContain("人間への再確認ループや終了許可の質問はしない");
     expect(template?.prompt_template).not.toContain("自分ではコードを書きません");
   });

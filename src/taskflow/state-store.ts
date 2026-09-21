@@ -37,6 +37,34 @@ export class TaskflowStateStore {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** v3 execution ledger: only identity and associations, never task content. */
+  registerActioReference(repoPath: string, reference: string, id: string, subsidiaryId: string | null): TaskRuntimeState {
+    const key = { repoPath: normalizePath(repoPath), taskPath: reference };
+    this.db.prepare(`INSERT INTO taskflow_task_state(
+      repo_path, task_path, task_slug, status, subsidiary_id, actio_task_id, memoria_registration_state, updated_at
+    ) VALUES (?, ?, ?, 'pending', ?, ?, 'idle', ?) ON CONFLICT(repo_path, task_path) DO NOTHING`)
+      .run(key.repoPath, reference, id, subsidiaryId, id, this.now());
+    const state = this.read(key);
+    if (!state || state.actio_task_id !== id || state.subsidiary_id !== subsidiaryId) {
+      throw new Error("Actio execution reference ownership mismatch");
+    }
+    return state;
+  }
+
+  claimActioExecution(key: TaskStateKey, runId: string, sessionId: string | null): boolean {
+    const result = this.db.prepare(`UPDATE taskflow_task_state
+      SET delegation_run_id = ?, source_session = ?, updated_at = ?
+      WHERE repo_path = ? AND task_path = ? AND actio_task_id IS NOT NULL
+        AND (delegation_run_id IS NULL OR delegation_run_id = ?)`)
+      .run(runId, sessionId, this.now(), normalizePath(key.repoPath), key.taskPath, runId);
+    return result.changes === 1;
+  }
+
+  releaseActioExecution(runId: string): void {
+    this.db.prepare(`UPDATE taskflow_task_state SET delegation_run_id = NULL, updated_at = ?
+      WHERE actio_task_id IS NOT NULL AND delegation_run_id = ?`).run(this.now(), runId);
+  }
+
   readOrMigrate(document: TaskDocument): TaskRuntimeState {
     const key = taskKey(document);
     const existing = this.read(key);

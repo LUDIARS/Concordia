@@ -29,6 +29,10 @@ updated: 2026-08-31
 
 # タスクワークフロー — 分解 → 委託実装 → 安定ブランチテスト → 自走
 
+> **v3.0 (2026-09-08):** タスク本文・状態の正本は Actio に変更する。
+> 現行の記録・参照・移行契約は [task-workflow-v3.md](task-workflow-v3.md)。
+> 以下の Markdown 正本・Memoria reconcile・ファイル分解規則は旧版の記録であり、v3.0 では実行しない。
+
 > 実装タスクを「分解 → Delegation 実装 → テスト → 残作業 → 次タスク」の一本のパイプラインに
 > 載せ、 テストの隔離と自走の判断責務を Concordia に集約する。 2026-07-13 neco 指示の設計正本。
 > 実装計画書 (GPT 委託用) は `E:\Document\Ars\concordia_task_workflow_impl_plan_gpt.md`。

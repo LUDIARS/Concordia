@@ -69,6 +69,8 @@ import { applyDelegationProviderPolicy } from "./provider-policy.js";
 import { resolveTemplateForScope } from "./template-overrides.js";
 import { readFederationEnv } from "../federation/env.js";
 import { normalizeSubsidiaryId } from "../shared/subsidiary-id.js";
+import type { TaskStore } from "../taskflow/store.js";
+import { sealDelegationTask } from "./actio-task.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -122,6 +124,7 @@ export interface InvokeResultErr {
 export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
+  taskStore?: () => TaskStore;
   repo: DelegationRepo;
   /** 端末 spawn を上書き (テスト用)。 省略時は実際に wt.exe を起動 */
   spawn?: DelegationSpawner;
@@ -225,6 +228,9 @@ export class DelegationService {
   }
 
   private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
+    if (this.deps.taskStore && input.memoria_task_id != null) {
+      return { ok: false, error: "Memoria task references require explicit Actio migration" };
+    }
     input = normalizeInvocationPaths(input);
     const subsidiaryId = normalizeSubsidiaryId(input.subsidiary_id);
     if (input.subsidiary_id != null && !subsidiaryId) {
@@ -246,7 +252,7 @@ export class DelegationService {
     if (!plan.ok) return plan;
     // 委託前にドメインを確定して指示書の先頭へ織り込む (設計 §5 C-2 / §12.3 C-11)。
     // Anatomia が居ない / 索引に無い / ドメイン定義が無いときは何も足さずに進む。
-    const renderedPrompt = await this.applyDomainPreamble(def, input, plan.renderedPrompt);
+    let renderedPrompt = await this.applyDomainPreamble(def, input, plan.renderedPrompt);
 
     // 指示書の本文と構造化 branch を突き合わせる。 本文だけが branch を指している
     // 場合は呼び出し元の渡し忘れなので、 worktree を作らないまま spawn させない
@@ -261,6 +267,16 @@ export class DelegationService {
     input = { ...input, branch: branchResolution.branch ?? undefined };
 
     const runId = randomUUID();
+    if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND) {
+      try {
+        const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId, content: renderedPrompt });
+        def = sealed.definition;
+        input = sealed.invocation;
+        renderedPrompt = sealed.prompt;
+      } catch {
+        return { ok: false, error: "Actio task registration or execution claim failed; inspect the existing task/run before retry" };
+      }
+    }
     const startedAt = Date.now();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const shouldSpawn = input.spawn !== false;
@@ -310,7 +326,10 @@ export class DelegationService {
     }
 
     const launch = await this.launch(runId, def, input, renderedPrompt, shouldSpawn, startedAt);
-    if (!launch.ok) return { ok: false, error: launch.error };
+    if (!launch.ok) {
+      this.deps.taskStore?.().releaseExecution?.(runId);
+      return { ok: false, error: launch.error };
+    }
 
     const run = this.deps.repo.createRun({
       id: runId,
@@ -418,7 +437,10 @@ export class DelegationService {
     await executeQueuedRun({
       run,
       repo: this.deps.repo,
-      launch: (payload) => this.launch(
+      launch: (payload) => this.deps.taskStore && resolveManualKind(payload.def) === IMPLEMENTATION_MANUAL_KIND
+        && typeof payload.input.args.taskflow_reference !== "string"
+        ? Promise.resolve({ ok: false as const, error: "Legacy queued implementation requires explicit Actio migration" })
+        : this.launch(
         run.id,
         payload.def,
         payload.input,
@@ -618,6 +640,17 @@ export class DelegationService {
         mentionUserId: this.deps.mentionUserId?.() ?? null,
         cwd: cwd ?? null,
         manual: manualContent,
+      });
+    } else if (manualKind === IMPLEMENTATION_MANUAL_KIND && this.deps.taskStore) {
+      const reference = input.args.taskflow_reference;
+      if (typeof reference !== "string" || !cwd) return { ok: false, error: "Actio task reference required" };
+      // Revalidate access at launch; a queued request must not outlive its scope.
+      await this.deps.taskStore().read?.(cwd, reference, input.subsidiary_id ?? null);
+      promptSection = buildImplementationInject({
+        runId, title: def.title, task: renderedPrompt, why: "Actio に記録された目的・完了条件に従います。",
+        memoria: null, memoriaError: null, taskReference: reference,
+        repoPath: cwd, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? "",
+        augurCli: augurCliPath ? augurCliCommand(augurCliPath) : null,
       });
     } else if (manualKind === IMPLEMENTATION_MANUAL_KIND) {
       const why = resolveWhy({ args: input.args ?? {}, title: def.title });

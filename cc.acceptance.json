@@ -354,6 +354,255 @@
       "tests": [
         "src/control/lictor-proxy.test.ts"
       ]
+    },
+    {
+      "source": "src/api/taskflow-actio.ts",
+      "tests": [
+        "src/api/taskflow-actio.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/taskflow.ts",
+      "tests": [
+        "src/api/taskflow-actio.test.ts",
+        "tests/app-routes.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/config/settings/definitions/operations.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/collaboration-context.ts",
+      "tests": [
+        "src/control/collaboration-context.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/goal-and-go.ts",
+      "tests": [
+        "src/control/goal-and-go.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-manual-seed.ts",
+      "tests": [
+        "src/db/inject-manuals-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/confirm-runs-repo.ts",
+      "tests": [
+        "src/release/confirm-intake.test.ts",
+        "src/release/confirm-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/schema.ts",
+      "tests": [
+        "src/db/migration-ledger.test.ts",
+        "src/db/taskflow-v3-instructions.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/taskflow-v2-instructions.ts",
+      "tests": [
+        "src/db/migration-ledger.test.ts",
+        "src/db/taskflow-v3-instructions.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/taskflow-v3-instructions.ts",
+      "tests": [
+        "src/db/taskflow-v3-instructions.test.ts",
+        "src/db/migration-ledger.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/actio-task.ts",
+      "tests": [
+        "src/delegation/actio-task.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/implementation-inject.ts",
+      "tests": [
+        "src/delegation/implementation-inject.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/partial-requeue.ts",
+      "tests": [
+        "src/delegation/partial-requeue.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/parttimer-prompts.ts",
+      "tests": [
+        "src/delegation/seed.test.ts",
+        "src/api/delegation-partial.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/persona-context.ts",
+      "tests": [
+        "src/delegation/persona-context.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/service.ts",
+      "tests": [
+        "src/delegation/service.test.ts",
+        "src/api/delegation-partial.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/director/walk-materials.ts",
+      "tests": [
+        "src/director/walk-materials.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/morning/actio-scheduler.ts",
+      "tests": [
+        "src/morning/actio-scheduler.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/release/confirm-intake.ts",
+      "tests": [
+        "src/release/confirm-intake.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/release/confirm-service.ts",
+      "tests": [
+        "src/release/confirm-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/shared/http-cache.ts",
+      "tests": [
+        "tests/http-cache.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/subsidiary/harness-seed.ts",
+      "tests": [
+        "src/subsidiary/gate.test.ts",
+        "src/api/harness-session.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/actio-binding.ts",
+      "tests": [
+        "src/taskflow/actio-binding.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/actio-store.ts",
+      "tests": [
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/actio-task-client.ts",
+      "tests": [
+        "src/taskflow/actio-task-client.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/actio-transport.ts",
+      "tests": [
+        "src/taskflow/actio-transport.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/decompose-inject.ts",
+      "tests": [
+        "src/taskflow/decompose-inject.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/overview.ts",
+      "tests": [
+        "src/taskflow/overview.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/repository-identity.ts",
+      "tests": [
+        "src/taskflow/repository-identity.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/residual-blackbox.ts",
+      "tests": [
+        "src/control/human-response-confirmation.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/runtime.ts",
+      "tests": [
+        "src/taskflow/runtime.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/state-store.ts",
+      "tests": [
+        "src/taskflow/state-store.test.ts",
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/store.ts",
+      "tests": [
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/taskflow/task-instructions.ts",
+      "tests": [
+        "src/db/inject-manuals-repo.test.ts",
+        "src/delegation/persona-context.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

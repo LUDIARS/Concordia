@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { TaskMdStore, TaskStatus } from "../taskflow/md-store.js";
+import type { TaskStatus } from "../taskflow/types.js";
+import type { TaskStore } from "../taskflow/store.js";
+import { registerActioTaskRoutes } from "./taskflow-actio.js";
 import type { TaskflowStateStore, TaskRuntimePatch } from "../taskflow/state-store.js";
 import {
   buildTaskflowOverview,
@@ -38,13 +40,19 @@ function prNumberField(body: Record<string, unknown> | null): Partial<TaskRuntim
 }
 
 export function taskflowRouter(input: {
-  store: TaskMdStore;
+  store: TaskStore;
   state: TaskflowStateStore;
   sessions: SessionsRepo;
   delegation: DelegationRepo;
   prs: PrRecordsRepo;
 }): Hono {
   const app = new Hono();
+  app.onError((_error, c) => c.json({ error: "taskflow_actio_unavailable_or_invalid_scope" }, 503));
+  app.use("*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
+  registerActioTaskRoutes(app, input);
   app.get("/tasks", async (c) => {
     const project = c.req.query("project")?.trim().toLowerCase();
     const status = c.req.query("status")?.trim() as TaskStatus | undefined;
@@ -135,6 +143,15 @@ export function taskflowRouter(input: {
         return c.json({ error: ownership.error }, statusCode);
       }
       if (ownership.subsidiaryId !== undefined) patch.subsidiary_id = ownership.subsidiaryId;
+    }
+    if (input.store.updateStatus) {
+      if (patch.subsidiary_id !== undefined && patch.subsidiary_id !== current.subsidiary_id) {
+        return c.json({ error: "Actio task ownership cannot be changed through execution state" }, 409);
+      }
+      // Verify remote ownership even for association-only updates. Actio status
+      // commits first; if local persistence fails, retry the same status/id.
+      await input.store.read?.(repoPath, taskPath, current.subsidiary_id);
+      if (patch.status) await input.store.updateStatus(repoPath, taskPath, patch.status, current.subsidiary_id);
     }
     if (!input.state.update(key, patch)) {
       return c.json({ error: "no_changes" }, 404);

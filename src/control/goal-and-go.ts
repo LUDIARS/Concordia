@@ -27,6 +27,7 @@ export interface StartGoalAndGoOptions {
   repo: SessionsRepo;
   taskStore?: {
     findByRelativePath(repoPath: string, relativePath: string): Promise<{ status: string } | null>;
+    readonly authoritative?: boolean;
   };
   /**
    * 未回答の質問があるセッションは自走継続しない (blocker)。未注入なら従来どおり継続。
@@ -126,7 +127,7 @@ export function buildGoalAndGoPrompt(input: {
  */
 export function extractTaskMdPath(currentTask: string | null | undefined): string | null {
   if (!currentTask) return null;
-  const match = /\((spec\/tasks\/[^/()]+\.md)\)$/.exec(currentTask.trim());
+  const match = /\((actio:[A-Za-z0-9-]+|spec\/tasks\/[^/()]+\.md)\)$/.exec(currentTask.trim());
   return match?.[1] ?? null;
 }
 
@@ -318,6 +319,9 @@ async function resolveCurrentTaskForPrompt(input: {
     const reason = !task ? "missing" : task.status !== "pending" ? "not_pending" : null;
     return { currentTask: reason ? null : input.currentTask, dropReason: reason };
   } catch {
+    // An authoritative store cannot be second-guessed: continuing on a stale task
+    // would drive work against a task whose real state is unknown.
+    if (input.taskStore.authoritative) throw new Error("Authoritative task store unavailable; continuation stopped");
     // A transient task-store failure must not erase the session's last known task.
     return { currentTask: input.currentTask, dropReason: null };
   }

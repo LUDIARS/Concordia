@@ -1,0 +1,5 @@
+[mcp_servers.concordia-hooks]
+command = "node"
+args = ["E:/Document/Ars/Concordia/tools/concordia-hook-mcp.mjs"]
+cwd = "E:/Document/Ars/Concordia"
+env_vars = ["CONCORDIA_HOOK", "CONCORDIA_SESSION_ID", "CONCORDIA_DISABLE", "CONCORDIA_URL", "CONCORDIA_TIMEOUT_MS", "CLAUDE_SESSION_ID"]

@@ -69,21 +69,42 @@ describe("Discord image inbox", () => {
     expect(paths).toEqual([join(root, "session-1-message-1-1.png")]);
   });
 
-  it("rejects bytes that disagree with the declared image type", async () => {
-    await expect(storeDiscordImages({
-      attachments: [image({ contentType: "image/gif", name: "capture.gif" })],
-      fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/gif" } }),
-      inboxRoot: await temporaryRoot(),
-      messageId: "message-1",
-      sessionId: "session-1",
-    })).rejects.toThrow("Content-Typeが一致しません");
+  it.each<[string | null, string]>([
+    ["image/gif", "image/gif"],
+    ["image/jpeg", "image/png"],
+    ["image/png", "image/webp"],
+    [null, "application/octet-stream"],
+  ])("stores real PNG despite declared %s and response %s", async (declared, responseType) => {
+    const root = await temporaryRoot();
+    const paths = await storeDiscordImages({
+      attachments: [image({ contentType: declared, name: "clipboard.jpg" })],
+      fetchImpl: async () => new Response(PNG, { headers: { "content-type": responseType } }),
+      inboxRoot: root, messageId: "message-1", sessionId: "session-1",
+    });
+    expect(paths[0]).toBe(join(root, "session-1-message-1-1.png"));
+    expect(await readFile(paths[0])).toEqual(PNG);
+  });
+
+  it.each<[Buffer, string]>([
+    [Buffer.from([0xff, 0xd8, 0xff, 0x00]), ".jpg"],
+    [Buffer.from("GIF89a"), ".gif"],
+    [Buffer.from("RIFF0000WEBP"), ".webp"],
+  ])("uses the actual format for mislabeled clipboard data", async (bytes, extension) => {
+    const root = await temporaryRoot();
+    const paths = await storeDiscordImages({
+      attachments: [image()],
+      fetchImpl: async () => new Response(bytes, { headers: { "content-type": "image/png" } }),
+      inboxRoot: root, messageId: "message-1", sessionId: "session-1",
+    });
+    expect(paths[0]).toBe(join(root, "session-1-message-1-1" + extension));
+    expect(await readFile(paths[0])).toEqual(bytes);
   });
 
   it("removes images already written when a later image in the batch is rejected", async () => {
     const root = await temporaryRoot();
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(new Response(PNG, { headers: { "content-type": "image/png" } }))
-      .mockResolvedValueOnce(new Response(PNG, { headers: { "content-type": "image/gif" } }));
+      .mockResolvedValueOnce(new Response("<html>not an image</html>", { headers: { "content-type": "image/gif" } }));
 
     await expect(storeDiscordImages({
       attachments: [image(), image({ contentType: "image/gif", name: "capture.gif" })],
@@ -91,7 +112,7 @@ describe("Discord image inbox", () => {
       inboxRoot: root,
       messageId: "message-1",
       sessionId: "session-1",
-    })).rejects.toThrow("Content-Typeが一致しません");
+    })).rejects.toThrow("対応していない画像形式");
     await expect(readFile(join(root, "session-1-message-1-1.png"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 

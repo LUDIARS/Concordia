@@ -4,6 +4,7 @@
  */
 
 import { Hono } from "hono";
+import { internalAgentSelectionRouter } from "./internal-agent-selection.js";
 import { z } from "zod";
 import type { TaskStore } from "../taskflow/store.js";
 import { injectDecompositionWhenMissing } from "../taskflow/decompose-inject.js";
@@ -286,6 +287,7 @@ const QueueSettingsSchema = z.object({
 
 export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
+  app.route("/internal-agent-selection", internalAgentSelectionRouter(deps.repo));
 
   function invalidateTemplates(
     action: "create" | "import" | "duplicate" | "patch" | "delete",

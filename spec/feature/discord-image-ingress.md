@@ -67,3 +67,12 @@ Concordia と同じ端末に保存され、Discord URL の有効期限後も処�
 - embed だけの投稿も捨てられず、表示テキストと Discord proxy 画像が同じ inject に入る。
 - 非 session channel の空本文添付は従来どおり無視する。
 - URL、形式、件数、容量の境界違反はセッションへ注入しない。
+
+## コピペ画像の形式正規化
+
+UX-CC-W1/W4: 対応形式の貼り付け画像を受け取れる。保存形式の所有者はimage-inbox。
+対応形式同士の添付MIME/HTTP Content-Typeの不一致だけでは拒否せず、実体のマジックバイトから拡張子を決める。
+未対応MIMEの拒否、非画像、CDN/容量/件数制限、batch rollbackは維持する。
+回帰テストで実体PNG/JPEG/GIF/WebPと申告値のずれ、非画像の拒否を確認する。
+
+CC-IMAGE-MIME-01: PNG/JPEG/GIF/WebPの対応MIMEラベル間の不一致のみ許容し、実体シグネチャから保存拡張子を決める。非画像・未対応形式・外部CDN・容量超過の拒否とバッチ失敗時の削除を維持。画像全体のデコード検証を追加する変更ではない。

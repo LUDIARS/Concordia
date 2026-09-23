@@ -1,0 +1,17 @@
+{
+  "name": "hook-transport",
+  "description": "Cc command/MCP hook adapters preserving session and reliability semantics",
+  "membership": [
+    {
+      "pathPattern": "(^|/)tools/concordia-hook(?:-mcp|-migration|-runtime)?(?:\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)spec/feature/codex-hook-console-free\\.(?:hooks\\.json|config\\.toml)$"
+    }
+  ],
+  "presetRules": [],
+  "templateRules": [],
+  "specRefs": [
+    "spec/feature/codex-hook-console-free.md"
+  ]
+}

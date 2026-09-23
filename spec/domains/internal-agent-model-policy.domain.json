@@ -1,0 +1,13 @@
+{
+  "name": "internal-agent-model-policy",
+  "description": "Cc起動Claudeの内部Agentを既存タスクモデル選定へ接続する境界",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/delegation/internal-agent-policy(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/internal-agent-selection(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/internal-agent-settings(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)tools/internal-agent-hook(\\.test)?\\.mjs$" }
+  ],
+  "specRefs": ["spec/feature/internal-agent-model-policy.md", "spec/ux/agent-delegation.md"]
+}

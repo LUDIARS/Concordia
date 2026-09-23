@@ -11,6 +11,7 @@ import { resolve as resolvePath } from "node:path";
 
 import { readConfiguredWorkspaceRoots } from "../config/workspace-roots.js";
 import { prepareSessionGitHooks, applySessionGitHooks } from "./session-git-hooks.js";
+import { withInternalAgentSettings } from "./internal-agent-settings.js";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -807,9 +808,10 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
   try {
+    req = { ...req, args: withInternalAgentSettings(req.provider, req.args) };
     req = { ...req, gitHooksDirectory: prepareSessionGitHooks() };
   } catch {
-    return { ok: false, error: "Session Git hook preparation failed" };
+    return { ok: false, error: "Session hook preparation failed" };
   }
   if (isHeadless) return spawnHeadlessSession(req);
   if (process.platform === "darwin") {

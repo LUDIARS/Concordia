@@ -168,15 +168,12 @@ async function storeOneImage(input: {
     throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
   }
   // 形式は実体のマジックバイトだけを正とする。Discord が contentType を欠いた添付
-  // (isDiscordImageAttachment がファイル名だけで通したもの) もここで確定でき、申告値・
-  // ダウンロード結果・実体の三者不一致をまとめて弾ける。
+  // (isDiscordImageAttachment がファイル名だけで通したもの) もここで確定する。
+  // Clipboard/CDN変換で申告値が古くても、対応形式なら実体の拡張子で保存する。
   const bytes = await readLimitedBody(response, MAX_IMAGE_BYTES);
   const actualType = detectImageMime(bytes);
   const extension = actualType ? EXTENSION_BY_MIME.get(actualType) : undefined;
   if (!actualType || !extension) throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
-  if ((declaredType && declaredType !== actualType) || (responseType && responseType !== actualType)) {
-    throw new DiscordImageInboxError("画像の内容とContent-Typeが一致しません");
-  }
 
   const prefix = `${safeId(input.sessionId)}-${safeId(input.messageId)}-${input.index + 1}`;
   const target = join(input.root, `${prefix}${extension}`);

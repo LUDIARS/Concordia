@@ -50,7 +50,8 @@
     {
       "source": "src/api/delegation.ts",
       "tests": [
-        "tests/blocks/agent-delegation/delegation-template.block.test.ts"
+        "tests/blocks/agent-delegation/delegation-template.block.test.ts",
+        "src/api/internal-agent-selection.test.ts"
       ],
       "contracts": []
     },
@@ -603,6 +604,121 @@
         "src/delegation/persona-context.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/delegation/internal-agent-policy.ts",
+      "tests": [
+        "src/delegation/internal-agent-policy.test.ts"
+      ],
+      "contracts": [
+        "CC-IAM-01",
+        "CC-IAM-02",
+        "CC-IAM-03",
+        "CC-IAM-04",
+        "CC-IAM-05"
+      ]
+    },
+    {
+      "source": "src/api/internal-agent-selection.ts",
+      "tests": [
+        "src/api/internal-agent-selection.test.ts"
+      ],
+      "contracts": [
+        "CC-IAM-01",
+        "CC-IAM-02",
+        "CC-IAM-03",
+        "CC-IAM-04",
+        "CC-IAM-05"
+      ]
+    },
+    {
+      "source": "src/control/internal-agent-settings.ts",
+      "tests": [
+        "src/control/internal-agent-settings.test.ts"
+      ],
+      "contracts": [
+        "CC-IAM-01",
+        "CC-IAM-02",
+        "CC-IAM-03",
+        "CC-IAM-04",
+        "CC-IAM-05"
+      ]
+    },
+    {
+      "source": "tools/internal-agent-hook.mjs",
+      "tests": [
+        "tools/internal-agent-hook.test.mjs"
+      ],
+      "contracts": [
+        "CC-IAM-01",
+        "CC-IAM-02",
+        "CC-IAM-03",
+        "CC-IAM-04",
+        "CC-IAM-05"
+      ]
+    },
+    {
+      "source": "src/control/spawner.ts",
+      "tests": [
+        "src/control/spawner.test.ts",
+        "src/control/internal-agent-settings.test.ts"
+      ],
+      "contracts": [
+        "CC-IAM-01",
+        "CC-IAM-02",
+        "CC-IAM-03",
+        "CC-IAM-04",
+        "CC-IAM-05"
+      ]
+    },
+    {
+      "source": "src/discord/image-inbox.ts",
+      "tests": [
+        "src/discord/image-inbox.test.ts"
+      ],
+      "contracts": [
+        "CC-IMAGE-MIME-01"
+      ]
+    },
+    {
+      "source": "tools/concordia-hook.mjs",
+      "tests": [
+        "tools/concordia-hook-runtime.test.mjs"
+      ],
+      "contracts": [
+        "CC-HOOK-02"
+      ]
+    },
+    {
+      "source": "tools/concordia-hook-runtime.mjs",
+      "tests": [
+        "tools/concordia-hook-runtime.test.mjs",
+        "tests/concordia-hook-session-id.test.mjs"
+      ],
+      "contracts": [
+        "CC-HOOK-01",
+        "CC-HOOK-02",
+        "CC-HOOK-03"
+      ]
+    },
+    {
+      "source": "tools/concordia-hook-mcp.mjs",
+      "tests": [
+        "tools/concordia-hook-mcp.test.mjs"
+      ],
+      "contracts": [
+        "CC-HOOK-02",
+        "CC-HOOK-03"
+      ]
+    },
+    {
+      "source": "tools/concordia-hook-migration.mjs",
+      "tests": [
+        "tools/concordia-hook-migration.test.mjs"
+      ],
+      "contracts": [
+        "CC-HOOK-04"
+      ]
     }
   ]
 }

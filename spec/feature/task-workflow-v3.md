@@ -83,6 +83,23 @@ Old files, historical Cc records, old prompt files, transcript caches, Memoria r
 
 ## Validation and rollout
 
+### Failure diagnostics and local PR evidence (CC-TF-DIAG-01)
+
+Taskflow owns completion orchestration and safe failure classification; Actio owns
+task content/status and Revisor owns local PR state. UX-CC-W2/W3/W5 and
+CC-INV-03/04/08 require that unavailable evidence never becomes a missing PR or
+successful completion. Interactive completion must pass the Revisor reader to
+goal evaluation. A failed Revisor lookup stops evaluation with a dedicated code.
+
+HTTP and runtime boundaries classify known failures into fixed reason codes.
+Unknown exceptions are internal failures, not Actio outages. Logs and notifications
+must not include raw exception messages, request queries, bodies or credentials.
+Existing human-response confirmation deduplication remains in force. API clients
+receive a safe reason code and a status distinguishing conflicts, upstream failures,
+unavailability and internal errors. Retries retain the original task identity.
+Regression checks cover local PR propagation, failed lookup without a PR-missing
+notification, safe diagnostics, and preserving existing confirmation waits.
+
 Production TypeScript compilation is checked without emitting files. Unit coverage accompanies the Actio route: binding validation and repository-key normalization, worktree-to-main-clone identity, transport owner verification and unknown-outcome reporting, ownership scoping and source-identity deduplication in the task client, store binding resolution and one-delegation-per-task claiming, the create/import/content API contract, delegation body sealing, morning grouping, decomposition exactly-once, and migration 110's instruction upgrade. These are offline tests against injected doubles; they do not exercise a live Actio instance. Required later checks against a real service: authenticated owner/team isolation, missing credentials, timeout-after-commit retry, duplicate input conflict, queued-run migration, residual idempotency, task status updates, confirmation completion and an agent fetching its task without a body-bearing prompt file. No startup or runtime test is authorized in this session.
 
 Rollout requires configured bindings/credentials, explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.

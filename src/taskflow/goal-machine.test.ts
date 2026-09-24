@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RevisorLocalPr } from "../pr/revisor-client.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import { findSessionLocalPr } from "./goal-machine.js";
+import { findSessionLocalPr, runGoalMachine } from "./goal-machine.js";
+import { RevisorLookupUnavailable } from "./failure.js";
+import { eventBus, type ConcordiaEvent } from "../events.js";
+import type { PrRecordsRepo } from "../db/pr-records-repo.js";
+import type { ConfirmIntakeDeps } from "../release/confirm-intake.js";
 
 function localPr(overrides: Partial<RevisorLocalPr> = {}): RevisorLocalPr {
   return {
@@ -68,12 +72,25 @@ describe("findSessionLocalPr", () => {
   });
 
   // Revisor 停止中に「PR 無し」へ誤判定すると pr-decision メンションが誤発火する。
-  it("returns null instead of failing when Revisor is unreachable", async () => {
-    const found = await findSessionLocalPr({
+  it("distinguishes unavailable evidence from a missing PR", async () => {
+    await expect(findSessionLocalPr({
       sessionId: "s-1",
       sessions: sessions(),
       revisor: reader(new Error("connect ECONNREFUSED")),
-    });
-    expect(found).toBeNull();
+    })).rejects.toBeInstanceOf(RevisorLookupUnavailable);
+  });
+
+  it("does not ask for a new PR when lookup failed", async () => {
+    const events: ConcordiaEvent[] = [];
+    const stop = eventBus.subscribe((event) => events.push(event));
+    try {
+      await expect(runGoalMachine({
+        sessionId: "s-1", sessions: sessions(),
+        prs: { list: vi.fn(() => []) } as unknown as PrRecordsRepo,
+        confirm: {} as ConfirmIntakeDeps,
+        revisor: reader(new Error("private upstream response")),
+      })).rejects.toBeInstanceOf(RevisorLookupUnavailable);
+      expect(events).toEqual([]);
+    } finally { stop(); }
   });
 });

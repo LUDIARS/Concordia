@@ -6,6 +6,7 @@ import { intakeDevelopMerge } from "../release/confirm-intake.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { eventBus } from "../events.js";
 import { notifyUserDecision } from "./notify.js";
+import { RevisorLookupUnavailable } from "./failure.js";
 
 export type GoalMachineOutcome = "merged" | "open" | "missing";
 
@@ -30,8 +31,9 @@ export async function findSessionLocalPr(input: {
   try {
     pullRequests = await input.revisor.listLocalPrs();
   } catch {
-    // Revisor 停止中は判断材料が無い。 誤って missing (PR 無し) 扱いにしない。
-    return null;
+    // A failed lookup is not evidence that no PR exists. Let the boundary
+    // stop completion and report a safe reason without the upstream payload.
+    throw new RevisorLookupUnavailable();
   }
   return pullRequests.find((pr) =>
     normalizeRepoOrigin(pr.repository).toLowerCase() === key

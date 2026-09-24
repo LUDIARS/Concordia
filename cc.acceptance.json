@@ -366,6 +366,7 @@
     {
       "source": "src/api/taskflow.ts",
       "tests": [
+        "src/api/taskflow-failure.test.ts",
         "src/api/taskflow-actio.test.ts",
         "tests/app-routes.test.ts"
       ],
@@ -578,9 +579,20 @@
     {
       "source": "src/taskflow/runtime.ts",
       "tests": [
+        "src/taskflow/runtime-failure.test.ts",
         "src/taskflow/runtime.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/taskflow/failure.ts",
+      "tests": ["src/taskflow/failure.test.ts"],
+      "contracts": ["CC-TF-DIAG-01"]
+    },
+    {
+      "source": "src/taskflow/goal-machine.ts",
+      "tests": ["src/taskflow/goal-machine.test.ts", "src/taskflow/runtime-failure.test.ts"],
+      "contracts": ["CC-TF-DIAG-01"]
     },
     {
       "source": "src/taskflow/state-store.ts",

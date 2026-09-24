@@ -12,6 +12,8 @@ import {
   resolveTaskflowSubsidiaryId,
 } from "../taskflow/overview.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { createChildLogger } from "../shared/logger.js";
+import { describeTaskflowFailure } from "../taskflow/failure.js";
 import {
   matchesTaskflowOrganizationScope,
   parseTaskflowOrganizationScope,
@@ -20,6 +22,7 @@ import {
 } from "../taskflow/subsidiary-scope.js";
 
 const STATUSES: TaskStatus[] = ["pending", "delegated", "done", "cancelled"];
+const log = createChildLogger("taskflow-api");
 
 /** 明示 null を「消す」として通し、 未指定は変更しない。 */
 function nullableStringField(
@@ -47,7 +50,12 @@ export function taskflowRouter(input: {
   prs: PrRecordsRepo;
 }): Hono {
   const app = new Hono();
-  app.onError((_error, c) => c.json({ error: "taskflow_actio_unavailable_or_invalid_scope" }, 503));
+  app.onError((error, c) => {
+    const failure = describeTaskflowFailure(error);
+    log.warn({ reason: failure.code, status: failure.status }, "taskflow request failed");
+    c.header("Cache-Control", "no-store");
+    return c.json({ error: "taskflow_actio_unavailable_or_invalid_scope", reason: failure.code }, failure.status);
+  });
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     await next();

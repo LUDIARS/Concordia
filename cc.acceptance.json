@@ -2,6 +2,31 @@
   "version": 1,
   "implementations": [
     {
+      "source": "src/discord/forum-title.ts",
+      "tests": ["src/discord/forum-title.test.ts"],
+      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+    },
+    {
+      "source": "src/discord/forum-phase-sync.ts",
+      "tests": ["src/discord/forum-phase-sync.test.ts"],
+      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+    },
+    {
+      "source": "src/discord/forum-session.ts",
+      "tests": ["src/discord/forum-session.test.ts"],
+      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+    },
+    {
+      "source": "src/discord/session-channel.ts",
+      "tests": ["src/discord/session-channel.test.ts"],
+      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+    },
+    {
+      "source": "src/discord/bot.ts",
+      "tests": ["src/discord/forum-phase-sync.test.ts", "src/discord/session-channel.test.ts"],
+      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+    },
+    {
       "source": "src/harness/reliability/guidance.ts",
       "tests": [
         "tests/harness-reliability/reliability.test.ts",

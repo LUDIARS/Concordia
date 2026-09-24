@@ -12,6 +12,8 @@ import {
 } from "./forum-system-tag.js";
 import { formatFastMode, formatWorkingBranch, type RuntimeMetadata } from "./runtime-metadata.js";
 import type { WebhookPool } from "./webhook-pool.js";
+import { buildForumThreadTitle, type ForumWorkPhase } from "./forum-title.js";
+export { buildForumThreadTitle } from "./forum-title.js";
 
 export interface ForumSessionSurface {
   forumId: string;
@@ -37,6 +39,7 @@ export interface ForumSessionMetadata extends RuntimeMetadata {
 }
 
 export interface CreateForumSessionInput extends ForumSessionMetadata {
+  workPhase?: ForumWorkPhase;
   projectCode: string;
   summary: string | null;
   fallbackLabel: string;
@@ -87,6 +90,7 @@ export async function createForumSessionThread(
       input.projectCode,
       input.summary ?? input.fallbackLabel,
       input.delegationEmoji,
+      input.workPhase,
     ),
     appliedTags: [waitingTagId, managedTagId],
   });
@@ -116,9 +120,10 @@ export async function updateForumSessionTitle(
   projectCode: string,
   summary: string,
   delegationEmoji?: string | null,
+  workPhase?: ForumWorkPhase,
 ): Promise<string> {
-  const name = buildForumThreadTitle(projectCode, summary, delegationEmoji);
-  await thread.setName(name, "Concordia session title updated");
+  const name = buildForumThreadTitle(projectCode, summary, delegationEmoji, workPhase);
+  if (thread.name !== name) await thread.setName(name, "Concordia session title updated");
   return name;
 }
 
@@ -161,16 +166,6 @@ export function hasForumSessionState(thread: ForumSessionThread, state: ChannelD
   const tagName = SESSION_STATE_TAG_NAMES[state];
   const tagId = forum?.availableTags.find((tag) => tag.name === tagName)?.id;
   return !!tagId && thread.appliedTags.includes(tagId);
-}
-
-export function buildForumThreadTitle(
-  projectCode: string,
-  summary: string,
-  delegationEmoji?: string | null,
-): string {
-  const normalizedSummary = summary.replace(/\s+/g, " ").trim() || "session";
-  const emojiPrefix = delegationEmoji?.trim() ? `${delegationEmoji.trim()} ` : "";
-  return `${emojiPrefix}[${projectCode}] ${normalizedSummary}`.slice(0, 100);
 }
 
 export function buildForumStarterContent(guildId: string, input: ForumSessionMetadata): string {

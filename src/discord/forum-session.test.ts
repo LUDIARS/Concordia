@@ -35,9 +35,9 @@ describe("forum session surfaces", () => {
 
   it("prefixes TaskWorkflow titles with the delegation template emoji", () => {
     expect(buildForumThreadTitle("Cc", "Implement delegation", " 🧭 ")).toBe(
-      "🧭 [Cc] Implement delegation",
+      "🧭 [Cc] [未確認] Implement delegation",
     );
-    expect(buildForumThreadTitle("Cc", "Normal session", null)).toBe("[Cc] Normal session");
+    expect(buildForumThreadTitle("Cc", "Normal session", null)).toBe("[Cc] [未確認] Normal session");
   });
 
   it("uses the delegation emoji when creating and renaming a forum thread", async () => {
@@ -73,22 +73,23 @@ describe("forum session surfaces", () => {
       branch: "fix/delegation-channel-emoji",
       projectCode: "Cc",
       summary: "Implement delegation",
+      workPhase: "implementation",
       fallbackLabel: "session",
       delegationEmoji: "🧭",
       webhookName: "Branch Agent",
       webhookAvatarUrl: "https://example.test/avatar.png",
     });
     expect(createForumThread).toHaveBeenCalledWith("forum-1", expect.objectContaining({
-      threadName: "🧭 [Cc] Implement delegation",
+      threadName: "🧭 [Cc] [実装] Implement delegation",
       username: "Branch Agent",
       avatarURL: "https://example.test/avatar.png",
       appliedTags: ["active-tag", "managed-tag"],
     }));
     expect(result).toEqual(expect.objectContaining({ thread, starterMessageId: "message-1" }));
 
-    await updateForumSessionTitle(thread as any, "Cc", "Review delegation", "🧭");
+    await updateForumSessionTitle(thread as any, "Cc", "Review delegation", "🧭", "adjustment");
     expect(thread.setName).toHaveBeenCalledWith(
-      "🧭 [Cc] Review delegation",
+      "🧭 [Cc] [調整] Review delegation",
       "Concordia session title updated",
     );
   });

@@ -32,6 +32,7 @@ import {
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
+import { forumWorkPhase, type ForumWorkPhase } from "./forum-title.js";
 import {
   buildForumThreadTitle,
   type ForumSessionThread,
@@ -49,6 +50,7 @@ const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
 const RENAME_COOLDOWN_SEC = 5 * 60;
 
 export interface SessionChannelDeps {
+  readWorkPhase?: (sessionId: string) => ForumWorkPhase;
   guild: Guild;
   layout: DiscordConfigSnapshot;
   repo: DiscordSessionChannelsRepo;
@@ -106,6 +108,7 @@ export async function onSessionRegistered(
       const created = await createForumSessionThread(deps.guild, deps.layout.sessionForumId, deps.webhooks, {
         sessionId: input.sessionId,
         repoPath,
+        workPhase: deps.readWorkPhase?.(input.sessionId),
         branch: input.branch ?? null,
         model: input.model ?? null,
         effortLevel: input.effortLevel ?? null,
@@ -651,6 +654,7 @@ export async function onSessionTitleChanged(
         formatProjectCodes(input.projectCodes, input.projectCode),
         input.title,
         row.delegation_emoji,
+        deps.readWorkPhase?.(input.sessionId) ?? forumWorkPhase(thread.name ?? ""),
       );
       deps.repo.setDisplayState(input.sessionId, row.display_state, input.agentType, newBody);
       deps.log.info(`session-forum: title updated for ${input.sessionId} name=${nextName}`);
@@ -766,6 +770,7 @@ export async function onSessionChannelNameLocked(
         projectCode,
         input.name.trim() || "session",
         row.delegation_emoji,
+        deps.readWorkPhase?.(input.sessionId) ?? forumWorkPhase(thread.name ?? ""),
       );
       await thread.setName(lockedName, `session ${input.sessionId} name locked via /ch_name`);
       return { ok: true, name: thread.name };

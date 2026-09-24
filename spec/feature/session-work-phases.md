@@ -17,7 +17,7 @@ UX-CC-W1/W4、UX-CC-S1/S5、CC-INV-01/04/08 に対応する。
 
 Cc がセッション単位の作業段階を所有する。プロセスの active/lost/ended、task の完了、
 Revisor の審査状態とは独立。`sessions.metadata.cc_work_phase` に記録し、既存 DB の
-原子的 metadata 更新を使う。新規テーブル・外部サービス・timer は追加しない。
+原子的 metadata 更新を使う。段階管理自体に新規テーブル・外部サービス・timer は追加しない。
 
 | 段階 | 意味 | 次の行動 |
 |---|---|---|
@@ -62,6 +62,32 @@ Revisor の審査状態とは独立。`sessions.metadata.cc_work_phase` に記�
 更新済み状態を返し、`session.event` の `work_phase_changed` で表示を更新する。
 新規セッションは設計から開始し、既存の未記録セッションは未確認と表示する。
 セッション一覧・チャット作業パネルで段階と設計概要を読める。Discord 状態カードにも段階を表示する。
+
+## Discord スレッド名 (CC-DISCORD-PHASE-TITLE-01)
+
+2026-09-25 neco 承認: `🌟 [Cc] [実装] 作業名` の形式でセッションと
+TaskWorkflow のスレッド名に段階を表示する。価値は UX-CC-W1/W4、シナリオ
+UX-CC-S1/S5、不変条件は CC-INV-01/04/06/08。
+
+- 正本は session-coordination の `readSessionWorkPhase`。chat-platforms は表示と
+  配達のみを所有し、phase・承認・task 状態を書き換えない。
+- 設計/確認/実装/調整/未確認を表示し、repo/branch/task 変更で失効した段階は未確認とする。
+- 作成時、段階・対象変更時、再接続時に最新状態を反映する。手動固定した作業名と
+  project/emoji を保持し、phase prefix を残して全体を100文字以内にする。
+- 同名への変更は送らず、セッションごとの更新を直列化・集約する。失敗を成功として
+  記録しない。表示専用の60秒同期は現在稼働中で当該Botが所有するスレッドだけを対象にする。
+- 同期は段階の自動遷移を行わない。終了・アーカイブ済みスレッドは再開しない。
+  Bot停止時にtimer/購読を解放し、処理中の取得後も停止を確認して新規renameを抑止する。
+- src/discord の純粋なtitle整形とDiscord同期を分離し、対応テストをchat-platformsへ所属させる。
+  復旧は再同期、コードのロールバックは通常の審査・再配備経路を使う。
+- 受入: 全phase、phaseのみの変更、対象変更による未確認、名前固定、文字数上限、
+  同名skip、失敗後再試行、停止後の配達抑止を検証する。
+- 2026-09-25 実装証跡: 基点 `9f376a893883`、人間の「開始する」を開始根拠とする。
+  Pf project `01M1XZZMEXWTFCN4HKW8K7TJKM` のspecsを照会し、本機能の登録仕様なしを確認。
+  この節と既存UXを正本とする。Anatomia where/planでchat-platformsを既存所属として照合。
+- 検証: 関連5ファイルの51テスト成功、backend/Web build成功、差分Anatomia verify全5項目PASS。
+  全体のテスト型検査は既存4件（work-submission-routes、image-inbox、implementation-tools/service、
+  ontime-runtime）で失敗。本変更ファイルの型エラーなし。Discord実機表示と本体反映は審査後に確認する。
 
 ## 調査根拠と検証条件
 

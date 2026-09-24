@@ -60,6 +60,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/session-work-phases.md#discord-スレッド名-cc-discord-phase-title-01",
     "spec/feature/discord-ui.md#テキスト添付の展開",
     "テストフォーラムの操作面 — テスト開始 / マージ",
     "Revisor Test Forum 同期",

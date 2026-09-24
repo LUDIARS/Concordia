@@ -132,6 +132,8 @@ import { callConcordia } from "./commands/_util.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
+import { readSessionWorkPhase } from "../work/session-work-phase.js";
+import { startForumPhaseTitleSync } from "./forum-phase-sync.js";
 import { buildContextReport } from "./context-report.js";
 import { formatContextUsageLine, readContextUsage } from "../cost/context-usage.js";
 import { renderPlanCard } from "./plan-card.js";
@@ -687,6 +689,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
   };
   let costTimer: ReturnType<typeof setInterval> | null = null;
+  let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
+  const readWorkPhase = (sessionId: string) => {
+    const session = deps.sessionsRepo.findSession(sessionId);
+    return session ? readSessionWorkPhase(session).phase : "unknown" as const;
+  };
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
@@ -819,6 +826,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     backgroundTimers.add(timer);
   };
   const clearRuntimeTimers = (): void => {
+    phaseTitleSync?.stop();
+    phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
     backgroundTimers.clear();
     if (costTimer) { clearInterval(costTimer); costTimer = null; }
@@ -1125,7 +1134,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               ),
             };
             await onSessionRegistered({
-              guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
+              guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined, readWorkPhase,
             }, {
               sessionId,
               agentType: state.provider,
@@ -1323,6 +1332,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           ),
       });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
+      phaseTitleSync?.stop();
+      phaseTitleSync = startForumPhaseTitleSync({
+        guild, channels: sessionChannelsRepo, sessions: deps.sessionsRepo, ownsSession, log,
+      });
       deps.onRuntimeState?.({ running: true, status: "ready" });
     } catch (e) {
       const message = (e as Error).message;
@@ -2043,7 +2056,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               ),
             };
             await onSessionRegistered(
-              { guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks },
+              { guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks, readWorkPhase },
               {
                 sessionId,
                 agentType: ev.provider ?? null,
@@ -2437,7 +2450,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // title-suggestion (AI 自動) はチャンネル名を変えない。手動/リアクション rename のみ反映。
         const forceRename = titleEvent.source !== "title-suggestion";
         void onSessionTitleChanged(
-          { guild, layout, repo: sessionChannelsRepo, log },
+          { guild, layout, repo: sessionChannelsRepo, log, readWorkPhase },
           {
             sessionId: ev.session_id,
             title: titleEvent.title,
@@ -2473,7 +2486,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       if (!state || !isActiveDiscordSession(ev.session_id)) return;
       void onSessionTitleChanged(
-        { guild, layout, repo: sessionChannelsRepo, log },
+        { guild, layout, repo: sessionChannelsRepo, log, readWorkPhase },
         {
           sessionId: ev.session_id,
           title: state.currentTask ?? "session",
@@ -2638,7 +2651,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         ),
       };
       await onSessionRegistered(
-        { guild: activeGuild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
+        { guild: activeGuild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined, readWorkPhase },
         {
           sessionId,
           agentType: state?.provider ?? null,

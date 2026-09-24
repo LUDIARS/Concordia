@@ -495,7 +495,7 @@ describe("onSessionTitleChanged forum thread", () => {
     const guild = { channels: { cache: new Map([[row.channel_id, thread]]) } };
 
     await onSessionTitleChanged(
-      { guild: guild as any, layout: {} as any, repo: repo as any, log: { info: vi.fn(), warn: vi.fn() } },
+      { guild: guild as any, layout: {} as any, repo: repo as any, log: { info: vi.fn(), warn: vi.fn() }, readWorkPhase: () => "implementation" },
       {
         sessionId: row.session_id,
         title: "Review delegation",
@@ -505,7 +505,7 @@ describe("onSessionTitleChanged forum thread", () => {
     );
 
     expect(thread.setName).toHaveBeenCalledWith(
-      "🧭 [Cc] Review delegation",
+      "🧭 [Cc] [実装] Review delegation",
       "Concordia session title updated",
     );
   });

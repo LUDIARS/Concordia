@@ -6,17 +6,31 @@ const Binding = z.object({
   project: z.string().min(1),
   projectId: z.string().min(1),
   ownerId: z.string().min(1).refine((id) => id !== "anonymous"),
-  tokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  authMode: z.enum(["bearer", "loopback"]).optional(),
+  tokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
   subsidiaryId: z.string().min(1).nullable().default(null),
   teamId: z.string().min(1).nullable().default(null),
-}).strict();
+}).strict().superRefine((binding, ctx) => {
+  const local = binding.authMode === "loopback";
+  if (local ? binding.tokenEnv !== undefined || binding.ownerId !== "actio-local"
+    || binding.teamId !== null || binding.subsidiaryId !== null : !binding.tokenEnv) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid Actio authentication binding" });
+  }
+});
 
 export type ActioBinding = z.infer<typeof Binding>;
 
 /** Configuration errors must not expose tokens or raw configuration values. */
 export function readActioBindings(env: NodeJS.ProcessEnv = process.env): ActioBinding[] {
   let value: unknown;
-  try { value = JSON.parse(env.CONCORDIA_ACTIO_TASK_BINDINGS ?? ""); }
+  try {
+    if (env.CONCORDIA_ACTIO_TASK_BINDINGS !== undefined) {
+      value = JSON.parse(env.CONCORDIA_ACTIO_TASK_BINDINGS);
+    } else {
+      const config: unknown = JSON.parse(env.EXCUBITOR_SERVICE_CONFIG_JSON ?? "");
+      value = z.object({ actioTaskBindings: z.unknown() }).parse(config).actioTaskBindings;
+    }
+  }
   catch { throw new Error("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON"); }
   const parsed = z.array(Binding).min(1).safeParse(value);
   if (!parsed.success) throw new Error("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");

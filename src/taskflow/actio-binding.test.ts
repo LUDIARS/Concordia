@@ -17,6 +17,28 @@ const env = (bindings: unknown): NodeJS.ProcessEnv =>
   ({ CONCORDIA_ACTIO_TASK_BINDINGS: JSON.stringify(bindings) }) as NodeJS.ProcessEnv;
 
 describe("readActioBindings", () => {
+  const local = { ...HQ, ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
+
+  it("accepts explicit personal loopback identity without manufacturing a bearer token", () => {
+    expect(readActioBindings(env([local]))[0]).toMatchObject({ authMode: "loopback", ownerId: "actio-local" });
+    for (const patch of [{ ownerId: "owner-1" }, { teamId: "team-1" },
+      { subsidiaryId: "sub-1" }, { tokenEnv: "TOKEN" }]) {
+      expect(() => readActioBindings(env([{ ...local, ...patch }]))).toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
+    }
+    expect(() => readActioBindings(env([{ ...HQ, tokenEnv: undefined }]))).toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
+  });
+
+  it("loads encrypted Excubitor runtime bindings, with explicit env taking precedence", () => {
+    const encrypted = { EXCUBITOR_SERVICE_CONFIG_JSON: JSON.stringify({ actioTaskBindings: [local], unrelated: true }) };
+    expect(readActioBindings(encrypted)[0]?.authMode).toBe("loopback");
+    expect(readActioBindings({ ...encrypted, ...env([HQ]) })).toEqual([HQ]);
+    expect(() => readActioBindings({ ...encrypted, CONCORDIA_ACTIO_TASK_BINDINGS: "" }))
+      .toThrow("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON");
+    for (const value of ["{", "null", "[]", "{}", '{"actioTaskBindings":[]}']) {
+      expect(() => readActioBindings({ EXCUBITOR_SERVICE_CONFIG_JSON: value })).toThrow();
+    }
+  });
+
   it("accepts a headquarters binding and defaults the organization to null", () => {
     const [binding] = readActioBindings(env([{
       repoPath: HQ.repoPath, project: HQ.project, projectId: HQ.projectId,

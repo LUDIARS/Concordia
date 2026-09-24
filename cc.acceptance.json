@@ -524,7 +524,7 @@
       "tests": [
         "src/taskflow/actio-binding.test.ts"
       ],
-      "contracts": []
+      "contracts": ["CC-AT-LOCAL-01", "CC-AT-CONFIG-01"]
     },
     {
       "source": "src/taskflow/actio-store.ts",
@@ -545,7 +545,7 @@
       "tests": [
         "src/taskflow/actio-transport.test.ts"
       ],
-      "contracts": []
+      "contracts": ["CC-AT-LOCAL-01", "CC-AT-PORT-01"]
     },
     {
       "source": "src/taskflow/decompose-inject.ts",

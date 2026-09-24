@@ -19,6 +19,50 @@ function json(body: unknown, status = 200): Response {
 const catalog = (service: unknown) => ({ findService: vi.fn(async () => service) }) as never;
 
 describe("ActioTransport", () => {
+  const local: ActioBinding = { ...BINDING, ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
+
+  it("uses the catalog endpoint and validates explicit loopback identity before writing", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "actio-local", localMode: true, access: "loopback" }))
+      .mockResolvedValueOnce(json({ task: { id: "t1" } }));
+    const token = vi.fn();
+    const transport = new ActioTransport(catalog({ ...RUNNING, port: 3000, catalog_snapshot: { port: 17880 } }), token, fetchImpl as never);
+    await transport.request(local, "POST", "/api/tasks", { title: "x" });
+    expect(token).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetchImpl.mock.calls as [string, RequestInit][]) {
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:17880\//);
+      expect(init.headers).not.toHaveProperty("authorization");
+      expect(init.redirect).toBe("error");
+    }
+  });
+
+  it.each([
+    { id: "actio-local" },
+    { id: "actio-local", localMode: true, access: "cf-access" },
+    { id: "actio-local", localMode: false, access: "loopback" },
+    { id: "anonymous", localMode: true, access: "loopback" },
+  ])("denies an unverified local identity before task I/O: %j", async (identity) => {
+    const fetchImpl = vi.fn().mockResolvedValue(json(identity));
+    const transport = new ActioTransport(catalog(RUNNING), () => undefined, fetchImpl as never);
+    await expect(transport.request(local, "POST", "/api/tasks", {})).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mistake local-mode identity for bearer authentication", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(json({ id: "owner-1", localMode: true, access: "loopback" }));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("authentication mode mismatch");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid catalog ports instead of using stale observations", async () => {
+    const fetchImpl = vi.fn();
+    const transport = new ActioTransport(catalog({ ...RUNNING, catalog_snapshot: { port: 0 } }), () => "token", fetchImpl as never);
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("service unavailable");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("verifies the configured owner before running the requested operation", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({ id: "owner-1" }))

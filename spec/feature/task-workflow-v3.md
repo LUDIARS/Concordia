@@ -32,6 +32,39 @@ The service can start without task credentials, but task operations then fail ex
 
 ## Agent contract
 
+### Explicit local deployment
+
+UX-CC-W1/W2/W5 and CC-INV-01/02/03/04 apply: Actio owns task content/status;
+Cc owns execution references and validates repository, project and organization.
+The local adapter must preserve those boundaries even when no bearer credential is used.
+
+Bindings may explicitly select `authMode: "loopback"`, with `ownerId: "actio-local"`,
+no `tokenEnv`, and null team/subsidiary. This is only for headquarters personal tasks
+on the existing Actio local deployment. The adapter uses the catalog port at
+`127.0.0.1`, rejects redirects, and requires `/api/auth/me` to report the configured
+owner, `localMode: true`, and `access: "loopback"` before each task operation.
+Missing bearer credentials never select local authentication automatically.
+Bearer bindings must reject local-mode responses, which do not establish that the
+bearer credential was verified. Subsidiary/team rollout remains separately scoped.
+This authentication contract is `CC-AT-LOCAL-01`.
+
+The existing `CONCORDIA_ACTIO_TASK_BINDINGS` environment setting takes precedence.
+When absent, bindings can be supplied as `actioTaskBindings` in Excubitor's encrypted
+per-service runtime configuration (`EXCUBITOR_SERVICE_CONFIG_JSON`). The value is
+validated using the same binding schema; malformed or empty configuration fails
+explicitly. No tokens, task bodies or machine-specific paths are committed here.
+Changing encrypted runtime configuration requires an authorized Cc restart.
+Configuration precedence and fail-closed validation are `CC-AT-CONFIG-01`.
+The catalog endpoint takes precedence over historical process observations;
+an explicitly invalid catalog port fails rather than selecting an old endpoint
+(`CC-AT-PORT-01`).
+
+Acceptance covers explicit-mode validation, identity/transport mismatch denial,
+catalog-port precedence over stale observations, unchanged bearer requests, and
+post-deployment task create/read/status/idempotency verification. Existing tasks
+are not migrated automatically. Rollback removes the new configuration and stops
+dispatch; it does not re-enable Markdown writes.
+
 - `POST /v1/taskflow/tasks`: `{session_id, request_id: UUID, title, body, kind?, memory_links?, due_at?}`. Returns `reference: actio:<id>` and `repo_path`. Reuse the same request ID for retries; changed content with the same identity is rejected.
 - `GET /v1/taskflow/tasks/content?session_id=...&reference=actio:...`: resolves the requesting session's repository and organization before reading the task. The existing Cc API access boundary remains in force; a session ID is a routing identifier, not a new authentication credential.
 - `PATCH /v1/taskflow/tasks/state`: use the returned `repo_path` and `task_path=actio:<id>`. Actio owns business status; Cc stores execution associations. Organization reassignment through this endpoint is rejected.

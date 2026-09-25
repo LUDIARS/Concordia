@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { choreCommand, choreEnvironment } from "./cli.js";
 describe("one-shot CLI boundary", () => {
-  it("uses native executables and stdin rather than a shell command", () => {
-    expect(choreCommand("claude", "result.txt", "win32")).toEqual({ file: "claude.exe", args: ["-p"] });
+  it("pins requested model and effort while preserving native executables and stdin", () => {
+    expect(choreCommand("claude", "result.txt", "win32")).toEqual({ file: "claude.exe", args: ["-p", "--model", "claude-opus-5-5", "--effort", "medium"] });
     expect(choreCommand("codex", "dir with spaces/result.txt", "win32")).toEqual({ file: "codex.exe",
-      args: ["exec", "--skip-git-repo-check", "--output-last-message", "dir with spaces/result.txt", "-"] });
+      args: ["exec", "--model", "gpt-5.6-terra", "-c", 'model_reasoning_effort="xhigh"', "--skip-git-repo-check", "--output-last-message", "dir with spaces/result.txt", "-"] });
     expect(choreCommand("claude", "result.txt", "darwin").file).toBe("claude");
   });
   it("removes parent coordination identity without mutating the parent", () => {

@@ -5,7 +5,11 @@ import { CHORE_OUTPUT_BYTES, CHORE_TIMEOUT_MS, type Chore } from "./domain.js";
 
 export function choreCommand(provider: Chore["provider"], outputPath: string, platform: NodeJS.Platform): { file: string; args: string[] } {
   const file = platform === "win32" ? `${provider}.exe` : provider;
-  return { file, args: provider === "claude" ? ["-p"] : ["exec", "--skip-git-repo-check", "--output-last-message", outputPath, "-"] };
+  const args = provider === "claude"
+    ? ["-p", "--model", "claude-opus-5-5", "--effort", "medium"]
+    : ["exec", "--model", "gpt-5.6-terra", "-c", 'model_reasoning_effort="xhigh"',
+      "--skip-git-repo-check", "--output-last-message", outputPath, "-"];
+  return { file, args };
 }
 export function choreEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...source };

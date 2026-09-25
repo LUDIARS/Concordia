@@ -36,6 +36,9 @@ UX-CC-W2/W4/W5、UX-CC-S2/S3/S5。失うと困る状態は元の依頼、作業�
 - 実行結果を保存してからDiscord配達。配達失敗は実行を取り消さず再送可能。
   保存したメッセージIDとnonceで重複を抑える。保証は厳密なexactly-onceではない。
   Discordが停止してもWebから結果を読める。結果本文はツール出力として扱い、メンションを抑止する。
+- ワンショットのClaudeは `--model claude-opus-5-5 --effort medium`、Codexは
+  `--model gpt-5.6-terra -c model_reasoning_effort="xhigh"` を明示する。
+  CLI既定モデルや既定effortに依存しない。2026-09-25 necoのmid指定はmediumに対応する。
 - CLI子プロセスは専用cwd・shellなし・UTF-8 stdin/stdoutで実行。親のCc/Lictor識別環境を引き継がない。
   既存CLI権限を使用し、permission bypassフラグを追加しない。
   通常停止は受付停止、実行abort、close待ち、結果保存を経てDBを閉じる。

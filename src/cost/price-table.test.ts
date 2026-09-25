@@ -2,6 +2,12 @@ import { describe, it, expect } from "vitest";
 import { priceForModel } from "./price-table.js";
 
 describe("priceForModel", () => {
+  it("Opus 5.5 は $4/$20 (Opus 5 より安い)", () => {
+    expect(priceForModel("claude-opus-5-5")).toEqual({ inputPerMtok: 4, outputPerMtok: 20 });
+  });
+  it("Opus 5 は $5/$25 (5.5 の規則に引っ張られない)", () => {
+    expect(priceForModel("claude-opus-5")).toEqual({ inputPerMtok: 5, outputPerMtok: 25 });
+  });
   it("current Opus (4.5〜4.8) は $5/$25", () => {
     for (const m of ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5"]) {
       expect(priceForModel(m)).toEqual({ inputPerMtok: 5, outputPerMtok: 25 });

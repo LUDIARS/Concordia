@@ -996,6 +996,11 @@
       "source": "src/discord/webhook-identity.ts",
       "tests": ["src/discord/webhook-identity.test.ts"],
       "contracts": []
+    },
+    {
+      "source": "src/cost/price-table.ts",
+      "tests": ["src/cost/price-table.test.ts"],
+      "contracts": []
     }
   ]
 }

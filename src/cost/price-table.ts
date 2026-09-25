@@ -9,7 +9,8 @@
  * 合算するのは session-cost.ts、 表示は status-card / report 側。
  *
  * 価格根拠 (2026-06 時点, claude-api skill / platform.claude.com):
- *   Fable 5     $10 / $50      Opus 4.x   $5 / $25      Sonnet 5/4.x $3 / $15
+ *   Fable 5     $10 / $50      Opus 5.5   $4 / $20      Opus 5 / 4.x $5 / $25
+ *   Sonnet 5/4.x $3 / $15
  *   Haiku 4.5   $1  / $5
  * Codex / GPT 等 Claude 以外は権威ある単価を持たないため **意図的に未登録**。
  * 未登録モデルは session-cost 側で「未価格トークン」として加算し、 USD には
@@ -37,6 +38,10 @@ export const CACHE_WRITE_1H_MULTIPLIER = 2.0;
  */
 const TABLE: Array<readonly [RegExp, ModelPrice]> = [
   [/fable-5|mythos-5|mythos-preview/, { inputPerMtok: 10, outputPerMtok: 50 }],
+  // Opus 5.5 は Opus 5 より安い $4/$20。 "opus-5" にもマッチするため先に置く。
+  [/opus-5-5/, { inputPerMtok: 4, outputPerMtok: 20 }],
+  // Opus 5 は $5/$25 (Opus 4.5〜4.8 と同額)。
+  [/opus-5/, { inputPerMtok: 5, outputPerMtok: 25 }],
   // current Opus (4.5〜4.8) は 1M ctx を long-context 割増なしの $5/$25。
   [/opus-4-(5|6|7|8)/, { inputPerMtok: 5, outputPerMtok: 25 }],
   // legacy Opus (4 / 4.1 / 3) は $15/$75。

@@ -89,21 +89,21 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("claude-opus-4-8-impl")).toBeNull();
     const opus5 = repo.findTemplateByCallName("opus-mid");
     expect(opus5?.is_active).toBe(1);
-    expect(opus5?.model).toBe("claude-opus-5");
+    expect(opus5?.model).toBe("claude-opus-5-5");
   });
 
-  it("uses Opus 5 across implementation profiles, analysis, and review delegations", () => {
+  it("uses Opus 5.5 across implementation profiles, analysis, and review delegations", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
     for (const callName of ["opus-mid", "opus-xhigh"]) {
-      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5");
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5-5");
     }
-    expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5");
+    expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5-5");
 
     for (const callName of ["review-duo", "ludiars-review-daily-dual"]) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
-      expect(prompt).toContain("claude-opus-5");
+      expect(prompt).toContain("claude-opus-5-5");
       expect(prompt).not.toContain("claude-opus-4-8");
     }
   });
@@ -424,13 +424,13 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("opus-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
     });
     expect(JSON.parse(repo.findTemplateByCallName("opus-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
     expect(repo.findTemplateByCallName("opus-mid")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
     });
     expect(JSON.parse(repo.findTemplateByCallName("opus-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     expect(repo.findTemplateByCallName("fable-xhigh")).toMatchObject({
@@ -473,7 +473,7 @@ describe("seedDelegationTemplates", () => {
 
     const duo = repo.findTemplateByCallName("review-duo");
     expect(duo?.is_active).toBe(1);
-    expect(duo?.prompt_template).toContain("claude-opus-5");
+    expect(duo?.prompt_template).toContain("claude-opus-5-5");
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
     expect(duo?.prompt_template).toContain("gpt-5.6-sol");
     expect(duo?.prompt_template).toContain("xhigh");

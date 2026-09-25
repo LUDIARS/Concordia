@@ -8,7 +8,7 @@ describe("seedModelCatalog", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     seedModelCatalog(repo);
     const ids = repo.list().map((m) => m.model_id);
-    expect(ids).toContain("claude-opus-5");
+    expect(ids).toContain("claude-opus-5-5");
     expect(ids).toContain("claude-sonnet-5");
     expect(ids).toContain("claude-fable-5-1");
   });
@@ -21,7 +21,7 @@ describe("seedModelCatalog", () => {
 
     const ids = repo.list({ includeInactive: true }).map((m) => m.model_id);
     expect(ids).toContain("custom-model");
-    expect(ids).toContain("claude-opus-5");
+    expect(ids).toContain("claude-opus-5-5");
     expect(ids).toContain("claude-sonnet-5");
     expect(ids).toContain("claude-fable-5-1");
     // 新規公開モデルは既存 catalog (= 稼働中の DB) にも届く必要がある。
@@ -29,20 +29,25 @@ describe("seedModelCatalog", () => {
     expect(ids).not.toContain("claude-opus-4-8");
   });
 
-  it("deactivates an existing Opus 4.8 row when adding Opus 5", () => {
+  it("deactivates existing Opus 5 / 4.8 rows when adding Opus 5.5", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
-    repo.create({ provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 10 });
+    repo.create({ provider: "claude", model_id: "claude-opus-5", label: "Opus 5", sort_order: 10 });
+    repo.create({ provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 90 });
 
     seedModelCatalog(repo);
 
     const rows = repo.list({ includeInactive: true });
-    expect(rows.find((m) => m.model_id === "claude-opus-5")).toMatchObject({
-      label: "Opus 5",
+    expect(rows.find((m) => m.model_id === "claude-opus-5-5")).toMatchObject({
+      label: "Opus 5.5",
       sort_order: 10,
       is_active: 1,
     });
-    expect(rows.find((m) => m.model_id === "claude-opus-4-8")).toMatchObject({
+    expect(rows.find((m) => m.model_id === "claude-opus-5")).toMatchObject({
       sort_order: 90,
+      is_active: 0,
+    });
+    expect(rows.find((m) => m.model_id === "claude-opus-4-8")).toMatchObject({
+      sort_order: 91,
       is_active: 0,
     });
   });

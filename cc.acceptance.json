@@ -981,6 +981,21 @@
       "contracts": [
         "CC-WORKTREE-META-01"
       ]
+    },
+    {
+      "source": "src/model-catalog/seed.ts",
+      "tests": ["src/model-catalog/seed.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/seed.ts",
+      "tests": ["src/delegation/seed.test.ts", "tests/delegation-regression.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/webhook-identity.ts",
+      "tests": ["src/discord/webhook-identity.test.ts"],
+      "contracts": []
     }
   ]
 }

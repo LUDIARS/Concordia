@@ -328,7 +328,7 @@ export const DAILY_REVIEW_RECONCILIATION_PROMPT = [
   "   理由 `range_reversed` を添えて skip/no_change として記録し、 レビュアーには一切投げない。",
   "3. リポごとに REVIEW-PROMPTS.md §1 の入力を一時 worktree だけから構築する。 §3 のプロンプトは",
   "   Cc `sol-xhigh` Delegation (`codex` / Windows native ターミナル)、 §4 のプロンプトは",
-  "   `claude -p --model claude-opus-5` で起動する (互いの所見は見せない)。",
+  "   `claude -p --model claude-opus-5-5` で起動する (互いの所見は見せない)。",
   "4. §5 の突合ルールで機械マージする: file:line 実在検証 → ±5 行一致判定。",
   "   High 以上も外部 Issue 化せず、 ローカル findings に記録する。",
   "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し、 `latest.json` の `head` を",

@@ -3,28 +3,52 @@
   "implementations": [
     {
       "source": "src/discord/forum-title.ts",
-      "tests": ["src/discord/forum-title.test.ts"],
-      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+      "tests": [
+        "src/discord/forum-title.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-PHASE-TITLE-01"
+      ]
     },
     {
       "source": "src/discord/forum-phase-sync.ts",
-      "tests": ["src/discord/forum-phase-sync.test.ts"],
-      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+      "tests": [
+        "src/discord/forum-phase-sync.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-PHASE-TITLE-01"
+      ]
     },
     {
       "source": "src/discord/forum-session.ts",
-      "tests": ["src/discord/forum-session.test.ts"],
-      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+      "tests": [
+        "src/discord/forum-session.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-PHASE-TITLE-01"
+      ]
     },
     {
       "source": "src/discord/session-channel.ts",
-      "tests": ["src/discord/session-channel.test.ts"],
-      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+      "tests": [
+        "src/discord/session-channel.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-PHASE-TITLE-01"
+      ]
     },
     {
       "source": "src/discord/bot.ts",
-      "tests": ["src/discord/forum-phase-sync.test.ts", "src/discord/session-channel.test.ts"],
-      "contracts": ["CC-DISCORD-PHASE-TITLE-01"]
+      "tests": [
+        "src/discord/forum-phase-sync.test.ts",
+        "src/discord/session-channel.test.ts",
+        "src/discord/chores.test.ts",
+        "tests/chores-wiring.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-PHASE-TITLE-01",
+        "CC-CHORES-01"
+      ]
     },
     {
       "source": "src/harness/reliability/guidance.ts",
@@ -177,16 +201,24 @@
       "source": "src/api/register-core.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
-        "tests/harness-reliability/conflux.test.ts"
+        "tests/harness-reliability/conflux.test.ts",
+        "src/api/chores.test.ts",
+        "tests/chores-wiring.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-CHORES-01"
+      ]
     },
     {
       "source": "src/bootstrap/core.ts",
       "tests": [
-        "tests/harness-reliability/task-branch.test.ts"
+        "tests/harness-reliability/task-branch.test.ts",
+        "src/chores/runtime.test.ts",
+        "tests/chores-wiring.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-CHORES-01"
+      ]
     },
     {
       "source": "src/harness/reliability/hook-service.ts",
@@ -550,7 +582,10 @@
       "tests": [
         "src/taskflow/actio-binding.test.ts"
       ],
-      "contracts": ["CC-AT-LOCAL-01", "CC-AT-CONFIG-01"]
+      "contracts": [
+        "CC-AT-LOCAL-01",
+        "CC-AT-CONFIG-01"
+      ]
     },
     {
       "source": "src/taskflow/actio-store.ts",
@@ -571,7 +606,10 @@
       "tests": [
         "src/taskflow/actio-transport.test.ts"
       ],
-      "contracts": ["CC-AT-LOCAL-01", "CC-AT-PORT-01"]
+      "contracts": [
+        "CC-AT-LOCAL-01",
+        "CC-AT-PORT-01"
+      ]
     },
     {
       "source": "src/taskflow/decompose-inject.ts",
@@ -611,13 +649,22 @@
     },
     {
       "source": "src/taskflow/failure.ts",
-      "tests": ["src/taskflow/failure.test.ts"],
-      "contracts": ["CC-TF-DIAG-01"]
+      "tests": [
+        "src/taskflow/failure.test.ts"
+      ],
+      "contracts": [
+        "CC-TF-DIAG-01"
+      ]
     },
     {
       "source": "src/taskflow/goal-machine.ts",
-      "tests": ["src/taskflow/goal-machine.test.ts", "src/taskflow/runtime-failure.test.ts"],
-      "contracts": ["CC-TF-DIAG-01"]
+      "tests": [
+        "src/taskflow/goal-machine.test.ts",
+        "src/taskflow/runtime-failure.test.ts"
+      ],
+      "contracts": [
+        "CC-TF-DIAG-01"
+      ]
     },
     {
       "source": "src/taskflow/state-store.ts",
@@ -755,6 +802,88 @@
       ],
       "contracts": [
         "CC-HOOK-04"
+      ]
+    },
+    {
+      "source": "src/chores/domain.ts",
+      "tests": [
+        "src/chores/domain.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/chores/repository.ts",
+      "tests": [
+        "src/chores/service.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/chores/service.ts",
+      "tests": [
+        "src/chores/service.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/chores/cli.ts",
+      "tests": [
+        "src/chores/cli.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/chores/runtime.ts",
+      "tests": [
+        "src/chores/runtime.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/api/chores.ts",
+      "tests": [
+        "src/api/chores.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/discord/chores.ts",
+      "tests": [
+        "src/discord/chores.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/Chores.tsx",
+      "tests": [
+        "web/src/pages/Chores.test.tsx"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "web/src/App.tsx",
+      "tests": [
+        "web/src/pages/Chores.test.tsx",
+        "tests/chores-wiring.test.ts"
+      ],
+      "contracts": [
+        "CC-CHORES-01"
       ]
     }
   ]

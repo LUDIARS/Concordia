@@ -2,6 +2,7 @@ import { Route, Routes, useMatch } from "react-router-dom";
 import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
+import { Chores } from "./pages/Chores.js";
 import { SessionChat } from "./pages/session-chat/SessionChat.js";
 import { SessionLogs as SessionLogDetail } from "./pages/session-logs/SessionLogs.js";
 import { Sessions } from "./pages/Sessions.js";
@@ -33,6 +34,7 @@ const NAV: NavItem[] = [
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
+  { to: "/chores", label: "雑務", section: "チーム" },
   { to: "/director", label: "Director", section: "チーム" },
   { to: "/taskflow", label: "Taskflow", section: "チーム" },
   { to: "/staff", label: "社員", section: "チーム" },
@@ -73,6 +75,7 @@ export function App() {
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/work" element={<Work />} />
+          <Route path="/chores" element={<Chores />} />
           <Route path="/director" element={<Director />} />
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />

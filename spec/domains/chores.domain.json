@@ -1,0 +1,14 @@
+{
+  "name": "chores",
+  "description": "雑務の受付・ワンショット実行・成果確認・継続への引渡し。agent-delegationの下位責務。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/chores/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/chores(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/chores(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/Chores(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)tests/chores-wiring\\.test\\.ts$" }
+  ],
+  "specRefs": ["spec/feature/chores.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+}

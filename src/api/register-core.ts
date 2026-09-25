@@ -1,4 +1,6 @@
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
+import { choresRouter } from "./chores.js";
+import type { ChoresService } from "../chores/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
@@ -262,6 +264,7 @@ export interface CoreDelegationDeps {
 }
 
 export interface CoreRuntimeDeps {
+  chores?: ChoresService;
   adminState: AdminState;
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
@@ -314,6 +317,7 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  if (deps.chores) app.route("/v1/chores", choresRouter(deps.chores));
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
   if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));

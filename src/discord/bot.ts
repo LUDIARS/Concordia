@@ -1,5 +1,6 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
+import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -690,6 +691,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
+  let choresDiscord: ChoresDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
     const session = deps.sessionsRepo.findSession(sessionId);
     return session ? readSessionWorkPhase(session).phase : "unknown" as const;
@@ -826,6 +828,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     backgroundTimers.add(timer);
   };
   const clearRuntimeTimers = (): void => {
+    choresDiscord?.stopChores();
+    choresDiscord = null;
     phaseTitleSync?.stop();
     phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
@@ -862,6 +866,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      if (!subsidiaryId) {
+        choresDiscord?.stopChores();
+        choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
+          baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
+      }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
       const teams = teamsRepo.listForSubsidiary(subsidiaryId);
       for (const team of teams) {
@@ -1353,6 +1362,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    if (choresDiscord?.handlesMessage(msg)) {
+      void choresDiscord.message(msg).catch((error) => log.warn(`chores message failed: ${String(error)}`));
+      return;
+    }
     void (async () => {
       // Test Forum スレッドへの人間の投稿はテストセッションの起動/指示。
       // 通常の ingress (セッションチャンネル/受付) より先に判定し、 対象なら委ねない。
@@ -1798,6 +1811,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // already been acknowledged」/「Unknown interaction」になる。 また子会社 guild の
     // /spawn を本社 runtime が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
+    if (choresDiscord?.handlesInteraction(interaction)) {
+      void choresDiscord.interaction(interaction).catch((error) => log.warn(`chores interaction failed: ${String(error)}`));
+      return;
+    }
     if (pushWarning?.handles(interaction)) {
       void pushWarning.handle(interaction).catch(() => log.warn("push warning interaction failed"));
       return;

@@ -1,4 +1,5 @@
 // @spec ハーネス信頼性の実装境界
+import { createChoresRuntime } from "../chores/runtime.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
@@ -1664,7 +1665,9 @@ export async function startBackend(): Promise<BackendHandle> {
     };
   };
 
+  const choresRuntime = createChoresRuntime(db, () => adminState.getWorkspaceRoot(), isCostBlocked);
   const app = buildApp({
+    chores: choresRuntime.service,
     repo,
     controlJobs,
     metrics: metricsStore,
@@ -2518,6 +2521,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("nightly vacuum", () => nightlyVacuum.stop());
   resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
+  resources.own("chores", () => choresRuntime.stop());
   resources.own("post-listen handles", () => {
     for (const handle of postListenHandles.splice(0).reverse()) {
       try { handle.stop(); }

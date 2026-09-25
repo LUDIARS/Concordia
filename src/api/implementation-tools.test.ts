@@ -20,3 +20,25 @@ it("requests policy refresh only after a successful implementation bind", async 
   expect((await request()).status).toBe(409);
   expect(refresh).toHaveBeenCalledTimes(1);
 });
+
+it("validates worktree requests and refreshes session policy only after completion", async () => {
+  const createWorktree = vi.fn().mockResolvedValue({ ok: true, cwd: "worktree" });
+  const refresh = vi.fn();
+  const app = implementationToolsRouter({
+    tools: { createWorktree } as unknown as ImplementationToolsService, requestPolicyRefresh: refresh,
+  });
+  const body = { session_id: "own", project_code: "El", branch: "feat/new", task: "dictionary" };
+  const request = (value: unknown) => app.request("/worktree", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value),
+  });
+  expect((await request({ ...body, cwd: "arbitrary" })).status).toBe(400);
+  expect(createWorktree).not.toHaveBeenCalled();
+  expect((await request(body)).status).toBe(200);
+  expect(createWorktree).toHaveBeenCalledWith({ sessionId: "own", projectCode: "El", branch: "feat/new", task: "dictionary" });
+  expect(refresh).toHaveBeenCalledWith("own");
+  createWorktree.mockRejectedValue(new Error("private path or token"));
+  const failed = await request(body);
+  expect(failed.status).toBe(409);
+  expect(await failed.text()).not.toContain("private path or token");
+  expect(refresh).toHaveBeenCalledTimes(1);
+});

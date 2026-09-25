@@ -42,6 +42,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { concordiaBaseUrl } from "../config/service-urls.js";
 import { registerSettingsTools } from "./settings-tools.js";
+import { registerWorktreeTools } from "./worktree-tools.js";
 
 interface CallResult {
   ok: boolean;
@@ -111,6 +112,7 @@ export function buildCoreServer(): McpServer {
     { capabilities: { tools: {} } },
   );
   registerSettingsTools(server, callConcordia);
+  registerWorktreeTools(server, callConcordia);
 
   server.registerTool(
     "concordia_list_sessions",

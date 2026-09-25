@@ -2,6 +2,16 @@
   "version": 1,
   "implementations": [
     {
+      "source": "src/config/settings/definitions/platform.ts",
+      "tests": ["src/config/settings/coverage.test.ts", "src/config/settings/registry.test.ts"],
+      "contracts": ["CC-AT-CONFIG-01", "CC-WORKTREE-01"]
+    },
+    {
+      "source": "src/implementation-tools/worktree-context.ts",
+      "tests": ["src/implementation-tools/worktree.test.ts"],
+      "contracts": ["CC-WORKTREE-01"]
+    },
+    {
       "source": "src/discord/forum-title.ts",
       "tests": [
         "src/discord/forum-title.test.ts"
@@ -214,10 +224,13 @@
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
         "src/chores/runtime.test.ts",
-        "tests/chores-wiring.test.ts"
+        "tests/chores-wiring.test.ts",
+        "src/taskflow/actio-project-binding.test.ts",
+        "src/implementation-tools/worktree.test.ts"
       ],
       "contracts": [
-        "CC-CHORES-01"
+        "CC-CHORES-01",
+        "CC-AT-DISCOVERY-01"
       ]
     },
     {
@@ -248,9 +261,12 @@
       "source": "src/control/spawn-target.ts",
       "tests": [
         "src/control/spawn-target.test.ts",
-        "tests/admin-api.test.ts"
+        "tests/admin-api.test.ts",
+        "src/implementation-tools/worktree.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
     },
     {
       "source": "src/harness/reliability/task-branch-submission.ts",
@@ -364,15 +380,20 @@
         "src/api/work-submission-routes.test.ts",
         "src/api/implementation-tools.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
     },
     {
       "source": "src/implementation-tools/service.ts",
       "tests": [
         "src/implementation-tools/service.test.ts",
-        "src/api/work-submission-routes.test.ts"
+        "src/api/work-submission-routes.test.ts",
+        "src/implementation-tools/worktree.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
     },
     {
       "source": "src/config/settings/definitions/core.ts",
@@ -435,7 +456,9 @@
         "src/config/settings/coverage.test.ts",
         "src/config/settings/registry.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
     },
     {
       "source": "src/control/collaboration-context.ts",
@@ -584,15 +607,19 @@
       ],
       "contracts": [
         "CC-AT-LOCAL-01",
-        "CC-AT-CONFIG-01"
+        "CC-AT-CONFIG-01",
+        "CC-AT-DISCOVERY-01"
       ]
     },
     {
       "source": "src/taskflow/actio-store.ts",
       "tests": [
-        "src/taskflow/actio-store.test.ts"
+        "src/taskflow/actio-store.test.ts",
+        "src/taskflow/actio-project-binding.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
     },
     {
       "source": "src/taskflow/actio-task-client.ts",
@@ -604,11 +631,13 @@
     {
       "source": "src/taskflow/actio-transport.ts",
       "tests": [
-        "src/taskflow/actio-transport.test.ts"
+        "src/taskflow/actio-transport.test.ts",
+        "src/taskflow/actio-projects.test.ts"
       ],
       "contracts": [
         "CC-AT-LOCAL-01",
-        "CC-AT-PORT-01"
+        "CC-AT-PORT-01",
+        "CC-AT-DISCOVERY-01"
       ]
     },
     {
@@ -653,7 +682,8 @@
         "src/taskflow/failure.test.ts"
       ],
       "contracts": [
-        "CC-TF-DIAG-01"
+        "CC-TF-DIAG-01",
+        "CC-AT-DISCOVERY-01"
       ]
     },
     {
@@ -884,6 +914,72 @@
       ],
       "contracts": [
         "CC-CHORES-01"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-project-binding.ts",
+      "tests": [
+        "src/taskflow/actio-project-binding.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-projects.ts",
+      "tests": [
+        "src/taskflow/actio-projects.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
+    },
+    {
+      "source": "src/implementation-tools/worktree.ts",
+      "tests": [
+        "src/implementation-tools/worktree.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
+    },
+    {
+      "source": "src/implementation-tools/worktree-git.ts",
+      "tests": [
+        "src/implementation-tools/worktree.test.ts",
+        "src/implementation-tools/worktree-metadata.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
+    },
+    {
+      "source": "src/mcp/worktree-tools.ts",
+      "tests": [
+        "src/mcp/worktree-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
+    },
+    {
+      "source": "src/mcp/core-server.ts",
+      "tests": [
+        "tests/mcp-core-server.test.ts",
+        "src/mcp/worktree-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
+    },
+    {
+      "source": "src/implementation-tools/worktree-metadata.ts",
+      "tests": [
+        "src/implementation-tools/worktree-metadata.test.ts",
+        "src/implementation-tools/worktree.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-META-01"
       ]
     }
   ]

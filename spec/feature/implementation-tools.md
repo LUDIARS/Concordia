@@ -23,6 +23,7 @@ updated: 2026-08-06
 | Method | Path | Body | Effect |
 |---|---|---|---|
 | POST | `/v1/implementation-tools/bind` | `{session_id,cwd,task}` | gitを一度検査し、repo/origin/branch/project codeを解決してsession bindingを更新。 |
+| POST | `/v1/implementation-tools/worktree` | `{session_id,project_code,branch,task}` | Actio登録を照合し、main起点のworktree・ignored情報・session bindingを一要求で準備する。詳細は[worktree契約](implementation-worktree.md)。 |
 | POST | `/v1/implementation-tools/service` | `{session_id,service_code,action,note?}` | testing claim、Excubitor control、releaseを一要求で実行。 |
 | POST | `/v1/implementation-tools/review` | `{session_id}` | local PRを提出。既存PRがfailed/action_requiredならretry。 |
 

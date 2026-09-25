@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { ImplementationToolsService } from "./service.js";
 
-const { inspectImplementationRepo, isWithinWorkspace } = vi.hoisted(() => ({
+const { inspectImplementationRepo, isWithinWorkspace, mainRepositoryKey } = vi.hoisted(() => ({
   inspectImplementationRepo: vi.fn(),
   isWithinWorkspace: vi.fn(),
+  mainRepositoryKey: vi.fn(),
 }));
 
 vi.mock("./repo-context.js", () => ({ inspectImplementationRepo, isWithinWorkspace }));
+vi.mock("../taskflow/repository-identity.js", () => ({ mainRepositoryKey }));
 
 const row: ProjectCodeRow = {
   code: "Cc",
@@ -25,6 +27,7 @@ describe("ImplementationToolsService project-code binding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isWithinWorkspace.mockResolvedValue(true);
+    mainRepositoryKey.mockResolvedValue(row.repo_path);
     inspectImplementationRepo.mockResolvedValue({
       repoPath: row.repo_path,
       repoOrigin: row.repo_origin,
@@ -54,6 +57,7 @@ describe("ImplementationToolsService project-code binding", () => {
       excubitor: {} as never,
       submitLocalPr: vi.fn(),
       projectCodes: { list: () => rows } as never,
+      work: {} as never,
       resolveWorkspaceRoots: () => ["E:/Document/Ars"],
     });
 
@@ -83,5 +87,11 @@ describe("ImplementationToolsService project-code binding", () => {
     expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       kind: "implementation.tool.bind",
     }));
+    // Repository names are not identities: a linked checkout can have any directory name.
+    inspectImplementationRepo.mockResolvedValueOnce({
+      repoPath: "E:/Document/Ars/renamed-checkout", repoOrigin: row.repo_origin, branch: "feat/new",
+    });
+    await expect(service.bind({ sessionId: "session-1", cwd: "E:/Document/Ars/renamed-checkout", task: "next" }))
+      .resolves.toMatchObject({ project_code: "Cc", branch: "feat/new" });
   });
 });

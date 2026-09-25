@@ -16,7 +16,8 @@
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/discord/(bot|commands)\\.ts$" },
     { "pathPattern": "(^|/)src/discord/(forum-project-code|project-code-view|commands/project-code|commands/projects)(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/implementation-tools/service(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/implementation-tools/(service|worktree[^/]*)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/mcp/worktree-tools(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/revisor-repository-client(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/project-codes(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/api\\.ts$" },
@@ -35,6 +36,6 @@
     "revisor-workflow-round-trip",
     "project-notification-preference-management"
   ],
-  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md"],
+  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md", "spec/feature/implementation-worktree.md"],
   "rationale": "project code は session binding、Discord forum、title 推定へ横断配信されるため、静的文書の複製ではなく Cc DB の単一正本として変更理由をまとめる。"
 }

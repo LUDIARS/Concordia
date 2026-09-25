@@ -34,7 +34,7 @@ describe("readActioBindings", () => {
     expect(readActioBindings({ ...encrypted, ...env([HQ]) })).toEqual([HQ]);
     expect(() => readActioBindings({ ...encrypted, CONCORDIA_ACTIO_TASK_BINDINGS: "" }))
       .toThrow("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON");
-    for (const value of ["{", "null", "[]", "{}", '{"actioTaskBindings":[]}']) {
+    for (const value of ["{", "null", "[]"]) {
       expect(() => readActioBindings({ EXCUBITOR_SERVICE_CONFIG_JSON: value })).toThrow();
     }
   });
@@ -48,15 +48,16 @@ describe("readActioBindings", () => {
     expect(binding).toEqual(HQ);
   });
 
-  it("treats a missing or unparsable value as a configuration error", () => {
-    expect(() => readActioBindings({} as NodeJS.ProcessEnv))
-      .toThrow("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON");
+  it("allows absent or empty bindings for discovery but rejects malformed explicit configuration", () => {
+    expect(readActioBindings({})).toEqual([]);
+    expect(readActioBindings(env([]))).toEqual([]);
+    expect(readActioBindings({ EXCUBITOR_SERVICE_CONFIG_JSON: "{}" })).toEqual([]);
+    expect(readActioBindings({ EXCUBITOR_SERVICE_CONFIG_JSON: '{"actioTaskBindings":[]}' })).toEqual([]);
     expect(() => readActioBindings({ CONCORDIA_ACTIO_TASK_BINDINGS: "{" } as NodeJS.ProcessEnv))
       .toThrow("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON");
   });
 
-  it("rejects an empty list, unknown keys and an anonymous owner", () => {
-    expect(() => readActioBindings(env([]))).toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
+  it("rejects unknown keys and an anonymous owner", () => {
     expect(() => readActioBindings(env([{ ...HQ, extra: 1 }]))).toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
     expect(() => readActioBindings(env([{ ...HQ, ownerId: "anonymous" }])))
       .toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");

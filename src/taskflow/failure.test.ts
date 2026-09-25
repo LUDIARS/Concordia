@@ -5,6 +5,8 @@ describe("safe taskflow failure descriptions", () => {
   it.each([
     ["CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON", "actio_configuration_invalid", 503],
     ["Actio task project binding missing or ambiguous", "actio_binding_invalid", 503],
+    ["Actio project registration is ambiguous", "actio_project_ambiguous", 503],
+    ["Invalid Actio project list response", "actio_response_invalid", 502],
     ["Actio task ownership mismatch", "actio_scope_denied", 403],
     ["Actio task request identity reused with different content", "task_identity_conflict", 409],
     ["Actio task request outcome unknown; reconcile using the same task identity", "actio_outcome_unknown", 503],

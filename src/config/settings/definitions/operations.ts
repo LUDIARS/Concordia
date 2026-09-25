@@ -114,7 +114,7 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
     label: "Actio タスク投入先バインディング",
     description:
       "リポジトリごとの Actio 投入先 (repoPath / project / projectId / ownerId / tokenEnv / "
-      + "subsidiaryId / teamId) の JSON 配列。 未設定だと Actio へのタスク登録ができない。 変更には再起動が要る。",
+      + "subsidiaryId / teamId) の JSON 配列。 本社のローカル個人運用は Actio 登録から自動解決するため省略可能。 明示設定の変更には再起動が要る。",
     kind: "secret",
     envName: "CONCORDIA_ACTIO_TASK_BINDINGS",
     dbKey: null,

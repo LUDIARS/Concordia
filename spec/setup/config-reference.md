@@ -42,6 +42,15 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 - サービス cwd 直下の `.env` (起動時 `src/server.ts:loadDotEnv()` が読む。 `#` 始まりはコメント、 `KEY=VALUE`、 既存の `process.env` が優先)
 - プロセス起動者が直接渡す環境変数 (systemd / Start-Process など)。 `.env` より優先される (loadDotEnv は `process.env[key] === undefined` のときだけ代入する)
 
+### 管理プロセスから注入する作業ツール接続情報
+
+`CC-AT-CONFIG-01` / `CC-WORKTREE-01`: 次の値も設定レジストリに定義し、設定カバレッジ検査の対象とする。いずれも既定値なし・環境変数専用で、Ccの汎用設定更新からは変更できない。
+
+| env | レジストリキー | 所有者・表示の扱い |
+|-----|----------------|------------------|
+| `EXCUBITOR_SERVICE_CONFIG_JSON` | `services.excubitor_runtime_config` | Excubitorが注入する実行時設定。Actio bindingの読取元。秘匿値を含むため `secret` とし、APIは設定有無のみ返す。JSON本文を一覧へ表示しない。 |
+| `LICTOR_PORT` | `services.lictor_sidecar_port` | LictorがMCP等の子プロセスへ渡す、そのセッション専用sidecarのポート。未設定時に固定ポートへフォールバックしない。Cc本体で未設定でも異常ではない。 |
+
 ---
 
 ## 1. コア (本体起動)

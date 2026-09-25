@@ -7,6 +7,10 @@ import { createProjectResolver } from "../projects/project-resolver.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
 import type { WorkSubmissionService } from "../work-submission/service.js";
+import type { ActioBinding } from "../taskflow/actio-binding.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { createImplementationWorktree, type CreateWorktreeInput } from "./worktree.js";
+import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import {
   EXPLICIT_WORKING_BRANCH_METADATA_KEY,
   isWorkspaceRootCwd,
@@ -27,11 +31,22 @@ export interface ImplementationToolsDeps {
   /** 作業成果の commit / 経路判定。 提出の分岐はここ 1 箇所が正本 (spec/feature/work-submission.md) */
   work: WorkSubmissionService;
   resolveWorkspaceRoots: () => string[];
+  resolveActioBinding?: (repo: string, subsidiaryId: string | null) => Promise<ActioBinding>;
 }
 
 /** Stateless fast paths over existing Cc / Ex / Revisor state owners. */
 export class ImplementationToolsService {
   constructor(private readonly deps: ImplementationToolsDeps) {}
+
+  async createWorktree(input: CreateWorktreeInput) {
+    const session = this.requireSession(input.sessionId);
+    if (!this.deps.resolveActioBinding) throw new Error("Actio project resolver is unavailable");
+    return createImplementationWorktree(input, {
+      projects: this.deps.projectCodes.list(), workspaceRoots: this.deps.resolveWorkspaceRoots(),
+      subsidiaryId: readSubsidiaryId(session.metadata), resolveActio: this.deps.resolveActioBinding,
+      bind: value => this.bind(value),
+    });
+  }
 
   async bind(input: { sessionId: string; cwd: string; task: string }) {
     const session = this.requireSession(input.sessionId);
@@ -47,7 +62,7 @@ export class ImplementationToolsService {
     }
     // 登録コマンドの直後から効かせるため、snapshot を cache せず bind ごとに DB を読む。
     const resolver = createProjectResolver(this.deps.projectCodes.list());
-    const projectCode = resolver.codeForRepo(context.repoPath);
+    const projectCode = resolver.codeForRepo(await mainRepositoryKey(context.repoPath));
     const project = resolver.targetFromText(`[${projectCode}]`);
     if (!project) throw new Error(`project code could not be resolved for ${context.repoPath}`);
     const claimedTask = task.startsWith(`[${projectCode}]`) ? task : `[${projectCode}] ${task}`;

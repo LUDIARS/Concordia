@@ -19,6 +19,7 @@ const Binding = z.object({
 });
 
 export type ActioBinding = z.infer<typeof Binding>;
+export type ActioAccess = Pick<ActioBinding, "ownerId" | "authMode" | "tokenEnv" | "teamId" | "subsidiaryId">;
 
 /** Configuration errors must not expose tokens or raw configuration values. */
 export function readActioBindings(env: NodeJS.ProcessEnv = process.env): ActioBinding[] {
@@ -27,12 +28,15 @@ export function readActioBindings(env: NodeJS.ProcessEnv = process.env): ActioBi
     if (env.CONCORDIA_ACTIO_TASK_BINDINGS !== undefined) {
       value = JSON.parse(env.CONCORDIA_ACTIO_TASK_BINDINGS);
     } else {
-      const config: unknown = JSON.parse(env.EXCUBITOR_SERVICE_CONFIG_JSON ?? "");
-      value = z.object({ actioTaskBindings: z.unknown() }).parse(config).actioTaskBindings;
+      if (env.EXCUBITOR_SERVICE_CONFIG_JSON === undefined) return [];
+      const config = z.object({ actioTaskBindings: z.unknown().optional() })
+        .parse(JSON.parse(env.EXCUBITOR_SERVICE_CONFIG_JSON));
+      if (config.actioTaskBindings === undefined) return [];
+      value = config.actioTaskBindings;
     }
   }
   catch { throw new Error("CONCORDIA_ACTIO_TASK_BINDINGS is required and must be JSON"); }
-  const parsed = z.array(Binding).min(1).safeParse(value);
+  const parsed = z.array(Binding).safeParse(value);
   if (!parsed.success) throw new Error("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
   const identities = new Set<string>();
   for (const binding of parsed.data) {

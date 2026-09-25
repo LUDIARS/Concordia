@@ -41,6 +41,15 @@ function envBoolean(
 }
 
 export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
+  {
+    key: "services.excubitor_runtime_config", section: "services",
+    label: "Excubitor 注入設定",
+    description: "Excubitorが注入するサービス実行時設定。Actio接続設定等の秘匿情報を含むため、設定有無のみ表示する。変更はExcubitor側で行う。",
+    kind: "secret", envName: "EXCUBITOR_SERVICE_CONFIG_JSON", dbKey: null,
+    defaultValue: null, editable: false,
+  },
+  envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
+    "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),
   envString("services.concordia_base_url", "services", "Concordia 自身の URL", "CONCORDIA_BASE_URL", "http://127.0.0.1:11111", "MCP サーバ等の別プロセスが叩く Concordia の loopback URL。"),
   envString("services.excubitor_url", "services", "Excubitor URL", "CONCORDIA_EXCUBITOR_URL", "http://127.0.0.1:17332", "サービス監視・起動制御を行う Excubitor の base URL。"),
   envString("services.excubitor_url_alias", "services", "Excubitor URL (慣用キー)", "EXCUBITOR_URL", null, "Excubitor 側の慣用 env。 CONCORDIA_EXCUBITOR_URL 未設定のときだけ使う。"),

@@ -7,7 +7,7 @@ UX: UX-CC-W1/W2/W5, scenarios S1/S2/S3. Invariants: CC-INV-01/02/03/04.
 Domain: taskflow (task ownership and execution references); Actio owns task content and business status.
 
 - Create and retrieve task content through Actio. Do not create task Markdown, scan it during normal operation, or fall back to Cc body storage.
-- Cc retains opaque task references and execution associations. Task retrieval requires a configured project/organization binding and an authenticated Actio identity.
+- Cc retains opaque task references and execution associations. Task retrieval requires a resolved project/organization binding and an authenticated Actio identity.
 - Unknown outcomes are reconciled using stable source identities. A retry must not create another task.
 - Actio unavailability, missing credentials and ownership mismatches are explicit failures, never an empty task list.
 - Agent instructions and continuation events contain task references. Fetch content when needed; do not automatically copy task content into PR descriptions.
@@ -51,13 +51,23 @@ This authentication contract is `CC-AT-LOCAL-01`.
 The existing `CONCORDIA_ACTIO_TASK_BINDINGS` environment setting takes precedence.
 When absent, bindings can be supplied as `actioTaskBindings` in Excubitor's encrypted
 per-service runtime configuration (`EXCUBITOR_SERVICE_CONFIG_JSON`). The value is
-validated using the same binding schema; malformed or empty configuration fails
-explicitly. No tokens, task bodies or machine-specific paths are committed here.
+validated using the same binding schema; malformed explicit configuration fails
+explicitly. An absent binding list or an empty array enables local registration discovery.
+No tokens, task bodies or machine-specific paths are committed here.
 Changing encrypted runtime configuration requires an authorized Cc restart.
 Configuration precedence and fail-closed validation are `CC-AT-CONFIG-01`.
 The catalog endpoint takes precedence over historical process observations;
 an explicitly invalid catalog port fails rather than selecting an old endpoint
 (`CC-AT-PORT-01`).
+
+For headquarters personal work, `CC-AT-DISCOVERY-01` resolves the existing repository
+project code against Actio's current `/api/projects/cc` registration. No additional
+per-repository Actio binding is required. Exact code, Git main-clone identity, and
+verified local authentication are mandatory; team registrations are not converted
+to personal tasks. Explicit bindings retain precedence. A bearer-only deployment
+does not enable local discovery, and invalid credentials never select loopback.
+See [Cc worktree creation](implementation-worktree.md) for the creation tool,
+ignored reference metadata, ownership, and same-branch recovery contract.
 
 Acceptance covers explicit-mode validation, identity/transport mismatch denial,
 catalog-port precedence over stale observations, unchanged bearer requests, and
@@ -102,6 +112,6 @@ notification, safe diagnostics, and preserving existing confirmation waits.
 
 Production TypeScript compilation is checked without emitting files. Unit coverage accompanies the Actio route: binding validation and repository-key normalization, worktree-to-main-clone identity, transport owner verification and unknown-outcome reporting, ownership scoping and source-identity deduplication in the task client, store binding resolution and one-delegation-per-task claiming, the create/import/content API contract, delegation body sealing, morning grouping, decomposition exactly-once, and migration 110's instruction upgrade. These are offline tests against injected doubles; they do not exercise a live Actio instance. Required later checks against a real service: authenticated owner/team isolation, missing credentials, timeout-after-commit retry, duplicate input conflict, queued-run migration, residual idempotency, task status updates, confirmation completion and an agent fetching its task without a body-bearing prompt file. No startup or runtime test is authorized in this session.
 
-Rollout requires configured bindings/credentials, explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.
+Rollout requires Actio registration (or explicit scoped bindings/credentials), explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.
 
 Actio-side rollout gate (source inspection, not a runtime finding): the current `modules/task/routes.ts` single-task GET checks team access but does not check ownership for personal tasks; `src/middleware/auth.ts` continues invalid authentication as anonymous. Cc's response validation cannot protect direct Actio access. Before importing sensitive tasks, enforce authenticated access and personal/team authorization on Actio's task surfaces, and verify denial with separately authorized tests. This Cc PR does not implement those Actio changes. A task-only service credential scoped to the intended project/team and a metadata-only listing API are recommended follow-ups; the existing source/sourceRef uniqueness already supplies creation deduplication.

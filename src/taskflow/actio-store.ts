@@ -13,14 +13,14 @@ export const ACTIO_REFERENCE = /^actio:([A-Za-z0-9-]+)$/;
 export class ActioTaskStore implements TaskStore {
   readonly authoritative = true;
   constructor(
-    private readonly bindings: () => readonly ActioBinding[],
+    private readonly bindings: () => readonly ActioBinding[] | Promise<readonly ActioBinding[]>,
     private readonly client: ActioWorkflowClient,
     private readonly state: TaskflowStateStore,
   ) {}
 
   async scan(): Promise<TaskDocument[]> {
     const documents: TaskDocument[] = [];
-    for (const binding of this.bindings()) {
+    for (const binding of await this.bindings()) {
       for (const task of await this.client.list(binding)) documents.push(this.document(binding, task));
     }
     return documents;
@@ -83,10 +83,10 @@ export class ActioTaskStore implements TaskStore {
     return result;
   }
 
-  private async binding(selector: string, subsidiaryId?: string | null): Promise<ActioBinding> {
+  async binding(selector: string, subsidiaryId?: string | null): Promise<ActioBinding> {
     const path = isAbsolute(selector) || win32.isAbsolute(selector);
     const key = path ? await mainRepositoryKey(selector) : selector.toLowerCase();
-    const matches = this.bindings().filter((binding) =>
+    const matches = (await this.bindings()).filter((binding) =>
       (path ? repositoryKey(binding.repoPath) === key : binding.project.toLowerCase() === key)
       && (subsidiaryId === undefined || binding.subsidiaryId === subsidiaryId));
     if (matches.length !== 1) throw new Error("Actio task project binding missing or ambiguous");

@@ -167,6 +167,8 @@ import { ActioTaskStore } from "../taskflow/actio-store.js";
 import { ActioWorkflowClient } from "../taskflow/actio-task-client.js";
 import { ActioTransport } from "../taskflow/actio-transport.js";
 import { readActioBindings } from "../taskflow/actio-binding.js";
+import { createActioBindingReader } from "../taskflow/actio-project-binding.js";
+import { listLocalActioProjects } from "../taskflow/actio-projects.js";
 import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { TaskflowRuntime } from "../taskflow/runtime.js";
 import { startCheckoutPublishedDeployWatch } from "../deploy/watch.js";
@@ -974,9 +976,11 @@ export async function startBackend(): Promise<BackendHandle> {
     hasRevisorWorkflowToken: () => Boolean(resolveRevisorToken()),
   });
   const taskflowState = new TaskflowStateStore(db);
+  const actioTransport = new ActioTransport(excubitorClient, (name) => process.env[name]);
   const taskStore = new ActioTaskStore(
-    () => readActioBindings(),
-    new ActioWorkflowClient(new ActioTransport(excubitorClient, (name) => process.env[name])),
+    createActioBindingReader({ configured: () => readActioBindings(),
+      repositories: () => projectCodesRepo.list(), registered: () => listLocalActioProjects(actioTransport) }),
+    new ActioWorkflowClient(actioTransport),
     taskflowState,
   );
   const fallbackTasks = new CcTaskRepository(db);
@@ -1178,6 +1182,7 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
   });
   const implementationTools = new ImplementationToolsService({
+    resolveActioBinding: (repoPath, subsidiaryId) => taskStore.binding(repoPath, subsidiaryId),
     sessions: repo,
     claims: testingClaims,
     excubitor: excubitorClient,

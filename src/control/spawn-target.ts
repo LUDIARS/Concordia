@@ -27,6 +27,9 @@ export interface SpawnTargetRequest {
   branch?: unknown;
   worktree?: unknown;
   worktreeBaseDir?: string | null;
+  /** Implementation tools pin the local main commit; ordinary spawn keeps its branch policy. */
+  baseRef?: string;
+  retainOnResourceFailure?: boolean;
   git?: SpawnTargetGitRunner;
   projectResources?: SpawnTargetResourcePreparer;
 }
@@ -195,12 +198,12 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   }
 
   const localBranch = await refExists(git, repoRoot, `refs/heads/${branch}`);
-  const remoteBranch = localBranch ? false : await refExists(git, repoRoot, `refs/remotes/origin/${branch}`);
+  const remoteBranch = localBranch || input.baseRef ? false : await refExists(git, repoRoot, `refs/remotes/origin/${branch}`);
   const args = localBranch
     ? ["worktree", "add", worktreePath, branch]
     : remoteBranch
       ? ["worktree", "add", "-b", branch, worktreePath, `origin/${branch}`]
-      : ["worktree", "add", "-b", branch, worktreePath, "main"];
+      : ["worktree", "add", "-b", branch, worktreePath, input.baseRef ?? "main"];
   try {
     await retryGitWorktreeAdd(() => git(repoRoot, args));
   } catch (err) {
@@ -209,7 +212,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
 
   const resourceError = await placeProjectResources(projectResources, configSourceRoot, worktreePath);
   if (resourceError) {
-    await cleanupFailedWorktree(git, repoRoot, worktreePath, branch, !localBranch);
+    if (!input.retainOnResourceFailure) await cleanupFailedWorktree(git, repoRoot, worktreePath, branch, !localBranch);
     return resourceError;
   }
 

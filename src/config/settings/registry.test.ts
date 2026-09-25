@@ -172,6 +172,28 @@ describe("Revisor workflow token", () => {
   });
 });
 
+describe("worktree tool injected settings", () => {
+  it("reports Excubitor configuration presence without exposing its JSON or allowing generic edits", () => {
+    const injected = env({ EXCUBITOR_SERVICE_CONFIG_JSON: JSON.stringify({ credential: "fixture-private-value" }) });
+    expect(getSetting("services.excubitor_runtime_config", reader(), injected))
+      .toMatchObject({ source: "env", kind: "secret", value: null, set: true, editable: false });
+    expect(JSON.stringify(listSettings(reader(), injected))).not.toContain("fixture-private-value");
+    expect(getSetting("services.excubitor_runtime_config", reader(), NO_ENV))
+      .toMatchObject({ source: "none", value: null, set: false });
+    expect(applySettingUpdate("services.excubitor_runtime_config", "{}", recordingWriter()))
+      .toMatchObject({ ok: false, error: { code: "not_editable" } });
+  });
+
+  it("reads a caller-specific Lictor port without supplying a default or permitting a database override", () => {
+    expect(getSetting("services.lictor_sidecar_port", reader(), env({ LICTOR_PORT: "23456" })))
+      .toMatchObject({ source: "env", kind: "integer", value: 23456, editable: false });
+    expect(getSetting("services.lictor_sidecar_port", reader(), NO_ENV))
+      .toMatchObject({ source: "none", value: null });
+    expect(applySettingUpdate("services.lictor_sidecar_port", 23456, recordingWriter()))
+      .toMatchObject({ ok: false, error: { code: "not_editable" } });
+  });
+});
+
 describe("セクション分け", () => {
   it("空でないセクションだけを定義順に返す", () => {
     const sections = listSettingsBySection(reader(), NO_ENV);

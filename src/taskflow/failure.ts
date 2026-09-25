@@ -22,7 +22,13 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
     code: "actio_configuration_invalid", status: 503, message: "Actio の接続設定・認証設定を確認してください。",
   }]),
   ["Actio task project binding missing or ambiguous", {
-    code: "actio_binding_invalid", status: 503, message: "作業リポジトリと Actio プロジェクトの対応設定を確認してください。",
+    code: "actio_binding_invalid", status: 503, message: "作業リポジトリのプロジェクトコードと Actio の登録・組織範囲を確認してください。",
+  }],
+  ["Actio project registration is ambiguous", {
+    code: "actio_project_ambiguous", status: 503, message: "Actio のプロジェクト登録を一意に特定できません。",
+  }],
+  ["Invalid Actio project list response", {
+    code: "actio_response_invalid", status: 502, message: "Actio のプロジェクト一覧が契約と一致しません。",
   }],
   ["Task repository identity could not be resolved", {
     code: "task_repository_unresolved", status: 503, message: "作業リポジトリを特定できません。Git の登録を確認してください。",

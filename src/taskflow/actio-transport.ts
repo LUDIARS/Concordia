@@ -1,6 +1,6 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
-import type { ActioBinding } from "./actio-binding.js";
+import type { ActioAccess } from "./actio-binding.js";
 
 /** Authenticated, bounded Actio I/O. Never log response bodies or credentials. */
 export class ActioTransport {
@@ -11,7 +11,7 @@ export class ActioTransport {
     private readonly timeoutMs = 10_000,
   ) {}
 
-  async request(binding: ActioBinding, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> {
+  async request(binding: ActioAccess, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> {
     const local = binding.authMode === "loopback";
     if (local && (binding.ownerId !== "actio-local" || binding.teamId !== null
       || binding.subsidiaryId !== null || binding.tokenEnv !== undefined)) {

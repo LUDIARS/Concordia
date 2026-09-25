@@ -9,6 +9,8 @@ const CommitSchema = SessionSchema.extend({
   paths: z.array(z.string().min(1)).max(200).optional(),
 });
 const BindSchema = SessionSchema.extend({ cwd: z.string().min(1), task: z.string().min(1).max(1_000) });
+const WorktreeSchema = SessionSchema.extend({ project_code: z.string().min(1).max(64),
+  branch: z.string().min(1).max(200), task: z.string().min(1).max(1_000) }).strict();
 const ServiceSchema = SessionSchema.extend({
   service_code: z.string().min(1).max(64),
   action: z.enum(["start", "stop", "restart"]),
@@ -17,6 +19,19 @@ const ServiceSchema = SessionSchema.extend({
 
 export function implementationToolsRouter(deps: { tools: ImplementationToolsService; requestPolicyRefresh: (id: string) => void }): Hono {
   const app = new Hono();
+  app.post("/worktree", async (c) => {
+    const parsed = WorktreeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    try {
+      const result = await deps.tools.createWorktree({ sessionId: parsed.data.session_id,
+        projectCode: parsed.data.project_code, branch: parsed.data.branch, task: parsed.data.task });
+      deps.requestPolicyRefresh(parsed.data.session_id);
+      return c.json(result);
+    } catch {
+      return c.json({ error: "implementation_worktree_failed",
+        guidance: "Verify project/Actio registration and ownership, then retry the same project and branch. No checkout was forcibly removed." }, 409);
+    }
+  });
   app.post("/bind", async (c) => {
     const parsed = BindSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);

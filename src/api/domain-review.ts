@@ -9,13 +9,17 @@
  * 見送りは 200 + `posted: false` + 理由で返す。 404/409 にしないのは、
  * 「発火はしたが投稿対象ではなかった」を呼び出し側がエラーとして扱わないため。
  *
- * @implements spec/feature/domain-review-discord.md §2.1, §2.4, §4
+ * `GET /posts` は投稿一覧の読み取り口 (Breviarium が最新レビューの日時を読む)。
+ * 書き込みは一切せず、 レポート本文・画像・Discord message 本文は返さない。
+ *
+ * @implements spec/feature/domain-review-discord.md §2.1, §2.4, §4, §8
  */
 
 import { Hono } from "hono";
 import { z } from "zod";
 import type { DomainReviewRepo } from "../db/domain-review-repo.js";
 import { parsePostQuestions } from "../db/domain-review-repo.js";
+import { listDomainReviewPosts, type DomainReviewPostSummary } from "../domain-review/post-listing.js";
 import type { DomainReviewService } from "../domain-review/service.js";
 
 const RequestSchema = z.object({
@@ -37,6 +41,27 @@ const ReplySchema = z.object({
   text: z.string().trim().min(1).max(4_000),
   source: z.string().trim().min(1).max(200),
 }).strict();
+
+const PostListQuerySchema = z.object({
+  code: z.string().trim().max(64).optional(),
+  // 丸めは resolvePostListLimit (一覧系共通の clampListLimit と同じ規則) に任せる。
+  limit: z.string().optional(),
+});
+
+function postSummaryResponse(post: DomainReviewPostSummary) {
+  return {
+    id: post.id,
+    code: post.code,
+    repo_origin: post.repoOrigin,
+    trigger: post.trigger,
+    source: post.source,
+    posted_at: post.postedAt,
+    core_domains: post.coreDomains,
+    layers: post.layers,
+    layer_violations: post.layerViolations,
+    plan_questions: post.planQuestions,
+  };
+}
 
 export interface DomainReviewApiDeps {
   service: DomainReviewService;
@@ -90,6 +115,19 @@ export function domainReviewRouter(deps: DomainReviewApiDeps): Hono {
       plan_appended: result.planAppended,
       code: result.code,
     });
+  });
+
+  /** 投稿一覧 (§8)。 code 未指定は全プロジェクト、 存在しない code は空配列。 */
+  app.get("/posts", (c) => {
+    const parsed = PostListQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return c.json({ error: "invalid_domain_review_posts_query", detail: parsed.error.flatten() }, 400);
+    }
+    const posts = listDomainReviewPosts(deps.posts, {
+      code: parsed.data.code || null,
+      limit: parsed.data.limit,
+    });
+    return c.json({ posts: posts.map((post) => postSummaryResponse(post)) });
   });
 
   /** 監査用。 どの投稿にどんな回答が付いたかを 1 本で読む。 */

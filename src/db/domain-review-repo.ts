@@ -6,9 +6,10 @@
  * 持てない。 回答本文もここに残す — plan ファイルへの追記が失敗しても、
  * **人が答えた事実は消えない**ようにする。
  *
- * SRP: 永続化だけ。 投稿するか / 何を書き戻すかは domain-review/ 側の判断。
+ * SRP: 永続化だけ。 投稿するか / 何を書き戻すか / 一覧を何件どう見せるかは
+ * domain-review/ 側の判断。
  *
- * @implements spec/feature/domain-review-discord.md §4
+ * @implements spec/feature/domain-review-discord.md §4, §8
  */
 
 import type Database from "better-sqlite3";
@@ -26,6 +27,27 @@ export interface DomainReviewPostRow {
   /** JSON 配列 (投稿に載せた plan の問い)。 */
   questions: string;
   created_at: number;
+  /** 投稿したレポートの出所 (prepared / raw)。 migration 111 より前の行は null。 */
+  report_source: string | null;
+  core_domain_count: number | null;
+  layer_count: number | null;
+  layer_violation_count: number | null;
+}
+
+/**
+ * 一覧 (spec §8) の 1 行。 repo_origin は project_codes の現在値で、 投稿行へは複製しない
+ * (origin の正本を 2 つにしない)。 登録から消えた code は null。
+ */
+export interface DomainReviewPostListRow extends DomainReviewPostRow {
+  repo_origin: string | null;
+}
+
+/** 投稿したレポートの規模。 一覧は本文の代わりにこの件数を返す。 */
+export interface DomainReviewPostSummaryInput {
+  source: string;
+  coreDomains: number;
+  layers: number;
+  layerViolations: number;
 }
 
 export interface DomainReviewPostInput {
@@ -38,6 +60,8 @@ export interface DomainReviewPostInput {
   channelId: string;
   messageId: string;
   questions: readonly string[];
+  /** 投稿したレポートの件数。 無ければ null のまま残す (0 で埋めない)。 */
+  summary?: DomainReviewPostSummaryInput | null;
 }
 
 /** 回答の種別。 plan の問いへの回答と、 ドメイン説明・紐付けへの指摘を分ける。 */
@@ -73,12 +97,15 @@ export class DomainReviewRepo {
    */
   recordPost(input: DomainReviewPostInput): DomainReviewPostRow {
     const now = Date.now();
+    const summary = input.summary ?? null;
+    // 件数の無い再記録で、 既に残っている件数を null へ戻さない。
     this.db.prepare(`
       INSERT INTO domain_review_posts(
         code, repo_path, anatomia_project_id, plan_task_hash, trigger_kind,
-        platform, channel_id, message_id, questions, created_at
+        platform, channel_id, message_id, questions, created_at,
+        report_source, core_domain_count, layer_count, layer_violation_count
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(platform, message_id) DO UPDATE SET
         code = excluded.code,
         repo_path = excluded.repo_path,
@@ -86,7 +113,11 @@ export class DomainReviewRepo {
         plan_task_hash = excluded.plan_task_hash,
         trigger_kind = excluded.trigger_kind,
         channel_id = excluded.channel_id,
-        questions = excluded.questions
+        questions = excluded.questions,
+        report_source = COALESCE(excluded.report_source, domain_review_posts.report_source),
+        core_domain_count = COALESCE(excluded.core_domain_count, domain_review_posts.core_domain_count),
+        layer_count = COALESCE(excluded.layer_count, domain_review_posts.layer_count),
+        layer_violation_count = COALESCE(excluded.layer_violation_count, domain_review_posts.layer_violation_count)
     `).run(
       input.code,
       input.repoPath,
@@ -98,8 +129,34 @@ export class DomainReviewRepo {
       input.messageId,
       JSON.stringify([...input.questions]),
       now,
+      summary?.source ?? null,
+      summary?.coreDomains ?? null,
+      summary?.layers ?? null,
+      summary?.layerViolations ?? null,
     );
     return this.findPostByMessage(input.platform, input.messageId)!;
+  }
+
+  /**
+   * 投稿を新しい順に返す (spec §8)。 code が null なら全プロジェクト。
+   * 件数の既定と上限は呼び出し側 (domain-review/post-listing) の規則で、 ここは
+   * 解決済みの正の整数だけを受ける — SQLite は負の LIMIT を「無制限」と読むため。
+   */
+  listByCode(code: string | null, limit: number): DomainReviewPostListRow[] {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new RangeError(`domain review post limit must be a positive integer: ${limit}`);
+    }
+    const select = `
+      SELECT p.*, pc.repo_origin AS repo_origin
+        FROM domain_review_posts p
+        LEFT JOIN project_codes pc ON pc.code = p.code
+    `;
+    const order = "ORDER BY p.created_at DESC, p.id DESC LIMIT ?";
+    if (code === null) {
+      return this.db.prepare(`${select} ${order}`).all(limit) as DomainReviewPostListRow[];
+    }
+    return this.db.prepare(`${select} WHERE p.code = ? ${order}`)
+      .all(code, limit) as DomainReviewPostListRow[];
   }
 
   findPostByMessage(platform: string, messageId: string): DomainReviewPostRow | null {

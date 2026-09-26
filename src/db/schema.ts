@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 110;
+export const SCHEMA_VERSION = 111;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2591,6 +2591,30 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   name: "taskflow-v3-actio-instructions",
   source: "taskflow v3.0 — retire built-in task-file instructions",
   up: migrateTaskflowV3Instructions,
+},
+{
+  version: 111,
+  name: "domain-review-post-summary",
+  source: "domain_review_posts report_source / core_domain_count / layer_count / layer_violation_count + (code, created_at DESC) index — 投稿一覧が本文の代わりに返す規模 (spec/feature/domain-review-discord.md §8)",
+  up(db) {
+    // 一覧は本文を返さないので、 投稿したレポートの規模を件数で残す。 既存行は記録して
+    // いないので null のまま — 0 で埋めると「違反 0 件のレビュー」という偽の事実になる。
+    const columns = db.prepare("PRAGMA table_info(domain_review_posts)").all() as Array<{ name: string }>;
+    for (const [name, type] of [
+      ["report_source", "TEXT"],
+      ["core_domain_count", "INTEGER"],
+      ["layer_count", "INTEGER"],
+      ["layer_violation_count", "INTEGER"],
+    ] as const) {
+      if (!columns.some((column) => column.name === name)) {
+        db.exec(`ALTER TABLE domain_review_posts ADD COLUMN ${name} ${type}`);
+      }
+    }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_domain_review_posts_code_created
+        ON domain_review_posts(code, created_at DESC)
+    `);
+  },
 },
 ];
 

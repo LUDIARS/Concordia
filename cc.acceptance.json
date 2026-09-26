@@ -1143,6 +1143,54 @@
       "contracts": [
         "CC-INBOX-PLAN-01"
       ]
+    },
+    {
+      "source": "src/api/domain-review.ts",
+      "tests": [
+        "src/api/domain-review.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/domain-review-repo.ts",
+      "tests": [
+        "src/db/domain-review-repo.test.ts",
+        "src/api/domain-review.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/schema.ts",
+      "tests": [
+        "src/db/migration-ledger.test.ts",
+        "src/db/domain-review-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/domain-review/post-listing.ts",
+      "tests": [
+        "src/domain-review/post-listing.test.ts",
+        "src/api/domain-review.test.ts"
+      ],
+      "contracts": [
+        "C-10",
+        "C-11"
+      ]
+    },
+    {
+      "source": "src/domain-review/ontime-runtime.ts",
+      "tests": [
+        "src/domain-review/post-listing.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/domain-review/service.ts",
+      "tests": [
+        "src/domain-review/service.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

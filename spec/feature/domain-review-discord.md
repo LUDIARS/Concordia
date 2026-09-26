@@ -15,7 +15,7 @@ related:
   - feature/discord-ui.md
   - feature/revisor-local-pr-submission.md
   - feature/inquiry.md
-updated: 2026-09-05
+updated: 2026-09-26
 ---
 
 # Discord でのドメインレビュー
@@ -106,7 +106,8 @@ API は上記いずれでも `200 { "posted": false, "reason": … }` を返す�
 
 ## 4. 返信の取り込み (C-6)
 
-- 投稿の `message_id` を `domain_review_posts` に残し、 その message への返信を
+- 投稿の `message_id` と、 投稿したレポートの件数 (出所・コアドメイン・層・層違反) を
+  `domain_review_posts` に残す (件数は §8 の一覧が返す)。 その message への返信を
   `POST /v1/domain-review/replies` で回答として取り込む。 取り込んだ返信は
   セッションへ inject しない (レビュー回答であって作業指示ではない)。
 - plan / 台帳を書き換える回答は社員名簿の `session_spawn` capability (管理職以上) を
@@ -166,6 +167,8 @@ Anatomia の応答も plan も**信頼できない外部入力**として扱い�
 4. ドメイン説明に `@everyone` が含まれていても、 投稿本文で発火しない。
 5. plan 起点の投稿へ返信すると `.anatomia/plan/<hash>.json` に `reviewAnswers[]` が増える。
 6. `/domain-review <code>` は未 prepare でも簡易表示で投稿し、 prepare を促す。
+7. `GET /v1/domain-review/posts` は投稿を `posted_at` 降順・上限 100 件で返し、
+   レポート本文・画像・Discord message 本文を 1 項目も含めない (§8)。
 
 ## 7. 実装の配置
 
@@ -174,7 +177,7 @@ Discord 送信経路まで壊れる。 責務の割り当ては次のとおり�
 
 | ファイル | 責務 |
 |---|---|
-| `src/db/domain-review-repo.ts` | `domain_review_posts` / `domain_review_answers` の読み書き |
+| `src/db/domain-review-repo.ts` | `domain_review_posts` / `domain_review_answers` の読み書き (§8 の `listByCode` を含む) |
 | `src/db/domain-review-seed.ts` | 新規登録時の `domain_review` 既定値判定 (§1)。migration 91 は同時点の方針を自身に凍結 |
 | `src/domain-review/anatomia-client.ts` | Anatomia loopback API の取得と project 解決 |
 | `src/domain-review/report.ts` | Anatomia の応答 → 投稿用レポートへの形変換 (§2.3) |
@@ -183,7 +186,9 @@ Discord 送信経路まで壊れる。 責務の割り当ては次のとおり�
 | `src/domain-review/layer-diagram.ts` | 層図の自己完結 HTML 生成 (§3) |
 | `src/domain-review/graph-image.ts` | headless Edge による層図の PNG 化 (§3、 任意) |
 | `src/domain-review/service.ts` | 3 契機の受け口・投稿可否の判断・返信の取り込み |
-| `src/api/domain-review.ts` | `POST /v1/domain-review` と `POST /v1/domain-review/replies` |
+| `src/domain-review/post-listing.ts` | 投稿一覧の読み取り (件数上限と、本文を含めない要約への射影、§8) |
+| `src/domain-review/ontime-runtime.ts` | §8 の Augur observe 契約が使う runtime の再公開 |
+| `src/api/domain-review.ts` | `POST /v1/domain-review`・`POST /v1/domain-review/replies`・`GET /v1/domain-review/posts` |
 | `src/discord/domain-review-embeds.ts` | レポート → Discord embed |
 | `src/discord/embed-limits.ts` | embed 上限への適合とメンション無害化 (§2.5) |
 | `src/discord/domain-review-post.ts` | Bot 側の投稿口 (`DomainReviewPostPort`) |
@@ -193,3 +198,48 @@ Discord 送信経路まで壊れる。 責務の割り当ては次のとおり�
 Anatomia の**プログラムドメイン層**では `src/domain-review/*` を `domain-logic` として宣言する
 (`.anatomia/layers.json`)。 この層は `src/db/*` (infrastructure) と `src/config/*` へ内向きに
 依存するだけで、 `src/api` / `src/discord` (presentation) からは呼ばれる側に置く。
+
+## 8. 投稿一覧 (読み取り専用) {#SPEC-DOMAIN-REVIEW-POSTS-LIST}
+
+> タスク: actio:6ba17203-9178-4c4b-90cf-a57a3a6f51f6。 価値: UX-CC-W4 (S5)。 不変条件: CC-INV-04。
+
+Breviarium (Br) は「定期: Pf UX 準拠レビュー」段の完了を、 プロジェクトごとの最新ドメインレビュー
+投稿の日時で判定する。 Cc は投稿の記録者で、 完了かどうかの判断は Br が持つ。 Cc が返すのは
+「いつ・どの契機で・どの規模のレビューを出したか」の事実だけで、 レビューの中身は Discord が正本。
+
+`GET /v1/domain-review/posts?code=<略称>&limit=<n>`
+
+| 契約 | 内容 |
+|---|---|
+| 読み取り専用 | 台帳・plan・Discord のどれにも書き込まない |
+| 絞り込み | `code` があればその project code の投稿だけ (大文字小文字を区別)。 無ければ全プロジェクト。 存在しない code は空配列 (404 にしない) |
+| 件数 | `limit` 既定 20、 上限 100 (超えた指定は 100 に丸める)。 丸め方は一覧系共通の `clampListLimit` と同じで、 空・非数値は既定値、 1 未満は 1 |
+| 順序 | `posted_at` 降順。 同時刻は id 降順 |
+| 本文を返さない | レポート全文・層図の画像・Discord message 本文・plan の問いの本文・channel / message id は返さない。 規模は件数だけで表す |
+
+```json
+{ "posts": [{ "id": 12, "code": "Cc", "repo_origin": "https://github.com/LUDIARS/Concordia.git",
+  "trigger": "plan", "source": "prepared", "posted_at": "2026-09-26T09:00:00.000Z",
+  "core_domains": 5, "layers": 3, "layer_violations": 0, "plan_questions": 2 }] }
+```
+
+- `posted_at` は投稿を台帳へ記録した時刻 (UTC ISO 8601)。 見送り (`posted: false`) と投稿失敗は
+  台帳に残らないので一覧にも出ない。 **投稿していないものを投稿済みに見せない** (CC-INV-04)。
+- `repo_origin` は project-code 登録 (状態所有者は `project_codes`) の現在値を引く。 登録から
+  消えた code は null。 投稿行に複製しないのは、 origin の正本を 2 つにしないため。
+- `source` / `core_domains` / `layers` / `layer_violations` は投稿したレポートの値で、
+  `POST /v1/domain-review` の応答と同じ意味。 migration 111 より前の投稿は記録していないので
+  null を返す (0 で埋めると「違反 0 件のレビュー」という偽の事実になる)。
+- `plan_questions` は台帳に残した問いの件数。 壊れた JSON は 0 件として読む (§4 と同じ)。
+
+**復旧:** migration 111 は列と索引を足すだけで、 既存の投稿行は書き換えない (追加列は null)。
+列が既にあれば足さないので、 途中停止後の再適用でも壊れない。 旧コードへ戻した場合も、
+追加列を読まないだけで投稿と返信の取り込みは変わらない。
+
+| ファイル | 担当 |
+|---|---|
+| `src/domain-review/post-listing.ts` | 件数上限の解決、 `listByCode` の呼び出し、 本文を含めない要約への射影 |
+| `src/domain-review/post-listing.contract.ts` | 一覧の Augur observe 述語 (C-10 順序・件数・絞り込み、 C-11 返却項目) |
+| `src/db/domain-review-repo.ts` | `listByCode(code \| null, limit)` と、 投稿時の件数の保存 |
+| `src/api/domain-review.ts` | `GET /posts` の入力検証と snake_case の応答 |
+| `src/db/schema.ts` | migration 111 `domain-review-post-summary` |

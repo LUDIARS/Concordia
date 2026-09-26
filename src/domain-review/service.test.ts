@@ -90,6 +90,18 @@ describe("DomainReviewService.request", () => {
     expect(posts.findPostByMessage("discord", "msg-1")?.code).toBe("Cc");
   });
 
+  it("投稿したレポートの出所と件数を台帳に残す (一覧が本文の代わりに返す)", async () => {
+    const { service, posts } = makeService();
+    const outcome = await service.request({ trigger: "manual", code: "Cc" });
+    expect(outcome.posted).toBe(true);
+    expect(posts.findPostByMessage("discord", "msg-1")).toMatchObject({
+      report_source: "prepared",
+      core_domain_count: 1,
+      layer_count: 1,
+      layer_violation_count: 0,
+    });
+  });
+
   it("domain_review が OFF なら投稿しない", async () => {
     const { service, post } = makeService({ domainReview: false });
     const outcome = await service.request({ trigger: "manual", code: "Cc" });

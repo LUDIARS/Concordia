@@ -189,6 +189,13 @@ export class DomainReviewService {
         channelId: posted.channelId,
         messageId: posted.messageId,
         questions: report.planQuestions,
+        // 一覧 (§8) は本文を返さないので、 投稿した規模を件数で残す。
+        summary: {
+          source: report.source,
+          coreDomains: report.coreDomains.length,
+          layers: report.layers.length,
+          layerViolations: report.layerViolations.length,
+        },
       });
       this.deps.log.info(
         `domain-review: posted code=${target.code} trigger=${input.trigger} source=${report.source} `

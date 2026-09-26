@@ -169,3 +169,102 @@ describe("GET /v1/domain-review/posts/:id", () => {
     expect((await app.request("/posts/999")).status).toBe(404);
   });
 });
+
+describe("GET /v1/domain-review/posts", () => {
+  const LIST_FIELDS = [
+    "code", "core_domains", "id", "layer_violations", "layers",
+    "plan_questions", "posted_at", "repo_origin", "source", "trigger",
+  ];
+
+  /** created_at を 1 分刻みで固定して積む。 i が大きいほど新しい。 */
+  function seed(count: number, code: (index: number) => string = () => "Cc") {
+    const db = makeTestDb();
+    const posts = new DomainReviewRepo(db);
+    for (let index = 0; index < count; index += 1) {
+      const stored = posts.recordPost({
+        code: code(index),
+        repoPath: "E:/Document/Ars/Concordia",
+        anatomiaProjectId: "concordia",
+        planTaskHash: "0123456789abcdef",
+        triggerKind: "plan",
+        platform: "discord",
+        channelId: "chan-body",
+        messageId: `msg-body-${index}`,
+        questions: ["問いの本文"],
+        summary: { source: "prepared", coreDomains: 4, layers: 2, layerViolations: 1 },
+      });
+      db.prepare("UPDATE domain_review_posts SET created_at = ? WHERE id = ?")
+        .run(Date.UTC(2026, 8, 26, 0, index), stored.id);
+    }
+    return posts;
+  }
+
+  async function list(posts: DomainReviewRepo, query = "") {
+    const { app } = router({}, posts);
+    return app.request(`/posts${query}`);
+  }
+
+  it("200 で posted_at の新しい順に要約を返す", async () => {
+    const res = await list(seed(3));
+    expect(res.status).toBe(200);
+    const body = await res.json() as { posts: Array<Record<string, unknown>> };
+    expect(body.posts.map((post) => post.posted_at)).toEqual([
+      "2026-09-26T00:02:00.000Z",
+      "2026-09-26T00:01:00.000Z",
+      "2026-09-26T00:00:00.000Z",
+    ]);
+    expect(body.posts[0]).toMatchObject({
+      code: "Cc",
+      repo_origin: null,
+      trigger: "plan",
+      source: "prepared",
+      core_domains: 4,
+      layers: 2,
+      layer_violations: 1,
+      plan_questions: 1,
+    });
+  });
+
+  it("レポート本文・問いの本文・Discord の宛先を 1 項目も返さない", async () => {
+    const res = await list(seed(2));
+    const text = await res.text();
+    const body = JSON.parse(text) as { posts: Array<Record<string, unknown>> };
+    for (const post of body.posts) expect(Object.keys(post).sort()).toEqual(LIST_FIELDS);
+    expect(text).not.toContain("問いの本文");
+    expect(text).not.toContain("msg-body");
+    expect(text).not.toContain("chan-body");
+  });
+
+  it("limit は既定 20 件、上限 100 件に丸める", async () => {
+    const posts = seed(101);
+    const byDefault = await (await list(posts)).json() as { posts: unknown[] };
+    expect(byDefault.posts).toHaveLength(20);
+    const capped = await (await list(posts, "?limit=500")).json() as { posts: unknown[] };
+    expect(capped.posts).toHaveLength(100);
+    const small = await (await list(posts, "?limit=3")).json() as { posts: unknown[] };
+    expect(small.posts).toHaveLength(3);
+  });
+
+  it("code で絞り込み、未指定は全プロジェクト、存在しない code は空配列", async () => {
+    const posts = seed(4, (index) => (index % 2 === 0 ? "Cc" : "Br"));
+    const cc = await (await list(posts, "?code=Cc")).json() as { posts: Array<{ code: string }> };
+    expect(cc.posts.map((post) => post.code)).toEqual(["Cc", "Cc"]);
+    const all = await (await list(posts)).json() as { posts: unknown[] };
+    expect(all.posts).toHaveLength(4);
+    const unknown = await list(posts, "?code=Zz");
+    expect(unknown.status).toBe(200);
+    expect(await unknown.json()).toEqual({ posts: [] });
+  });
+
+  it("長すぎる code は 400", async () => {
+    const res = await list(seed(1), `?code=${"x".repeat(65)}`);
+    expect(res.status).toBe(400);
+  });
+
+  it("一覧を読んでも台帳を書き換えない (読み取り専用)", async () => {
+    const posts = seed(2);
+    const before = posts.listByCode(null, 10);
+    await list(posts);
+    expect(posts.listByCode(null, 10)).toEqual(before);
+  });
+});

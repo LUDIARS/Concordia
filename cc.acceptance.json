@@ -689,7 +689,8 @@
       "contracts": [
         "CC-AT-LOCAL-01",
         "CC-AT-CONFIG-01",
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-AT-TEAM-01"
       ]
     },
     {
@@ -715,7 +716,8 @@
       "contracts": [
         "CC-TF-SESSION-01",
         "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02"
+        "CC-ACTIO-PR-GOAL-02",
+        "CC-AT-TEAM-01"
       ]
     },
     {
@@ -727,7 +729,8 @@
       "contracts": [
         "CC-AT-LOCAL-01",
         "CC-AT-PORT-01",
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-AT-TEAM-01"
       ]
     },
     {
@@ -1037,7 +1040,8 @@
         "src/taskflow/actio-project-binding.test.ts"
       ],
       "contracts": [
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-AT-TEAM-01"
       ]
     },
     {
@@ -1485,6 +1489,15 @@
         "CC-SCRIPT-02",
         "CC-SCRIPT-03",
         "CC-SCRIPT-04"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-local-pr-client.ts",
+      "tests": [
+        "src/pr/revisor-local-pr-client.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-OPEN-LIST-01"
       ]
     },
     {

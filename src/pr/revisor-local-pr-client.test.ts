@@ -28,6 +28,13 @@ const LOCAL_PR = {
 };
 
 describe("RevisorLocalPrClient", () => {
+  it("bounds discovery to open PRs while preserving retry and session identity", async () => {
+    const fetchImpl = vi.fn(async (_url: string) => json({ pullRequests: [{ ...LOCAL_PR, sessionId: "owner" }] }));
+    const client = new RevisorLocalPrClient({ excubitor: { findService: findService() }, fetchImpl });
+    expect(await client.listLocalPullRequests()).toEqual([{ ...LOCAL_PR, sessionId: "owner" }]);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("http://127.0.0.1:4240/v1/local-prs?state=open");
+  });
+
   it("submits to the Excubitor-resolved port with the workflow token and snake_case field names", async () => {
     const fetchImpl = vi.fn(async () => json({ pullRequest: LOCAL_PR }));
     const client = new RevisorLocalPrClient({

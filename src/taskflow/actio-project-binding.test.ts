@@ -16,9 +16,13 @@ describe("Actio registration resolution", () => {
     expect(mergeActioProjectBindings([], [repo], [])).toEqual([]);
   });
 
-  it("preserves explicit destinations and never assigns a team to the local personal owner", () => {
+  it("preserves explicit destinations and the registered team scope", () => {
     expect(mergeActioProjectBindings([explicit], [repo], [project])).toEqual([explicit]);
-    expect(mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["team"] }])).toEqual([]);
+    expect(mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["team"] }])).toEqual([
+      { ...explicit, projectId: "El", teamId: "team" },
+    ]);
+    expect(() => mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["a", "b"] }]))
+      .toThrow("team registration is ambiguous");
   });
 
   it("rejects ambiguous registrations and duplicate repository identities", () => {

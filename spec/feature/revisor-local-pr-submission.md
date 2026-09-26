@@ -264,3 +264,7 @@ PR は誰も昇格できなくなる。要求セッションが active である
 
 共有予約枠を消費する操作なので、成功は `pr-fast-lane` session event に記録し、提出元
 (`submitted_by`) と昇格者 (`session_id`) の両方を残す。マージ権限は不要。
+
+## Open PR discovery (CC-RV-OPEN-LIST-01)
+
+UX-CC-W3/W5, CC-INV-03: submission and unknown-outcome reconciliation read only `GET /v1/local-prs?state=open`. Revisor owns PR state. The full open records retain headRef and sessionId for retry and deduplication; summary records omit those fields. Closed review reports are not downloaded. Invalid responses remain errors, never an empty queue.

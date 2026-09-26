@@ -21,6 +21,30 @@ const catalog = (service: unknown) => ({ findService: vi.fn(async () => service)
 describe("ActioTransport", () => {
   const local: ActioBinding = { ...BINDING, ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
 
+  it("verifies local team leadership before writing and preserves the team", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "actio-local", localMode: true, access: "loopback" }))
+      .mockResolvedValueOnce(json({ teams: [{ id: "team", role: "leader" }] }))
+      .mockResolvedValueOnce(json({ task: { id: "t1", teamId: "team" } }));
+    const transport = new ActioTransport(catalog(RUNNING), () => undefined, fetchImpl as never);
+    await expect(transport.request({ ...local, teamId: "team" }, "POST", "/api/tasks", { teamId: "team" }))
+      .resolves.toEqual({ task: { id: "t1", teamId: "team" } });
+    expect(fetchImpl.mock.calls[1]?.[0]).toMatch(/\/api\/teams$/);
+    expect(fetchImpl.mock.calls[2]?.[1].body).toBe(JSON.stringify({ teamId: "team" }));
+  });
+
+  it.each([{ teams: [] }, { teams: [{ id: "other", role: "leader" }] }, { teams: [{ id: "team", role: "member" }] }])(
+    "rejects missing or insufficient local team access: %j", async ({ teams }) => {
+      const fetchImpl = vi.fn()
+        .mockResolvedValueOnce(json({ id: "actio-local", localMode: true, access: "loopback" }))
+        .mockResolvedValueOnce(json({ teams }));
+      const transport = new ActioTransport(catalog(RUNNING), () => undefined, fetchImpl as never);
+      await expect(transport.request({ ...local, teamId: "team" }, "POST", "/api/tasks", {}))
+        .rejects.toThrow("team access mismatch");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("uses the catalog endpoint and validates explicit loopback identity before writing", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({ id: "actio-local", localMode: true, access: "loopback" }))

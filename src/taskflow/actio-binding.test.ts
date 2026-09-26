@@ -21,7 +21,8 @@ describe("readActioBindings", () => {
 
   it("accepts explicit personal loopback identity without manufacturing a bearer token", () => {
     expect(readActioBindings(env([local]))[0]).toMatchObject({ authMode: "loopback", ownerId: "actio-local" });
-    for (const patch of [{ ownerId: "owner-1" }, { teamId: "team-1" },
+    expect(readActioBindings(env([{ ...local, teamId: "team-1" }]))[0]?.teamId).toBe("team-1");
+    for (const patch of [{ ownerId: "owner-1" },
       { subsidiaryId: "sub-1" }, { tokenEnv: "TOKEN" }]) {
       expect(() => readActioBindings(env([{ ...local, ...patch }]))).toThrow("Invalid CONCORDIA_ACTIO_TASK_BINDINGS");
     }

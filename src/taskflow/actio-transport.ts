@@ -1,6 +1,9 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import type { ActioAccess } from "./actio-binding.js";
+import { z } from "zod";
+
+const LocalTeams = z.object({ teams: z.array(z.object({ id: z.string(), role: z.string() })) });
 
 /** Authenticated, bounded Actio I/O. Never log response bodies or credentials. */
 export class ActioTransport {
@@ -13,7 +16,7 @@ export class ActioTransport {
 
   async request(binding: ActioAccess, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> {
     const local = binding.authMode === "loopback";
-    if (local && (binding.ownerId !== "actio-local" || binding.teamId !== null
+    if (local && (binding.ownerId !== "actio-local"
       || binding.subsidiaryId !== null || binding.tokenEnv !== undefined)) {
       throw new Error("Invalid Actio authentication binding");
     }
@@ -35,6 +38,12 @@ export class ActioTransport {
     const localIdentity = "localMode" in identity && identity.localMode === true;
     if (local ? !localIdentity || !("access" in identity) || identity.access !== "loopback" : localIdentity) {
       throw new Error("Actio task authentication mode mismatch");
+    }
+    if (local && binding.teamId !== null) {
+      const teams = LocalTeams.parse(await this.send(base, token, "GET", "/api/teams"));
+      if (!teams.teams.some(team => team.id === binding.teamId && team.role === "leader")) {
+        throw new Error("Actio task team access mismatch");
+      }
     }
     return this.send(base, token, method, path, body);
   }

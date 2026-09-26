@@ -13,10 +13,12 @@ export function mergeActioProjectBindings(
       && repositoryKey(binding.repoPath) === repositoryKey(repo.repo_path))) continue;
     const matches = registered.filter(project => project.code === repo.code);
     if (matches.length > 1) throw new Error("Actio project registration is ambiguous");
-    // Local discovery never assigns team work to the personal local identity.
-    if (matches.length === 0 || matches[0]!.teamIds.length > 0) continue;
+    if (matches.length === 0) continue;
+    // Preserve the registered team; never choose arbitrarily or drop team scope.
+    if (matches[0]!.teamIds.length > 1) throw new Error("Actio project team registration is ambiguous");
     const binding: ActioBinding = {
       ...LOCAL_ACTIO_ACCESS, repoPath: repo.repo_path, project: repo.project, projectId: repo.code,
+      teamId: matches[0]!.teamIds[0] ?? null,
     };
     if (result.some(other => repositoryKey(other.repoPath) === repositoryKey(binding.repoPath)
       && other.subsidiaryId === null)) throw new Error("Actio project registration is ambiguous");

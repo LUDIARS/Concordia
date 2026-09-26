@@ -169,7 +169,9 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
   }
 
   async listLocalPullRequests(): Promise<RevisorLocalPrSummary[]> {
-    const body = await this.request("/v1/local-prs") as { pullRequests?: unknown } | null;
+    // Closed review reports grow without bound. Open records retain the branch
+    // and session identity needed for retry/reconciliation (summary omits them).
+    const body = await this.request("/v1/local-prs?state=open") as { pullRequests?: unknown } | null;
     if (!Array.isArray(body?.pullRequests)) {
       throw new Error("Revisor returned an invalid local PR listing");
     }

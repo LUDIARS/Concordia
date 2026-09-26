@@ -74,13 +74,13 @@ Cc owns execution references and validates repository, project and organization.
 The local adapter must preserve those boundaries even when no bearer credential is used.
 
 Bindings may explicitly select `authMode: "loopback"`, with `ownerId: "actio-local"`,
-no `tokenEnv`, and null team/subsidiary. This is only for headquarters personal tasks
+no `tokenEnv`, and null subsidiary. A registered team requires the additional checks in CC-AT-TEAM-01. This is only for headquarters tasks
 on the existing Actio local deployment. The adapter uses the catalog port at
 `127.0.0.1`, rejects redirects, and requires `/api/auth/me` to report the configured
 owner, `localMode: true`, and `access: "loopback"` before each task operation.
 Missing bearer credentials never select local authentication automatically.
 Bearer bindings must reject local-mode responses, which do not establish that the
-bearer credential was verified. Subsidiary/team rollout remains separately scoped.
+bearer credential was verified. Subsidiary rollout remains separately scoped; local teams follow CC-AT-TEAM-01.
 This authentication contract is `CC-AT-LOCAL-01`.
 
 The existing `CONCORDIA_ACTIO_TASK_BINDINGS` environment setting takes precedence.
@@ -150,6 +150,14 @@ Production TypeScript compilation is checked without emitting files. Unit covera
 Rollout requires Actio registration (or explicit scoped bindings/credentials), explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.
 
 Actio-side rollout gate (source inspection, not a runtime finding): the current `modules/task/routes.ts` single-task GET checks team access but does not check ownership for personal tasks; `src/middleware/auth.ts` continues invalid authentication as anonymous. Cc's response validation cannot protect direct Actio access. Before importing sensitive tasks, enforce authenticated access and personal/team authorization on Actio's task surfaces, and verify denial with separately authorized tests. This Cc PR does not implement those Actio changes. A task-only service credential scoped to the intended project/team and a metadata-only listing API are recommended follow-ups; the existing source/sourceRef uniqueness already supplies creation deduplication.
+
+## Local team task access (CC-AT-TEAM-01)
+
+UX-CC-W1/W5, CC-INV-02: local discovery preserves exactly one registered teamId instead of converting team work to personal work. Multiple registered teams fail as ambiguous; explicit bindings retain precedence. Local subsidiary bindings and bearer-to-local fallback remain forbidden. Every team operation verifies loopback identity and the matching leader entry from Actio /api/teams before task I/O. Actio owns authorization and task state; its task routes must independently enforce the verified local-owner team policy. No team membership, owner privilege, or project assignment is rewritten.
+
+Recovery: deploy the Actio route authorization fix before using team bindings. On authorization or discovery failure, preserve the original task source identity and report failure; do not redirect to personal scope. Acceptance covers single-team preservation, multi-team rejection, missing/wrong/member team denial, and existing identity/subsidiary/bearer rejection cases.
+
+For local team creation Cc sends the verified single local owner as assigneeId, satisfying Actio's required assignee without inventing a different recipient. Personal and bearer bindings keep their existing payload.
 
 ## CC-TASK-MERGE-END-01: マージまで委託を継続する
 

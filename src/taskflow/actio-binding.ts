@@ -13,7 +13,7 @@ const Binding = z.object({
 }).strict().superRefine((binding, ctx) => {
   const local = binding.authMode === "loopback";
   if (local ? binding.tokenEnv !== undefined || binding.ownerId !== "actio-local"
-    || binding.teamId !== null || binding.subsidiaryId !== null : !binding.tokenEnv) {
+    || binding.subsidiaryId !== null : !binding.tokenEnv) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid Actio authentication binding" });
   }
 });

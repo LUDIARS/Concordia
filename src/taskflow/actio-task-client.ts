@@ -62,6 +62,8 @@ export class ActioWorkflowClient {
     if (existing) { verifyContent(existing); return { task: existing, existed: true }; }
     const task = this.decode(binding, await this.transport.request(binding, "POST", "/api/tasks", {
       title: input.title, description: input.body, projectId: binding.projectId, teamId: binding.teamId,
+      // Local deployment has one verified owner; team tasks require an assignee.
+      ...(binding.teamId && binding.authMode === "loopback" ? { assigneeId: binding.ownerId } : {}),
       source: ACTIO_WORKFLOW_SOURCE, sourceRef,
       pluginId: ACTIO_WORKFLOW_SOURCE, pluginRef: sourceRef,
       pluginPayload: { version: 3, kind: input.kind, memory_links: input.memoryLinks,

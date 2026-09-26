@@ -142,6 +142,18 @@ describe("ActioWorkflowClient", () => {
     });
   });
 
+  it("assigns a local team task to the verified local owner without dropping team scope", async () => {
+    const binding: ActioBinding = { ...BINDING, teamId: "team-1", ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
+    const ref = createHash("sha256").update(JSON.stringify([
+      binding.projectId, binding.ownerId, binding.teamId, CREATE.sourceRef,
+    ])).digest("hex");
+    const { transport: t, request } = transport({ tasks: [] }, { task: task({
+      ownerId: binding.ownerId, teamId: binding.teamId, sourceRef: ref,
+    }) });
+    await new ActioWorkflowClient(t).create(binding, CREATE);
+    expect(request.mock.calls[1]![3]).toMatchObject({ teamId: "team-1", assigneeId: "actio-local" });
+  });
+
   /** A lost response must be retried with the same identity, not create a second task. */
   it("returns the existing task instead of creating a duplicate", async () => {
     const { transport: t, request } = transport({ tasks: [task()] });

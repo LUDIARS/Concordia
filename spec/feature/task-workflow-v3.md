@@ -150,3 +150,9 @@ Production TypeScript compilation is checked without emitting files. Unit covera
 Rollout requires Actio registration (or explicit scoped bindings/credentials), explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.
 
 Actio-side rollout gate (source inspection, not a runtime finding): the current `modules/task/routes.ts` single-task GET checks team access but does not check ownership for personal tasks; `src/middleware/auth.ts` continues invalid authentication as anonymous. Cc's response validation cannot protect direct Actio access. Before importing sensitive tasks, enforce authenticated access and personal/team authorization on Actio's task surfaces, and verify denial with separately authorized tests. This Cc PR does not implement those Actio changes. A task-only service credential scoped to the intended project/team and a metadata-only listing API are recommended follow-ups; the existing source/sourceRef uniqueness already supplies creation deduplication.
+
+## CC-TASK-MERGE-END-01: マージまで委託を継続する
+
+価値 UX-CC-PRODUCT。利用者が失うと困る状態は、PR提出後に委託セッションが終了し競合修正・再審査・マージが取り残されること。
+状態所有者: PR状態はRevisor、終了ladderはCc taskflow。不変条件: open/missingのPRでは自動終了しない。mergedかつ残作業noneかつ未回答質問なしの場合だけ、対象runの子セッションの終了を予約する。親や対話セッションを終了しない。
+既存のマージ許可を再質問せず、審査ゲートと人間判断要求は維持する。検証はsession-end.test.tsとruntime.test.ts（mergedで子を終了、openでは継続）、復旧は終了判定の変更をrevertする。永続状態の移行なし。

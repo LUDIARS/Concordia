@@ -1486,6 +1486,16 @@
         "CC-SCRIPT-03",
         "CC-SCRIPT-04"
       ]
+    },
+    {
+      "source": "src/taskflow/session-end.ts",
+      "tests": [
+        "src/taskflow/session-end.test.ts",
+        "src/taskflow/runtime.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-MERGE-END-01"
+      ]
     }
   ]
 }

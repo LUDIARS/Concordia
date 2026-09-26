@@ -55,14 +55,14 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(true);
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(false);
 
@@ -86,7 +86,7 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(true);
   });
@@ -102,7 +102,7 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun("different-child-session"),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(false);
     expect(sessions.findSession).not.toHaveBeenCalled();
@@ -118,11 +118,11 @@ describe("finishAutonomousTaskflow", () => {
       mergeMetadata: mergeMetadata(row),
     };
     expect(finishAutonomousTaskflow({
-      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "open", residualOutcome: "none",
+      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "merged", residualOutcome: "none",
     })).toBe(true);
     row.current_task = "task-two";
     expect(finishAutonomousTaskflow({
-      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "open", residualOutcome: "none",
+      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "merged", residualOutcome: "none",
     })).toBe(false);
   });
 
@@ -137,14 +137,14 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id, "run-1"),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(true);
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id, "run-2"),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
     })).toBe(true);
     expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
@@ -169,7 +169,7 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
       hasPendingQuestion: () => true,
     })).toBe(false);
@@ -181,7 +181,7 @@ describe("finishAutonomousTaskflow", () => {
       sessionId: row.id,
       sessions: sessions as any,
       taskflowRun: taskflowRun(row.id),
-      goalOutcome: "open",
+      goalOutcome: "merged",
       residualOutcome: "none",
       hasPendingQuestion: () => false,
     })).toBe(true);
@@ -190,9 +190,9 @@ describe("finishAutonomousTaskflow", () => {
   });
 
   it.each([
-    ["next-task", "open"],
-    ["decompose", "open"],
-    ["none", "merged"],
+    ["next-task", "merged"],
+    ["decompose", "merged"],
+    ["none", "open"],
     ["none", "missing"],
   ] as const)("does not end while residual or human-gated work remains (%s/%s)", (residualOutcome, goalOutcome) => {
     const row = session("codex-cli");

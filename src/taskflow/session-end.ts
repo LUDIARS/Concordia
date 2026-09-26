@@ -10,7 +10,7 @@ export function shouldEndAutonomousTaskflow(input: {
   goalOutcome: GoalMachineOutcome;
   residualOutcome: ResidualOutcome;
 }): boolean {
-  return input.goalOutcome === "open"
+  return input.goalOutcome === "merged"
     && input.residualOutcome === "none";
 }
 

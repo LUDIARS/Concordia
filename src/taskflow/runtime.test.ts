@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { SessionRow } from "../shared/types.js";
+import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { TaskflowRuntime, type TaskflowRuntimeDeps } from "./runtime.js";
 
@@ -24,7 +25,7 @@ function session(id: string): SessionRow {
   };
 }
 
-function runtimeFor(row: SessionRow) {
+function runtimeFor(row: SessionRow, prState: "open" | "merged" = "merged") {
   const db = makeTestDb();
   const appendEvent = vi.fn();
   const sessions = {
@@ -38,18 +39,18 @@ function runtimeFor(row: SessionRow) {
     db,
     sessions,
     delegation: {},
-    prs: { list: vi.fn(() => [{ state: "open" }]) },
+    prs: { list: vi.fn(() => [{ state: prState, repo_origin: "owner/repo", number: 1, title: "Task", url: null }]) },
     store: {
       findForProject: vi.fn(async (_path: string, statuses: string[]) => statuses.includes("delegated") ? [{}] : []),
     },
-    confirm: {},
+    confirm: { repo: new ConfirmRunsRepo(db), resolveServiceCode: async () => null },
     mentionUserId: () => null,
   } as unknown as TaskflowRuntimeDeps);
   return { appendEvent, runtime };
 }
 
 describe("TaskflowRuntime.handleCompletedRun", () => {
-  it("schedules teardown for the delegation child session", async () => {
+  it("schedules teardown for the delegation child session after merge", async () => {
     const row = session("child-session");
     const { appendEvent, runtime } = runtimeFor(row);
     await runtime.handleCompletedRun({
@@ -62,6 +63,19 @@ describe("TaskflowRuntime.handleCompletedRun", () => {
     expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
       teardown_ladder: { run_key: "delegation:run-1" },
     });
+  });
+
+  it("keeps the delegation child session active while the PR is open", async () => {
+    const row = session("child-session");
+    const { appendEvent, runtime } = runtimeFor(row, "open");
+    await runtime.handleCompletedRun({
+      id: "run-open",
+      parent_session_id: "parent-session",
+      child_session_id: row.id,
+    } as DelegationRunRow);
+
+    expect(appendEvent).not.toHaveBeenCalled();
+    expect(JSON.parse(row.metadata ?? "{}")).not.toHaveProperty("teardown_ladder");
   });
 
   it("does not schedule teardown on the parent when the run has no child session", async () => {

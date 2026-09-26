@@ -368,7 +368,7 @@ delegation run は §5 の status API が正なので、 本節は **status を�
 
 ### 10.1 自走完了時の session-end
 
-PR が open/draft のテスト候補として引き継がれ、residual 判定が `none`、かつ別件の
+対応PRのマージ完了を確認し、residual 判定が `none`、かつ別件の
 未回答質問が無い場合は、goal-and-go の明示OFFに関係なく provider 別の session-end
 (`/session-end` / `$session-end`) を teardown ladder から自動 inject する。同じ run の
 `auto:session-end` inject は永続metadataを使って exactly-once にする。

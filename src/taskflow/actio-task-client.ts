@@ -4,6 +4,8 @@ import type { ActioBinding } from "./actio-binding.js";
 import type { ActioTransport } from "./actio-transport.js";
 import type { TaskStatus } from "./types.js";
 import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
+import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
+import type { PlanningTask } from "./continuation-plan.js";
 
 const Task = z.object({
   id: z.string().min(1), title: z.string(), description: z.string().nullable(),
@@ -13,6 +15,10 @@ const Task = z.object({
   pluginId: z.string().nullable(), pluginPayload: z.record(z.unknown()).nullable(),
   createdAt: z.string(),
   deadline: z.string().nullable().optional(),
+  blockedBy: z.array(z.string()).optional(),
+  isCriticalPath: z.boolean().optional(),
+  slackDays: z.number().nullable().optional(),
+  criticalPathError: z.string().nullable().optional(),
 });
 export type ActioWorkflowTask = z.infer<typeof Task>;
 export const ACTIO_WORKFLOW_SOURCE = "concordia.taskflow.v3";
@@ -23,6 +29,7 @@ export function workflowStatus(status: ActioWorkflowTask["status"]): TaskStatus 
 
 /** Maps Actio's task contract without weakening the configured ownership scope. */
 export class ActioWorkflowClient {
+  private readonly metadataWrites = new Map<string, Promise<void>>();
   constructor(private readonly transport: ActioTransport) {}
 
   async list(binding: ActioBinding): Promise<ActioWorkflowTask[]> {
@@ -77,6 +84,55 @@ export class ActioWorkflowClient {
   }
 
   async setWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<void> {
+    return this.serializeMetadata(binding, id, () => this.writeWorkingSession(binding, id, worker, expected));
+  }
+
+  async setPrEvidence(binding: ActioBinding, id: string, evidence: TaskPrEvidence): Promise<void> {
+    return this.serializeMetadata(binding, id, async () => {
+      const current = await this.get(binding, id);
+      const pluginPayload = mergeTaskPrEvidence(current.pluginPayload, evidence);
+      if (JSON.stringify(pluginPayload) === JSON.stringify(current.pluginPayload)) return;
+      const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { pluginPayload }));
+      if (JSON.stringify(updated.pluginPayload) !== JSON.stringify(pluginPayload)) throw new Error("Actio PR evidence update was not confirmed");
+    });
+  }
+
+  async planning(binding: ActioBinding): Promise<PlanningTask[]> {
+    const tasks = await this.list(binding);
+    const graph = binding.teamId ? z.object({ tasks: z.array(z.object({ id: z.string(), isCriticalPath: z.boolean(), slackDays: z.number() })), cycles: z.array(z.array(z.string())) })
+      .parse(await this.transport.request(binding, "GET", `/api/teams/${encodeURIComponent(binding.teamId)}/critical-path`)) : null;
+    const planning = tasks.map((task) => {
+      const computed = graph?.tasks.find((item) => item.id === task.id);
+      return { id: task.id, status: task.status, blockedBy: task.blockedBy ?? [],
+        workingSessionId: taskSessionMetadata(task.pluginPayload).working_session_id,
+        isCriticalPath: computed?.isCriticalPath ?? task.isCriticalPath ?? false,
+        slackDays: computed?.slackDays ?? task.slackDays ?? null,
+        criticalPathError: graph?.cycles.some((cycle) => cycle.includes(task.id)) ? "cycle" : task.criticalPathError ?? null,
+        pullRequests: task.pluginPayload?.pull_requests === undefined ? [] : z.array(TaskPrEvidence).parse(task.pluginPayload.pull_requests) };
+    });
+    // Human-created prerequisites may not carry the Cc plugin ID. Read those
+    // through the same authenticated scope without making them work candidates.
+    const dependencyIds = [...new Set(tasks.flatMap((task) => task.blockedBy ?? []))].filter((id) => !tasks.some((task) => task.id === id));
+    for (const id of dependencyIds) {
+      const dependency = z.object({ task: Task }).parse(await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`)).task;
+      if (dependency.teamId !== binding.teamId || (!binding.teamId && dependency.ownerId !== binding.ownerId)) throw new Error("Actio dependency ownership mismatch");
+      planning.push({ id, status: dependency.status === "done" ? "done" : "blocked", blockedBy: [],
+        workingSessionId: null,
+        isCriticalPath: false, slackDays: null, criticalPathError: null, pullRequests: [] });
+    }
+    return planning;
+  }
+
+  private async serializeMetadata(binding: ActioBinding, id: string, write: () => Promise<void>): Promise<void> {
+    const key = JSON.stringify([binding.ownerId, binding.projectId, binding.teamId, id]);
+    const previous = this.metadataWrites.get(key);
+    const operation = (async () => { await previous?.catch(() => undefined); await write(); })();
+    this.metadataWrites.set(key, operation);
+    try { await operation; }
+    finally { if (this.metadataWrites.get(key) === operation) this.metadataWrites.delete(key); }
+  }
+
+  private async writeWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<void> {
     const current = await this.get(binding, id);
     const pluginPayload = assignTaskWorker(current.pluginPayload, worker, expected);
     if (taskSessionMetadata(current.pluginPayload).working_session_id === worker) return;

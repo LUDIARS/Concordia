@@ -321,6 +321,18 @@ describe("startGoalAndGo", () => {
     unsubscribe();
   });
 
+  it("revalidates Actio dependencies before injecting", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const canContinue = vi.fn(async () => false);
+    const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600,
+      taskStore: { authoritative: true, findByRelativePath: async () => ({ status: "pending" }), canContinue } });
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "Task (actio:task-1)", ts: 1 });
+    await vi.waitFor(() => expect(canContinue).toHaveBeenCalled());
+    expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
+    expect(env.events.some((event) => event.kind === "inject")).toBe(false);
+    handle.stop();
+  });
+
   it("does nothing while the session flag is OFF", async () => {
     vi.useFakeTimers();
     const env = fakeRepo(setGoalAndGoEnabled(null, false));

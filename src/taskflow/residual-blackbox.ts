@@ -21,9 +21,12 @@ export async function checkResidual(input: {
 }): Promise<ResidualOutcome> {
   const session = input.sessions.findSession(input.sessionId);
   if (!session) return "none";
+  if (!allowAutoInject({ probe: input.hasPendingQuestion, sessionId: input.sessionId, source: "taskflow:residual:next" })) return "waiting";
   const tasks = await input.store.findForProject(session.repo_path, ["pending"], readSubsidiaryId(session.metadata));
   if (tasks.length > 0) {
-    const task = tasks[0]!;
+    const task = input.store.nextExecutable
+      ? await input.store.nextExecutable(session.repo_path, readSubsidiaryId(session.metadata)) : tasks[0]!;
+    if (!task) return "waiting";
     const text = `次タスクを Actio から取得してください (${input.store.relativePath(task)})`;
     if (readGoalAndGoStatus(session.metadata).enabled) {
       eventBus.emit({ type: "taskflow.continue_requested", target_session_id: input.sessionId, text, ts: Math.floor(Date.now() / 1000) });

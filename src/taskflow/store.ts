@@ -1,4 +1,5 @@
 import type { TaskDocument, TaskStatus } from "./types.js";
+import type { TaskPrEvidence } from "./pr-evidence.js";
 
 export interface RemainingTasksInput {
   repoPath: string; sourceRunId: string; project: string;
@@ -17,6 +18,9 @@ export interface TaskCreateInput {
 
 /** The runtime depends on task retrieval, never on a filesystem backend. */
 export interface TaskStore {
+  nextExecutable?(repoPath: string, subsidiaryId: string | null): Promise<TaskDocument | null>;
+  canContinue?(repoPath: string, reference: string, subsidiaryId: string | null, sessionId?: string): Promise<boolean>;
+  setPrEvidence?(repoPath: string, reference: string, evidence: TaskPrEvidence, subsidiaryId: string | null): Promise<void>;
   scan(): Promise<TaskDocument[]>;
   findForProject(project: string, statuses?: readonly TaskStatus[], subsidiaryId?: string | null): Promise<TaskDocument[]>;
   findByRelativePath(repoPath: string, reference: string): Promise<{ status: string } | null>;

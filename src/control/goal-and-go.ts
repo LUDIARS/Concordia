@@ -4,6 +4,7 @@ import { shouldClearIdleNudgeFromFrame } from "./idle-nudge.js";
 import { describeGoal, readGoalFromMetadata, type Goal } from "./goal.js";
 import { parseRequesterSource } from "./requester.js";
 import { allowAutoInject, type PendingQuestionProbe } from "./pending-question-blocker.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
 export const GOAL_AND_GO_SOURCE = "auto:goal-and-go";
 
@@ -28,6 +29,7 @@ export interface StartGoalAndGoOptions {
   taskStore?: {
     findByRelativePath(repoPath: string, relativePath: string): Promise<{ status: string } | null>;
     readonly authoritative?: boolean;
+    canContinue?(repoPath: string, reference: string, subsidiaryId: string | null, sessionId?: string): Promise<boolean>;
   };
   /**
    * 未回答の質問があるセッションは自走継続しない (blocker)。未注入なら従来どおり継続。
@@ -116,6 +118,7 @@ export function buildGoalAndGoPrompt(input: {
     "人間から新しい入力がないため、自走継続の判断を行ってください。",
     ...focus,
     ...currentTask,
+    "Actioのタスク状態・依存関係・クリティカルパス・関連PRを確認してください。審査通過だけで完了とせず、既存の人間の許可範囲にマージ・反映が含まれる場合はその残作業も進めてください。",
     "人間の判断・新しい権限・スコープ拡張が必要なら、決め打ちせず質問して停止してください。",
     "残作業がなければ完了を確認して終了してください。状況報告だけで止まらず、実行可能な次作業がある場合は実行まで進めてください。",
   ].join("\n");
@@ -245,7 +248,8 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
       currentTask: session.current_task,
       taskPath,
       taskStore: opts.taskStore,
-    }).then((resolution) => {
+    }).then(async (resolution) => {
+      if (opts.taskStore?.canContinue && !await opts.taskStore.canContinue(session.repo_path, taskPath, readSubsidiaryId(session.metadata), sessionId)) return;
       const current = opts.repo.findSession(sessionId);
       if (
         stopped
@@ -255,6 +259,7 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
         || current.current_task !== session.current_task
         || current.metadata !== session.metadata
       ) return;
+      if (!allowAutoInject({ probe: opts.hasPendingQuestion, sessionId, source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
       if (resolution.dropReason) {
         opts.repo.patchSession(sessionId, { current_task: null });
         opts.repo.appendEvent({
@@ -316,7 +321,8 @@ async function resolveCurrentTaskForPrompt(input: {
 }> {
   try {
     const task = await input.taskStore.findByRelativePath(input.repoPath, input.taskPath);
-    const reason = !task ? "missing" : task.status !== "pending" ? "not_pending" : null;
+    const eligible = task?.status === "pending" || (!!input.taskStore.canContinue && task?.status === "delegated");
+    const reason = !task ? "missing" : !eligible ? "not_pending" : null;
     return { currentTask: reason ? null : input.currentTask, dropReason: reason };
   } catch {
     // An authoritative store cannot be second-guessed: continuing on a stale task

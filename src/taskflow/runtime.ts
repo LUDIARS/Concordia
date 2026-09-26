@@ -23,6 +23,7 @@ import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "./failure.js";
 import { syncTaskSessionAssignment } from "./session-assignment.js";
+import { syncSessionPrEvidence } from "./sync-pr-evidence.js";
 
 const log = createChildLogger("taskflow-runtime");
 
@@ -50,6 +51,7 @@ export class TaskflowRuntime {
   async handleCompletedRun(run: DelegationRunRow): Promise<void> {
     const sessionId = run.child_session_id ?? run.parent_session_id;
     if (!sessionId) return;
+    await syncSessionPrEvidence({ ...this.deps, sessionId });
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
     const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
     if (!run.child_session_id) return;
@@ -89,6 +91,7 @@ export class TaskflowRuntime {
   }
 
   private async handleRevisorNotice(sessionId: string): Promise<void> {
+    await syncSessionPrEvidence({ ...this.deps, sessionId });
     const taskflowRun = this.deps.delegation.findRunByChildSession(sessionId);
     // 先に「マージ済みか」だけを確かめる。 failed / action_required の通知でゴール判断を
     // 走らせると、 判断途中の notify (pr-decision メンション等) が修正待ちのセッションに
@@ -117,6 +120,7 @@ export class TaskflowRuntime {
   }
 
   private async handleInteractiveCompletion(sessionId: string): Promise<void> {
+    await syncSessionPrEvidence({ ...this.deps, sessionId });
     // The answer to an automatic confirmation is not new human work. Avoid both
     // repeated completion/PR questions and another residual sweep until input arrives.
     if (isWaitingForHumanResponse(this.deps.sessions, sessionId)) return;

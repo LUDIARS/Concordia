@@ -2,6 +2,33 @@
   "version": 1,
   "implementations": [
     {
+      "source": "src/taskflow/pr-evidence.ts",
+      "tests": [
+        "src/taskflow/pr-evidence.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-PR-GOAL-01"
+      ]
+    },
+    {
+      "source": "src/taskflow/continuation-plan.ts",
+      "tests": [
+        "src/taskflow/continuation-plan.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-PR-GOAL-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/sync-pr-evidence.ts",
+      "tests": [
+        "src/taskflow/sync-pr-evidence.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-PR-GOAL-01"
+      ]
+    },
+    {
       "source": "src/config/settings/definitions/platform.ts",
       "tests": [
         "src/config/settings/coverage.test.ts",
@@ -522,7 +549,10 @@
       "tests": [
         "src/control/goal-and-go.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
+      ]
     },
     {
       "source": "src/control/inject-manual-seed.ts",
@@ -672,7 +702,9 @@
       ],
       "contracts": [
         "CC-AT-DISCOVERY-01",
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
       ]
     },
     {
@@ -682,7 +714,9 @@
         "src/taskflow/task-session-flow.test.ts"
       ],
       "contracts": [
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
       ]
     },
     {
@@ -724,19 +758,27 @@
     {
       "source": "src/taskflow/residual-blackbox.ts",
       "tests": [
-        "src/control/human-response-confirmation.test.ts"
+        "src/control/human-response-confirmation.test.ts",
+        "src/taskflow/continuation-plan.test.ts",
+        "src/taskflow/residual-blackbox.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
+      ]
     },
     {
       "source": "src/taskflow/runtime.ts",
       "tests": [
         "src/taskflow/runtime-failure.test.ts",
         "src/taskflow/runtime.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
+        "src/taskflow/task-session-flow.test.ts",
+        "src/taskflow/sync-pr-evidence.test.ts"
       ],
       "contracts": [
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
       ]
     },
     {
@@ -780,7 +822,9 @@
         "src/taskflow/task-session-flow.test.ts"
       ],
       "contracts": [
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-ACTIO-PR-GOAL-01",
+        "CC-ACTIO-PR-GOAL-02"
       ]
     },
     {

@@ -7,6 +7,8 @@ import type { TaskflowStateStore } from "./state-store.js";
 import type { RemainingTasksInput, TaskCreateInput, TaskStore } from "./store.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
+import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
+import type { TaskPrEvidence } from "./pr-evidence.js";
 
 export const ACTIO_REFERENCE = /^actio:([A-Za-z0-9-]+)$/;
 
@@ -35,6 +37,23 @@ export class ActioTaskStore implements TaskStore {
   }
 
   relativePath(document: TaskDocument): string { return document.path; }
+
+  async nextExecutable(repoPath: string, subsidiaryId: string | null): Promise<TaskDocument | null> {
+    const binding = await this.binding(repoPath, subsidiaryId);
+    const selected = selectContinuationTask(await this.client.planning(binding));
+    return selected ? this.document(binding, await this.client.get(binding, selected.id)) : null;
+  }
+
+  async canContinue(repoPath: string, reference: string, subsidiaryId: string | null, sessionId?: string): Promise<boolean> {
+    const binding = await this.binding(repoPath, subsidiaryId);
+    const tasks = await this.client.planning(binding);
+    const task = tasks.find((item) => item.id === this.id(reference));
+    return !!task && taskWaitReason(task, tasks, sessionId) === null;
+  }
+
+  async setPrEvidence(repoPath: string, reference: string, evidence: TaskPrEvidence, subsidiaryId: string | null): Promise<void> {
+    await this.client.setPrEvidence(await this.binding(repoPath, subsidiaryId), this.id(reference), evidence);
+  }
 
   associate(document: TaskDocument, runId: string, sessionId: string | null): void {
     const worker = taskSessionMetadata(document.frontmatter).working_session_id ?? sessionId;
@@ -137,6 +156,7 @@ export class ActioTaskStore implements TaskStore {
       body: task.description ?? "",
       frontmatter: { task: task.id, project: binding.project,
         ...taskSessionMetadata(task.pluginPayload),
+        pull_requests: task.pluginPayload?.pull_requests ?? [],
         kind: typeof task.pluginPayload?.kind === "string" ? task.pluginPayload.kind : "実装",
         created: task.createdAt.slice(0, 10),
         due_at: task.deadline ?? null,

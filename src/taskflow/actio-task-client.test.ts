@@ -7,6 +7,7 @@ import {
   ACTIO_WORKFLOW_SOURCE, ActioWorkflowClient, workflowStatus, type ActioWorkflowTask,
 } from "./actio-task-client.js";
 import type { ActioTransport } from "./actio-transport.js";
+import type { TaskPrEvidence } from "./pr-evidence.js";
 
 const BINDING: ActioBinding = {
   repoPath: "E:/Document/Ars/Concordia", project: "Concordia", projectId: "project-1",
@@ -38,6 +39,43 @@ function transport(...responses: unknown[]) {
 const CREATE = {
   sourceRef: "session:s1:req-1", title: "タイトル", body: "本文", kind: "実装", memoryLinks: [] as string[],
 };
+
+describe("Actio PR and planning adapter", () => {
+  const pr: TaskPrEvidence = { provider: "revisor", repository: "owner/repo", id: "pr-1", number: 1, url: null,
+    head_sha: "a", reviewed_head_sha: "a", state: "open", review: "test_ok", reflection: "unknown", observed_at: "2026-09-26T00:00:00.000Z" };
+  it("serializes PR and worker metadata updates without losing either", async () => {
+    let current = task({ pluginPayload: { issued_by_session_id: "issuer", working_session_id: null } });
+    const request = vi.fn(async (_binding: ActioBinding, method: string, _path: string, body?: { pluginPayload: Record<string, unknown> }) => {
+      if (method === "PATCH") current = { ...current, pluginPayload: body!.pluginPayload };
+      return { task: current };
+    });
+    const client = new ActioWorkflowClient({ request } as unknown as ActioTransport);
+    await Promise.all([client.setPrEvidence(BINDING, current.id, pr), client.setWorkingSession(BINDING, current.id, "worker")]);
+    expect(current.pluginPayload).toMatchObject({ issued_by_session_id: "issuer", working_session_id: "worker", pull_requests: [pr] });
+  });
+  it("reconciles an uncertain PATCH by reading the same task on retry", async () => {
+    let current = task();
+    let patches = 0;
+    const request = vi.fn(async (_binding: ActioBinding, method: string, _path: string, body?: { pluginPayload: Record<string, unknown> }) => {
+      if (method === "PATCH") { current = { ...current, pluginPayload: body!.pluginPayload }; patches++; throw new Error("unknown outcome"); }
+      return { task: current };
+    });
+    const client = new ActioWorkflowClient({ request } as unknown as ActioTransport);
+    await expect(client.setPrEvidence(BINDING, current.id, pr)).rejects.toThrow("unknown outcome");
+    await client.setPrEvidence(BINDING, current.id, pr);
+    expect(patches).toBe(1);
+  });
+  it("resolves a human-created prerequisite without selecting it as Cc work", async () => {
+    const { transport: t } = transport({ tasks: [task({ blockedBy: ["human"] })] }, { task: task({ id: "human", pluginId: null, status: "done" }) });
+    const plan = await new ActioWorkflowClient(t).planning(BINDING);
+    expect(plan).toEqual(expect.arrayContaining([expect.objectContaining({ id: "human", status: "done" })]));
+  });
+  it("uses fresh team critical-path results and surfaces cycles", async () => {
+    const team = { ...BINDING, teamId: "team-1" };
+    const { transport: t } = transport({ tasks: [task({ teamId: team.teamId })] }, { tasks: [], cycles: [["task-1"]] });
+    expect(await new ActioWorkflowClient(t).planning(team)).toEqual([expect.objectContaining({ criticalPathError: "cycle" })]);
+  });
+});
 
 describe("workflowStatus", () => {
   it("maps Actio business status onto the Cc vocabulary", () => {

@@ -9,6 +9,16 @@ const phase = (value: WorkPhaseView["phase"]): WorkPhaseView => ({
 });
 
 describe("phase-aware followup", () => {
+  it("keeps a passing open PR in the loop until merge is recorded", () => {
+    const snapshot = { ...empty, prs: [{ status: "open", checkStatus: "test_ok" }] };
+    expect(selectSessionFollowupState(snapshot, phase("implementation"))).toBe("merge-confirmation");
+    const guidance = renderSessionFollowup(snapshot, phase("implementation"));
+    expect(guidance).toContain("既存の明示許可");
+    expect(guidance).toContain("通常のマージ許可を再質問せず");
+    expect(guidance).toContain("Test OKだけでは完了にしません");
+    expect(selectSessionFollowupState({ ...snapshot, prs: [{ status: "open", checkStatus: "action_required" }] })).toBe("review-failed");
+    expect(selectSessionFollowupState({ ...snapshot, prs: [{ status: "merged", checkStatus: "test_ok" }] })).toBe("completed");
+  });
   it("keeps start confirmation ahead of active task and review records", () => {
     expect(selectSessionFollowupState({ ...empty, tasks: [{ status: "in_progress" }], prs: [{ status: "open", checkStatus: "failed" }] }, phase("confirmation"))).toBe("start-confirmation");
   });

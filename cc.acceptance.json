@@ -1203,6 +1203,15 @@
       "contracts": [
         "CC-RV-RISK-NOTICE-01"
       ]
+    },
+    {
+      "source": "src/control/session-followup-state.ts",
+      "tests": [
+        "src/control/session-followup-state.test.ts"
+      ],
+      "contracts": [
+        "CC-DELEGATION-MERGE-01"
+      ]
     }
   ]
 }

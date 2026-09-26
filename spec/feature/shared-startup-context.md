@@ -85,6 +85,17 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
 
 ## 検証・復旧
 
+### 承認済み委託のマージ完了（CC-DELEGATION-MERGE-01）
+
+価値: UX-CC-PRODUCT。利用者が失うと困る状態は、委託した変更が審査通過後も追加のマージ確認待ちで未反映になること。
+2026-09-26 necoの指示により、許可済みの委託は競合修正・再審査・マージ結果の確認まで継続する。
+状態所有者は、審査とマージがRevisor、継続案内と完了判定がCc。自動確認は新たな権限を付与せず、既存の人間の指示を取り消さない。
+不変条件: Test OKだけでは完了にしない。対応PRのmergedとマージコミットを確認する。審査中は重複提出せず通知を待つ。
+通常のマージ許可を再質問しない。競合は既存変更を保って解消し、変更したheadは再審査する。明示的な人間判断要求、再審査後も100以上のリスク、未許可の範囲拡張は維持する。
+マージ可のまま止まったPRは現在のhead・判定・進行中操作を照合し、対象PRの既存自動マージ判定を一度再開する。別PRの一括マージ、ゲート回避、結果不明時の再送はしない。
+境界: session-followup-stateとsession-followup skill。回帰: Test OKはmerge-confirmation、mergedでcompleted、未回答開始確認と審査中の待機を維持する。
+復旧: 案内変更をrevertして再ビルドする。PR状態や権限のデータ移行はない。
+
 ### 最後に登録した作業プロジェクト
 
 実装: `src/control/startup-policy-project.ts`、`src/control/startup-policy.ts`、`src/api/sessions/startup-policy-check.ts`、`src/api/sessions/lifecycle.ts`、`src/api/implementation-tools.ts`、`src/api/register-core.ts`。

@@ -61,6 +61,8 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot, phase?
     ...(phase ? [`work_phase=${phase.phase}; revision=${phase.revision}（Cc の記録。最新の会話と照合してください）`] : []),
     ...(!snapshot && phase ? ["審査・委託状態は取得できていません。設計を評価し、実装の再開前に待機中の作業がないか確認してください。"] : []),
     `固定手順: ${JSON.stringify(skill)} の該当stateだけ読んでください。`,
-    "これは終了指示ではありません。人間の確認待ちは維持し、自動でsession-end・push・merge・テストを実行しないでください。",
+    "これは終了指示でも新たな実行許可でもありません。人間の確認待ちは維持し、既存の明示許可がある操作はその範囲で継続してください。",
+    "マージまで許可された委託は、通常のマージ許可を再質問せず、競合修正・再審査・対応PRのマージ結果確認まで続けてください。Test OKだけでは完了にしません。",
+    "審査中は通知を待ち、重複提出・結果不明の再送・審査ゲート回避をしないでください。未許可のsession-end・push・テストや範囲拡張は行いません。",
   ].join("\n");
 }

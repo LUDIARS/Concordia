@@ -44,6 +44,7 @@ describe("sealDelegationTask", () => {
     expect(create.mock.calls[0]![0]).toMatchObject({
       repoPath: REPO, subsidiaryId: null, title: "実装委託 (Opus / xhigh)", body: CONTENT,
       kind: "実装", memoryLinks: ["mem-1"], status: "delegated",
+      issuedBySessionId: "parent-1",
     });
     expect(sealed.prompt).toContain("actio:task-1");
     expect(sealed.prompt).not.toContain(CONTENT);
@@ -74,7 +75,7 @@ describe("sealDelegationTask", () => {
       store, definition: definition(), invocation: invocation(), runId: "run-1", content: CONTENT,
     });
 
-    expect(associate).toHaveBeenCalledWith(document, "run-1", "parent-1");
+    expect(associate).toHaveBeenCalledWith(document, "run-1", null);
   });
 
   /** Identity is derived from the request, so a lost response retries onto the same task. */

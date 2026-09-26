@@ -65,6 +65,13 @@ export class TaskflowStateStore {
       WHERE actio_task_id IS NOT NULL AND delegation_run_id = ?`).run(this.now(), runId);
   }
 
+  assignmentsForSession(sessionId: string): Array<{ repo_path: string; task_path: string; subsidiary_id: string | null }> {
+    return this.db.prepare(`SELECT repo_path, task_path, subsidiary_id FROM taskflow_task_state
+      WHERE source_session = ? AND actio_task_id IS NOT NULL`).all(sessionId) as Array<{
+        repo_path: string; task_path: string; subsidiary_id: string | null;
+      }>;
+  }
+
   readOrMigrate(document: TaskDocument): TaskRuntimeState {
     const key = taskKey(document);
     const existing = this.read(key);

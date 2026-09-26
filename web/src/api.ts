@@ -215,7 +215,7 @@ export interface FederationListResult {
 /** 承認インボックスの 1 項目 (spec/feature/approval-inbox.md §2)。 */
 export interface InboxItem {
   key: string;
-  kind: "ask-card" | "inquiry-ask-human" | "director-blocked" | "confirm-pending";
+  kind: "ask-card" | "inquiry-ask-human" | "director-blocked" | "confirm-pending" | "design-plan-approval";
   summary: string;
   raised_at: number;
   elapsed_ms: number;

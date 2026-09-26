@@ -11,6 +11,7 @@ export async function sealDelegationTask(input: {
   const cwd = invocation.cwd ?? (definition.default_cwd ? substituteVars(definition.default_cwd, invocation.args).trim() : "");
   if (!cwd || !store.create) throw new Error("Actio task store and repository binding are required");
   const task = await store.create({
+    issuedBySessionId: invocation.parent_session_id ?? null,
     repoPath: cwd, subsidiaryId: invocation.subsidiary_id ?? null,
     // Stable even when the POST response is lost before the run exists locally.
     sourceRef: `delegation:${createHash("sha256").update(JSON.stringify([
@@ -24,7 +25,7 @@ export async function sealDelegationTask(input: {
     "自分の session_id を使い、GET /v1/taskflow/tasks/content?session_id=<自分>&reference=" + task.path + " から本文を取得して実装してください。",
     "取得できなければ停止して報告してください。本文をファイルや PR へ自動転記しないでください。",
   ].join("\n");
-  store.associate?.(task, input.runId, invocation.parent_session_id ?? null);
+  store.associate?.(task, input.runId, null);
   return {
     reference: task.path, prompt,
     definition: { ...definition, prompt_template: prompt, input_schema: "[]", default_cwd: cwd },

@@ -55,6 +55,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Inbox", () => {
+  it("shows a pending design plan and links to its answering session", async () => {
+    apiMocks.inbox.mockResolvedValue(result([item({ kind: "design-plan-approval", key: "design-plan-approval:d1", summary: "Design plan v2: change" })]));
+    renderInbox();
+    expect(await screen.findByText("Design plan 承認待ち")).toBeInTheDocument();
+    expect(screen.getByText("Design plan v2: change")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "セッションで答える" })).toHaveAttribute("href", "/sessions/session-1");
+  });
   it("一覧を表示し、既読操作後に再取得する", async () => {
     apiMocks.inbox.mockResolvedValue(result([item()]));
     const user = userEvent.setup();

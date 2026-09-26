@@ -37,6 +37,7 @@
     "cross-repository-material-sampling"
   ],
   "specRefs": [
+    "spec/feature/approval-inbox.md",
     "spec/feature/director-patrol.md",
     "spec/feature/director-goal-flow.md",
     "spec/feature/director-workflow.md",

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { ActioBinding } from "./actio-binding.js";
 import type { ActioTransport } from "./actio-transport.js";
 import type { TaskStatus } from "./types.js";
+import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 
 const Task = z.object({
   id: z.string().min(1), title: z.string(), description: z.string().nullable(),
@@ -37,6 +38,7 @@ export class ActioWorkflowClient {
   }
 
   async create(binding: ActioBinding, input: {
+    issuedBySessionId?: string | null;
     sourceRef: string; title: string; body: string; kind: string; memoryLinks: string[]; status?: TaskStatus; dueAt?: string | null;
   }): Promise<{ task: ActioWorkflowTask; existed: boolean }> {
     const sourceRef = createHash("sha256").update(JSON.stringify([
@@ -55,18 +57,34 @@ export class ActioWorkflowClient {
       title: input.title, description: input.body, projectId: binding.projectId, teamId: binding.teamId,
       source: ACTIO_WORKFLOW_SOURCE, sourceRef,
       pluginId: ACTIO_WORKFLOW_SOURCE, pluginRef: sourceRef,
-      pluginPayload: { version: 3, kind: input.kind, memory_links: input.memoryLinks },
+      pluginPayload: { version: 3, kind: input.kind, memory_links: input.memoryLinks,
+        issued_by_session_id: input.issuedBySessionId ?? null, working_session_id: null },
       status: this.remoteStatus(input.status ?? "pending"), creatorType: "ai",
       deadline: input.dueAt ?? null,
     }));
     if (task.sourceRef !== sourceRef) throw new Error("Actio source identity mismatch");
     verifyContent(task);
+    const sessions = taskSessionMetadata(task.pluginPayload);
+    if (sessions.issued_by_session_id !== (input.issuedBySessionId ?? null) || sessions.working_session_id !== null) {
+      throw new Error("Invalid Actio session metadata");
+    }
     return { task, existed: false };
   }
 
   async setStatus(binding: ActioBinding, id: string, status: TaskStatus): Promise<void> {
     await this.get(binding, id);
     this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { status: this.remoteStatus(status) }));
+  }
+
+  async setWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<void> {
+    const current = await this.get(binding, id);
+    const pluginPayload = assignTaskWorker(current.pluginPayload, worker, expected);
+    if (taskSessionMetadata(current.pluginPayload).working_session_id === worker) return;
+    const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { pluginPayload }));
+    const result = taskSessionMetadata(updated.pluginPayload);
+    if (result.working_session_id !== worker || result.issued_by_session_id !== pluginPayload.issued_by_session_id) {
+      throw new Error("Invalid Actio session metadata");
+    }
   }
 
   private remoteStatus(status: TaskStatus): string {

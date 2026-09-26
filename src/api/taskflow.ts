@@ -14,6 +14,7 @@ import {
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "../taskflow/failure.js";
+import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import {
   matchesTaskflowOrganizationScope,
   parseTaskflowOrganizationScope,
@@ -103,6 +104,16 @@ export function taskflowRouter(input: {
     const taskPath = typeof body?.task_path === "string" ? body.task_path.trim() : "";
     if (!repoPath || !taskPath) return c.json({ error: "repo_path and task_path are required" }, 400);
     const status = body?.status;
+    if (body && "issued_by_session_id" in body) return c.json({ error: "issuing_session_is_immutable" }, 400);
+    if (body && "working_session_id" in body && !input.store.setWorkingSession) return c.json({ error: "Actio task store required" }, 503);
+    for (const field of ["working_session_id", "expected_working_session_id"] as const) {
+      if (body && field in body && body[field] !== null && (typeof body[field] !== "string" || !(body[field] as string).trim())) {
+        return c.json({ error: `invalid_${field}` }, 400);
+      }
+    }
+    if (body && "working_session_id" in body && "source_session" in body && body.working_session_id !== body.source_session) {
+      return c.json({ error: "conflicting_working_session" }, 400);
+    }
     if (status !== undefined && (typeof status !== "string" || !STATUSES.includes(status as TaskStatus))) {
       return c.json({ error: "invalid_status" }, 400);
     }
@@ -114,11 +125,12 @@ export function taskflowRouter(input: {
       ...nullableStringField(body, "delegation_run_id"),
       ...prNumberField(body),
     };
+    if (body && "working_session_id" in body) patch.source_session = (body.working_session_id as string | null)?.trim() ?? null;
     const key = { repoPath, taskPath };
     const current = input.state.find(key);
     if (!current) return c.json({ error: "not_found" }, 404);
     const ownershipTouched = !!body && (
-      "subsidiary_id" in body || "source_session" in body || "delegation_run_id" in body
+      "subsidiary_id" in body || "source_session" in body || "working_session_id" in body || "delegation_run_id" in body
     );
     if (ownershipTouched) {
       const references: TaskflowSubsidiaryReference[] = [];
@@ -135,6 +147,10 @@ export function taskflowRouter(input: {
       const sessionId = patch.source_session === undefined ? current.source_session : patch.source_session;
       if (sessionId) {
         const session = input.sessions.findSession(sessionId);
+        if (patch.source_session && session?.status === "ended") return c.json({ error: "working_session_ended" }, 409);
+        if (patch.source_session && session && await mainRepositoryKey(session.repo_path) !== await mainRepositoryKey(repoPath)) {
+          return c.json({ error: "working_session_repository_mismatch" }, 409);
+        }
         references.push({
           kind: "source_session",
           id: sessionId,
@@ -160,6 +176,10 @@ export function taskflowRouter(input: {
       // commits first; if local persistence fails, retry the same status/id.
       await input.store.read?.(repoPath, taskPath, current.subsidiary_id);
       if (patch.status) await input.store.updateStatus(repoPath, taskPath, patch.status, current.subsidiary_id);
+    }
+    if (patch.source_session !== undefined && input.store.setWorkingSession) {
+      await input.store.setWorkingSession(repoPath, taskPath, patch.source_session, current.subsidiary_id,
+        body?.expected_working_session_id as string | null | undefined);
     }
     if (!input.state.update(key, patch)) {
       return c.json({ error: "no_changes" }, 404);

@@ -62,6 +62,12 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
 ]);
 
 export function describeTaskflowFailure(error: unknown): TaskflowFailureDescription {
+  if (error instanceof Error && error.message === "Task working session changed") {
+    return { code: "task_worker_conflict", status: 409, message: "タスクの担当が変わりました。現在の担当を確認してください。" };
+  }
+  if (error instanceof Error && error.message === "Invalid Actio session metadata") {
+    return { code: "actio_response_invalid", status: 502, message: "タスクのセッション情報が契約と一致しません。" };
+  }
   if (error instanceof RevisorLookupUnavailable) {
     return { code: "revisor_lookup_unavailable", status: 503,
       message: "Revisor の PR 状態を取得できません。PR 不在とは判定せず、復旧後に再確認してください。" };

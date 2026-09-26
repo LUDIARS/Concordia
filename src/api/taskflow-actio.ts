@@ -46,9 +46,9 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     const task = await deps.store.create({
       repoPath: session.repo_path, subsidiaryId: readSubsidiaryId(session.metadata),
       sourceRef: `session:${session.id}:${input.request_id}`,
+      issuedBySessionId: session.id,
       title: input.title, body: input.body, kind: input.kind, memoryLinks: input.memory_links, dueAt: input.due_at,
     });
-    deps.state.update({ repoPath: task.repoPath, taskPath: task.path }, { source_session: session.id });
     return c.json({ reference: task.path, repo_path: task.repoPath, status: task.runtime?.status }, 201);
   });
 
@@ -60,6 +60,8 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     const session = deps.sessions.findSession(sessionId);
     if (!session) return c.json({ error: "session_not_found" }, 404);
     const task = await deps.store.read(session.repo_path, reference, readSubsidiaryId(session.metadata));
-    return c.json({ reference: task.path, title: task.title, body: task.body, memory_links: task.frontmatter.memory_links, status: task.runtime?.status });
+    return c.json({ reference: task.path, title: task.title, body: task.body, memory_links: task.frontmatter.memory_links, status: task.runtime?.status,
+      issued_by_session_id: task.frontmatter.issued_by_session_id ?? null,
+      working_session_id: task.frontmatter.working_session_id ?? null });
   });
 }

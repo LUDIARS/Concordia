@@ -22,6 +22,7 @@ import { notifyUserDecision } from "./notify.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "./failure.js";
+import { syncTaskSessionAssignment } from "./session-assignment.js";
 
 const log = createChildLogger("taskflow-runtime");
 
@@ -64,6 +65,11 @@ export class TaskflowRuntime {
 
   start(): { stop(): void } {
     const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.started" || event.type === "session.ended") {
+        void syncTaskSessionAssignment({ ...this.deps, sessionId: event.session_id, ended: event.type === "session.ended" })
+          .catch((error: unknown) => this.reportFailure(event.session_id, "session-assignment", error));
+        return;
+      }
       if (event.type === "session.event" && ["final_answer", "summary"].includes(event.kind)) {
         void this.handleInteractiveCompletion(event.session_id).catch((error: unknown) => this.reportFailure(event.session_id, "interactive-completion", error));
         return;
@@ -146,7 +152,7 @@ export class TaskflowRuntime {
     await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 
-  private reportFailure(sessionId: string, operation: "interactive-completion" | "revisor-notice", error: unknown): void {
+  private reportFailure(sessionId: string, operation: "interactive-completion" | "revisor-notice" | "session-assignment", error: unknown): void {
     const failure = describeTaskflowFailure(error);
     log.warn({ operation, reason: failure.code }, "taskflow operation failed");
     if (!claimHumanResponseConfirmation(this.deps.sessions, sessionId)) return;

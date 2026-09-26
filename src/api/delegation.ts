@@ -837,6 +837,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
             return c.json({ error: "partial_task_repo_unknown" }, 409);
           }
           const written = await deps.taskStore.writeRemainingTasks({
+            issuedBySessionId: row.child_session_id ?? null,
             repoPath,
             sourceRunId: rootRunId(row, deps.repo),
             project: row.call_name,

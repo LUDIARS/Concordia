@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { pendingPlans } from "./pending-plans.js";
 
 /**
  * 人間宛ての未回答事項を 1 本の一覧へ束ねる read model。
@@ -17,6 +18,7 @@ import type Database from "better-sqlite3";
 /** 集約する種別。 正本のテーブルが違うので、 種別は項目のキーの一部になる。 */
 export type InboxItemKind =
   | "ask-card"
+  | "design-plan-approval"
   | "inquiry-ask-human"
   | "director-blocked"
   | "confirm-pending"
@@ -113,6 +115,8 @@ export function directorBlockedItems(db: Database.Database): InboxItem[] {
     SELECT s.id, s.case_id, s.kind, s.title, s.updated_at
       FROM director_steps s
      WHERE s.status = 'blocked'
+       AND NOT EXISTS (SELECT 1 FROM director_decisions d
+         WHERE s.kind = 'plan' AND d.step_id = s.id AND d.plan_version IS NOT NULL)
      ORDER BY s.updated_at ASC
   `).all() as Array<{ id: string; case_id: string; kind: string; title: string; updated_at: number }>;
   return rows.map((row) => ({
@@ -191,6 +195,11 @@ export function githubIssueApprovalItems(db: Database.Database): InboxItem[] {
  */
 export function inboxItems(db: Database.Database): InboxItem[] {
   return [
+    ...pendingPlans(db).map((plan): InboxItem => ({
+      key: `design-plan-approval:${plan.id}`, kind: "design-plan-approval",
+      summary: summarize(`Design plan v${plan.version}: ${plan.title}`),
+      raisedAt: plan.raisedAt, caseId: plan.caseId, ...(plan.sessionId ? { sessionId: plan.sessionId } : {}),
+    })),
     ...askCardItems(db),
     ...inquiryAskHumanItems(db),
     ...directorBlockedItems(db),

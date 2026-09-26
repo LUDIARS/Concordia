@@ -18,6 +18,7 @@ import { answerLink, elapsedLabel, elapsedStyle, visibleItems } from "./inbox/vi
 // @implements spec/feature/approval-inbox.md §2
 
 const KIND_LABEL: Record<InboxItem["kind"], string> = {
+  "design-plan-approval": "Design plan 承認待ち",
   "ask-card": "質問カード",
   "inquiry-ask-human": "判断待ち",
   "director-blocked": "工程が blocked",
@@ -25,6 +26,7 @@ const KIND_LABEL: Record<InboxItem["kind"], string> = {
 };
 
 const KIND_STYLE: Record<InboxItem["kind"], string> = {
+  "design-plan-approval": "bg-warn/20 text-warn",
   "ask-card": "bg-accent/20 text-accent",
   "inquiry-ask-human": "bg-warn/20 text-warn",
   "director-blocked": "bg-warn/20 text-warn",

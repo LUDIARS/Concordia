@@ -15,6 +15,7 @@
  */
 
 import { escapeNotificationText } from "./notification-text.js";
+import type { PendingPlan } from "./pending-plans.js";
 
 /** 通知に載せる未回答質問の最小形。 正本は discord_pending_questions。 */
 export interface PendingQuestionRef {
@@ -27,6 +28,7 @@ export interface PendingQuestionRef {
 }
 
 export interface SessionReturnNoticeInput {
+  readonly plans?: readonly PendingPlan[];
   readonly questions: readonly PendingQuestionRef[];
   /** リンク組み立て用。 null なら本文にリンクを出さない。 */
   readonly guildId: string | null;
@@ -83,7 +85,11 @@ export function shouldNotifyOnReturn(input: ShouldNotifyInput): boolean {
  * @implements spec/feature/approval-inbox.md §3.2
  */
 export function buildSessionReturnNotice(input: SessionReturnNoticeInput): string | null {
-  const questions = input.questions;
+  const plans = input.plans ?? [];
+  const questions = [...input.questions, ...plans.map((plan, index) => ({
+    id: -(index + 1), question: `Design plan v${plan.version}: ${plan.title}`,
+    discordMessageId: null, ts: plan.raisedAt / 1000,
+  }))];
   if (questions.length === 0) return null;
 
   const maxListed = input.maxListed ?? DEFAULT_MAX_LISTED;
@@ -91,7 +97,7 @@ export function buildSessionReturnNotice(input: SessionReturnNoticeInput): strin
   const listed = oldestFirst.slice(0, maxListed);
 
   const lines: string[] = [];
-  lines.push(`このセッションに未回答の質問が ${questions.length} 件あります。`);
+  lines.push(`このセッションに未回答の${plans.length ? "質問・Design plan" : "質問"}が ${questions.length} 件あります。`);
   for (const question of listed) {
     const link = messageLink(input.guildId, input.channelId, question.discordMessageId);
     const summary = summarizeQuestion(question.question);

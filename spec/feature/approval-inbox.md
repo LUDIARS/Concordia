@@ -106,3 +106,23 @@ Director ゴールフローが回るほど ask_human は増えるため、対で
 - [ ] 終了済みセッションでは再訪通知を出さない。
 - [ ] 再訪通知のメンションは 1 人だけで、本文に mention 文字列を書かない。
 - [ ] 同一セッションへの再訪通知が cooldown 内に重複しない。
+# Design plan approval notices (CC-INBOX-PLAN-01)
+
+UX-CC-W4 / S5: a user returning to a session must also see unanswered Design plan
+approval cards. The same read model feeds the inbox and scheduled digest.
+Director decisions/steps remain the authority; notifications never approve plans.
+
+- Include only the latest submitted version per open plan step, awaiting a human
+  answer. Approved/discarded steps, answered revision requests and superseded
+  versions are excluded. Director records plan actions in the existing answer
+  columns; no new notification-owned answer state is introduced.
+- Avoid counting the plan again as a generic blocked step. Show `Design plan vN`
+  and the case title. A session return includes only that active session's plans,
+  with the existing cooldown, recipient and maximum-item limits. Do not invent
+  a message link from an unrelated session's latest card.
+- Test plan-only return notices, mixed notices, version replacement, answers,
+  inactive sessions and digest inclusion. Rollback preserves answer records and
+  returns to the old notification reader. No runtime notification is sent by tests.
+
+Requested by neco on 2026-09-26 during approved implementation/test work:
+「質問未回答の通知にdesign planも含める」.

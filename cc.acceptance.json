@@ -3,13 +3,23 @@
   "implementations": [
     {
       "source": "src/config/settings/definitions/platform.ts",
-      "tests": ["src/config/settings/coverage.test.ts", "src/config/settings/registry.test.ts"],
-      "contracts": ["CC-AT-CONFIG-01", "CC-WORKTREE-01"]
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-CONFIG-01",
+        "CC-WORKTREE-01"
+      ]
     },
     {
       "source": "src/implementation-tools/worktree-context.ts",
-      "tests": ["src/implementation-tools/worktree.test.ts"],
-      "contracts": ["CC-WORKTREE-01"]
+      "tests": [
+        "src/implementation-tools/worktree.test.ts"
+      ],
+      "contracts": [
+        "CC-WORKTREE-01"
+      ]
     },
     {
       "source": "src/discord/forum-title.ts",
@@ -110,9 +120,12 @@
       "source": "src/api/delegation.ts",
       "tests": [
         "tests/blocks/agent-delegation/delegation-template.block.test.ts",
-        "src/api/internal-agent-selection.test.ts"
+        "src/api/internal-agent-selection.test.ts",
+        "src/api/delegation-partial.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/api/chat.ts",
@@ -226,11 +239,13 @@
         "src/chores/runtime.test.ts",
         "tests/chores-wiring.test.ts",
         "src/taskflow/actio-project-binding.test.ts",
-        "src/implementation-tools/worktree.test.ts"
+        "src/implementation-tools/worktree.test.ts",
+        "src/inbox/pending-plans.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-INBOX-PLAN-01"
       ]
     },
     {
@@ -306,9 +321,12 @@
     {
       "source": "web/src/api.ts",
       "tests": [
-        "tests/harness-reliability/conflux.test.ts"
+        "tests/harness-reliability/conflux.test.ts",
+        "web/src/pages/Inbox.test.tsx"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
     },
     {
       "source": "web/src/pages/ProjectCodes.tsx",
@@ -437,18 +455,24 @@
     {
       "source": "src/api/taskflow-actio.ts",
       "tests": [
-        "src/api/taskflow-actio.test.ts"
+        "src/api/taskflow-actio.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/api/taskflow.ts",
       "tests": [
         "src/api/taskflow-failure.test.ts",
         "src/api/taskflow-actio.test.ts",
-        "tests/app-routes.test.ts"
+        "tests/app-routes.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/config/settings/definitions/operations.ts",
@@ -518,7 +542,9 @@
       "tests": [
         "src/delegation/actio-task.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/delegation/implementation-inject.ts",
@@ -615,18 +641,23 @@
       "source": "src/taskflow/actio-store.ts",
       "tests": [
         "src/taskflow/actio-store.test.ts",
-        "src/taskflow/actio-project-binding.test.ts"
+        "src/taskflow/actio-project-binding.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
       "contracts": [
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-TF-SESSION-01"
       ]
     },
     {
       "source": "src/taskflow/actio-task-client.ts",
       "tests": [
-        "src/taskflow/actio-task-client.test.ts"
+        "src/taskflow/actio-task-client.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/taskflow/actio-transport.ts",
@@ -650,9 +681,12 @@
     {
       "source": "src/taskflow/overview.ts",
       "tests": [
-        "src/taskflow/overview.test.ts"
+        "src/taskflow/overview.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/taskflow/repository-identity.ts",
@@ -672,18 +706,24 @@
       "source": "src/taskflow/runtime.ts",
       "tests": [
         "src/taskflow/runtime-failure.test.ts",
-        "src/taskflow/runtime.test.ts"
+        "src/taskflow/runtime.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/taskflow/failure.ts",
       "tests": [
-        "src/taskflow/failure.test.ts"
+        "src/taskflow/failure.test.ts",
+        "src/api/taskflow-failure.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
       "contracts": [
         "CC-TF-DIAG-01",
-        "CC-AT-DISCOVERY-01"
+        "CC-AT-DISCOVERY-01",
+        "CC-TF-SESSION-01"
       ]
     },
     {
@@ -700,16 +740,22 @@
       "source": "src/taskflow/state-store.ts",
       "tests": [
         "src/taskflow/state-store.test.ts",
-        "src/taskflow/actio-store.test.ts"
+        "src/taskflow/actio-store.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/taskflow/store.ts",
       "tests": [
-        "src/taskflow/actio-store.test.ts"
+        "src/taskflow/actio-store.test.ts",
+        "src/taskflow/task-session-flow.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
     },
     {
       "source": "src/taskflow/task-instructions.ts",
@@ -984,23 +1030,119 @@
     },
     {
       "source": "src/model-catalog/seed.ts",
-      "tests": ["src/model-catalog/seed.test.ts"],
+      "tests": [
+        "src/model-catalog/seed.test.ts"
+      ],
       "contracts": []
     },
     {
       "source": "src/delegation/seed.ts",
-      "tests": ["src/delegation/seed.test.ts", "tests/delegation-regression.test.ts"],
+      "tests": [
+        "src/delegation/seed.test.ts",
+        "tests/delegation-regression.test.ts"
+      ],
       "contracts": []
     },
     {
       "source": "src/discord/webhook-identity.ts",
-      "tests": ["src/discord/webhook-identity.test.ts"],
+      "tests": [
+        "src/discord/webhook-identity.test.ts"
+      ],
       "contracts": []
     },
     {
       "source": "src/cost/price-table.ts",
-      "tests": ["src/cost/price-table.test.ts"],
+      "tests": [
+        "src/cost/price-table.test.ts"
+      ],
       "contracts": []
+    },
+    {
+      "source": "src/taskflow/session-metadata.ts",
+      "tests": [
+        "src/taskflow/session-metadata.test.ts"
+      ],
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
+    },
+    {
+      "source": "src/taskflow/session-assignment.ts",
+      "tests": [
+        "src/taskflow/task-session-flow.test.ts"
+      ],
+      "contracts": [
+        "CC-TF-SESSION-01"
+      ]
+    },
+    {
+      "source": "src/inbox/pending-plans.ts",
+      "tests": [
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "src/inbox/read-model.ts",
+      "tests": [
+        "src/inbox/read-model.test.ts",
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "src/inbox/digest.ts",
+      "tests": [
+        "src/inbox/notifier.test.ts",
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "src/inbox/session-return-notice.ts",
+      "tests": [
+        "src/inbox/session-return-notice.test.ts",
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "src/director/repo.ts",
+      "tests": [
+        "src/director/plan-gate.test.ts",
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "src/director/service.ts",
+      "tests": [
+        "src/director/service.test.ts",
+        "src/director/plan-gate.test.ts",
+        "src/inbox/pending-plans.test.ts"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/Inbox.tsx",
+      "tests": [
+        "web/src/pages/Inbox.test.tsx"
+      ],
+      "contracts": [
+        "CC-INBOX-PLAN-01"
+      ]
     }
   ]
 }

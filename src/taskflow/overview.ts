@@ -15,6 +15,8 @@ export interface TaskflowOverviewRow {
   created: string;
   assignee: string | null;
   source_session: string | null;
+  issued_by_session_id: string | null;
+  working_session_id: string | null;
   session_status: SessionRow["status"] | null;
   /** 委託の親 (委託元 = このタスクを管理するセッション)。 run が無ければ null。 */
   parent_session_id: string | null;
@@ -111,6 +113,8 @@ export function buildTaskflowOverview(input: {
       created: fm.created,
       assignee: resolveAssignee(runtime, session, run, pr),
       source_session: sessionId,
+      issued_by_session_id: typeof fm.issued_by_session_id === "string" ? fm.issued_by_session_id : null,
+      working_session_id: typeof fm.working_session_id === "string" ? fm.working_session_id : null,
       session_status: session?.status ?? null,
       parent_session_id: run?.parent_session_id ?? null,
       child_session_id: run?.child_session_id ?? null,

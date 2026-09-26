@@ -62,7 +62,8 @@ describe("POST /tasks", () => {
     expect(create.mock.calls[0]![0]).toMatchObject({
       repoPath: REPO, subsidiaryId: "sub-1", title: "タイトル", body: "本文", kind: "実装", memoryLinks: ["mem-1"],
     });
-    expect(state.find({ repoPath: REPO, taskPath: "actio:task-1" })?.source_session).toBe("s1");
+    expect(create.mock.calls[0]![0].issuedBySessionId).toBe("s1");
+    expect(state.find({ repoPath: REPO, taskPath: "actio:task-1" })?.source_session).toBeNull();
   });
 
   /** The same request ID must reach Actio unchanged so a retry deduplicates there. */
@@ -143,6 +144,7 @@ describe("GET /tasks/content", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       reference: "actio:task-1", title: "タイトル", body: "本文", memory_links: ["mem-1"], status: "pending",
+      issued_by_session_id: null, working_session_id: null,
     });
     expect(read).toHaveBeenCalledWith(REPO, "actio:task-1", "sub-1");
   });

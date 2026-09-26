@@ -138,6 +138,7 @@ export class DirectorService {
     step_id: string;
     status: DirectorStepStatus;
     handoff_note?: string | null;
+    plan_answer?: { decisionId: string; answer: string };
   }): DirectorStep {
     const step = this.requireCaseStep(input.case_id, input.step_id);
     if (!canTransition(step.status, input.status)) {
@@ -147,6 +148,7 @@ export class DirectorService {
       id: step.id,
       status: input.status,
       handoff_note: input.handoff_note,
+      plan_answer: input.plan_answer,
       updated_at: this.now(),
     });
     if (!updated) throw new DirectorNotFoundError("director step not found");
@@ -242,6 +244,7 @@ export class DirectorService {
     if (!plan || plan.plan_version !== input.version) {
       throw new DirectorTransitionError("plan version superseded");
     }
+    if (plan.human_answered_at != null) throw new DirectorTransitionError("plan already answered");
     const directorCase = this.deps.repo.findCase(input.case_id);
     if (!directorCase) throw new DirectorNotFoundError("director case not found");
     if (input.action === "discard") {
@@ -250,6 +253,7 @@ export class DirectorService {
         step_id: step.id,
         status: "cancelled",
         handoff_note: "plan-discarded",
+        plan_answer: { decisionId: plan.id, answer: "discard" },
       });
       this.deps.onPlanDiscarded?.(directorCase, updated, plan);
       return updated;
@@ -262,6 +266,7 @@ export class DirectorService {
         step_id: step.id,
         status: "blocked",
         handoff_note: instruction,
+        plan_answer: { decisionId: plan.id, answer: `revise: ${instruction}` },
       });
       this.deps.onPlanRevisionRequested?.(directorCase, updated, plan, instruction);
       return updated;
@@ -271,6 +276,7 @@ export class DirectorService {
       step_id: step.id,
       status: "completed",
       handoff_note: "plan-approved",
+      plan_answer: { decisionId: plan.id, answer: "approve" },
     });
     this.deps.onPlanApproved?.(directorCase, updated, plan);
     return updated;

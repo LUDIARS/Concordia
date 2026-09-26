@@ -123,6 +123,7 @@ import { startDailyScheduler } from "../daily/scheduler.js";
 import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
+import { pendingPlans } from "../inbox/pending-plans.js";
 import { resolveNoticeMention } from "../inbox/session-return-mention.js";
 import { startActioMorningScheduler } from "../morning/actio-scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
@@ -1420,16 +1421,18 @@ export async function startBackend(): Promise<BackendHandle> {
   const notifyHumanReturn = (sessionId: string, channelId: string, userId: string): void => {
     const session = repo.findSession(sessionId);
     const unanswered = pendingQuestions.listUnanswered(sessionId);
+    const plans = pendingPlans(db, sessionId);
     const noticeKey = `return:${sessionId}`;
     const nowMs = Date.now();
     if (!shouldNotifyOnReturn({
       sessionActive: session?.status === "active",
-      unansweredCount: unanswered.length,
+      unansweredCount: unanswered.length + plans.length,
       lastNotifiedAt: returnNotices.lastAt(noticeKey),
       nowMs,
     })) return;
 
     const text = buildSessionReturnNotice({
+      plans,
       questions: unanswered.map((row) => ({
         id: row.id,
         question: row.question,

@@ -32,6 +32,41 @@ The service can start without task credentials, but task operations then fail ex
 
 ## Agent contract
 
+### Task session provenance (CC-TF-SESSION-01)
+
+UX-CC-W1/W2, S1/S2/S3: users must retain the issuing session and distinguish it
+from the current worker when work is delegated or handed over. Actio owns the
+persisted `pluginPayload.issued_by_session_id` and `working_session_id` (nullable
+strings); Cc taskflow owns session validation and assignment transitions. Cc's
+execution ledger remains a reference/association index, not a second authority.
+
+- A session-created task records its issuing session at creation. Delegation
+  records the parent as issuer, and remaining work records the reporting child.
+  The issuer is immutable across assignment changes and idempotent create retries.
+- Human/system-created and imported/historical tasks can have null or absent
+  session fields. Never infer an issuer from legacy `source_session`, a reader,
+  or the session importing historical work.
+- A newly created task has no worker. Delegated children become workers after
+  registration. Explicit task state updates assign/hand over a worker, and
+  release or session end clears only that session's assignment. A stale release
+  must not erase a successor. Session IDs must match the task repository and
+  organization. The old `source_session` update spelling remains a worker alias;
+  creation no longer writes the issuer there.
+- List/content/overview expose both fields, normalizing missing fields to null.
+  Reading a task never claims it. Preserve unrelated plugin metadata on updates.
+- Cc serializes metadata changes per task; expected-worker checks reject stale
+  updates. Actio is updated before the local association mirror. Unknown remote
+  outcomes must be reconciled by reading the same task, not making another task.
+  This contract assumes the Cc-owned plugin metadata has one Cc writer; it does
+  not introduce cross-server distributed assignment or change Actio authorization.
+- Acceptance: distinct parent/child IDs, immutable issuer on retry/handoff,
+  old/import null compatibility, explicit claim/release and stale-release denial,
+  preserved metadata, scope rejection, and surfaced remote failures. Rollback
+  leaves these optional fields in Actio; no historical backfill or live migration.
+
+Approved by neco on 2026-09-26: 「実装とテストを進める」 after design confirmation.
+Implementation and regression tests are authorized; service restart is not.
+
 ### Explicit local deployment
 
 UX-CC-W1/W2/W5 and CC-INV-01/02/03/04 apply: Actio owns task content/status;

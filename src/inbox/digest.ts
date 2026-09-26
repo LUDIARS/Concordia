@@ -17,6 +17,7 @@ import { escapeNotificationText } from "./notification-text.js";
 const HEADLINE_COUNT = 3;
 
 const KIND_LABEL: Record<InboxItem["kind"], string> = {
+  "design-plan-approval": "Design plan 承認待ち",
   "ask-card": "質問カード",
   "inquiry-ask-human": "判断待ち",
   "director-blocked": "工程が blocked",

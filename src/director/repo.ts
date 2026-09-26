@@ -284,6 +284,7 @@ export class DirectorRepo {
     updated_at: number;
     /** 巡回など read→write 経路の競合防止。未指定なら従来どおり無条件更新。 */
     expected_status?: DirectorStepStatus;
+    plan_answer?: { decisionId: string; answer: string };
   }): DirectorStep | null {
     const update = this.db.transaction(() => {
       const existing = this.findStep(input.id);
@@ -298,6 +299,12 @@ export class DirectorRepo {
              WHERE id = ? AND status = ?
           `).run(input.status, note, input.updated_at, input.id, input.expected_status);
       if (updated.changes !== 1) return null;
+      if (input.plan_answer) {
+        const answered = this.db.prepare(`UPDATE director_decisions SET human_answer = ?, human_answered_at = ?
+          WHERE id = ? AND step_id = ? AND plan_version IS NOT NULL AND human_answered_at IS NULL`)
+          .run(input.plan_answer.answer, input.updated_at, input.plan_answer.decisionId, input.id);
+        if (answered.changes !== 1) throw new Error("Plan answer changed before persistence");
+      }
       this.db.prepare(`UPDATE director_cases SET updated_at = MAX(updated_at, ?) WHERE id = ?`)
         .run(input.updated_at, existing.case_id);
       return { ...existing, status: input.status, handoff_note: note, updated_at: input.updated_at };

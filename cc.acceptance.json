@@ -353,7 +353,10 @@
     {
       "source": "src/db/schema.ts",
       "tests": [
-        "tests/harness-reliability/conflux.test.ts"
+        "src/db/migration-ledger.test.ts",
+        "src/db/domain-review-repo.test.ts",
+        "tests/harness-reliability/conflux.test.ts",
+        "src/db/taskflow-v3-instructions.test.ts"
       ],
       "contracts": []
     },
@@ -485,25 +488,29 @@
       "source": "src/control/lictor-proxy.ts",
       "tests": [
         "src/control/lictor-proxy.test.ts"
-      ]
+      ],
+      "contracts": []
     },
     {
       "source": "src/api/sessions/shared.ts",
       "tests": [
         "src/control/lictor-proxy.test.ts"
-      ]
+      ],
+      "contracts": []
     },
     {
       "source": "src/api/sessions/relay.ts",
       "tests": [
         "src/control/lictor-proxy.test.ts"
-      ]
+      ],
+      "contracts": []
     },
     {
       "source": "src/api/sessions/runtime.ts",
       "tests": [
         "src/control/lictor-proxy.test.ts"
-      ]
+      ],
+      "contracts": []
     },
     {
       "source": "src/api/taskflow-actio.ts",
@@ -566,14 +573,6 @@
       "tests": [
         "src/release/confirm-intake.test.ts",
         "src/release/confirm-service.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "src/db/schema.ts",
-      "tests": [
-        "src/db/migration-ledger.test.ts",
-        "src/db/taskflow-v3-instructions.test.ts"
       ],
       "contracts": []
     },
@@ -1230,14 +1229,6 @@
       "contracts": []
     },
     {
-      "source": "src/db/schema.ts",
-      "tests": [
-        "src/db/migration-ledger.test.ts",
-        "src/db/domain-review-repo.test.ts"
-      ],
-      "contracts": []
-    },
-    {
       "source": "src/domain-review/post-listing.ts",
       "tests": [
         "src/domain-review/post-listing.test.ts",
@@ -1434,6 +1425,66 @@
         "CC-SD-04",
         "CC-SD-05",
         "CC-SD-06"
+      ]
+    },
+    {
+      "source": "tools/command-tools/contract.mjs",
+      "tests": [
+        "tools/command-tools/contract.test.mjs"
+      ],
+      "contracts": [
+        "CC-SCRIPT-01",
+        "CC-SCRIPT-02",
+        "CC-SCRIPT-03",
+        "CC-SCRIPT-04"
+      ]
+    },
+    {
+      "source": "tools/command-tools/storage.mjs",
+      "tests": [
+        "tools/command-tools/service.test.mjs"
+      ],
+      "contracts": [
+        "CC-SCRIPT-01",
+        "CC-SCRIPT-02",
+        "CC-SCRIPT-03",
+        "CC-SCRIPT-04"
+      ]
+    },
+    {
+      "source": "tools/command-tools/process.mjs",
+      "tests": [
+        "tools/command-tools/process.test.mjs"
+      ],
+      "contracts": [
+        "CC-SCRIPT-01",
+        "CC-SCRIPT-02",
+        "CC-SCRIPT-03",
+        "CC-SCRIPT-04"
+      ]
+    },
+    {
+      "source": "tools/command-tools/service.mjs",
+      "tests": [
+        "tools/command-tools/service.test.mjs"
+      ],
+      "contracts": [
+        "CC-SCRIPT-01",
+        "CC-SCRIPT-02",
+        "CC-SCRIPT-03",
+        "CC-SCRIPT-04"
+      ]
+    },
+    {
+      "source": "tools/command-tools/cli.mjs",
+      "tests": [
+        "tools/command-tools/service.test.mjs"
+      ],
+      "contracts": [
+        "CC-SCRIPT-01",
+        "CC-SCRIPT-02",
+        "CC-SCRIPT-03",
+        "CC-SCRIPT-04"
       ]
     }
   ]

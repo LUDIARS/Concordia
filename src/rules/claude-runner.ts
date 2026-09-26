@@ -57,6 +57,9 @@ export interface ClaudeRunResult {
 }
 
 export interface RunClaudeOptions {
+  /** Conversation-only calls have no tools, MCP, skills, hooks or user/project customization. */
+  conversationOnly?: boolean;
+  signal?: AbortSignal;
   /** `--model` に渡す値 (例 "haiku" / "sonnet" / "claude-opus-4-8")。 未指定で provider 既定。 */
   model?: string;
   /** subprocess の working directory。 未指定で Concordia の cwd。 */
@@ -88,6 +91,7 @@ export async function runClaude(
   opts: RunClaudeOptions = {},
 ): Promise<ClaudeRunResult> {
   const startedAt = Date.now();
+  if (opts.signal?.aborted) return { ok: false, stdout: "", stderr: "aborted", exit_code: null, duration_ms: 0 };
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   const env: NodeJS.ProcessEnv = { ...process.env };
   // ホワイトリスト方式 (CONCORDIA_HOOK=1) を採用したので、 spawn 先には
@@ -108,17 +112,22 @@ export async function runClaude(
     let resolved = false;
 
     const args = ["-p"];
+    if (opts.conversationOnly) args.push("--tools=", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode");
     if (opts.model) args.push("--model", opts.model);
-    if (opts.dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
+    if (opts.dangerouslySkipPermissions && !opts.conversationOnly) args.push("--dangerously-skip-permissions");
 
     // Windows は claude が .cmd なので cmd.exe を明示して経由する。 shell:true +
     // args 配列は Node が非エスケープ連結する (DEP0190) ため
     // 使わない — args に将来ユーザ由来値が混ざった時の injection 面にもなる。
     const isWin = process.platform === "win32";
-    const file = isWin ? env.ComSpec ?? "cmd.exe" : "claude";
-    const cliArgs = isWin ? ["/d", "/s", "/c", "claude", ...args] : args;
+    // Conversation calls require the native executable so cancellation owns the
+    // actual process, rather than leaving a cmd.exe child running after stop.
+    const file = isWin && !opts.conversationOnly ? env.ComSpec ?? "cmd.exe" : isWin ? "claude.exe" : "claude";
+    const cliArgs = isWin && !opts.conversationOnly ? ["/d", "/s", "/c", "claude", ...args] : args;
 
     let child;
+    let abortListener: (() => void) | undefined;
+    const detachAbort = () => { if (abortListener) opts.signal?.removeEventListener("abort", abortListener); };
     try {
       child = spawn(file, cliArgs, {
         env,
@@ -144,12 +153,22 @@ export async function runClaude(
       return;
     }
 
-    child.stdout.on("data", (d) => { out += d.toString("utf8"); });
-    child.stderr.on("data", (d) => { err += d.toString("utf8"); });
+    child.stdout.on("data", (d) => { out = opts.conversationOnly ? (out + d.toString("utf8")).slice(0, 16000) : out + d.toString("utf8"); });
+    child.stderr.on("data", (d) => { err = opts.conversationOnly ? (err + d.toString("utf8")).slice(0, 4000) : err + d.toString("utf8"); });
+
+    abortListener = () => {
+      if (resolved) return;
+      resolved = true;
+      if (timer) clearTimeout(timer);
+      detachAbort();
+      try { child.kill("SIGKILL"); } catch { /* already stopped */ }
+      resolve({ ok: false, stdout: out, stderr: "aborted", exit_code: null, duration_ms: Date.now() - startedAt });
+    };
 
     child.on("error", (e) => {
       if (resolved) return;
       resolved = true;
+      detachAbort();
       if (timer) clearTimeout(timer);
       log.warn({ err: e.message }, "claude CLI error");
       recordClaudeOneShot(prompt, opts, {
@@ -171,6 +190,7 @@ export async function runClaude(
     child.on("close", (code) => {
       if (resolved) return;
       resolved = true;
+      detachAbort();
       if (timer) clearTimeout(timer);
       recordClaudeOneShot(prompt, opts, {
         startedAt,
@@ -187,11 +207,15 @@ export async function runClaude(
       });
     });
 
+    opts.signal?.addEventListener("abort", abortListener, { once: true });
+    if (opts.signal?.aborted) { abortListener(); return; }
+
     timer = setTimeout(() => {
       if (resolved) return;
       log.warn({ duration_ms: Date.now() - startedAt }, "claude CLI timeout, killing");
       try { child.kill("SIGKILL"); } catch { /* swallow */ }
       resolved = true;
+      detachAbort();
       recordClaudeOneShot(prompt, opts, {
         startedAt,
         status: "timeout",

@@ -67,7 +67,8 @@
     "spec/feature/discord-image-ingress.md",
     "spec/feature/session-message-webui-chat.md#121-応答の進行と関連作業2026-09-10",
     "spec/feature/cost-observability.md#rate-limit-の表示と通知",
-    "spec/feature/teams.md"
+    "spec/feature/teams.md",
+    "spec/feature/sprint-dialogues.md"
   ],
   "rationale": "チャット面は Discord 固有 API をここに閉じ込め、状態遷移 (test-forum-controls.ts) と副作用 (test-forum-actions.ts / test-forum-discord.ts) を分ける。spawn / merge の実行そのものは Concordia API・Revisor クライアント側の責務で、この層は入口と描画だけを持つ。"
 }

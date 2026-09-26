@@ -1,6 +1,7 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
+import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -213,7 +214,7 @@ export { shouldPostPermissionRequestToDiscord } from "./permission-request-flag.
 
 export type DiscordHeadlessRunner = (
   prompt: string,
-  opts?: RwfRunOptions & { timeoutMs?: number },
+  opts?: RwfRunOptions & { timeoutMs?: number; conversationOnly?: boolean; signal?: AbortSignal },
 ) => Promise<RwfRunResult>;
 export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
 
@@ -692,6 +693,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
   let choresDiscord: ChoresDiscord | null = null;
+  let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
     const session = deps.sessionsRepo.findSession(sessionId);
     return session ? readSessionWorkPhase(session).phase : "unknown" as const;
@@ -830,6 +832,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const clearRuntimeTimers = (): void => {
     choresDiscord?.stopChores();
     choresDiscord = null;
+    sprintDialoguesDiscord?.stop();
+    sprintDialoguesDiscord = null;
     phaseTitleSync?.stop();
     phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
@@ -867,6 +871,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
       if (!subsidiaryId) {
+        sprintDialoguesDiscord?.stop();
+        sprintDialoguesDiscord = startSprintDialogues({ guild, db: deps.db, parentId: layout.metaCategoryId,
+          workspaceRoot: workspaceRoots[0] ?? process.cwd(), allowed: deps.isLaunchUserAllowed, reply: deps.runHeadless, log });
         choresDiscord?.stopChores();
         choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
           baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
@@ -1362,6 +1369,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    if (sprintDialoguesDiscord?.handlesMessage(msg)) {
+      void sprintDialoguesDiscord.message(msg).catch(error => log.warn(`sprint dialogue input failed: ${String(error)}`));
+      return;
+    }
     if (choresDiscord?.handlesMessage(msg)) {
       void choresDiscord.message(msg).catch((error) => log.warn(`chores message failed: ${String(error)}`));
       return;
@@ -1811,6 +1822,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // already been acknowledged」/「Unknown interaction」になる。 また子会社 guild の
     // /spawn を本社 runtime が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
+    if (sprintDialoguesDiscord?.handlesInteraction(interaction)) {
+      void sprintDialoguesDiscord.interaction(interaction).catch(error => log.warn(`sprint dialogue choice failed: ${String(error)}`));
+      return;
+    }
     if (choresDiscord?.handlesInteraction(interaction)) {
       void choresDiscord.interaction(interaction).catch((error) => log.warn(`chores interaction failed: ${String(error)}`));
       return;

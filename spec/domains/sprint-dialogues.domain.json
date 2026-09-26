@@ -1,0 +1,15 @@
+{
+  "name": "sprint-dialogues",
+  "description": "Durable sprint phase projections, genuine human decisions and recoverable Discord conversations. Actio owns sprint transitions.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/sprint-dialogues/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/sprint-dialogues(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/sprint-dialogues[^/]*\\.ts$" },
+    { "pathPattern": "(^|/)tests/sprint-dialogues-wiring\\.test\\.ts$" }
+    ,{ "pathPattern": "(^|/)src/rules/claude-runner(\\.test)?\\.ts$" }
+  ],
+  "cardTemplate": "Explain human response provenance, projection versions, unknown delivery reconciliation and conversation ownership.",
+  "specRefs": ["spec/feature/sprint-dialogues.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+}

@@ -63,11 +63,19 @@
         "src/discord/forum-phase-sync.test.ts",
         "src/discord/session-channel.test.ts",
         "src/discord/chores.test.ts",
-        "tests/chores-wiring.test.ts"
+        "tests/chores-wiring.test.ts",
+        "src/discord/sprint-dialogues.test.ts",
+        "src/discord/sprint-dialogues-input.test.ts"
       ],
       "contracts": [
         "CC-DISCORD-PHASE-TITLE-01",
-        "CC-CHORES-01"
+        "CC-CHORES-01",
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
       ]
     },
     {
@@ -229,10 +237,17 @@
         "tests/harness-reliability/task-branch.test.ts",
         "tests/harness-reliability/conflux.test.ts",
         "src/api/chores.test.ts",
-        "tests/chores-wiring.test.ts"
+        "tests/chores-wiring.test.ts",
+        "src/api/sprint-dialogues.test.ts"
       ],
       "contracts": [
-        "CC-CHORES-01"
+        "CC-CHORES-01",
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
       ]
     },
     {
@@ -243,12 +258,20 @@
         "tests/chores-wiring.test.ts",
         "src/taskflow/actio-project-binding.test.ts",
         "src/implementation-tools/worktree.test.ts",
-        "src/inbox/pending-plans.test.ts"
+        "src/inbox/pending-plans.test.ts",
+        "src/api/sprint-dialogues.test.ts",
+        "src/discord/sprint-dialogues.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
         "CC-AT-DISCOVERY-01",
-        "CC-INBOX-PLAN-01"
+        "CC-INBOX-PLAN-01",
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
       ]
     },
     {
@@ -1211,6 +1234,162 @@
       ],
       "contracts": [
         "CC-DELEGATION-MERGE-01"
+      ]
+    },
+    {
+      "source": "src/sprint-dialogues/domain.ts",
+      "tests": [
+        "src/sprint-dialogues/repository.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/sprint-dialogues/repository.ts",
+      "tests": [
+        "src/sprint-dialogues/repository.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/sprint-dialogues/conversation.ts",
+      "tests": [
+        "src/sprint-dialogues/conversation.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/sprint-dialogues/actio-origin.ts",
+      "tests": [
+        "src/sprint-dialogues/actio-origin.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/api/sprint-dialogues.ts",
+      "tests": [
+        "src/api/sprint-dialogues.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/discord/sprint-dialogues-card.ts",
+      "tests": [
+        "src/discord/sprint-dialogues-input.test.ts",
+        "src/discord/sprint-dialogues-delivery.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/discord/sprint-dialogues-input.ts",
+      "tests": [
+        "src/discord/sprint-dialogues-input.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/discord/sprint-dialogues-surface.ts",
+      "tests": [
+        "src/discord/sprint-dialogues-surface.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/discord/sprint-dialogues-delivery.ts",
+      "tests": [
+        "src/discord/sprint-dialogues-delivery.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/discord/sprint-dialogues.ts",
+      "tests": [
+        "src/discord/sprint-dialogues.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
+      ]
+    },
+    {
+      "source": "src/rules/claude-runner.ts",
+      "tests": [
+        "src/rules/claude-runner.test.ts",
+        "src/sprint-dialogues/conversation.test.ts"
+      ],
+      "contracts": [
+        "CC-SD-01",
+        "CC-SD-02",
+        "CC-SD-03",
+        "CC-SD-04",
+        "CC-SD-05",
+        "CC-SD-06"
       ]
     }
   ]

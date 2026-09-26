@@ -49,6 +49,7 @@
     "spec/feature/delegation-coordination.md#6-並列タスク--実行キュー",
     "spec/feature/module-manifest.md#1-manifest",
     "spec/feature/module-manifest.md#2-api",
-    "spec/feature/dependency-readiness.md"
+    "spec/feature/dependency-readiness.md",
+    "spec/feature/sprint-dialogues.md"
   ]
 }

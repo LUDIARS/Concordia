@@ -19,6 +19,7 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
     const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
     const emitter = {
+      kill: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
       on: (event: string, cb: (...args: unknown[]) => void) => {
@@ -48,6 +49,17 @@ describe("resolveGitBashPath (via runClaude on win32)", () => {
 
   afterEach(() => {
     Object.defineProperty(process, "platform", { value: originalPlatform });
+  });
+
+  it("conversation-only calls use the native executable with tools/customizations disabled", async () => {
+    const { spawn } = await import("node:child_process");
+    vi.mocked(spawn).mockClear();
+    const { runClaude } = await import("./claude-runner.js");
+    await runClaude("相談", { conversationOnly: true, dangerouslySkipPermissions: true });
+    const args = vi.mocked(spawn).mock.calls[0]!;
+    expect(args[0]).toBe("claude.exe");
+    expect(args[1]).toEqual(expect.arrayContaining(["--tools=", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode"]));
+    expect(args[1]).not.toContain("--dangerously-skip-permissions");
   });
 
   it("最初の候補が存在すればそれを使い、以後は access を呼び直さない", async () => {

@@ -57,6 +57,7 @@
     "spec/feature/webui-manuals-page.md",
     "spec/ux/product.md",
     "spec/feature/task-branch-harness.md",
-    "spec/feature/revisor-risk-notice.md"
+    "spec/feature/revisor-risk-notice.md",
+    "spec/feature/sprint-dialogues.md"
   ]
 }

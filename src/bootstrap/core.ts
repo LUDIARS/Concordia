@@ -1,5 +1,6 @@
 // @spec ハーネス信頼性の実装境界
 import { createChoresRuntime } from "../chores/runtime.js";
+import { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
@@ -1675,6 +1676,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const choresRuntime = createChoresRuntime(db, () => adminState.getWorkspaceRoot(), isCostBlocked);
   const app = buildApp({
+    sprintDialogues: new SprintDialoguesRepository(db),
     chores: choresRuntime.service,
     repo,
     controlJobs,

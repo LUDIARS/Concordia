@@ -130,9 +130,12 @@
     {
       "source": "src/api/chat.ts",
       "tests": [
-        "tests/blocks/chat-platforms/chat-message.block.test.ts"
+        "tests/blocks/chat-platforms/chat-message.block.test.ts",
+        "src/api/chat.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-RV-RISK-NOTICE-01"
+      ]
     },
     {
       "source": "src/api/prs.ts",
@@ -1191,6 +1194,15 @@
         "src/domain-review/service.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/api/register-chat.ts",
+      "tests": [
+        "src/api/chat.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-RISK-NOTICE-01"
+      ]
     }
   ]
 }

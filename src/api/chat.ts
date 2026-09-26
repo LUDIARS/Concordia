@@ -18,6 +18,7 @@ const PostSchema = z.object({
   author_label: z.string().min(1).max(64),
   in_reply_to: z.number().int().positive().nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  mention_admin: z.boolean().optional(),
   /** spatial UI 用: "world"=全員に届く / "local"=自分の周囲だけ. 既定 "world". */
   scope: z.enum(["world", "local"]).optional(),
   /**
@@ -52,6 +53,7 @@ function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
 export interface ChatApiDeps {
   chat: ChatRepo;
   resolveWorkspaceRoots: () => string[];
+  resolveMentionAdmin?: () => string | null;
 }
 
 export function chatRouter(deps: ChatApiDeps): Hono {
@@ -61,6 +63,10 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PostSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const admin = parsed.data.mention_admin ? deps.resolveMentionAdmin?.() : null;
+    if (parsed.data.mention_admin && (parsed.data.channel !== "system" || !admin || !/^\d{17,20}$/.test(admin))) {
+      return c.json({ error: "system_admin_mention_unavailable" }, 400);
+    }
     const attachmentError = await validateAttachments(parsed.data.attachment_paths, deps);
     if (attachmentError) return c.json(attachmentError, 400);
 
@@ -86,9 +92,10 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       ts: msg.ts,
       is_actionable: actionable,
       scope,
+      ...(admin ? { mention_user_ids: { discord: [admin], slack: [] } } : {}),
     });
 
-    return c.json({ message: serialize(msg) });
+    return c.json({ message: serialize(msg), ...(admin ? { mention_admin_resolved: true } : {}) });
   });
 
   app.get("/", (c) => {
@@ -104,6 +111,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     const target = deps.chat.findById(Number(c.req.param("id")));
     if (!target) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
+    if (body?.mention_admin === true) return c.json({ error: "use_system_chat_for_admin_mention" }, 400);
     const parsed = PostSchema.safeParse({
       ...body,
       channel: body?.channel ?? target.channel,

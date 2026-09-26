@@ -4,7 +4,9 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)tests/mcp-(core-server|settings-tools)\\.test\\.ts$" },
+    {
+      "pathPattern": "(^|/)tests/mcp-(core-server|settings-tools)\\.test\\.ts$"
+    },
     {
       "pathPattern": "(^|/)src/api(?:/.*)?$"
     },
@@ -54,6 +56,7 @@
     "spec/setup/hooks-claude-code.md",
     "spec/feature/webui-manuals-page.md",
     "spec/ux/product.md",
-    "spec/feature/task-branch-harness.md"
+    "spec/feature/task-branch-harness.md",
+    "spec/feature/revisor-risk-notice.md"
   ]
 }

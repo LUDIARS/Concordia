@@ -109,6 +109,7 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
   app.route("/v1/chat", chatRouter({
     chat: deps.chat,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+    resolveMentionAdmin: () => deps.adminState.getMentionUserId(),
   }));
   app.route(
     "/v1/daily-reports",

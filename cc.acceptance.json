@@ -266,7 +266,8 @@
         "src/api/chores.test.ts",
         "tests/chores-wiring.test.ts",
         "src/api/sprint-dialogues.test.ts",
-        "src/api/developer-tools.test.ts"
+        "src/api/developer-tools.test.ts",
+        "src/platform/actio-chat-policy.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -278,7 +279,8 @@
         "CC-SD-06",
         "CC-TOOLS-01",
         "CC-TOOLS-02",
-        "CC-TOOLS-03"
+        "CC-TOOLS-03",
+        "CC-ACTIO-CHAT-01"
       ]
     },
     {
@@ -293,7 +295,8 @@
         "src/api/sprint-dialogues.test.ts",
         "src/discord/sprint-dialogues.test.ts",
         "src/api/developer-tools.test.ts",
-        "src/developer-tools/service.test.ts"
+        "src/developer-tools/service.test.ts",
+        "src/platform/actio-chat-policy.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -307,7 +310,8 @@
         "CC-SD-06",
         "CC-TOOLS-01",
         "CC-TOOLS-02",
-        "CC-TOOLS-03"
+        "CC-TOOLS-03",
+        "CC-ACTIO-CHAT-01"
       ]
     },
     {
@@ -1788,6 +1792,33 @@
       ],
       "contracts": [
         "CC-TOOLS-WEB-01"
+      ]
+    },
+    {
+      "source": "src/platform/actio-chat-policy.ts",
+      "tests": [
+        "src/platform/actio-chat-policy.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-01"
+      ]
+    },
+    {
+      "source": "src/platform/actio-chat-proxy.ts",
+      "tests": [
+        "src/platform/actio-chat-policy.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-01"
+      ]
+    },
+    {
+      "source": "src/api/actio-chat.ts",
+      "tests": [
+        "src/platform/actio-chat-policy.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-01"
       ]
     }
   ]

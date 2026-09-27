@@ -1,6 +1,7 @@
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { choresRouter } from "./chores.js";
 import { sprintDialoguesRouter } from "./sprint-dialogues.js";
+import { actioChatRouter, type ActioChatDeps } from "./actio-chat.js";
 import type { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import type { ChoresService } from "../chores/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
@@ -269,6 +270,7 @@ export interface CoreDelegationDeps {
 }
 
 export interface CoreRuntimeDeps {
+  actioChat?: ActioChatDeps;
   sprintDialogues?: SprintDialoguesRepository;
   chores?: ChoresService;
   adminState: AdminState;
@@ -323,6 +325,7 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  if (deps.actioChat) app.route("/v1/actio-chat", actioChatRouter(deps.actioChat));
   if (deps.sprintDialogues) app.route("/v1/sprint-dialogues", sprintDialoguesRouter(deps.sprintDialogues));
   if (deps.chores) app.route("/v1/chores", choresRouter(deps.chores));
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));

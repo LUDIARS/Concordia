@@ -59,6 +59,7 @@
     "spec/feature/task-branch-harness.md",
     "spec/feature/revisor-risk-notice.md",
     "spec/feature/sprint-dialogues.md",
-    "spec/feature/developer-toolset.md"
+    "spec/feature/developer-toolset.md",
+    "spec/feature/actio-chat-transport.md"
   ]
 }

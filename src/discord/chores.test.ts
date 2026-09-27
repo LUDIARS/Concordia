@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelType, type Guild, type Message, type Interaction } from "discord.js";
-import { choreCard, startChoresDiscord } from "./chores.js";
+import { choreCard, choreCompletionReply, startChoresDiscord } from "./chores.js";
 import type { Chore } from "../chores/domain.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -8,6 +8,50 @@ const row: Chore = { id: "00000000-0000-4000-8000-000000000001", request_key: "a
   status: "succeeded", cwd: "/chores/a", output: "結果", error: null, spawn_id: null, created_at: 1, updated_at: 2,
   revision: 3, delivered_revision: 0, discord_message_id: null };
 describe("Discord chores", () => {
+  it.each(["succeeded", "failed", "interrupted"] as const)("notifies the original requester on first %s delivery only", (status) => {
+    const run = { ...row, status, request_key: "discord:123:456" };
+    expect(choreCompletionReply(run, "123")).toEqual({
+      reply: { messageReference: "456", failIfNotExists: false },
+      allowedMentions: { parse: [], repliedUser: true },
+    });
+    expect(choreCompletionReply({ ...run, discord_message_id: "789" }, "123").reply).toBeUndefined();
+    expect(choreCompletionReply({ ...run, delivered_revision: 3 }, "123").allowedMentions.repliedUser).toBe(false);
+  });
+  it("does not guess recipients for web requests, other guilds or follow-up states", () => {
+    for (const run of [row, { ...row, request_key: "discord:999:456" },
+      { ...row, request_key: "discord:123:456", status: "acknowledged" as const },
+      { ...row, request_key: "discord:123:456", status: "continued" as const }]) {
+      expect(choreCompletionReply(run, "123")).toEqual({ allowedMentions: { parse: [], repliedUser: false } });
+    }
+  });
+  it("sends a notifying result reply and retries the same nonce after delivery acknowledgement fails", async () => {
+    vi.useFakeTimers();
+    const run = { ...row, request_key: "discord:123:456" };
+    let acknowledged = false;
+    let attempts = 0;
+    const fetcher = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith("/deliveries")) return new Response(JSON.stringify({ runs: acknowledged ? [] : [run] }));
+      attempts++;
+      if (attempts === 1) return new Response(JSON.stringify({ error: "temporary" }), { status: 503 });
+      acknowledged = true;
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const send = vi.fn(async () => ({ id: "789" }));
+    const channel = { id: "channel", type: ChannelType.GuildText, send };
+    const guild = { id: "123", channels: { cache: new Map([["channel", channel]]) } } as unknown as Guild;
+    const surface = await startChoresDiscord({ guild, config: { get: () => "channel", set: vi.fn() } as unknown as DiscordConfigRepo,
+      parentId: "p", baseUrl: "http://cc", log: { warn: vi.fn() } });
+    try {
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send.mock.calls[0]).toEqual(send.mock.calls[1]);
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ reply: { messageReference: "456", failIfNotExists: false },
+        allowedMentions: { parse: [], repliedUser: true }, enforceNonce: true }));
+      expect(acknowledged).toBe(true);
+    } finally { surface.stopChores(); }
+  });
+
   it("renders actual OK/Continue controls and suppresses mentions", () => {
     const card = choreCard(row);
     expect(card.allowedMentions.parse).toEqual([]);

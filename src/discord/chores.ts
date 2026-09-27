@@ -16,6 +16,20 @@ export function choreCard(run: Chore): { content: string; components: ActionRowB
     run.spawn_id ? `継続起動ID: ${run.spawn_id}` : "",
   ].filter(Boolean).join("\n\n"), components: [buttons], allowedMentions: { parse: [] } };
 }
+/** Notify only the author of a same-guild Discord request on its first result delivery. */
+export function choreCompletionReply(run: Chore, guildId: string): {
+  reply?: { messageReference: string; failIfNotExists: false };
+  allowedMentions: { parse: []; repliedUser: boolean };
+} {
+  const source = /^discord:([0-9]+):([0-9]+)$/.exec(run.request_key);
+  const notify = !run.discord_message_id && run.delivered_revision === 0
+    && ["succeeded", "failed", "interrupted"].includes(run.status) && source?.[1] === guildId;
+  return {
+    ...(notify ? { reply: { messageReference: source![2], failIfNotExists: false as const } } : {}),
+    allowedMentions: { parse: [], repliedUser: Boolean(notify) },
+  };
+}
+
 export interface ChoresDiscord {
   handlesMessage: (message: Message) => boolean;
   message: (message: Message) => Promise<void>;
@@ -61,7 +75,7 @@ export async function startChoresDiscord(input: {
           catch (error) { if ((error as { code?: number }).code !== 10008) throw error; }
         }
         if (stopped) break;
-        const posted = old ? await old.edit(card) : await channel.send({ ...card,
+        const posted = old ? await old.edit(card) : await channel.send({ ...card, ...choreCompletionReply(run, guild.id),
           nonce: BigInt(`0x${run.id.replaceAll("-", "").slice(0, 16)}`).toString(), enforceNonce: true });
         await call(`/${run.id}/delivery`, { revision: run.revision, message_id: posted.id });
       }

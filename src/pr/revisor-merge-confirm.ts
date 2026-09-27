@@ -20,15 +20,19 @@ import type { RevisorLocalPr, RevisorLocalPrReader } from "./revisor-client.js";
 const MERGED = "merged";
 
 /**
- * id で local PR を 1 件引く。 Revisor は id 指定の取得口を公開していないので一覧から選ぶ。
+ * id で local PR を 1 件引く。単一取得を持たない旧readerのみ一覧から選ぶ。
  * 読めなかった場合は null — 状態を確認できないことと「存在しない」ことは区別しない
  * (どちらも「確定できない」として扱う)。
  */
 export async function findLocalPrById(
-  reader: Pick<RevisorLocalPrReader, "listLocalPrs">,
+  reader: Pick<RevisorLocalPrReader, "listLocalPrs" | "getLocalPr">,
   id: string,
-): Promise<RevisorLocalPr | null> {
+): Promise<Pick<RevisorLocalPr, "id" | "repository" | "status"> | null> {
   try {
+    if (reader.getLocalPr) {
+      const target = await reader.getLocalPr(id);
+      return target?.id === id ? target : null;
+    }
     const all = await reader.listLocalPrs();
     return all.find((pr) => pr.id === id) ?? null;
   } catch {
@@ -43,7 +47,7 @@ export async function findLocalPrById(
  * 寄せると、 未マージの PR をマージ済みと報告してしまう。 ここは fail-closed にする。
  */
 export async function isAlreadyMerged(
-  reader: Pick<RevisorLocalPrReader, "listLocalPrs"> | undefined,
+  reader: Pick<RevisorLocalPrReader, "listLocalPrs" | "getLocalPr"> | undefined,
   id: string,
 ): Promise<boolean> {
   if (!reader) return false;

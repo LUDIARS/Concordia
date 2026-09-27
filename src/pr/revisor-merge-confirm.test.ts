@@ -20,6 +20,18 @@ function pr(id: string, status: string): RevisorLocalPr {
 }
 
 describe("findLocalPrById", () => {
+  it("uses target lookup without downloading history", async () => {
+    const reader = { getLocalPr: async () => pr("b", "merged"), listLocalPrs: async () => { throw new Error("must not list history"); } };
+    expect(await findLocalPrById(reader, "b")).toMatchObject({ id: "b", status: "merged" });
+    expect(await isAlreadyMerged(reader, "b")).toBe(true);
+  });
+
+  it("does not fall back to history after target failure or a mismatched response", async () => {
+    const reader = { getLocalPr: async () => pr("other", "merged"), listLocalPrs: async () => [pr("b", "merged")] };
+    expect(await findLocalPrById(reader, "b")).toBeNull();
+    reader.getLocalPr = async () => { throw new Error("unavailable"); };
+    expect(await isAlreadyMerged(reader, "b")).toBe(false);
+  });
   it("id が一致する行を返す", async () => {
     const reader = { listLocalPrs: async () => [pr("a", "open"), pr("b", "merged")] };
     expect((await findLocalPrById(reader, "b"))?.status).toBe("merged");

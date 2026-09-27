@@ -18,6 +18,31 @@ const request: RevisorReviewRequest = {
 };
 
 describe("RevisorClient", () => {
+  it("reads only the requested PR and returns authorization fields without private details", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request) => new Response(JSON.stringify({ pullRequest: {
+      id: "target/1", repository: "LUDIARS/Ludellus", status: "merged", privatePath: "must-not-leak",
+    } })));
+    const client = new RevisorClient({ excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) }, fetchImpl });
+    expect(await client.getLocalPr("target/1")).toEqual({ id: "target/1", repository: "LUDIARS/Ludellus", status: "merged" });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("http://127.0.0.1:4240/v1/local-prs/target%2F1");
+  });
+
+  it.each([
+    { id: "other", repository: "LUDIARS/Ludellus", status: "merged" },
+    { id: "target", status: "merged" },
+    { id: "target", repository: "LUDIARS/Ludellus" },
+  ])("rejects incomplete or mismatched target data: %j", async (pullRequest) => {
+    const client = new RevisorClient({ excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl: vi.fn(async () => new Response(JSON.stringify({ pullRequest }))) });
+    await expect(client.getLocalPr("target")).rejects.toThrow("invalid target PR");
+  });
+
+  it("treats missing target as absent, but surfaces upstream failure", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const client = new RevisorClient({ excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) }, fetchImpl });
+    expect(await client.getLocalPr("missing")).toBeNull();
+    await expect(client.getLocalPr("missing")).rejects.toThrow("503");
+  });
   it("resolves the live Excubitor port and authenticates the enqueue request", async () => {
     const findService = vi.fn(async () => ({
       code: "revisor",

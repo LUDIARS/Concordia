@@ -268,3 +268,7 @@ PR は誰も昇格できなくなる。要求セッションが active である
 ## Open PR discovery (CC-RV-OPEN-LIST-01)
 
 UX-CC-W3/W5, CC-INV-03: submission and unknown-outcome reconciliation read only `GET /v1/local-prs?state=open`. Revisor owns PR state. The full open records retain headRef and sessionId for retry and deduplication; summary records omit those fields. Closed review reports are not downloaded. Invalid responses remain errors, never an empty queue.
+
+## CC-RV-TARGET-01: 対象PRの限定照会
+
+価値 UX-CC-W1/W3: 利用者が承認した成果を、過去PRの増加で反映不能にしない。状態の正本はRevisor。Ccはマージ前後の対象ID・repository・statusだけを単一PR APIから読み、全履歴をダウンロードしない。ID不一致・不正応答・通信失敗をマージ許可や完了へ変換しない（CC-INV-02/03）。既存の人間権限とプロジェクト所属の確認は維持。旧readerアダプタには従来一覧の契約を維持するが、単一取得の失敗を一覧へ迂回しない。復旧はこの変更のrevert。

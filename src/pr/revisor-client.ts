@@ -68,6 +68,8 @@ export interface RevisorLocalPr {
 }
 
 export interface RevisorLocalPrReader {
+  /** Bounded target lookup for merge authorization and completion checks. */
+  getLocalPr?(id: string): Promise<Pick<RevisorLocalPr, "id" | "repository" | "status"> | null>;
   /** Revisor に登録された local PR を新しい順で返す。 */
   listLocalPrs(): Promise<RevisorLocalPr[]>;
   /** Revisor の WebUI を開くための base URL (loopback)。 */
@@ -210,6 +212,31 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
           reviewLane: pr.reviewLane === "fast" ? "fast" : "standard",
         }];
       });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** @implements CC-RV-TARGET-01 */
+  async getLocalPr(id: string): Promise<Pick<RevisorLocalPr, "id" | "repository" | "status"> | null> {
+    const port = await this.resolvePort();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}`, {
+        headers: { "x-concordia-actor": "concordia" },
+        signal: controller.signal,
+      });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`Revisor target PR lookup failed (${response.status})`);
+      const body: unknown = await response.json();
+      const value = body && typeof body === "object" && "pullRequest" in body ? body.pullRequest : null;
+      if (!value || typeof value !== "object" || !("id" in value) || value.id !== id
+        || !("repository" in value) || typeof value.repository !== "string" || !value.repository
+        || !("status" in value) || typeof value.status !== "string" || !value.status) {
+        throw new Error("Revisor returned an invalid target PR");
+      }
+      return { id, repository: value.repository, status: value.status };
     } finally {
       clearTimeout(timer);
     }

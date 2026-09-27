@@ -1509,6 +1509,24 @@
       "contracts": [
         "CC-TASK-MERGE-END-01"
       ]
+    },
+    {
+      "source": "src/pr/revisor-client.ts",
+      "tests": [
+        "src/pr/revisor-client.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-TARGET-01"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-merge-confirm.ts",
+      "tests": [
+        "src/pr/revisor-merge-confirm.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-TARGET-01"
+      ]
     }
   ]
 }

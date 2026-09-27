@@ -27,6 +27,7 @@ import {
 import { isSkillWorkflowEntry, normalizeWorkflowEmoji } from "../platform/reaction-workflow-plan.js";
 import type { CustomSkillWorkflowEntry } from "../platform/reaction-workflow-plan.js";
 import type { SkillCatalogStore } from "../skills/catalog-store.js";
+import { addMissingPresets, RWF_PRESETS } from "../platform/reaction-workflow-presets.js";
 
 const UpsertSchema = z.object({
   emoji: z.string().trim().min(1).max(32),
@@ -66,6 +67,7 @@ export function reactionSkillWorkflowRouter(deps: ReactionSkillWorkflowDeps): Ho
     return c.json({
       path: path(),
       entries,
+      presets: RWF_PRESETS.map(entry => ({ ...entry, available: !!deps.catalog.find(entry.skill) })),
       skills: catalog.entries.map((entry) => ({
         name: entry.name,
         description: entry.description,
@@ -75,6 +77,13 @@ export function reactionSkillWorkflowRouter(deps: ReactionSkillWorkflowDeps): Ho
       scanned_at: catalog.scannedAt,
       notes: catalog.notes,
     });
+  });
+
+  app.post("/presets", async (c) => {
+    const skills = new Set(deps.catalog.current().entries.map(entry => entry.name));
+    const entries = await updateCustomWorkflows(path(), existing => addMissingPresets(existing, skills));
+    return c.json({ entries: entries.filter(isSkillWorkflowEntry),
+      missing_skills: RWF_PRESETS.filter(entry => !skills.has(entry.skill)).map(entry => entry.skill) });
   });
 
   app.put("/", async (c) => {

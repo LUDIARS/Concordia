@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { buildCoreServer, callConcordia } from "../src/mcp/core-server.js";
+import { toolCatalog } from "../src/developer-tools/catalog.js";
 
 describe("concordia-core MCP server", () => {
   it("buildCoreServer returns an McpServer without throwing", () => {
@@ -42,7 +43,10 @@ describe("concordia-core MCP server", () => {
       "concordia_pr_queue",
       "concordia_recent_chat",
     ];
-    expect(names).toEqual(expectedTools.slice().sort());
+    expect(names).toEqual(expect.arrayContaining(expectedTools));
+    expect(new Set(names).size).toBe(names.length);
+    const catalog = toolCatalog();
+    expect([...catalog.tools, ...catalog.existing].map(tool => tool.mcp).sort()).toEqual(names);
   });
 
   it("requires session_id for concordia_post_chat", () => {

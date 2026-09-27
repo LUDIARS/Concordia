@@ -42,6 +42,9 @@
     },
     {
       "pathPattern": "(^|/)skills/script-creator/.*$"
+    },
+    {
+      "pathPattern": "(^|/)tools/ontime-runtime\\.(?:js|d\\.ts)$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
@@ -49,6 +52,7 @@
     "spec/feature/domain-taxonomy.concordia.md#tooling",
     "spec/feature/harness-reliability.md",
     "spec/feature/task-branch-harness.md",
-    "spec/feature/script-creator.md"
+    "spec/feature/script-creator.md",
+    "spec/feature/developer-toolset.md"
   ]
 }

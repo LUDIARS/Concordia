@@ -11,6 +11,7 @@ import type { ActioBinding } from "../taskflow/actio-binding.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createImplementationWorktree, type CreateWorktreeInput } from "./worktree.js";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
+import { selectOwnedWorktree } from "./switch-worktree.js";
 import {
   EXPLICIT_WORKING_BRANCH_METADATA_KEY,
   isWorkspaceRootCwd,
@@ -37,6 +38,13 @@ export interface ImplementationToolsDeps {
 /** Stateless fast paths over existing Cc / Ex / Revisor state owners. */
 export class ImplementationToolsService {
   constructor(private readonly deps: ImplementationToolsDeps) {}
+
+  async switchBranch(input: CreateWorktreeInput) {
+    this.requireSession(input.sessionId);
+    const cwd = await selectOwnedWorktree(input, this.deps.projectCodes.list(), this.deps.resolveWorkspaceRoots());
+    await this.bind({ sessionId: input.sessionId, cwd, task: input.task });
+    return { ok: true, cwd, branch: input.branch };
+  }
 
   async createWorktree(input: CreateWorktreeInput) {
     const session = this.requireSession(input.sessionId);

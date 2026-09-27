@@ -5,7 +5,7 @@ import { implementationToolsRouter } from "./implementation-tools.js";
 const REVISOR_ROUTE = {
   route: "revisor-local-pr", allowsGithubPr: false, allowsBranchPush: false,
   submitEndpoint: "/v1/implementation-tools/submit", guidance: "…", project_code: "Cc",
-};
+} as const;
 
 function router(tools: Partial<ImplementationToolsService>) {
   return implementationToolsRouter({
@@ -39,7 +39,10 @@ it("rejects a commit without a message before reaching the service", async () =>
 });
 
 it("submits through the resolved route and reports the route when it cannot submit", async () => {
-  const submitWork = vi.fn(async () => ({ route: REVISOR_ROUTE, submitted: true, pullRequest: { number: 1 } }));
+  const submitWork = vi.fn<ImplementationToolsService["submitWork"]>(async () => ({
+    route: REVISOR_ROUTE, submitted: true,
+    pullRequest: { id: "pr-1", number: 1, repository: "LUDIARS/Concordia", headRef: "feat/tools", status: "open", checkStatus: "pending" },
+  }));
   const app = router({ submitWork });
   expect(await (await post(app, "/submit", { session_id: "s1" })).json()).toMatchObject({ submitted: true });
 

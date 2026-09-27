@@ -19,6 +19,16 @@ const ServiceSchema = SessionSchema.extend({
 
 export function implementationToolsRouter(deps: { tools: ImplementationToolsService; requestPolicyRefresh: (id: string) => void }): Hono {
   const app = new Hono();
+  app.post("/switch", async (c) => {
+    const parsed = WorktreeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    try {
+      const result = await deps.tools.switchBranch({ sessionId: parsed.data.session_id,
+        projectCode: parsed.data.project_code, branch: parsed.data.branch, task: parsed.data.task });
+      deps.requestPolicyRefresh(parsed.data.session_id);
+      return c.json(result);
+    } catch { return c.json({ error: "owned_worktree_required", guidance: "Select an existing worktree created for this session. Shared checkouts are not switched." }, 409); }
+  });
   app.post("/worktree", async (c) => {
     const parsed = WorktreeSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);

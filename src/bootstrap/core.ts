@@ -168,6 +168,11 @@ import { createDependencyReadinessChecker } from "../operations/dependency-readi
 import { ActioTaskStore } from "../taskflow/actio-store.js";
 import { ActioWorkflowClient } from "../taskflow/actio-task-client.js";
 import { ActioTransport } from "../taskflow/actio-transport.js";
+import { DeveloperToolsService } from "../developer-tools/service.js";
+import { ResearchTools } from "../developer-tools/research.js";
+import { ToolServiceHttp } from "../developer-tools/service-http.js";
+import { AugurTools } from "../developer-tools/augur.js";
+import { ToolTestJobs } from "../developer-tools/test-jobs.js";
 import { readActioBindings } from "../taskflow/actio-binding.js";
 import { createActioBindingReader } from "../taskflow/actio-project-binding.js";
 import { listLocalActioProjects } from "../taskflow/actio-projects.js";
@@ -1193,6 +1198,13 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     work: workSubmission,
   });
+  const toolAugur = new AugurTools(() => adminState.getWorkspaceRoots());
+  const toolTestJobs = new ToolTestJobs(db);
+  const developerTools = new DeveloperToolsService({
+    sessions: repo, roots: () => adminState.getWorkspaceRoots(), tasks: taskStore, actio: actioTransport,
+    research: new ResearchTools(new ToolServiceHttp(excubitorClient)),
+    augur: toolAugur, jobs: toolTestJobs,
+  });
   // レビュー発火の購読。 workflow.review が無効な間は購読自体を張らない
   // (安全弁 revisor_auto_submit とは別軸: あちらは「発火するか」、 こちらは「そもそも
   // レビューワークフローを動かすか」)。
@@ -1754,6 +1766,7 @@ export async function startBackend(): Promise<BackendHandle> {
       })),
     },
     implementationTools,
+    developerTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
     submitLocalPr: submitLocalPrForSession,
     // session 非依存の direct 提出口 (POST /v1/prs/local/direct)。
@@ -2314,8 +2327,7 @@ export async function startBackend(): Promise<BackendHandle> {
     );
   });
 
-  // RWF (Reaction-WorkFlow) プラグインを bots 起動前に読み込む。 外部プラグイン
-  // (Concordia-RWF) が在れば動的 import、 無ければ同梱エンジンにフォールバック。
+  // RWF は本体エンジンとローカル定義データを使う。外部リポのコードは読み込まない。
   async function runPostListenStartup(): Promise<void> {
     const startedAt = Date.now();
     await delay(readNonNegativeIntEnv("CONCORDIA_POST_LISTEN_STARTUP_DELAY_MS", 250));
@@ -2524,6 +2536,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
 
   const resources = new ResourceOwner((message) => log.warn(message));
+  resources.own("developer tool tests", async () => { toolAugur.close(); await toolTestJobs.close(); });
   resources.own("workflow bindings", () => workflowBindings.stop());
   resources.own("web push", () => stopWebPushService());
   resources.own("sweeper", () => sweeper.stop());

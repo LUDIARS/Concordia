@@ -312,8 +312,10 @@ export const privateTeamPublication: Predicate = (a) => {
 /** 既定の述語セット (登録順)。 */
 import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js";
 import { inquiryReadOnly } from "./inquiry-readonly.js";
+import { bashKnownHazards } from "./bash-known-hazards.js";
 
 export const DEFAULT_PREDICATES: Predicate[] = [
+  bashKnownHazards,
   inquiryReadOnly,
   contractIncomplete,
   planUnapproved,

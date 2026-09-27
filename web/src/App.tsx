@@ -27,6 +27,7 @@ import { Taskflow } from "./pages/Taskflow.js";
 import { RuntimeVersion } from "./components/RuntimeVersion.js";
 import { Teams } from "./pages/Teams.js";
 import { ProjectCodes } from "./pages/ProjectCodes.js";
+import { DeveloperTools } from "./pages/DeveloperTools.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
@@ -49,6 +50,7 @@ const NAV: NavItem[] = [
   { to: "/federation", label: "拠点", section: "運用" },
   { to: "/projects", label: "プロジェクト", section: "設定" },
   { to: "/skills", label: "Skills", section: "設定" },
+  { to: "/developer-tools", label: "開発ツール", section: "設定" },
   { to: "/manuals", label: "マニュアル", section: "設定" },
   { to: "/setup", label: "Setup", section: "設定" },
   { to: "/settings", label: "設定", section: "設定" },
@@ -86,6 +88,7 @@ export function App() {
           <Route path="/reports/:id" element={<ReportView />} />
           <Route path="/session-logs" element={<SessionLogs />} />
           <Route path="/skills" element={<Skills />} />
+          <Route path="/developer-tools" element={<DeveloperTools />} />
           <Route path="/cost" element={<CostFeed />} />
           <Route path="/ws-cleanup" element={<WsCleanup />} />
           <Route path="/library" element={<Library />} />

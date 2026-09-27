@@ -10,7 +10,7 @@
 
 import { Hono } from "hono";
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { workflowSkillInstall } from "./setup-workflow-skills.js";
 
@@ -59,6 +59,14 @@ export function setupRouter(deps: SetupApiDeps): Hono {
       hook_settings_target: provider === "codex-cli" ? "<repo>/.codex/hooks.json" : "<repo>/.claude/settings.json",
       hook_trust: provider === "codex-cli" ? "Review changed definitions with /hooks; setup does not grant hook trust" : "Follow the installed client's hook settings policy",
       skill_version: skill.version,
+      tools: {
+        catalog: `${deps.url.replace(/\/$/, "")}/v1/developer-tools/catalog`,
+        http_execute: `${deps.url.replace(/\/$/, "")}/v1/developer-tools/execute`,
+        mcp: { name: "concordia-core", command: "node",
+          args: [resolve(dirname(deps.toolPath), "../dist/mcp/core-server.js").replace(/\\/g, "/")],
+          env: { CONCORDIA_BASE_URL: deps.url } },
+        activation: "Install this MCP descriptor in the current client and inherit LICTOR_PORT from its Lictor session. Setup does not modify client configuration. HTTP adapters do not require downstream MCP connections.",
+      },
       placement: repoPath ? "per-repo" : "user-level",
       install: {
         skills: [

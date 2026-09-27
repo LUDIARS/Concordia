@@ -265,7 +265,8 @@
         "tests/harness-reliability/conflux.test.ts",
         "src/api/chores.test.ts",
         "tests/chores-wiring.test.ts",
-        "src/api/sprint-dialogues.test.ts"
+        "src/api/sprint-dialogues.test.ts",
+        "src/api/developer-tools.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -274,7 +275,10 @@
         "CC-SD-03",
         "CC-SD-04",
         "CC-SD-05",
-        "CC-SD-06"
+        "CC-SD-06",
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
       ]
     },
     {
@@ -287,7 +291,9 @@
         "src/implementation-tools/worktree.test.ts",
         "src/inbox/pending-plans.test.ts",
         "src/api/sprint-dialogues.test.ts",
-        "src/discord/sprint-dialogues.test.ts"
+        "src/discord/sprint-dialogues.test.ts",
+        "src/api/developer-tools.test.ts",
+        "src/developer-tools/service.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -298,7 +304,10 @@
         "CC-SD-03",
         "CC-SD-04",
         "CC-SD-05",
-        "CC-SD-06"
+        "CC-SD-06",
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
       ]
     },
     {
@@ -455,7 +464,10 @@
         "src/api/implementation-tools.test.ts"
       ],
       "contracts": [
-        "CC-WORKTREE-01"
+        "CC-WORKTREE-01",
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
       ]
     },
     {
@@ -463,10 +475,14 @@
       "tests": [
         "src/implementation-tools/service.test.ts",
         "src/api/work-submission-routes.test.ts",
-        "src/implementation-tools/worktree.test.ts"
+        "src/implementation-tools/worktree.test.ts",
+        "src/implementation-tools/switch-worktree.test.ts"
       ],
       "contracts": [
-        "CC-WORKTREE-01"
+        "CC-WORKTREE-01",
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
       ]
     },
     {
@@ -1085,10 +1101,14 @@
       "source": "src/mcp/core-server.ts",
       "tests": [
         "tests/mcp-core-server.test.ts",
-        "src/mcp/worktree-tools.test.ts"
+        "src/mcp/worktree-tools.test.ts",
+        "src/mcp/developer-tools.test.ts"
       ],
       "contracts": [
-        "CC-WORKTREE-01"
+        "CC-WORKTREE-01",
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
       ]
     },
     {
@@ -1526,6 +1546,248 @@
       ],
       "contracts": [
         "CC-RV-TARGET-01"
+      ]
+    },
+    {
+      "source": "src/api/developer-tools.ts",
+      "tests": [
+        "src/api/developer-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/api/setup-workflow-skills.ts",
+      "tests": [
+        "tests/setup-api.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/augur.ts",
+      "tests": [
+        "src/developer-tools/augur.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/catalog.ts",
+      "tests": [
+        "src/mcp/developer-tools.test.ts",
+        "src/api/developer-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/contracts.ts",
+      "tests": [
+        "src/api/developer-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/research.ts",
+      "tests": [
+        "src/developer-tools/research.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/service-http.ts",
+      "tests": [
+        "src/developer-tools/service-http.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/service.ts",
+      "tests": [
+        "src/developer-tools/service.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/test-jobs.ts",
+      "tests": [
+        "src/developer-tools/test-jobs.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/test-scope.ts",
+      "tests": [
+        "src/developer-tools/test-scope.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/vulnerabilities.ts",
+      "tests": [
+        "src/developer-tools/vulnerabilities.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/harness/bash-known-hazards.ts",
+      "tests": [
+        "src/harness/bash-known-hazards.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/harness/predicates.ts",
+      "tests": [
+        "src/harness/bash-known-hazards.test.ts",
+        "src/harness/predicates.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/implementation-tools/switch-worktree.ts",
+      "tests": [
+        "src/implementation-tools/switch-worktree.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/mcp/developer-tools.ts",
+      "tests": [
+        "src/mcp/developer-tools.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-02",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/api/setup.ts",
+      "tests": [
+        "tests/setup-api.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/developer-tools/critical-path.ts",
+      "tests": [
+        "src/developer-tools/critical-path.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "tools/ontime-runtime.d.ts",
+      "tests": [
+        "tests/ontime-runtime.test.ts"
+      ],
+      "contracts": [
+        "CC-TOOLS-01",
+        "CC-TOOLS-03"
+      ]
+    },
+    {
+      "source": "src/api/reaction-skill-workflows.ts",
+      "tests": [
+        "src/api/reaction-skill-workflows.test.ts"
+      ],
+      "contracts": [
+        "CC-RWF-DATA-01"
+      ]
+    },
+    {
+      "source": "src/platform/reaction-workflow-loader.ts",
+      "tests": [
+        "src/platform/reaction-workflow-loader.test.ts"
+      ],
+      "contracts": [
+        "CC-RWF-DATA-01"
+      ]
+    },
+    {
+      "source": "src/platform/reaction-workflow-presets.ts",
+      "tests": [
+        "src/platform/reaction-workflow-presets.test.ts"
+      ],
+      "contracts": [
+        "CC-RWF-DATA-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/settings/sections/ReactionSkillWorkflows.tsx",
+      "tests": [
+        "web/src/pages/settings/sections/ReactionSkillWorkflows.test.tsx"
+      ],
+      "contracts": [
+        "CC-RWF-DATA-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/DeveloperTools.tsx",
+      "tests": [
+        "web/src/pages/DeveloperTools.test.tsx"
+      ],
+      "contracts": [
+        "CC-TOOLS-WEB-01"
       ]
     }
   ]

@@ -164,6 +164,8 @@ import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { directorRouter } from "./director.js";
 import type { DirectorService } from "../director/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
+import { developerToolsRouter } from "./developer-tools.js";
+import type { DeveloperToolsService } from "../developer-tools/service.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
 import { workflowGate } from "../workflow/api-gate.js";
 import { isContractComplete, parseContractMetadata } from "../contract/schema.js";
@@ -247,6 +249,7 @@ export interface CoreDelegationDeps {
   submitDirectLocalPr?: PrsApiDeps["submitDirectLocalPr"];
   /** Batched implementation fast paths. Normal conversation sessions do not use them. */
   implementationTools?: ImplementationToolsService;
+  developerTools?: DeveloperToolsService;
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
   injectManuals?: InjectManualsRepo;
   harnessAudit?: HarnessAuditRepo;
@@ -463,6 +466,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       actors: github.actors,
     }));
   }
+  if (deps.developerTools) app.route("/v1/developer-tools", developerToolsRouter(deps.developerTools));
   if (deps.implementationTools) {
     app.route(
       "/v1/implementation-tools",

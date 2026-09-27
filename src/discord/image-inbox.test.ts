@@ -93,7 +93,7 @@ describe("Discord image inbox", () => {
     const root = await temporaryRoot();
     const paths = await storeDiscordImages({
       attachments: [image()],
-      fetchImpl: async () => new Response(bytes, { headers: { "content-type": "image/png" } }),
+      fetchImpl: async () => new Response(new Uint8Array(bytes), { headers: { "content-type": "image/png" } }),
       inboxRoot: root, messageId: "message-1", sessionId: "session-1",
     });
     expect(paths[0]).toBe(join(root, "session-1-message-1-1" + extension));

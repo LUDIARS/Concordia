@@ -20,7 +20,12 @@ describe("/v1/setup", () => {
     expect(j.provider).toBe("claude-code");
     expect(j.skill_version).toMatch(/\d+\.\d+\.\d+/);
 
-    expect(j.install.skills).toHaveLength(4);
+    expect(j.install.skills).toHaveLength(5);
+    expect(j.tools.mcp.name).toBe("concordia-core");
+    expect(j.tools.mcp.args[0]).toContain("/dist/mcp/core-server.js");
+    expect(j.tools.http_execute).toContain("/v1/developer-tools/execute");
+    expect(j.install.skills.some((skill: { target_path: string; content: string }) =>
+      skill.target_path.endsWith("cc-development-tools/SKILL.md") && skill.content.includes("concordia_tool_catalog"))).toBe(true);
     expect(j.install.skills[0].target_path).toBe("~/.claude/skills/concordia/SKILL.md");
     expect(j.install.skills[0].content).toContain("name: concordia");
     expect(j.install.skills[0].content).toContain("Concordia 連携スキル");

@@ -99,7 +99,7 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
     managedBy: "設定 > リアクションワークフロー",
   },
-  envString("workflow.rwf_plugin_path", "workflow", "RWF プラグインパス", "CONCORDIA_RWF_PLUGIN_PATH", null, "リアクションワークフローの外部プラグイン読み込み先。"),
+  envString("workflow.rwf_plugin_path", "workflow", "RWF 旧プラグインパス（廃止）", "CONCORDIA_RWF_PLUGIN_PATH", null, "互換表示のみ。外部コードは読み込まれません。ローカルスキルとリアクションWFの定義データを使用してください。"),
   envString("workflow.mode", "workflow", "ワークフローモード", "CONCORDIA_WORKFLOW_MODE", null, "workflow worker プロセスの動作モード識別子。"),
   envString("workflow.director_impl_call_name", "workflow", "Director 実装委託テンプレ", "CONCORDIA_DIRECTOR_IMPL_CALL_NAME", "sonnet-mid", "Director 巡回が実装工程の委託に使う call name。"),
   envString("workflow.director_ask_call_name", "workflow", "Director 問診委託テンプレ", "CONCORDIA_DIRECTOR_ASK_CALL_NAME", "claude-sonnet-5-ask", "Director 巡回が人間への問いを組み立てさせる読み取り専用セッションの call name。"),

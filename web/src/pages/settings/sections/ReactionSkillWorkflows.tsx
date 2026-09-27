@@ -37,6 +37,7 @@ interface SkillEntry {
 interface SkillWorkflowsResponse {
   path: string;
   entries: SkillEntry[];
+  presets?: Array<SkillEntry & { available: boolean }>;
   skills: SkillOption[];
   scanned_at: number;
   notes: string[];
@@ -133,6 +134,15 @@ export function ReactionSkillWorkflowsPanel({
     } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
+  async function installPresets() {
+    setBusy("presets"); setError(null);
+    try {
+      const response = await fetch("/v1/admin/reaction-skill-workflows/presets", { method: "POST" });
+      if (!response.ok) throw new Error(`初期定義を追加できません (${response.status})`);
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
+  }
+
   const skills = data?.skills ?? [];
   const describe = (name: string) => skills.find((s) => s.name === name)?.description ?? "";
 
@@ -150,6 +160,8 @@ export function ReactionSkillWorkflowsPanel({
       </div>
 
       <div className="flex items-center gap-2 flex-wrap text-xs">
+        <button type="button" disabled={busy !== null} onClick={() => void installPresets()}
+          className="px-2 py-1 bg-muted border border-border rounded disabled:opacity-40">初期定義を追加（既存を保持）</button>
         <button
           type="button" disabled={busy === "rescan"} onClick={() => void rescan()}
           className="px-2 py-1 bg-muted border border-border rounded disabled:opacity-40"
@@ -160,6 +172,14 @@ export function ReactionSkillWorkflowsPanel({
         >組み込み写像をスキルへ移行</button>
         <span className="text-subtle">スキル {skills.length} 件 / 割り当て {data?.entries.length ?? 0} 件</span>
       </div>
+
+      {data?.presets && <div className="text-xs space-y-1">
+        <p>RWF はローカルスキルと定義データで拡張できます。初期定義の追加はスキルを実行しません。</p>
+        {data.presets.map(entry => <div key={entry.emoji}>
+          {entry.emoji} {entry.label} — {entry.skill}
+          {!entry.available && <span className="text-warn">（スキル未導入。ローカルスキルを用意して一覧を再走査してください）</span>}
+        </div>)}
+      </div>}
 
       {migrateResult && (
         <div className={`border rounded p-2 text-xs ${migrateResult.uncovered.length > 0 ? "border-danger bg-danger/10 text-danger" : "border-ok bg-ok/10 text-ok"}`}>

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SKILLS_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
-const WORKFLOW_SKILLS = ["cc-feature-investigation", "cc-work-management", "cc-harness-recovery"] as const;
+const WORKFLOW_SKILLS = ["cc-feature-investigation", "cc-work-management", "cc-harness-recovery", "cc-development-tools"] as const;
 
 /** Ship the same maintained procedure to both providers; never silently edit user settings. */
 export function workflowSkillInstall(repoPath: string, provider: string): Array<{ target_path: string; content: string }> {

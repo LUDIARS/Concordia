@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { createImplementationWorktree, type WorktreePreparationDeps } from "./worktree.js";
 import { worktreeGit } from "./worktree-git.js";
 import { branchWorktreeName } from "../control/spawn-target.js";
@@ -12,7 +12,8 @@ import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 vi.mock("../control/worktree-project-config.js", () => ({ copyWorktreeProjectConfig: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../control/worktree-project-memory.js", () => ({ copyWorktreeProjectMemory: vi.fn().mockResolvedValue(undefined) }));
 
-describe("Cc worktree creation and recovery", () => {
+// These are real local Git integration tests: an empty commit can take several seconds on Windows.
+describe("Cc worktree creation and recovery", { timeout: 60_000 }, () => {
   let root: string, main: string, target: string, deps: WorktreePreparationDeps;
   const input = { sessionId: "owner-session", projectCode: "El", branch: "feat/work", task: "dictionary" };
   const commit = async () => worktreeGit(main, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
@@ -32,8 +33,15 @@ describe("Cc worktree creation and recovery", () => {
       resolveActio: vi.fn().mockResolvedValue({ ...LOCAL_ACTIO_ACCESS, project: "Elegantia", projectId: "El", repoPath: main }),
       bind: vi.fn().mockResolvedValue({ ok: true }),
     };
-  });
-  afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+  }, 60_000);
+  afterEach(async () => {
+    const fixture = relative(tmpdir(), root);
+    if (isAbsolute(fixture) || !fixture.startsWith("cc-worktree-usecase-") || /[/\\]/.test(fixture)) {
+      throw new Error("Refusing cleanup outside the allocated fixture directory");
+    }
+    // Windows may briefly retain a directory handle after Git closes its child process.
+    await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+  }, 15_000);
 
   it("uses local main, ignores remote branch tips, and reuses the original worktree after main advances", async () => {
     const base = (await worktreeGit(main, ["rev-parse", "main"])).trim();
@@ -52,7 +60,9 @@ describe("Cc worktree creation and recovery", () => {
     expect(JSON.parse(await readFile(first.metadata_path, "utf8")).baseCommit).toBe(base);
     expect(await worktreeGit(target, ["status", "--porcelain"])).toBe("");
     expect(deps.bind).toHaveBeenCalledWith({ sessionId: input.sessionId, cwd: target, task: input.task });
-  });
+  // This scenario makes two allocations and advances main. On Windows the complete
+  // Git sequence exceeds 60s; individual Git calls retain their own 30s deadline.
+  }, 120_000);
 
   it("retains the worktree and retries binding after a failed session update", async () => {
     vi.mocked(deps.bind).mockRejectedValueOnce(new Error("binding interrupted"));

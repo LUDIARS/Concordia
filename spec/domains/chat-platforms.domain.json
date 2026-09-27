@@ -60,6 +60,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/developer-toolset.md#cc-rwf-data-01-ローカルデータによる拡張",
     "spec/feature/session-work-phases.md#discord-スレッド名-cc-discord-phase-title-01",
     "spec/feature/discord-ui.md#テキスト添付の展開",
     "テストフォーラムの操作面 — テスト開始 / マージ",

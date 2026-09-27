@@ -92,7 +92,9 @@
         "src/discord/chores.test.ts",
         "tests/chores-wiring.test.ts",
         "src/discord/sprint-dialogues.test.ts",
-        "src/discord/sprint-dialogues-input.test.ts"
+        "src/discord/sprint-dialogues-input.test.ts",
+        "src/discord/taskworkflow-orphan-policy.test.ts",
+        "src/discord/taskworkflow-orphan-reconcile.test.ts"
       ],
       "contracts": [
         "CC-DISCORD-PHASE-TITLE-01",
@@ -102,7 +104,8 @@
         "CC-SD-03",
         "CC-SD-04",
         "CC-SD-05",
-        "CC-SD-06"
+        "CC-SD-06",
+        "CC-DISCORD-TASK-ORPHAN-01"
       ]
     },
     {
@@ -1819,6 +1822,26 @@
       ],
       "contracts": [
         "CC-ACTIO-CHAT-01"
+      ]
+    },
+    {
+      "source": "src/discord/taskworkflow-orphan-policy.ts",
+      "tests": [
+        "src/discord/taskworkflow-orphan-policy.test.ts",
+        "src/discord/taskworkflow-orphan-reconcile.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-TASK-ORPHAN-01"
+      ]
+    },
+    {
+      "source": "src/discord/taskworkflow-orphan-reconcile.ts",
+      "tests": [
+        "src/discord/taskworkflow-orphan-policy.test.ts",
+        "src/discord/taskworkflow-orphan-reconcile.test.ts"
+      ],
+      "contracts": [
+        "CC-DISCORD-TASK-ORPHAN-01"
       ]
     }
   ]

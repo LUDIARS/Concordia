@@ -42,6 +42,7 @@ import {
   reconcileActiveSessionForumThreads,
   archiveStaleChannels,
 } from "./session-channel.js";
+import { createTaskWorkflowOrphanReconciler } from "./taskworkflow-orphan-reconcile.js";
 import { ChannelWorkState, classifySessionMessageWorkSignal } from "./channel-work-state.js";
 import type { SessionRelayState } from "../platform/chat-read-model.js";
 import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
@@ -1114,6 +1115,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const lay = layout;
       const statusSyncConcurrency = readPositiveIntEnv("CONCORDIA_DISCORD_STATUS_SYNC_CONCURRENCY", 2);
       const bootSyncDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_BOOT_SYNC_DELAY_MS", 0, 1000);
+      const reconcileTaskWorkflowOrphans = createTaskWorkflowOrphanReconciler({
+        guild, forumId: lay.forumMode ? lay.taskWorkflowForumId : "", bindings: sessionChannelsRepo,
+        findSession: (id) => deps.sessionsRepo.findSession(id),
+        findRun: (id) => delegationRepo.findRun(id),
+        log, dryRun: () => process.env.CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN === "1",
+      });
       const runSessionForumReconcile = instrumentDiscord("sessionForumReconcile", async (reason: string): Promise<void> => {
         const lostChannels = await reconcileLostSessionChannels({
           guild, layout: lay, repo: sessionChannelsRepo,
@@ -1129,6 +1136,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
           dryRun: process.env.CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN === "1",
         });
+        await reconcileTaskWorkflowOrphans();
         const active = await reconcileActiveSessionForumThreads({
           guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
           listActiveSessionIds: () => deps.sessionsRepo.listSessions({ status: "active" })

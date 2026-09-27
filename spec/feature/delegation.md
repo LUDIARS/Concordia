@@ -242,6 +242,17 @@ delegation テンプレ選択ベースで起動する:
 
 ## 9. 初期 seed
 
+### 2026-09-27 モデル更新（Opus 5.5 / GPT-6）
+
+UX-CC-AD-W1: 利用者が指定した現行モデルで委託を開始でき、再起動で旧世代へ戻らない。
+テンプレートのモデル初期値は agent-delegation、選択肢は model-catalog seed が所有する。
+Sol / Luna は GPT-6、Opus は 5.5 を使用する。2026-09-27 necoの回答により、旧Terra委託も雑務向けGPT-6 Lunaへ移す。
+`terra-xhigh` は既存呼び出しの互換名として保持し、実行モデル・表示名をLunaにする。Lunaのeffortはxhighに統一する（同日neco指示）。既存の call_name / ID、Luna以外のeffortと編集済みプロンプトを保持する。
+旧 Sol / Terra / Luna のカタログ行は履歴のため保持し、選択肢として無効化する。
+実行済み・実行中 run の effective_model は実行事実なので書き換えない。
+初期定義の差戻しは対象コミットを戻し、稼働DBのモデル設定は公開APIから明示的に戻す。
+
+
 | call_name | target | model | 用途 |
 |-----------|--------|-------|------|
 | `impl-from-design` | codex-sdk | gpt-5.6-sol | 設計書 path を渡して実装させる |

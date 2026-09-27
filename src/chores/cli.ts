@@ -7,7 +7,7 @@ export function choreCommand(provider: Chore["provider"], outputPath: string, pl
   const file = platform === "win32" ? `${provider}.exe` : provider;
   const args = provider === "claude"
     ? ["-p", "--model", "claude-opus-5-5", "--effort", "medium"]
-    : ["exec", "--model", "gpt-5.6-terra", "-c", 'model_reasoning_effort="xhigh"',
+    : ["exec", "--model", "gpt-6-luna", "-c", 'model_reasoning_effort="xhigh"',
       "--skip-git-repo-check", "--output-last-message", outputPath, "-"];
   return { file, args };
 }

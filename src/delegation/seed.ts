@@ -88,27 +88,27 @@ const CROSS_REPO_DOC_NOTE =
   "別リポの設計書はパスを書いただけでは読めない。 登録済み repo の文書を memory_links / " +
   "design_path などのファイル参照 input で明示して本文を同梱するか、 cwd 内へコピーしておくこと。";
 
-function codex56Template(opts: {
-  /** 呼び出し契約となる call_name。 model は `gpt-5.6-${modelName}`。 */
+function codexTemplate(opts: {
+  /** 世代更新でも保持する呼び出し契約。 */
   callName: string;
-  modelName: "sol" | "terra" | "luna";
+  modelName: "sol" | "luna";
   label: string;
   emoji: string;
   sort_order: number;
-  /** Satelles が Codex へ渡す model_reasoning_effort。 この helper が扱う GPT-5.6 では ultra は Sol 限定。 */
+  /** Satelles が Codex へ渡す model_reasoning_effort。 ultra は Sol 限定。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
-    title: `Implementation delegation (GPT-5.6 ${opts.label})`,
-    description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}. ${CROSS_REPO_DOC_NOTE}`,
+    title: `Implementation delegation (GPT-6 ${opts.label})`,
+    description: `Delegate implementation work to Codex GPT-6 ${opts.label}. ${CROSS_REPO_DOC_NOTE}`,
     // 2026-08-25: 実装 profile は Windows native Codex (ターミナル実行) へ復帰。
     // WSL 経路は codex 認証ローテーションと lsass クラッシュ (RPCRT4 0xc0000005 →
     // 強制再起動) で継続不能になった。native の CreateProcessWithLogonW リークは
     // sandbox 起動を外す運用 (dangerously bypass、codex login は Windows 側) で踏まない。
     // 最新の spawner は macOS でも OS 標準ターミナルで起動する。
     target_provider: "codex",
-    model: `gpt-5.6-${opts.modelName}`,
+    model: `gpt-6-${opts.modelName}`,
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
     },
@@ -142,12 +142,12 @@ function codex56Template(opts: {
   };
 }
 
-const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
+const CODEX_TEMPLATES: CreateTemplateInput[] = [
   // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
-  codex56Template({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
-  codex56Template({ callName: "sol-xhigh", modelName: "sol", label: "Sol / xhigh（高難度）", emoji: "☀️", sort_order: 25, reasoning: "xhigh" }),
-  codex56Template({ callName: "terra-xhigh", modelName: "terra", label: "Terra / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
-  codex56Template({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "medium" }),
+  codexTemplate({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
+  codexTemplate({ callName: "sol-xhigh", modelName: "sol", label: "Sol / xhigh（高難度）", emoji: "☀️", sort_order: 25, reasoning: "xhigh" }),
+  codexTemplate({ callName: "terra-xhigh", modelName: "luna", label: "Luna / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
+  codexTemplate({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "xhigh" }),
 ];
 
 /**
@@ -229,9 +229,9 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     call_name: "forum-codex-session",
     title: "Codex起動",
     description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
-    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     runtime_options: { model_reasoning_effort: "high" },
     prompt_template: FORUM_SESSION_PROMPT,
     input_schema: [],
@@ -327,9 +327,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     call_name: "impl-from-design",
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR) を守らせる。",
-    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     call_only: true,
     category: "freelancer",
     sort_order: 100,
@@ -364,9 +364,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     call_name: "fix-bug",
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
-    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     call_only: true,
     category: "freelancer",
     sort_order: 110,
@@ -398,9 +398,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     call_name: "refactor",
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
-    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     call_only: true,
     category: "freelancer",
     sort_order: 120,
@@ -544,7 +544,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     emoji: "🗣️",
     sortOrder: 70,
   }),
-  ...CODEX_56_TEMPLATES,
+  ...CODEX_TEMPLATES,
   {
     call_name: "task-process",
     title: "タスク処理",
@@ -624,7 +624,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "LUDIARS ダッシュボード日報 (毎日)",
     description: "LUDIARS の公開サービスダッシュボードを日報として毎日更新し、専用 worktree から Revisor local PR を提出する。Timer Delegation が毎日 3:00 JST に invoke する。プロンプト正本は LUDIARS/docs/DAILY-REPORT-PROMPT.md。",
     target_provider: "codex-sdk",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     runtime_options: { model_reasoning_effort: "medium" },
     category: "parttimer",
     emoji: "📊",
@@ -940,7 +940,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     // 起動モデルは Issue 本文の指定 / 週間残量で上書きされる (github/issue-model-selection.ts)。
     // ここは決められなかったときの床 — null のままだと run に effective_model が載らず
     // 状態カードの Model が `-` になる。
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     category: "parttimer",
     emoji: "🛠️",
     prompt_template: GITHUB_ISSUE_FIX_PROMPT,
@@ -978,9 +978,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "ludiars-review-daily-dual",
     title: "毎日レビューちょいつよ版",
-    description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-5.6 Sol Ultra のオーケストレータ版。cron の既定は単一オーケストレータ版 (ludiars-review-weekly、毎週月曜 4:40 JST) なので、こちらは手動起動用。",
+    description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-6 Sol Ultra のオーケストレータ版。cron の既定は単一オーケストレータ版 (ludiars-review-weekly、毎週月曜 4:40 JST) なので、こちらは手動起動用。",
     target_provider: "codex-sdk",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     runtime_options: { model_reasoning_effort: "ultra" },
     category: "parttimer",
     emoji: "⚖️",
@@ -1054,7 +1054,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "review-duo",
     title: "レビュー (Opus × Sol xhigh 突合)",
-    description: "対象を Claude Opus 5 と Codex GPT-5.6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
+    description: "対象を Claude Opus 5.5 と Codex GPT-6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "freelancer",
@@ -1070,7 +1070,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5-5`",
-      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model gpt-5.6-sol, effort `${sol_effort:xhigh}`",
+      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model gpt-6-sol, effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",

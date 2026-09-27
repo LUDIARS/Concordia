@@ -4,6 +4,16 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
+  it("upgrades an existing Sol delegation without replacing its identity or edited prompt", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    const old = repo.createTemplate({ call_name: "sol-mid", title: "Sol", target_provider: "codex", model: "gpt-5.6-sol", prompt_template: "original" });
+    repo.updateTemplate(old.id, { prompt_template: "operator instructions" });
+    seedDelegationTemplates(repo);
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({ id: old.id, model: "gpt-6-sol", prompt_template: "operator instructions" });
+    expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("gpt-6-sol");
+  });
+
   it("keeps an administrator-edited prompt through a later seed", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
@@ -41,7 +51,7 @@ describe("seedDelegationTemplates", () => {
 
     expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
       target_provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       is_active: 1,
     });
   });
@@ -82,7 +92,7 @@ describe("seedDelegationTemplates", () => {
     expect(inquiry?.prompt_template).not.toMatch(/implement|branch|commit|push|PR/i);
   });
 
-  it("deletes the Opus 4.8 implementation template and seeds Opus 5", () => {
+  it("deletes the Opus 4.8 implementation template and seeds Opus 5.5", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "claude-opus-4-8-impl",
@@ -145,7 +155,7 @@ describe("seedDelegationTemplates", () => {
       call_only: 1,
       category: "parttimer",
       target_provider: "codex-sdk",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       default_cwd: "E:\\Document\\Ars\\LUDIARS",
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
@@ -342,7 +352,7 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
     expect(tpl?.target_provider).toBe("codex-sdk");
-    expect(tpl?.model).toBe("gpt-5.6-sol");
+    expect(tpl?.model).toBe("gpt-6-sol");
     expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
@@ -419,14 +429,14 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
     expect(repo.findTemplateByCallName("opus-xhigh")).toMatchObject({
@@ -448,7 +458,8 @@ describe("seedDelegationTemplates", () => {
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
     expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");
-    expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-5.6-luna");
+    expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-6-luna");
+    expect(JSON.parse(repo.findTemplateByCallName("luna")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
 
     for (const callName of [
       "claude-fable-5-impl",
@@ -471,7 +482,7 @@ describe("seedDelegationTemplates", () => {
     }
 
     const terra = repo.findTemplateByCallName("terra-xhigh");
-    expect(terra).toMatchObject({ is_active: 1, model: "gpt-5.6-terra", target_provider: "codex" });
+    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
@@ -483,7 +494,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.is_active).toBe(1);
     expect(duo?.prompt_template).toContain("claude-opus-5-5");
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
-    expect(duo?.prompt_template).toContain("gpt-5.6-sol");
+    expect(duo?.prompt_template).toContain("gpt-6-sol");
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("sol-xhigh");
     expect(duo?.prompt_template).toContain("Windows native");

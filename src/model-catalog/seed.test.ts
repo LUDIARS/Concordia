@@ -4,6 +4,21 @@ import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
+  it("keeps GPT-6 choices active and retires existing Sol/Luna 5.6 across reseeding", () => {
+    const repo = new ModelCatalogRepo(makeTestDb());
+    for (const name of ["sol", "terra", "luna"]) {
+      repo.create({ provider: "codex", model_id: `gpt-5.6-${name}` });
+    }
+    seedModelCatalog(repo);
+    seedModelCatalog(repo);
+    const active = repo.list().map((row) => row.model_id);
+    expect(active).toEqual(expect.arrayContaining(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]));
+    expect(active).not.toContain("gpt-5.6-sol");
+    expect(active).not.toContain("gpt-5.6-luna");
+    expect(active).not.toContain("gpt-5.6-terra");
+    expect(repo.list({ includeInactive: true }).filter((row) => row.model_id === "gpt-6-sol")).toHaveLength(1);
+  });
+
   it("seeds current Claude models on a fresh catalog", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     seedModelCatalog(repo);

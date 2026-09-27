@@ -1872,6 +1872,156 @@
       ]
     },
     {
+      "source": "src/control/inject-template-values.ts",
+      "tests": ["src/control/inject-template-values.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/workflow-inject-defaults.ts",
+      "tests": ["src/control/workflow-inject-defaults.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/bootstrap/core.ts",
+      "tests": ["src/api/inject-sources.test.ts", "src/control/startup-policy.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/chat-worker.ts",
+      "tests": ["src/delegation/service.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/workflow-worker.ts",
+      "tests": ["src/delegation/service.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/db/delegation-repo.ts",
+      "tests": ["src/delegation/seed.test.ts", "src/db/delegation-repo.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/register-core.ts",
+      "tests": ["src/api/inject-sources.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/inject-sources.ts",
+      "tests": ["src/api/inject-sources.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/major-inject-editor.ts",
+      "tests": ["src/control/major-inject-editor.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/major-inject-catalog.ts",
+      "tests": ["src/control/major-inject-editor.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/major-inject-resolver.ts",
+      "tests": ["src/control/major-inject-editor.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/db/major-inject-repo.ts",
+      "tests": ["src/control/major-inject-editor.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/human-wait.ts",
+      "tests": ["src/api/sessions/human-wait.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/work/session-task-links.ts",
+      "tests": ["src/work/session-task-links.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/task-links.ts",
+      "tests": ["src/api/sessions/task-links.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/human-wait.ts",
+      "tests": ["src/control/human-wait.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/startup-policy-check.ts",
+      "tests": ["src/api/sessions/startup-policy-check.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/lifecycle.ts",
+      "tests": ["src/api/sessions/routes.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/repo-search-capabilities.ts",
+      "tests": ["src/control/repo-search-capabilities.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/repo-search-policy.ts",
+      "tests": ["src/control/repo-search-policy.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/repo-search-snapshot.ts",
+      "tests": ["src/control/repo-search-snapshot.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/manuals/MajorInjectPanel.tsx",
+      "tests": ["web/src/pages/manuals/MajorInjectPanel.test.tsx"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/deps.ts",
+      "tests": ["src/api/sessions/routes.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/index.ts",
+      "tests": ["src/api/sessions/routes.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/escalation-workflow.ts",
+      "tests": ["src/control/collaboration-context.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/session-work-policy.ts",
+      "tests": ["src/control/session-work-policy.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/shared-startup-context.ts",
+      "tests": ["src/control/startup-policy.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/stalled-session-nudge.ts",
+      "tests": ["src/control/stalled-session-nudge.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/parttimer-inject.ts",
+      "tests": ["src/delegation/parttimer-inject.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/Manuals.tsx",
+      "tests": ["web/src/pages/manuals/MajorInjectPanel.test.tsx"],
+      "contracts": []
+    },
+    {
       "source": "src/platform/actio-chat-destination.ts",
       "tests": [
         "src/platform/actio-chat-destination.test.ts"

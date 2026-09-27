@@ -1,3 +1,4 @@
+import { resolveMajorInjectContent } from "../control/major-inject-resolver.js";
 /**
  * Delegation service: テンプレ render + invoke (spawn 連携 + 記録).
  *
@@ -124,6 +125,8 @@ export interface InvokeResultErr {
 export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
+  /** Resolves editable major Inject prose from a composition-root owned store. */
+  majorInject?: import("../control/major-inject-resolver.js").MajorInjectResolver;
   taskStore?: () => TaskStore;
   repo: DelegationRepo;
   /** 端末 spawn を上書き (テスト用)。 省略時は実際に wt.exe を起動 */
@@ -618,6 +621,7 @@ export class DelegationService {
       commandPatternBlock,
       typeof effectiveOptions.team === "string" ? this.deps.teamRules?.(effectiveOptions.team) ?? null : null,
       typeof effectiveOptions.team === "string" ? this.deps.teamPrRules?.(effectiveOptions.team) ?? null : null,
+      resolveMajorInjectContent("delegation.persona_context", this.deps.majorInject),
     );
     // 実装委託は 1 通で全部渡す (段階注入は 2026-08-21 に廃止)。 why + タスク本文 +
     // Memoria タスク + 完了条件を初回 inject に載せ、 調査は委託先が Anatomia で自走する。
@@ -633,6 +637,7 @@ export class DelegationService {
     });
     if (isParttimer) {
       promptSection = buildParttimerInject({
+        overrideTemplate: resolveMajorInjectContent("delegation.parttimer_inject", this.deps.majorInject),
         runId,
         title: def.title,
         task: renderedPrompt,
@@ -647,6 +652,7 @@ export class DelegationService {
       // Revalidate access at launch; a queued request must not outlive its scope.
       await this.deps.taskStore().read?.(cwd, reference, input.subsidiary_id ?? null);
       promptSection = buildImplementationInject({
+        overrideTemplate: resolveMajorInjectContent("delegation.implementation_inject", this.deps.majorInject),
         runId, title: def.title, task: renderedPrompt, why: "Actio に記録された目的・完了条件に従います。",
         memoria: null, memoriaError: null, taskReference: reference,
         repoPath: cwd, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? "",
@@ -668,6 +674,7 @@ export class DelegationService {
       );
       memoriaLink = memoria.link;
       promptSection = buildImplementationInject({
+        overrideTemplate: resolveMajorInjectContent("delegation.implementation_inject", this.deps.majorInject),
         runId,
         title: def.title,
         task: renderedPrompt,

@@ -1129,6 +1129,15 @@ export const api = {
   injectManualUpdate: (kind: string, content: string) =>
     put<{ manual: InjectManual }>(`/v1/admin/inject-manuals/${encodeURIComponent(kind)}`, { content }),
 
+  injectSourcesCatalog: () => get<InjectSourcesCatalog>("/v1/admin/inject-sources"),
+  injectSourceGet: (id: string) => get<{ source: InjectSource }>(
+    `/v1/admin/inject-sources/${encodeURIComponent(id)}`,
+  ),
+  injectSourceUpdate: (id: string, content: string, expectedRevision: string) =>
+    mutateInjectSource(id, "PUT", { content, expected_revision: expectedRevision }),
+  injectSourceRestore: (id: string, expectedRevision: string) =>
+    mutateInjectSource(id, "POST", { expected_revision: expectedRevision }, true),
+
   // ── ハーネス監査ログ (ローカルセッション強制ゲートの裏取り) ──
   harnessAudit: (
     params: { session_id?: string; decision?: HarnessAuditDecision; event?: HarnessAuditEvent; limit?: number } = {},
@@ -1265,6 +1274,61 @@ export interface InjectManual {
   kind: string;
   content: string;
   updated_at: number;
+}
+
+export interface InjectSourceSummary {
+  id: string;
+  label: string;
+  workflow: string;
+  case: string;
+  target_kind: string;
+  origin: "builtin_override" | "inject_manuals" | "delegation_templates" | "repo_file";
+  source_path?: string;
+  apply_scope: "next_startup_policy" | "next_session_start" | "next_delegation_launch" | "next_file_read";
+  placeholders: string[];
+  required_placeholders: string[];
+  max_bytes: number;
+  restorable: boolean;
+}
+
+export interface InjectSource extends InjectSourceSummary {
+  content: string;
+  revision: string;
+  updated_at?: number | null;
+}
+
+export interface InjectSourcesCatalog {
+  workflows: Array<{ id: string; label: string; cases?: Array<{ id: string; label: string }> }>;
+  sources: InjectSourceSummary[];
+}
+
+export class InjectSourceConflictError extends Error {
+  constructor(readonly source: InjectSource) {
+    super("編集開始後に内容が更新されました");
+  }
+}
+
+async function mutateInjectSource(
+  id: string,
+  method: "PUT" | "POST",
+  body: { expected_revision: string; content?: string },
+  restore = false,
+): Promise<{ source: InjectSource }> {
+  const path = `/v1/admin/inject-sources/${encodeURIComponent(id)}${restore ? "/restore" : ""}`;
+  const response = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 409) {
+    const conflict = await response.json() as { source?: InjectSource };
+    if (conflict.source) throw new InjectSourceConflictError(conflict.source);
+  }
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null) as { error?: string; detail?: unknown } | null;
+    throw new Error(`${response.status} ${failure?.error ?? path}${failure?.detail ? `: ${JSON.stringify(failure.detail)}` : ""}`);
+  }
+  return await response.json() as { source: InjectSource };
 }
 
 export interface HarnessRule {

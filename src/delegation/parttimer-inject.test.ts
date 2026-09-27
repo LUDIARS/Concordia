@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildParttimerInject } from "./parttimer-inject.js";
+import { majorInjectDefinition } from "../control/major-inject-catalog.js";
 
 const base = {
   runId: "run-1",
@@ -114,5 +115,26 @@ describe("buildParttimerInject", () => {
     const out = buildParttimerInject({ ...base, concordiaUrl: "http://127.0.0.1:11111///" });
     expect(out).toContain("http://127.0.0.1:11111/v1/delegation/runs/run-1/status");
     expect(out).not.toContain("11111//v1");
+  });
+});
+
+describe("buildParttimerInject — editable full template", () => {
+  it("uses the catalog factory default while retaining task, run, manual, cwd, and mention", () => {
+    const template = majorInjectDefinition("delegation.parttimer_inject")?.default_content;
+    expect(template).toBeDefined();
+    const rendered = buildParttimerInject({
+      ...base,
+      cwd: "E:/Document/Ars/Quaestor",
+      manual: "Only one sweep",
+      mentionUserId: "123456789",
+      overrideTemplate: `Edited parttimer introduction\n${template}`,
+    });
+    expect(rendered).toContain("Edited parttimer introduction");
+    expect(rendered).toContain("POST /v1/mail/sweep");
+    expect(rendered).toContain("/v1/delegation/runs/run-1/status");
+    expect(rendered).toContain("Only one sweep");
+    expect(rendered).toContain("E:/Document/Ars/Quaestor");
+    expect(rendered).toContain("<@123456789>");
+    expect(rendered).not.toContain("[[CC:");
   });
 });

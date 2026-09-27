@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildDelegationContext } from "./persona-context.js";
 import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
+import { majorInjectDefinition } from "../control/major-inject-catalog.js";
 
 describe("buildDelegationContext", () => {
   it("manual なしでは作業マニュアル節を含まない", () => {
@@ -108,7 +109,7 @@ describe("buildDelegationContext", () => {
       const ctx = buildDelegationContext("http://127.0.0.1:11111");
       expect(ctx).toContain("### 終わったら自分でセッションを閉じる (重要)");
       expect(ctx).toContain("その場で session-end してください");
-      expect(ctx).toContain("別のタスクを自分で探して着手する、 のどちらもしません");
+      expect(ctx).toContain("未依頼の作業は始めません");
       expect(ctx).toContain("`remaining` へ書いて終了");
     });
 
@@ -164,5 +165,22 @@ describe("buildDelegationContext — 質問の作法", () => {
     expect(ctx).toContain("AskUserQuestion");
     const protocolIdx = ctx.indexOf("## Delegation status / inject protocol");
     expect(ctx.indexOf(ASK_MARKER_RULE)).toBeGreaterThan(protocolIdx);
+  });
+});
+
+describe("buildDelegationContext — editable full template", () => {
+  it("uses the catalog factory default and preserves runtime manual, branch, and URL", () => {
+    const template = majorInjectDefinition("delegation.persona_context")?.default_content;
+    expect(template).toBeDefined();
+    const edited = `Edited persona introduction\n${template}`;
+    const rendered = buildDelegationContext(
+      "http://127.0.0.1:11111", { kind: "実装", content: "Runtime manual" },
+      null, null, { base: "release", push: "revisor" }, edited,
+    );
+    expect(rendered).toContain("Edited persona introduction");
+    expect(rendered).toContain("Runtime manual");
+    expect(rendered).toContain("`release`");
+    expect(rendered).toContain("http://127.0.0.1:11111");
+    expect(rendered).not.toContain("[[CC:");
   });
 });

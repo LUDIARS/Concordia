@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { HarnessRulesPanel } from "./manuals/HarnessRulesPanel.js";
 import { InjectManualsPanel } from "./manuals/InjectManualsPanel.js";
+import { MajorInjectPanel } from "./manuals/MajorInjectPanel.js";
 
 // マニュアルページ。 「AI に何を守らせるか / 何を渡すか」の設定をここ 1 箇所に集約する。
 //
@@ -13,7 +14,7 @@ import { InjectManualsPanel } from "./manuals/InjectManualsPanel.js";
 // どちらも「LLM に注入される自然文」であり、 運用中に一番よく触る設定なので、
 // タブ切り替えで並べて詳細に編集できるようにしている。
 
-type Tab = "harness" | "inject";
+type Tab = "harness" | "inject" | "major";
 
 const TABS: Array<{ id: Tab; label: string; summary: string }> = [
   {
@@ -25,6 +26,11 @@ const TABS: Array<{ id: Tab; label: string; summary: string }> = [
     id: "inject",
     label: "Inject マニュアル",
     summary: "spawn するセッションへ kind 別に差し込む作業マニュアル",
+  },
+  {
+    id: "major",
+    label: "主要 Inject",
+    summary: "セッション・委託の注入文面と関連規則ファイル",
   },
 ];
 
@@ -61,7 +67,9 @@ export function Manuals() {
         <span className="ml-auto text-[11px] text-subtle hidden sm:inline">{active.summary}</span>
       </div>
 
-      {tab === "harness" ? <HarnessRulesPanel /> : <InjectManualsPanel />}
+      {tab === "harness" && <HarnessRulesPanel />}
+      {tab === "inject" && <InjectManualsPanel />}
+      <div hidden={tab !== "major"}><MajorInjectPanel /></div>
     </div>
   );
 }

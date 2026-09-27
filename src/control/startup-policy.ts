@@ -16,6 +16,7 @@ export const STARTUP_POLICY_KEY = "cc_startup_policy";
 
 export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
   provider: string; repoOrigin?: string | null; projectRoot?: string; projectCode?: string; requirements: StartupRequirements | null;
+  searchCapabilitiesText?: string;
 }): Promise<{ policy: StartupPolicySnapshot; registeredBranch: string | null; branchMismatch: boolean }> {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
@@ -28,12 +29,13 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
     requestedBranch: input.pendingSpawn?.branch ?? "",
     requirements: required ? `DDD=${required.ddd}; tests=${required.tests}; ontime=${required.ontime}; workContract=${required.workContract}` : "unknown",
     workPolicy: work.text,
-    process: buildProcessGuidance(required, input.projectRoot) ?? "",
+    process: buildProcessGuidance(required, input.projectRoot, input.majorInject) ?? "",
     resources: await buildSharedStartupContext(input),
+    searchCapabilities: input.searchCapabilitiesText ?? "",
   };
   const revision = createHash("sha256").update(JSON.stringify(fields)).digest("hex");
   const process = fields.process ? `\n${fields.process}\n` : "";
-  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n[Cc policy revision: ${revision}]`;
+  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n${fields.searchCapabilities}\n[Cc policy revision: ${revision}]`;
   return { ...work, policy: { revision, fields, text, delivery: "queued" } };
 }
 

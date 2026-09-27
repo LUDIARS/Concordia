@@ -160,6 +160,7 @@ export class ActioTaskStore implements TaskStore {
       path: reference, repoPath: binding.repoPath, title: task.title,
       body: task.description ?? "",
       frontmatter: { task: task.id, project: binding.project,
+        actio_status: task.status,
         ...taskSessionMetadata(task.pluginPayload),
         pull_requests: task.pluginPayload?.pull_requests ?? [],
         kind: typeof task.pluginPayload?.kind === "string" ? task.pluginPayload.kind : "実装",

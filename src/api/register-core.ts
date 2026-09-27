@@ -104,6 +104,8 @@ import { submittedPrStateReader } from "../harness/reliability/task-branch-merge
 import { harnessReliabilityRouter } from "./harness-reliability.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 import { injectManualsRouter } from "./inject-manuals.js";
+import { injectSourcesRouter } from "./inject-sources.js";
+import type { MajorInjectEditor } from "../control/major-inject-editor.js";
 import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { testingRouter } from "./testing.js";
 import { checkoutsRouter } from "./checkouts.js";
@@ -253,6 +255,7 @@ export interface CoreDelegationDeps {
   developerTools?: DeveloperToolsService;
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
   injectManuals?: InjectManualsRepo;
+  majorInjectEditor?: MajorInjectEditor;
   harnessAudit?: HarnessAuditRepo;
   harnessRunClaude?: RunClaudeFn;
   harnessBlackbox?: HarnessBlackboxService;
@@ -352,6 +355,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
   const startupPolicyDeps: PolicyDeps = {
     repo: deps.repo,
+    majorInject: deps.majorInjectEditor?.resolve,
     projectCodes: deps.projectCodes,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
     resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {
@@ -368,6 +372,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ...startupPolicyDeps,
       controlJobs: deps.controlJobs,
       tasks: deps.tasks,
+      taskStore: () => deps.taskStore,
       escalations: deps.escalations,
       chat: deps.chat,
       config: deps.config,
@@ -601,6 +606,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
   if (deps.injectManuals) {
     app.route("/v1/admin/inject-manuals", injectManualsRouter({ repo: deps.injectManuals }));
+  }
+  if (deps.majorInjectEditor) {
+    app.route("/v1/admin/inject-sources", injectSourcesRouter(deps.majorInjectEditor));
   }
   if (deps.harnessAudit && deps.harnessRules) {
     const conflux = new ConfluxService(deps.repo, deps.projectCodes);

@@ -6,6 +6,7 @@
  * 協調作法が効くようにする。 spec/delegation.md §4。
  */
 
+import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
 import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
 
 /** 協調コンテキストへ差し込む kind 別の作業マニュアル (inject_manuals 由来)。 */
@@ -26,13 +27,16 @@ export interface DelegationManual {
  * @param prRules       選択チームの typed PR ルール (teams §3.1 A層)。 base branch 案内を
  *                      ヒューリスティック推測からチーム設定優先に切り替える。
  */
-export function buildDelegationContext(
+function delegationContextTemplate(
+  values: Record<string, string>,
   concordiaUrl = "http://127.0.0.1:11111",
   manual?: DelegationManual | null,
   commandPatternBlock?: string | null,
   teamRules?: { team: string; rules: string } | null,
   prRules?: { base: string; push: "revisor" } | null,
 ): string {
+  const slot = (name: string, value: string) => injectSlot(values, name, value);
+  const apiUrl = slot("concordia_url", concordiaUrl);
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",
     "",
@@ -40,31 +44,18 @@ export function buildDelegationContext(
     "協調セッションです。 単独で動く CLI ではなく、 複数 AI セッションが横断的に協調する",
     "チームの一員として起動しています。",
     "",
-    `- 協調 API は \`${concordiaUrl}\` (loopback)。 \`concordia\` skill が hook 経由で連携を案内します。`,
+    `- 協調 API は \`${apiUrl}\` (loopback)。 \`concordia\` skill が hook 経由で連携を案内します。`,
     "- 他セッションの状況は `GET /v1/stat`、 雑談は chitchat channel で共有されます。",
     "",
   ];
 
   // kind 別作業マニュアル (WebUI /manuals で調整可)。 kind ごとに作業手順が違う
   // (例: レビューは worktree 生成・ブランチ切替不要) ため、 固定文言より先に置く。
-  if (manual && manual.content.trim()) {
-    lines.push(
-      `## 作業マニュアル (kind: ${manual.kind})`,
-      "",
-      manual.content.trim(),
-      "",
-    );
-  }
-
-  // Genius command-pattern (定型作業のコマンド列)。 task 文面に一致した手順を最初から
-  // 渡し、 弱いモデルが自前手順を組み立てて処理がばらつくのを防ぐ (push 型注入)。
-  if (commandPatternBlock && commandPatternBlock.trim()) {
-    lines.push(commandPatternBlock.trim(), "");
-  }
-
-  if (teamRules?.rules.trim()) {
-    lines.push(`## Team rules (${teamRules.team})`, "", teamRules.rules.trim(), "");
-  }
+  lines.push(slot("manual_block", manual?.content.trim()
+    ? `## 作業マニュアル (kind: ${manual.kind})\n\n${manual.content.trim()}\n` : ""));
+  lines.push(slot("command_pattern_block", commandPatternBlock?.trim() ?? ""));
+  lines.push(slot("team_rules_block", teamRules?.rules.trim()
+    ? `## Team rules (${teamRules.team})\n\n${teamRules.rules.trim()}\n` : ""));
 
   lines.push(
     "### 起動後の振る舞い (重要)",
@@ -82,19 +73,19 @@ export function buildDelegationContext(
     "  Codex はコミットを忘れがちなので、 「動いた/直した」 で止めず必ずコミットまで行います。",
     "- ブランチ運用 (作業ブランチで作業 → push → PR) は委託プロンプト / Cc workflow の completion",
     "  ルールに従います。 コミットメッセージは『何を・なぜ』が分かる粒度で書きます。",
-    "- 起動後は最新の origin base から新規 worktree を作成して実装します。" + (
+    "- 起動後は最新の origin base から新規 worktree を作成して実装します。" + slot("pr_base_clause",
       prRules?.base
         ? `base はこのチームの設定により \`${prRules.base}\` に固定します。PR base も同じにします。`
         : "base は origin/develop があれば develop、無ければ main とし、PR base も同じにします。"
     ),
     "- ユーザが明示的に指示しない限り、単体・統合・動作・起動を含むテストを実行しません。",
-    "- 実装完了の責務は commit + push + PR + delegation status 報告までです。PR 作成後は停止します。",
+    "- 実装の既定の提出境界は commit + PR + delegation status 報告です。人間がマージ・反映まで指示した範囲は、その確認まで継続します。",
     "- ユーザが明示的に指示しない限り、merge・squash merge・auto-merge・main 更新を行いません。",
     "",
     "### 終わったら自分でセッションを閉じる (重要)",
     "",
     "- 完了 (または partial/failed) の status 報告まで終えたら、 **その場で session-end してください**。",
-    "  待機して次の指示を待つ / 別のタスクを自分で探して着手する、 のどちらもしません。",
+    "  ただし承認済みの残作業や人間判断待ちがある場合は、その状態を先に報告します。未依頼の作業は始めません。",
     "- 追加でやるべきことに気づいたら、 自分で始めずに status 報告の `remaining` へ書いて終了します。",
     "- 終了処理は「作業ブランチのコミット + Revisor local PR 提出 + status 報告 → session-end」の順です。",
     "",
@@ -121,12 +112,12 @@ export function buildDelegationContext(
     "## Delegation status / inject protocol (required)",
     "",
     "- The spawn environment includes CONCORDIA_DELEGATION_RUN_ID. When the task is completed or failed, you MUST call:",
-    `  POST ${concordiaUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
+    `  POST ${apiUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
     '  with JSON {"status":"completed","detail":"...","result":"...","acceptance_report":[]} or {"status":"partial","remaining":[{"title":"...","note":"...","scope_dirs":[]}]} or {"status":"failed","detail":"..."} before ending.',
     "- If approval or clarification is needed, ask the parent session through the delegation status/inject flow, not directly in Discord.",
     // 質問の作法は taskflow/task-instructions.ts が正本 (実装 inject の受け入れ条件節と共用)。
     // 経路ごとに書くと片方だけ古くなり、 対話 picker で止まる事故が戻る (2026-09-05 問題ログ)。
-    `- ${ASK_MARKER_RULE}`,
+    `- ${slot("ask_marker_rule", ASK_MARKER_RULE)}`,
     "- 前提が不足しても原則は質問せず『前提未確定』として PR 本文と completed/partial 報告へ明記します。質問は権限・破壊的操作の判断に限ります。",
     "- If additional injected instructions arrive, continue from them and keep the same run id.",
     "",
@@ -159,4 +150,22 @@ function workPostureLines(): string[] {
     "- 上記に当たる事項も、 まずは status 報告の detail / PR 本文へ書いて作業自体は完走させます。",
     "",
   ];
+}
+
+export function buildDelegationContext(
+  concordiaUrl = "http://127.0.0.1:11111",
+  manual?: DelegationManual | null,
+  commandPatternBlock?: string | null,
+  teamRules?: { team: string; rules: string } | null,
+  prRules?: { base: string; push: "revisor" } | null,
+  overrideTemplate?: string | null,
+): string {
+  const values: Record<string, string> = {};
+  const template = delegationContextTemplate(values, concordiaUrl, manual, commandPatternBlock, teamRules, prRules);
+  return renderCapturedInject(overrideTemplate ?? template, values);
+}
+
+/** The editor shows the complete prose; runtime identities remain placeholders. */
+export function buildDelegationContextTemplate(): string {
+  return delegationContextTemplate({});
 }

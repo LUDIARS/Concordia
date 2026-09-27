@@ -11,5 +11,7 @@ describe("Cc workflow startup inject", () => {
     expect(text).not.toContain("spec/tasks/");
     expect(text).toContain("タスクは Actio で参照してください");
     expect(text).toContain("PR タイトル・本文は変更内容と検証範囲を日本語で記録");
+    expect(text).toContain("PR creation alone does not complete that loop");
+    expect(text).toContain("work in progress GO");
   });
 });

@@ -5,6 +5,7 @@ import { describeGoal, readGoalFromMetadata, type Goal } from "./goal.js";
 import { parseRequesterSource } from "./requester.js";
 import { allowAutoInject, type PendingQuestionProbe } from "./pending-question-blocker.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { isHumanWaitActive } from "./human-wait.js";
 
 export const GOAL_AND_GO_SOURCE = "auto:goal-and-go";
 
@@ -118,9 +119,9 @@ export function buildGoalAndGoPrompt(input: {
     "人間から新しい入力がないため、自走継続の判断を行ってください。",
     ...focus,
     ...currentTask,
-    "Actioのタスク状態・依存関係・クリティカルパス・関連PRを確認してください。審査通過だけで完了とせず、既存の人間の許可範囲にマージ・反映が含まれる場合はその残作業も進めてください。",
-    "人間の判断・新しい権限・スコープ拡張が必要なら、決め打ちせず質問して停止してください。",
-    "残作業がなければ完了を確認して終了してください。状況報告だけで止まらず、実行可能な次作業がある場合は実行まで進めてください。",
+    "Actioのタスク状態・依存関係・クリティカルパス・関連PRを確認してください。対象作業の1ループは実装・審査・マージ・反映の確認までです。各操作は既存の人間の許可範囲で判断し、Test OKだけで完了にしないでください。",
+    "一つのタスクが審査待ちや判断待ちで止まっても、同じ承認範囲で進められる別のタスクを確認してください。審査待ちの重複提出はしないでください。",
+    "ループの区切りでは予定タスクを列挙し、実行中は GO、待機するものには理由を示してください。進められるものが無ければ必要な人間判断を要約し、POST /v1/sessions/:id/human-wait に summary と task_references を記録して待機してください。人間の回答まで自動確認を止めます。",
   ].join("\n");
 }
 
@@ -192,7 +193,7 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled || status.stopped_reason !== null) return;
     // 人間の回答待ちなら自走しない。continuation_count も消費せず、回答後の継続を残す。
-    if (!allowAutoInject({
+    if (isHumanWaitActive(opts.repo, sessionId) || !allowAutoInject({
       probe: opts.hasPendingQuestion,
       sessionId,
       source: GOAL_AND_GO_SOURCE,
@@ -209,6 +210,13 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     }
 
     const inject = (currentTask: string | null): void => {
+      const latest = opts.repo.findSession(sessionId);
+      if (!latest || latest.status !== "active" || latest.repo_path !== session.repo_path
+        || latest.repo_origin !== session.repo_origin || latest.branch !== session.branch
+        || latest.target_project !== session.target_project
+        || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(session.metadata)
+        || isHumanWaitActive(opts.repo, sessionId)
+        || !allowAutoInject({ probe: opts.hasPendingQuestion, sessionId, source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
       const next: GoalAndGoStatus = {
         ...status,
         continuation_count: status.continuation_count + 1,
@@ -257,9 +265,13 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
         || !current
         || current.status !== "active"
         || current.current_task !== session.current_task
+        || current.repo_path !== session.repo_path || current.repo_origin !== session.repo_origin
+        || current.branch !== session.branch || current.target_project !== session.target_project
+        || readSubsidiaryId(current.metadata) !== readSubsidiaryId(session.metadata)
         || current.metadata !== session.metadata
       ) return;
-      if (!allowAutoInject({ probe: opts.hasPendingQuestion, sessionId, source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
+      if (isHumanWaitActive(opts.repo, sessionId)
+        || !allowAutoInject({ probe: opts.hasPendingQuestion, sessionId, source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
       if (resolution.dropReason) {
         opts.repo.patchSession(sessionId, { current_task: null });
         opts.repo.appendEvent({
@@ -280,7 +292,10 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     if (!globallyEnabled) return;
     if (event.type === "taskflow.continue_requested") {
       const session = opts.repo.findSession(event.target_session_id);
-      if (session) opts.repo.patchSession(event.target_session_id, { current_task: event.text });
+      if (!session || isHumanWaitActive(opts.repo, event.target_session_id)
+        || !allowAutoInject({ probe: opts.hasPendingQuestion, sessionId: event.target_session_id,
+          source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
+      opts.repo.patchSession(event.target_session_id, { current_task: event.text });
       continueSession(event.target_session_id);
       return;
     }

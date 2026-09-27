@@ -4,6 +4,14 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
+  it("keeps an administrator-edited prompt through a later seed", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const original = repo.findTemplateByCallName("kaizen-daily")!;
+    repo.updateTemplate(original.id, { prompt_template: "運用で修正した本文" });
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplate(original.id)?.prompt_template).toBe("運用で修正した本文");
+  });
   it("migrates the existing Kaizen template to Astra without replacing its identity", () => {
     const repo = new DelegationRepo(makeTestDb());
     const old = repo.createTemplate({

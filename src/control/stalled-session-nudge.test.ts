@@ -220,21 +220,19 @@ describe("isUnansweredNudge", () => {
 });
 
 describe("buildNudgeText", () => {
-  it("再実装の後押し / ask 停止の指示を含む", async () => {
+  it("外部状態が取れなければ unknown として再照合を促す", async () => {
     const t = buildNudgeText("claude-code");
-    expect(t).toContain("再実装");
-    expect(t).toContain("worktree");
-    expect(t).toContain("delegation");
-    expect(t).toContain("ask");
+    expect(t).toContain("state=unknown");
+    expect(t).toContain("Actio・審査・委託状態は取得できていません");
+    expect(t).toContain("保存済みのタスク参照から再照合してください");
   });
 
-  it("終了指示ではないことを明示し、自発 session-end を禁じる", async () => {
+  it("終了・実行許可と誤読させず、人間の確認待ちを維持する", async () => {
     const t = buildNudgeText("claude-code");
-    expect(t).toContain("終了指示ではありません");
-    // 「残作業が無ければ /session-end しろ」 という終了許可の読み方を残さない。
+    expect(t).toContain("終了指示でも新たな実行許可でもありません");
     expect(t).not.toMatch(/残作業が無ければ.*session-end/);
-    expect(t).toContain("自分で `/session-end` を実行しないでください");
-    expect(t).toContain("待機");
+    expect(t).toContain("未許可のsession-end");
+    expect(t).toContain("人間の確認待ちは維持");
   });
 });
 
@@ -273,6 +271,21 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
   });
 
+  it("does not nudge a session with an explicit human wait", async () => {
+    const s = fakeSession({ id: "human-wait", metadata: JSON.stringify({ cc_human_wait: {
+      active: true, summary: "判断待ち", task_references: ["actio:T-1"], since: NOW,
+    } }) });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([s]), now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 3_700_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "待機します。" }),
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual([]);
+    h.stop();
+    expect(injects()).toHaveLength(0);
+  });
+
   it("nudge と同時に session.stall_nudged (本文・個人識別子なし) を emit する", async () => {
     const s = fakeSession({ id: "idle-2" });
     const h = startStalledSessionNudge({
@@ -305,8 +318,8 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual(["watch-1"]);
     h.stop();
     const ev = injects()[0];
-    expect(ev.text).toContain("state=design-assessment");
-    expect(ev.text).toContain("work_phase=unknown; revision=0");
+    expect(ev.text).toContain("state=unknown");
+    expect(ev.text).toContain("Actio・審査・委託状態は取得できていません");
     expect(ev.text).toContain("審査・委託状態は取得できていません");
     expect(ev.text).toContain("人間の確認待ちは維持");
     expect(ev.text).not.toContain("再実装してください");

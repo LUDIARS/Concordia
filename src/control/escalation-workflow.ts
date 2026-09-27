@@ -1,3 +1,6 @@
+import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
+export { ESCALATION_RETAINED_RULES, ESCALATION_RELAXED_RULES } from "./workflow-inject-defaults.js";
+
 /**
  * エスカレーション中に注入されるワークフローパケット (spec/feature/escalation-mode.md §3).
  *
@@ -26,19 +29,8 @@ export interface CcWorkflowPacket {
  * インフラが止まっていても外れない規律。 止まっていることは、 これらを外してよい理由にならない。
  * spec/feature/escalation-mode.md §3 「外れないものは外れない」 と 1 対 1 で対応する。
  */
-export const ESCALATION_RETAINED_RULES: readonly string[] = [
-  "Do not push directly to GitHub, and do not create or merge a GitHub PR. The escalation only relaxes local workflow, not the remote.",
-  "A security scan that produced a real finding still stops the work, including under a bypass merge.",
-  "Do not discard another session's changes and do not roll back a shared checkout. Escalation is a stop for others, never a rewind.",
-];
 
 /** エスカレーション中に外れる規律 (差し替え後に許されること)。 */
-export const ESCALATION_RELAXED_RULES: readonly string[] = [
-  "Task registration (task_update) is not required while escalated. Ignore the harness work-registration gate.",
-  "A task-specific worktree is not required. You may operate the working branch directly to restore service.",
-  "Revisor CLI bypass merge may be used to land the fix while the daemon is down.",
-  "You may continue past PR creation until the service is verified working again.",
-];
 
 export interface EscalationDeclaration {
   reason: string;
@@ -53,6 +45,7 @@ export interface EscalationDeclaration {
 export function buildEscalationCcWorkflow(
   sessionId: string,
   declaration: EscalationDeclaration,
+  majorInject?: MajorInjectResolver,
 ): CcWorkflowPacket {
   const encoded = encodeURIComponent(sessionId);
   return {
@@ -62,20 +55,11 @@ export function buildEscalationCcWorkflow(
       list_todos: `GET /v1/sessions/${encoded}/tasks`,
       list_pending: `GET /v1/sessions/${encoded}/pending-tasks`,
     },
-    rules: [
-      `ESCALATION MODE is active for this session (reason: ${declaration.reason}).`,
-      "Restoring a working service comes first. The relaxations below exist only for the duration of the outage.",
-      ...ESCALATION_RELAXED_RULES,
-      ...ESCALATION_RETAINED_RULES,
-      `Release the mode as soon as the outage is over: DELETE /v1/sessions/${encoded}/escalation { "note": "..." }.`,
-      "Record what you bypassed. The escalation event is the audit trail the follow-up review reads.",
-    ],
-    interrupt_policy:
-      "Restoration work takes priority over queued requests. Other sessions have been asked to stop until this escalation is released.",
-    completion_policy: [
-      "The completion boundary is a working service, not PR creation.",
-      "After the service is verified working, release the escalation and report what was bypassed.",
-      "Follow-up review of bypassed merges happens after release (revisor pr bypassed / bypass-reviewed).",
-    ],
+    rules: resolveMajorInjectText("session.workflow.escalation", majorInject, {
+      reason: declaration.reason,
+      release_endpoint: `DELETE /v1/sessions/${encoded}/escalation`,
+    }).split("\n"),
+    interrupt_policy: resolveMajorInjectText("session.workflow.escalation.interrupt", majorInject),
+    completion_policy: resolveMajorInjectText("session.workflow.escalation.completion", majorInject).split("\n"),
   };
 }

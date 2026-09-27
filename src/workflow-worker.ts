@@ -9,6 +9,8 @@ import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
+import { MajorInjectRepo } from "./db/major-inject-repo.js";
+import { MajorInjectEditor } from "./control/major-inject-editor.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { DelegationQueue } from "./delegation/queue.js";
 import { AdminState } from "./admin/state.js";
@@ -72,6 +74,7 @@ async function main(): Promise<void> {
   // キュー払い出しの launch でも main プロセスと同じ kind 別マニュアルを差し込む
   // (seed は main プロセスの boot が担う。 ここは read-only)。
   const injectManualsRepo = new InjectManualsRepo(db);
+  const majorInjectEditor = new MajorInjectEditor(new MajorInjectRepo(db), injectManualsRepo, delegationRepo);
   const service = new DelegationService({
     repo: delegationRepo,
     concordiaUrl,
@@ -81,6 +84,7 @@ async function main(): Promise<void> {
     ),
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
+    majorInject: majorInjectEditor.resolve,
   });
   const queue = new DelegationQueue({
     repo: delegationRepo,

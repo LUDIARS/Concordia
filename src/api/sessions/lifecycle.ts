@@ -16,7 +16,7 @@ import {
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, HANDOVER_INJECT_SOURCE, HANDOVER_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { endSessionNow } from "../../control/end-session-command.js";
 import { STARTUP_POLICY_KEY, readStartupPolicy } from "../../control/startup-policy.js";
-import { resolveStartupPolicy, refreshStartupPolicy } from "./startup-policy-check.js";
+import { resolveStartupPolicy, requestStartupPolicyRefresh } from "./startup-policy-check.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
@@ -126,7 +126,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // isWorkspaceRootCwd only compares for equality and would leave every
       // worktree session without its project rules and memory index.
       const workPolicy = await resolveStartupPolicy(deps, { ...input, repo_origin: input.repo_origin ?? null,
-        branch: input.branch ?? null }, claimed?.branch ?? null);
+        branch: input.branch ?? null }, claimed?.branch ?? null, false);
       sessionWorkPolicyText = workPolicy.policy.text;
       meta[STARTUP_POLICY_KEY] = { ...workPolicy.policy, delivery: "scheduled" };
       const claimedProjectTarget = claimed?.project
@@ -186,7 +186,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       const startupInjectText = [
         sessionWorkPolicyText,
         deps.resolveCcWorkflowEnabled?.()
-          ? renderCcWorkflowStartupInject(input.id)
+          ? renderCcWorkflowStartupInject(input.id, deps.majorInject)
           : null,
       ].filter((text): text is string => Boolean(text?.trim())).join("\n\n");
       if (startupInjectText) meta.discord_startup_inject = startupInjectText;
@@ -286,9 +286,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }
     }
 
-    if (existing) await refreshStartupPolicy(deps, input.id);
+    requestStartupPolicyRefresh(deps, input.id);
     const freshSession = deps.repo.findSession(input.id)!;
     const contextPacket = await buildCollaborationContextPacket({
+      majorInject: deps.majorInject,
       repo: deps.repo,
       session: freshSession,
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
@@ -394,6 +395,7 @@ app.get("/:id/context", async (c) => {
     if (!s) return c.json({ error: "not_found" }, 404);
     return c.json({
       context_packet: await buildCollaborationContextPacket({
+      majorInject: deps.majorInject,
         repo: deps.repo,
         session: s,
         workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
@@ -478,9 +480,7 @@ app.patch("/:id", async (c) => {
       // ポリシー再計算は Excubitor → Revisor の 2 段 HTTP を挟むので、 応答を待つと
       // 上流の停止がそのまま event loop 停止になる (2026-09-12: 753 秒 in-flight)。
       // 結果は inject イベントとして届き、 この応答は使わないので待たない。
-      void refreshStartupPolicy(deps, id).catch((err) => {
-        log.warn({ session_id: id, err: (err as Error).message }, "startup policy refresh failed");
-      });
+      requestStartupPolicyRefresh(deps, id);
     }
     deps.repo.updateHeartbeat(id, patchTs);
     reviveIfLost(deps.repo, session, patchTs);

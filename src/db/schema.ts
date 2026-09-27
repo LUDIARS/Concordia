@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 111;
+export const SCHEMA_VERSION = 112;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -773,7 +773,6 @@ const STATEMENTS = [
     content     TEXT NOT NULL,
     updated_at  INTEGER NOT NULL
   )`,
-
   // ローカルセッションのハーネス強制ゲートの監査ログ。 子会社 (subsidiary_requests) と
   // 同じ思想だが、 対象は外部依頼ではなく「自セッションの操作 (編集/コマンド)」。 すべての
   // 判定 (allow/deny/warn) を 1 行ずつ残し、 後から「強制が効いたか」を裏取りできるようにする。
@@ -2613,6 +2612,24 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_domain_review_posts_code_created
         ON domain_review_posts(code, created_at DESC)
+    `);
+  },
+},
+{
+  version: 112,
+  name: "major-inject-editor",
+  source: "major_inject_overrides + delegation_template_prompt_edits v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE major_inject_overrides (
+        target_id   TEXT PRIMARY KEY,
+        content     TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE TABLE delegation_template_prompt_edits (
+        template_id TEXT PRIMARY KEY,
+        updated_at  INTEGER NOT NULL
+      );
     `);
   },
 },

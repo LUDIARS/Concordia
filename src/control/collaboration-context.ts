@@ -7,6 +7,7 @@
  * user instruction and repository state.
  */
 
+import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
 import { basename } from "node:path";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
@@ -78,6 +79,7 @@ export interface CollaborationContextPacket {
 }
 
 export interface BuildCollaborationContextDeps {
+  majorInject?: MajorInjectResolver;
   repo: SessionsRepo;
   session: SessionRow;
   workspaceRoots?: string[];
@@ -153,7 +155,7 @@ export async function buildCollaborationContextPacket(
       ],
     },
     cc_workflow: deps.ccWorkflowEnabled
-      ? (escalation ? buildEscalationCcWorkflow(session.id, escalation) : buildCcWorkflow(session.id))
+      ? (escalation ? buildEscalationCcWorkflow(session.id, escalation, deps.majorInject) : buildCcWorkflow(session.id, deps.majorInject))
       : null,
     escalation: {
       active: Boolean(escalation),
@@ -175,14 +177,14 @@ function resolveProjectNamesOrEmpty(resolveNames: (() => readonly string[]) | un
   }
 }
 
-export function renderCcWorkflowStartupInject(sessionId: string): string {
+export function renderCcWorkflowStartupInject(sessionId: string, majorInject?: MajorInjectResolver): string {
   return [
     "[concordia/cc-workflow]",
-    JSON.stringify(buildCcWorkflow(sessionId), null, 2),
+    JSON.stringify(buildCcWorkflow(sessionId, majorInject), null, 2),
   ].join("\n");
 }
 
-function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
+function buildCcWorkflow(sessionId: string, majorInject?: MajorInjectResolver): CcWorkflowPacket {
   const encoded = encodeURIComponent(sessionId);
   return {
     inject_source: "session-start:cc-workflow",
@@ -191,25 +193,9 @@ function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
       list_todos: `GET /v1/sessions/${encoded}/tasks`,
       list_pending: `GET /v1/sessions/${encoded}/pending-tasks`,
     },
-    rules: [
-      "Break the work into visible todos and post task_update through the Concordia API before substantive edits.",
-      "Identify the individual project first; never use the workspace/Castra root as the working directory.",
-      "Confirm the requested branch against the actual checkout and register that branch in Cc before editing; do not work directly on main.",
-      "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
-      "When implementation is complete, follow the project workflow identified by Cc in the startup policy. Do not infer permission to push or choose a PR submission route when the workflow is unknown.",
-      "タスクは Actio で参照してください。PR タイトル・本文は変更内容と検証範囲を日本語で記録し、タスク本文や機密情報を自動転記しないでください。",
-      "Do not spawn subagents yourself (Agent/Task tool). Delegate parallel or split work through Concordia delegation (POST /v1/delegation/invoke) so the child gets its own surface, status card, and PR — unless the user explicitly asked for an in-session agent.",
-      "Do not run any test unless the user explicitly requested it for this Session.",
-      "Do not merge, enable auto-merge, or update main unless the user explicitly requested it.",
-      "Keep task_update current as work moves between pending, in_progress, and completed.",
-    ],
-    interrupt_policy:
-      "If the user interrupts with additional work, append it after the current queue unless the user explicitly marks it as priority.",
-    completion_policy: [
-      "The default Session completion boundary is commit and PR submission through the workflow identified by Cc for the target project.",
-      "After creating the PR, stop and report it; do not automatically monitor/fix CI, test, or merge.",
-      "Only continue into tests or merge when the user explicitly adds that instruction.",
-    ],
+    rules: resolveMajorInjectText("session.workflow.normal", majorInject).split("\n"),
+    interrupt_policy: resolveMajorInjectText("session.workflow.normal.interrupt", majorInject),
+    completion_policy: resolveMajorInjectText("session.workflow.normal.completion", majorInject).split("\n"),
   };
 }
 

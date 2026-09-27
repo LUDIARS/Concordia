@@ -4,6 +4,9 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/control/repo-search-[^/]+(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/(major-inject|inject-source)[^/]*(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/(inject-template-values|workflow-inject-defaults)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)tools/session-git-hook(?:-env)?(?:\\.(?:test|contract))?\\.mjs$" },
     {
       "pathPattern": "(^|/)src/control(?:/.*)?$"
@@ -29,6 +32,9 @@
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
   "specRefs": [
+    "spec/feature/major-inject-editor.md",
+    "spec/feature/task-linked-followup.md",
+    "spec/feature/repository-search-capabilities.md",
     "spec/feature/session-work-phases.md",
     "spec/feature/shared-startup-context.md",
     "spec/feature/human-response-confirmation.md",

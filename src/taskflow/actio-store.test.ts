@@ -84,6 +84,13 @@ describe("ActioTaskStore", () => {
     const { store } = fixture([HQ], { get: async () => task({ status: "in_progress" }) });
 
     expect(await store.findByRelativePath(HQ.repoPath, "actio:task-1")).toEqual({ status: "delegated" });
+    expect((await store.read(HQ.repoPath, "actio:task-1", null))?.frontmatter.actio_status).toBe("in_progress");
+  });
+
+  it("preserves Actio blocked status alongside the legacy workflow status", async () => {
+    const { store } = fixture([HQ], { get: async () => task({ status: "blocked" }) });
+    const document = await store.read(HQ.repoPath, "actio:task-1", null);
+    expect(document?.frontmatter.actio_status).toBe("blocked");
   });
 
   it("resolves the binding by project name and by repository path", async () => {

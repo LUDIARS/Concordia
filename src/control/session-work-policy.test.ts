@@ -32,14 +32,14 @@ describe("buildSessionWorkPolicy", () => {
     expect(policy.text).not.toMatch(/Workflow|未判定/);
   });
 
-  it("warns about destructive git ops on Castra when cwd is the workspace root", () => {
+  it("does not inject the removed Castra destructive-git advisory at the workspace root", () => {
     const policy = buildSessionWorkPolicy({
       repoPath: "E:\\Document\\Ars",
       observedBranch: "main",
       pendingSpawn: null,
       workspaceRoots: ["E:/Document/Ars"],
     });
-    expect(policy.text).toContain("Castra 破壊的 git 操作ガード");
+    expect(policy.text).not.toContain("Castra 破壊的 git 操作ガード");
     expect(policy.registeredBranch).toBeNull();
     expect(policy.text).not.toContain("cwd violation");
   });

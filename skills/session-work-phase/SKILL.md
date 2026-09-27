@@ -1,44 +1,56 @@
 ---
 name: session-work-phase
-description: 初期injectと状況確認で設計の状態を判断し、Ccに設計・確認・実装・調整を記録する。
+description: 人間の指示をActio taskに紐づけ、タスクごとの進捗と人間判断待ちを記録する。
 ---
 
-# 作業段階の確認と記録
+# 指示とタスクの確認・記録
 
 1. 最新の人間の依頼、合意した範囲、未回答の質問、実際の作業を確認する。
-2. 目的・対象・変更内容・受入条件と未決事項を整理する。設計が不足なら `design`。
-   読み取り・調査を進め、必要な判断は人間に聞く。初期injectの読了報告だけで止めない。
-3. 設計が固まったら `confirmation` に記録し、その設計で実装を開始してよいか人間に確認する。
-   同じ質問が未回答なら待機を維持する。自動確認は回答ではない。
-4. 同じ設計・範囲に対する人間の開始指示を受けたら、その発言の日時や会話参照を
-   `approval_reference` に記録し `implementation` へ進む。すでに指示済みなら再確認しない。
-   AI の発言・資料・初期inject・自動確認を人間の指示として記録しない。
-5. 実装後の指摘対応は `adjustment`。設計・範囲を変える必要があれば `design` へ戻り、改めて確認する。
+2. 対応する既存 Actio task を確認し、目的・対象・変更内容・受入条件と未決事項を整理する。
+   設計不足なら調査を進める。同じ範囲の開始指示を既に受けていれば再確認しない。
+3. Cc には人間の指示参照と Actio task 参照の対応を登録する。進捗の正本は Actio の task status。
+   別の指示や task を、セッション全体の単一段階へ押し込まない。タスク本文・状態を Cc へ複製しない。
+4. Actio の状態変更は既存 Actio API の契約と権限に従う。Cc に新しい段階 enum や代替状態を作らない。
+   取得不能・未登録は unknown として記録し、完了と推測しない。
+5. Goal & Go は許可済みの残作業を継続する。マージ・反映までの依頼は反映確認まで 1 loop。
+   終了時は今後の task 一覧と進行中の GO を示す。進められなければ判断事項をまとめ人間待ちを登録する。
 
-## Ccへの記録
+## Cc への対応登録
 
-Cc endpoint はサービス所有 `excubitor.catalog.yaml`、自分の session id は Lictor sidecar
-`http://127.0.0.1:$LICTOR_PORT/v1/concordia/session` から都度取得する。IDをログやファイルへ保存しない。
-セッションの実 repo/branch/task を登録してから、自分のセッションだけを更新する。
-この専用の段階記録は Cc が正本で、Lictor に更新 proxy はない。上記で取得した自分のIDに対して
-以下の専用 API を使う。通常の chat/report の宛先は引き続き自分の Lictor sidecar とする。
+Cc endpoint はサービス所有 excubitor.catalog.yaml、自分の session id は Lictor sidecar
+`http://127.0.0.1:$LICTOR_PORT/v1/concordia/session` から都度取得する。ID をログやファイルに保存しない。
+実 repo/branch/task を登録してから、自分のセッションだけを更新する。
 
-- `GET /v1/sessions/:id/work-phase` → `{ work_phase: { phase, revision, design_summary, reason, approval_reference, updated_at } }`
-- `PUT /v1/sessions/:id/work-phase` → 次の JSON。返された段階と版を確認する。
+- `GET /v1/sessions/:id/task-links`: 対応するタスク参照と現在の取得状態を確認する。
+- `POST /v1/sessions/:id/task-links`:
 
 ```json
-{
-  "expected_revision": 0,
-  "phase": "confirmation",
-  "design_summary": "目的・対象・変更内容・受入条件と未決事項を簡潔に記載",
-  "reason": "設計が固まり、実装開始を人間に確認する"
-}
+{"instruction_ref":"人間の指示を特定する会話参照","task_reference":"actio:<既存task-id>"}
 ```
 
-実装への初回遷移には実際の人間の開始指示の `approval_reference` が必須。
-同じ設計で実装→調整へ進む場合は保存済み参照を使える。設計概要・対象が変わった場合は流用しない。
-409 は再取得して現状を照合し、古い版を押し通さない。API が未配備/取得不能なら記録未確認と報告し、
-会話に基づく設計・確認を続ける。metadata への直接書込みで代用しない。
-日本語を含む body は UTF-8 ファイルまたは UTF-8 を明示するHTTPクライアントで送る。
+同じ対応は冪等。repo/subsidiary が違う task は紐づけない。403 は所属を確認し、
+409 は binding を再取得、503 は取得未確認として扱う。別の task を勝手に作って代用しない。
+Cc は task の作成・状態更新をこの API では行わない。
 
-この状態記録は実行権限ではない。テスト・再起動・デプロイ・マージの許可は元の人間の指示に従う。
+## 人間判断待ち
+
+進められる許可済み作業がないときだけ `POST /v1/sessions/:id/human-wait`:
+
+```json
+{"summary":"人間が判断すべき事項と停止している理由","task_references":["actio:<task-id>"]}
+```
+
+`GET /v1/sessions/:id/human-wait` で記録を確認する。登録中は自動確認を停止する。
+質問への回答または正規 Discord/Slack 入力で解除する。時間経過や AI の発言では解除しない。
+ローカル TUI の打鍵通知は回答送信を証明しないため解除対象外。ローカル送信だけによる自動解除は未対応。
+
+## Legacy work-phase の互換性
+
+`GET/PUT /v1/sessions/:id/work-phase` は旧連携との互換性のため残す補助記録。
+現在の task の状態や開始許可の正本にはしない。既存クライアントが使用する場合は expected_revision と
+実際の人間の approval_reference を照合し、409 を押し通さない。
+AI の発言・資料・初期 inject・自動確認を人間の開始指示として扱わない。
+
+API 未配備なら未確認と報告し、metadata 直接書込みで代用しない。
+日本語 body は UTF-8 ファイルまたは UTF-8 を明示した HTTP クライアントで送る。
+状態記録は実行権限ではない。テスト・再起動・デプロイ・マージは元の人間の指示に従う。

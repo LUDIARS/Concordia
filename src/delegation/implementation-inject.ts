@@ -15,6 +15,8 @@
  * spec/feature/delegation-implementation-inject.md。
  */
 
+import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
+
 import {
   ASK_MARKER_RULE,
   ACCEPTANCE_CONTRACT_FORMAT_RULE,
@@ -44,6 +46,7 @@ export interface MemoriaTaskLink {
 }
 
 export interface ImplementationInjectInput {
+  overrideTemplate?: string | null;
   taskReference?: string;
   runId: string;
   title: string;
@@ -71,20 +74,21 @@ export interface ImplementationInjectInput {
  * 事前調査は「まず Anatomia の解析グラフを引く」に寄せる。 Concordia が調査ブリーフを
  * 出して待つ形は廃止したので、 調査も実装も同じターンの中で委託先が進める。
  */
-export function buildImplementationInject(input: ImplementationInjectInput): string {
+function implementationTemplate(input: ImplementationInjectInput, values: Record<string, string>): string {
+  const slot = (name: string, value: string) => injectSlot(values, name, value);
   const statusEndpoint = `${trimSlash(input.concordiaUrl)}/v1/delegation/runs/${input.runId}/status`;
   const lines = [
-    `## 実装タスク — ${input.title}`,
+    `## 実装タスク — ${slot("title", input.title)}`,
     "",
     "通常の不明点では停止せず、 コードと spec を根拠に自分で判断して実装まで進めてください。",
     "",
     "### なぜ (why)",
     "",
-    input.why.trim(),
+    slot("why", input.why.trim()),
     "",
     "### 実装タスク",
     "",
-    input.task.trim(),
+    slot("task", input.task.trim()),
     "",
     "### 着手前の把握 (調査は自分で回す)",
     "",
@@ -107,22 +111,22 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "5. 検証 (`git diff | anatomia verify`、Revisor gate は enforced、解析不能は fail)",
     "6. 回帰 (変更種別の既存テスト)",
     "",
-    input.taskReference ? "### Actio タスク" : "### Memoria タスク",
-    "",
   ];
+  const taskLines = [input.taskReference ? "### Actio タスク" : "### Memoria タスク", ""];
   if (input.taskReference) {
-    lines.push(`- reference: ${input.taskReference}`, "- 本文は Actio から必要時に取得する。取得できなければ停止する。");
+    taskLines.push(`- reference: ${input.taskReference}`, "- 本文は Actio から必要時に取得する。取得できなければ停止する。");
   } else if (input.memoria) {
-    lines.push(`- id: ${input.memoria.id}`, `- link: ${input.memoria.url}`);
+    taskLines.push(`- id: ${input.memoria.id}`, `- link: ${input.memoria.url}`);
   } else {
     // 未作成を黙って省略しない。 追跡タスクが無いこと自体が申し送り事項。
-    lines.push(`- 未作成: ${input.memoriaError ?? "reason unknown"}`, "- 実装は進めてよい。 完了報告にこの事実を含めること。");
+    taskLines.push(`- 未作成: ${input.memoriaError ?? "reason unknown"}`, "- 実装は進めてよい。 完了報告にこの事実を含めること。");
   }
+  lines.push(slot("task_link_block", taskLines.join("\n")));
   lines.push(
     "",
     "### 受け入れ条件 (契約書式) と完了証跡",
     "",
-    ...acceptanceLines(input.augurCli ?? null),
+    slot("acceptance_block", acceptanceLines(input.augurCli ?? null).join("\n")),
     "",
     "### 完了条件 (すべて満たしてから status を報告する)",
     "",
@@ -138,7 +142,7 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "- [ ] 変更を commit した (`.git` に書けない環境なら `.concordia-commit.json` で Concordia に依頼する)",
     "- [ ] Revisor local PR を提出した",
     "- [ ] タスク本文に PR より後段の完了条件がある場合、 その終局条件まで達した",
-    `- [ ] \`POST ${statusEndpoint}\` に completed を報告した`,
+    `- [ ] \`POST ${slot("status_endpoint", statusEndpoint)}\` に completed を報告した`,
     "",
     "日本語を含む status の body はシェルに直書きしないでください。 Windows の一部のシェル経路では CP932 で",
     "渡されて文字化けし、 化けた報告は受理されません (400 `garbled_report`)。 JSON を UTF-8 の",
@@ -147,8 +151,9 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "報告まで終わったら **このセッションは終了**します。 次のタスクを自分で拾わないでください。",
     "",
   );
+  const repoLines: string[] = [];
   if (input.repoPath) {
-    lines.push(
+    repoLines.push(
       `作業対象は \`${input.repoPath}\`${input.branch ? ` (branch: \`${input.branch}\`)` : ""} のみです。`,
       "- 編集はこの worktree / branch の中だけ。 main / develop へ直接コミットしない。",
       "- 既存の無関係な未コミット変更には触らない。",
@@ -157,7 +162,18 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
       "",
     );
   }
+  lines.push(slot("repo_block", repoLines.join("\n")));
   return lines.join("\n");
+}
+
+export function buildImplementationInject(input: ImplementationInjectInput): string {
+  const values: Record<string, string> = {};
+  const template = implementationTemplate(input, values);
+  return renderCapturedInject(input.overrideTemplate ?? template, values);
+}
+
+export function buildImplementationInjectTemplate(): string {
+  return implementationTemplate({ runId: "", title: "", task: "", why: "", concordiaUrl: "", repoPath: null, branch: null, memoria: null, memoriaError: null }, {});
 }
 
 /**

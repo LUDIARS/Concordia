@@ -57,6 +57,9 @@ import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { createHarnessBlackbox } from "../harness/blackbox-engine.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
 import { InjectManualsRepo } from "../db/inject-manuals-repo.js";
+import { MajorInjectRepo } from "../db/major-inject-repo.js";
+import { MajorInjectEditor } from "../control/major-inject-editor.js";
+import { readLinkedTaskViews } from "../work/session-task-links.js";
 import { seedInjectManuals } from "../control/inject-manual-seed.js";
 import { answerPendingQuestion, questionStoreFromRepo } from "../control/answer-question.js";
 import { registerPushWarningChannel } from "../control/push-warning-dispatch.js";
@@ -111,6 +114,7 @@ import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { selectProjectStartupWorkflow } from "../control/project-startup-workflow.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
+import { startHumanWait } from "../control/human-wait.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
 import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
@@ -583,6 +587,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const harnessAuditRepo = new HarnessAuditRepo(db);
   const harnessBlackbox = createHarnessBlackbox(db);
   const injectManualsRepo = new InjectManualsRepo(db);
+  const majorInjectEditor = new MajorInjectEditor(new MajorInjectRepo(db), injectManualsRepo, delegationRepo);
   // 子会社の日次トークン予算トラッカー。 subsidiary_id タグ付きセッションの当日消費を
   // ログから直接合算する (グローバル予算と違い delta 累積は不要 = 冪等)。
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
@@ -651,6 +656,7 @@ export async function startBackend(): Promise<BackendHandle> {
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
+    majorInject: majorInjectEditor.resolve,
     // task 文面に一致する Genius command-pattern カードを手順としてプロンプトへ渡す
     // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
     commandPatterns: (taskText) =>
@@ -1817,6 +1823,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // session 非依存の direct 提出口 (POST /v1/prs/local/direct)。
     submitDirectLocalPr: submitDirectLocalPrRequest,
     injectManuals: injectManualsRepo,
+    majorInjectEditor,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
     harnessBlackbox,
@@ -2098,16 +2105,18 @@ export async function startBackend(): Promise<BackendHandle> {
       log: localPrLog,
     }));
     trackPostListenHandle(startHumanResponseConfirmation(repo));
+    trackPostListenHandle(startHumanWait(repo));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,
         resolveWorkState: async (session) => {
+          const live = await readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId: session.id });
           const registrations = await revisorRepositoryClient.listRepositories();
           const workflow = selectProjectStartupWorkflow(registrations, session.repo_path, session.repo_origin);
           const localPrs = workflow === "revisor" ? await revisorClient.listLocalPrs() : [];
           return {
             workflow,
-            tasks: sessionTaskRecords.listBySession(session.id),
+            tasks: live.kind === "current" ? live.links.map((link) => ({ status: link.status })) : [{ status: "unknown" }],
             delegations: delegationRepo.listRunsByParentSession(session.id),
             prs: workflow === "github"
               ? prs.list({ author_session_id: session.id, limit: 100 })

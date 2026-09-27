@@ -38,12 +38,14 @@
 
 import { open, stat } from "node:fs/promises";
 import { renderSessionFollowup, type SessionFollowupSnapshot } from "./session-followup-state.js";
-import { readSessionWorkPhase, type WorkPhaseView } from "../work/session-work-phase.js";
+import type { WorkPhaseView } from "../work/session-work-phase.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { claimHumanResponseConfirmation } from "./human-response-confirmation.js";
+import { isHumanWaitActive } from "./human-wait.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import {
   isBlockedByPendingQuestion,
@@ -256,31 +258,9 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/**
- * nudge 本文。goal は注入しない。Cc は止まった作業を「実装し直すための状況整理」
- * に戻すだけで、単独 agent を無期限に走らせる指示は出さない。
- *
- * **これは終了指示ではない** ことを本文で明示する。 以前は「残作業が無ければ
- * `/session-end` で終了してください」 と書いていたため、 人間の目視確認を待って
- * 待機していただけのセッションが nudge を終了許可と解釈し、 自分で session-end →
- * Lictor shutdown まで走って勝手に閉じる事故が起きた (2026-08-17)。 nudge は
- * 「止まった理由を説明せよ」 までしか要求せず、 終了の可否は必ず人間に投げさせる。
- */
-export function buildNudgeText(_provider: string, snapshot?: SessionFollowupSnapshot, phase?: WorkPhaseView): string {
-  if (snapshot || phase) return renderSessionFollowup(snapshot, phase);
-  return [
-    `${STALL_NUDGE_SENTINEL} しばらく応答が止まっているようです。`,
-    "",
-    "- 直近の diff / 失敗ログ / テスト結果を見直し、止まった原因を 1 行で整理してください。",
-    "- まだ実装できるなら、範囲を小さく切って別アプローチで再実装してください。",
-    "- 同じ branch が混んでいる、または作業が大きすぎる場合は worktree 分割や delegation を提案してください。",
-    "- 方針が割れる / 破壊的操作 / 本番影響不明 / 仕様が曖昧な場合は、決め打ちせず ask マーカーで質問して進行を止めてください。",
-    "",
-    "これは自動巡回による確認であって、**終了指示ではありません**。",
-    "- 人間の確認待ちで待機していただけなら、その旨を 1 行で答えてそのまま待機してください。",
-    "- 残作業が無いと判断した場合も、自分で `/session-end` を実行しないでください。",
-    "  終了してよいかを ask マーカーで質問し、人間の回答を待ってから終了処理に入ってください。",
-  ].join("\n");
+/** 外部状態が取得できない場合も unknown を明示し、実行・終了許可を推測しない。 */
+export function buildNudgeText(_provider: string, snapshot?: SessionFollowupSnapshot, _phase?: WorkPhaseView): string {
+  return renderSessionFollowup(snapshot);
 }
 
 /**
@@ -358,7 +338,7 @@ export function startStalledSessionNudge(
         continue;
       }
       // Cc の質問カード待ちは DB 1 本で判る。 transcript 末尾読みより安いので先に見る。
-      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id)) {
+      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) {
         log.debug(
           { session_id: s.id },
           "skip nudge: pending question card or question state unavailable",
@@ -379,11 +359,13 @@ export function startStalledSessionNudge(
       }
       const workState = await opts.resolveWorkState?.(s).catch(() => undefined);
       // The registry request may outlive the user's transition to a question card.
-      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id)) continue;
+      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
       const latest = opts.repo.findSession(s.id);
       if (!latest || latest.status !== "active") continue;
-      if (latest.repo_path !== s.repo_path || latest.branch !== s.branch || latest.current_task !== s.current_task) continue;
-      const phase = readSessionWorkPhase(latest);
+      if (latest.repo_path !== s.repo_path || latest.repo_origin !== s.repo_origin
+        || latest.branch !== s.branch || latest.target_project !== s.target_project
+        || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
+        || latest.current_task !== s.current_task) continue;
       // A transcript update can be an AI reply to our own nudge. Keep waiting until
       // an explicit human response reopens the durable confirmation gate.
       if (!claimHumanResponseConfirmation(opts.repo, s.id)) continue;
@@ -393,7 +375,7 @@ export function startStalledSessionNudge(
         target_session_id: s.id,
         // Read the local phase even when external review state is unavailable;
         // the guidance then requests an assessment without assuming review is idle.
-        text: buildNudgeText(s.provider, workState, phase),
+        text: buildNudgeText(s.provider, workState),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });

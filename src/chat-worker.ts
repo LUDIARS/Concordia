@@ -18,6 +18,9 @@ import { PrRecordsRepo } from "./db/pr-records-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { DelegationService } from "./delegation/service.js";
+import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
+import { MajorInjectRepo } from "./db/major-inject-repo.js";
+import { MajorInjectEditor } from "./control/major-inject-editor.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { SubsidiaryRepo } from "./db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "./db/harness-rules-repo.js";
@@ -212,6 +215,8 @@ async function main(): Promise<void> {
   reconcileTimer.unref?.();
 
   const delegationRepo = new DelegationRepo(db);
+  const injectManualsRepo = new InjectManualsRepo(db);
+  const majorInjectEditor = new MajorInjectEditor(new MajorInjectRepo(db), injectManualsRepo, delegationRepo);
   const federationSettings = new SqliteSettingsStore(db);
   const excubitor = new ExcubitorClient();
   const checkDependencies = createDependencyReadinessChecker({
@@ -224,6 +229,8 @@ async function main(): Promise<void> {
   const teamsRepo = new TeamsRepo(db);
   const delegationService = new DelegationService({
     repo: delegationRepo,
+    injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
+    majorInject: majorInjectEditor.resolve,
     concordiaUrl,
     siteId: () => resolveFederationSiteId(
       federationSettings,

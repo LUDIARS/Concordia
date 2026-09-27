@@ -7,6 +7,9 @@ import { ProjectCodesRepo } from "../../db/project-codes-repo.js";
 import { refreshStartupPolicy, registerStartupPolicyCheck, resolveStartupPolicy } from "./startup-policy-check.js";
 import { STARTUP_POLICY_KEY, readStartupPolicy } from "../../control/startup-policy.js";
 import type { ProjectStartupWorkflow } from "../../control/project-startup-workflow.js";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function fixture() {
   const db = makeTestDb();
@@ -111,10 +114,29 @@ it("does not reuse the startup origin for a local-only work project", async () =
   deps.projectCodes.register({ code: "Local", project: "Local", repoPath: "E:/fixture/local", repoOrigin: null, addedBy: "fixture" });
   repo.patchSession("policy-fixture", { target_project: "Local" });
   let observed: unknown;
-  await resolveStartupPolicy({ ...deps, resolveProjectStartupWorkflow: async (path, origin) => {
+  const result = await resolveStartupPolicy({ ...deps, resolveProjectStartupWorkflow: async (path, origin) => {
     observed = [path, origin]; return "unknown";
   } }, repo.findSession("policy-fixture")!);
   expect(observed).toBeUndefined();
+  expect(result.policy.fields.searchCapabilities).toBe("");
+  expect(result.policy.fields.projectCode).toBe("Local");
+});
+
+it("adds bounded search guidance only after selecting a registered repository", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cc-policy-search-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "tsconfig.json"), "{}", "utf8");
+    await writeFile(join(root, "src", "feature.ts"), "export const feature = 1", "utf8");
+    const { deps, repo } = fixture();
+    const unknown = await resolveStartupPolicy(deps, repo.findSession("policy-fixture")!);
+    expect(unknown.policy.fields.searchCapabilities).toBe("");
+    deps.projectCodes.register({ code: "Search", project: "Search", repoPath: root, repoOrigin: null, addedBy: "fixture" });
+    repo.patchSession("policy-fixture", { target_project: "Search", repo_path: root });
+    const selected = await resolveStartupPolicy(deps, repo.findSession("policy-fixture")!);
+    expect(selected.policy.fields.searchCapabilities).toContain("typescript");
+    expect(selected.policy.fields.searchCapabilities).toContain("作業先端末の実行可否は未確認");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 it("discards a resolution when only the work target changed while lookup was pending", async () => {

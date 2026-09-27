@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
 import { fileURLToPath } from "node:url";
+import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
 
 interface SharedStartupContextInput {
   workflow?: ProjectStartupWorkflow;
@@ -14,6 +15,7 @@ interface SharedStartupContextInput {
   workspaceRoots: readonly string[];
   homeRoot?: string;
   readableFile?: (path: string) => Promise<boolean>;
+  majorInject?: MajorInjectResolver;
 }
 
 /** Only known resource names are considered; never enumerate or copy private memories. */
@@ -48,11 +50,7 @@ export async function buildSharedStartupContext(input: SharedStartupContextInput
       join(root, "Archived", "memory", projectKey, "MEMORY.md"),
     ] }] : []),
   ];
-  const lines = [
-    "【新規起動時の最小共通コンテキスト】",
-    `Castra root: ${JSON.stringify(root)}。cwd は現在のプロジェクトのまま、以下を絶対パスで読んでください。`,
-    `資料選択ルール: ${JSON.stringify(fileURLToPath(new URL("../../rule/shared-context.md", import.meta.url)))}`,
-  ];
+  const lines: string[] = [];
   if (!projectRoot) lines.push("- 対象プロジェクトがCc registryで未確定のため、プロジェクト別資料・メモリは選定していません。対象を確認してください。");
   for (const resource of resources) {
     let found: string | undefined;
@@ -62,7 +60,10 @@ export async function buildSharedStartupContext(input: SharedStartupContextInput
     lines.push(found ? `- ${resource.label}: ${JSON.stringify(found)}` : `- ${resource.label}: 見つかりません。必要時に場所を確認してください（未読）。`);
   }
   lines.push("- 読み取り拒否・ファイル消失時は不足した資料名を報告し、読了したと扱わないでください。sandbox の範囲はこの案内では変更されません。");
-  return lines.join("\n");
+  return resolveMajorInjectText("session.shared_startup_context", input.majorInject, {
+    castra_root: JSON.stringify(root), resources: lines.join("\n"),
+    selection_rule: `資料選択ルール: ${JSON.stringify(fileURLToPath(new URL("../../rule/shared-context.md", import.meta.url)))}`,
+  });
 }
 
 async function isReadableFile(path: string): Promise<boolean> {

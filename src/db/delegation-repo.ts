@@ -293,13 +293,16 @@ export class DelegationRepo {
   upsertTemplate(input: CreateTemplateInput): DelegationTemplateRow {
     const existing = this.findTemplateByCallName(input.call_name);
     if (existing) {
-      return this.updateTemplate(existing.id, {
+      const hasEditedPrompt = Boolean(this.db.prepare(
+        "SELECT template_id FROM delegation_template_prompt_edits WHERE template_id = ?",
+      ).get(existing.id));
+      const seeded = this.updateTemplate(existing.id, {
         title: input.title,
         description: input.description,
         target_provider: input.target_provider,
         model: input.model,
         runtime_options: input.runtime_options,
-        prompt_template: input.prompt_template,
+        prompt_template: hasEditedPrompt ? existing.prompt_template : input.prompt_template,
         input_schema: input.input_schema,
         default_cwd: input.default_cwd,
         project: input.project,
@@ -311,6 +314,10 @@ export class DelegationRepo {
         category: input.category,
         sort_order: input.sort_order,
       }) ?? existing;
+      if (!hasEditedPrompt) this.db.prepare(
+        "DELETE FROM delegation_template_prompt_edits WHERE template_id = ?",
+      ).run(existing.id);
+      return seeded;
     }
     return this.createTemplate(input);
   }
@@ -399,6 +406,11 @@ export class DelegationRepo {
       now,
       id,
     );
+    if (patch.prompt_template !== undefined && patch.prompt_template !== cur.prompt_template) {
+      this.db.prepare(`INSERT INTO delegation_template_prompt_edits(template_id, updated_at)
+        VALUES (?, ?) ON CONFLICT(template_id) DO UPDATE SET updated_at=excluded.updated_at`)
+        .run(id, now);
+    }
     return this.findTemplate(id);
   }
 
@@ -441,6 +453,12 @@ export class DelegationRepo {
       ? `SELECT * FROM delegation_templates ORDER BY sort_order ASC, call_name ASC`
       : `SELECT * FROM delegation_templates WHERE is_active = 1 ORDER BY sort_order ASC, call_name ASC`;
     return this.db.prepare(sql).all() as DelegationTemplateRow[];
+  }
+
+  /** Catalog labels without loading prompt bodies into a list response. */
+  listTemplateSummaries(): Array<{ id: string; title: string; input_schema: string }> {
+    return this.db.prepare("SELECT id, title, input_schema FROM delegation_templates ORDER BY sort_order ASC, call_name ASC")
+      .all() as Array<{ id: string; title: string; input_schema: string }>;
   }
 
   listTemplateOverrides(templateId?: string): DelegationTemplateOverrideRow[] {

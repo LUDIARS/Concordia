@@ -140,6 +140,25 @@ describe("startGoalAndGo", () => {
     unsubscribe();
   });
 
+  it("leaves the task and continuation count untouched during an explicit human wait", () => {
+    const metadata = JSON.stringify({ goal_and_go: { enabled: true }, cc_human_wait: {
+      active: true, summary: "decision pending", task_references: ["actio:T-1"], since: 1,
+    } });
+    const env = fakeRepo(metadata);
+    const originalTask = env.session.current_task;
+    const injected: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600 });
+    try {
+      eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "next task", ts: 1 });
+      expect(injected).toHaveLength(0);
+      expect(env.session.current_task).toBe(originalTask);
+      expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
+    } finally { handle.stop(); unsubscribe(); }
+  });
+
   it("drops a missing task markdown before building the continuation prompt", async () => {
     const env = fakeRepo(setGoalAndGoEnabled(null, true));
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];

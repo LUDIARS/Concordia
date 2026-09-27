@@ -12,6 +12,8 @@ import { registerContractRoutes } from "./contract.js";
 import { registerEscalationRoutes } from "./escalation.js";
 import { registerStartupPolicyCheck } from "./startup-policy-check.js";
 import { registerWorkPhaseRoutes } from "./work-phase.js";
+import { registerTaskLinksRoutes } from "./task-links.js";
+import { registerHumanWaitRoutes } from "./human-wait.js";
 
 export type { SessionsApiDeps } from "./deps.js";
 
@@ -19,6 +21,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   const app = new Hono();
   registerLifecycleRoutes(app, deps);
   registerWorkPhaseRoutes(app, deps);
+  registerTaskLinksRoutes(app, deps);
+  registerHumanWaitRoutes(app, deps);
   registerStartupPolicyCheck(app, deps);
   registerEventsRoutes(app, deps);
   registerQaRoutes(app, deps);

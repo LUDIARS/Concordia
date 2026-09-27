@@ -10,6 +10,7 @@ import {
   resolveWhy,
   taskHeadline,
 } from "./implementation-inject.js";
+import { majorInjectDefinition } from "../control/major-inject-catalog.js";
 
 const BASE = {
   runId: "run-1",
@@ -207,5 +208,25 @@ describe("buildImplementationInject — 受け入れ条件 (契約書式)", () =
   it("受け入れ条件は完了条件チェックリストより前に置く", () => {
     const text = buildImplementationInject({ ...BASE, augurCli: null });
     expect(text.indexOf("### 受け入れ条件")).toBeLessThan(text.indexOf("### 完了条件"));
+  });
+});
+
+describe("buildImplementationInject — editable full template", () => {
+  it("uses the catalog factory default while retaining runtime task, Actio, Augur, branch, and run", () => {
+    const template = majorInjectDefinition("delegation.implementation_inject")?.default_content;
+    expect(template).toBeDefined();
+    const rendered = buildImplementationInject({
+      ...BASE,
+      taskReference: "Actio:T-104",
+      augurCli: "node E:/Augur/bin/augur.mjs",
+      overrideTemplate: `Edited implementation introduction\n${template}`,
+    });
+    expect(rendered).toContain("Edited implementation introduction");
+    expect(rendered).toContain("終了時に session-end する。");
+    expect(rendered).toContain("Actio:T-104");
+    expect(rendered).toContain("node E:/Augur/bin/augur.mjs contracts report");
+    expect(rendered).toContain("feat/cc-flow");
+    expect(rendered).toContain("/v1/delegation/runs/run-1/status");
+    expect(rendered).not.toContain("[[CC:");
   });
 });

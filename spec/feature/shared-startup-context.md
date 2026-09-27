@@ -56,7 +56,7 @@ Geniusの判断が頻回かつ安定、または頻回作業の損失が大き�
 
 既存10分走査はidle/cooldown/未回答/人間応答ゲートを維持し、候補のsession task、親としての委託、
 workflow別PR状態からstateを判定する。PRはsessionと現在branchで絞る。
-review-failed/merge-confirmation/review-wait/delegation-wait/task-active/completed/review-needed/unknownで
+review-failed/merge-confirmation/review-wait/delegation-wait/task-active/task-blocked/reflection-needed/review-needed/unknownで
 確認内容を切り替える。照会失敗はunknown。稼働中の委託を重複実行せず、レビュー中に再実装を促さない。
 この状態判定はコマンド実行の権限ではない。push等の強制フックは別の実行境界で扱う。
 
@@ -93,7 +93,7 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/complet
 不変条件: Test OKだけでは完了にしない。対応PRのmergedとマージコミットを確認する。審査中は重複提出せず通知を待つ。
 通常のマージ許可を再質問しない。競合は既存変更を保って解消し、変更したheadは再審査する。明示的な人間判断要求、再審査後も100以上のリスク、未許可の範囲拡張は維持する。
 マージ可のまま止まったPRは現在のhead・判定・進行中操作を照合し、対象PRの既存自動マージ判定を一度再開する。別PRの一括マージ、ゲート回避、結果不明時の再送はしない。
-境界: session-followup-stateとsession-followup skill。回帰: Test OKはmerge-confirmation、mergedでcompleted、未回答開始確認と審査中の待機を維持する。
+境界: session-followup-stateとsession-followup skill。回帰: Test OKはmerge-confirmation、mergedでも反映・残作業照合のreflection-neededとし、未回答開始確認と審査中の待機を維持する。マージ記録だけでセッション全体の完了を宣言しない。
 復旧: 案内変更をrevertして再ビルドする。PR状態や権限のデータ移行はない。
 
 ### 最後に登録した作業プロジェクト

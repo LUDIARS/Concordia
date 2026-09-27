@@ -30,7 +30,10 @@
  * spec/feature/delegation-parttimer-inject.md。
  */
 
+import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
+
 export interface ParttimerInjectInput {
+  overrideTemplate?: string | null;
   runId: string;
   /** テンプレ title (見出しに使う)。 */
   title: string;
@@ -66,13 +69,14 @@ function validMentionUserId(value: string | null): string | null {
  *   終わり方の 3 点だけで、 実装委託の枠は載せない。
  *   (spec/feature/delegation-parttimer-inject.md §2.2)
  */
-export function buildParttimerInject(input: ParttimerInjectInput): string {
+function parttimerTemplate(input: ParttimerInjectInput, values: Record<string, string>): string {
+  const slot = (name: string, value: string) => injectSlot(values, name, value);
   const base = input.concordiaUrl.replace(/\/+$/, "");
   const statusEndpoint = `${base}/v1/delegation/runs/${input.runId}/status`;
   const lines: string[] = [
-    `# ${input.title}`,
+    `# ${slot("title", input.title)}`,
     "",
-    input.task.trim(),
+    slot("task", input.task.trim()),
     "",
     "---",
     "",
@@ -89,18 +93,11 @@ export function buildParttimerInject(input: ParttimerInjectInput): string {
     "の 2 つだけです。 それ以外は自分で決めます。",
     "ただし本文が判断の留保・タスク化を指定している場合は、その条件を優先し、推測で実装せず記録して退勤します。",
     "",
-    `サービスのポート・endpoint は Excubitor catalog / ProcessMap で解決します (ハードコードしない)。 協調 API は \`${base}\` (loopback) です。`,
+    `サービスのポート・endpoint は Excubitor catalog / ProcessMap で解決します (ハードコードしない)。 協調 API は \`${slot("concordia_url", base)}\` (loopback) です。`,
     "人が読む文 (報告・投稿・質問) は日本語で書きます。",
   ];
-  if (input.cwd) {
-    lines.push(
-      "",
-      `作業対象は \`${input.cwd}\` です。 本文が変更を指示していない限り、 ファイルを書き換えません。`,
-    );
-  }
-  if (input.manual?.trim()) {
-    lines.push("", "### 運用ルール", "", input.manual.trim());
-  }
+  lines.push(slot("cwd_block", input.cwd ? `\n作業対象は \`${input.cwd}\` です。 本文が変更を指示していない限り、 ファイルを書き換えません。` : ""));
+  lines.push(slot("manual_block", input.manual?.trim() ? `\n### 運用ルール\n\n${input.manual.trim()}` : ""));
   lines.push(
     "",
     "## 終わり方 (成功でも失敗でも必ず最後まで)",
@@ -117,7 +114,7 @@ export function buildParttimerInject(input: ParttimerInjectInput): string {
     "   filesは現在のworkspace rootまたはタスク用一時ディレクトリ内に限定します。外部入力のパスを未検証で使わず、範囲外・symlink・reparse point・秘密らしい名前は添付しません。",
     "   短い資料は全文、長い資料は要点をcaptionに載せ、全文はUTF-8の.txtを添付します。秘密情報は含めません。",
     "   API受付だけを到着済みとせず、送信先とDiscord投稿の配送記録を確認します。配送失敗・未確認は報告未完了として残します。",
-    `2. **結果を Concordia に記録する。** \`POST ${statusEndpoint}\` を 1 回送ります。`,
+    `2. **結果を Concordia に記録する。** \`POST ${slot("status_endpoint", statusEndpoint)}\` を 1 回送ります。`,
     '   - 本文の実作業と報告の配送確認を最後までやれた: `{"status":"completed","result":"<報告の要約と配送根拠>"}`',
     '   - 途中まで: `{"status":"partial","remaining":[{"title":"<残り>"}]}`',
     '   - 報告の配送失敗・未確認: `{"status":"partial","remaining":[{"title":"完了報告の配送確認","kind":"wait","note":"<送信先・受付済み参照・失敗理由または未確認>"}]}`。作業や送信を重複実行せず照合に引き継ぎます。',
@@ -135,12 +132,18 @@ export function buildParttimerInject(input: ParttimerInjectInput): string {
     "拾わない、 入力待ちで残らない、 人の返事を待たない。 残留した場合は Cc が猶予後に終了させます。",
   );
   const mentionUserId = validMentionUserId(input.mentionUserId);
-  if (mentionUserId) {
-    lines.push(
-      "",
-      `なお最終報告を Discord へ投稿するときは、 先頭に \`<@${mentionUserId}> \` を付けてください。`,
-    );
-  }
+  lines.push(slot("mention_block", mentionUserId
+    ? `\nなお最終報告を Discord へ投稿するときは、 先頭に \`<@${mentionUserId}> \` を付けてください。` : ""));
   lines.push("");
   return lines.join("\n");
+}
+
+export function buildParttimerInject(input: ParttimerInjectInput): string {
+  const values: Record<string, string> = {};
+  const template = parttimerTemplate(input, values);
+  return renderCapturedInject(input.overrideTemplate ?? template, values);
+}
+
+export function buildParttimerInjectTemplate(): string {
+  return parttimerTemplate({ runId: "", title: "", task: "", concordiaUrl: "", mentionUserId: null, cwd: null, manual: null }, {});
 }

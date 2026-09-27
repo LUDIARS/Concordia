@@ -28,6 +28,7 @@
     "transcript-path-authority-intake"
   ],
   "specRefs": [
+    "spec/feature/major-inject-editor.md",
     "spec/feature/session-work-phases.md",
     "spec/feature/session-shutdown.md",
     "spec/feature/session-process-reaper.md",

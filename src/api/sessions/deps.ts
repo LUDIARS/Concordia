@@ -14,6 +14,8 @@ import type { SessionMessagesRepo } from "../../db/session-messages-repo.js";
 import type { SessionMessageReadsRepo } from "../../db/session-message-reads-repo.js";
 import type { ConcordiaEvent } from "../../events.js";
 import type { ProjectCodesRepo } from "../../db/project-codes-repo.js";
+import type { MajorInjectResolver } from "../../control/major-inject-resolver.js";
+import type { TaskStore } from "../../taskflow/store.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system" | "genius";
 
@@ -72,6 +74,8 @@ export interface ChannelDirectory {
 }
 
 export interface SessionsApiDeps {
+  taskStore?: () => TaskStore;
+  majorInject?: MajorInjectResolver;
   resolveProjectStartupWorkflow?: (repoPath: string, repoOrigin: string | null) => Promise<import("../../control/project-startup-workflow.js").ProjectStartupWorkflow>;
   repo: SessionsRepo;
   tasks: TasksRepo;

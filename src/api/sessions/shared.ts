@@ -6,6 +6,8 @@ import { createChildLogger } from "../../shared/logger.js";
 import { REACTION_WORKFLOW_SOURCE } from "../../shared/injection-provenance.js";
 import { InjectionProvenanceSchema } from "../../shared/injection-provenance-schema.js";
 import { readSessionWorkPhase, WORK_PHASE_KEY } from "../../work/session-work-phase.js";
+import { SESSION_TASK_LINKS_KEY } from "../../work/session-task-links.js";
+import { HUMAN_WAIT_KEY } from "../../control/human-wait.js";
 
 export const log = createChildLogger("sessions-api");
 
@@ -51,8 +53,10 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
 }
 
 const WritableMetadataSchema = z.record(z.unknown()).refine(
-  (metadata) => !Object.prototype.hasOwnProperty.call(metadata, WORK_PHASE_KEY),
-  "cc_work_phase must be updated through /work-phase",
+  (metadata) => !Object.prototype.hasOwnProperty.call(metadata, WORK_PHASE_KEY)
+    && !Object.prototype.hasOwnProperty.call(metadata, SESSION_TASK_LINKS_KEY)
+    && !Object.prototype.hasOwnProperty.call(metadata, HUMAN_WAIT_KEY),
+  "protected session metadata must use its dedicated API",
 );
 
 export const StartSchema = z.object({

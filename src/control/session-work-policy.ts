@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { PendingDelegationSpawn } from "./pending-delegation-spawns.js";
 import { resolve } from "node:path";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
+import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
 
 export const SESSION_WORK_POLICY_SOURCE = "cc-session-work-policy";
 export const EXPLICIT_WORKING_BRANCH_METADATA_KEY = "cc_explicit_working_branch";
@@ -13,6 +14,7 @@ export interface SessionWorkPolicyInput {
   observedBranch: string | null;
   pendingSpawn: Pick<PendingDelegationSpawn, "branch" | "project"> | null;
   workspaceRoots: readonly string[];
+  majorInject?: MajorInjectResolver;
 }
 
 export interface SessionWorkPolicyDecision {
@@ -38,16 +40,13 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
   const lines = [
     "[Cc Session policy]",
     `Read the applicable rules: ${JSON.stringify(fileURLToPath(new URL("../../rule/session-work.md", import.meta.url)))}`,
-    "- 設計が固まったら実装へ進みます。開始前に人間に確認してください。同じ範囲の開始指示をすでに受けている場合は、その根拠を確認して進め、重ねて確認しないでください。",
+    resolveMajorInjectText("session.work_policy", input.majorInject),
     `- Cc の作業段階（設計・確認・実装・調整）を確認・記録してください: ${JSON.stringify(fileURLToPath(new URL("../../skills/session-work-phase/SKILL.md", import.meta.url)))}`,
   ];
   if (requestedBranch) lines.push(`- Cc 指定 branch: ${requestedBranch}`);
   if (registeredBranch) lines.push(`- Cc 登録 branch: ${registeredBranch}`);
   if (branchMismatch) {
     lines.push(`⚠ branch mismatch: 指定=${requestedBranch} / 実際=${observedBranch}。修正またはユーザ確認まで編集禁止。`);
-  }
-  if (isCastraCwd) {
-    lines.push(`⚠ Castra 破壊的 git 操作ガード: ${input.repoPath} は Castra (workspace root) です。Castra 自体への commit・push・checkout・reset 等は禁止。個別プロジェクトの編集は当該プロジェクトのディレクトリ/worktree で行ってください。`);
   }
   return { registeredBranch, branchMismatch, text: lines.join("\n") };
 }
@@ -78,9 +77,8 @@ export function readExplicitWorkingBranch(metadata: string | null): string | nul
 /**
  * cwd が設定済み workspace/Castra root のいずれかと完全一致するか。
  *
- * これ自体はもう Session cwd の可否判定には使わない (workspace root を cwd にする
- * ことは許可されている)。 buildSessionWorkPolicy がこの真偽値を、 Castra 自体への
- * 破壊的 git 操作を控えるよう促す advisory 文言を足すかどうかの判定にのみ使う。
+ * workspace root を cwd にすることは許可されている。この判定は
+ * buildSessionWorkPolicy の登録 branch の選択に使う。
  */
 export function isWorkspaceRootCwd(cwd: string, workspaceRoots: readonly string[]): boolean {
   if (!cwd.trim()) return false;

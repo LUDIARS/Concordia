@@ -8,18 +8,39 @@ import { buildStartupPolicy, readStartupPolicy, startupPolicyDelta, STARTUP_POLI
 import { SESSION_WORK_POLICY_SOURCE } from "../../control/session-work-policy.js";
 import { selectStartupPolicyProject } from "../../control/startup-policy-project.js";
 import { createChildLogger } from "../../shared/logger.js";
+import { repositorySearchGuidance } from "../../control/repo-search-capabilities.js";
+import { isWorkspaceRootCwd } from "../../control/session-work-policy.js";
+import { createProjectResolver } from "../../projects/project-resolver.js";
 
-export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots">;
+export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject">;
 const log = createChildLogger("startup-policy");
 const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
-export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project">>, requestedBranch: string | null = null): ReturnType<typeof buildStartupPolicy> {
-  const project = selectStartupPolicyProject(deps.projectCodes?.list() ?? [], session);
+export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project">>, requestedBranch: string | null = null, includeSearch = true): ReturnType<typeof buildStartupPolicy> {
+  const projects = deps.projectCodes?.list() ?? [];
+  const project = selectStartupPolicyProject(projects, session);
+  const roots = deps.resolveWorkspaceRoots?.() ?? [];
+  const confirmedRepo = project && !isWorkspaceRootCwd(session.repo_path, roots)
+    && createProjectResolver(projects).codeForRepo(session.repo_path) === project.code;
+  const searchCapabilitiesText = includeSearch && confirmedRepo
+    ? await boundedSearchGuidance(session.repo_path, session.provider).catch(() => "[Cc search environment] 確定済みリポジトリのCcホスト観測を取得できませんでした。作業先端末で検索手段を確認してください。")
+    : "";
   return buildStartupPolicy({ repoPath: session.repo_path, repoOrigin: session.repo_origin, observedBranch: session.branch,
     provider: session.provider, pendingSpawn: requestedBranch ? { branch: requestedBranch, project: null } : null,
-    workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [], projectRoot: project?.repo_path, projectCode: project?.code,
+    workspaceRoots: roots, projectRoot: project?.repo_path, projectCode: project?.code,
     requirements: project ? { ddd: !!project.ddd_enabled, tests: !!project.tests_required,
-      ontime: !!project.ontime_tests_required, workContract: !!project.contract_enabled } : null });
+      ontime: !!project.ontime_tests_required, workContract: !!project.contract_enabled } : null,
+    searchCapabilitiesText, majorInject: deps.majorInject });
+}
+
+async function boundedSearchGuidance(root: string, provider: string): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      repositorySearchGuidance(root, provider),
+      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("search observation timed out")), 5_500); }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 /** Registration and hook checks share one resolver; hook observations never rebind a session. */
@@ -31,6 +52,7 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
   const current = deps.repo.findSession(id);
   if (!current || current.repo_path !== session.repo_path || current.branch !== session.branch
     || current.repo_origin !== session.repo_origin || current.target_project !== session.target_project
+    || current.provider !== session.provider
     || readStartupPolicy(current.metadata)?.revision !== baseline?.revision) {
     return { revision: readStartupPolicy(current?.metadata ?? null)?.revision ?? null, changed: false, delivery: "unconfirmed", stale: true };
   }

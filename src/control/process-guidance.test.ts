@@ -26,7 +26,8 @@ it("adds the contract step and acceptance mapping when those settings are on", (
   const text = buildProcessGuidance({ ddd: true, workContract: true, tests: true, ontime: false }, "E:/fixture")!;
   expect(text.indexOf("契約:")).toBeGreaterThan(text.indexOf("所属:"));
   expect(text.indexOf("契約:")).toBeLessThan(text.indexOf("実装:"));
-  expect(text).toContain("approval_reference");
+  expect(text).toContain("人間の開始指示が無い実装は進めない");
+  expect(text).toContain("Actio task");
   expect(text).toContain("E:/fixture/cc.acceptance.json");
   expect(text).not.toContain("augur.contracts.json");
   expect(buildProcessGuidance({ ...none, ontime: true })!).toContain("augur.contracts.json");

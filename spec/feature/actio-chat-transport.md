@@ -10,6 +10,8 @@ title: Actioの通常チャンネル配送
 
 状態所有者: Actioが受付・タスク・スプリント・送信箱・会話ログを所有する。Diが任意参加判断と発言案を所有する。Ccは認証済みActioからの配送要求を、Cc所有のDiscord/Slack資格情報で中継する。Ccに第二のスプリント状態機械を作らない。
 
+配備設定: `ACTIO_CHAT_SHARED_SECRET` の明示環境変数を優先し、未注入時はExcubitorの暗号化runtime-config内の `actioChatSharedSecret` を読む。空の明示環境変数は無効化を意味し、暗号化設定へフォールバックしない。不正なJSON/値型は固定文言で失敗し、秘密を出力しない。設定はCcの起動時に確定し、変更反映はExcubitor経由の再起動。既存 `actioTaskBindings` は保持する。設定解決とテストはchat-platformsの `src/platform/actio-chat-config.ts` / `src/platform/actio-chat-config.test.ts`。受入条件は優先順位・無効化・未設定・不正入力・値非露出。
+
 不変条件: CC-INV-02（認証・対象組織・許可API）、CC-INV-03（結果不明時にCcでPOSTを再試行しない）、CC-INV-06（外部応答を配送済みの根拠にする）。APIはBearer共有秘密必須、未設定は503、宛先URLを受け取らず固定Discord/Slack APIのみ。本社/deskは本社Bot、子会社チームは当該子会社の有効な同種プラットフォームの暗号化資格情報を解決する。他組織の資格情報へフォールバックしない。
 
 境界: HTTP入力 `src/api/actio-chat.ts`、許可APIポリシー `src/platform/actio-chat-policy.ts`、外部I/O `src/platform/actio-chat-proxy.ts`、既存bootstrapで資格情報を注入。src/testは同一chat-platforms境界。公開面はActioの接続設定と配送状態UIで、Ccに重複UIを作らない。

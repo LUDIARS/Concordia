@@ -205,6 +205,7 @@ import { createAiNotePublication } from "./ai-note-publication.js";
 import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import { readActioChatSecret } from "../platform/actio-chat-config.js";
 import { StaffRepo } from "../db/staff-repo.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createFederationRuntime } from "../federation/runtime.js";
@@ -1687,10 +1688,11 @@ export async function startBackend(): Promise<BackendHandle> {
   };
 
   const choresRuntime = createChoresRuntime(db, () => adminState.getWorkspaceRoot(), isCostBlocked);
+  const actioChatSharedSecret = readActioChatSecret(process.env);
   const app = buildApp({
     sprintDialogues: new SprintDialoguesRepository(db),
     actioChat: {
-      secret: () => process.env.ACTIO_CHAT_SHARED_SECRET ?? "",
+      secret: () => actioChatSharedSecret,
       credentials: input => {
         const team = teamsRepo.find(input.teamId);
         if (!team) return null;

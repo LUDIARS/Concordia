@@ -299,7 +299,8 @@
         "src/discord/sprint-dialogues.test.ts",
         "src/api/developer-tools.test.ts",
         "src/developer-tools/service.test.ts",
-        "src/platform/actio-chat-policy.test.ts"
+        "src/platform/actio-chat-policy.test.ts",
+        "src/platform/actio-chat-config.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -1842,6 +1843,15 @@
       ],
       "contracts": [
         "CC-DISCORD-TASK-ORPHAN-01"
+      ]
+    },
+    {
+      "source": "src/platform/actio-chat-config.ts",
+      "tests": [
+        "src/platform/actio-chat-config.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-01"
       ]
     }
   ]

@@ -58,49 +58,38 @@ describe("buildImplementationInject", () => {
     expect(text).toContain("その終局条件まで達した");
   });
 
-  it("調査ブリーフ工程を作らず、Anatomia の解析グラフへ寄せる", () => {
+  it("基本の調査案内は対象の実コードに基づき、未登録Anを必須にしない", () => {
     const text = buildImplementationInject(BASE);
-    expect(text).toContain("Anatomia の解析グラフ");
-    expect(text).toContain("/anatomia-analyze");
+    expect(text).toContain("対象リポジトリの設計資料と実コード");
+    expect(text).not.toContain("Anatomia の解析グラフ");
+    expect(text).not.toContain("/anatomia-analyze");
     expect(text).toContain("調査結果を報告して指示を待つ工程はありません");
     expect(text).not.toContain("第 1 段階");
     expect(text).not.toContain("第 2 段階");
   });
 
-  it("着手時バンドル 6 手を番号付きでこの順に並べる", () => {
+  it("基本の着手確認は対象資料・テスト・許可範囲の順に並ぶ", () => {
     const text = buildImplementationInject(BASE);
-    expect(text).toContain("#### 着手時バンドル (この順で回す)");
+    expect(text).toContain("#### 着手時の確認");
     const steps = [
-      "1. ドメインを定義する前にコードを書かない",
-      "2. 再利用できる実装を解析グラフから探す",
-      "3. テストを対で計画する (Anatomia `test-suggestions` → `augur plan`、減らすときは理由を書く)",
-      "4. 実装 (src と tests を同じ変更単位で)",
-      "5. 検証 (`git diff | anatomia verify`、Revisor gate は enforced、解析不能は fail)",
-      "6. 回帰 (変更種別の既存テスト)",
+      "1. 対象リポジトリと既存設計を確認",
+      "2. 必要なテストを計画",
+      "3. 許可された検証を行い",
     ];
     const positions = steps.map((step) => text.indexOf(step));
     expect(positions.every((p) => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
-    // 1 / 2 の補足 (計画の取り方・宣言の置き場所・採否記載) も落とさない。
-    // 2026-09-05: 着地点 1 点の `where` ではなくドメイン計画 (`anatomia plan`) を先に取る
-    // (設計 spec/plan/2026-09-05-anatomia-domain-plan-tool.md §5 C-2)。
-    expect(text).toContain("`anatomia plan --task");
-    expect(text).toContain("`spec/domains/<name>.domain.json` を");
-    expect(text).toContain("先に書く、同じ PR に含める");
-    expect(text).toContain("PR 説明に 1 行、見つけたら必ず使うではない");
-    // バンドルは「着手前の把握」の中、Memoria 節より前に置く。
-    expect(text.indexOf("### 着手前の把握")).toBeLessThan(text.indexOf("#### 着手時バンドル"));
-    expect(text.indexOf("#### 着手時バンドル")).toBeLessThan(text.indexOf("### Memoria タスク"));
+    expect(text).not.toContain("`anatomia plan --task");
+    expect(text.indexOf("### 着手前の把握")).toBeLessThan(text.indexOf("#### 着手時の確認"));
+    expect(text.indexOf("#### 着手時の確認")).toBeLessThan(text.indexOf("### Memoria タスク"));
   });
 
-  it("完了条件チェックリストにバンドル 3 手の担保行を含む", () => {
+  it("完了条件は未登録Anの登録を一律要求せず、既存証跡を保つ", () => {
     const text = buildImplementationInject(BASE);
-    expect(text).toContain("- [ ] 着地ドメインを Anatomia に登録した");
+    expect(text).not.toContain("- [ ] 着地ドメインを Anatomia に登録した");
     expect(text).toContain("- [ ] 再利用探索の採否と理由を PR 説明に書いた");
     expect(text).toContain("- [ ] テスト計画 (`augur plan`) に沿って対のテストを実装した");
-    expect(text.indexOf("- [ ] 着地ドメインを Anatomia に登録した")).toBeGreaterThan(
-      text.indexOf("### 完了条件"),
-    );
+    expect(text).toContain("- [ ] Revisor local PR を提出した");
   });
 
   it("報告のあとは終了し、次のタスクを拾わないよう指示する", () => {

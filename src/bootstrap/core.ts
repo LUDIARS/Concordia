@@ -175,6 +175,9 @@ import { ActioTransport } from "../taskflow/actio-transport.js";
 import { DeveloperToolsService } from "../developer-tools/service.js";
 import { ResearchTools } from "../developer-tools/research.js";
 import { ToolServiceHttp } from "../developer-tools/service-http.js";
+import { createContextLinkResolver } from "../control/inject-context-links.js";
+import { allowDelegationDomainPreamble } from "../control/delegation-context-eligibility.js";
+import { requestStartupPolicyRefresh } from "../api/sessions/startup-policy-check.js";
 import { AugurTools } from "../developer-tools/augur.js";
 import { ToolTestJobs } from "../developer-tools/test-jobs.js";
 import { readActioBindings } from "../taskflow/actio-binding.js";
@@ -593,6 +596,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
   const publicUrlForDelegation = `http://${cfg.host}:${cfg.port}`;
   const excubitorClient = new ExcubitorClient();
+  const contextLinks = createContextLinkResolver(excubitorClient);
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const teamsRepo = new TeamsRepo(db);
@@ -657,6 +661,9 @@ export async function startBackend(): Promise<BackendHandle> {
     // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
     majorInject: majorInjectEditor.resolve,
+    allowDomainPreamble: (parentSessionId, targetRepo) => allowDelegationDomainPreamble({
+      sessions: repo, projectCodes: projectCodesRepo, resolveLinks: contextLinks,
+    }, parentSessionId, targetRepo),
     // task 文面に一致する Genius command-pattern カードを手順としてプロンプトへ渡す
     // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
     commandPatterns: (taskText) =>
@@ -1205,6 +1212,9 @@ export async function startBackend(): Promise<BackendHandle> {
     submitLocalPr: submitLocalPrForSession,
     projectCodes: projectCodesRepo,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    onContextBindingChanged: (id) => requestStartupPolicyRefresh({ repo, projectCodes: projectCodesRepo,
+      resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(), majorInject: majorInjectEditor.resolve,
+      resolveContextLinks: contextLinks }, id),
     work: workSubmission,
   });
   const toolAugur = new AugurTools(() => adminState.getWorkspaceRoots());
@@ -1824,6 +1834,7 @@ export async function startBackend(): Promise<BackendHandle> {
     submitDirectLocalPr: submitDirectLocalPrRequest,
     injectManuals: injectManualsRepo,
     majorInjectEditor,
+    resolveContextLinks: contextLinks,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
     harnessBlackbox,
@@ -2392,7 +2403,9 @@ export async function startBackend(): Promise<BackendHandle> {
         name: "seed-domain-data",
         run: () => {
           seedDefaultRules(rules);
-          seedDelegationTemplates(delegationRepo, adminState.getDelegationIdentifiers());
+          const delegationIdentifiers = adminState.getDelegationIdentifiers();
+          majorInjectEditor.migrateKnownSeedTemplates(delegationIdentifiers);
+          seedDelegationTemplates(delegationRepo, delegationIdentifiers);
           adminState.migrateCronJobOverride(
             "ludiars-review-daily",
             "ludiars-review-weekly",

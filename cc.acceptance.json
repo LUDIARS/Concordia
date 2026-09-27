@@ -2,6 +2,62 @@
   "version": 1,
   "implementations": [
     {
+      "source": "src/anatomia/domain-map-client.ts",
+      "tests": [
+        "src/anatomia/domain-map-client.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/delegation-context-eligibility.ts",
+      "tests": [
+        "src/control/delegation-context-eligibility.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-context-migration.ts",
+      "tests": [
+        "src/control/inject-context-migration.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/domain-preamble.ts",
+      "tests": [
+        "src/delegation/domain-preamble.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-context-scope.ts",
+      "tests": [
+        "src/control/inject-context-scope.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-context-links.ts",
+      "tests": [
+        "src/control/inject-context-links.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-context-presence.ts",
+      "tests": [
+        "src/control/inject-context-presence.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/major-inject-history-repo.ts",
+      "tests": [
+        "src/db/major-inject-history-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/taskflow/pr-evidence.ts",
       "tests": [
         "src/taskflow/pr-evidence.test.ts"
@@ -273,7 +329,8 @@
         "tests/chores-wiring.test.ts",
         "src/api/sprint-dialogues.test.ts",
         "src/api/developer-tools.test.ts",
-        "src/platform/actio-chat-policy.test.ts"
+        "src/platform/actio-chat-policy.test.ts",
+        "src/api/sessions/startup-policy-check.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -380,7 +437,8 @@
         "src/db/migration-ledger.test.ts",
         "src/db/domain-review-repo.test.ts",
         "tests/harness-reliability/conflux.test.ts",
-        "src/db/taskflow-v3-instructions.test.ts"
+        "src/db/taskflow-v3-instructions.test.ts",
+        "src/db/major-inject-history-repo.test.ts"
       ],
       "contracts": []
     },
@@ -402,7 +460,8 @@
       "source": "web/src/api.ts",
       "tests": [
         "tests/harness-reliability/conflux.test.ts",
-        "web/src/pages/Inbox.test.tsx"
+        "web/src/pages/Inbox.test.tsx",
+        "web/src/pages/manuals/MajorInjectPanel.test.tsx"
       ],
       "contracts": [
         "CC-INBOX-PLAN-01"
@@ -446,7 +505,8 @@
     {
       "source": "src/db/migration-ledger.ts",
       "tests": [
-        "src/db/migration-ledger.test.ts"
+        "src/db/migration-ledger.test.ts",
+        "src/db/major-inject-history-repo.test.ts"
       ],
       "contracts": []
     },
@@ -1928,7 +1988,10 @@
     },
     {
       "source": "src/db/major-inject-repo.ts",
-      "tests": ["src/control/major-inject-editor.test.ts"],
+      "tests": [
+        "src/control/major-inject-editor.test.ts",
+        "src/db/major-inject-history-repo.test.ts"
+      ],
       "contracts": []
     },
     {

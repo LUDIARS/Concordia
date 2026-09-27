@@ -356,7 +356,7 @@ export class DelegationRepo {
     return this.findTemplate(id)!;
   }
 
-  updateTemplate(id: string, patch: UpdateTemplateInput): DelegationTemplateRow | null {
+  updateTemplate(id: string, patch: UpdateTemplateInput, options: { markPromptEdited?: boolean } = {}): DelegationTemplateRow | null {
     const cur = this.findTemplate(id);
     if (!cur) return null;
     const nextReviewOnly = patch.review_only === undefined ? cur.review_only : (patch.review_only ? 1 : 0);
@@ -406,7 +406,7 @@ export class DelegationRepo {
       now,
       id,
     );
-    if (patch.prompt_template !== undefined && patch.prompt_template !== cur.prompt_template) {
+    if (options.markPromptEdited !== false && patch.prompt_template !== undefined && patch.prompt_template !== cur.prompt_template) {
       this.db.prepare(`INSERT INTO delegation_template_prompt_edits(template_id, updated_at)
         VALUES (?, ?) ON CONFLICT(template_id) DO UPDATE SET updated_at=excluded.updated_at`)
         .run(id, now);
@@ -446,6 +446,17 @@ export class DelegationRepo {
       .prepare(`SELECT * FROM delegation_templates WHERE call_name = ?`)
       .get(call_name) as DelegationTemplateRow | undefined;
     return row ?? null;
+  }
+
+  isTemplatePromptEdited(templateId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM delegation_template_prompt_edits WHERE template_id = ?")
+      .get(templateId);
+  }
+
+  /** Preserve an existing prompt whose provenance cannot be proven to match the current seed. */
+  markTemplatePromptEdited(templateId: string): void {
+    this.db.prepare(`INSERT INTO delegation_template_prompt_edits(template_id, updated_at)
+      VALUES (?, ?) ON CONFLICT(template_id) DO NOTHING`).run(templateId, Date.now());
   }
 
   listTemplates(options: { includeInactive?: boolean } = {}): DelegationTemplateRow[] {

@@ -5,6 +5,10 @@ import { loadConfig } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
+import { ProjectCodesRepo } from "./db/project-codes-repo.js";
+import { ExcubitorClient } from "./excubitor/client.js";
+import { createContextLinkResolver } from "./control/inject-context-links.js";
+import { allowDelegationDomainPreamble } from "./control/delegation-context-eligibility.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
@@ -46,6 +50,8 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const db = openDb(cfg.dbPath);
   const sessions = new SessionsRepo(db);
+  const projectCodes = new ProjectCodesRepo(db);
+  const contextLinks = createContextLinkResolver(new ExcubitorClient());
   const delegationRepo = new DelegationRepo(db);
   const federationSettings = new SqliteSettingsStore(db);
   const configRepo = makeDiscordConfigRepo(db);
@@ -85,6 +91,9 @@ async function main(): Promise<void> {
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
     majorInject: majorInjectEditor.resolve,
+    allowDomainPreamble: (parentSessionId, targetRepo) => allowDelegationDomainPreamble({
+      sessions, projectCodes, resolveLinks: contextLinks,
+    }, parentSessionId, targetRepo),
   });
   const queue = new DelegationQueue({
     repo: delegationRepo,

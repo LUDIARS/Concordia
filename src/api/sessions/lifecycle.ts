@@ -126,7 +126,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // isWorkspaceRootCwd only compares for equality and would leave every
       // worktree session without its project rules and memory index.
       const workPolicy = await resolveStartupPolicy(deps, { ...input, repo_origin: input.repo_origin ?? null,
-        branch: input.branch ?? null }, claimed?.branch ?? null, false);
+        branch: input.branch ?? null, metadata: null }, claimed?.branch ?? null, false);
       sessionWorkPolicyText = workPolicy.policy.text;
       meta[STARTUP_POLICY_KEY] = { ...workPolicy.policy, delivery: "scheduled" };
       const claimedProjectTarget = claimed?.project

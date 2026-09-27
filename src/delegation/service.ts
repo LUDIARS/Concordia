@@ -125,6 +125,7 @@ export interface InvokeResultErr {
 export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
+  allowDomainPreamble?: (parentSessionId: string | null | undefined, targetRepo: string | null) => Promise<{ projectId: string; baseUrl: string; isCurrent: () => boolean } | null>;
   /** Resolves editable major Inject prose from a composition-root owned store. */
   majorInject?: import("../control/major-inject-resolver.js").MajorInjectResolver;
   taskStore?: () => TaskStore;
@@ -400,7 +401,7 @@ export class DelegationService {
     input: InvokeInput,
     renderedPrompt: string,
   ): Promise<string> {
-    if (!domainPreambleEnabled()) return renderedPrompt;
+    if (!domainPreambleEnabled() || !this.deps.allowDomainPreamble) return renderedPrompt;
     // freelancer には設計相談・レビューも含まれる。category だけで判定すると読み取り専用
     // テンプレへ実装向け前置きと最大 10 秒の I/O を足すため、既存の manual kind 正本を使う。
     if (!isDomainPreambleTarget({
@@ -414,8 +415,12 @@ export class DelegationService {
     const targetRepo = typeof args.target_repo === "string" && args.target_repo.trim()
       ? args.target_repo.trim()
       : input.cwd ?? null;
+    const verifiedAnatomia = await this.deps.allowDomainPreamble(input.parent_session_id, targetRepo).catch(() => null);
+    if (!verifiedAnatomia) return renderedPrompt;
     try {
-      const preamble = await buildDomainPreamble({ task, targetRepo });
+      const preamble = await buildDomainPreamble({ task, targetRepo,
+        registeredProjectId: verifiedAnatomia.projectId, baseUrl: verifiedAnatomia.baseUrl });
+      if (!verifiedAnatomia.isCurrent()) return renderedPrompt;
       if (preamble.text) {
         log.info(
           { call_name: def.call_name, project: preamble.project, source: preamble.source },

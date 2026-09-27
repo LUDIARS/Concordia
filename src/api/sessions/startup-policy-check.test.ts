@@ -1,5 +1,5 @@
 // @spec 初期ポリシーの版と照合
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { makeTestDb } from "../../../tests/helpers/db.js";
 import { SessionsRepo } from "../../db/sessions-repo.js";
@@ -10,6 +10,7 @@ import type { ProjectStartupWorkflow } from "../../control/project-startup-workf
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EXPLICIT_CONTEXT_BINDING_KEY, HUMAN_CONVERSATION_KEY } from "../../control/inject-context-presence.js";
 
 function fixture() {
   const db = makeTestDb();
@@ -143,6 +144,49 @@ it("discards a resolution when only the work target changed while lookup was pen
   const { deps, repo } = fixture();
   const pending = refreshStartupPolicy(deps, "policy-fixture");
   repo.patchSession("policy-fixture", { target_project: "new-project" });
+  expect(await pending).toMatchObject({ stale: true, changed: false });
+  expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
+});
+
+it("adds independent DDD, Pf, and An extensions only after conversation and explicit bind", async () => {
+  const { deps, repo } = fixture();
+  deps.projectCodes.register({ code: "P", project: "project", repoPath: "E:/fixture/project",
+    repoOrigin: "https://example.invalid/policy.git", addedBy: "fixture" });
+  deps.projectCodes.update("P", { dddEnabled: true, testsRequired: true });
+  const links = vi.fn(async () => ({ praeforma: "http://pf/api/projects/p", anatomia: "" }));
+  const scoped = { ...deps, resolveContextLinks: links };
+  const initial = (await resolveStartupPolicy(scoped, repo.findSession("policy-fixture")!, null, false)).policy;
+  expect(initial.fields.process).not.toContain("DDD 対象の成果報告");
+  expect(initial.fields.praeformaContext).toBe("");
+  expect(links).not.toHaveBeenCalled();
+  repo.mergeMetadata("policy-fixture", { [HUMAN_CONVERSATION_KEY]: true });
+  const cwdOnly = (await resolveStartupPolicy(scoped, repo.findSession("policy-fixture")!, null, false)).policy;
+  expect(cwdOnly.fields.praeformaContext).toBe("");
+  repo.mergeMetadata("policy-fixture", { [EXPLICIT_CONTEXT_BINDING_KEY]: {
+    repoPath: "E:/fixture/project", repoOrigin: "https://example.invalid/policy.git", branch: "feat/policy", projectCode: "P",
+  } });
+  const confirmed = (await resolveStartupPolicy(scoped, repo.findSession("policy-fixture")!, null, false)).policy;
+  expect(confirmed.fields.process).toContain("DDD 対象の成果報告");
+  expect(confirmed.fields.praeformaContext).toContain("http://pf/api/projects/p");
+  expect(confirmed.fields.anatomiaContext).toBe("");
+  deps.projectCodes.update("P", { dddEnabled: false });
+  const noDdd = (await resolveStartupPolicy(scoped, repo.findSession("policy-fixture")!, null, false)).policy;
+  expect(noDdd.fields.process).not.toContain("DDD 対象の成果報告");
+  expect(noDdd.fields.praeformaContext).toContain("http://pf/api/projects/p");
+});
+
+it("drops a delayed context lookup after the bound target changes", async () => {
+  const { deps, repo } = fixture();
+  deps.projectCodes.register({ code: "P", project: "project", repoPath: "E:/fixture/project",
+    repoOrigin: "https://example.invalid/policy.git", addedBy: "fixture" });
+  repo.mergeMetadata("policy-fixture", { [HUMAN_CONVERSATION_KEY]: true,
+    [EXPLICIT_CONTEXT_BINDING_KEY]: { repoPath: "E:/fixture/project", repoOrigin: "https://example.invalid/policy.git",
+      branch: "feat/policy", projectCode: "P" } });
+  let release!: (value: { praeforma: string; anatomia: string }) => void;
+  const links = new Promise<{ praeforma: string; anatomia: string }>((resolve) => { release = resolve; });
+  const pending = refreshStartupPolicy({ ...deps, resolveContextLinks: () => links }, "policy-fixture");
+  repo.patchSession("policy-fixture", { branch: "feat/other" });
+  release({ praeforma: "http://pf/old", anatomia: "http://an/old" });
   expect(await pending).toMatchObject({ stale: true, changed: false });
   expect(repo.recentEvents("policy-fixture", 10)).toHaveLength(0);
 });

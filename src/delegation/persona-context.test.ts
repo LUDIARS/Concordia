@@ -98,10 +98,11 @@ describe("buildDelegationContext", () => {
       expect(ctx).toContain("聞いて止まらないでください");
     });
 
-    it("調査は Anatomia の解析グラフへ寄せる (調査ブリーフ工程は無い)", () => {
+    it("基本の調査は対象リポの根拠に寄せ、未登録Anを案内しない", () => {
       const ctx = buildDelegationContext("http://127.0.0.1:11111");
-      expect(ctx).toContain("Anatomia の解析グラフ");
-      expect(ctx).toContain("/anatomia-analyze");
+      expect(ctx).toContain("対象リポジトリの設計資料と実コード");
+      expect(ctx).not.toContain("Anatomia の解析グラフ");
+      expect(ctx).not.toContain("/anatomia-analyze");
       expect(ctx).toContain("事前の調査報告は要りません");
     });
 

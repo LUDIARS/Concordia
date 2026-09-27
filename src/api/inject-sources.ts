@@ -3,8 +3,11 @@ import { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
 import { InjectSourceError, type MajorInjectEditor } from "../control/major-inject-editor.js";
 
-const WriteSchema = z.object({ content: z.string(), expected_revision: z.string().length(64) }).strict();
-const RestoreSchema = z.object({ expected_revision: z.string().length(64) }).strict();
+const WriteSchema = z.object({ content: z.string(), expected_revision: z.string().length(64),
+  expected_version_id: z.number().int().positive().nullable().optional() }).strict();
+const RestoreSchema = z.object({ expected_revision: z.string().length(64),
+  expected_version_id: z.number().int().positive().nullable().optional() }).strict();
+const ResolveFileSchema = RestoreSchema.extend({ operation_id: z.string().uuid() });
 
 export function injectSourcesRouter(editor: MajorInjectEditor): Hono {
   const app = new Hono();
@@ -27,16 +30,50 @@ export function injectSourcesRouter(editor: MajorInjectEditor): Hono {
     try { return c.json({ source: await editor.get(c.req.param("id")) }); }
     catch (error) { return sourceError(c, error); }
   });
+  app.get("/:id/history", async (c) => {
+    const beforeRaw = c.req.query("before");
+    const limitRaw = c.req.query("limit");
+    const before = beforeRaw === undefined ? null : Number(beforeRaw);
+    const limit = limitRaw === undefined ? 20 : Number(limitRaw);
+    if ((before !== null && (!Number.isSafeInteger(before) || before <= 0))
+      || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) return c.json({ error: "invalid_pagination" }, 400);
+    try { return c.json(await editor.history(c.req.param("id"), before, limit)); }
+    catch (error) { return sourceError(c, error); }
+  });
+  app.get("/:id/history/:version", async (c) => {
+    const versionId = Number(c.req.param("version"));
+    if (!Number.isSafeInteger(versionId) || versionId <= 0) return c.json({ error: "invalid_version" }, 400);
+    try { return c.json(await editor.historyVersion(c.req.param("id"), versionId)); }
+    catch (error) { return sourceError(c, error); }
+  });
+  app.post("/:id/history/file-outcome/resolve", async (c) => {
+    const parsed = ResolveFileSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    try { return c.json({ source: await editor.resolveFileOutcome(c.req.param("id"),
+      parsed.data.operation_id, parsed.data.expected_revision, parsed.data.expected_version_id) }); }
+    catch (error) { return sourceError(c, error); }
+  });
+  app.post("/:id/history/:version/restore", async (c) => {
+    const versionId = Number(c.req.param("version"));
+    if (!Number.isSafeInteger(versionId) || versionId <= 0) return c.json({ error: "invalid_version" }, 400);
+    const parsed = RestoreSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    try { return c.json({ source: await editor.restoreVersion(c.req.param("id"), versionId,
+      parsed.data.expected_revision, parsed.data.expected_version_id) }); }
+    catch (error) { return sourceError(c, error); }
+  });
   app.put("/:id", async (c) => {
     const parsed = WriteSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    try { return c.json({ source: await editor.put(c.req.param("id"), parsed.data.content, parsed.data.expected_revision) }); }
+    try { return c.json({ source: await editor.put(c.req.param("id"), parsed.data.content,
+      parsed.data.expected_revision, { expectedVersionId: parsed.data.expected_version_id }) }); }
     catch (error) { return sourceError(c, error); }
   });
   app.post("/:id/restore", async (c) => {
     const parsed = RestoreSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    try { return c.json({ source: await editor.restore(c.req.param("id"), parsed.data.expected_revision) }); }
+    try { return c.json({ source: await editor.restore(c.req.param("id"),
+      parsed.data.expected_revision, parsed.data.expected_version_id) }); }
     catch (error) { return sourceError(c, error); }
   });
   return app;

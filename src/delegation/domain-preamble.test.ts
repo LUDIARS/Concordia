@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DomainMapSearchHit } from "../anatomia/domain-map-client.js";
 import {
   buildDomainPreamble,
@@ -74,6 +74,28 @@ describe("buildDomainPreamble", () => {
     expect(preamble.text).toContain("ドメイン先行");
     expect(preamble.text).toContain("uni-jump-trampoline");
     expect(preamble.text).toContain("type: plan");
+  });
+
+  it("登録済みAn IDだけを採用し、上位の別プロジェクトを混ぜない", async () => {
+    const plan = vi.fn(async (project: string) => `plan for ${project}`);
+    const search = vi.fn(async () => ({ query: "q", hits: [hit("foreign", "higher-rank"), hit("ludellus", "owned-feature")] }));
+    const preamble = await buildDomainPreamble(
+      { task: "対象の機能", targetRepo: "E:/Document/Ars/Unknown", registeredProjectId: "ludellus", baseUrl: "http://verified-an:4400" },
+      deps({ search, plan }),
+    );
+    expect(preamble.project).toBe("ludellus");
+    expect(preamble.text).toContain("owned-feature");
+    expect(preamble.text).toContain("plan for ludellus");
+    expect(preamble.text).not.toContain("foreign");
+    expect(preamble.text).not.toContain("higher-rank");
+    expect(search).toHaveBeenCalledWith("対象の機能", expect.objectContaining({ baseUrl: "http://verified-an:4400" }));
+    expect(plan).toHaveBeenCalledWith("ludellus", "対象の機能", expect.objectContaining({ baseUrl: "http://verified-an:4400" }));
+
+    const noTarget = await buildDomainPreamble(
+      { task: "対象の機能", registeredProjectId: "ludellus" },
+      deps({ search: async () => ({ query: "q", hits: [hit("foreign", "higher-rank")] }) }),
+    );
+    expect(noTarget).toEqual({ text: "", project: null, source: "none" });
   });
 
   it("OKF が取れなければ map 命中だけを書く (委託は止めない)", async () => {

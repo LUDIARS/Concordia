@@ -51,6 +51,12 @@ const ANATOMIA_SUPPLY_VERIFY_STEPS = [
   "- Domain binding first: decide which declared domain the change belongs to. If it opens a new directory / feature surface outside every declared membership, add the declaration in the SAME PR (`spec/domains/<domain>.domain.json` or the project's documented canonical domain directory, `membership: [{ \"pathPattern\": \"(^|/)src/...\" }]`, src and tests paired) — Revisor blocks unbound code.",
   "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
 ];
+export const LEGACY_ANATOMIA_SEED_BLOCK = `\n${ANATOMIA_SUPPLY_VERIFY_STEPS.join("\n")}`;
+export const LEGACY_ANATOMIA_SEED_CALL_NAMES = new Set([
+  "sol-mid", "sol-xhigh", "terra-xhigh", "luna",
+  "fable-mid", "astra-mid", "astra-xhigh", "opus-xhigh", "opus-mid", "fable-xhigh", "sonnet-mid", "haiku",
+  "impl-from-design", "fix-bug", "gemma4-12-impl",
+]);
 
 const IMPLEMENTATION_COMPLETION_INSTRUCTION =
   "- Completion means commit + Revisor local PR submission + delegation status report. Do not wait for a Revisor merge or return it as remaining work.";
@@ -124,7 +130,6 @@ function codexTemplate(opts: {
       "Requirements:",
       "- Create a feature branch (feat/<short-slug>) off origin/main.",
       "- Implement as specified; don't add scope.",
-      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
       IMPLEMENTATION_COMPLETION_INSTRUCTION,
@@ -185,7 +190,6 @@ function implementationTemplate(opts: {
       "Requirements:",
       "- Create a feature branch (feat/<short-slug>) off origin/main.",
       "- Implement as specified; don't add scope.",
-      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
       IMPLEMENTATION_COMPLETION_INSTRUCTION,
@@ -342,7 +346,6 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "Implementation requirements:",
       "- Create a feature branch (feat/<scope>) off origin/main.",
       "- Implement the design as written. Don't add scope.",
-      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the design needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (1 commit if possible) — squash mergeable.",
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -379,7 +382,6 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "Requirements:",
       "- Diagnose the issue from the available evidence before editing.",
       "- Apply the minimal fix; no unrelated refactors.",
-      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add regression coverage when practical, but do not run tests unless the user explicitly requested them.",
       "- Create a feature branch (fix/<short-slug>) + PR.",
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -603,7 +605,6 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "${context_extra:}", "",
       "Requirements:",
       "- Keep the change small and self-contained (local model — avoid sprawling multi-file edits).",
-      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Create a feature branch (feat/<short-slug>) off origin/main.",
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
@@ -1186,4 +1187,17 @@ export function seedDelegationTemplates(
     const legacy = repo.findTemplateByCallName(callName);
     if (legacy) repo.deleteTemplatePermanently(legacy.id);
   }
+}
+
+/** Read-only current seed content for an exact, identifier-aware legacy comparison. */
+export function plannedSeedTemplates(identifiers: SeedIdentifiers = {}): CreateTemplateInput[] {
+  return withParttimerCallOnly(seedTemplates(identifiers));
+}
+
+/** Remove only the old contiguous seed-owned block; callers must compare with a planned seed. */
+export function stripKnownSeedAnatomiaBlock(content: string): string | null {
+  const block = LEGACY_ANATOMIA_SEED_BLOCK;
+  const index = content.indexOf(block);
+  if (index < 0 || content.indexOf(block, index + block.length) >= 0) return null;
+  return content.slice(0, index) + content.slice(index + block.length);
 }

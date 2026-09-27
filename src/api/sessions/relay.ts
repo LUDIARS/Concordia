@@ -1,4 +1,6 @@
 import type { Hono } from "hono";
+import { HUMAN_CONVERSATION_KEY } from "../../control/inject-context-presence.js";
+import { requestStartupPolicyRefresh } from "./startup-policy-check.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
@@ -194,6 +196,10 @@ app.post("/:id/inject", async (c) => {
       kind: "inject",
       payload: { text: injectText, source: src },
     });
+    if (sourceInfo.platform && sourceInfo.userId) {
+      deps.repo.mergeMetadata(id, { [HUMAN_CONVERSATION_KEY]: true });
+      requestStartupPolicyRefresh(deps, id);
+    }
     return c.json({ ok: true, ts });
   });
 }

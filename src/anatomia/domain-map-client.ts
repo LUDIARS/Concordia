@@ -43,6 +43,7 @@ function baseUrl(): string {
 
 interface HttpOptions {
   timeoutMs?: number;
+  baseUrl?: string;
   method?: "GET" | "POST";
   body?: string;
 }
@@ -62,7 +63,7 @@ function fetchJson(path: string, opts: HttpOptions = {}): Promise<unknown> {
       }
     };
     try {
-      const url = new URL(`${baseUrl()}${path}`);
+      const url = new URL(`${opts.baseUrl ?? baseUrl()}${path}`);
       const headers: Record<string, string> = { accept: "application/json" };
       if (opts.body !== undefined) {
         headers["content-type"] = "application/json";
@@ -121,14 +122,14 @@ const strList = (v: unknown): string[] =>
  */
 export async function searchDomainMap(
   query: string,
-  opts: { limit?: number; timeoutMs?: number } = {},
+  opts: { limit?: number; timeoutMs?: number; baseUrl?: string } = {},
 ): Promise<DomainMapSearchResult | null> {
   const q = query.trim();
   if (!q) return null;
   const limit = Math.max(1, Math.min(opts.limit ?? 5, 20));
   const json = await fetchJson(
     `/api/domain-map/search?q=${encodeURIComponent(q.slice(0, 2000))}&limit=${limit}`,
-    { timeoutMs: opts.timeoutMs ?? 2000 },
+    { timeoutMs: opts.timeoutMs ?? 2000, baseUrl: opts.baseUrl },
   );
   if (!json || typeof json !== "object") return null;
   const body = json as { query?: unknown; hits?: unknown };
@@ -161,7 +162,7 @@ export async function searchDomainMap(
 export async function fetchPlanOkf(
   project: string,
   task: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; baseUrl?: string } = {},
 ): Promise<string | null> {
   const id = project.trim();
   const body = task.trim();
@@ -169,6 +170,7 @@ export async function fetchPlanOkf(
   const json = await fetchJson("/api/plan", {
     method: "POST",
     timeoutMs: opts.timeoutMs ?? 8000,
+    baseUrl: opts.baseUrl,
     body: JSON.stringify({ project: id, task: body.slice(0, 4000), llm: false, map: false, okf: true }),
   });
   if (!json || typeof json !== "object") return null;

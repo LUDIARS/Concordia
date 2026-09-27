@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { MajorInjectHistoryRepo } from "./major-inject-history-repo.js";
 
 export interface MajorInjectOverride {
   target_id: string;
@@ -8,7 +9,8 @@ export interface MajorInjectOverride {
 
 /** Only catalog-approved IDs reach this repository. Business validation lives above storage. */
 export class MajorInjectRepo {
-  constructor(private readonly db: Database.Database) {}
+  readonly history: MajorInjectHistoryRepo;
+  constructor(private readonly db: Database.Database) { this.history = new MajorInjectHistoryRepo(db); }
 
   get(targetId: string): MajorInjectOverride | null {
     return this.db.prepare("SELECT target_id, content, updated_at FROM major_inject_overrides WHERE target_id = ?")

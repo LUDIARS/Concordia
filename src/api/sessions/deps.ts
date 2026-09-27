@@ -16,6 +16,7 @@ import type { ConcordiaEvent } from "../../events.js";
 import type { ProjectCodesRepo } from "../../db/project-codes-repo.js";
 import type { MajorInjectResolver } from "../../control/major-inject-resolver.js";
 import type { TaskStore } from "../../taskflow/store.js";
+import type { ContextLinks } from "../../control/inject-context-links.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system" | "genius";
 
@@ -74,6 +75,7 @@ export interface ChannelDirectory {
 }
 
 export interface SessionsApiDeps {
+  resolveContextLinks?: (repoPath: string, repoOrigin: string | null) => Promise<ContextLinks>;
   taskStore?: () => TaskStore;
   majorInject?: MajorInjectResolver;
   resolveProjectStartupWorkflow?: (repoPath: string, repoOrigin: string | null) => Promise<import("../../control/project-startup-workflow.js").ProjectStartupWorkflow>;

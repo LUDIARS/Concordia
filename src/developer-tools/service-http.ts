@@ -24,7 +24,7 @@ export class ToolServiceHttp {
   constructor(private readonly catalog: Pick<ExcubitorClient, "findService">,
     private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async request(serviceCode: "praeforma" | "anatomia", path: string, body?: unknown): Promise<unknown> {
+  async request(serviceCode: "praeforma" | "anatomia", path: string, body?: unknown, timeoutMs = 30_000): Promise<unknown> {
     const service = await this.catalog.findService(serviceCode, 5_000);
     const port = service?.catalog_snapshot?.port !== undefined
       ? resolveServicePort({ port: service.catalog_snapshot.port }) : resolveServicePort(service);
@@ -33,7 +33,7 @@ export class ToolServiceHttp {
     let response: Response;
     try {
       response = await this.fetchImpl(`http://127.0.0.1:${port}${path}`, {
-        method: body === undefined ? "GET" : "POST", redirect: "error", signal: AbortSignal.timeout(30_000),
+        method: body === undefined ? "GET" : "POST", redirect: "error", signal: AbortSignal.timeout(timeoutMs),
         headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch { return unavailable("service_unreachable", `${serviceCode} の接続と準備状態を確認してください。`); }

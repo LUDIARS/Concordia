@@ -42,6 +42,9 @@
     },
     {
       "pathPattern": "(^|/)src/developer-tools/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/anatomia/domain-map-client(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",
@@ -60,6 +63,7 @@
     "spec/feature/delegation.md#status-報告の-utf-8-検証",
     "spec/tasks/2026-08-08-delegation-run-watchdog.md",
     "spec/feature/delegation-spawn-target-validation.md",
-    "spec/feature/developer-toolset.md"
+    "spec/feature/developer-toolset.md",
+    "spec/feature/inject-context-gating.md"
   ]
 }

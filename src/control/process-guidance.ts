@@ -2,7 +2,7 @@
 import type { StartupRequirements } from "./startup-policy-requirements.js";
 import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
 
-export const PROCESS_GUIDANCE_HEADER = "[Cc DDD/契約プロセス]";
+export const PROCESS_GUIDANCE_HEADER = "[Cc 必須プロセス]";
 
 /**
  * 必須設定 (DDD / 作業契約 / テスト / オンタイム) が一つでも有効なプロジェクトに、
@@ -32,5 +32,6 @@ export function buildProcessGuidance(required: StartupRequirements | null, proje
     project_root: root, steps: steps.map((step, index) => `${index + 1}. ${step}`).join("\n"),
   })];
   if (required.ddd) lines.push(resolveMajorInjectText("session.process_guidance.gate", majorInject, { project_root: root }));
+  if (required.ddd) lines.push(resolveMajorInjectText("session.context.ddd_report", majorInject));
   return lines.join("\n");
 }

@@ -1,4 +1,4 @@
-// @spec CC-REPO-SEARCH-01
+// @spec Repository search capability guidance
 
 export type EvidenceState = "yes" | "no" | "unknown";
 export type SearchLanguage = "typescript" | "javascript" | "python" | "rust" | "cpp" | "csharp" | "go" | "java";
@@ -73,5 +73,5 @@ export function classifyRepositorySearch(snapshot: RepositorySearchSnapshot): Re
 export function formatRepositorySearchGuidance(capabilities: RepositorySearchCapabilities): string {
   const languages = capabilities.languages.length ? capabilities.languages.join(", ") : "未特定";
   const tools = capabilities.tools.map((tool) => `${tool.name}(配置=${tool.installed}, 設定=${tool.configured}, 呼出=${tool.callable})`).join(", ");
-  return `[Cc search environment] 対象=${capabilities.root}; 言語=${languages}; Ccホスト観測=${tools || "なし"}; 標本上限=${capabilities.sampleLimited ? `到達(${capabilities.sampleReasons.join(",")})` : "未到達"}。これはCcホストの観測であり作業先端末の実行可否は未確認です。機能調査はAnatomiaのドメイン索引が利用可能で準備済みなら先に一覧から対象ドメインを選んでください。未準備なら明示的に準備するか、作業先で利用できる検索手段を使ってください。リファクタリング・全体調査はピンポイント検索の対象外です。定義・参照確認は作業先でLSPの実呼出を確認して利用してください。`;
+  return `[Cc search environment] 対象=${capabilities.root}; 言語=${languages}; Ccホスト観測=${tools || "なし"}; 標本上限=${capabilities.sampleLimited ? `到達(${capabilities.sampleReasons.join(",")})` : "未到達"}。これはCcホストの観測であり作業先端末の実行可否は未確認です。機能調査では作業先で利用できる検索手段を確認してください。リファクタリング・全体調査はピンポイント検索の対象外です。定義・参照確認は作業先でLSPの実呼出を確認して利用してください。`;
 }

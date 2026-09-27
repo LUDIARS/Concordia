@@ -11,6 +11,7 @@ import type { ActioBinding } from "../taskflow/actio-binding.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createImplementationWorktree, type CreateWorktreeInput } from "./worktree.js";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
+import { EXPLICIT_CONTEXT_BINDING_KEY } from "../control/inject-context-presence.js";
 import { selectOwnedWorktree } from "./switch-worktree.js";
 import {
   EXPLICIT_WORKING_BRANCH_METADATA_KEY,
@@ -33,6 +34,7 @@ export interface ImplementationToolsDeps {
   work: WorkSubmissionService;
   resolveWorkspaceRoots: () => string[];
   resolveActioBinding?: (repo: string, subsidiaryId: string | null) => Promise<ActioBinding>;
+  onContextBindingChanged?: (sessionId: string) => void;
 }
 
 /** Stateless fast paths over existing Cc / Ex / Revisor state owners. */
@@ -85,6 +87,12 @@ export class ImplementationToolsService {
     });
     this.deps.sessions.mergeMetadata(session.id, {
       [EXPLICIT_WORKING_BRANCH_METADATA_KEY]: context.branch,
+      [EXPLICIT_CONTEXT_BINDING_KEY]: {
+        repoPath: context.repoPath,
+        repoOrigin: context.repoOrigin,
+        branch: context.branch,
+        projectCode,
+      },
       ...(isWorkspaceRootCwd(session.repo_path, workspaceRoots)
         ? { [WORKSPACE_ROOT_METADATA_KEY]: session.repo_path }
         : {}),
@@ -95,6 +103,7 @@ export class ImplementationToolsService {
       kind: "implementation.tool.bind",
       payload: { project_code: projectCode, task: claimedTask, branch: context.branch },
     });
+    this.deps.onContextBindingChanged?.(session.id);
     return { ok: true, project_code: projectCode, task: claimedTask, branch: context.branch };
   }
 

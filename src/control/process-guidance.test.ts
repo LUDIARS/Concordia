@@ -9,6 +9,15 @@ it("stays silent when no requirement is enabled", () => {
   expect(buildProcessGuidance(none, "E:/fixture")).toBeNull();
 });
 
+it("keeps tests-only guidance free of DDD report and Anatomia commands", () => {
+  const text = buildProcessGuidance({ ...none, tests: true }, "E:/fixture")!;
+  expect(text).toContain("[Cc 必須プロセス]");
+  expect(text).toContain("cc.acceptance.json");
+  expect(text).not.toContain("DDD 対象の成果報告");
+  expect(text).not.toContain("anatomia verify");
+  expect(text).not.toContain("spec/domains");
+});
+
 it("lists the DDD steps in order and names the gate condition", () => {
   const text = buildProcessGuidance({ ...none, ddd: true }, "E:/fixture/")!;
   expect(text.startsWith(PROCESS_GUIDANCE_HEADER)).toBe(true);

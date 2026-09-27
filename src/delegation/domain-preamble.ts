@@ -46,6 +46,10 @@ export interface DomainPreambleInput {
   task: string;
   /** 対象リポジトリの絶対パス (プロジェクト確定のヒント)。 */
   targetRepo?: string | null;
+  /** Current registry ID verified against the bound Git repository. Other map hits are never injected. */
+  registeredProjectId?: string;
+  /** Verified Anatomia API origin for the registered project. */
+  baseUrl?: string;
   /** map 検索のタイムアウト (既定 2s)。 */
   mapTimeoutMs?: number;
   /** plan のタイムアウト (既定 8s)。 */
@@ -116,13 +120,18 @@ export async function buildDomainPreamble(
 
   let result;
   try {
-    result = await deps.search(task, { limit: 5, timeoutMs: input.mapTimeoutMs });
+    result = await deps.search(task, { limit: 5, timeoutMs: input.mapTimeoutMs, baseUrl: input.baseUrl });
   } catch {
     return EMPTY; // Anatomia が居ない = 織り込みを飛ばす (委託は止めない)。
   }
   if (!result) return EMPTY;
 
-  if (result.hits.length === 0) {
+  const hits = input.registeredProjectId
+    ? result.hits.filter((hit) => hit.project === input.registeredProjectId)
+    : result.hits;
+  if (input.registeredProjectId && hits.length === 0) return EMPTY;
+
+  if (hits.length === 0) {
     // 0 件は「索引に無い」= 新規コンテンツか表記ゆれ。 委託は進めるが人間に確認を促す。
     return {
       text: [
@@ -138,12 +147,12 @@ export async function buildDomainPreamble(
     };
   }
 
-  const project = pickProject(result.hits, input.targetRepo);
+  const project = input.registeredProjectId ?? pickProject(hits, input.targetRepo);
   const lines: string[] = [
     "## ドメイン先行 (Anatomia 横断ドメインマップ)",
     "",
     `検索語: ${task.slice(0, 200)}`,
-    ...result.hits.slice(0, 5).map(formatHit),
+    ...hits.slice(0, 5).map(formatHit),
     "",
   ];
   if (project) lines.push(`確定したプロジェクト: **${project}**`, "");
@@ -151,7 +160,7 @@ export async function buildDomainPreamble(
   let okf: string | null = null;
   if (project) {
     try {
-      okf = await deps.plan(project, task, { timeoutMs: input.planTimeoutMs });
+      okf = await deps.plan(project, task, { timeoutMs: input.planTimeoutMs, baseUrl: input.baseUrl });
     } catch {
       okf = null;
     }

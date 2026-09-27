@@ -11,9 +11,10 @@ it("includes required implementation settings without granting execution permiss
   expect(required.revision).not.toBe(unknown.revision);
   expect(required.text).toContain("DDD=true; tests=true; ontime=true");
   expect(required.text).toContain("実行許可を追加しません");
-  expect(required.text).toContain("[Cc DDD/契約プロセス]");
+  expect(required.text).toContain("[Cc 必須プロセス]");
+  expect(required.text).not.toContain("DDD 対象の成果報告");
   expect(required.text).toContain("cc.acceptance.json");
-  expect(unknown.text).not.toContain("[Cc DDD/契約プロセス]");
+  expect(unknown.text).not.toContain("[Cc 必須プロセス]");
   expect(startupPolicyDelta(unknown, required)).toContain("process:");
   expect(required.text).toContain("開始前に人間に確認してください");
   expect(required.text).toContain("同じ範囲の開始指示をすでに受けている場合");
@@ -22,6 +23,17 @@ it("includes required implementation settings without granting execution permiss
   expect(startupPolicyDelta(unknown, required)).not.toContain("resources:");
   // If initial delivery is still delayed, its replacement must be self-contained.
   expect(startupPolicyDelta({ ...unknown, delivery: "scheduled" }, required)).toBe(required.text);
+});
+
+it("adds DDD guidance only after the target context is confirmed", async () => {
+  const base = { repoPath: "E:/fixture", observedBranch: "feat/work", provider: "codex-cli",
+    pendingSpawn: null, workspaceRoots: [], requirements: { ddd: true, tests: false, ontime: false, workContract: false } };
+  const before = (await buildStartupPolicy(base)).policy;
+  const after = (await buildStartupPolicy({ ...base, contextPresence: true, contextDdd: true })).policy;
+  expect(before.fields.process).toBe("");
+  expect(after.fields.process).toContain("DDD 対象の成果報告");
+  expect(startupPolicyDelta(after, before)).toContain("前版の対象固有案内は無効");
+  expect(startupPolicyDelta(after, after)).toBeNull();
 });
 
 it("omits workflow advice and retires a stored startup decision", async () => {

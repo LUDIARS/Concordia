@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 112;
+export const SCHEMA_VERSION = 113;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2630,6 +2630,43 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         template_id TEXT PRIMARY KEY,
         updated_at  INTEGER NOT NULL
       );
+    `);
+  },
+},
+{
+  version: 113,
+  name: "major-inject-history",
+  source: "append-only major_inject_history with pending file writes v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE major_inject_history (
+        version_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_id          TEXT NOT NULL,
+        parent_version_id  INTEGER REFERENCES major_inject_history(version_id),
+        revision           TEXT NOT NULL,
+        content            TEXT NOT NULL,
+        actor              TEXT NOT NULL,
+        change_kind        TEXT NOT NULL,
+        created_at         INTEGER NOT NULL,
+        operation_id       TEXT UNIQUE
+      );
+      CREATE INDEX idx_major_inject_history_target_version
+        ON major_inject_history(target_id, version_id DESC);
+      CREATE TABLE major_inject_file_ops (
+        operation_id       TEXT PRIMARY KEY,
+        target_id          TEXT NOT NULL,
+        parent_version_id  INTEGER NOT NULL REFERENCES major_inject_history(version_id),
+        expected_revision  TEXT NOT NULL,
+        desired_revision   TEXT NOT NULL,
+        content            TEXT NOT NULL,
+        actor              TEXT NOT NULL,
+        change_kind        TEXT NOT NULL,
+        created_at         INTEGER NOT NULL,
+        status             TEXT NOT NULL CHECK(status IN ('pending', 'applied', 'failed', 'uncertain', 'resolved')),
+        failure_reason     TEXT
+      );
+      CREATE INDEX idx_major_inject_file_ops_target_status
+        ON major_inject_file_ops(target_id, status);
     `);
   },
 },

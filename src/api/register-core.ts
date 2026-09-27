@@ -256,6 +256,7 @@ export interface CoreDelegationDeps {
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
   injectManuals?: InjectManualsRepo;
   majorInjectEditor?: MajorInjectEditor;
+  resolveContextLinks?: PolicyDeps["resolveContextLinks"];
   harnessAudit?: HarnessAuditRepo;
   harnessRunClaude?: RunClaudeFn;
   harnessBlackbox?: HarnessBlackboxService;
@@ -356,6 +357,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   const startupPolicyDeps: PolicyDeps = {
     repo: deps.repo,
     majorInject: deps.majorInjectEditor?.resolve,
+    resolveContextLinks: deps.resolveContextLinks,
     projectCodes: deps.projectCodes,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
     resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {

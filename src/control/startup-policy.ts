@@ -17,6 +17,10 @@ export const STARTUP_POLICY_KEY = "cc_startup_policy";
 export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
   provider: string; repoOrigin?: string | null; projectRoot?: string; projectCode?: string; requirements: StartupRequirements | null;
   searchCapabilitiesText?: string;
+  contextPresence?: boolean;
+  contextDdd?: boolean;
+  praeformaContext?: string;
+  anatomiaContext?: string;
 }): Promise<{ policy: StartupPolicySnapshot; registeredBranch: string | null; branchMismatch: boolean }> {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
@@ -29,13 +33,16 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
     requestedBranch: input.pendingSpawn?.branch ?? "",
     requirements: required ? `DDD=${required.ddd}; tests=${required.tests}; ontime=${required.ontime}; workContract=${required.workContract}` : "unknown",
     workPolicy: work.text,
-    process: buildProcessGuidance(required, input.projectRoot, input.majorInject) ?? "",
+    process: buildProcessGuidance(required ? { ...required, ddd: required.ddd && input.contextDdd === true } : null,
+      input.projectRoot, input.majorInject) ?? "",
     resources: await buildSharedStartupContext(input),
     searchCapabilities: input.searchCapabilitiesText ?? "",
+    praeformaContext: input.contextPresence ? input.praeformaContext ?? "" : "",
+    anatomiaContext: input.contextPresence ? input.anatomiaContext ?? "" : "",
   };
   const revision = createHash("sha256").update(JSON.stringify(fields)).digest("hex");
   const process = fields.process ? `\n${fields.process}\n` : "";
-  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n${fields.searchCapabilities}\n[Cc policy revision: ${revision}]`;
+  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n${fields.searchCapabilities}\n${fields.praeformaContext}\n${fields.anatomiaContext}\n[Cc policy revision: ${revision}]`;
   return { ...work, policy: { revision, fields, text, delivery: "queued" } };
 }
 
@@ -46,7 +53,10 @@ export function startupPolicyDelta(previous: StartupPolicySnapshot | null, next:
   const withdrawal = Object.hasOwn(previous.fields, "workflow")
     ? "過去の起動案内に含まれるワークフロー判定・提出手順は無効です。push 検討時のフックで現在の対象設定を確認してください。\n"
     : "";
-  return `[Cc policy update]\n${withdrawal}${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n必須設定は実行許可を追加しません。\n[Cc policy revision: ${next.revision}]`;
+  const contextWithdrawn = ["process", "praeformaContext", "anatomiaContext"].some((key) =>
+    previous.fields[key] && previous.fields[key] !== next.fields[key]);
+  const contextNotice = contextWithdrawn ? "前版の対象固有案内は無効です。現在の対象・登録状況だけを参照してください。\n" : "";
+  return `[Cc policy update]\n${withdrawal}${contextNotice}${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n必須設定は実行許可を追加しません。\n[Cc policy revision: ${next.revision}]`;
 }
 
 export function readStartupPolicy(metadata: string | null): StartupPolicySnapshot | null {

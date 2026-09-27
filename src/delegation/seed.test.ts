@@ -169,7 +169,7 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).toContain("更新不要なら既存の日報と今回取得した情報を照合した根拠");
   });
 
-  it("requires portable, argument-safe Anatomia supply and verification for implementation templates", () => {
+  it("keeps basic implementation templates free of unverified Anatomia requirements", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
@@ -193,10 +193,8 @@ describe("seedDelegationTemplates", () => {
 
     for (const callName of implementationTemplates) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
-      expect(prompt).toContain("configured Anatomia CLI");
-      expect(prompt).toContain("do not download or guess a local installation");
-      expect(prompt).toContain("properly quoted shell argument");
-      expect(prompt).toContain("never interpolate it into a shell command");
+      expect(prompt).not.toContain("configured Anatomia CLI");
+      expect(prompt).not.toContain("Anatomia `verify`");
       expect(prompt).not.toContain("E:/Document/Ars/Anatomia");
     }
   });

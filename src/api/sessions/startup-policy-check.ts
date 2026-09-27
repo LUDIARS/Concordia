@@ -11,17 +11,25 @@ import { createChildLogger } from "../../shared/logger.js";
 import { repositorySearchGuidance } from "../../control/repo-search-capabilities.js";
 import { isWorkspaceRootCwd } from "../../control/session-work-policy.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
+import { contextEvidenceKey, hasConfirmedContextPresence } from "../../control/inject-context-presence.js";
+import { resolveMajorInjectText } from "../../control/major-inject-resolver.js";
+import { selectContextScope } from "../../control/inject-context-scope.js";
 
-export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject">;
+export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks">;
 const log = createChildLogger("startup-policy");
 const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
-export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project">>, requestedBranch: string | null = null, includeSearch = true): ReturnType<typeof buildStartupPolicy> {
+export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project" | "metadata">>, requestedBranch: string | null = null, includeSearch = true): ReturnType<typeof buildStartupPolicy> {
   const projects = deps.projectCodes?.list() ?? [];
   const project = selectStartupPolicyProject(projects, session);
   const roots = deps.resolveWorkspaceRoots?.() ?? [];
   const confirmedRepo = project && !isWorkspaceRootCwd(session.repo_path, roots)
     && createProjectResolver(projects).codeForRepo(session.repo_path) === project.code;
+  const contextPresence = !!(confirmedRepo && hasConfirmedContextPresence({ ...session, metadata: session.metadata ?? null }, project.code));
+  const links = contextPresence && deps.resolveContextLinks
+    ? await deps.resolveContextLinks(session.repo_path, session.repo_origin).catch(() => ({ praeforma: "", anatomia: "" }))
+    : { praeforma: "", anatomia: "" };
+  const scope = selectContextScope(contextPresence, project ? project.ddd_enabled === 1 : null, links);
   const searchCapabilitiesText = includeSearch && confirmedRepo
     ? await boundedSearchGuidance(session.repo_path, session.provider).catch(() => "[Cc search environment] 確定済みリポジトリのCcホスト観測を取得できませんでした。作業先端末で検索手段を確認してください。")
     : "";
@@ -30,7 +38,9 @@ export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<Sessi
     workspaceRoots: roots, projectRoot: project?.repo_path, projectCode: project?.code,
     requirements: project ? { ddd: !!project.ddd_enabled, tests: !!project.tests_required,
       ontime: !!project.ontime_tests_required, workContract: !!project.contract_enabled } : null,
-    searchCapabilitiesText, majorInject: deps.majorInject });
+    searchCapabilitiesText, majorInject: deps.majorInject, contextPresence, contextDdd: scope.ddd,
+    praeformaContext: scope.praeforma ? resolveMajorInjectText("session.context.praeforma", deps.majorInject, { url: scope.praeforma }) : "",
+    anatomiaContext: scope.anatomia ? resolveMajorInjectText("session.context.anatomia", deps.majorInject, { url: scope.anatomia }) : "" });
 }
 
 async function boundedSearchGuidance(root: string, provider: string): Promise<string> {
@@ -53,6 +63,7 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
   if (!current || current.repo_path !== session.repo_path || current.branch !== session.branch
     || current.repo_origin !== session.repo_origin || current.target_project !== session.target_project
     || current.provider !== session.provider
+    || contextEvidenceKey(current.metadata) !== contextEvidenceKey(session.metadata)
     || readStartupPolicy(current.metadata)?.revision !== baseline?.revision) {
     return { revision: readStartupPolicy(current?.metadata ?? null)?.revision ?? null, changed: false, delivery: "unconfirmed", stale: true };
   }

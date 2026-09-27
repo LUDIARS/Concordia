@@ -11,6 +11,9 @@ import { loadConfig, isLoopbackHost } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
+import { ProjectCodesRepo } from "./db/project-codes-repo.js";
+import { createContextLinkResolver } from "./control/inject-context-links.js";
+import { allowDelegationDomainPreamble } from "./control/delegation-context-eligibility.js";
 import { ChatRepo } from "./db/chat-repo.js";
 import { TasksRepo } from "./db/tasks-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
@@ -219,6 +222,8 @@ async function main(): Promise<void> {
   const majorInjectEditor = new MajorInjectEditor(new MajorInjectRepo(db), injectManualsRepo, delegationRepo);
   const federationSettings = new SqliteSettingsStore(db);
   const excubitor = new ExcubitorClient();
+  const contextLinks = createContextLinkResolver(excubitor);
+  const contextProjectCodes = new ProjectCodesRepo(db);
   const checkDependencies = createDependencyReadinessChecker({
     excubitor,
     hasRevisorWorkflowToken: () => Boolean(resolveRevisorToken()),
@@ -231,6 +236,9 @@ async function main(): Promise<void> {
     repo: delegationRepo,
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
     majorInject: majorInjectEditor.resolve,
+    allowDomainPreamble: (parentSessionId, targetRepo) => allowDelegationDomainPreamble({
+      sessions, projectCodes: contextProjectCodes, resolveLinks: contextLinks,
+    }, parentSessionId, targetRepo),
     concordiaUrl,
     siteId: () => resolveFederationSiteId(
       federationSettings,

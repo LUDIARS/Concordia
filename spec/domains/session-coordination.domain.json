@@ -4,10 +4,18 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/control/repo-search-[^/]+(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/control/(major-inject|inject-source)[^/]*(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/control/(inject-template-values|workflow-inject-defaults)(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)tools/session-git-hook(?:-env)?(?:\\.(?:test|contract))?\\.mjs$" },
+    {
+      "pathPattern": "(^|/)src/control/repo-search-[^/]+(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/(major-inject|inject-source)[^/]*(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/(inject-template-values|workflow-inject-defaults)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/session-git-hook(?:-env)?(?:\\.(?:test|contract))?\\.mjs$"
+    },
     {
       "pathPattern": "(^|/)src/control(?:/.*)?$"
     },
@@ -40,6 +48,7 @@
     "spec/feature/human-response-confirmation.md",
     "spec/ux/session-coordination.md",
     "spec/architecture/ddd.md",
-    "spec/feature/delegation-spawn-target-validation.md"
+    "spec/feature/delegation-spawn-target-validation.md",
+    "spec/feature/inject-context-gating.md"
   ]
 }

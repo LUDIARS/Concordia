@@ -1133,10 +1133,23 @@ export const api = {
   injectSourceGet: (id: string) => get<{ source: InjectSource }>(
     `/v1/admin/inject-sources/${encodeURIComponent(id)}`,
   ),
-  injectSourceUpdate: (id: string, content: string, expectedRevision: string) =>
-    mutateInjectSource(id, "PUT", { content, expected_revision: expectedRevision }),
-  injectSourceRestore: (id: string, expectedRevision: string) =>
-    mutateInjectSource(id, "POST", { expected_revision: expectedRevision }, true),
+  injectSourceUpdate: (id: string, content: string, expectedRevision: string, expectedVersionId?: number | null) =>
+    mutateInjectSource(id, "PUT", { content, expected_revision: expectedRevision, expected_version_id: expectedVersionId }),
+  injectSourceRestore: (id: string, expectedRevision: string, expectedVersionId?: number | null) =>
+    mutateInjectSource(id, "POST", { expected_revision: expectedRevision, expected_version_id: expectedVersionId }, "/restore"),
+  injectSourceHistory: (id: string, before?: number | null) => get<InjectSourceHistoryPage>(
+    `/v1/admin/inject-sources/${encodeURIComponent(id)}/history${before ? `?before=${before}` : ""}`,
+  ),
+  injectSourceHistoryVersion: (id: string, versionId: number) => get<InjectSourceHistoryDetail>(
+    `/v1/admin/inject-sources/${encodeURIComponent(id)}/history/${versionId}`,
+  ),
+  injectSourceRestoreVersion: (id: string, versionId: number, expectedRevision: string, expectedVersionId?: number | null) =>
+    mutateInjectSource(id, "POST", { expected_revision: expectedRevision, expected_version_id: expectedVersionId },
+      `/history/${versionId}/restore`),
+  injectSourceResolveFileOutcome: (id: string, operationId: string, expectedRevision: string,
+    expectedVersionId?: number | null) => mutateInjectSource(id, "POST", {
+      operation_id: operationId, expected_revision: expectedRevision, expected_version_id: expectedVersionId,
+    }, "/history/file-outcome/resolve"),
 
   // ── ハーネス監査ログ (ローカルセッション強制ゲートの裏取り) ──
   harnessAudit: (
@@ -1289,12 +1302,37 @@ export interface InjectSourceSummary {
   required_placeholders: string[];
   max_bytes: number;
   restorable: boolean;
+  scope_kind?: "basic" | "extension";
+  apply_when?: string;
 }
 
 export interface InjectSource extends InjectSourceSummary {
   content: string;
   revision: string;
   updated_at?: number | null;
+  history_version_id?: number | null;
+}
+
+export interface InjectSourceHistoryVersion {
+  version_id: number;
+  target_id: string;
+  parent_version_id: number | null;
+  revision: string;
+  content: string;
+  actor: string;
+  change_kind: string;
+  created_at: number;
+}
+
+export interface InjectSourceHistoryPage {
+  versions: Array<Omit<InjectSourceHistoryVersion, "content">>;
+  next_before: number | null;
+  pending: { operation_id: string; status: string; created_at: number; failure_reason: string | null } | null;
+}
+
+export interface InjectSourceHistoryDetail {
+  version: InjectSourceHistoryVersion;
+  parent: InjectSourceHistoryVersion | null;
 }
 
 export interface InjectSourcesCatalog {
@@ -1311,10 +1349,10 @@ export class InjectSourceConflictError extends Error {
 async function mutateInjectSource(
   id: string,
   method: "PUT" | "POST",
-  body: { expected_revision: string; content?: string },
-  restore = false,
+  body: { expected_revision: string; expected_version_id?: number | null; content?: string; operation_id?: string },
+  suffix = "",
 ): Promise<{ source: InjectSource }> {
-  const path = `/v1/admin/inject-sources/${encodeURIComponent(id)}${restore ? "/restore" : ""}`;
+  const path = `/v1/admin/inject-sources/${encodeURIComponent(id)}${suffix}`;
   const response = await fetch(`${BASE}${path}`, {
     method,
     headers: { "content-type": "application/json" },

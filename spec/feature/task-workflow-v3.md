@@ -151,6 +151,31 @@ Rollout requires Actio registration (or explicit scoped bindings/credentials), e
 
 Actio-side rollout gate (source inspection, not a runtime finding): the current `modules/task/routes.ts` single-task GET checks team access but does not check ownership for personal tasks; `src/middleware/auth.ts` continues invalid authentication as anonymous. Cc's response validation cannot protect direct Actio access. Before importing sensitive tasks, enforce authenticated access and personal/team authorization on Actio's task surfaces, and verify denial with separately authorized tests. This Cc PR does not implement those Actio changes. A task-only service credential scoped to the intended project/team and a metadata-only listing API are recommended follow-ups; the existing source/sourceRef uniqueness already supplies creation deduplication.
 
+## Project-scoped discovery (CC-AT-SCOPE-01)
+
+UX-CC-W1/W2/W5, scenarios S1/S3, CC-INV-01/02/03/04: a user must be able to
+retrieve an existing project's tasks without an unrelated project's ambiguous
+team registration blocking that lookup. Actio owns content, status, identity and
+team membership; Cc owns binding selection and execution references.
+
+Project-scoped list/overview and single-repository operations select candidate
+bindings before registration ambiguity checks and task I/O. Project names remain
+case-insensitive; repository selectors retain canonical main-clone resolution.
+Explicit headquarters bindings suppress discovery for their repository even if
+their project label differs. Bearer-only deployments never enable local discovery
+when selection yields no configured binding. Organizational checks remain intact.
+
+A selected multi-team project still fails closed. Unscoped queries still validate
+all candidates and never silently omit an ambiguous project. Team ambiguity is a
+safe HTTP 503 configuration failure, not an opaque HTTP 500. No task, permission,
+team assignment or credential is rewritten as part of selection.
+
+Acceptance: valid single-team lookup despite unrelated ambiguity; no unrelated
+task reads; selected/unscoped ambiguity rejection; explicit/bearer/subsidiary
+isolation; canonical repository identity; unchanged status/organization filters
+on list and overview. Rollback reverts selection changes without data migration.
+Local test execution, service restart and merge require separate authorization.
+
 ## Local team task access (CC-AT-TEAM-01)
 
 UX-CC-W1/W5, CC-INV-02: local discovery preserves exactly one registered teamId instead of converting team work to personal work. Multiple registered teams fail as ambiguous; explicit bindings retain precedence. Local subsidiary bindings and bearer-to-local fallback remain forbidden. Every team operation verifies loopback identity and the matching leader entry from Actio /api/teams before task I/O. Actio owns authorization and task state; its task routes must independently enforce the verified local-owner team policy. No team membership, owner privilege, or project assignment is rewritten.

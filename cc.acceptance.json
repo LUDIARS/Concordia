@@ -559,10 +559,12 @@
         "src/api/taskflow-failure.test.ts",
         "src/api/taskflow-actio.test.ts",
         "tests/app-routes.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
+        "src/taskflow/task-session-flow.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
       ],
       "contracts": [
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-AT-SCOPE-01"
       ]
     },
     {
@@ -729,13 +731,15 @@
       "tests": [
         "src/taskflow/actio-store.test.ts",
         "src/taskflow/actio-project-binding.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
+        "src/taskflow/task-session-flow.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
       ],
       "contracts": [
         "CC-AT-DISCOVERY-01",
         "CC-TF-SESSION-01",
         "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02"
+        "CC-ACTIO-PR-GOAL-02",
+        "CC-AT-SCOPE-01"
       ]
     },
     {
@@ -819,12 +823,14 @@
       "tests": [
         "src/taskflow/failure.test.ts",
         "src/api/taskflow-failure.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
+        "src/taskflow/task-session-flow.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
       ],
       "contracts": [
         "CC-TF-DIAG-01",
         "CC-AT-DISCOVERY-01",
-        "CC-TF-SESSION-01"
+        "CC-TF-SESSION-01",
+        "CC-AT-SCOPE-01"
       ]
     },
     {
@@ -852,12 +858,14 @@
       "source": "src/taskflow/store.ts",
       "tests": [
         "src/taskflow/actio-store.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
+        "src/taskflow/task-session-flow.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
       ],
       "contracts": [
         "CC-TF-SESSION-01",
         "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02"
+        "CC-ACTIO-PR-GOAL-02",
+        "CC-AT-SCOPE-01"
       ]
     },
     {
@@ -1068,11 +1076,13 @@
     {
       "source": "src/taskflow/actio-project-binding.ts",
       "tests": [
-        "src/taskflow/actio-project-binding.test.ts"
+        "src/taskflow/actio-project-binding.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
       ],
       "contracts": [
         "CC-AT-DISCOVERY-01",
-        "CC-AT-TEAM-01"
+        "CC-AT-TEAM-01",
+        "CC-AT-SCOPE-01"
       ]
     },
     {
@@ -1918,6 +1928,16 @@
       ],
       "contracts": [
         "CC-ACTIO-CHAT-COMMAND-01"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-binding-scope.ts",
+      "tests": [
+        "src/taskflow/actio-binding-scope.test.ts",
+        "src/taskflow/actio-project-binding.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-SCOPE-01"
       ]
     }
   ]

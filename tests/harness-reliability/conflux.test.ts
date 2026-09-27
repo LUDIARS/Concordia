@@ -81,7 +81,10 @@ describe("Conflux work isolation", () => {
   it("creates from the selected local base and detects dirty state using real Git", async () => {
     const dir = makeTestDir("conflux-git-");
     const git = (args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8", windowsHide: true });
-    git(["init", "-b", "main"]); git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "initial"]);
+    git(["init", "-b", "main"]);
+    // User hooks (including Git LFS) must not run inside this disposable fixture.
+    git(["config", "--local", "core.hooksPath", makeTestDir("conflux-hooks-")]);
+    git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "initial"]);
     git(["branch", selection.baseBranch]); const wt = join(dir, "work"); git(["worktree", "add", "-b", "feature/old", wt, "main"]);
     expect((await inspectConfluxGit(dir, selection)).dedicated).toBe(false);
     expect((await inspectConfluxGit(wt, selection)).dedicated).toBe(true);

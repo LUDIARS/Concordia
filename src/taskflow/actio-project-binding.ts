@@ -1,14 +1,18 @@
 import { repositoryKey, type ActioBinding } from "./actio-binding.js";
 import { LOCAL_ACTIO_ACCESS, type ActioProject } from "./actio-projects.js";
+import { matchesActioBindingScope, type ActioBindingScope } from "./actio-binding-scope.js";
 
 export interface RepositoryProject { code: string; project: string; repo_path: string }
 
 /** Pure policy: explicit destinations win; registration is joined by exact project code. */
 export function mergeActioProjectBindings(
   configured: readonly ActioBinding[], repositories: readonly RepositoryProject[], registered: readonly ActioProject[],
+  scope?: ActioBindingScope,
 ): ActioBinding[] {
-  const result = [...configured];
+  const result = configured.filter(binding => matchesActioBindingScope(binding, scope));
   for (const repo of repositories) {
+    if (!matchesActioBindingScope({ project: repo.project, repoPath: repo.repo_path }, scope)) continue;
+    // Check all explicit bindings: a different configured label must not reopen discovery.
     if (configured.some(binding => binding.subsidiaryId === null
       && repositoryKey(binding.repoPath) === repositoryKey(repo.repo_path))) continue;
     const matches = registered.filter(project => project.code === repo.code);
@@ -34,11 +38,13 @@ export function createActioBindingReader(input: {
   configured: () => readonly ActioBinding[];
   repositories: () => readonly RepositoryProject[];
   registered: () => Promise<readonly ActioProject[]>;
-}): () => Promise<readonly ActioBinding[]> {
-  return async () => {
+}): (scope?: ActioBindingScope) => Promise<readonly ActioBinding[]> {
+  return async (scope) => {
     const configured = input.configured();
     // An explicit bearer deployment must never turn into a local deployment.
-    if (configured.length > 0 && !configured.some(binding => binding.authMode === "loopback")) return configured;
-    return mergeActioProjectBindings(configured, input.repositories(), await input.registered());
+    if (configured.length > 0 && !configured.some(binding => binding.authMode === "loopback")) {
+      return configured.filter(binding => matchesActioBindingScope(binding, scope));
+    }
+    return mergeActioProjectBindings(configured, input.repositories(), await input.registered(), scope);
   };
 }

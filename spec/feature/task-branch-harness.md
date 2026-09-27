@@ -50,6 +50,8 @@ src/control/spawn-target.ts の新規 worktree 作成に HEAD 指定がある。
 
 受入条件: 設定の独立保存、未選択の編集拒否、流れ間の切替、変更保持、main本体保護、他セッション保護、起点不一致拒否、切替後の登録更新、PR境界維持をテストに記述する。KD/Mp の設定反映はAPI配備後に行い、未配備を有効と報告しない。
 
+実GitでCF-ISOLATEを検証するfixtureは、一時リポジトリと自動片付け対象の空のhookディレクトリを所有し、最初のcommitやworktree操作より前にリポジトリ内の`core.hooksPath`を設定する。利用者の共通hook（Git LFS等）を起動せず、選択したローカル起点・切替後の祖先関係・未コミット変更の検出を実Gitで確認する。本番adapterのhook実行・コマンド期限や、利用者のGit設定は変更しない。
+
 ## 実装結果と復旧
 
 2026-09-18: サーバーとWebのTypeScript静的検査、追加3テストファイルとspawn-targetテストの型検査、hookの構文検査、git diff --checkを実施。Anatomia verifyはrule_conformance / duplication / spec_linkage / coupling_delta / convention_driftの5項目PASS。単体・統合・起動テスト、再起動、デプロイ、マージは未実施。

@@ -60,6 +60,18 @@ describe("ActioTaskStore", () => {
     expect(await store.findForProject("concordia")).toHaveLength(2);
   });
 
+  it("reads only the selected project's tasks even if a custom reader ignores scope", async () => {
+    const other = { ...HQ, project: "Other", repoPath: "E:/Other", projectId: "other" };
+    const { store, list } = fixture([other, HQ]);
+    expect(await store.scan({ project: "CONCORDIA" })).toHaveLength(1);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(HQ);
+    list.mockClear();
+    expect(await store.scan({ project: "missing" })).toEqual([]);
+    expect(list).not.toHaveBeenCalled();
+    expect(await store.scan()).toHaveLength(2);
+  });
+
   /** A task file path is not a reference; following one would reopen the file route. */
   it("refuses a legacy Markdown reference", async () => {
     const { store } = fixture();

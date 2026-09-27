@@ -71,7 +71,7 @@ export function taskflowRouter(input: {
       headOffice: c.req.query("head_office"),
     });
     if (!scope.ok) return c.json({ error: scope.error }, 400);
-    const tasks = (await input.store.scan()).map((document) => {
+    const tasks = (await input.store.scan(project ? { project } : undefined)).map((document) => {
       const runId = document.runtime?.delegation_run_id;
       const sessionId = document.runtime?.source_session;
       return {
@@ -197,7 +197,7 @@ export function taskflowRouter(input: {
     });
     if (!scope.ok) return c.json({ error: scope.error }, 400);
     const overview = buildTaskflowOverview({
-      documents: await input.store.scan(),
+      documents: await input.store.scan(project ? { project } : undefined),
       relativePath: (document) => input.store.relativePath(document),
       sessions: input.sessions.listSessions({}),
       runs: input.delegation.recentRuns(1000),

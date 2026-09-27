@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, win32 } from "node:path";
 import { repositoryKey, type ActioBinding } from "./actio-binding.js";
+import { matchesActioBindingScope, type ActioBindingReader, type ActioBindingScope } from "./actio-binding-scope.js";
 import { workflowStatus, type ActioWorkflowClient, type ActioWorkflowTask } from "./actio-task-client.js";
 import { mainRepositoryKey } from "./repository-identity.js";
 import type { TaskflowStateStore } from "./state-store.js";
-import type { RemainingTasksInput, TaskCreateInput, TaskStore } from "./store.js";
+import type { RemainingTasksInput, TaskCreateInput, TaskScanScope, TaskStore } from "./store.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
 import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
@@ -17,14 +18,17 @@ export class ActioTaskStore implements TaskStore {
   private readonly assignments = new Map<string, Promise<void>>();
   readonly authoritative = true;
   constructor(
-    private readonly bindings: () => readonly ActioBinding[] | Promise<readonly ActioBinding[]>,
+    private readonly bindings: ActioBindingReader,
     private readonly client: ActioWorkflowClient,
     private readonly state: TaskflowStateStore,
   ) {}
 
-  async scan(): Promise<TaskDocument[]> {
+  async scan(scope?: TaskScanScope): Promise<TaskDocument[]> {
+    const selection = scope?.project ? { project: scope.project } : undefined;
     const documents: TaskDocument[] = [];
-    for (const binding of await this.bindings()) {
+    for (const binding of await this.bindings(selection)) {
+      // Older/custom readers can ignore selection; never read unrelated task bodies.
+      if (!matchesActioBindingScope(binding, selection)) continue;
       for (const task of await this.client.list(binding)) documents.push(this.document(binding, task));
     }
     return documents;
@@ -134,8 +138,9 @@ export class ActioTaskStore implements TaskStore {
   async binding(selector: string, subsidiaryId?: string | null): Promise<ActioBinding> {
     const path = isAbsolute(selector) || win32.isAbsolute(selector);
     const key = path ? await mainRepositoryKey(selector) : selector.toLowerCase();
-    const matches = (await this.bindings()).filter((binding) =>
-      (path ? repositoryKey(binding.repoPath) === key : binding.project.toLowerCase() === key)
+    const scope: ActioBindingScope = path ? { repoPath: key } : { project: key };
+    const matches = (await this.bindings(scope)).filter((binding) =>
+      matchesActioBindingScope(binding, scope)
       && (subsidiaryId === undefined || binding.subsidiaryId === subsidiaryId));
     if (matches.length !== 1) throw new Error("Actio task project binding missing or ambiguous");
     return matches[0]!;

@@ -14,6 +14,8 @@ Discord投稿先と所有組織は分離できる。管理者が暗号化runtime
 
 この設定の純粋な検証は `src/platform/actio-chat-destination.ts` と同所の `.test.ts`（chat-platforms所属）が所有する。受入: 重複チーム・不正JSON/型・別guildを拒否、未指定は従来動作、入力本文/秘密をエラーに含めない。復旧は当該チームの設定行を除去しExcubitorでCc再起動。旧接続が有効な間は宛先を変更せず、Actioで停止・未処理配送の確認をして切り替える。
 
+接続先サーバに既存の本社Botが参加している場合、管理者は設定行へ `credentialSource: "headquarters"` を明示できる。省略または `"subsidiary"` は指定子会社の資格情報のみ。本社指定でも対象子会社のenabled/platform/mode/guild一致チェックは維持し、プロキシが対象channelのguildを検証する。指定資格情報が無い場合は拒否し、別Botへのfallbackはしない。AI実行場所や組織所有権を変更する設定ではない。既存GLab接続は本社Botによる読み取りが可能だが専用Bot token未登録だったため、この明示指定で運用する。
+
 配備設定: `ACTIO_CHAT_SHARED_SECRET` の明示環境変数を優先し、未注入時はExcubitorの暗号化runtime-config内の `actioChatSharedSecret` を読む。空の明示環境変数は無効化を意味し、暗号化設定へフォールバックしない。不正なJSON/値型は固定文言で失敗し、秘密を出力しない。設定はCcの起動時に確定し、変更反映はExcubitor経由の再起動。既存 `actioTaskBindings` は保持する。設定解決とテストはchat-platformsの `src/platform/actio-chat-config.ts` / `src/platform/actio-chat-config.test.ts`。受入条件は優先順位・無効化・未設定・不正入力・値非露出。
 
 不変条件: CC-INV-02（認証・対象組織・許可API）、CC-INV-03（結果不明時にCcでPOSTを再試行しない）、CC-INV-06（外部応答を配送済みの根拠にする）。APIはBearer共有秘密必須、未設定は503、宛先URLを受け取らず固定Discord/Slack APIのみ。本社/deskは本社Bot、子会社チームは当該子会社の有効な同種プラットフォームの暗号化資格情報を解決する。他組織の資格情報へフォールバックしない。

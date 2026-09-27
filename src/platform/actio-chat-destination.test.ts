@@ -12,6 +12,14 @@ describe("explicit Discord destination", () => {
     for (const value of [[row, row], [{ ...row, workspaceId: "bad" }], null])
       expect(() => readChatDestinations({ CONCORDIA_ACTIO_CHAT_DESTINATIONS: JSON.stringify(value) })).toThrow("Invalid Actio chat destination configuration");
   });
+  it("requires an explicit headquarters credential source and still checks destination scope", () => {
+    const explicit = { ...row, credentialSource: "headquarters" as const };
+    expect(readChatDestinations({ CONCORDIA_ACTIO_CHAT_DESTINATIONS: JSON.stringify([explicit]) })).toEqual([explicit]);
+    expect(readChatDestinations({ CONCORDIA_ACTIO_CHAT_DESTINATIONS: JSON.stringify([row]) })[0].credentialSource).toBeUndefined();
+    expect(() => readChatDestinations({ CONCORDIA_ACTIO_CHAT_DESTINATIONS: JSON.stringify([{ ...row, credentialSource: "arbitrary" }]) })).toThrow();
+    expect(destinationMatches(explicit, { platform: "discord", workspaceId: "999999" }, target)).toBe(false);
+    expect(destinationMatches(explicit, { platform: "discord", workspaceId: row.workspaceId }, { ...target, enabled: false })).toBe(false);
+  });
   it("fails closed for wrong, absent or disabled destinations", () => {
     const input = { platform: "discord", workspaceId: "123456" };
     expect(destinationMatches(row, input, target)).toBe(true);

@@ -3,6 +3,7 @@ import { z } from "zod";
 const destinations = z.array(z.object({
   teamId: z.string().min(1).max(200), subsidiaryId: z.string().min(1).max(200),
   workspaceId: z.string().regex(/^\d{5,25}$/),
+  credentialSource: z.enum(["headquarters", "subsidiary"]).optional(),
 }).strict()).max(200);
 export type ChatDestination = z.infer<typeof destinations>[number];
 

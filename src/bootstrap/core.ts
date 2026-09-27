@@ -1701,7 +1701,12 @@ export async function startBackend(): Promise<BackendHandle> {
           const binding = chatDestinations.find(row => row.teamId === team.id);
           if (binding) {
             const target = subsidiaryRepo.find(binding.subsidiaryId);
-            if (!destinationMatches(binding, input, target) || !target?.bot_token_enc) return null;
+            if (!destinationMatches(binding, input, target)) return null;
+            if (binding.credentialSource === "headquarters") {
+              const config = resolveDiscordConfig(discordConfig, secretBox);
+              return config.enabled && config.token ? { token: config.token, workspaceId: binding.workspaceId } : null;
+            }
+            if (!target?.bot_token_enc) return null;
             return { token: secretBox.decrypt(target.bot_token_enc), workspaceId: binding.workspaceId };
           }
         if (team.subsidiary_id) {

@@ -206,6 +206,7 @@ import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import { readActioChatSecret } from "../platform/actio-chat-config.js";
+import { readChatDestinations, destinationMatches } from "../platform/actio-chat-destination.js";
 import { StaffRepo } from "../db/staff-repo.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createFederationRuntime } from "../federation/runtime.js";
@@ -1689,13 +1690,20 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const choresRuntime = createChoresRuntime(db, () => adminState.getWorkspaceRoot(), isCostBlocked);
   const actioChatSharedSecret = readActioChatSecret(process.env);
+  const chatDestinations = readChatDestinations(process.env);
   const app = buildApp({
     sprintDialogues: new SprintDialoguesRepository(db),
     actioChat: {
       secret: () => actioChatSharedSecret,
       credentials: input => {
-        const team = teamsRepo.find(input.teamId);
-        if (!team) return null;
+          const team = teamsRepo.find(input.teamId);
+          if (!team) return null;
+          const binding = chatDestinations.find(row => row.teamId === team.id);
+          if (binding) {
+            const target = subsidiaryRepo.find(binding.subsidiaryId);
+            if (!destinationMatches(binding, input, target) || !target?.bot_token_enc) return null;
+            return { token: secretBox.decrypt(target.bot_token_enc), workspaceId: binding.workspaceId };
+          }
         if (team.subsidiary_id) {
           const subsidiary = subsidiaryRepo.find(team.subsidiary_id);
           if (!subsidiary?.enabled || subsidiary.platform !== input.platform) return null;

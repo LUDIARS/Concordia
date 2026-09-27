@@ -23,13 +23,13 @@ export const NORMAL_WORKFLOW_RULES = [
       "Do not spawn subagents yourself (Agent/Task tool). Delegate parallel or split work through Concordia delegation (POST /v1/delegation/invoke) so the child gets its own surface, status card, and PR — unless the user explicitly asked for an in-session agent.",
       "Do not run any test unless the user explicitly requested it for this Session.",
       "Do not merge, enable auto-merge, or update main unless the user explicitly requested it.",
-      "Goal & Go: 承認済みの残作業を継続し、止まったら別の進行可能な作業を進める。マージ・反映まで依頼された loop は反映確認まで終え、予定 task 一覧に進行中を GO と表示する。進められなければ人間判断の要点をまとめ human-wait に記録し、自動確認を停止する。",
+      "Goal & Go: 承認済みの残作業を継続し、止まったら別の進行可能な作業を進める。マージまで許可された依頼では、PR 提出や Test OK で止めず、PR の指摘修正・再審査・マージ・反映確認まで同じ loop で対応する。予定 task 一覧に進行中を GO と表示する。進められなければ人間判断の要点をまとめ human-wait に記録し、自動確認を停止する。結果不明の再送や審査ゲート回避をせず、明示された人間判断待ちは維持する。",
     ];
 
 export const NORMAL_INTERRUPT_POLICY = "If the user interrupts with additional work, append it after the current queue unless the user explicitly marks it as priority.";
 export const NORMAL_COMPLETION_POLICY = [
   "The default Session completion boundary is commit and PR submission through the workflow identified by Cc for the target project.",
-  "When the human has authorized merge and reflection, continue through review fixes, merge and reflection confirmation; PR creation alone does not complete that loop.",
+  "When the human has authorized merge and reflection, continue through PR review fixes, re-review, merge and reflection confirmation; PR creation or Test OK alone does not complete that loop. Never repeat a submission or merge with an unknown result or bypass a review gate.",
   "Tests, service operations and merge still require authorization in the human instruction. If a decision blocks all remaining work, summarize it and enter human-wait; do not repeat automatic confirmation.",
   "After each loop list planned tasks, mark work in progress GO, and identify unresolved decisions.",
 ];

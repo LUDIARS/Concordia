@@ -53,6 +53,7 @@ import {
   isForumSpawnIntakeInteraction,
 } from "./forum-spawn-intake.js";
 import { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction } from "./subsidiary-scope.js";
+import { backlogCommands, handleBacklogCommand } from "./actio-backlog-command.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 /** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
@@ -100,7 +101,7 @@ export function commandNamesForRegistration(opts: CommandRegistrationOptions = {
   return COMMANDS
     .filter((c) => !opts.subsidiary || isSubsidiaryAllowedCommand(c.builder.name))
     .filter((c) => isCommandWorkflowEnabled(c.builder.name, isWorkflowEnabled))
-    .map((c) => c.builder.name);
+    .map((c) => c.builder.name).concat(backlogCommands.map(c => c.name));
 }
 
 export async function registerGuildCommands(
@@ -112,6 +113,7 @@ export async function registerGuildCommands(
   const rest = new REST({ version: "10" }).setToken(token);
   const allowed = new Set(commandNamesForRegistration(opts));
   const body = COMMANDS.filter((c) => allowed.has(c.builder.name)).map((c) => c.builder.toJSON());
+  body.push(...backlogCommands);
   await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body });
 }
 
@@ -172,6 +174,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     }
     return;
   }
+  if (await handleBacklogCommand(interaction, deps.backlogAdmission)) return;
   const privileged = classifyPrivilegedInteraction(interaction);
   if (privileged && !isPrivilegedActorAllowed(interaction, deps, privileged)) {
     let approvedSpawn = false;

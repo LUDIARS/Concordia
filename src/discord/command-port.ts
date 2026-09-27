@@ -24,6 +24,7 @@ export interface SpawnApprovalAction {
 export type SpawnApprovalStore = Map<string, SpawnApprovalAction>;
 
 export interface DiscordCommandDeps {
+  backlogAdmission?: (guildId: string, channelId: string) => Promise<boolean>;
   concordiaUrl: string;
   sessionsRepo: SessionsRepo;
   /** チーム候補の補完と、チャンネル起点のチーム帰属に使う (spec/feature/teams.md §2)。 */

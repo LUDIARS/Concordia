@@ -94,7 +94,9 @@
         "src/discord/sprint-dialogues.test.ts",
         "src/discord/sprint-dialogues-input.test.ts",
         "src/discord/taskworkflow-orphan-policy.test.ts",
-        "src/discord/taskworkflow-orphan-reconcile.test.ts"
+        "src/discord/taskworkflow-orphan-reconcile.test.ts",
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
       ],
       "contracts": [
         "CC-DISCORD-PHASE-TITLE-01",
@@ -105,7 +107,8 @@
         "CC-SD-04",
         "CC-SD-05",
         "CC-SD-06",
-        "CC-DISCORD-TASK-ORPHAN-01"
+        "CC-DISCORD-TASK-ORPHAN-01",
+        "CC-ACTIO-CHAT-COMMAND-01"
       ]
     },
     {
@@ -301,7 +304,9 @@
         "src/developer-tools/service.test.ts",
         "src/platform/actio-chat-policy.test.ts",
         "src/platform/actio-chat-config.test.ts",
-        "src/platform/actio-chat-destination.test.ts"
+        "src/platform/actio-chat-destination.test.ts",
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -316,7 +321,8 @@
         "CC-TOOLS-01",
         "CC-TOOLS-02",
         "CC-TOOLS-03",
-        "CC-ACTIO-CHAT-01"
+        "CC-ACTIO-CHAT-01",
+        "CC-ACTIO-CHAT-COMMAND-01"
       ]
     },
     {
@@ -1862,6 +1868,56 @@
       ],
       "contracts": [
         "CC-ACTIO-CHAT-01"
+      ]
+    },
+    {
+      "source": "src/discord/actio-backlog-command.ts",
+      "tests": [
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-COMMAND-01"
+      ]
+    },
+    {
+      "source": "src/platform/actio-chat-admission.ts",
+      "tests": [
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-COMMAND-01"
+      ]
+    },
+    {
+      "source": "src/discord/commands.ts",
+      "tests": [
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-COMMAND-01"
+      ]
+    },
+    {
+      "source": "src/discord/command-port.ts",
+      "tests": [
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-COMMAND-01"
+      ]
+    },
+    {
+      "source": "src/discord/subsidiary-scope.ts",
+      "tests": [
+        "src/discord/actio-backlog-command.test.ts",
+        "src/platform/actio-chat-admission.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-COMMAND-01"
       ]
     }
   ]

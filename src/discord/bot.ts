@@ -220,6 +220,7 @@ export type DiscordHeadlessRunner = (
 export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
 
 export interface DiscordBotDeps {
+  backlogAdmission?: (guildId: string, channelId: string) => Promise<boolean>;
   db: Database;
   /**
    * 人間がセッションのチャンネルへ投稿し inject が通った直後に呼ばれる。
@@ -1852,6 +1853,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     void measuredDispatchInteraction(interaction, {
+      backlogAdmission: deps.backlogAdmission,
       concordiaUrl: deps.concordiaUrl,
       sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo,

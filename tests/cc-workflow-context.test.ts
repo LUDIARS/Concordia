@@ -25,7 +25,7 @@ describe("Cc workflow context injection", () => {
     expect(body.context_packet.cc_workflow).toBeNull();
   });
 
-  it("returns startup workflow instructions with task API and PR completion policy", async () => {
+  it("returns Actio-owned task guidance, compatibility API, and authorized PR completion policy", async () => {
     const env = makeTestApp();
     env.adminState.setCcWorkflowEnabled(true);
     const response = await env.app.request("/v1/sessions", {
@@ -45,11 +45,15 @@ describe("Cc workflow context injection", () => {
     const workflow = body.context_packet.cc_workflow;
     expect(workflow.inject_source).toBe("session-start:cc-workflow");
     expect(workflow.task_api.update_todos).toContain("/v1/sessions/ccwf/event");
-    expect(workflow.rules.join("\n")).toContain("task_update");
-    expect(workflow.rules.join("\n")).toContain("post task_update through the Concordia API");
+    expect(workflow.rules.join("\n")).toContain("人間の指示を対応する Actio task に紐づけ、Cc の task-links に参照を登録する");
+    expect(workflow.rules.join("\n")).toContain("進捗の正本は Actio の task status");
+    expect(workflow.rules.join("\n")).toContain("Cc の task_update は session 内の補助 todo 記録に使える");
+    expect(workflow.rules.join("\n")).toContain("Actio task の実状態や人間の開始指示を置き換えない");
     expect(workflow.interrupt_policy).toContain("append");
     expect(workflow.completion_policy.join("\n")).toContain("commit and PR submission through the workflow identified by Cc");
-    expect(workflow.completion_policy.join("\n")).toContain("user explicitly adds that instruction");
+    expect(workflow.completion_policy.join("\n")).toContain("When the human has authorized merge and reflection");
+    expect(workflow.completion_policy.join("\n")).toContain("Never repeat a submission or merge with an unknown result or bypass a review gate");
+    expect(workflow.completion_policy.join("\n")).toContain("Tests, service operations and merge still require authorization in the human instruction");
   });
 
   it("also exposes the same workflow through GET /context", async () => {

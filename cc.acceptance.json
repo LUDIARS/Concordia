@@ -199,9 +199,7 @@
     },
     {
       "source": "src/control/startup-policy.ts",
-      "tests": [
-        "src/control/startup-policy.test.ts"
-      ],
+      "tests": ["src/control/startup-policy.test.ts"],
       "contracts": []
     },
     {
@@ -330,7 +328,8 @@
         "src/api/sprint-dialogues.test.ts",
         "src/api/developer-tools.test.ts",
         "src/platform/actio-chat-policy.test.ts",
-        "src/api/sessions/startup-policy-check.test.ts"
+        "src/api/sessions/startup-policy-check.test.ts",
+        "src/api/developer-tools-catalog.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01",
@@ -343,7 +342,8 @@
         "CC-TOOLS-01",
         "CC-TOOLS-02",
         "CC-TOOLS-03",
-        "CC-ACTIO-CHAT-01"
+        "CC-ACTIO-CHAT-01",
+        "CC-COMMAND-CATALOG-01"
       ]
     },
     {
@@ -639,9 +639,7 @@
     },
     {
       "source": "src/control/collaboration-context.ts",
-      "tests": [
-        "src/control/collaboration-context.test.ts"
-      ],
+      "tests": ["src/control/collaboration-context.test.ts"],
       "contracts": []
     },
     {
@@ -1636,12 +1634,14 @@
     {
       "source": "src/api/developer-tools.ts",
       "tests": [
-        "src/api/developer-tools.test.ts"
+        "src/api/developer-tools.test.ts",
+        "src/api/developer-tools-catalog.test.ts"
       ],
       "contracts": [
         "CC-TOOLS-01",
         "CC-TOOLS-02",
-        "CC-TOOLS-03"
+        "CC-TOOLS-03",
+        "CC-COMMAND-CATALOG-01"
       ]
     },
     {
@@ -1869,10 +1869,12 @@
     {
       "source": "web/src/pages/DeveloperTools.tsx",
       "tests": [
-        "web/src/pages/DeveloperTools.test.tsx"
+        "web/src/pages/DeveloperTools.test.tsx",
+        "web/src/pages/GeneratedScriptsPanel.test.tsx"
       ],
       "contracts": [
-        "CC-TOOLS-WEB-01"
+        "CC-TOOLS-WEB-01",
+        "CC-COMMAND-CATALOG-01"
       ]
     },
     {
@@ -2151,6 +2153,42 @@
       ],
       "contracts": [
         "CC-AT-SCOPE-01"
+      ]
+    },
+    {
+      "source": "src/developer-tools/command-catalog.ts",
+      "tests": [
+        "src/developer-tools/command-catalog.test.ts"
+      ],
+      "contracts": [
+        "CC-COMMAND-CATALOG-01"
+      ]
+    },
+    {
+      "source": "src/developer-tools/script-catalog.ts",
+      "tests": [
+        "src/developer-tools/script-catalog.test.ts"
+      ],
+      "contracts": [
+        "CC-COMMAND-CATALOG-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/CommonCommandsPanel.tsx",
+      "tests": [
+        "web/src/pages/CommonCommandsPanel.test.tsx"
+      ],
+      "contracts": [
+        "CC-COMMAND-CATALOG-01"
+      ]
+    },
+    {
+      "source": "web/src/pages/GeneratedScriptsPanel.tsx",
+      "tests": [
+        "web/src/pages/GeneratedScriptsPanel.test.tsx"
+      ],
+      "contracts": [
+        "CC-COMMAND-CATALOG-01"
       ]
     }
   ]

@@ -45,6 +45,9 @@
     },
     {
       "pathPattern": "(^|/)tools/ontime-runtime\\.(?:js|d\\.ts)$"
+    },
+    {
+      "pathPattern": "(^|/)src/developer-tools/(?:command|script)-catalog(?:\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
@@ -53,6 +56,7 @@
     "spec/feature/harness-reliability.md",
     "spec/feature/task-branch-harness.md",
     "spec/feature/script-creator.md",
-    "spec/feature/developer-toolset.md"
+    "spec/feature/developer-toolset.md",
+    "spec/feature/command-script-catalog.md"
   ]
 }

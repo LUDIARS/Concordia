@@ -1,6 +1,8 @@
 // @spec CC-TOOLS-WEB-01: WebUI の確認画面
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { CommonCommandsPanel } from "./CommonCommandsPanel.js";
+import { GeneratedScriptsPanel } from "./GeneratedScriptsPanel.js";
 
 interface ToolEntry {
   mcp: string;
@@ -19,6 +21,7 @@ export function DeveloperTools() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [revision, setRevision] = useState(0);
+  const [tab, setTab] = useState<"mcp" | "commands" | "scripts">("mcp");
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
@@ -38,13 +41,23 @@ export function DeveloperTools() {
     .filter(tool => [tool.mcp, tool.operation, tool.owner, tool.preparation].join(" ").toLowerCase().includes(needle));
   return <div className="space-y-4">
     <header><h1 className="text-xl font-semibold">開発ツール</h1>
-      <p className="mt-1 text-sm text-subtle">共通ツールの入口と利用に必要な準備を確認できます。掲載は接続・動作確認済みを意味しません。</p>
+      <p className="mt-1 text-sm text-subtle">共通ツールとスクリプトの定義を確認できます。掲載は接続・動作確認済みを意味しません。</p>
     </header>
+    <nav aria-label="開発ツールの種類" className="flex flex-wrap gap-2">
+      {([ ["mcp", "MCP ツール"], ["commands", "共通コマンド"], ["scripts", "生成スクリプト"] ] as const).map(([value, label]) =>
+        <button key={value} type="button" aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)}
+          className="rounded border border-border px-3 py-2">{label}</button>)}
+    </nav>
     <div className="flex flex-wrap items-center gap-3">
-      <input aria-label="ツールを検索" value={query} onChange={event => setQuery(event.target.value)} placeholder="名前・提供元・準備条件で検索" className="min-w-0 rounded border border-border bg-surface p-2" />
-      <button type="button" onClick={() => setRevision(value => value + 1)} className="rounded border border-border px-3 py-2">再読込</button>
-      <Link to="/settings" className="text-accent">RWF・ローカルスキルの設定</Link>
+      <input aria-label="ツールを検索" value={query} onChange={event => setQuery(event.target.value)} placeholder="名前・説明・権限で検索" className="min-w-0 rounded border border-border bg-surface p-2" />
+      {tab === "mcp" && <>
+        <button type="button" onClick={() => setRevision(value => value + 1)} className="rounded border border-border px-3 py-2">再読込</button>
+        <Link to="/settings" className="text-accent">RWF・ローカルスキルの設定</Link>
+      </>}
     </div>
+    {tab === "commands" && <CommonCommandsPanel query={query} />}
+    {tab === "scripts" && <GeneratedScriptsPanel query={query} />}
+    {tab === "mcp" && <>
     {error && <p role="alert" className="text-danger">{error}</p>}
     {!catalog && !error && <p role="status">読み込み中…</p>}
     {catalog && <>
@@ -60,6 +73,7 @@ export function DeveloperTools() {
           {tool.effect && <div><dt className="text-subtle">操作の種類</dt><dd>{tool.effect}</dd></div>}
         </dl>
       </article>)}</div>
+    </>}
     </>}
   </div>;
 }

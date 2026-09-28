@@ -476,7 +476,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       actors: github.actors,
     }));
   }
-  if (deps.developerTools) app.route("/v1/developer-tools", developerToolsRouter(deps.developerTools));
+  if (deps.developerTools) app.route("/v1/developer-tools", developerToolsRouter(deps.developerTools, {
+    projects: () => deps.projectCodes.list().map(({ code, project, repo_path }) => ({ code, project, repo_path })),
+    workspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+    ccRoot: process.cwd(),
+  }));
   if (deps.implementationTools) {
     app.route(
       "/v1/implementation-tools",

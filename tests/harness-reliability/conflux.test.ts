@@ -62,7 +62,7 @@ describe("Conflux work isolation", () => {
   it("preserves the submitted task boundary after successful flow matching", async () => {
     const f = fixture(); f.service.select("cf", selection); await f.service.gate("cf", f.action);
     const tasks = new TaskBranchService(f.sessions, async () => ({ repo: f.state.repo, branch: f.state.branch, mainExists: true }), (id, action) => f.service.gate(id, action));
-    tasks.submitted("cf", { repo: f.state.repo, branch: f.state.branch, task: "scoring" }, "pr-1");
+    tasks.submitted("cf", { repo: f.state.repo, branch: f.state.branch }, "pr-1");
     f.sessions.patchSession("cf", { current_task: "unrelated work" });
     expect((await tasks.gate("cf", f.action))?.rule).toBe("submitted-task-boundary");
   });

@@ -2,7 +2,7 @@ import type { ConfluxGateResult } from "./conflux-service.js";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { HarnessAction, PredicateHit } from "../predicates.js";
-import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, deterministicTaskRelation, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 
@@ -29,12 +29,23 @@ export class TaskBranchService {
     }
     return { repo: row.repo as string, branch: row.branch as string, task: row.task as string,
       pr: row.pr as string, relation: parseTaskRelation(row.relation),
-      version: typeof row.version === "number" ? row.version : 0 };
+      version: typeof row.version === "number" ? row.version : 0,
+      ...(row.declared === true ? { declared: true } : {}),
+      ...(typeof row.label === "string" && row.label ? { label: row.label } : {}) };
   }
 
-  submitted(id: string, snapshot: { repo: string; branch: string; task: string }, pr: string): void {
-    this.sessions.mergeMetadata(id, { [KEY]: { ...snapshot, repo: resolve(snapshot.repo), pr,
-      relation: "unknown", version: (this.read(id)?.version ?? 0) + 1 } });
+  /**
+   * 提出を記録する。 task は宣言タスク (declared_task) を優先し、無ければ current_task を旧形式として
+   * 残す (declared=false)。 label は PR の表示名。
+   */
+  submitted(id: string, snapshot: { repo: string; branch: string; label?: string | null }, pr: string): void {
+    const session = this.sessions.findSession(id);
+    const declared = session ? readDeclaredTask(session) : null;
+    this.sessions.mergeMetadata(id, { [KEY]: {
+      repo: resolve(snapshot.repo), branch: snapshot.branch,
+      task: declared ?? session?.current_task ?? "", declared: declared !== null,
+      ...(snapshot.label ? { label: snapshot.label } : {}),
+      pr, relation: "unknown", version: (this.read(id)?.version ?? 0) + 1 } });
   }
 
   observeSubmission(id: string, input: { command?: string; message?: string; failed?: boolean }): void {
@@ -42,16 +53,21 @@ export class TaskBranchService {
     if (!session) return;
     const pr = githubSubmission({ ...input, repoOrigin: session.repo_origin, branch: session.branch });
     if (pr && this.read(id)?.pr !== pr) this.submitted(id, {
-      repo: session.repo_path, branch: session.branch || "", task: session.current_task || "",
+      repo: session.repo_path, branch: session.branch || "", label: pr,
     }, pr);
   }
 
-  beginClassification(id: string): SubmittedTask | null {
+  /**
+   * 新しい指示ごとに分類をやり直す。 指示が提出済み PR を番号か branch で直接指していれば
+   * その場で same-task を確定し (LLM を待たない)、 `decided` を返す。
+   */
+  beginClassification(id: string, prompt?: string): (SubmittedTask & { decided?: boolean }) | null {
     const current = this.read(id);
     if (!current) return null;
-    const next: SubmittedTask = { ...current, relation: "unknown", version: current.version + 1 };
+    const decided = prompt ? deterministicTaskRelation(prompt, current) : null;
+    const next: SubmittedTask = { ...current, relation: decided ?? "unknown", version: current.version + 1 };
     this.sessions.mergeMetadata(id, { [KEY]: next });
-    return next;
+    return decided ? { ...next, decided: true } : next;
   }
 
   classify(id: string, expected: SubmittedTask | null, relation: TaskRelation): void {
@@ -79,7 +95,8 @@ export class TaskBranchService {
     const mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
     if (mismatch) return mismatch;
     const submitted = this.read(id);
-    const hit = checkSubmittedTask({ submitted, repo: registered.repo, branch: registered.branch, task: session.current_task || "" });
+    const hit = checkSubmittedTask({ submitted, repo: registered.repo, branch: registered.branch,
+      task: readDeclaredTask(session) ?? session.current_task ?? "" });
     if (hit && !(await this.releaseMerged(id, submitted))) return hit;
     if (!flow?.active && !(registeredRepo ?? acting).mainExists) return { rule: "task-main-origin", decision: "warn", reason: "ローカルmainがありません。新規作業を別のブランチ起点で作成しないでください。" };
     return null;

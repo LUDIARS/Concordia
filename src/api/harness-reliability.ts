@@ -19,6 +19,7 @@ import { readAcceptanceManifest } from "../delegation/acceptance-manifest.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { contractMetrics } from "../harness/reliability/ontime-metrics.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
+import { describeSubmittedTask } from "../harness/reliability/task-branch-policy.js";
 import { taskStartWarning } from "../harness/reliability/task-branch-policy.js";
 import { analyzePromptWithLocalLlm } from "../harness/local-prompt-analyzer.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -59,10 +60,11 @@ export function harnessReliabilityRouter(deps: {
     observeSubmission: (id, input) => taskBranches.observeSubmission(id, input),
     checkTaskBranch: (id, prompt) => {
       const current = deps.repo.findSession(id);
-      const submitted = taskBranches.beginClassification(id);
-      if (submitted) {
+      const submitted = taskBranches.beginClassification(id, prompt);
+      // 指示が提出済み PR を番号か branch で直接指していれば、その場で same-task が確定している。
+      if (submitted && !submitted.decided) {
         // Invalidate synchronously; failed or slow classification leaves the gate unresolved.
-        void analyzePromptWithLocalLlm({ prompt, submittedTask: submitted.task,
+        void analyzePromptWithLocalLlm({ prompt, submittedTask: describeSubmittedTask(submitted),
           branch: current?.branch ?? undefined, rules: [], gates: ["submitted-task-boundary"] })
           .then(result => taskBranches.classify(id, submitted, result.analysis.task_relation ?? "unknown"))
           .catch(() => branchLog.warn({ session_id: id }, "Task classification unavailable; branch gate remains unresolved"));

@@ -72,6 +72,48 @@ export interface SubmittedTask {
   pr: string;
   relation: TaskRelation;
   version: number;
+  /**
+   * true = task は `lictor cli task set` 等で宣言したタスク (declared_task)。 false / 未設定は
+   * 旧形式で、task に指示文の要約が入っている (人間の指示のたびに変わるため同一性に使えない)。
+   */
+  declared?: boolean;
+  /** PR の表示名 (例 `LUDIARS/Concordia#2150 feat: ...`)。 分類と決定的判定に使う。 */
+  label?: string;
+}
+
+/**
+ * セッションが宣言した作業 (PATCH /v1/sessions/:id の current_task) を保存する metadata キー。
+ * current_task 列は人間の指示のたびに要約で上書きされるので、境界の同一性には使えない。
+ */
+export const DECLARED_TASK_METADATA_KEY = "declared_task";
+
+export function readDeclaredTask(session: { metadata: string | null }): string | null {
+  try {
+    const value = (JSON.parse(session.metadata || "{}") as Record<string, unknown>)[DECLARED_TASK_METADATA_KEY];
+    return typeof value === "string" && value.trim() ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 分類器へ渡す「提出済みの作業」の説明。 PR の表示名があれば添える。 */
+export function describeSubmittedTask(submitted: SubmittedTask): string {
+  return submitted.label ? `${submitted.task} (PR: ${submitted.label}, branch: ${submitted.branch})` : submitted.task;
+}
+
+const OTHER_WORK = /(別作業|別件|とは別|以外|新しい作業|new task|another task)/i;
+
+/**
+ * 人間の指示や Revisor の通知が、提出済み PR をその番号か branch 名で直接指していれば same-task とする
+ * (LLM 分類を待たない)。 別作業を示す語があれば判定しない。 番号は表示名の `#<n>` から取る。
+ */
+export function deterministicTaskRelation(prompt: string, submitted: SubmittedTask): TaskRelation | null {
+  if (!prompt.trim() || OTHER_WORK.test(prompt)) return null;
+  if (submitted.branch && prompt.includes(submitted.branch)) return "same-task";
+  const number = /#(\d+)/.exec(submitted.label ?? "")?.[1];
+  if (!number) return null;
+  const mentionsNumber = new RegExp(`(?:#|PR\\s*#?|pull request\\s*#?)${number}(?!\\d)`, "i").test(prompt);
+  return mentionsNumber ? "same-task" : null;
 }
 
 export function parseTaskRelation(value: unknown): TaskRelation {
@@ -109,10 +151,12 @@ export function checkSubmittedTask(input: {
 }): PredicateHit | null {
   const previous = input.submitted;
   if (!previous || previous.repo !== input.repo || previous.branch !== input.branch) return null;
-  if (previous.task === input.task && previous.relation === "same-task") return null;
+  // 宣言タスクどうしの時だけ同一性を比べる。 旧形式 (指示文の要約) は毎回変わるので比べない。
+  const taskChanged = previous.declared === true && previous.task !== input.task;
+  if (!taskChanged && previous.relation === "same-task") return null;
   return {
     rule: "submitted-task-boundary", decision: "deny",
-    reason: previous.task !== input.task || previous.relation === "new-task"
+    reason: taskChanged || previous.relation === "new-task"
       ? `PR ${previous.pr} 提出済みの ${input.branch} に別作業を混ぜることはできません。`
       : `PR ${previous.pr} 提出後の作業が同じPRの修正か未確認です。`,
     suggestion: "同一PRの修正は意図判定を行い、別作業は未コミット変更を保持してローカルmain起点の新しいworktreeへ切り替え、作業登録してください。"

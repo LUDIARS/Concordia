@@ -35,6 +35,7 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
 }
 import { BLANK_SESSION_TASK } from "../../shared/session-task.js";
 import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
+import { DECLARED_TASK_METADATA_KEY } from "../../harness/reliability/task-branch-policy.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -475,6 +476,11 @@ app.patch("/:id", async (c) => {
     const didChangeTask = parsed.data.current_task !== undefined && parsed.data.current_task !== session.current_task;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);
+    // PATCH の current_task はセッションの作業宣言 (lictor cli task set)。 current_task 列は人間の
+    // 指示のたびに要約で上書きされるので、提出済み PR の境界判定用に宣言を別に残す。
+    if (parsed.data.current_task !== undefined) {
+      deps.repo.mergeMetadata(id, { [DECLARED_TASK_METADATA_KEY]: parsed.data.current_task });
+    }
     if (didChangeBranch || columnPatch.repo_path !== undefined || columnPatch.repo_origin !== undefined
       || (columnPatch.target_project !== undefined && columnPatch.target_project !== session.target_project)) {
       // ポリシー再計算は Excubitor → Revisor の 2 段 HTTP を挟むので、 応答を待つと

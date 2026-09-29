@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
-import { checkRegisteredCheckout, checkSubmittedTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
+import { checkRegisteredCheckout, checkSubmittedTask, deterministicTaskRelation, describeSubmittedTask, readDeclaredTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
 import { makeTestDb } from "../helpers/db.js";
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { analyzePromptWithLocalLlm } from "../../src/harness/local-prompt-analyzer.js";
@@ -55,7 +55,7 @@ const submitted: SubmittedTask = { repo: resolve("fixture"), branch: "feature/sc
 
 describe("submitted work boundary", () => {
   it("does not confuse a new task with review fixes even when the classifier says same-task", () => {
-    expect(checkSubmittedTask({ ...submitted, submitted: { ...submitted, relation: "same-task" }, task: "UI colors" })?.decision).toBe("deny");
+    expect(checkSubmittedTask({ ...submitted, submitted: { ...submitted, relation: "same-task", declared: true }, task: "UI colors" })?.decision).toBe("deny");
     expect(checkSubmittedTask({ ...submitted, submitted: { ...submitted, relation: "same-task" } })).toBeNull();
     expect(checkSubmittedTask({ ...submitted, submitted })?.decision).toBe("deny");
     expect(checkSubmittedTask({ ...submitted, submitted, branch: "feature/new" })).toBeNull();
@@ -91,6 +91,7 @@ describe("submitted work boundary", () => {
       sessions.insertSession({ id: "task-test", provider: "claude-code", repo_path: submitted.repo, repo_origin: null,
         branch: submitted.branch, host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: '{"unrelated":true}' });
       sessions.patchSession("task-test", { current_task: submitted.task });
+      sessions.mergeMetadata("task-test", { declared_task: submitted.task });
       const service = new TaskBranchService(sessions, async () => ({ repo: submitted.repo, branch: submitted.branch, mainExists: true }));
       service.submitted("task-test", submitted, submitted.pr);
       const older = service.beginClassification("task-test");
@@ -99,7 +100,7 @@ describe("submitted work boundary", () => {
       expect(service.read("task-test")?.relation).toBe("unknown");
       service.classify("task-test", newer, "same-task");
       expect(await service.gate("task-test", { tool: "Edit", cwd: submitted.repo })).toBeNull();
-      sessions.patchSession("task-test", { current_task: "UI colors" });
+      sessions.mergeMetadata("task-test", { declared_task: "UI colors" });
       const app = new Hono();
       app.route("/v1/harness", harnessSessionRouter({ audit: new HarnessAuditRepo(db), rules: new HarnessRulesRepo(db), taskBranches: service }));
       const response = await app.request("/v1/harness/gate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: "task-test", action: { tool: "Edit", cwd: submitted.repo, branch: submitted.branch, filePath: resolve("fixture/a.ts") } }) });
@@ -169,6 +170,64 @@ describe("merged submission releases the boundary (TB-MERGED)", () => {
     try {
       expect((await service.gate("merged-test", edit))?.rule).toBe("submitted-task-boundary");
       expect(service.read("merged-test")?.pr).toBe("pr-2");
+    } finally { db.close(); }
+  });
+});
+
+// 2026-09-29: current_task 列は人間の指示のたびに要約で上書きされるため、提出後の同一 PR 修正が
+// 「別作業」扱いで止まっていた (Astra With Sidecar PR #2150)。 宣言タスクで比べ、PR を直接指す
+// 指示は決定的に same-task とする。
+describe("submitted boundary follows the declared task (TB-DECLARED)", () => {
+  const labelled: SubmittedTask = { ...submitted, declared: true, label: "LUDIARS/Concordia#2150 feat: Astra With Sidecar" };
+
+  it("does not compare legacy snapshots whose task was a prompt summary", () => {
+    const legacy = { ...submitted, relation: "same-task" as const };
+    expect(checkSubmittedTask({ ...submitted, submitted: legacy, task: "次の指示の要約" })).toBeNull();
+    expect(checkSubmittedTask({ ...submitted, submitted: { ...legacy, relation: "unknown" }, task: "x" })?.decision).toBe("deny");
+  });
+
+  it("treats a prompt that names the submitted PR or branch as the same task", () => {
+    expect(deterministicTaskRelation("PR 2150 の修正を続けて", labelled)).toBe("same-task");
+    expect(deterministicTaskRelation("🔴 Revisor レビュー完了: LUDIARS/Concordia#2150 はマージできません。", labelled)).toBe("same-task");
+    expect(deterministicTaskRelation("feature/score の指摘を直して", labelled)).toBe("same-task");
+    expect(deterministicTaskRelation("PR 21500 を見て", labelled)).toBeNull();
+    expect(deterministicTaskRelation("PR 2150 とは別に UI を直して", labelled)).toBeNull();
+    expect(deterministicTaskRelation("色を変えて", labelled)).toBeNull();
+    expect(deterministicTaskRelation("PR 2150 を直して", { ...labelled, label: undefined })).toBeNull();
+  });
+
+  it("describes the submitted PR to the classifier", () => {
+    expect(describeSubmittedTask(labelled)).toBe("score (PR: LUDIARS/Concordia#2150 feat: Astra With Sidecar, branch: feature/score)");
+    expect(describeSubmittedTask(submitted)).toBe("score");
+  });
+
+  it("records the declared task and label, and releases the gate on a direct PR reference", async () => {
+    const db = makeTestDb();
+    try {
+      const sessions = new SessionsRepo(db);
+      sessions.insertSession({ id: "decl-test", provider: "claude-code", repo_path: submitted.repo, repo_origin: null,
+        branch: submitted.branch, host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null });
+      sessions.mergeMetadata("decl-test", { declared_task: "Astra With Sidecar 実装" });
+      sessions.patchSession("decl-test", { current_task: "次の作業の指示" });
+      expect(readDeclaredTask(sessions.findSession("decl-test")!)).toBe("Astra With Sidecar 実装");
+      const service = new TaskBranchService(sessions, async () => ({ repo: submitted.repo, branch: submitted.branch, mainExists: true }));
+      service.submitted("decl-test", { repo: submitted.repo, branch: submitted.branch, label: labelled.label }, "pr-1");
+      expect(service.read("decl-test")).toMatchObject({ task: "Astra With Sidecar 実装", declared: true, label: labelled.label });
+
+      // 指示の要約が変わっても、宣言タスクが同じなら境界の同一性は保たれる。
+      sessions.patchSession("decl-test", { current_task: "PR 2150 の修正を続けて" });
+      const decided = service.beginClassification("decl-test", "PR 2150 の修正を続けて");
+      expect(decided).toMatchObject({ relation: "same-task", decided: true });
+      expect(await service.gate("decl-test", { tool: "Edit", cwd: submitted.repo })).toBeNull();
+
+      // 別の指示は分類待ちに戻る。
+      expect(service.beginClassification("decl-test", "色を変えて")?.decided).toBeUndefined();
+      expect((await service.gate("decl-test", { tool: "Edit", cwd: submitted.repo }))?.rule).toBe("submitted-task-boundary");
+
+      // 宣言そのものを別の作業へ変えたら、分類結果に関係なく拒否する。
+      sessions.mergeMetadata("decl-test", { declared_task: "別の機能" });
+      service.beginClassification("decl-test", "PR 2150 の修正を続けて");
+      expect((await service.gate("decl-test", { tool: "Edit", cwd: submitted.repo }))?.reason).toContain("別作業");
     } finally { db.close(); }
   });
 });

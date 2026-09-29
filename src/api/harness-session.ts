@@ -37,7 +37,7 @@ import { collectPromptResearch } from "../harness/prompt-research.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { workflowGuidance } from "../harness/reliability/workflow-guidance.js";
 import type { TaskBranchService } from "../harness/reliability/task-branch-service.js";
-import { taskStartWarning } from "../harness/reliability/task-branch-policy.js";
+import { describeSubmittedTask, taskStartWarning } from "../harness/reliability/task-branch-policy.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
 
@@ -388,9 +388,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
     const rules: IntentHarnessRule[] = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
-    const submittedTask = session_id ? deps.taskBranches?.beginClassification(session_id) ?? null : null;
+    const submittedTask = session_id ? deps.taskBranches?.beginClassification(session_id, prompt) ?? null : null;
     const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates,
-      submittedTask: submittedTask?.task };
+      submittedTask: submittedTask ? describeSubmittedTask(submittedTask) : undefined };
     const mode = promptAnalyzerMode();
     const analyzed = mode === "off"
       ? heuristicPromptAnalysis(intentContext)
@@ -398,7 +398,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         ? await analyzePromptWithClaudeModel(intentContext, deps.runClaude, { model: mode === "haiku" ? "haiku" : INTENT_MODEL })
         : await analyzePromptWithLocalLlm(intentContext);
     const { raw, analysis, source } = analyzed;
-    if (session_id) deps.taskBranches?.classify(session_id, submittedTask, analysis.task_relation ?? "unknown");
+    // 決定的に same-task と確定した指示は、分類器の結果で上書きしない。
+    const taskRelation = submittedTask?.decided ? "same-task" : analysis.task_relation ?? "unknown";
+    if (session_id && !submittedTask?.decided) deps.taskBranches?.classify(session_id, submittedTask, taskRelation);
     const workflowGuides = workflowGuidance(prompt, analysis.search_tags);
     let verdict = analyzed.verdict;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideIntent"]>> | undefined;
@@ -413,7 +415,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       }
     }
     const branchWarning = deps.taskBranches ? taskStartWarning(branch) : "";
-    const taskWarning = submittedTask && analysis.task_relation !== "same-task"
+    const taskWarning = submittedTask && taskRelation !== "same-task"
       ? "PR提出後の別作業または同一作業か未確認です。ローカルmain起点で作業を分離し、実ブランチと登録タスクを照合してください。" : "";
     if (branchWarning || taskWarning) verdict = { ...verdict, decision: "warn",
       concerns: [...verdict.concerns, "task-branch-boundary"],

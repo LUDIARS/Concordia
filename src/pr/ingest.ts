@@ -69,7 +69,8 @@ export function startPrIngestWatcher(deps: PrIngestDeps): PrIngestHandle {
         if (pr.head_branch && pr.head_branch === session.branch && session.repo_origin
           && normalizeRepoOrigin(session.repo_origin) === pr.repo_origin) {
           new TaskBranchService(deps.sessions).submitted(session.id, {
-            repo: session.repo_path, branch: pr.head_branch, task: session.current_task || "",
+            repo: session.repo_path, branch: pr.head_branch,
+            label: `${pr.repo_origin}#${pr.number} ${pr.title ?? ""}`.trim(),
           }, pr.url || pr.repo_origin + "#" + pr.number);
         }
       }

@@ -1150,9 +1150,11 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     ).then((outcome) => {
       if ("pullRequest" in outcome && outcome.pullRequest) {
+        const pr = outcome.pullRequest;
         new TaskBranchService(repo).submitted(session.id, {
-          repo: session.repo_path, branch: session.branch || "", task: session.current_task || "",
-        }, outcome.pullRequest.id);
+          repo: session.repo_path, branch: session.branch || "",
+          label: `${pr.repository ?? session.repo_origin ?? ""}#${pr.number ?? "?"} ${pr.title ?? ""}`.trim(),
+        }, pr.id);
       }
       // 提出できたときだけドメインレビューを流す (設計書 §8.2 C-4 の契機 b)。
       // 投稿は提出の副次的な成果物なので、 待たず失敗も伝播させない。

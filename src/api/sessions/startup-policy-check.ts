@@ -14,6 +14,7 @@ import { createProjectResolver } from "../../projects/project-resolver.js";
 import { contextEvidenceKey, hasConfirmedContextPresence } from "../../control/inject-context-presence.js";
 import { resolveMajorInjectText } from "../../control/major-inject-resolver.js";
 import { selectContextScope } from "../../control/inject-context-scope.js";
+import { deliverProjectRules } from "../../control/project-rules-delivery.js";
 
 export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks">;
 const log = createChildLogger("startup-policy");
@@ -74,6 +75,13 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
     deps.repo.updateMetadata(id, (metadata) => ({ ...metadata, [STARTUP_POLICY_KEY]: policy }));
     eventBus.emit({ type: "session.inject", target_session_id: id, text, source: SESSION_WORK_POLICY_SOURCE, ts });
   }
+  // 登録が確定したプロジェクト (と触った別リポのプロジェクト) の実装ポリシー / ルール本文を届ける。
+  // 起動案内の後に送るので、案内の資料パスとルール本文の順序が入れ替わらない。
+  await deliverProjectRules({
+    repo: deps.repo,
+    projects: () => deps.projectCodes?.list() ?? [],
+    workspaceRoots: () => deps.resolveWorkspaceRoots?.() ?? [],
+  }, id).catch((err) => log.warn({ err, session_id: id }, "project rules delivery failed"));
   return { revision: policy.revision, changed: !!text, delivery: "unconfirmed" };
 }
 

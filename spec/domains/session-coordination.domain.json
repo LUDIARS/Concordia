@@ -49,6 +49,7 @@
     "spec/ux/session-coordination.md",
     "spec/architecture/ddd.md",
     "spec/feature/delegation-spawn-target-validation.md",
-    "spec/feature/inject-context-gating.md"
+    "spec/feature/inject-context-gating.md",
+    "spec/feature/project-rules-inject.md"
   ]
 }

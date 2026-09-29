@@ -2190,6 +2190,20 @@
       "contracts": [
         "CC-COMMAND-CATALOG-01"
       ]
+    },
+    {
+      "source": "src/control/project-rules-inject.ts",
+      "tests": [
+        "src/control/project-rules-inject.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/project-rules-delivery.ts",
+      "tests": [
+        "src/control/project-rules-delivery.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

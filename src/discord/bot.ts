@@ -49,6 +49,7 @@ import { replayPersistedTranscript, type TranscriptReplaySource } from "./transc
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
 import { postDelegationThreadLink } from "./delegation-thread-link.js";
 import { takeInjectAck } from "./inject-ack.js";
+import { ccInjectMirrorPost } from "./cc-inject-mirror.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
@@ -2750,14 +2751,27 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 環境同期: 相手プラットフォーム(Slack)由来の inject を Discord の session channel
       // にも発言者付きで転記する。Discord 由来は元発言が既に表示済なので転記しない。
       // 制御 inject (/enter 等、source 例 "discord-enter") は ^slack: に一致せず除外。
-      if (parseInjectSource(src).platform !== "slack") return;
+      if (parseInjectSource(src).platform === "slack") {
+        if (!isActiveDiscordSession(ev.target_session_id)) return;
+        const who = ev.author_label?.trim() || "Slack user";
+        void (async () => {
+          const client = await webhooks.getForSession(ev.target_session_id);
+          if (!client) return;
+          await webhooks.send(client, { content: ev.text.slice(0, 1900), username: `🔁 Slack / ${who}` });
+        })().catch((e) => log.warn(`slack inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`));
+        return;
+      }
+      // Cc 由来 inject (作業ポリシー更新 / 委託の状態通知 / auto:inquiry 等) は PTY に入る
+      // だけで Discord にも transcript にも残らないので、 session thread へ転記する。
+      // 転記対象の判定は ccInjectMirrorPost (spec/feature/discord-session-task-post.md §3.6)。
+      const ccPost = ccInjectMirrorPost({ source: src, text: ev.text });
+      if (!ccPost) return;
       if (!isActiveDiscordSession(ev.target_session_id)) return;
-      const who = ev.author_label?.trim() || "Slack user";
       void (async () => {
         const client = await webhooks.getForSession(ev.target_session_id);
         if (!client) return;
-        await webhooks.send(client, { content: ev.text.slice(0, 1900), username: `🔁 Slack / ${who}` });
-      })().catch((e) => log.warn(`slack inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`));
+        await webhooks.send(client, { content: ccPost.content, username: ccPost.username });
+      })().catch((e) => log.warn(`cc inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`));
     }
   }
 

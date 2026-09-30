@@ -78,8 +78,8 @@ Cc spawn でないセッション (利用者が自分の端末で起動したも
 | `parent` | `parent` | 📮 **委託元からの追加指示** |
 | `followup-memoria` | `supplement` | 📎 **補足** |
 
-委託由来でない source (`slack:<user>` / `discord-enter` 等) は従来どおり扱う
-(Slack 由来のみ発言者付きで転記)。
+委託由来でない source のうち、Slack 由来 (`slack:<user>`) は発言者付きで転記する。
+それ以外の Cc 由来 inject は §3.6 のとおり `⚙️ Cc inject / <source>` 名義で転記する。
 
 ### 3.3 pin 方針
 
@@ -116,6 +116,32 @@ Discord は空 message を拒否するので投稿はしないが、`discord_sta
 タスク本文投稿は直列化する。各投稿は実行直前に relay state を読み直し、先行投稿が
 記録した `discord_task_pinned` を後続投稿の pin 判定へ反映する。これにより、同一
 セッションで複数のタスク本文が同時に処理されても、pin 対象は最大 1 通に保たれる。
+
+### 3.6 Cc 由来 inject の転記
+
+Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 系 / テスト交通整備
+`testing-traffic` / 委託の状態通知 `delegation:<run>:status|continue|commit|watchdog` /
+`auto:inquiry` / director / reaction workflow / session end の insurance など) は PTY に
+入るだけで Discord にも transcript にも残らない。すべて eventBus の `session.inject` を
+通るので、bot がそこで session thread へ転記する (2026-09-30 neco 指示)。
+遠隔からでも Cc がセッションに何を伝えたか追え、停止と確認待ちを見分けて引き継げる
+(UX-CC-SC-W2)。
+
+判定と文面は `src/discord/cc-inject-mirror.ts` の `ccInjectMirrorPost()` (純関数) が持つ。
+
+| 条件 | 転記 |
+| --- | --- |
+| 本文が空 (trim 後) / `ENTER_KEY_TEXT` | ❌ 制御 inject |
+| source が `discord` / `discord-enter` / `discord:` 始まり | ❌ 元発言・操作が Discord に見えている |
+| source が `slack:<user>` | ❌ ここでは扱わない (§3.2 の Slack 転記) |
+| source が委託タスク本文 (`taskKindForInjectSource` が非 null) | ❌ §3.2 のタスク本文投稿 |
+| source が `auto:stall-nudge` | ❌ 自動確認は本文を出さず事実だけ通知する (2026-08-25 neco 指示) |
+| それ以外 | ✅ |
+
+- username は `⚙️ Cc inject / <source>` (source 空なら `unknown`)、80 文字で切る。
+- 本文は trim 済み。1900 文字を超えたら末尾の改行 + `…(以下省略)` を含めて 1900 文字に切る
+  (Discord の 2000 文字上限で拒否されないため)。
+- 送信は `isActiveDiscordSession` 確認後の webhook 送信で best-effort。失敗は warn ログのみ。
 
 ## 4. 関連
 

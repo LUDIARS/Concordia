@@ -2027,6 +2027,11 @@
       "contracts": []
     },
     {
+      "source": "src/discord/cc-inject-mirror.ts",
+      "tests": ["src/discord/cc-inject-mirror.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/discord/session-task-post.ts",
       "tests": ["src/discord/session-task-post.test.ts"],
       "contracts": []

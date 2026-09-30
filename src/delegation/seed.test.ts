@@ -105,7 +105,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("claude-opus-4-8-impl")).toBeNull();
-    const opus5 = repo.findTemplateByCallName("opus-mid");
+    const opus5 = repo.findTemplateByCallName("opus-5-5-movable");
     expect(opus5?.is_active).toBe(1);
     expect(opus5?.model).toBe("claude-opus-5-5");
   });
@@ -114,7 +114,7 @@ describe("seedDelegationTemplates", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    for (const callName of ["opus-mid", "opus-xhigh"]) {
+    for (const callName of ["opus-5-5-movable"]) {
       expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5-5");
     }
     expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5-5");
@@ -182,11 +182,9 @@ describe("seedDelegationTemplates", () => {
       "luna",
       "impl-from-design",
       "fix-bug",
-      "opus-xhigh",
-      "opus-mid",
+      "opus-5-5-movable",
       "sonnet-mid",
-      "fable-mid",
-      "fable-xhigh",
+      "fable-5-1-movable",
       "haiku",
       "gemma4-12-impl",
     ];
@@ -393,6 +391,10 @@ describe("seedDelegationTemplates", () => {
       "codex-5-6-terra",
       "opus4-8",
       "review-sonnet5",
+      "opus-mid",
+      "opus-xhigh",
+      "fable-mid",
+      "fable-xhigh",
     ]) {
       repo.createTemplate({
         call_name: callName,
@@ -403,12 +405,12 @@ describe("seedDelegationTemplates", () => {
     }
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("fable-mid")).toMatchObject({
+    expect(repo.findTemplateByCallName("fable-5-1-movable")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
       model: "claude-fable-5-1",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("fable-5-1-movable")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     // Astra は claude 既定の implementationTemplate を codex provider で使う。
     // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
@@ -443,24 +445,22 @@ describe("seedDelegationTemplates", () => {
       model: "gpt-6-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
-    expect(repo.findTemplateByCallName("opus-xhigh")).toMatchObject({
+    expect(repo.findTemplateByCallName("opus-5-5-movable")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
       model: "claude-opus-5-5",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("opus-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
-    expect(repo.findTemplateByCallName("opus-mid")).toMatchObject({
-      is_active: 1,
-      target_provider: "claude",
-      model: "claude-opus-5-5",
-    });
-    expect(JSON.parse(repo.findTemplateByCallName("opus-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
-    expect(repo.findTemplateByCallName("fable-xhigh")).toMatchObject({
-      is_active: 1,
-      target_provider: "claude",
-      model: "claude-fable-5-1",
-    });
-    expect(JSON.parse(repo.findTemplateByCallName("fable-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("opus-5-5-movable")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    // effort 固定の旧プロファイルは movable へ統合した (2026-09-29 neco 指示)。
+    for (const legacy of ["opus-mid", "opus-xhigh", "fable-mid", "fable-xhigh"]) {
+      expect(repo.findTemplateByCallName(legacy)).toBeNull();
+    }
+    for (const callName of ["opus-5-5-movable", "fable-5-1-movable"]) {
+      const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
+      expect(prompt).toContain("Effort is movable");
+      expect(prompt).toContain("/v1/sessions/<your Concordia session id>/effort");
+    }
+    expect(repo.findTemplateByCallName("sonnet-mid")?.prompt_template).not.toContain("Effort is movable");
     expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");
     expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-6-luna");
     expect(JSON.parse(repo.findTemplateByCallName("luna")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });

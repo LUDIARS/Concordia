@@ -84,6 +84,11 @@ const LEGACY_DELEGATION_CALL_NAMES = [
   "codex-5-6-terra",
   "opus4-8",
   "review-sonnet5",
+  // 2026-09-29: effort 固定の Opus / Fable プロファイルは movable 1 本へ統合した。
+  "opus-mid",
+  "opus-xhigh",
+  "fable-mid",
+  "fable-xhigh",
 ] as const;
 
 /**
@@ -171,6 +176,8 @@ function implementationTemplate(opts: {
   /** 省略時は claude。 Codex 系プロファイルは "codex" を渡す。 */
   provider?: DelegationProvider;
   runtimeOptions?: Record<string, unknown>;
+  /** true = effort を起動時に固定しない (movable)。 実行中に自分で変える手順を本文へ足す。 */
+  movable?: boolean;
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
@@ -195,6 +202,7 @@ function implementationTemplate(opts: {
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
       IMPLEMENTATION_COMPLETION_INSTRUCTION,
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
+      ...(opts.movable ? MOVABLE_EFFORT_INSTRUCTIONS : []),
       "",
       "Report the PR URL when done.",
     ].join("\n"),
@@ -207,6 +215,17 @@ function implementationTemplate(opts: {
     is_active: true,
   };
 }
+
+/**
+ * movable プロファイル (2026-09-29 neco 指示): Opus / Fable は作業中に effort を変えられるので、
+ * 起動時の effort は medium から始め、難所だけ上げ・定型作業では下げる。 変更は Cc の
+ * POST /v1/sessions/:id/effort を通し、Cc が Discord スレッドへ通知する (spec/feature/effort-movable.md)。
+ */
+const MOVABLE_EFFORT_INSTRUCTIONS = [
+  "- Effort is movable: you start at medium. Raise it only for genuinely hard reasoning (design trade-offs, subtle bugs) and lower it again for routine edits.",
+  "  To change it, POST /v1/sessions/<your Concordia session id>/effort with {\"effort\": \"low|medium|high|xhigh|max\", \"actor\": \"session\", \"reason\": \"<why>\"}.",
+  "  Concordia applies it and posts the change to your Discord thread. Changing effort may rebuild the conversation cache, so do not flip it back and forth.",
+];
 
 /**
  * Astra With Sidecar (spec/feature/astra-with-sidecar.md)。 親 Astra が判断し、範囲の定まった
@@ -532,14 +551,17 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   // ── 実装プロファイル ───────────────────────────────────────────────
   // call_name はモデル名ではなく、選ぶべき能力と effort を表す。起動側の
   // provider/model/runtime_options も同じプロファイル定義で固定する。
+  // Opus / Fable は effort を作業中に変えられるので、 mid / xhigh の固定プロファイルを
+  // movable 1 本に統合した (2026-09-29 neco 指示)。 call_name にはモデルの版を含める。
   implementationTemplate({
-    callName: "fable-mid",
-    label: "Fable / mid",
-    note: "高速。軽量〜中規模タスク向き。",
+    callName: "fable-5-1-movable",
+    label: "Fable 5.1 / movable",
+    note: "高速。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-fable-5-1",
     emoji: "🦸",
     sortOrder: 10,
     runtimeOptions: { effort: "medium", thinking: false },
+    movable: true,
   }),
   // GPT-6 Astra (2026-09 追加)。 Codex 側の最上位プロファイル。
   implementationTemplate({
@@ -565,31 +587,14 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   }),
   ASTRA_WITH_SIDECAR_TEMPLATE,
   implementationTemplate({
-    callName: "opus-xhigh",
-    label: "Opus / xhigh",
-    note: "最上位の推論が必要な設計判断や難所の実装向き。",
+    callName: "opus-5-5-movable",
+    label: "Opus 5.5 / movable",
+    note: "設計判断や難所の実装向き。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-opus-5-5",
     emoji: "🧙‍♂️",
     sortOrder: 30,
-    runtimeOptions: { effort: "xhigh", thinking: false },
-  }),
-  implementationTemplate({
-    callName: "opus-mid",
-    label: "Opus / mid",
-    note: "設計判断や難所の実装向き。",
-    model: "claude-opus-5-5",
-    emoji: "🧙‍♂️",
-    sortOrder: 35,
     runtimeOptions: { effort: "medium", thinking: false },
-  }),
-  implementationTemplate({
-    callName: "fable-xhigh",
-    label: "Fable / xhigh",
-    note: "高速モデルが必要だが、深い推論も要する実装向き。",
-    model: "claude-fable-5-1",
-    emoji: "🦸",
-    sortOrder: 40,
-    runtimeOptions: { effort: "xhigh", thinking: false },
+    movable: true,
   }),
   implementationTemplate({
     callName: "sonnet-mid",

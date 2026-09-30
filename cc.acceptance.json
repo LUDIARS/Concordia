@@ -2192,6 +2192,28 @@
       ]
     },
     {
+      "source": "src/contract/effort-change.ts",
+      "tests": [
+        "src/contract/effort-change.test.ts",
+        "src/api/sessions/contract.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/sessions/contract.ts",
+      "tests": [
+        "src/api/sessions/contract.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/commands/effort.ts",
+      "tests": [
+        "src/discord/commands/effort.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/delegation/sidecar/profile.ts",
       "tests": [
         "src/delegation/sidecar/profile.test.ts",

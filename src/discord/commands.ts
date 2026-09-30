@@ -18,6 +18,7 @@ import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
+import effortCommand from "./commands/effort.js";
 import relictorCommand from "./commands/relictor.js";
 import handoverCommand from "./commands/handover.js";
 import confirmCommand from "./commands/confirm.js";
@@ -82,6 +83,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   compactionCommand,
   contextCommand,
   goalCommand,
+  effortCommand,
   relictorCommand,
   handoverCommand,
   confirmCommand,
@@ -385,6 +387,11 @@ const PRIVILEGED_SPAWN_APPROVAL: PrivilegedInteraction = {
   denyMessage: "Spawn の一回許可は執行役員のみ回答できます。",
   check: (deps) => deps.isKillSwitchUserAllowed,
 };
+const PRIVILEGED_EFFORT_CHANGE: PrivilegedInteraction = {
+  capability: "session_spawn",
+  denyMessage: "このユーザーには effort の変更権限がありません (管理職以上が必要)。",
+  check: (deps) => deps.isLaunchUserAllowed,
+};
 const PRIVILEGED_PLAN_DECISION: PrivilegedInteraction = {
   capability: "session_spawn",
   denyMessage: "このユーザーにはプラン承認・受け入れ権限がありません (管理職以上が必要)。",
@@ -416,6 +423,8 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
+    // effort は費用に直結するので起動と同じ権限を要求する。
+    if (interaction.commandName === "co-effort") return PRIVILEGED_EFFORT_CHANGE;
     // `/project-code add` は repository binding の正本を書き換え、以後の spawn 先を
     // 決めてしまう。読み取り専用の list は `/projects` と同じ一般参照面のままにする。
     if (

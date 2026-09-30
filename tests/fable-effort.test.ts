@@ -60,12 +60,12 @@ describe("Fable delegation reasoning effort", () => {
     rmSync(promptsDir, { recursive: true, force: true });
   });
 
-  it("advertises medium and xhigh for both seeded Fable templates", async () => {
+  it("advertises medium and xhigh for the seeded Fable templates", async () => {
     const response = await app.request("/v1/delegation/templates");
     expect(response.status).toBe(200);
     const body = (await response.json()) as { templates: TemplateDto[] };
 
-    for (const callName of ["fable-mid", "fable-xhigh", "design-hard-fable5"]) {
+    for (const callName of ["fable-5-1-movable", "design-hard-fable5"]) {
       const template = body.templates.find((item) => item.call_name === callName);
       expect(template?.model).toBe("claude-fable-5-1");
       const effort = template?.runtime_options.find((option) => option.key === "effort");
@@ -82,7 +82,7 @@ describe("Fable delegation reasoning effort", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          call_name: "fable-mid",
+          call_name: "fable-5-1-movable",
           args: {
             task: `exercise ${effort} effort`,
             target_repo: process.cwd(),
@@ -109,7 +109,7 @@ describe("Fable delegation reasoning effort", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-          call_name: "fable-mid",
+          call_name: "fable-5-1-movable",
         args: {
           task: "exercise invalid effort validation",
           target_repo: process.cwd(),

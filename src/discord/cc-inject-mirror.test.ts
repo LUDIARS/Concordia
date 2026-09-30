@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  CC_INJECT_MIRROR_MAX_CONTENT,
   CC_INJECT_MIRROR_MAX_USERNAME,
+  CC_INJECT_SUMMARY_MAX,
   STALL_NUDGE_INJECT_SOURCE,
   ccInjectMirrorPost,
+  summarizeCcInject,
 } from "./cc-inject-mirror.js";
 
 describe("ccInjectMirrorPost", () => {
@@ -51,15 +52,17 @@ describe("ccInjectMirrorPost", () => {
     expect(ccInjectMirrorPost({ source: "session-work-policy", text: "  \n " })).toBeNull();
   });
 
-  it("truncates long content to the Discord-safe limit with a suffix", () => {
-    const post = ccInjectMirrorPost({ source: "auto:inquiry", text: "a".repeat(2500) });
-    expect(post?.content.length).toBe(CC_INJECT_MIRROR_MAX_CONTENT);
-    expect(post?.content.endsWith("\n…(以下省略)")).toBe(true);
+  it("posts a one-line summary instead of the full body", () => {
+    const post = ccInjectMirrorPost({
+      source: "testing-traffic",
+      text: "⚠️ ブランチ切替を検知しました (main → feat/x)。\n再起動・起動テストは Excubitor 経由で…\n現在テスト中のサービスはありません。",
+    });
+    expect(post?.content).toBe("⚠️ ブランチ切替を検知しました (main → feat/x)。");
   });
 
-  it("keeps content at exactly the limit untouched", () => {
-    const text = "b".repeat(CC_INJECT_MIRROR_MAX_CONTENT);
-    expect(ccInjectMirrorPost({ source: "auto:inquiry", text })?.content).toBe(text);
+  it("keeps the notice within the summary limit for a long body", () => {
+    const post = ccInjectMirrorPost({ source: "auto:inquiry", text: "a".repeat(2500) });
+    expect(post?.content).toBe(`${"a".repeat(CC_INJECT_SUMMARY_MAX - 1)}…`);
   });
 
   it("caps username at 80 characters", () => {
@@ -68,3 +71,68 @@ describe("ccInjectMirrorPost", () => {
     expect(post?.username.startsWith("⚙️ Cc inject / reaction:")).toBe(true);
   });
 });
+
+describe("summarizeCcInject", () => {
+  // 代表文面は各 inject の組み立て元 (ラベルのファイル) と同じ形。
+  it.each([
+    [
+      "policy update (src/control/startup-policy.ts)",
+      "[Cc policy update]\nrepo: E:/Document/Ars/Concordia\nbranch: main\nworkPolicy: 作業ポリシー本文\n- 箇条書き\n必須設定は実行許可を追加しません。\n[Cc policy revision: abc123]",
+      "Cc policy update: repo / branch / workPolicy",
+    ],
+    [
+      "policy update with a withdrawal notice (src/control/startup-policy.ts)",
+      "[Cc policy update]\n過去の起動案内に含まれるワークフロー判定・提出手順は無効です。\nprocess: 手順\nprocess: 重複\n必須設定は実行許可を追加しません。\n[Cc policy revision: abc123]",
+      "Cc policy update: process",
+    ],
+    [
+      "project rules (src/control/project-rules-inject.ts)",
+      "[Cc project rules] Cc (E:/Document/Ars/Concordia)\nこのセッションの作業対象にこのプロジェクトが加わりました。\n\n## CLAUDE.md — CLAUDE.md\n本文",
+      "Cc project rules: Cc (E:/Document/Ars/Concordia)",
+    ],
+    [
+      "branch switch (src/testing/branch-watch.ts)",
+      "⚠️ ブランチ切替を検知しました (main → feat/x)。\n再起動・起動テストは Excubitor 経由で…\n  POST http://127.0.0.1:11111/v1/testing/claim {}",
+      "⚠️ ブランチ切替を検知しました (main → feat/x)。",
+    ],
+    [
+      "testing traffic conflict (src/testing/notify.ts via src/api/testing.ts)",
+      "⚠️ テスト交通整備: サービス「Cc」は現在 s-1 (note なし) もテスト中です。競合しないよう調整してください。",
+      "⚠️ テスト交通整備: サービス「Cc」は現在 s-1 (note なし) もテスト中です。競合しないよう調整してください。",
+    ],
+    [
+      "goal-and-go (src/control/goal-and-go.ts)",
+      "[Concordia goal-and-go 1/3]\n人間から新しい入力がないため、自走継続の判断を行ってください。\n明示ゴールは登録されていません。",
+      "Concordia goal-and-go 1/3: 人間から新しい入力がないため、自走継続の判断を行ってください。",
+    ],
+    [
+      "session followup (src/control/session-followup-state.ts)",
+      "[自動確認] Cc の作業状態に応じた確認です。\nworkflow=cc; state=unknown\nActio タスクの現状態を正本として確認し…",
+      "自動確認: Cc の作業状態に応じた確認です。",
+    ],
+  ])("summarizes %s into one line", (_label, text, expected) => {
+    expect(summarizeCcInject(text)).toBe(expected);
+  });
+
+  it("lists at most five keys and marks the rest with ほか", () => {
+    const text = ["[Cc policy update]", "a: 1", "b: 2", "c: 3", "d: 4", "e: 5", "f: 6"].join("\n");
+    expect(summarizeCcInject(text)).toBe("Cc policy update: a / b / c / d / e ほか");
+  });
+
+  it("uses the tag alone when nothing follows it", () => {
+    expect(summarizeCcInject("  [Cc policy update]  \n\n  ")).toBe("Cc policy update");
+  });
+
+  it("collapses whitespace and skips leading blank lines", () => {
+    expect(summarizeCcInject("\n\n   hello\t\t  world  \nnext")).toBe("hello world");
+    expect(summarizeCcInject("line one\r\nline two")).toBe("line one");
+  });
+
+  it("truncates to 149 characters plus an ellipsis past the limit", () => {
+    expect(summarizeCcInject("x".repeat(CC_INJECT_SUMMARY_MAX))).toBe("x".repeat(CC_INJECT_SUMMARY_MAX));
+    const long = summarizeCcInject("y".repeat(CC_INJECT_SUMMARY_MAX + 1));
+    expect(Array.from(long)).toHaveLength(CC_INJECT_SUMMARY_MAX);
+    expect(long.endsWith("…")).toBe(true);
+  });
+});
+

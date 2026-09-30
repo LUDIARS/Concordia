@@ -10,7 +10,7 @@ tags:
   - inject
   - session
 status: implemented
-updated: 2026-08-18
+updated: 2026-09-30
 ---
 
 # Discord セッションのタスク本文投稿と pin
@@ -79,7 +79,7 @@ Cc spawn でないセッション (利用者が自分の端末で起動したも
 | `followup-memoria` | `supplement` | 📎 **補足** |
 
 委託由来でない source のうち、Slack 由来 (`slack:<user>`) は発言者付きで転記する。
-それ以外の Cc 由来 inject は §3.6 のとおり `⚙️ Cc inject / <source>` 名義で転記する。
+それ以外の Cc 由来 inject は §3.6 のとおり `⚙️ Cc inject / <source>` 名義で 1 行通知する。
 
 ### 3.3 pin 方針
 
@@ -117,17 +117,19 @@ Discord は空 message を拒否するので投稿はしないが、`discord_sta
 記録した `discord_task_pinned` を後続投稿の pin 判定へ反映する。これにより、同一
 セッションで複数のタスク本文が同時に処理されても、pin 対象は最大 1 通に保たれる。
 
-### 3.6 Cc 由来 inject の転記
+### 3.6 Cc 由来 inject の 1 行通知
 
 Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 系 / テスト交通整備
 `testing-traffic` / 委託の状態通知 `delegation:<run>:status|continue|commit|watchdog` /
 `auto:inquiry` / director / reaction workflow / session end の insurance など) は PTY に
 入るだけで Discord にも transcript にも残らない。すべて eventBus の `session.inject` を
-通るので、bot がそこで session thread へ転記する (2026-09-30 neco 指示)。
+通るので、bot がそこで session thread へ 1 行の要旨を通知する (2026-09-30 neco 指示)。
 遠隔からでも Cc がセッションに何を伝えたか追え、停止と確認待ちを見分けて引き継げる
 (UX-CC-SC-W2)。
 
-判定と文面は `src/discord/cc-inject-mirror.ts` の `ccInjectMirrorPost()` (純関数) が持つ。
+判定と文面は `src/discord/cc-inject-mirror.ts` の `ccInjectMirrorPost()` と `summarizeCcInject()`
+(純関数) が持つ。`src/discord/cc-inject-mirror.contract.ts` は 1 行要旨の Augur observe 述語
+(C-12)、`src/discord/ontime-runtime.ts` はその述語が使う runtime の再公開。
 
 | 条件 | 転記 |
 | --- | --- |
@@ -139,9 +141,31 @@ Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 
 | それ以外 | ✅ |
 
 - username は `⚙️ Cc inject / <source>` (source 空なら `unknown`)、80 文字で切る。
-- 本文は trim 済み。1900 文字を超えたら末尾の改行 + `…(以下省略)` を含めて 1900 文字に切る
-  (Discord の 2000 文字上限で拒否されないため)。
+- 本文は全文ではなく `summarizeCcInject(text)` の 1 行 (下の規則) だけを出す。
 - 送信は `isActiveDiscordSession` 確認後の webhook 送信で best-effort。失敗は warn ログのみ。
+
+変更理由: 当初 (Revisor #2181) は本文を最大 1900 文字で全文転記していたが、policy update や
+project rules は長く、通知として多すぎた (2026-09-30 neco 指示)。何が起きたかだけ分かれば足りる
+ので 1 行に絞る。全文は PTY に届いている。
+
+#### 1 行化の規則 (`summarizeCcInject`)
+
+1. 本文を行分割し、trim して空行を除く。
+2. 先頭行が `[タグ] 残り` (`^\[([^\]]+)\]\s*(.*)$`) なら `タグ: 要旨`。要旨は
+   - 残りが空でなければ残り。
+   - 空なら後続行の `key: value` (`^[A-Za-z][\w.-]*\s*:`) の key を出現順・重複除去で最大 5 個
+     ` / ` 連結 (6 個以上は末尾に ` ほか`)。key 行が無ければ次の行。
+   - 要旨が無ければタグだけ。
+3. それ以外は先頭行そのもの。
+4. 連続空白を 1 つに潰し、150 文字を超えたら 149 文字 + `…`。
+
+| inject | 通知 |
+| --- | --- |
+| 作業ポリシー更新 (`startupPolicyDelta`) | `Cc policy update: repo / branch / workPolicy` |
+| project rules | `Cc project rules: Cc (E:/Document/Ars/Concordia)` |
+| ブランチ切替 (`branch-watch`) | `⚠️ ブランチ切替を検知しました (main → feat/x)。` |
+| goal-and-go | `Concordia goal-and-go 1/3: 人間から新しい入力がないため、…` |
+| 自動確認 (session-followup) | `自動確認: Cc の作業状態に応じた確認です。` |
 
 ## 4. 関連
 

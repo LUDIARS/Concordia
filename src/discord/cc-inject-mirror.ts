@@ -15,6 +15,8 @@
 import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { taskKindForInjectSource } from "./session-task-post.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:71e98731 */
+import augurContract_3fb7485d from './cc-inject-mirror.contract.js'; /* augur-inject:contract-predicate:34b1aaee */
 
 /**
  * 自動確認 (stall nudge) の inject source。 正本は `src/control/stalled-session-nudge.ts` の
@@ -23,12 +25,14 @@ import { taskKindForInjectSource } from "./session-task-post.js";
  */
 export const STALL_NUDGE_INJECT_SOURCE = "auto:stall-nudge";
 
-/** Discord message 本文の上限 (2000) に余裕を持たせた転記上限。 */
-export const CC_INJECT_MIRROR_MAX_CONTENT = 1900;
+/** 1 行通知の上限 (これを超えたら 149 文字 + `…`)。 */
+export const CC_INJECT_SUMMARY_MAX = 150;
 /** Discord webhook username の上限。 */
 export const CC_INJECT_MIRROR_MAX_USERNAME = 80;
 
-const TRUNCATED_SUFFIX = "\n…(以下省略)";
+const TAGGED_LINE = /^\[([^\]]+)\]\s*(.*)$/;
+const KEY_LINE = /^([A-Za-z][\w.-]*)\s*:/;
+const MAX_SUMMARY_KEYS = 5;
 
 export interface CcInjectMirrorPost {
   username: string;
@@ -38,6 +42,42 @@ export interface CcInjectMirrorPost {
 function isDiscordOrigin(source: string): boolean {
   return source === "discord" || source === "discord-enter" || source.startsWith("discord:");
 }
+
+/** 後続行の `key: value` の key を出現順・重複除去で並べる (最大 5 個、 超えたら ` ほか`)。 */
+function summarizeKeys(lines: readonly string[]): string {
+  const keys: string[] = [];
+  for (const line of lines) {
+    const key = KEY_LINE.exec(line)?.[1];
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  if (keys.length === 0) return "";
+  const head = keys.slice(0, MAX_SUMMARY_KEYS).join(" / ");
+  return keys.length > MAX_SUMMARY_KEYS ? `${head} ほか` : head;
+}
+
+function firstLineSummary(lines: readonly string[]): string {
+  const tagged = TAGGED_LINE.exec(lines[0] ?? "");
+  if (!tagged) return lines[0] ?? "";
+  const heading = tagged[1]!.trim();
+  const rest = tagged[2]!.trim();
+  const gist = rest || summarizeKeys(lines.slice(1)) || (lines[1] ?? "");
+  return gist ? `${heading}: ${gist}` : heading;
+}
+
+/**
+ * Cc 由来 inject 本文を 1 行の要旨にする。 `[タグ] 残り` 形の先頭行は `タグ: 要旨`、
+ * それ以外は先頭行そのもの。 連続空白は 1 つに潰し、 150 文字を超えたら 149 文字 + `…`。
+ */
+export function summarizeCcInject(text: string): string {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const line = firstLineSummary(lines).replace(/\s+/g, " ").trim();
+  const chars = Array.from(line);
+  return chars.length > CC_INJECT_SUMMARY_MAX
+    ? chars.slice(0, CC_INJECT_SUMMARY_MAX - 1).join("") + "…"
+    : line;
+}
+// @ts-expect-error augur-inject
+summarizeCcInject = contract(summarizeCcInject, { ...augurContract_3fb7485d, contractId: 'C-12', mode: 'observe', sample: 1, where: 'src/discord/cc-inject-mirror.ts:69', rule: 'contract-wrap', id: '3fb7485d' }); /* augur-inject:contract-wrap:3fb7485d */
 
 /** Cc 由来 inject を転記する文面。 転記しないものは null。 */
 export function ccInjectMirrorPost(input: {
@@ -54,8 +94,5 @@ export function ccInjectMirrorPost(input: {
   if (source === STALL_NUDGE_INJECT_SOURCE) return null;
 
   const username = `⚙️ Cc inject / ${source || "unknown"}`.slice(0, CC_INJECT_MIRROR_MAX_USERNAME);
-  const content = text.length > CC_INJECT_MIRROR_MAX_CONTENT
-    ? text.slice(0, CC_INJECT_MIRROR_MAX_CONTENT - TRUNCATED_SUFFIX.length) + TRUNCATED_SUFFIX
-    : text;
-  return { username, content };
+  return { username, content: summarizeCcInject(text) };
 }

@@ -424,6 +424,12 @@ describe("seedDelegationTemplates", () => {
       model: "gpt-6-astra",
     });
     expect(JSON.parse(repo.findTemplateByCallName("astra-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
+    // Astra With Sidecar: 親は Astra medium。 起動側 (sidecar/profile.ts) と同じ値でなければならない。
+    const sidecarParent = repo.findTemplateByCallName("astra-with-sidecar");
+    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
+    expect(JSON.parse(sidecarParent?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
+    expect(sidecarParent?.prompt_template).toContain("/v1/delegation/sidecar/route");
+    expect(sidecarParent?.prompt_template).toContain("args.sidecar_packet");
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",

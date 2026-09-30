@@ -19,6 +19,7 @@ import {
   type DiscordImageAttachment,
 } from "./image-inbox.js";
 import { appendDiscordEmbedContext, extractDiscordEmbedIngress } from "./embed-ingress.js";
+import type { ConversationIngressDecision, ConversationIngressPort } from "./conversation-ingress.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const ACCEPTED_INJECT_REACTION = "✅";
@@ -117,6 +118,11 @@ export interface IngressDeps {
     text: string;
     source: string;
   }) => Promise<{ handled: boolean; reply?: string }>;
+  /**
+   * Astra With Sidecar の論理会話の受付 (backend 経由)。 未配線なら従来どおり
+   * 結び付いたセッションへ直接 inject する。
+   */
+  conversationIngress?: ConversationIngressPort;
   /** federation は Discord を import しないため、部署ルーティングだけを外から注入する。 */
   routeFederationIngress?: (input: {
     guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number;
@@ -340,11 +346,55 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       } catch { /* denial reply is best-effort */ }
       return;
     }
+    // Astra With Sidecar の論理会話: 担当・世代・交代中の保留を backend が決める。
+    // 会話を持たないスレッドは passthrough で従来どおり結び付いたセッションへ渡す。
+    let targetSessionId = sessionRow.session_id;
+    let conversationInputId: number | null = null;
+    if (deps.conversationIngress && sessionRow.channel_kind === "thread" && text) {
+      const decision = await deps.conversationIngress.accept({
+        guildId: msg.guildId,
+        threadId: msg.channelId,
+        messageId: msg.id,
+        authorId: msg.author.id,
+        authorLabel: msg.member?.nickname?.trim() || msg.author.username,
+        text,
+        boundSessionId: sessionRow.session_id,
+        canControlSession: deps.isSessionEndUserAllowed?.(msg.author.id) === true,
+      }).catch((e): ConversationIngressDecision => {
+        deps.log.warn(`ingress: conversation accept failed channel=${msg.channelId}: ${(e as Error).message}`);
+        return { action: "passthrough" };
+      });
+      if (decision.action === "duplicate") {
+        deps.log.info(`ingress: conversation duplicate message=${msg.id}`);
+        return;
+      }
+      if (decision.action === "reject" || decision.action === "held" || decision.action === "handoff_started") {
+        deps.log.info(`ingress: conversation ${decision.action} message=${msg.id} channel=${msg.channelId}`);
+        if (decision.reply) {
+          await msg.reply({ content: decision.reply, allowedMentions: { parse: [], repliedUser: false } })
+            .catch(() => { /* notice is best-effort */ });
+        }
+        return;
+      }
+      if (decision.action === "inject") {
+        targetSessionId = decision.sessionId;
+        conversationInputId = decision.inputId;
+        if (decision.reply) {
+          await msg.reply({ content: decision.reply, allowedMentions: { parse: [], repliedUser: false } })
+            .catch(() => { /* notice is best-effort */ });
+        }
+      }
+    }
+    const reportConversationDelivery = (outcome: "delivered" | "failed" | "uncertain", error: string | null) => {
+      if (conversationInputId === null || !deps.conversationIngress) return;
+      void deps.conversationIngress.reportDelivery(conversationInputId, outcome, error)
+        .catch((e) => deps.log.warn(`ingress: conversation delivery report failed input=${conversationInputId}: ${(e as Error).message}`));
+    };
     try {
       // Session channel の通常発言は /inject と等価に扱う。
       // author_label を付けて Concordia に participants 登録 + 相手PFミラーの発言者明示に使う。
       const injectAuthor = msg.member?.nickname?.trim() || msg.author.username;
-      const session = deps.sessionsRepo.findSession(sessionRow.session_id);
+      const session = deps.sessionsRepo.findSession(targetSessionId);
       const isCodexSession = session?.provider === "codex-cli";
       let injectText = appendDiscordEmbedContext(text, embedIngress.context);
       if (imageAttachments.length > 0) {
@@ -352,12 +402,13 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           const imagePaths = await (deps.storeImages ?? storeDiscordImages)({
             attachments: imageAttachments,
             messageId: msg.id,
-            sessionId: sessionRow.session_id,
+            sessionId: targetSessionId,
           });
           injectText = buildDiscordImageInjectText(injectText, imagePaths);
         } catch (error) {
           const reason = publicDiscordImageError(error);
-          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}: ${reason}`);
+          reportConversationDelivery("failed", `image: ${reason}`);
+          deps.log.warn(`ingress: image download failed session=${targetSessionId} channel=${msg.channelId}: ${reason}`);
           await msg.reply({
             content: `画像をセッションへ渡せませんでした: ${reason}`,
             allowedMentions: { parse: [], repliedUser: false },
@@ -367,36 +418,40 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       }
       const result = await injectSession({
         concordiaUrl: deps.concordiaUrl,
-        sessionId: sessionRow.session_id,
+        sessionId: targetSessionId,
         text: injectText,
         source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}`,
         authorLabel: injectAuthor,
         enterFallbackSource: isCodexSession ? "discord-enter-fallback" : undefined,
       });
       if (!result.ok) {
+        // HTTP 応答がある失敗は届いていない。 通信断は届いたか分からないので uncertain。
+        reportConversationDelivery(result.kind === "http" ? "failed" : "uncertain",
+          result.kind === "http" ? `inject http ${result.status}` : result.message);
         if (result.kind === "http") {
-          deps.log.warn(`ingress: inject failed status=${result.status} session=${sessionRow.session_id} channel=${msg.channelId}`);
+          deps.log.warn(`ingress: inject failed status=${result.status} session=${targetSessionId} channel=${msg.channelId}`);
           try { await msg.reply({ content: `inject failed (${result.status})`, allowedMentions: { repliedUser: false } }); } catch {}
         } else {
-          deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${result.message}`);
+          deps.log.warn(`ingress: inject network error session=${targetSessionId} channel=${msg.channelId}: ${result.message}`);
           try { await msg.reply({ content: `network error: ${result.message}`, allowedMentions: { repliedUser: false } }); } catch {}
         }
         return;
       }
+      reportConversationDelivery("delivered", null);
       // 「セッション終了」の発言は、指示の最後で /end-session 相当まで到達させる印を付ける
       // (終了はターンが静かになってから watcher が行う)。 セッション任せだとプロセスが
       // 残り続けることがあるため。
       if (isEndSessionRequest) {
         try {
-          markEndSessionRequested(deps.sessionsRepo, sessionRow.session_id);
-          deps.log.info(`ingress: session-end requested by speech session=${sessionRow.session_id}`);
+          markEndSessionRequested(deps.sessionsRepo, targetSessionId);
+          deps.log.info(`ingress: session-end requested by speech session=${targetSessionId}`);
         } catch (error) {
-          deps.log.warn(`ingress: session-end mark failed session=${sessionRow.session_id}: ${(error as Error).message}`);
+          deps.log.warn(`ingress: session-end mark failed session=${targetSessionId}: ${(error as Error).message}`);
         }
       }
       let acceptedReactionApplied = false;
       if (isCodexSession) {
-        acceptedReactionApplied = await reactToAcceptedInject(deps, msg, sessionRow.session_id);
+        acceptedReactionApplied = await reactToAcceptedInject(deps, msg, targetSessionId);
       }
       // Codex は環境によって文字列 inject 後に Enter だけ追送しないと確定しない場合がある。
       // Discord session channel 経由の通常投稿では best-effort で改行 inject を追加する。
@@ -406,16 +461,17 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       // prompt ハンドラが takeInjectAck で取り出して付ける)。 Enter が送られず
       // 宙に浮いたケースでは transcript が動かないので ✅ が付かない = 見分けられる。
       if (!acceptedReactionApplied) {
-        recordInjectAck(sessionRow.session_id, msg.channelId, msg.id);
+        recordInjectAck(targetSessionId, msg.channelId, msg.id);
       }
-      deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
+      deps.log.info(`ingress: inject ok session=${targetSessionId} channel=${msg.channelId} user=${msg.author.id}`);
       try {
-        deps.onHumanReturn?.(sessionRow.session_id, msg.channelId, msg.author.id);
+        deps.onHumanReturn?.(targetSessionId, msg.channelId, msg.author.id);
       } catch (e) {
-        deps.log.warn(`ingress: human-return notice failed session=${sessionRow.session_id}: ${(e as Error).message}`);
+        deps.log.warn(`ingress: human-return notice failed session=${targetSessionId}: ${(e as Error).message}`);
       }
     } catch (e) {
-      deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
+      reportConversationDelivery("uncertain", (e as Error).message);
+      deps.log.warn(`ingress: inject network error session=${targetSessionId} channel=${msg.channelId}: ${(e as Error).message}`);
       try { await msg.reply({ content: `network error: ${(e as Error).message}`, allowedMentions: { repliedUser: false } }); } catch {}
     }
     return;

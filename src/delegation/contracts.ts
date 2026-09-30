@@ -64,6 +64,16 @@ export interface InvokeInput {
   contract_branch?: string;
   branch?: string;
   worktree?: boolean;
+  /**
+   * 新規 worktree の起点 (commit)。 未指定はローカル main。 Sidecar は親の作業 commit から
+   * 始めるためにこれを使う (spec/feature/astra-with-sidecar.md)。
+   */
+  base_ref?: string;
+  /**
+   * "caller" = 呼び出し元が既存の Actio task へ紐付け済み。 新しい task を封印しない。
+   * 実行セッション交代の後継起動 (同じ task を続ける) だけが使う。
+   */
+  task_binding?: "caller";
   subsidiary_id?: string | null;
   project?: string | null;
   requester_discord_user_id?: string | null;

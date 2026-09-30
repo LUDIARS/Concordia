@@ -703,6 +703,89 @@ describe("DelegationService.invoke", () => {
       rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   }, REAL_GIT_WORKTREE_TIMEOUT_MS);
+
+  // Astra With Sidecar: 子は親の作業 commit (base_ref) から始める (spec/feature/astra-with-sidecar.md)。
+  it("starts a new worktree from base_ref instead of local main", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "deleg-base-repo-"));
+    const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-sidecar-base`);
+    rmSync(worktreeRoot, { recursive: true, force: true });
+    initGitRepo(repoRoot);
+    const baseCommit = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+    writeFileSync(join(repoRoot, "later.txt"), "later\n");
+    git(repoRoot, ["add", "later.txt"]);
+    git(repoRoot, ["commit", "-m", "later"]);
+    repo.createTemplate({
+      call_name: "base-ref-wt",
+      title: "Base Ref WT",
+      target_provider: "claude",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: repoRoot,
+    });
+
+    try {
+      const r = await svc.invoke({
+        call_name: "base-ref-wt",
+        args: { task: "build" },
+        branch: "sidecar/base",
+        worktree: true,
+        base_ref: baseCommit,
+      });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.spawn_worktree_path).toBe(worktreeRoot);
+      expect(git(worktreeRoot, ["rev-parse", "HEAD"]).trim()).toBe(baseCommit);
+      expect(existsSync(join(worktreeRoot, "later.txt"))).toBe(false);
+    } finally {
+      if (existsSync(join(worktreeRoot, ".git"))) {
+        git(repoRoot, ["worktree", "remove", "--force", worktreeRoot]);
+      }
+      rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  }, REAL_GIT_WORKTREE_TIMEOUT_MS);
+
+  // 交代の後継は既存の Actio task を続けるので、新しい task を封印しない。
+  it("does not seal a new Actio task when the caller owns the task binding", async () => {
+    const created: unknown[] = [];
+    const reads: string[] = [];
+    const taskStore = {
+      create: async (input: unknown) => { created.push(input); throw new Error("must not create"); },
+      read: async (_repo: string, reference: string) => { reads.push(reference); return {}; },
+    };
+    const sealed = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      taskStore: () => taskStore as never,
+      concordiaUrl: "http://127.0.0.1:11111",
+    });
+    const cwd = mkdtempSync(join(tmpdir(), "deleg-binding-"));
+    repo.createTemplate({
+      call_name: "binding-impl",
+      title: "実装委託 (binding)",
+      target_provider: "claude",
+      prompt_template: "continue ${task}",
+      input_schema: [
+        { name: "task", type: "string", required: true },
+        { name: "taskflow_reference", type: "string", required: false },
+      ],
+      default_cwd: cwd,
+    });
+    try {
+      const r = await sealed.invoke({
+        call_name: "binding-impl",
+        args: { task: "handoff brief", taskflow_reference: "actio:task-a" },
+        task_binding: "caller",
+      });
+      expect(r.ok).toBe(true);
+      expect(created).toEqual([]);
+      expect(reads).toEqual(["actio:task-a"]);
+      if (r.ok) expect(JSON.parse(r.run.args_json)).toMatchObject({ taskflow_reference: "actio:task-a" });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
 });
 
 // パートタイマーは実装委託と別書式で渡す。 以前は 19 本全員が実装マニュアル +

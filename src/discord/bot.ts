@@ -132,6 +132,7 @@ import { createTestForumQaHooks } from "./test-forum-qa.js";
 import { resolveSessionMentions } from "./test-forum-mentions.js";
 import { handleTestForumMessage } from "./test-forum-message.js";
 import { callConcordia } from "./commands/_util.js";
+import { createConversationIngressPort } from "./conversation-ingress.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
@@ -520,6 +521,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       ...(provenance ? { provenance } : {}),
       ts: Math.floor(Date.now() / 1000),
     }));
+
+  // Astra With Sidecar の論理会話の受付。 判断と保存は backend (worker 構成でも同じ経路)。
+  const conversationIngress = createConversationIngressPort(deps.concordiaUrl);
 
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
@@ -1433,6 +1437,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
+        conversationIngress,
         isPlanDecisionUserAllowed: deps.isLaunchUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,
         resolveReactionMappings: deps.resolveReactionMappings,

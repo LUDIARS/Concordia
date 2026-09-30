@@ -2192,6 +2192,180 @@
       ]
     },
     {
+      "source": "src/delegation/sidecar/profile.ts",
+      "tests": [
+        "src/delegation/sidecar/profile.test.ts",
+        "src/delegation/seed.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/packet.ts",
+      "tests": [
+        "src/delegation/sidecar/packet.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/gate.ts",
+      "tests": [
+        "src/delegation/sidecar/gate.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/return-contract.ts",
+      "tests": [
+        "src/delegation/sidecar/return-contract.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/route-policy.ts",
+      "tests": [
+        "src/delegation/sidecar/route-policy.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/records-repo.ts",
+      "tests": [
+        "src/delegation/sidecar/records-repo.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/invoke-guard.ts",
+      "tests": [
+        "src/delegation/sidecar/invoke-guard.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/sidecar/observation.ts",
+      "tests": [
+        "src/delegation/sidecar/observation.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/api/delegation-sidecar.ts",
+      "tests": [
+        "src/api/delegation-sidecar.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/input-intent.ts",
+      "tests": [
+        "src/control/conversation/input-intent.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/handoff-machine.ts",
+      "tests": [
+        "src/control/conversation/handoff-machine.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/handoff-package.ts",
+      "tests": [
+        "src/control/conversation/handoff-package.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/repo.ts",
+      "tests": [
+        "src/control/conversation/repo.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/service.ts",
+      "tests": [
+        "src/control/conversation/service.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/reconciler.ts",
+      "tests": [
+        "src/control/conversation/reconciler.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/control/conversation/cc-ports.ts",
+      "tests": [
+        "src/control/conversation/cc-ports.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/discord/conversation-ingress.ts",
+      "tests": [
+        "src/discord/conversation-ingress.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/delegation/contracts.ts",
+      "tests": [
+        "src/delegation/service.test.ts",
+        "src/delegation/sidecar/invoke-guard.test.ts",
+        "src/control/conversation/cc-ports.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
+      "source": "src/discord/ingress.ts",
+      "tests": [
+        "src/discord/ingress.test.ts"
+      ],
+      "contracts": [
+        "CC-ASTRA-WITH-SIDECAR"
+      ]
+    },
+    {
       "source": "src/control/project-rules-inject.ts",
       "tests": [
         "src/control/project-rules-inject.test.ts"

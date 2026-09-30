@@ -64,6 +64,7 @@
     "spec/tasks/2026-08-08-delegation-run-watchdog.md",
     "spec/feature/delegation-spawn-target-validation.md",
     "spec/feature/developer-toolset.md",
-    "spec/feature/inject-context-gating.md"
+    "spec/feature/inject-context-gating.md",
+    "spec/feature/astra-with-sidecar.md"
   ]
 }

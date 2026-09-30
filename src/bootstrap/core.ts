@@ -117,6 +117,12 @@ import { startHumanResponseConfirmation } from "../control/human-response-confir
 import { startHumanWait } from "../control/human-wait.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
+import { SidecarRecordsRepo } from "../delegation/sidecar/records-repo.js";
+import { ConversationRepo } from "../control/conversation/repo.js";
+import { ConversationService } from "../control/conversation/service.js";
+import { createConversationServicePorts } from "../control/conversation/cc-ports.js";
+import { startConversationReconciler } from "../control/conversation/reconciler.js";
+import { buildForumSpawnTrigger } from "../discord/forum-spawn.js";
 import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
@@ -731,6 +737,19 @@ export async function startBackend(): Promise<BackendHandle> {
     producerOnly: () => workflowMode === "worker" || hasLiveWorkflowWorkerLease(),
   });
   delegationService.setQueue(delegationQueue);
+  // Astra With Sidecar (spec/feature/astra-with-sidecar.md): 振り分け・起動の記録と、
+  // 論理会話・実行セッション交代。 交代は reconciler が再起動後も照合して進める。
+  const sidecarRecords = new SidecarRecordsRepo(db);
+  const conversationRepo = new ConversationRepo(db);
+  const conversationService = new ConversationService(createConversationServicePorts({
+    conversations: conversationRepo,
+    sessions: repo,
+    delegation: delegationRepo,
+    delegationService,
+    pendingQuestions,
+    prs,
+    buildThreadTrigger: buildForumSpawnTrigger,
+  }));
   // 確認フロー (develop に入った変更をユーザが動作確認 → main へ反映)。
   // 起動・停止は必ず Excubitor 経由 (catalog 登録済みサービスのみ)。
   // spec/feature/develop-confirm-flow.md。
@@ -1782,6 +1801,8 @@ export async function startBackend(): Promise<BackendHandle> {
     participants,
     delegation: delegationRepo,
     delegationService,
+    sidecarRecords,
+    conversations: { service: conversationService, repo: conversationRepo },
     teams: teamsRepo,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
@@ -2147,6 +2168,13 @@ export async function startBackend(): Promise<BackendHandle> {
         cooldownSec: cfg.stallNudgeCooldownSec,
         // 質問カードを出して回答を待っているセッションは「停止」 ではない。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+      }),
+    );
+    trackPostListenHandle(
+      startConversationReconciler({
+        repo: conversationRepo,
+        service: conversationService,
+        onError: (handoffId, error) => log.warn({ handoff_id: handoffId, err: error.message }, "conversation handoff reconcile failed"),
       }),
     );
     // 委託 run の進捗確認 (30 分周期)。 状態は delegation_runs の watchdog_* 列に永続。

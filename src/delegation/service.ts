@@ -271,7 +271,7 @@ export class DelegationService {
     input = { ...input, branch: branchResolution.branch ?? undefined };
 
     const runId = randomUUID();
-    if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND) {
+    if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND && input.task_binding !== "caller") {
       try {
         const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId, content: renderedPrompt });
         def = sealed.definition;
@@ -447,6 +447,7 @@ export class DelegationService {
       repo: this.deps.repo,
       launch: (payload) => this.deps.taskStore && resolveManualKind(payload.def) === IMPLEMENTATION_MANUAL_KIND
         && typeof payload.input.args.taskflow_reference !== "string"
+        && payload.input.task_binding !== "caller"
         ? Promise.resolve({ ok: false as const, error: "Legacy queued implementation requires explicit Actio migration" })
         : this.launch(
         run.id,
@@ -499,6 +500,7 @@ export class DelegationService {
         cwd,
         branch: input.branch,
         worktree: input.worktree,
+        ...(input.base_ref ? { baseRef: input.base_ref } : {}),
       });
       if (!target.ok) return { ok: false, error: target.error };
       cwd = target.cwd;

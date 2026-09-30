@@ -59,6 +59,9 @@ import { DelegationRunSessionReadModel } from "../delegation/run-session-read-mo
 import { requiresCompletionEvidence, verifyCompletionEvidence } from "../delegation/completion-evidence.js";
 import { continuationAnswerContext } from "../delegation/continuation-answers.js";
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
+import { guardSidecarInvoke, recordSidecarLaunch, type SidecarInvokeGuardPorts } from "../delegation/sidecar/invoke-guard.js";
+import { reviewSidecarReturn } from "../delegation/sidecar/return-contract.js";
+import { isSidecarParentMetadata } from "../delegation/sidecar/profile.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 const statusLogger = createChildLogger("delegation-status");
@@ -213,6 +216,17 @@ const StatusSchema = z.object({
   result: z.string().max(4000).optional(),
   remaining: z.array(RemainingSchema).max(100).optional(),
   acceptance_report: z.array(AcceptanceReportSchema).max(200).optional(),
+  /** Astra With Sidecar の子が返す返却項目 (spec/feature/astra-with-sidecar.md)。 */
+  sidecar_return: z.object({
+    summary: z.string().max(4000).optional(),
+    commits: z.array(z.string().max(200)).max(50).optional(),
+    verification_done: z.array(z.string().max(1000)).max(50).optional(),
+    verification_skipped: z.array(z.string().max(1000)).max(50).optional(),
+    remaining: z.array(z.string().max(1000)).max(50).optional(),
+    consumption: z.string().max(1000).optional(),
+    failure_reason: z.string().max(4000).optional(),
+    failure_kind: z.enum(["permission", "scope", "unresolved", "quality", "budget", "other"]).optional(),
+  }).optional(),
 }).superRefine((value, ctx) => {
   if (value.status === "partial" && (!value.remaining || value.remaining.length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["remaining"], message: "partial requires remaining[]" });
@@ -278,6 +292,8 @@ export interface DelegationApiDeps {
   workspaceRoots?: () => string[];
   onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
   syncForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
+  /** Astra With Sidecar の起動ガード。 未注入なら Sidecar の制限は掛からない。 */
+  sidecar?: SidecarInvokeGuardPorts;
 }
 
 const QueueSettingsSchema = z.object({
@@ -665,6 +681,42 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const parentSessionId = resolveParentSessionId(c.req, parsed.data.parent_session_id);
+    if (deps.sidecar) {
+      // Astra With Sidecar の親は、親の contract (model/effort/branch) を子へ持ち込まず、
+      // profile と委任パケットで起動入力を固定する。 通常の親はこの分岐を通らない。
+      const guarded = guardSidecarInvoke(deps.sidecar, {
+        call_name: parsed.data.call_name,
+        args: parsed.data.args,
+        parent_session_id: parentSessionId,
+        overrides: parsed.data.overrides,
+        triggered_by: parsed.data.triggered_by,
+        subsidiary_id: parsed.data.subsidiary_id ?? null,
+        project: parsed.data.project ?? null,
+      });
+      if (guarded.kind === "reject") {
+        return c.json({
+          error: guarded.code,
+          detail: guarded.detail,
+          ...(guarded.issues ? { issues: guarded.issues } : {}),
+          ...(guarded.blocking_run_ids ? { blocking_run_ids: guarded.blocking_run_ids } : {}),
+        }, guarded.status);
+      }
+      if (guarded.kind === "allow") {
+        const sidecarResult = await deps.service.invoke(guarded.input);
+        recordSidecarLaunch(deps.sidecar, {
+          parentSessionId: parentSessionId!,
+          requestKey: guarded.requestKey,
+          runId: sidecarResult.ok ? sidecarResult.run.id : null,
+          error: sidecarResult.ok ? null : sidecarResult.error,
+        });
+        if (!sidecarResult.ok) return c.json({ error: sidecarResult.error, detail: sidecarResult.details }, 400);
+        emitDelegationRunChanged(sidecarResult.run);
+        return c.json({
+          ...serializeInvokeResult(sidecarResult),
+          sidecar: { request_key: guarded.requestKey, attempt: guarded.attempt },
+        });
+      }
+    }
     const contract = parentSessionId && deps.sessions ? parseContractMetadata(deps.sessions.findSession(parentSessionId)?.metadata ?? null) : null;
     const result = await deps.service.invoke({
       call_name: parsed.data.call_name,
@@ -695,7 +747,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       return c.json({ error: result.error, detail: result.details }, status);
     }
     emitDelegationRunChanged(result.run);
-    return c.json({
+    return c.json(serializeInvokeResult(result));
+  });
+
+  function serializeInvokeResult(result: Extract<Awaited<ReturnType<DelegationService["invoke"]>>, { ok: true }>) {
+    return {
       ok: true,
       run: serializeRun(result.run),
       rendered_prompt: result.rendered_prompt,
@@ -707,8 +763,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       spawn_worktree_path: result.spawn_worktree_path,
       spawn_worktree_created: result.spawn_worktree_created,
       spawn_worktree_state: result.spawn_worktree_state,
-    });
-  });
+    };
+  }
 
   /**
    * 終了済み run に残ったプロセス (ゾンビ委託) を今すぐ走査する。
@@ -740,6 +796,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const status = normalizeDelegationStatus(parsed.data.status);
     if (!status) return c.json({ error: "invalid_status" }, 400);
+    const parentMetadata = row.parent_session_id ? deps.sidecar?.findSession(row.parent_session_id)?.metadata ?? null : null;
+    if (status !== "running" && isSidecarParentMetadata(parentMetadata)) {
+      // 親が差分と証拠で採否を決められるよう、返却項目の欠けと失敗の種類を通知へ載せる。
+      const review = reviewSidecarReturn(status, parsed.data.sidecar_return);
+      parsed.data.detail = [parsed.data.detail?.trim(), ...review.lines].filter(Boolean).join("\n").slice(0, 4000);
+    }
     if (row.status === "completed" || row.status === "failed") {
       return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
     }

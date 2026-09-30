@@ -455,3 +455,79 @@ function makeMessage(overrides: Record<string, unknown> = {}): Message {
     ...overrides,
   } as unknown as Message;
 }
+
+// Astra With Sidecar: Session forum スレッドの人間入力は、論理会話の担当 (交代後の後継を含む) へ
+// 渡し、交代中は保存だけして inject しない (spec/feature/astra-with-sidecar.md)。
+describe("論理会話 (Astra With Sidecar) の受付", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function makeConversationDeps(decision: Awaited<ReturnType<NonNullable<IngressDeps["conversationIngress"]>["accept"]>>) {
+    const accept = vi.fn(async () => decision);
+    const reportDelivery = vi.fn(async () => undefined);
+    const deps: IngressDeps = {
+      ...makeDeps("claude-code"),
+      sessionChannelsRepo: {
+        findByChannelId: vi.fn(() => ({ session_id: "s1", channel_id: "thread-1", status: "active", channel_kind: "thread" })),
+      } as unknown as IngressDeps["sessionChannelsRepo"],
+      isSessionEndUserAllowed: () => true,
+      conversationIngress: { accept, reportDelivery },
+    };
+    return { deps, accept, reportDelivery };
+  }
+
+  const threadMessage = (content = "設定画面を直して") => makeMessage({
+    channelId: "thread-1",
+    id: "msg-9",
+    content,
+    channel: { type: ChannelType.PublicThread, parentId: "forum-1", send: vi.fn() },
+  });
+
+  it("injects into the conversation owner and reports the delivery", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const { deps, accept, reportDelivery } = makeConversationDeps({ action: "inject", sessionId: "s2", inputId: 7 });
+
+    await handleMessage(deps, threadMessage());
+
+    expect(accept).toHaveBeenCalledWith(expect.objectContaining({
+      guildId: "guild1", threadId: "thread-1", messageId: "msg-9", boundSessionId: "s1", canControlSession: true,
+    }));
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/sessions/s2/inject");
+    expect(reportDelivery).toHaveBeenCalledWith(7, "delivered", null);
+  });
+
+  it("only replies while the conversation is handing off", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const { deps, reportDelivery } = makeConversationDeps({ action: "held", reply: "交代中です" });
+    const msg = threadMessage();
+
+    await handleMessage(deps, msg);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(reportDelivery).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: "交代中です" }));
+  });
+
+  it("drops a duplicate message silently", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const { deps } = makeConversationDeps({ action: "duplicate" });
+    const msg = threadMessage();
+    await handleMessage(deps, msg);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(msg.reply).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed delivery when the inject is refused", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 409, text: async () => "" })));
+    const { deps, reportDelivery } = makeConversationDeps({ action: "inject", sessionId: "s1", inputId: 8 });
+    await handleMessage(deps, threadMessage());
+    expect(reportDelivery).toHaveBeenCalledWith(8, "failed", "inject http 409");
+  });
+
+  it("keeps the ordinary path for threads without a conversation", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const { deps, reportDelivery } = makeConversationDeps({ action: "passthrough" });
+    await handleMessage(deps, threadMessage());
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/sessions/s1/inject");
+    expect(reportDelivery).not.toHaveBeenCalled();
+  });
+});

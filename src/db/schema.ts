@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 113;
+export const SCHEMA_VERSION = 114;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2667,6 +2667,103 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX idx_major_inject_file_ops_target_status
         ON major_inject_file_ops(target_id, status);
+    `);
+  },
+},
+{
+  version: 114,
+  name: "astra-with-sidecar",
+  source: "sidecar route/invoke records, logical conversations, conversation inputs and handoffs v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE sidecar_route_decisions (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_session_id TEXT NOT NULL,
+        task_reference    TEXT,
+        request_version   INTEGER,
+        route             TEXT NOT NULL CHECK(route IN ('parent', 'sidecar', 'clarify')),
+        reason            TEXT NOT NULL,
+        uncertainty       TEXT NOT NULL CHECK(uncertainty IN ('low', 'high')),
+        source            TEXT NOT NULL CHECK(source IN ('deterministic', 'classifier', 'fallback')),
+        classifier_model  TEXT,
+        budget_minutes    INTEGER,
+        input_json        TEXT NOT NULL,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE INDEX idx_sidecar_route_decisions_parent
+        ON sidecar_route_decisions(parent_session_id, created_at DESC);
+      CREATE TABLE sidecar_invoke_events (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_session_id TEXT NOT NULL,
+        request_key       TEXT,
+        run_id            TEXT,
+        outcome           TEXT NOT NULL CHECK(outcome IN ('allowed', 'rejected', 'launch_failed')),
+        code              TEXT,
+        detail            TEXT,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE INDEX idx_sidecar_invoke_events_parent
+        ON sidecar_invoke_events(parent_session_id, created_at DESC);
+      CREATE TABLE conversations (
+        conversation_id   TEXT PRIMARY KEY,
+        platform          TEXT NOT NULL,
+        scope             TEXT NOT NULL DEFAULT '',
+        guild_id          TEXT NOT NULL,
+        thread_id         TEXT NOT NULL,
+        owner_session_id  TEXT NOT NULL,
+        generation        INTEGER NOT NULL,
+        state             TEXT NOT NULL CHECK(state IN ('active', 'handing_off')),
+        active_handoff_id TEXT,
+        version           INTEGER NOT NULL DEFAULT 0,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+      );
+      CREATE INDEX idx_conversations_owner ON conversations(owner_session_id);
+      CREATE TABLE conversation_inputs (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id     TEXT NOT NULL REFERENCES conversations(conversation_id),
+        platform_message_id TEXT NOT NULL,
+        author_id           TEXT NOT NULL,
+        author_label        TEXT,
+        intent              TEXT NOT NULL,
+        text                TEXT,
+        received_generation INTEGER NOT NULL,
+        target_session_id   TEXT,
+        handoff_id          TEXT,
+        state               TEXT NOT NULL CHECK(state IN ('received', 'delivering', 'delivered', 'held', 'uncertain', 'failed', 'rejected')),
+        error               TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        delivered_at        INTEGER,
+        UNIQUE(conversation_id, platform_message_id)
+      );
+      CREATE INDEX idx_conversation_inputs_state
+        ON conversation_inputs(conversation_id, state, id);
+      CREATE TABLE conversation_handoffs (
+        id                TEXT PRIMARY KEY,
+        conversation_id   TEXT NOT NULL REFERENCES conversations(conversation_id),
+        from_session_id   TEXT NOT NULL,
+        from_generation   INTEGER NOT NULL,
+        to_session_id     TEXT,
+        successor_run_id  TEXT,
+        state             TEXT NOT NULL CHECK(state IN (
+          'handoff_pending', 'handoff_saved', 'successor_requested', 'successor_ready',
+          'routing_switched', 'predecessor_drained', 'aborted', 'failed'
+        )),
+        trigger_input_id  INTEGER,
+        next_instruction  TEXT,
+        package_json      TEXT,
+        correlation_id    TEXT NOT NULL UNIQUE,
+        error             TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL,
+        package_saved_at  INTEGER,
+        switched_at       INTEGER,
+        drained_at        INTEGER
+      );
+      CREATE INDEX idx_conversation_handoffs_state ON conversation_handoffs(state, updated_at);
+      CREATE INDEX idx_conversation_handoffs_conversation
+        ON conversation_handoffs(conversation_id, created_at DESC);
     `);
   },
 },

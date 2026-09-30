@@ -5,6 +5,7 @@
  */
 
 import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
+import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -206,6 +207,65 @@ function implementationTemplate(opts: {
     is_active: true,
   };
 }
+
+/**
+ * Astra With Sidecar (spec/feature/astra-with-sidecar.md)。 親 Astra が判断し、範囲の定まった
+ * 実務だけを Sol medium の Sidecar へ委任する。 起動制限は delegation/sidecar/ が
+ * /v1/delegation/invoke で掛けるので、本文は手順と返却の作法だけを持つ。
+ * forum_tag は立てない — Session forum からの起動は人間が有効化する (限定利用から始める)。
+ */
+const ASTRA_WITH_SIDECAR_TEMPLATE: CreateTemplateInput = {
+  call_name: ASTRA_WITH_SIDECAR_PROFILE.parent.call_name,
+  title: ASTRA_WITH_SIDECAR_TITLE,
+  description:
+    "Astra が意図理解・設計・曖昧な判断・成果の採否を持ち、範囲と受入条件の定まった実務だけを Sol medium の Sidecar (sol-mid) へ委任する。"
+    + " 子は同時 1 件・独立 worktree・委任パケット必須。 同じ Discord 会話で「次の作業」と指示すると引継ぎを保存して実行セッションを交代する。"
+    + ` ${CROSS_REPO_DOC_NOTE}`,
+  target_provider: ASTRA_WITH_SIDECAR_PROFILE.parent.provider,
+  model: ASTRA_WITH_SIDECAR_PROFILE.parent.model,
+  runtime_options: { model_reasoning_effort: ASTRA_WITH_SIDECAR_PROFILE.parent.effort },
+  emoji: "🌟",
+  category: "employee",
+  sort_order: 13,
+  prompt_template: [
+    "あなたは Astra With Sidecar の親 (Astra) です。対象: ${target_repo:}",
+    "",
+    "## 役割",
+    "- 意図理解・設計・分解・曖昧な判断・成果の採否はあなたが持ちます。",
+    "- 範囲と受入条件の定まった実務 (限定した UI 調整、既知仕様の分岐修正、リスト・文言修正、資料抽出、再現手順と期待値のある局所修正) は Sidecar へ委任できます。",
+    "- 要件や受入条件が曖昧、原因不明、横断設計、権限・データ移行・破壊的変更を含むものは委任しません。",
+    "",
+    "## 振り分け",
+    "作業を受け付けた時と範囲が変わった時だけ、POST /v1/delegation/sidecar/route に",
+    "{ parent_session_id, task_reference, request_version, input: { kind, size, acceptanceDefined, scopeDefined, sensitive, openQuestions } } を送り、",
+    "route (parent / sidecar / clarify) に従ってください。clarify は人間に確認します。分類・起動の固定費が本体を上回る小さな作業はまとめて自分で行います。",
+    "",
+    "## Sidecar への委任",
+    "- delegation_invoke で call_name=sol-mid、spawn=true、args.sidecar_packet に委任パケットを渡します。model / effort の上書きは指定しません。",
+    "- パケット: task_reference, request_version, authorization_ref, repo_path, origin, base_commit (子の起点), editable_paths, child_branch (あなたの branch と別),",
+    "  objective, design_refs, acceptance, forbidden, open_questions, verification, completion_scope, budget, return_format。秘密や無関係な会話は入れません。",
+    "- 子は同時に 1 件までです。結果を待ってから次を出します。同じ依頼の出し直しは 3 回までで、範囲を変えたら request_version を上げます。",
+    "- 子の完了報告の差分と検証証拠を確認して採否を決めます。同じ実装を丸ごとやり直さず、範囲逸脱・未解決・品質不足は自分で引き取るか依頼を直して出し直します。",
+    "- 許可が確認できずに止まった失敗 (failure kind: permission) は能力不足ではありません。許可範囲を確認してから判断します。",
+    "",
+    "## 同じ会話での次の作業",
+    "人間が「次の作業」と指示すると、Cc が引継ぎの保存を依頼します。その指示に従って引継ぎを保存し、新しい作業には着手しないでください。",
+    "未回答の質問・実行中の委任・審査中の PR がある間は交代しません。",
+    "",
+    "## 今回の依頼",
+    "${task:}",
+    "",
+    "${context_extra:}",
+  ].join("\n"),
+  input_schema: [
+    { name: "task", type: "string", required: false, description: "依頼本文 (交代時は引継ぎ本文)" },
+    { name: "target_repo", type: "string", required: false, description: "Absolute path of the target repository" },
+    { name: "context_extra", type: "string", required: false, description: "Optional extra context" },
+    { name: "taskflow_reference", type: "string", required: false, description: "続行する Actio task 参照 (交代時)" },
+  ],
+  default_cwd: "${target_repo:}",
+  is_active: true,
+};
 
 const FORUM_SESSION_PROMPT = [
   "Discord Session フォーラムの投稿から起動されたセッションです。",
@@ -503,6 +563,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 14,
     runtimeOptions: { model_reasoning_effort: "xhigh" },
   }),
+  ASTRA_WITH_SIDECAR_TEMPLATE,
   implementationTemplate({
     callName: "opus-xhigh",
     label: "Opus / xhigh",

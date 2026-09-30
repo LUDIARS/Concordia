@@ -81,6 +81,11 @@ import { selectProjectStartupWorkflow } from "../control/project-startup-workflo
 import { domainReviewRouter, type DomainReviewApiDeps } from "./domain-review.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { delegationRouter } from "./delegation.js";
+import { delegationSidecarRouter } from "./delegation-sidecar.js";
+import type { SidecarRecordsRepo } from "../delegation/sidecar/records-repo.js";
+import type { ConversationService } from "../control/conversation/service.js";
+import type { ConversationRepo } from "../control/conversation/repo.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { DelegationMemoriaPort } from "../delegation/memoria-task.js";
 import type { MemoriaClient, MemoriaTask } from "../memoria/client.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
@@ -216,6 +221,10 @@ export interface CoreSessionDeps {
 export interface CoreDelegationDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
+  /** Astra With Sidecar の記録。 未注入なら Sidecar の起動制限と /v1/delegation/sidecar は生えない。 */
+  sidecarRecords?: SidecarRecordsRepo;
+  /** 論理会話と実行セッション交代 (Astra With Sidecar)。 */
+  conversations?: { service: ConversationService; repo: ConversationRepo };
   teams?: TeamsRepo;
   projectCodes: ProjectCodesRepo;
   /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
@@ -567,7 +576,26 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       armProjectNotice: deps.projectNotice?.arm,
     }),
   );
+  const sidecarRecords = deps.sidecarRecords;
+  if (sidecarRecords) {
+    app.route("/v1/delegation/sidecar", delegationSidecarRouter({
+      records: sidecarRecords,
+      listRunsByParentSession: (sessionId) => deps.delegation.listRunsByParentSession(sessionId, 500),
+      conversations: deps.conversations,
+      resolveScope: (sessionId) => readSubsidiaryId(deps.repo.findSession(sessionId)?.metadata ?? null) ?? "",
+      now: () => Date.now(),
+    }));
+  }
   app.route("/v1/delegation", delegationRouter({
+    sidecar: sidecarRecords
+      ? {
+          findSession: (sessionId) => deps.repo.findSession(sessionId),
+          findTemplateByCallName: (callName) => deps.delegation.findTemplateByCallName(callName),
+          listRunsByParentSession: (sessionId) => deps.delegation.listRunsByParentSession(sessionId, 500),
+          records: sidecarRecords,
+          now: () => Date.now(),
+        }
+      : undefined,
     repo: deps.delegation,
     answeredQuestions: deps.pendingQuestions,
     service: deps.delegationService,

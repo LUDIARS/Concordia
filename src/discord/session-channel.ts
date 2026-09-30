@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Guild, TextChannel } from "discord.js";
 import { ChannelType } from "discord.js";
-import { lockPrivateConsultChannel } from "./consult-channel.js";
+import { lockPrivateChannel } from "./private-channel-discord.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type {
   DiscordConfigRepo,
@@ -314,7 +314,7 @@ async function closePrivateConsultChannel(
   const ch = await fetchSessionTextChannel(deps, row.channel_id);
   if (ch) {
     try {
-      await lockPrivateConsultChannel(ch);
+      await lockPrivateChannel(ch);
       deps.log.info(`session-channel: locked private consultation ${row.channel_id} for ${status} ${row.session_id}`);
     } catch (e) {
       deps.log.warn(`session-channel: private consultation lock failed for ${row.session_id}: ${(e as Error).message}`);
@@ -335,7 +335,7 @@ async function closePrivateConsultChannel(
  * 同期して閉じた overwrite が外れるので、 移動・改名の対象から外し、 終了時は書き込みだけ止める。
  */
 function isPrivateConsultChannel(deps: SessionChannelDeps, ch: { parentId: string | null } | null | undefined): boolean {
-  const categoryId = deps.layout.privateConsultCategoryId;
+  const categoryId = deps.layout.privateCategoryId;
   return Boolean(categoryId) && ch?.parentId === categoryId;
 }
 

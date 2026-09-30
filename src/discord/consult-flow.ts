@@ -26,14 +26,14 @@ import type {
   PrivateConsultationStore,
 } from "../consultation/private-consultation-service.js";
 import type { ConsultIntake } from "../dialogue/intake.js";
+import { privateConsultChannelName } from "./consult-channel.js";
 import {
-  createPrivateConsultChannel,
-  ensurePrivateConsultCategory,
-  grantPrivateConsultViewer,
-  privateConsultChannelName,
-  revokePrivateConsultViewer,
-  type ConsultCategoryStore,
-} from "./consult-channel.js";
+  createPrivateChannel,
+  ensurePrivateCategory,
+  grantPrivateViewer,
+  revokePrivateViewer,
+  type PrivateCategoryStore,
+} from "./private-channel-discord.js";
 import { buildConsultApprovalRow, parseConsultApproval, readConsultModal } from "./consult-modal.js";
 import type { PublicationInteractionDeps } from "./consult-publication.js";
 
@@ -50,7 +50,7 @@ export interface ConsultFlowDeps {
   store: Pick<PrivateConsultationStore, "find" | "findByChannel" | "setChannel">;
   /** この Bot (論理 runtime) の会社。 本社なら null。 */
   runtimeSubsidiaryId: string | null;
-  categoryStore: ConsultCategoryStore;
+  categoryStore: PrivateCategoryStore;
   /** 部署のセッションを起動する (admin spawn)。 */
   spawn(input: ConsultSpawnInput): Promise<{ ok: true } | { ok: false; error: string }>;
   now?: () => Date;
@@ -100,8 +100,9 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
   const { consultation, members, needsApproval } = started;
   let channel: TextChannel;
   try {
-    const categoryId = await ensurePrivateConsultCategory(guild, deps.categoryStore);
-    channel = await createPrivateConsultChannel(guild, {
+    const categoryId = await ensurePrivateCategory(guild, deps.categoryStore);
+    channel = await createPrivateChannel(guild, {
+      reason: "private consultation",
       categoryId,
       name: privateConsultChannelName(deps.now?.() ?? new Date(), consultation.id),
       viewerIds: members.map((member) => member.platform_user_id),
@@ -193,8 +194,8 @@ export async function handleConsultMembership(
     return;
   }
   try {
-    if (action === "invite") await grantPrivateConsultViewer(channel, target.id);
-    else await revokePrivateConsultViewer(channel, target.id);
+    if (action === "invite") await grantPrivateViewer(channel, target.id, "private consultation invite");
+    else await revokePrivateViewer(channel, target.id, "private consultation remove");
   } catch (error) {
     deps.log.warn(`consult ${action} overwrite failed consultation=${consultation.id}: ${(error as Error).message}`);
     await interaction.reply({ content: "チャンネルの権限を変えられませんでした。Bot の権限を確認してください。", ephemeral: true });

@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 118;
+export const SCHEMA_VERSION = 119;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2962,6 +2962,33 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_consultation_publications_consultation
         ON consultation_publications(consultation_id, created_at DESC);
+    `);
+  },
+},
+{
+  version: 119,
+  name: "private-channels",
+  source: "private_channels (spec/feature/private-channels.md §5)",
+  up(db) {
+    // 報告用のプライベートチャンネル。 受付 (pending) → Bot が作成 (ready / failed) の 2 段。
+    // 同じ冪等キーは 1 レコード (CC-PRIVCH-INV-02)、 channel_id を記録したら作り直さない。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS private_channels (
+        id                    TEXT PRIMARY KEY,
+        request_key           TEXT UNIQUE,
+        name                  TEXT NOT NULL,
+        viewer_user_ids       TEXT NOT NULL,
+        initial_text          TEXT,
+        initial_message_id    TEXT,
+        guild_id              TEXT,
+        channel_id            TEXT UNIQUE,
+        status                TEXT NOT NULL CHECK(status IN ('pending', 'ready', 'failed')),
+        error                 TEXT,
+        created_by_session_id TEXT,
+        created_at            INTEGER NOT NULL,
+        updated_at            INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_private_channels_status ON private_channels(status, created_at);
     `);
   },
 },

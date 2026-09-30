@@ -31,6 +31,11 @@ export interface EgressDeps {
   deliveryRepo: SessionMessageDeliveryRepo;
   messageOptimizationEnabled?: boolean;
   resolveWorkspaceRoots?: () => string[];
+  /**
+   * ready の報告用プライベートチャンネルか (spec/feature/private-channels.md §4)。 そうなら明示された
+   * discord_channel_id をセッションの有無に関係なく採用する (CC-PRIVCH-INV-03)。
+   */
+  isReadyPrivateChannel?: (channelId: string) => boolean;
   /** A canonical session message reached Discord. */
   onSessionMessagePosted?: (input: {
     sessionId: string;
@@ -94,6 +99,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     sessionId,
     sessionChannelId: sessionRow?.channel_id ?? null,
     forceMeta,
+    isReadyPrivateChannel: explicitChannelId ? deps.isReadyPrivateChannel?.(explicitChannelId) === true : false,
   });
   if (explicitChannelId && trustedExplicitChannelId !== explicitChannelId) {
     deps.log.warn(
@@ -358,8 +364,11 @@ export function trustedDiscordChannelId(input: {
   sessionId: string | null;
   sessionChannelId: string | null;
   forceMeta: boolean;
+  /** ready の報告用プライベートチャンネル。 セッションに関係なく採用する (CC-PRIVCH-INV-03)。 */
+  isReadyPrivateChannel?: boolean;
 }): string | null {
   if (!input.explicitChannelId) return null;
+  if (input.isReadyPrivateChannel) return input.explicitChannelId;
   if (!input.sessionId) return null;
   if (input.forceMeta) return input.explicitChannelId;
   if (!input.sessionChannelId) return null;

@@ -13,6 +13,18 @@ describe("trustedDiscordChannelId", () => {
     expect(trustedDiscordChannelId({ explicitChannelId: "c1", sessionId: "s1", sessionChannelId: "c1", forceMeta: false })).toBe("c1");
     expect(trustedDiscordChannelId({ explicitChannelId: "c2", sessionId: "s1", sessionChannelId: "c1", forceMeta: false })).toBeNull();
   });
+
+  it("accepts a ready private channel with or without a session (CC-PRIVCH-INV-03)", () => {
+    expect(trustedDiscordChannelId({
+      explicitChannelId: "p1", sessionId: null, sessionChannelId: null, forceMeta: false, isReadyPrivateChannel: true,
+    })).toBe("p1");
+    expect(trustedDiscordChannelId({
+      explicitChannelId: "p1", sessionId: "s1", sessionChannelId: "c1", forceMeta: false, isReadyPrivateChannel: true,
+    })).toBe("p1");
+    expect(trustedDiscordChannelId({
+      explicitChannelId: "p1", sessionId: null, sessionChannelId: null, forceMeta: false, isReadyPrivateChannel: false,
+    })).toBeNull();
+  });
 });
 
 describe("isActiveRelayTarget", () => {

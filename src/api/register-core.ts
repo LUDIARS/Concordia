@@ -110,6 +110,8 @@ import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js
 import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
 import { consultationsRouter } from "./consultations.js";
+import type { PrivateChannelsRepo } from "../db/private-channels-repo.js";
+import { privateChannelsRouter } from "./private-channels.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
@@ -255,6 +257,8 @@ export interface CoreDelegationDeps {
   consultationIntakes?: ConsultationIntakesRepo;
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
+  /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
+  privateChannels?: PrivateChannelsRepo;
   projectCodes: ProjectCodesRepo;
   /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
   domainReview?: DomainReviewApiDeps;
@@ -694,6 +698,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   if (deps.requesterProfiles) {
     app.route("/v1/requester-profiles", requesterProfilesRouter({ repo: deps.requesterProfiles }));
+  }
+  if (deps.privateChannels) {
+    const privateChannels = deps.privateChannels;
+    app.route("/v1/discord/private-channels", privateChannelsRouter({
+      repo: privateChannels,
+      // 閲覧者を省略したときは管理者 (設定の mention user) 1 名。
+      adminUserId: () => deps.adminState.getMentionUserId(),
+      emit: (event) => eventBus.emit(event),
+    }));
   }
   if (deps.consultationPublications) {
     app.route("/v1/consultations", consultationsRouter({

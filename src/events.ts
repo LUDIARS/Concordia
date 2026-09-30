@@ -115,6 +115,8 @@ type ConcordiaEventPayload =
       tabula_ready: boolean;
       ts: number;
     }
+  /** 報告用プライベートチャンネルの作成依頼 (spec/feature/private-channels.md §2)。 本社 Bot が作る。 */
+  | { type: "discord.private_channel.requested"; event_id: string; private_channel_id: string; ts: number }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
   /**
    * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、

@@ -50,7 +50,7 @@ function setup(parentId: string) {
   const webhooks = { purgeChannel: vi.fn(async () => 1), releaseSession: vi.fn() };
   const deps = {
     guild: guild as never,
-    layout: { archiveCategoryId: "archive-cat", privateConsultCategoryId: "consult-cat" } as never,
+    layout: { archiveCategoryId: "archive-cat", privateCategoryId: "consult-cat" } as never,
     repo: repo as never,
     webhooks: webhooks as never,
     log: { info: vi.fn(), warn: vi.fn() },

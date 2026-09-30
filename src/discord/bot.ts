@@ -159,7 +159,9 @@ import { StaffRepo } from "../db/staff-repo.js";
 import { roleAtLeast } from "../staff/roles.js";
 import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
-import { PRIVATE_CONSULT_CATEGORY_KEY } from "./consult-channel.js";
+import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
+import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
+import { createPrivateChannelProvisioner, type PrivateChannelProvisioner } from "./private-channel-provisioner.js";
 import { bindPrivateConsultSession, privateConsultPrompt } from "./consult-session.js";
 import { ConsultationPublicationsRepo, type ConsultationPublicationRow } from "../db/consultation-publications-repo.js";
 import { buildProposalRequest } from "../consultation/proposal-request.js";
@@ -586,7 +588,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const useCasesRepo = new UseCasesRepo(deps.db);
   const requesterProfilesRepo = new RequesterProfilesRepo(deps.db);
   // プライベート相談 (tech-consultation.md §4)。 本社 Bot だけで受け付け、 閲覧者は社員名簿から決める。
+  // 「プライベート」カテゴリ (相談と報告用で共通、 private-channels.md §1)。 統合前の相談カテゴリのキーも読む。
+  const privateCategoryStore = {
+    categoryId: () => configRepo.get(PRIVATE_CATEGORY_KEY) ?? configRepo.get(LEGACY_PRIVATE_CATEGORY_KEY),
+    setCategoryId: (id: string) => configRepo.set(PRIVATE_CATEGORY_KEY, id),
+  };
   const privateConsultationsRepo = new PrivateConsultationsRepo(deps.db);
+  // 報告用のプライベートチャンネル (private-channels.md §3)。 本社 runtime だけが作る (guild の ready 後に用意)。
+  const privateChannelsRepo = new PrivateChannelsRepo(deps.db);
+  let privateChannelProvisioner: PrivateChannelProvisioner | null = null;
   const consultationPublicationsRepo = new ConsultationPublicationsRepo(deps.db);
   const staffRepo = new StaffRepo(deps.db);
   const privateConsultations = new PrivateConsultationService({
@@ -601,10 +611,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     service: privateConsultations,
     store: privateConsultationsRepo,
     runtimeSubsidiaryId: null,
-    categoryStore: {
-      categoryId: () => configRepo.get(PRIVATE_CONSULT_CATEGORY_KEY),
-      setCategoryId: (id) => configRepo.set(PRIVATE_CONSULT_CATEGORY_KEY, id),
-    },
+    categoryStore: privateCategoryStore,
     spawn: async ({ consultation, intake, guildId, channelId, requesterDisplayName }) => {
       const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
         prompt: privateConsultPrompt(intake),
@@ -1034,6 +1041,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      if (!subsidiaryId) {
+        privateChannelProvisioner = createPrivateChannelProvisioner({
+          guild, repo: privateChannelsRepo, categoryStore: privateCategoryStore, log,
+        });
+        // 停止中に受け付けた依頼・途中で止まった作成を拾う。
+        void privateChannelProvisioner.reconcile()
+          .catch((error) => log.warn(`private channel reconcile failed: ${(error as Error).message}`));
+      }
       if (!subsidiaryId) {
         sprintDialoguesDiscord?.stop();
         sprintDialoguesDiscord = startSprintDialogues({ guild, db: deps.db, parentId: layout.metaCategoryId,
@@ -2510,6 +2525,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
       return;
     }
+    if (ev.type === "discord.private_channel.requested") {
+      void privateChannelProvisioner?.provision(ev.private_channel_id)
+        .catch((error) => log.warn(`private channel provision failed id=${ev.private_channel_id}: ${(error as Error).message}`));
+      return;
+    }
     if (ev.type === "consultation.proposed") {
       // 公開候補の判断カードは相談チャンネルの中にだけ出す (CC-CONSULT-INV-04)。
       if (!consultDeps) return;
@@ -2675,6 +2695,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         deliveryRepo: sessionMessageDeliveryRepo,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
         resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
+        // ready の報告用プライベートチャンネルへの明示投稿を通す (private-channels.md §4)。
+        isReadyPrivateChannel: (channelId) => privateChannelsRepo.isReadyChannel(channelId),
         onSessionMessagePosted,
         log,
       }, ev);

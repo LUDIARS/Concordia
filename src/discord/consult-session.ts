@@ -12,7 +12,7 @@
 import { ChannelType, type Guild, type TextChannel } from "discord.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { ConsultIntake } from "../dialogue/intake.js";
-import { grantPrivateConsultViewer } from "./consult-channel.js";
+import { grantPrivateViewer } from "./private-channel-discord.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 /** 面の名前の本体。 相談の内容を含めない。 */
@@ -46,7 +46,7 @@ export async function bindPrivateConsultSession(deps: BindPrivateConsultDeps, in
     name_body: PRIVATE_CONSULT_NAME_BODY,
   });
   for (const viewer of input.viewerIds) {
-    await grantPrivateConsultViewer(channel as TextChannel, viewer).catch((error: unknown) =>
+    await grantPrivateViewer(channel as TextChannel, viewer, "private consultation resumed").catch((error: unknown) =>
       deps.log.warn(`private consultation viewer re-grant failed session=${input.sessionId}: ${(error as Error).message}`));
   }
   if (deps.webhooks) {

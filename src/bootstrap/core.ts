@@ -99,6 +99,7 @@ import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
 import { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
 import { ConsultationPublicationsRepo } from "../db/consultation-publications-repo.js";
 import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
+import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { PublicationService } from "../consultation/publication-service.js";
 import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
@@ -1885,6 +1886,7 @@ export async function startBackend(): Promise<BackendHandle> {
     requesterProfiles: requesterProfilesRepo,
     consultationIntakes: consultationIntakesRepo,
     consultationPublications,
+    privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },

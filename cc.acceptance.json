@@ -2950,6 +2950,52 @@
         "src/config/settings/coverage.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/discord/egress.ts",
+      "tests": [
+        "src/discord/egress.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/private-channels.ts",
+      "tests": [
+        "src/api/private-channels.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/private-channels-repo.ts",
+      "tests": [
+        "src/db/private-channels-repo.test.ts",
+        "src/platform/private-channel-request.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/private-channel-discord.ts",
+      "tests": [
+        "src/discord/private-channel-discord.test.ts",
+        "src/discord/private-channel-provisioner.test.ts",
+        "src/discord/consult-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/private-channel-provisioner.ts",
+      "tests": [
+        "src/discord/private-channel-provisioner.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/private-channel-request.ts",
+      "tests": [
+        "src/platform/private-channel-request.test.ts",
+        "src/api/private-channels.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

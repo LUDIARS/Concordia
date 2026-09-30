@@ -153,7 +153,7 @@ import { DepartmentsRepo, type DepartmentRow } from "../db/departments-repo.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import type { DepartmentOutputItem } from "../departments/settings.js";
-import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum } from "./department-forum.js";
+import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum, sessionForumNameFor } from "./department-forum.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { DomainReviewPostPort } from "../domain-review/service.js";
 import { createDiscordDomainReviewPoster } from "./domain-review-post.js";
@@ -481,6 +481,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ...layoutOpts,
     sessionForumTemplates: delegationRepo.listTemplates(),
     sessionForumSiteTags: await deps.resolveForumSiteTags?.() ?? [],
+    // 既定部署の名前に揃える (departments.md §9.2)。 無ければ「Session」。
+    sessionForumName: sessionForumNameFor(departmentsRepo.findDefault(subsidiaryId ?? null), subsidiaryId ?? null),
   });
   // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
   // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
@@ -2389,8 +2391,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "department.changed") {
+      if (ev.subsidiary_id !== (subsidiaryId ?? null)) return;
+      // 既定部署の付け外し・改名・廃止で Session フォーラムの名前が変わる (departments.md §9.2)。
+      void (async () => {
+        await guild.channels.fetch();
+        layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      })().catch((error) => log.warn(`session forum name sync failed department=${ev.department_id}: ${(error as Error).message}`));
       // 作成・改名・復帰で部署フォーラムを用意し直す。 廃止はフォーラムを残すだけ。
-      if (ev.subsidiary_id !== (subsidiaryId ?? null) || ev.action === "archived") return;
+      if (ev.action === "archived") return;
       const department = departmentsRepo.find(ev.department_id);
       if (!department) return;
       void provisionDepartmentForum(guild, department)

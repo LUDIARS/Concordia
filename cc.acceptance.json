@@ -2793,6 +2793,13 @@
         "src/platform/reaction-workflow-skill.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/discord/config.ts",
+      "tests": [
+        "src/discord/config.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

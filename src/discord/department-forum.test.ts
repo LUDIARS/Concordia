@@ -1,6 +1,12 @@
 import { ChannelType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
-import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum, type DepartmentForumTarget } from "./department-forum.js";
+import {
+  departmentSessionForumId,
+  ensureDepartmentForum,
+  needsDepartmentForum,
+  sessionForumNameFor,
+  type DepartmentForumTarget,
+} from "./department-forum.js";
 
 function department(patch: Partial<DepartmentForumTarget> = {}): DepartmentForumTarget {
   return { id: "dept-qa", name: "技術相談課", subsidiary_id: null, discord_forum_id: null, is_default: 0, archived_at: null, ...patch };
@@ -22,6 +28,20 @@ describe("departmentSessionForumId", () => {
     expect(departmentSessionForumId(department({ discord_forum_id: "forum-qa", is_default: 1 }), null, "session-forum")).toBe("session-forum");
     expect(departmentSessionForumId(department({ discord_forum_id: "forum-qa" }), "glab", "session-forum")).toBe("session-forum");
     expect(departmentSessionForumId(null, null, "session-forum")).toBe("session-forum");
+  });
+});
+
+describe("sessionForumNameFor", () => {
+  it("names the Session forum after this runtime's active default department", () => {
+    expect(sessionForumNameFor(department({ name: "総務", is_default: 1 }), null)).toBe("総務");
+  });
+
+  it("falls back to the layout default without an owned, active default department", () => {
+    expect(sessionForumNameFor(null, null)).toBeUndefined();
+    expect(sessionForumNameFor(department({ name: "総務", is_default: 0 }), null)).toBeUndefined();
+    expect(sessionForumNameFor(department({ name: "総務", is_default: 1, archived_at: 1 }), null)).toBeUndefined();
+    expect(sessionForumNameFor(department({ name: "総務", is_default: 1 }), "glab")).toBeUndefined();
+    expect(sessionForumNameFor(department({ name: "  ", is_default: 1 }), null)).toBeUndefined();
   });
 });
 

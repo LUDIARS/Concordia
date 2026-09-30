@@ -15,7 +15,7 @@ function makeFakeGuild() {
     topic: string | null;
     availableTags?: Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>;
     setAvailableTags?: (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => Promise<void>;
-    edit?: (patch: { topic?: string; parent?: string | null }) => Promise<void>;
+    edit?: (patch: { name?: string; topic?: string; parent?: string | null }) => Promise<void>;
   }>();
   let counter = 0;
   const created: Array<{ name: string; type: ChannelType; topic: string | null }> = [];
@@ -46,7 +46,8 @@ function makeFakeGuild() {
               emoji: undefined,
             }));
           },
-          edit: async (patch: { topic?: string; parent?: string | null }) => {
+          edit: async (patch: { name?: string; topic?: string; parent?: string | null }) => {
+            if (patch.name !== undefined) ch.name = patch.name;
             if (patch.topic !== undefined) ch.topic = patch.topic;
             if (patch.parent !== undefined) ch.parentId = patch.parent;
           },
@@ -93,6 +94,34 @@ describe("ensureDiscordLayout", () => {
     expect(names).not.toContain("archive");
     expect(channels.get(snap.costChannelId)?.parentId).toBeNull();
     expect(channels.get(snap.activityChannelId)?.parentId).toBe(snap.statusCategoryId);
+  });
+
+  it("Session フォーラムを既定部署の名前に揃え、 既定部署が無くなれば Session に戻す", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const repo = makeFakeRepo();
+    const first = await ensureDiscordLayout(guild, repo);
+    expect(channels.get(first.sessionForumId)?.name).toBe("Session");
+
+    const renamed = await ensureDiscordLayout(guild, repo, { sessionForumName: "総務" });
+    expect(renamed.sessionForumId).toBe(first.sessionForumId);
+    expect(channels.get(first.sessionForumId)?.name).toBe("総務");
+
+    const restored = await ensureDiscordLayout(guild, repo);
+    expect(restored.sessionForumId).toBe(first.sessionForumId);
+    expect(channels.get(first.sessionForumId)?.name).toBe("Session");
+  });
+
+  it("保存済み id を失っても旧名の Session フォーラムを引き継ぎ、 二つ目を作らない", async () => {
+    const { guild, channels, created } = makeFakeGuild();
+    const first = await ensureDiscordLayout(guild, makeFakeRepo());
+
+    const second = await ensureDiscordLayout(guild, makeFakeRepo(), { sessionForumName: "総務" });
+    expect(second.sessionForumId).toBe(first.sessionForumId);
+    expect(channels.get(first.sessionForumId)?.name).toBe("総務");
+    expect(created.filter((c) => c.type === ChannelType.GuildForum && (c.name === "Session" || c.name === "総務"))).toHaveLength(1);
+
+    const third = await ensureDiscordLayout(guild, makeFakeRepo(), { sessionForumName: "総務" });
+    expect(third.sessionForumId).toBe(first.sessionForumId);
   });
 
   it("既存のコストチャンネルをカテゴリ外へ移動する", async () => {

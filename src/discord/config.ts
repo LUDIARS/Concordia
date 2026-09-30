@@ -113,6 +113,11 @@ export interface EnsureLayoutOptions {
   sessionForumTemplates?: readonly ForumTemplateTagSource[];
   /** Villa から解決した、active 拠点だけのPC名タグ。 */
   sessionForumSiteTags?: readonly string[];
+  /**
+   * Session フォーラムの表示名。 既定部署を持つ会社ではその部署名 (spec/feature/departments.md §9.2)。
+   * 省略時は「Session」。 名前は表示だけで、 フォーラムは保存済み id で同定する (CC-DEPT-INV-09)。
+   */
+  sessionForumName?: string;
 }
 
 export async function ensureDiscordLayout(
@@ -144,15 +149,19 @@ export async function ensureDiscordLayout(
   const sessionsCategoryId = findExistingCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
   const statusCategoryId = await ensureCategory(guild, repo, STATUS_CATEGORY_KEY, CATEGORY_NAMES.status);
   const archiveCategoryId = findExistingCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
+  const sessionForumName = opts.sessionForumName?.trim() || FORUM_NAMES.session;
   const sessionForumId = forumMode
     ? await ensureForum(
         guild,
         repo,
         SESSION_FORUM_KEY,
-        FORUM_NAMES.session,
+        sessionForumName,
         SESSION_FORUM_TOPIC,
         sessionForumTagNames,
         sessionForumSiteTagNames,
+        // 既定部署の名前に揃える (departments.md §9.2)。 改名後に id を失っても旧名で同じ
+        // フォーラムを見つけ、 二つ目の Session フォーラムを作らない。
+        { syncName: true, legacyNames: [FORUM_NAMES.session] },
       )
     : "";
   const testForumId = forumMode
@@ -290,6 +299,14 @@ function findExistingCategory(
   return existing.id;
 }
 
+/** フォーラム名の扱い。 既定は「作るときの名前」で、 既存フォーラムの名前は触らない。 */
+interface ForumNaming {
+  /** 既存フォーラムの名前を `name` に揃える。 */
+  syncName?: boolean;
+  /** 保存済み id を失ったとき、 `name` の次に探す旧名。 */
+  legacyNames?: readonly string[];
+}
+
 async function ensureForum(
   guild: Guild,
   repo: DiscordConfigRepo,
@@ -298,11 +315,13 @@ async function ensureForum(
   topic: string,
   requiredTagNames: readonly string[] = [],
   optionalTagNames: readonly string[] = [],
+  naming: ForumNaming = {},
 ): Promise<string> {
   const cached = repo.get(key);
   let forum = cached ? guild.channels.cache.get(cached) : null;
-  if (forum?.type !== ChannelType.GuildForum) {
-    forum = guild.channels.cache.find((c) => c.type === ChannelType.GuildForum && c.name === name) ?? null;
+  for (const candidate of [name, ...(naming.legacyNames ?? [])]) {
+    if (forum?.type === ChannelType.GuildForum) break;
+    forum = guild.channels.cache.find((c) => c.type === ChannelType.GuildForum && c.name === candidate) ?? null;
   }
   if (!forum) {
     forum = await guild.channels.create({ name, type: ChannelType.GuildForum, topic });
@@ -311,6 +330,13 @@ async function ensureForum(
   const forumChannel = forum as ForumChannel;
   if (forumChannel.topic !== topic) {
     await forumChannel.edit({ topic, reason: "Concordia forum details sync" });
+  }
+  if (naming.syncName && forumChannel.name !== name) {
+    try {
+      await forumChannel.edit({ name, reason: "Concordia forum name sync" });
+    } catch {
+      /* 改名はレート制限 (10 分に 2 回) に掛かりうる。 表示名だけなので経路は変わらず、 次の同期で揃え直す。 */
+    }
   }
   await ensureForumTags(forumChannel, requiredTagNames, optionalTagNames);
   return forum.id;

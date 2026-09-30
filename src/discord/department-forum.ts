@@ -50,6 +50,21 @@ export function departmentSessionForumId(
   return department.discord_forum_id;
 }
 
+/**
+ * Session フォーラムの表示名 (departments.md §9.2)。 既定部署は Session フォーラムを自部署の面に
+ * するので、 その部署名に揃える。 自社所有の稼働中の既定部署が無ければ undefined (レイアウト側の
+ * 既定名「Session」に戻る)。
+ * @implements SPEC-DEPT-DEFAULT
+ */
+export function sessionForumNameFor(
+  defaultDepartment: DepartmentForumTarget | null,
+  runtimeSubsidiaryId: string | null,
+): string | undefined {
+  if (!defaultDepartment || defaultDepartment.subsidiary_id !== runtimeSubsidiaryId) return undefined;
+  if (defaultDepartment.is_default !== 1 || defaultDepartment.archived_at !== null) return undefined;
+  return defaultDepartment.name.trim() || undefined;
+}
+
 export async function ensureDepartmentForum(input: {
   guild: Guild;
   store: DepartmentForumStore;

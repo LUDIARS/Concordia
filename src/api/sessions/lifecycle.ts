@@ -218,6 +218,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         target_project: input.target_project ?? claimedProjectTarget?.cwd ?? null,
         active_repos: input.active_repos ?? [],
         team_id: claimed?.teamId ?? claimedDelegationRun?.team_id ?? null,
+        department_id: claimed?.departmentId ?? claimedDelegationRun?.department_id ?? null,
       });
       // タスク名は insertSession の引数に無いので、登録直後に patch で入れる。
       // Discord / WebUI のセッション表示がそのまま「何をしている session か」になる。
@@ -378,6 +379,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       provider: (q.provider as ProviderName) || undefined,
       subsidiary_id: subsidiaryId || undefined,
       team_id: (q.team_id ?? "").trim() || undefined,
+      department_id: (q.department_id ?? "").trim() || undefined,
       limit,
       offset,
     });

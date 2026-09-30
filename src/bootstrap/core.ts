@@ -11,6 +11,7 @@ import { inspectImplementationRepo } from "../implementation-tools/repo-context.
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { basename, dirname, join, normalize } from "node:path";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -89,6 +90,13 @@ import { startContractLifecycle } from "../contract/lifecycle.js";
 import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/model-review-adapter.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { DepartmentsRepo } from "../db/departments-repo.js";
+import { DepartmentService } from "../departments/service.js";
+import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
+import { UseCasesRepo } from "../db/use-cases-repo.js";
+import { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
+import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
+import { UseCaseService } from "../dialogue/use-case-service.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
@@ -556,7 +564,15 @@ export async function startBackend(): Promise<BackendHandle> {
   // 完了し、 イベントが流れ始めるのは adminState 初期化後なので TDZ にはならない)。
   const messageService = new SessionMessageService({
     repo: sessionMessages,
-    isThinkingEnabled: () => adminState.getThinkingMessagesEnabled(),
+    // 部署の出力方針で全体設定を上書きする (spec/feature/departments.md §9.4)。 departmentsRepo も
+    // adminState と同じく後方で作るが、 イベントが流れ始めるのは初期化後なので TDZ にはならない。
+    isThinkingEnabled: (sessionId) => isOutputEnabled(
+      resolveSessionOutputMode({
+        sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
+        departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
+      }, sessionId, "thinking"),
+      adminState.getThinkingMessagesEnabled(),
+    ),
   });
   const stopMessageService = messageService.start();
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
@@ -606,6 +622,35 @@ export async function startBackend(): Promise<BackendHandle> {
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const teamsRepo = new TeamsRepo(db);
+  // 部署 (spec/feature/departments.md)。 部署行を書くのは DepartmentService だけ。
+  const departmentsRepo = new DepartmentsRepo(db);
+  // 対話の前提データ (spec/feature/dialogue-context.md)。
+  const useCasesRepo = new UseCasesRepo(db);
+  const useCaseService = new UseCaseService({ repo: useCasesRepo });
+  const useCaseCorrectionsRepo = new UseCaseCorrectionsRepo(db);
+  const requesterProfilesRepo = new RequesterProfilesRepo(db);
+  const departmentService = new DepartmentService({
+    repo: departmentsRepo,
+    useCases: {
+      isAssignable: (useCaseId) => {
+        const useCase = useCasesRepo.find(useCaseId);
+        return useCase !== null && useCase.archived_at === null;
+      },
+    },
+    organizations: {
+      exists: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId) !== null,
+      projects: (subsidiaryId) => subsidiaryRepo.listProjects(subsidiaryId),
+    },
+    onChange: ({ department, action, fields }) => eventBus.emit({
+      type: "department.changed",
+      event_id: randomUUID(),
+      department_id: department.id,
+      subsidiary_id: department.subsidiary_id,
+      action,
+      fields,
+      ts: Math.floor(Date.now() / 1000),
+    }),
+  });
   const discordGatewayPool = new DiscordGatewayPool();
   const teamMetricsRepo = new TeamMetricsRepo(db);
   const projectCodesRepo = new ProjectCodesRepo(db);
@@ -681,8 +726,10 @@ export async function startBackend(): Promise<BackendHandle> {
         team: team.name,
         rules: team.rules_text,
         subsidiaryId: team.subsidiary_id,
+        departmentId: team.department_id ?? null,
       } : null;
     },
+    departments: departmentsRepo,
     teamPrRules: (value) => {
       const team = teamsRepo.findByIdOrSlug(value);
       return team ? parseTeamSettings(team).pr_rules ?? null : null;
@@ -1804,6 +1851,12 @@ export async function startBackend(): Promise<BackendHandle> {
     sidecarRecords,
     conversations: { service: conversationService, repo: conversationRepo },
     teams: teamsRepo,
+    departments: departmentsRepo,
+    departmentService,
+    useCases: useCasesRepo,
+    useCaseService,
+    useCaseCorrections: useCaseCorrectionsRepo,
+    requesterProfiles: requesterProfilesRepo,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },

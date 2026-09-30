@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "../db/harness-audit-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
+import { layerSessionRules, type DepartmentRuleSource } from "../departments/rule-layers.js";
 import { evaluateAction } from "../harness/session-gate.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
 import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
@@ -108,6 +109,10 @@ interface HarnessSessionContext {
   contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
   teamId?: string | null;
+  /** 所属部署 (spec/feature/departments.md §6)。 ルール供給の部署層を決める。 */
+  departmentId?: string | null;
+  /** 部署のユースケースが read-only (spec/feature/dialogue-context.md §3)。 */
+  useCaseReadOnly?: boolean;
   teamTestPolicy?: "confirm-queue" | "custos-unity";
   teamWorktreePolicy?: "allowed" | "repo-root-only";
   teamVisibility?: "public" | "private";
@@ -137,6 +142,8 @@ export interface HarnessSessionApiDeps {
    */
   sessionScope?: (sessionId: string) => string | null;
   sessionContext?: (sessionId: string) => HarnessSessionContext | null;
+  /** 部署の自然文ルール (rules_text) の読出し。 未注入なら部署層は harness_rules の行だけ。 */
+  departmentRules?: (departmentId: string) => DepartmentRuleSource | null;
   projectPolicy?: (cwd: string) => Promise<ProjectHarnessPolicy>;
   strongImplModels?: () => string[];
   /**
@@ -180,6 +187,14 @@ function recordSafe(
 
 export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
   const app = new Hono();
+
+  /** セッションへ渡す自然文ルール: 全体 → 部署 → チーム (spec/feature/departments.md §6)。 */
+  const sessionRules = (sessionId: string | undefined): IntentHarnessRule[] => {
+    const context = sessionId ? deps.sessionContext?.(sessionId) ?? null : null;
+    const scope = { teamId: context?.teamId ?? null, departmentId: context?.departmentId ?? null };
+    const department = scope.departmentId ? deps.departmentRules?.(scope.departmentId) ?? null : null;
+    return layerSessionRules(deps.rules.listForScope(scope), scope, department);
+  };
 
   app.get("/health", (c) => c.json({
     ok: true,
@@ -228,6 +243,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       teamWorktreePolicy: sessionContext?.teamWorktreePolicy,
       teamVisibility: sessionContext?.teamVisibility,
       readOnlyInquiry: sessionContext?.readOnlyInquiry,
+      useCaseReadOnly: sessionContext?.useCaseReadOnly,
       inquiryCaseId: sessionContext?.inquiryCaseId,
       inquiryApiBaseUrl: sessionContext?.inquiryApiBaseUrl,
       inquiryReadRoot: sessionContext?.inquiryReadRoot,
@@ -352,8 +368,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { task, project, session_id } = parsed.data;
 
-    const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
-    const rules = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
+    const rules = sessionRules(session_id);
     const projectPolicy = session_id ? deps.sessionContext?.(session_id)?.projectPolicy : undefined;
     if (projectPolicy?.ddd) rules.push({ kind: "block", title: "DDD実装方針", description: DDD_INSTRUCTION });
     // 起動 inject と同じ手順を着手前 supply にも載せる (旗の真偽値だけでは手順が伝わらない)。
@@ -385,8 +400,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { prompt, project, branch, session_id } = parsed.data;
 
-    const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
-    const rules: IntentHarnessRule[] = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
+    const rules: IntentHarnessRule[] = sessionRules(session_id);
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
     const submittedTask = session_id ? deps.taskBranches?.beginClassification(session_id, prompt) ?? null : null;
     const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates,

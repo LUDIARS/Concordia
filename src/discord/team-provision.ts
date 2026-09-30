@@ -142,7 +142,7 @@ async function resolveSurface(
  * ここで throw するとチーム面のプロビジョニング全体が止まるので、
  * 呼び出し側の運用を守るため冪等・追加のみに限定する。
  */
-async function ensureTeamForumTags(forum: ForumChannel): Promise<void> {
+export async function ensureTeamForumTags(forum: ForumChannel): Promise<void> {
   const missing = TEAM_FORUM_TAG_NAMES.filter(
     (name) => !forum.availableTags.some((tag) => tag.name === name),
   );

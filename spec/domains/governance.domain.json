@@ -37,12 +37,37 @@
     },
     {
       "pathPattern": "(^|/)src/inbox(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/departments/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/departments-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/departments(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/departments/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/Departments(\\.test)?\\.tsx$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/monitor/organization-groups(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/department-[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)tests/departments-[^/]+\\.test\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
   "specRefs": [
     "spec/feature/approval-inbox.md",
     "spec/feature/danger-command-approval.md",
-    "spec/feature/question-session-retention.md"
+    "spec/feature/question-session-retention.md",
+    "spec/feature/departments.md"
   ]
 }

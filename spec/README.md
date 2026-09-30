@@ -54,7 +54,7 @@ spec/
 ```
 > ロードマップは README §開発ステータス。アーキテクチャ再編計画は
 > [plan/refactor-3axis-architecture.md](plan/refactor-3axis-architecture.md)。
-> マルチ拠点連合 (本社/子会社/部署) は
+> マルチ拠点連合 (本社/子会社/担当サーバ) は
 > [plan/multi-site-federation.md](plan/multi-site-federation.md)。
 
 ## feature 一覧

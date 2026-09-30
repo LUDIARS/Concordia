@@ -99,8 +99,8 @@ export interface SessionsApiDeps {
   projectSessionEvent: (event: ConcordiaEvent) => void;
   /** Cc 所有の project-code 正本。未注入時は空 registry として扱う。 */
   projectCodes?: ProjectCodesRepo;
-  /** thinking frame を Concordia の表示・中継面へ流すか。未注入時は OFF。 */
-  isThinkingEnabled?: () => boolean;
+  /** thinking frame を Concordia の表示・中継面へ流すか。未注入時は OFF。 部署の出力方針で上書きされる。 */
+  isThinkingEnabled?: (sessionId: string) => boolean;
   resolveWorkspaceRoots?: () => string[];
   resolveCcWorkflowEnabled?: () => boolean;
   /** 実行中セッションへの model/effort 反映。 未注入なら Lictor へ直接切替を送る (runtime-switch)。 */

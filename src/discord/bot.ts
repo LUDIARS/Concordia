@@ -96,6 +96,7 @@ import {
   matchesApprovedForumContent,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
+  type ForumSpawnDepartment,
   type ApprovedForumSpawnContent,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
@@ -148,6 +149,11 @@ import { postTeamCard } from "./team-post-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "../shared/team-card-routing.js";
 import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { DepartmentsRepo, type DepartmentRow } from "../db/departments-repo.js";
+import { parseDepartmentSettings } from "../departments/settings.js";
+import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
+import type { DepartmentOutputItem } from "../departments/settings.js";
+import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum } from "./department-forum.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { DomainReviewPostPort } from "../domain-review/service.js";
 import { createDiscordDomainReviewPoster } from "./domain-review-post.js";
@@ -560,6 +566,62 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (!teamId) return false;
     return teamsRepo.find(teamId)?.subsidiary_id === subsidiaryId;
   };
+  // 部署 (spec/feature/departments.md §9)。 論理 runtime は自社所有の部署だけを扱う。
+  const departmentsRepo = new DepartmentsRepo(deps.db);
+  const departmentForumContext = (forumId: string): ForumSpawnDepartment | null => {
+    const department = departmentsRepo.findByForumId(forumId);
+    if (!department || department.subsidiary_id !== subsidiaryId || department.is_default === 1) return null;
+    let projects: string[] = [];
+    let hasLaunchDefault = false;
+    try {
+      const settings = parseDepartmentSettings(department.settings_json);
+      projects = settings.projects;
+      hasLaunchDefault = Boolean(settings.launch.template || settings.launch.provider);
+    } catch {
+      // 壊れた設定の部署は Cc 側の起動が department_settings_invalid で止める。 ここでは
+      // 聞き返しを減らす判断材料が無いものとして扱う。
+      log.warn(`department settings unreadable department=${department.id}`);
+    }
+    return { id: department.id, name: department.name, projects, hasLaunchDefault, archived: department.archived_at !== null };
+  };
+  // セッションのスレッド置き場: チームの面 → 部署のフォーラム → 既定 (Session フォーラム)。
+  const sessionDepartmentForumId = (sessionId: string, fallbackForumId: string): string => {
+    const departmentId = deps.sessionsRepo.findSession(sessionId)?.department_id ?? null;
+    const department = departmentId ? departmentsRepo.find(departmentId) : null;
+    return departmentSessionForumId(department, subsidiaryId ?? null, fallbackForumId);
+  };
+  // 部署の出力方針 (departments.md §9.4)。 全体設定は既定で出す項目なので true を渡す。
+  const sessionOutputEnabled = (sessionId: string, item: DepartmentOutputItem): boolean => isOutputEnabled(
+    resolveSessionOutputMode({
+      sessionDepartmentId: (id) => deps.sessionsRepo.findSession(id)?.department_id ?? null,
+      departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
+      onBrokenSettings: (id) => log.warn(`department output policy unreadable department=${id}`),
+    }, sessionId, item),
+    true,
+  );
+  // 状態カード: 部署の出力方針で止めた部署は作らず、 既にあれば取り下げる (departments.md §9.4)。
+  const upsertStatusCardForSession = async (
+    ...args: Parameters<typeof upsertSessionStatusCard>
+  ): Promise<void> => {
+    const [cardDeps, sessionId] = args;
+    if (sessionOutputEnabled(sessionId, "status_card")) {
+      await upsertSessionStatusCard(...args);
+      return;
+    }
+    await deleteSessionStatusCard({ guild: cardDeps.guild, configRepo: cardDeps.configRepo, log: cardDeps.log }, sessionId);
+  };
+  const provisionDepartmentForum = async (guild: Guild, department: DepartmentRow): Promise<void> => {
+    if (!needsDepartmentForum(department, subsidiaryId ?? null)) return;
+    await ensureDepartmentForum({
+      guild,
+      department,
+      store: {
+        categoryId: () => configRepo.get("department_category_id"),
+        setCategoryId: (id) => configRepo.set("department_category_id", id),
+        setForumId: (departmentId, forumId) => departmentsRepo.setDiscordForum(departmentId, forumId),
+      },
+    });
+  };
   // `/spawn` の task 候補 (Memoria の未完了タスク)。 Memoria が落ちていても spawn は
   // 続けられるよう、 補完側でキャッシュと失敗吸収を行う。
   const spawnTaskSource = new MemoriaClient({ timeoutMs: AUTOCOMPLETE_MEMORIA_TIMEOUT_MS });
@@ -894,6 +956,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           name: team.name,
         }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
       }
+      // 部署フォーラム (departments.md §9.3)。 自社所有・既定でない・稼働中の部署だけ。
+      for (const department of departmentsRepo.listForOrganization(subsidiaryId ?? null)) {
+        await provisionDepartmentForum(guild, department)
+          .catch((error) => log.warn(`department forum reconcile failed department=${department.id}: ${(error as Error).message}`));
+      }
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
         try {
@@ -1159,7 +1226,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 teamsRepo,
                 runtimeTeamId,
                 surface.label === "TaskWorkflow" ? "task" : "session",
-                surface.forumId,
+                surface.label === "TaskWorkflow" ? surface.forumId : sessionDepartmentForumId(sessionId, surface.forumId),
               ),
             };
             await onSessionRegistered({
@@ -1274,7 +1341,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           log.info(`status-card ${reason} reconcile: scanned=${lost.scanned} removed=${lost.removed}`);
           const activeRows = sessionChannelsRepo.listActive();
           await runWithConcurrency(activeRows, statusSyncConcurrency, async (row) => {
-            await upsertSessionStatusCard({
+            await upsertStatusCardForSession({
               guild, layout: lay, configRepo, sessionChannelsRepo,
               readModel: deps.readModel, log,
             }, row.session_id, { allowCreate: true });
@@ -1555,12 +1622,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     };
   };
   // ThreadCreate と承認ボタンの spawn 続行 (executeApprovedForumSpawn) が共有する deps。
-  const forumSpawnDepsNow = (): ForumSpawnDeps | null => {
+  // forumId 無指定は Session フォーラム。 部署フォーラム (departments.md §9.3) なら、 自社所有で
+  // 既定でない部署のフォーラムだけを受け付け、 その部署の文脈とフォーラムの webhook を使う。
+  const forumSpawnDepsNow = (forumId?: string | null): ForumSpawnDeps | null => {
     const forumLayout = layout;
     const forumWebhooks = webhooks;
     if (!forumLayout?.forumMode || !forumWebhooks) return null;
+    const isDepartmentForum = Boolean(forumId) && forumId !== forumLayout.sessionForumId;
+    const department = isDepartmentForum ? departmentForumContext(forumId!) : null;
+    if (isDepartmentForum && !department) return null;
+    const targetForumId = department ? forumId! : forumLayout.sessionForumId;
     return {
-      sessionForumId: forumLayout.sessionForumId,
+      sessionForumId: targetForumId,
+      ...(department ? { department } : {}),
+      resolveUserDisplayName: async (guildId, userId) => {
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
+        const member = await guild?.members.fetch(userId).catch(() => null);
+        return member?.displayName ?? null;
+      },
       botUserId: client.user?.id ?? "",
       concordiaUrl: deps.concordiaUrl,
       // このスレッドを持つ Bot インスタンス自身の子会社 id (本社なら null)。
@@ -1627,7 +1706,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             missing: input.missing,
             // 子会社は担当プロジェクトから選ばせる。 本社は候補を出さず自由記述で答えてもらう
             // (登録プロジェクトは select menu の上限 25 を超えるため)。
-            projectChoices: deps.subsidiary?.resolveProjects() ?? [],
+            projectChoices: department && department.projects.length > 0
+              ? [...department.projects]
+              : deps.subsidiary?.resolveProjects() ?? [],
             modelChoices,
             ...(suggestion ? { suggestion } : {}),
           },
@@ -1659,7 +1740,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         return bound?.status === "active";
       },
       postToThread: async (threadId, content) => {
-        const webhook = await forumWebhooks.getForChannel(forumLayout.sessionForumId);
+        const webhook = await forumWebhooks.getForChannel(targetForumId);
         if (!webhook) throw new Error("Session forum webhook unavailable");
         const sent = await forumWebhooks.send(webhook, {
           content,
@@ -1681,10 +1762,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     threadId: string,
     approvedContent: ApprovedForumSpawnContent,
   ): Promise<{ ok: boolean; error?: string }> => {
-    const forumDeps = forumSpawnDepsNow();
-    if (!forumDeps) return { ok: false, error: "forum layout not ready" };
     const ch = await client.channels.fetch(threadId).catch(() => null);
     if (!ch?.isThread()) return { ok: false, error: "thread not found" };
+    const forumDeps = forumSpawnDepsNow(ch.parentId);
+    if (!forumDeps) return { ok: false, error: "forum layout not ready" };
     const thread = toForumSpawnThread(ch);
     const starter = await thread.fetchStarterMessage().catch(() => null);
     if (!starter || !matchesApprovedForumContent(
@@ -1706,10 +1787,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     threadId: string,
     snapshot: ForumSpawnApprovalCardSnapshot | null,
   ): Promise<{ requesterUserId: string; approvedContent: ApprovedForumSpawnContent } | null> => {
-    const forumDeps = forumSpawnDepsNow();
-    if (!forumDeps) return null;
     const ch = await client.channels.fetch(threadId).catch(() => null);
-    if (!ch?.isThread() || ch.parentId !== forumDeps.sessionForumId) return null;
+    if (!ch?.isThread()) return null;
+    const forumDeps = forumSpawnDepsNow(ch.parentId);
+    if (!forumDeps || ch.parentId !== forumDeps.sessionForumId) return null;
     const thread = toForumSpawnThread(ch);
     if (!thread.ownerId || thread.ownerId === forumDeps.botUserId) return null;
     let tagState: ForumTagState;
@@ -1740,7 +1821,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
   const replyToForumThread = async (threadId: string, content: string): Promise<void> => {
-    const forumDeps = forumSpawnDepsNow();
+    const ch = await client.channels.fetch(threadId).catch(() => null);
+    const forumDeps = forumSpawnDepsNow(ch?.isThread() ? ch.parentId : null);
     if (!forumDeps) throw new Error("Session forum is not ready");
     await forumDeps.postToThread(threadId, content);
   };
@@ -1758,16 +1840,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       effort?: string;
     },
   ): Promise<void> => {
-    const forumDeps = forumSpawnDepsNow();
-    if (!forumDeps) throw new Error("Session forum is not ready");
     const ch = await client.channels.fetch(threadId).catch(() => null);
     if (!ch?.isThread()) throw new Error("thread not found");
+    const forumDeps = forumSpawnDepsNow(ch.parentId);
+    if (!forumDeps) throw new Error("Session forum is not ready");
     await executeForumSpawn(forumDeps, toForumSpawnThread(ch), content);
   };
   const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
     if (gatewayClosed || stopping || !newlyCreated) return;
     if (!inScope(thread.guildId)) return;
-    const forumDeps = forumSpawnDepsNow();
+    const forumDeps = forumSpawnDepsNow(thread.parentId);
     if (!forumDeps) return;
     void handleForumSpawnThread(forumDeps, toForumSpawnThread(thread)).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
@@ -2014,8 +2096,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           // 作らずそのスレッドへ紐付ける — 依頼者はそのまま同じスレッドで対話する
           // (2026-09-02 neco 指示)。 /spawn をテキストチャンネルから打った場合等、
           // 発火元が Session forum のスレッドでないものは従来どおり新規作成。
+          // 部署フォーラムの投稿から起動したセッションは、 その部署のフォーラムのスレッドに紐付く
+          // (departments.md §9.3)。 部署に属さない・既定部署なら Session フォーラム。
+          const spawnForumId = sessionDepartmentForumId(sessionId, layout.sessionForumId);
           const sourceForumThread = await resolveForumSpawnSourceThread(
-            { guild, sessionForumId: layout.sessionForumId },
+            { guild, sessionForumId: spawnForumId },
             {
               hasDelegationRun: Boolean(state?.delegationRunId),
               hasTestSurface: testSurface !== null,
@@ -2056,7 +2141,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             await bindForumSpawnSession(
               {
                 guild,
-                sessionForumId: layout.sessionForumId,
+                sessionForumId: spawnForumId,
                 repo: sessionChannelsRepo,
                 webhooks,
                 log,
@@ -2069,6 +2154,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 branch,
                 callName: delegationRun?.call_name ?? state?.roleLabel ?? null,
                 state,
+                // 部署の出力方針でセッション情報を止めたら 1 行の簡易表示にする (departments.md §9.4)。
+                minimalSurface: !sessionOutputEnabled(sessionId, "session_info_card"),
               },
             );
             // フォーラム投稿を正式な指示として再注入する (2026-09-02 neco 指示: 投稿内容が
@@ -2099,7 +2186,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 teamsRepo,
                 runtimeTeamId,
                 surface.label === "TaskWorkflow" ? "task" : "session",
-                surface.forumId,
+                surface.label === "TaskWorkflow" ? surface.forumId : sessionDepartmentForumId(sessionId, surface.forumId),
               ),
             };
             await onSessionRegistered(
@@ -2193,7 +2280,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               upToId,
             );
           }
-          await upsertSessionStatusCard({
+          await upsertStatusCardForSession({
             guild,
             layout,
             configRepo,
@@ -2301,6 +2388,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
       return;
     }
+    if (ev.type === "department.changed") {
+      // 作成・改名・復帰で部署フォーラムを用意し直す。 廃止はフォーラムを残すだけ。
+      if (ev.subsidiary_id !== (subsidiaryId ?? null) || ev.action === "archived") return;
+      const department = departmentsRepo.find(ev.department_id);
+      if (!department) return;
+      void provisionDepartmentForum(guild, department)
+        .catch((error) => log.warn(`department forum provision failed department=${ev.department_id}: ${(error as Error).message}`));
+      return;
+    }
     if (ev.type === "staff.access_changed" && ev.platform === "discord") {
       // 名簿の昇格・降格・削除を、再起動を待たず全所属チームへ反映する。
       // 1 チームの Discord 障害で他チームの権限同期まで止めない。
@@ -2347,6 +2443,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
         .catch((e) => log.warn(`status-card delete on ended failed session=${ev.session_id}: ${(e as Error).message}`));
       // チーム所属セッションなら、 1 本分の実績をチームのコスト面へ報告する。
+      // 部署の出力方針でコスト報告を止めた部署は報告しない (departments.md §9.4)。
+      if (!sessionOutputEnabled(ev.session_id, "cost_report")) return;
       void postTeamCostReport(ev.session_id, ev.ts * 1000)
         .catch((e) => log.warn(`team cost report failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
@@ -2364,7 +2462,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "delegation.run_changed") {
       const parentSessionId = ev.parent_session_id;
       if (!parentSessionId || !isActiveDiscordSession(parentSessionId)) return;
-      void upsertSessionStatusCard({
+      void upsertStatusCardForSession({
         guild,
         layout,
         configRepo,
@@ -2694,7 +2792,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           teamsRepo,
           runtimeTeamId,
           surface.label === "TaskWorkflow" ? "task" : "session",
-          surface.forumId,
+          surface.label === "TaskWorkflow" ? surface.forumId : sessionDepartmentForumId(sessionId, surface.forumId),
         ),
       };
       await onSessionRegistered(
@@ -2715,7 +2813,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           delegationRunId: surface.delegationRunId,
         },
       );
-      await upsertSessionStatusCard({
+      await upsertStatusCardForSession({
         guild: activeGuild,
         layout,
         configRepo,

@@ -16,8 +16,9 @@ export interface SessionMessageServiceDeps {
    * assistant の thinking frame を session_messages に落とすか (既定 OFF —
    * 2026-08-12 neco 指示: 中継面に thinking が出るのは不要なことが多い)。
    * 未注入時も OFF。値は都度解決 (WebUI から再起動なしで切替可)。
+   * セッションごとに部署の出力方針で上書きできる (spec/feature/departments.md §9.4)。
    */
-  isThinkingEnabled?: () => boolean;
+  isThinkingEnabled?: (sessionId: string) => boolean;
   /** テスト差し替え用。 既定は eventBus.subscribe。 */
   subscribe?: (listener: (ev: ConcordiaEvent) => void) => () => void;
   /** テスト差し替え用。 既定は eventBus.emit。 */
@@ -38,7 +39,7 @@ export class SessionMessageService {
     const sessionId = eventSessionId(ev);
     if (!sessionId) return;
     // thinking は既定で記録しない (記録しなければ WebUI / Discord / Slack の全面から消える)。
-    if (ev.type === "transcript.frame" && ev.kind === "thinking" && !this.deps.isThinkingEnabled?.()) {
+    if (ev.type === "transcript.frame" && ev.kind === "thinking" && !this.deps.isThinkingEnabled?.(sessionId)) {
       return;
     }
     const ctx = this.contextFor(sessionId);

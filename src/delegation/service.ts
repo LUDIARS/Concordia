@@ -27,6 +27,7 @@ import {
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget, type SpawnWorktreeState } from "../control/spawn-target.js";
 import { resolveDelegationBranch } from "./branch-source.js";
+import { resolveDepartmentLaunch, type DepartmentLookupPort } from "../departments/launch-resolution.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
 import {
@@ -155,7 +156,11 @@ export interface DelegationServiceDeps {
     team: string;
     rules: string;
     subsidiaryId: string | null;
+    /** チームの所属部署。 無所属は null (spec/feature/departments.md §3)。 */
+    departmentId?: string | null;
   } | null;
+  /** 部署の照会。 department 指定の委託で所有・廃止を検証する。 */
+  departments?: DepartmentLookupPort;
   /** team settings `pr_rules` (teams §3.1)。 委託 brief の base branch 案内へ反映する。 */
   teamPrRules?: (teamIdOrSlug: string) => { base: string; push: "revisor" } | null;
   /**
@@ -252,6 +257,25 @@ export class DelegationService {
     if (requestedTeam) {
       input = { ...input, options: { ...input.options, team: requestedTeam.id } };
     }
+    // 部署は所有会社・廃止・チームの所属部署だけを検証して run へ記録する。 委託は
+    // テンプレートが起動値を持つので、 部署の起動既定値は入れない (departments.md §5)。
+    const requestedDepartment = (input.department_id ?? "").trim() || null;
+    if (requestedDepartment && !this.deps.departments) {
+      return { ok: false, error: "department registry unavailable" };
+    }
+    if (this.deps.departments) {
+      const department = resolveDepartmentLaunch(this.deps.departments, {
+        departmentId: requestedDepartment,
+        organizationId: subsidiaryId,
+        teamDepartmentId: requestedTeam?.departmentId ?? null,
+        request: {},
+        applyDefaults: false,
+      });
+      if (!department.ok) return { ok: false, error: department.error };
+      input = { ...input, department_id: department.department?.id ?? null };
+    } else {
+      input = { ...input, department_id: null };
+    }
     const plan = buildInvocationPlan(def, input);
     if (!plan.ok) return plan;
     // 委託前にドメインを確定して指示書の先頭へ織り込む (設計 §5 C-2 / §12.3 C-11)。
@@ -307,6 +331,7 @@ export class DelegationService {
         status: "queued",
         queue_payload_json: JSON.stringify(payload),
         team_id: requestedTeam?.id ?? null,
+        department_id: input.department_id ?? null,
         subsidiary_id: input.subsidiary_id ?? null,
         created_at: startedAt,
       });
@@ -362,6 +387,7 @@ export class DelegationService {
       spawn_worktree_state: launch.worktree_state,
       effort_decision_id: launch.effort_decision_id,
       team_id: requestedTeam?.id ?? null,
+      department_id: input.department_id ?? null,
       subsidiary_id: input.subsidiary_id ?? null,
       created_at: startedAt,
     });

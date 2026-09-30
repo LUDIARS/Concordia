@@ -18,6 +18,7 @@ import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
+import correctCommand from "./commands/correct.js";
 import effortCommand from "./commands/effort.js";
 import relictorCommand from "./commands/relictor.js";
 import handoverCommand from "./commands/handover.js";
@@ -83,6 +84,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   compactionCommand,
   contextCommand,
   goalCommand,
+  correctCommand,
   effortCommand,
   relictorCommand,
   handoverCommand,

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../../api.js";
 import type {
+  Department,
   SessionRow,
   DelegationTemplateLite,
   HostSnapshot,
@@ -12,6 +13,7 @@ import type {
 } from "../../api.js";
 import { useLiveQuery } from "../../hooks/useWsEvent.js";
 import { DelegationSpawnForm } from "../../components/DelegationSpawnForm.js";
+import { groupSessionsByDepartment } from "./organization-groups.js";
 
 function fmtTokens(n: number): string {
   if (n >= 1000) return `${Math.round(n / 1000).toLocaleString("en-US")}k`;
@@ -190,6 +192,19 @@ export function OrganizationsSection({ active }: { active: SessionRow[] }) {
   const [projects, setProjects] = useState<string[]>([]);
   const [discordStatus, setDiscordStatus] = useState<DiscordConfigStatus | null | undefined>(undefined);
   const [slackStatus, setSlackStatus] = useState<SlackConfigStatus | null | undefined>(undefined);
+  const [departments, setDepartments] = useState<Department[]>([]);
+
+  useEffect(() => {
+    // 廃止済みも取る (廃止した部署に残る稼働セッションを「(廃止)」の段に出すため)。
+    let stopped = false;
+    const tick = () =>
+      api.departmentsList({ allOrganizations: true, includeArchived: true })
+        .then((r) => { if (!stopped) setDepartments(r.departments); })
+        .catch(() => { if (!stopped) setDepartments([]); });
+    void tick();
+    const id = setInterval(tick, 15000);
+    return () => { stopped = true; clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     let stopped = false;
@@ -260,6 +275,7 @@ export function OrganizationsSection({ active }: { active: SessionRow[] }) {
       >
         <OrganizationCard
           activeSessions={headOfficeActive}
+          departments={departments.filter((d) => d.subsidiary_id === null)}
           templates={templates}
           projects={projects}
           headDiscordStatus={discordStatus}
@@ -270,6 +286,7 @@ export function OrganizationsSection({ active }: { active: SessionRow[] }) {
             key={s.id}
             subsidiary={s}
             activeSessions={activeBySub.get(s.id) ?? []}
+            departments={departments.filter((d) => d.subsidiary_id === s.id)}
             templates={templates}
             projects={projects}
             headDiscordStatus={discordStatus}
@@ -284,6 +301,7 @@ export function OrganizationsSection({ active }: { active: SessionRow[] }) {
 function OrganizationCard({
   subsidiary,
   activeSessions,
+  departments,
   templates,
   projects,
   headDiscordStatus,
@@ -291,6 +309,7 @@ function OrganizationCard({
 }: {
   subsidiary?: SubsidiarySummary;
   activeSessions: SessionRow[];
+  departments: Department[];
   templates: DelegationTemplateLite[];
   projects: string[];
   headDiscordStatus: DiscordConfigStatus | null | undefined;
@@ -363,9 +382,71 @@ function OrganizationCard({
         projects={projects}
       />
 
-      <div className="mt-4 pt-4 border-t border-border flex-1 min-h-[160px]">
-        <div className="text-xs text-subtle mb-2">active sessions</div>
-        <ActiveSessionRows rows={activeSessions} />
+      <div className="mt-4 pt-4 border-t border-border flex-1 min-h-[160px] space-y-3">
+        <div className="flex items-center text-xs text-subtle">
+          <span>部署ごとの active sessions</span>
+          <Link to="/departments" className="ml-auto text-accent">部署管理 →</Link>
+        </div>
+        {groupSessionsByDepartment(activeSessions, departments).map((group) => (
+          <DepartmentSection
+            key={group.key}
+            label={group.label}
+            department={group.department}
+            sessions={group.sessions}
+            subsidiaryId={subsidiary?.id ?? null}
+            templates={templates}
+            projects={projects}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DepartmentSection({
+  label,
+  department,
+  sessions,
+  subsidiaryId,
+  templates,
+  projects,
+}: {
+  label: string;
+  department: Department | null;
+  sessions: SessionRow[];
+  subsidiaryId: string | null;
+  templates: DelegationTemplateLite[];
+  projects: string[];
+}) {
+  const [spawnOpen, setSpawnOpen] = useState(false);
+  const canSpawn = department !== null && !department.archived;
+  return (
+    <div className="rounded border border-border/70 p-2">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium truncate">{label}</span>
+        {department?.is_default && <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-subtle">既定</span>}
+        <span className={`text-xs ${sessions.length > 0 ? "text-accent" : "text-subtle"}`}>active {sessions.length}</span>
+        {canSpawn && (
+          <button
+            type="button"
+            className="ml-auto text-xs text-accent"
+            onClick={() => setSpawnOpen((open) => !open)}
+          >
+            {spawnOpen ? "閉じる" : "この部署で起動"}
+          </button>
+        )}
+      </div>
+      {spawnOpen && department && (
+        <DelegationSpawnForm
+          subsidiaryId={subsidiaryId}
+          department={department}
+          className="mt-2 pt-2 border-t border-border"
+          templates={templates}
+          projects={projects}
+        />
+      )}
+      <div className="mt-2">
+        <ActiveSessionRows rows={sessions} />
       </div>
     </div>
   );

@@ -124,7 +124,7 @@ AI セッション側の統制は**ハーネスルール**と **Inject マニュ
 
 ## 9. マルチ拠点連合 — 本社の外へ
 
-本社の Concordia と別拠点 (site) の Concordia を WebSocket でつなぐ連合リンクです。専用ポートの listener (既定 OFF・opt-in)、事前共有トークン認証、切断中のイベントを貯める outbox、拠点一覧の WebUI、部署スコープ付きの設定配布までが Phase 0〜2 として実装されています。フォーラムのタグで拠点へルーティングする仕組みも入っています。
+本社の Concordia と別拠点 (site) の Concordia を WebSocket でつなぐ連合リンクです。専用ポートの listener (既定 OFF・opt-in)、事前共有トークン認証、切断中のイベントを貯める outbox、拠点一覧の WebUI、担当サーバスコープ付きの設定配布までが Phase 0〜2 として実装されています。フォーラムのタグで拠点へルーティングする仕組みも入っています。
 
 - **入口**: 環境変数で opt-in、閲覧は WebUI の Federation ページ。
 - **連携**: 他拠点の Concordia、Excubitor (ポート登録)。

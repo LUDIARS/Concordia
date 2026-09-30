@@ -21,6 +21,8 @@ export interface HarnessRuleRow {
   created_at: number;
   updated_at: number;
   team_id: string | null;
+  /** 部署スコープ (spec/feature/departments.md §6)。 NULL = 部署に絞らない。 team_id と排他。 */
+  department_id?: string | null;
 }
 
 export interface CreateHarnessRuleInput {
@@ -31,6 +33,7 @@ export interface CreateHarnessRuleInput {
   builtin?: boolean;
   sort_order?: number;
   team_id?: string | null;
+  department_id?: string | null;
 }
 
 export interface UpdateHarnessRuleInput {
@@ -48,8 +51,8 @@ export class HarnessRulesRepo {
     const id = randomUUID();
     const now = Date.now();
     this.db.prepare(`
-      INSERT INTO harness_rules(id, kind, title, description, enabled, builtin, sort_order, created_at, updated_at, team_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO harness_rules(id, kind, title, description, enabled, builtin, sort_order, created_at, updated_at, team_id, department_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.kind,
@@ -61,6 +64,7 @@ export class HarnessRulesRepo {
       now,
       now,
       input.team_id ?? null,
+      input.department_id ?? null,
     );
     return this.find(id)!;
   }
@@ -97,16 +101,36 @@ export class HarnessRulesRepo {
     return (this.db.prepare(`SELECT * FROM harness_rules WHERE id = ?`).get(id) as HarnessRuleRow | undefined) ?? null;
   }
 
-  list(options: { includeDisabled?: boolean; teamId?: string } = {}): HarnessRuleRow[] {
+  /**
+   * 部署スコープの行は、 departmentId を渡したときはその部署の分だけ、 includeAllScopes の
+   * ときは全部署分を含める。 どちらも無い既定の一覧 (子会社ガード等) には入れない —
+   * ある部署の作業方針が別会社のガード判定へ混ざらないようにする (departments.md §6)。
+   */
+  list(options: { includeDisabled?: boolean; teamId?: string; departmentId?: string; includeAllScopes?: boolean } = {}): HarnessRuleRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
     if (!options.includeDisabled) where.push("enabled = 1");
     // team scope: グローバル (team_id NULL) + 当該チームのルールを併せて返す (§3.2 のマージ規則)。
     if (options.teamId) { where.push("(team_id IS NULL OR team_id = ?)"); args.push(options.teamId); }
+    if (options.departmentId) { where.push("(department_id IS NULL OR department_id = ?)"); args.push(options.departmentId); }
+    else if (!options.includeAllScopes) where.push("department_id IS NULL");
     const sql = `SELECT * FROM harness_rules ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY sort_order ASC, created_at ASC`;
     return this.db.prepare(sql).all(...args) as HarnessRuleRow[];
   }
-  listForTeam(teamId: string | null): HarnessRuleRow[] { return this.db.prepare("SELECT * FROM harness_rules WHERE enabled=1 AND (team_id IS NULL OR team_id=?) ORDER BY sort_order,created_at").all(teamId) as HarnessRuleRow[]; }
+  listForTeam(teamId: string | null): HarnessRuleRow[] { return this.db.prepare("SELECT * FROM harness_rules WHERE enabled=1 AND department_id IS NULL AND (team_id IS NULL OR team_id=?) ORDER BY sort_order,created_at").all(teamId) as HarnessRuleRow[]; }
+
+  /**
+   * セッションの着手前ルール供給用: 全体 + 当該部署 + 当該チームの有効な行。
+   * 並べ替え (全体 → 部署 → チーム) は departments/rule-layers.ts が行う。
+   */
+  listForScope(scope: { teamId: string | null; departmentId: string | null }): HarnessRuleRow[] {
+    return this.db.prepare(`
+      SELECT * FROM harness_rules
+      WHERE enabled = 1
+        AND ((team_id IS NULL AND department_id IS NULL) OR team_id = ? OR (team_id IS NULL AND department_id = ?))
+      ORDER BY sort_order, created_at
+    `).all(scope.teamId, scope.departmentId) as HarnessRuleRow[];
+  }
 
   /** builtin の既定ルールが (title 一致で) 無ければ作る。 既存は description を上書きしない。 */
   ensureBuiltin(input: Required<Pick<CreateHarnessRuleInput, "kind" | "title" | "description">> & { sort_order: number }): void {

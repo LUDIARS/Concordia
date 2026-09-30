@@ -94,6 +94,16 @@ type ConcordiaEventPayload =
     }
   | { type: "team.created"; event_id: string; team_id: string; name: string; slug: string; ts: number }
   | { type: "team.changed"; event_id: string; team_id: string; fields: string[]; ts: number }
+  /** 部署の作成・更新・廃止・復帰 (spec/feature/departments.md §7)。 */
+  | {
+      type: "department.changed";
+      event_id: string;
+      department_id: string;
+      subsidiary_id: string | null;
+      action: "created" | "updated" | "archived" | "restored";
+      fields: string[];
+      ts: number;
+    }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
   /**
    * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、

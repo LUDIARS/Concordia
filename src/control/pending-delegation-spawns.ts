@@ -35,6 +35,8 @@ export interface PendingDelegationSpawn {
   goalAndGo: boolean;
   /** Canonical team id selected before launch. */
   teamId: string | null;
+  /** 起動前に確定した部署 id。 session.started で sessions.department_id へ焼く。 */
+  departmentId: string | null;
   /**
    * spawn 時に選ばれた Memoria タスク。 session.started で current_task と
    * metadata へ焼き、 正常終了時の done 化 (end-session-flow) の根拠にする。
@@ -66,6 +68,7 @@ export function recordPendingDelegationSpawn(
     parentSessionId?: string | null;
     goalAndGo?: boolean;
     teamId?: string | null;
+    departmentId?: string | null;
     testSurfaceId?: number | null;
     memoriaTaskId?: number | null;
     memoriaTaskTitle?: string | null;
@@ -90,6 +93,7 @@ export function recordPendingDelegationSpawn(
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
     goalAndGo: input.goalAndGo !== false,
     teamId: (input.teamId ?? "").trim() || null,
+    departmentId: (input.departmentId ?? "").trim() || null,
     testSurfaceId:
       typeof input.testSurfaceId === "number" && Number.isInteger(input.testSurfaceId) && input.testSurfaceId > 0
         ? input.testSurfaceId

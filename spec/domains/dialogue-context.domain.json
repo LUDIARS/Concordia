@@ -1,0 +1,24 @@
+{
+  "name": "dialogue-context",
+  "description": "対話の前提データ: 部署のセッションが何をするかを定めるユースケース (フォーマット・作業モード・事前データ)、回答に対する人の訂正の蓄積、投稿ユーザーの依頼者メモを保持し、起動時のセッション入力へ組み立てる。read-only ユースケースの編集拒否もここが判断を持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/dialogue/[^/]+$" },
+    { "pathPattern": "(^|/)src/db/use-cases-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/use-case-corrections-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/requester-profiles-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/use-cases(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/requester-profiles(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/harness/use-case-read-only(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/commands/correct(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/manuals/UseCases[^/]*$" },
+    { "pathPattern": "(^|/)web/src/pages/RequesterProfiles[^/]*$" },
+    { "pathPattern": "(^|/)tests/dialogue-context[^/]*\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the dialogue-context domain: use cases (formats, work mode, pre-data), accumulated human corrections, and requester profiles assembled into a session's startup input.",
+  "specRefs": [
+    "spec/feature/dialogue-context.md",
+    "spec/feature/departments.md#9-部署ごとにやることと出力を分ける-v22026-09-30-neco-指示"
+  ]
+}

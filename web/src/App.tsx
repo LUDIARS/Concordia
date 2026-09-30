@@ -26,6 +26,8 @@ import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
 import { RuntimeVersion } from "./components/RuntimeVersion.js";
 import { Teams } from "./pages/Teams.js";
+import { Departments } from "./pages/Departments.js";
+import { RequesterProfiles } from "./pages/RequesterProfiles.js";
 import { ProjectCodes } from "./pages/ProjectCodes.js";
 import { DeveloperTools } from "./pages/DeveloperTools.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
@@ -40,6 +42,8 @@ const NAV: NavItem[] = [
   { to: "/taskflow", label: "Taskflow", section: "チーム" },
   { to: "/staff", label: "社員", section: "チーム" },
   { to: "/subsidiaries", label: "子会社", section: "チーム" },
+  { to: "/departments", label: "部署", section: "チーム" },
+  { to: "/requester-profiles", label: "依頼者メモ", section: "チーム" },
   { to: "/prs", label: "PRs", section: "レビュー・PR" },
   { to: "/reports", label: "Reports", section: "レビュー・PR" },
   { to: "/delegation", label: "Delegation", section: "レビュー・PR" },
@@ -76,6 +80,8 @@ export function App() {
           <Route path="/" element={<Monitor />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/teams" element={<Teams />} />
+          <Route path="/departments" element={<Departments />} />
+          <Route path="/requester-profiles" element={<RequesterProfiles />} />
           <Route path="/work" element={<Work />} />
           <Route path="/chores" element={<Chores />} />
           <Route path="/director" element={<Director />} />

@@ -64,6 +64,11 @@ export interface HarnessAction {
   inquiryReadRoot?: string;
   /** 問診が GET できる、所有 case の step に紐づいた delegation run。 */
   inquiryAllowedRunIds?: string[];
+  /**
+   * セッションの部署のユースケースが read-only (spec/feature/dialogue-context.md §3)。
+   * true のときだけ編集と git の書き込みを拒否する。 判定できないときは undefined。
+   */
+  useCaseReadOnly?: boolean;
   /** チーム所属セッションの team settings (teams §3.1)。 未所属は undefined。 */
   teamTestPolicy?: "confirm-queue" | "custos-unity";
   teamWorktreePolicy?: "allowed" | "repo-root-only";
@@ -312,11 +317,13 @@ export const privateTeamPublication: Predicate = (a) => {
 /** 既定の述語セット (登録順)。 */
 import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js";
 import { inquiryReadOnly } from "./inquiry-readonly.js";
+import { useCaseReadOnly } from "./use-case-read-only.js";
 import { bashKnownHazards } from "./bash-known-hazards.js";
 
 export const DEFAULT_PREDICATES: Predicate[] = [
   bashKnownHazards,
   inquiryReadOnly,
+  useCaseReadOnly,
   contractIncomplete,
   planUnapproved,
   vibesScope,

@@ -84,6 +84,8 @@ export interface SessionRow {
   branch: string | null;
   host: string;
   team_id?: string | null;
+  /** 所属部署 (spec/feature/departments.md)。 null = 未配属。 */
+  department_id?: string | null;
   started_at: number;
   ended_at: number | null;
   status: "active" | "ended" | "lost" | "abandoned";
@@ -863,6 +865,8 @@ export const api = {
     mode?: "tab" | "window";
     /** 子会社セッションとして spawn (metadata.subsidiary_id へ焼かれる) */
     subsidiary_id?: string | null;
+    /** 部署として spawn (未指定は会社の既定部署)。 部署の起動既定値が明示されなかった項目に入る */
+    department?: string;
     /** project 限定 spawn: workspace roots 配下のプロジェクト名。 cwd 固定 + 範囲制限プロンプト注入 */
     project?: string;
     /** 自由テキストの初回プロンプト */
@@ -1062,6 +1066,48 @@ export const api = {
       "/v1/library/restore",
       { blocks },
     ),
+
+  // ── 部署 (spec/feature/departments.md) ──
+  departmentsList: (opts: { subsidiaryId?: string | null; allOrganizations?: boolean; includeArchived?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.allOrganizations) q.set("all_organizations", "1");
+    else if (opts.subsidiaryId) q.set("subsidiary_id", opts.subsidiaryId);
+    if (opts.includeArchived) q.set("include_archived", "1");
+    const qs = q.toString();
+    return get<{ departments: Department[] }>(`/v1/departments${qs ? "?" + qs : ""}`);
+  },
+  departmentCreate: (body: DepartmentWrite & { name: string; slug: string; subsidiary_id?: string | null }) =>
+    post<{ department: Department }>("/v1/departments", body),
+  departmentUpdate: (id: string, body: DepartmentWrite) =>
+    patch<{ department: Department }>(`/v1/departments/${encodeURIComponent(id)}`, body),
+  departmentArchive: (id: string) => post<{ department: Department }>(`/v1/departments/${encodeURIComponent(id)}/archive`, {}),
+  departmentRestore: (id: string) => post<{ department: Department }>(`/v1/departments/${encodeURIComponent(id)}/restore`, {}),
+
+  // ── ユースケース・訂正・依頼者メモ (spec/feature/dialogue-context.md) ──
+  useCaseFormats: () => get<{ formats: UseCaseFormat[] }>("/v1/use-cases/formats"),
+  useCasesList: (includeArchived = false) =>
+    get<{ use_cases: UseCase[] }>(`/v1/use-cases${includeArchived ? "?include_archived=1" : ""}`),
+  useCaseCreate: (body: { name: string; slug: string; format: UseCaseFormatKey } & Partial<UseCaseWrite>) =>
+    post<{ use_case: UseCase }>("/v1/use-cases", body),
+  useCaseUpdate: (id: string, body: Partial<UseCaseWrite>) =>
+    patch<{ use_case: UseCase }>(`/v1/use-cases/${encodeURIComponent(id)}`, body),
+  useCaseArchive: (id: string) => post<{ use_case: UseCase }>(`/v1/use-cases/${encodeURIComponent(id)}/archive`, {}),
+  useCaseRestore: (id: string) => post<{ use_case: UseCase }>(`/v1/use-cases/${encodeURIComponent(id)}/restore`, {}),
+  useCaseDelete: (id: string) => del<{ ok: boolean }>(`/v1/use-cases/${encodeURIComponent(id)}`),
+  useCaseCorrections: (id: string) =>
+    get<{ corrections: UseCaseCorrection[] }>(`/v1/use-cases/${encodeURIComponent(id)}/corrections?include_inactive=1`),
+  useCaseCorrectionCreate: (id: string, body: { correction: string; question?: string; subsidiary_id?: string | null }) =>
+    post<{ correction: UseCaseCorrection }>(`/v1/use-cases/${encodeURIComponent(id)}/corrections`, body),
+  useCaseCorrectionUpdate: (id: string, correctionId: string, body: { correction?: string; question?: string; active?: boolean }) =>
+    patch<{ correction: UseCaseCorrection }>(
+      `/v1/use-cases/${encodeURIComponent(id)}/corrections/${encodeURIComponent(correctionId)}`, body),
+  useCaseCorrectionDelete: (id: string, correctionId: string) =>
+    del<{ ok: boolean }>(`/v1/use-cases/${encodeURIComponent(id)}/corrections/${encodeURIComponent(correctionId)}`),
+  requesterProfilesList: (subsidiaryId?: string | null) => get<{ profiles: RequesterProfile[] }>(
+    `/v1/requester-profiles${subsidiaryId ? `?subsidiary_id=${encodeURIComponent(subsidiaryId)}` : ""}`,
+  ),
+  requesterProfileSave: (body: RequesterProfileWrite) => put<{ profile: RequesterProfile }>("/v1/requester-profiles", body),
+  requesterProfileDelete: (id: string) => del<{ ok: boolean }>(`/v1/requester-profiles/${encodeURIComponent(id)}`),
 
   // ── チーム (可視化 + ルールスコープ) ──
   teamsList: (subsidiaryId?: string) => get<{ teams: Team[] }>(
@@ -1398,6 +1444,108 @@ export interface TeamMetrics {
   active_case_count: number;
   active_session_count: number;
   today_cost_tokens: number;
+}
+
+export type DepartmentOutputMode = "inherit" | "on" | "off";
+export type DepartmentOutputItem = "thinking" | "status_card" | "session_info_card" | "cost_report";
+
+export interface DepartmentSettings {
+  launch: { template?: string; provider?: string; model?: string; reasoning_effort?: string; project?: string };
+  projects: string[];
+  output: Record<DepartmentOutputItem, DepartmentOutputMode>;
+}
+
+export interface Department {
+  id: string;
+  subsidiary_id: string | null;
+  name: string;
+  slug: string;
+  description: string;
+  settings: DepartmentSettings | null;
+  settings_error: string | null;
+  rules_text: string;
+  sort_order: number;
+  use_case_id: string | null;
+  is_default: boolean;
+  discord_forum_id: string | null;
+  archived: boolean;
+  archived_at: number | null;
+}
+
+export interface DepartmentWrite {
+  name?: string;
+  slug?: string;
+  description?: string;
+  settings?: DepartmentSettings;
+  rules_text?: string;
+  sort_order?: number;
+  use_case_id?: string | null;
+  is_default?: boolean;
+}
+
+export type UseCaseFormatKey = "chores" | "qa" | "sparring" | "research-report";
+
+export interface UseCaseFormat {
+  key: UseCaseFormatKey;
+  name: string;
+  workMode: "edit" | "read-only";
+  useRequesterProfile: boolean;
+  summary: string;
+  preData: string;
+}
+
+export interface UseCaseWrite {
+  name: string;
+  slug: string;
+  format: UseCaseFormatKey;
+  summary: string;
+  work_mode: "edit" | "read-only";
+  pre_data: string;
+  use_requester_profile: boolean;
+}
+
+export interface UseCase extends UseCaseWrite {
+  id: string;
+  format_name: string;
+  archived: boolean;
+  archived_at: number | null;
+  updated_at: number;
+}
+
+export interface UseCaseCorrection {
+  id: string;
+  use_case_id: string;
+  subsidiary_id: string | null;
+  department_id: string | null;
+  session_id: string | null;
+  source: "discord" | "webui" | "api";
+  question: string;
+  correction: string;
+  author: string;
+  active: number;
+  created_at: number;
+}
+
+export interface RequesterProfile {
+  id: string;
+  subsidiary_id: string | null;
+  platform: "discord" | "slack";
+  platform_user_id: string;
+  display_name: string;
+  skill_level: string;
+  activities: string;
+  notes: string;
+  updated_at: number;
+}
+
+export interface RequesterProfileWrite {
+  subsidiary_id: string | null;
+  platform: "discord" | "slack";
+  platform_user_id: string;
+  display_name?: string;
+  skill_level?: string;
+  activities?: string;
+  notes?: string;
 }
 
 export interface Team {

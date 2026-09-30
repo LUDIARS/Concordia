@@ -88,6 +88,7 @@ export function launchDelegationProcess(input: {
     parentSessionId: input.invocation.parent_session_id ?? null,
     goalAndGo: goalAndGoEnabled(input.effectiveOptions),
     teamId: typeof input.effectiveOptions.team === "string" ? input.effectiveOptions.team : null,
+    departmentId: input.invocation.department_id ?? null,
     memoriaTaskId: typeof input.invocation.memoria_task_id === "number"
       ? input.invocation.memoria_task_id
       : null,

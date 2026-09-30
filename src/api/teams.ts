@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { TeamMetrics, TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
+import type { DepartmentsRepo } from "../db/departments-repo.js";
+import { checkDepartmentOwnership } from "../departments/ownership.js";
 import { eventBus } from "../events.js";
 import { TEAM_CARD_POST_KINDS } from "../shared/team-cards.js";
 import { requiredTeamCardSurfaceMissing } from "../shared/team-card-routing.js";
@@ -34,6 +36,8 @@ const CreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   slug: z.string().min(1).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   subsidiary_id: z.string().trim().min(1).max(120).nullable().optional(),
+  // 所属部署 (spec/feature/departments.md)。 チームと同じ会社の稼働中の部署だけ。
+  department_id: z.string().trim().min(1).max(120).nullable().optional(),
   repos: RepositoriesSchema.default([]),
   settings: SettingsSchema.default({}),
   rules_text: z.string().max(50_000).default(""),
@@ -76,8 +80,19 @@ export function teamsRouter(
   repo: TeamsRepo,
   metrics?: TeamMetricsRepo,
   subsidiaries?: SubsidiaryRepo,
+  departments?: DepartmentsRepo,
 ): Hono {
   const app = new Hono();
+
+  /** チームの所属部署を検証する。 null / 未指定は常に可。 エラーコードを返す。 */
+  const departmentError = (departmentId: string | null | undefined, organizationId: string | null): string | null => {
+    if (!departmentId) return null;
+    if (!departments) return "department_registry_unavailable";
+    const department = departments.find(departmentId);
+    if (!department) return "department_not_found";
+    const ownership = checkDepartmentOwnership(department, organizationId);
+    return ownership.ok ? null : ownership.denial;
+  };
 
   app.get("/", (c) => {
     const byTeam = metrics?.collect() ?? null;
@@ -117,6 +132,8 @@ export function teamsRouter(
     if (subsidiaryId && (!subsidiaries || !subsidiaries.find(subsidiaryId))) {
       return c.json({ error: "subsidiary_not_found" }, 404);
     }
+    const createDepartmentError = departmentError(parsed.data.department_id, subsidiaryId);
+    if (createDepartmentError) return c.json({ error: createDepartmentError }, 400);
     const row = repo.create(parsed.data);
     repo.setRepos(row.id, parsed.data.repos);
     eventBus.emit({
@@ -133,7 +150,11 @@ export function teamsRouter(
   app.patch("/:id", async (c) => {
     const parsed = PatchSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_team", detail: parsed.error.flatten() }, 400);
-    const row = repo.patch(c.req.param("id"), parsed.data);
+    const current = repo.find(c.req.param("id"));
+    if (!current) return c.json({ error: "not_found" }, 404);
+    const patchDepartmentError = departmentError(parsed.data.department_id, current.subsidiary_id);
+    if (patchDepartmentError) return c.json({ error: patchDepartmentError }, 400);
+    const row = repo.patch(current.id, parsed.data);
     if (!row) return c.json({ error: "not_found" }, 404);
     if (parsed.data.repos) repo.setRepos(row.id, parsed.data.repos);
     eventBus.emit({

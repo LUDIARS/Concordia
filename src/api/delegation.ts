@@ -185,6 +185,8 @@ const InvokeSchema = z.object({
    * 経由) と同じ trust boundary (loopback 自己呼び出し) で運ぶ。
    */
   subsidiary_id: z.string().trim().min(1).max(120).optional().nullable(),
+  /** 起動する部署 id (spec/feature/departments.md §5)。 所有会社・廃止を service が検証する。 */
+  department: z.string().trim().min(1).max(120).optional().nullable(),
   project: z.string().max(120).optional().nullable(),
   requester_discord_user_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
   source_discord_guild_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
@@ -737,6 +739,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       } : parsed.data.overrides,
       parent_session_id: parentSessionId,
       subsidiary_id: parsed.data.subsidiary_id ?? null,
+      department_id: parsed.data.department ?? null,
       project: parsed.data.project ?? null,
       requester_discord_user_id: parsed.data.requester_discord_user_id ?? null,
       source_discord_guild_id: parsed.data.source_discord_guild_id ?? null,

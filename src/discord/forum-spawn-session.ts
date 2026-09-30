@@ -9,6 +9,9 @@ import {
 import type { WebhookPool } from "./webhook-pool.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 
+/** セッション情報表示を止めた部署の面に置く 1 行。 */
+export const MINIMAL_SURFACE_CONTENT = "受け付けました。";
+
 export interface ForumSpawnSessionDeps {
   guild: Guild;
   sessionForumId: string;
@@ -25,6 +28,11 @@ export interface BindForumSpawnSessionInput {
   branch: string | null;
   callName: string | null;
   state: SessionRelayState | null;
+  /**
+   * 部署の出力方針でセッション情報表示を止めたとき true。 webhook の面 (返信・状態の置き場) は
+   * 残し、 本文だけを 1 行にする (spec/feature/departments.md §9.4)。
+   */
+  minimalSurface?: boolean;
 }
 
 export interface ResolveForumSpawnSourceInput {
@@ -92,14 +100,16 @@ export async function bindForumSpawnSession(
     deps.sessionForumId,
     thread.id,
     {
-      content: buildForumStarterContent(deps.guild.id, {
-        sessionId: input.sessionId,
-        repoPath: input.repoPath,
-        branch: input.branch,
-        model: input.state?.model ?? null,
-        effortLevel: input.state?.effortLevel ?? null,
-        fastMode: input.state?.fastMode ?? null,
-      }),
+      content: input.minimalSurface
+        ? MINIMAL_SURFACE_CONTENT
+        : buildForumStarterContent(deps.guild.id, {
+          sessionId: input.sessionId,
+          repoPath: input.repoPath,
+          branch: input.branch,
+          model: input.state?.model ?? null,
+          effortLevel: input.state?.effortLevel ?? null,
+          fastMode: input.state?.fastMode ?? null,
+        }),
       username: identity.username,
       ...(identity.avatarURL ? { avatarURL: identity.avatarURL } : {}),
       allowedMentions: { parse: [] },

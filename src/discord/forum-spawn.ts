@@ -130,8 +130,24 @@ export function matchesApprovedForumContent(
     && appliedTags.every((tag) => approvedTags.includes(tag));
 }
 
+/**
+ * 部署フォーラムからの起動 (spec/feature/departments.md §9.3)。 Session フォーラムでは未指定。
+ */
+export interface ForumSpawnDepartment {
+  id: string;
+  name: string;
+  /** 担当プロジェクト。 空ならプロジェクトを聞き返さない。 */
+  projects: readonly string[];
+  /** 起動既定値がテンプレートか provider を持つ (モデルを聞き返さない)。 */
+  hasLaunchDefault: boolean;
+  archived: boolean;
+}
+
 export interface ForumSpawnDeps {
   sessionForumId: string;
+  department?: ForumSpawnDepartment;
+  /** 投稿者の表示名 (依頼者メモの表示名に使う)。 取れなければ null。 */
+  resolveUserDisplayName?: (guildId: string, userId: string) => Promise<string | null>;
   botUserId: string;
   concordiaUrl: string;
   /**
@@ -241,6 +257,10 @@ export async function executeForumSpawn(
     deps.log.info(`forum-spawn duplicate ignored thread=${thread.id}`);
     return { ok: true };
   }
+  if (deps.department?.archived) {
+    await reply(deps, thread, `部署「${deps.department.name}」は廃止されているため、セッションを起動しません。`);
+    return { ok: false, error: "department archived" };
+  }
 
   let title = suppliedContent?.title;
   let body = suppliedContent?.body;
@@ -287,13 +307,21 @@ export async function executeForumSpawn(
   //     だけで再解決すると毎回失敗して質問がループする。
   //  2. project code registry (本文/タイトルから)。
   //  3. 子会社のみ: 関係プロジェクト名そのものを本文/タイトルから照合する。
+  //  4. 部署フォーラムのみ: 部署の担当プロジェクト名を本文/タイトルから照合する。
+  const departmentProjects = deps.department?.projects ?? [];
+  // 部署フォーラムで担当プロジェクトが無い部署 (技術相談など) はプロジェクトを要らない。
+  // ただし子会社は関係プロジェクトで起動範囲を閉じる (subsidiary-delegation §3.4) ため、
+  // 部署であってもプロジェクトを必須にする (本社の作業領域全体を子会社の依頼で読ませない)。
+  const inSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
+  const projectRequired = !deps.department || departmentProjects.length > 0 || inSubsidiary;
   const project = (suppliedContent?.project ? asSubsidiaryProjectTarget(suppliedContent.project) : null)
     ?? deps.resolveProjectTarget(title, body)
-    ?? matchSubsidiaryProjectInText(title, body, deps.resolveSubsidiaryProjects?.() ?? []);
+    ?? matchSubsidiaryProjectInText(title, body, deps.resolveSubsidiaryProjects?.() ?? [])
+    ?? matchSubsidiaryProjectInText(title, body, departmentProjects);
   // Session forum への投稿は「起動依頼」。 起動に要る情報が欠けていたら平文の拒否で
   // 終わらせず、 同じスレッドで聞き返す (2026-09-01 neco 指示 3)。
-  const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null });
-  if (missing.length > 0 || !project) {
+  const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null || !projectRequired });
+  if (missing.length > 0 || (!project && projectRequired)) {
     // 権限の無い投稿者の起動承認は、カード作成時の exact content に対するもの。
     // 承認後に依頼者の回答を追記すると、未承認の作業内容で起動できてしまう。
     // 承認スナップショットが不完全な場合は内容の接ぎ足しを禁止し、完全な
@@ -315,7 +343,13 @@ export async function executeForumSpawn(
     await reply(deps, thread, "この窓口の担当プロジェクト設定を確認できないため起動しません。");
     return { ok: false, error: "subsidiary project scope unavailable" };
   }
-  if (deps.resolveSubsidiaryProjects) {
+  if (project && deps.department && departmentProjects.length > 0
+    && !isProjectNameInScope(project.project, departmentProjects)) {
+    deps.log.warn(`forum-spawn project out of department scope thread=${thread.id} department=${deps.department.id}`);
+    await reply(deps, thread, `部署「${deps.department.name}」の担当範囲外のため起動しません。`);
+    return { ok: false, error: "project out of department scope" };
+  }
+  if (project && deps.resolveSubsidiaryProjects) {
     // 子会社は担当プロジェクト以外のスレッドから起動しない。 未設定 (空集合) も起動しない
     // — 「設定していない窓口は何でも起こせる」 を作らないため (spec §3.4)。
     const projects = deps.resolveSubsidiaryProjects();
@@ -337,6 +371,8 @@ export async function executeForumSpawn(
   const modelChoices = forumModelChoices(templates);
   let template: DelegationTemplateLite | null = null;
   let modelTarget: { nick: ForumModelNick; provider: string; model: string; effort: ForumEffort; emoji: string | null } | null = null;
+  // 部署の起動既定値 (テンプレート / provider) で起動する。 Cc 側 (admin spawn) が既定値を当てる。
+  let useDepartmentLaunch = false;
   if (suppliedContent?.model) {
     // モデル/Effort 質問カードの回答が正 (2026-09-02 neco 指示: Test forum と同型の選択)。
     const choice = modelChoices.find((candidate) => candidate.nick === suppliedContent.model);
@@ -388,6 +424,9 @@ export async function executeForumSpawn(
       };
     } else if (explicitTemplate) {
       template = explicitTemplate;
+    } else if (deps.department?.hasLaunchDefault) {
+      // 部署が起動の既定を持つなら聞き返さない (departments.md §9.3)。
+      useDepartmentLaunch = true;
     } else if (deps.requestIntake) {
       deps.log.info(`forum-spawn model not explicit; asking thread=${thread.id}`);
       await askForMissingForumSpawnInfo(deps, thread, { title, body, missing: ["template"] });
@@ -402,7 +441,8 @@ export async function executeForumSpawn(
       template = selection.template;
     }
   }
-  const provider = modelTarget?.provider ?? template?.target_provider ?? null;
+  const provider = modelTarget?.provider ?? template?.target_provider
+    ?? (useDepartmentLaunch ? "部署の既定" : null);
   if (!provider) {
     deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template?.call_name ?? "-"}`);
     await reply(deps, thread, `起動テンプレ \`${template?.call_name ?? "?"}\` の provider 設定がありません。`);
@@ -445,7 +485,7 @@ export async function executeForumSpawn(
       body,
       starterBody,
       tagState: freshTagState,
-      project: project.project,
+      ...(project ? { project: project.project } : {}),
       ...(modelTarget
         ? { model: modelTarget.nick, effort: modelTarget.effort }
         : {}),
@@ -453,7 +493,7 @@ export async function executeForumSpawn(
     };
     deps.log.info(
       `forum-spawn approval requested thread=${thread.id} owner=${thread.ownerId ?? "-"} `
-      + `project=${project.project} target=${modelTarget?.model ?? template?.call_name ?? "-"}`,
+      + `project=${project?.project ?? "-"} target=${modelTarget?.model ?? template?.call_name ?? "-"}`,
     );
     await deps.requestApproval(thread, approvalContent);
     return { ok: false, error: "approval requested" };
@@ -464,10 +504,16 @@ export async function executeForumSpawn(
   // ものと同一に)。 delegation 経由だと一問一答で即 session-end してしまい、 Forum
   // スレッドを窓口にした対話セッションにならない。
   const prompt = buildForumSpawnPrompt(title, body, activeRuntimeRules);
+  // 表示名は依頼者メモの見出しに使うだけ。 取れなくても起動は止めない。
+  const requesterDisplayName = thread.ownerId && deps.resolveUserDisplayName
+    ? await deps.resolveUserDisplayName(thread.guildId, thread.ownerId).catch(() => null)
+    : null;
   const commonSpawnFields = {
     prompt,
-    project: project.project,
+    ...(project ? { project: project.project } : {}),
     subsidiary_id: deps.subsidiaryId ?? null,
+    ...(deps.department ? { department: deps.department.id } : {}),
+    ...(requesterDisplayName ? { requester_display_name: requesterDisplayName } : {}),
     requester_discord_user_id: thread.ownerId,
     source_discord_guild_id: thread.guildId,
     source_discord_channel_id: thread.id,
@@ -496,12 +542,15 @@ export async function executeForumSpawn(
       ...(spawnEmoji ? { emoji: spawnEmoji } : {}),
       ...commonSpawnFields,
     }
-    : {
-      template: template!.call_name,
-      inject_prompt: false,
-      ...commonSpawnFields,
-    });
-  const spawnLabel = modelTarget ? modelTarget.model : template!.call_name;
+    : template
+      ? {
+        template: template.call_name,
+        inject_prompt: false,
+        ...commonSpawnFields,
+      }
+      // 部署の起動既定値で起動する (provider / template は Cc 側が部署から当てる)。
+      : commonSpawnFields);
+  const spawnLabel = modelTarget ? modelTarget.model : template ? template.call_name : `department:${deps.department?.id ?? "-"}`;
   if ("error" in result || !result.ok) {
     const error = "error" in result ? result.error : "session spawn failed";
     // API / SDK のエラーには local path、private endpoint、command line が含まれ得る。
@@ -514,7 +563,7 @@ export async function executeForumSpawn(
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} target=${spawnLabel} ` +
-    `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}` +
+    `provider=${provider} project=${project?.project ?? "-"} pid=${result.pid ?? "n/a"}` +
     (modelTarget ? ` effort=${modelTarget.effort}` : ""),
   );
   if (spawnEmoji && deps.renameThread && !thread.name.startsWith(spawnEmoji)) {
@@ -530,7 +579,7 @@ export async function executeForumSpawn(
   await reply(
     deps,
     thread,
-    `${spawnEmoji ? `${spawnEmoji} ` : ""}Cc がセッションを起動しました（provider: \`${provider}\``
+    `${spawnEmoji ? `${spawnEmoji} ` : ""}Cc が${deps.department ? `部署「${deps.department.name}」の` : ""}セッションを起動しました（provider: \`${provider}\``
     + `${spawnModel ? `, model: \`${spawnModel}\`` : ""}`
     + `${modelTarget ? `, effort: \`${modelTarget.effort}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
   );

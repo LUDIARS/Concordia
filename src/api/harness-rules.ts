@@ -17,6 +17,11 @@ const CreateSchema = z.object({
   sort_order: z.number().int().optional(),
   // チームスコープ (spec/feature/teams.md §3.2)。 省略 = グローバルルール。
   team_id: z.string().trim().min(1).max(200).nullable().optional(),
+  // 部署スコープ (spec/feature/departments.md §6)。 1 行は 1 つのスコープにだけ属する。
+  department_id: z.string().trim().min(1).max(200).nullable().optional(),
+}).refine((rule) => !(rule.team_id && rule.department_id), {
+  message: "team_id and department_id are mutually exclusive",
+  path: ["department_id"],
 });
 
 const PatchSchema = z.object({
@@ -39,8 +44,16 @@ export function harnessRulesRouter(deps: HarnessRulesApiDeps): Hono {
   app.get("/", (c) => {
     const all = c.req.query("all") === "1";
     const teamId = (c.req.query("team_id") ?? "").trim();
+    const departmentId = (c.req.query("department_id") ?? "").trim();
+    // scope=all は全部署の行も含める (監査・棚卸し用)。 既定では部署行を出さない。
+    const includeAllScopes = c.req.query("scope") === "all";
     return c.json({
-      rules: deps.repo.list({ includeDisabled: all, teamId: teamId || undefined }).map(serialize),
+      rules: deps.repo.list({
+        includeDisabled: all,
+        teamId: teamId || undefined,
+        departmentId: departmentId || undefined,
+        includeAllScopes,
+      }).map(serialize),
     });
   });
 

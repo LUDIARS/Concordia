@@ -65,6 +65,7 @@ import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
 import { createRevisorClient } from "./pr/revisor-client.js";
 import { TeamsRepo } from "./db/teams-repo.js";
+import { DepartmentsRepo } from "./db/departments-repo.js";
 import { parseTeamSettings } from "./api/teams.js";
 
 const log = createChildLogger("chat-worker");
@@ -252,8 +253,11 @@ async function main(): Promise<void> {
         team: team.name,
         rules: team.rules_text,
         subsidiaryId: team.subsidiary_id,
+        departmentId: team.department_id ?? null,
       } : null;
     },
+    // 委託の department 指定を本体と同じく検証する (spec/feature/departments.md §5)。
+    departments: new DepartmentsRepo(db),
     teamPrRules: (value) => {
       const team = teamsRepo.findByIdOrSlug(value);
       return team ? parseTeamSettings(team).pr_rules ?? null : null;

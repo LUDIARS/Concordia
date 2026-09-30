@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../api.js";
-import type { DelegationTemplateLite, SpawnProvider } from "../api.js";
+import type { DelegationTemplateLite, Department, SpawnProvider } from "../api.js";
 
 type LaunchKind = "template" | "provider";
 type WindowMode = "tab" | "window";
@@ -10,12 +10,15 @@ const DIRECT_PROVIDERS: SpawnProvider[] = ["claude", "codex", "gemini", "gemma4-
 
 export function DelegationSpawnForm({
   subsidiaryId = null,
+  department = null,
   className = "",
   templates,
   projects,
   showTitle = false,
 }: {
   subsidiaryId?: string | null;
+  /** 部署として起動する (spec/feature/departments.md §5)。 部署の起動既定値を初期値にする。 */
+  department?: Department | null;
   className?: string;
   templates?: DelegationTemplateLite[];
   projects?: string[];
@@ -24,11 +27,14 @@ export function DelegationSpawnForm({
   const projectListId = useId();
   const [localTemplates, setLocalTemplates] = useState<DelegationTemplateLite[]>([]);
   const [localProjects, setLocalProjects] = useState<string[]>([]);
-  const [launchKind, setLaunchKind] = useState<LaunchKind>("template");
-  const [callName, setCallName] = useState("");
-  const [provider, setProvider] = useState<SpawnProvider>("claude");
+  const departmentLaunch = department?.settings?.launch ?? {};
+  const [launchKind, setLaunchKind] = useState<LaunchKind>(departmentLaunch.provider ? "provider" : "template");
+  const [callName, setCallName] = useState(departmentLaunch.template ?? "");
+  const [provider, setProvider] = useState<SpawnProvider>(
+    (DIRECT_PROVIDERS as string[]).includes(departmentLaunch.provider ?? "") ? departmentLaunch.provider as SpawnProvider : "claude",
+  );
   const [mode, setMode] = useState<WindowMode>("tab");
-  const [project, setProject] = useState("");
+  const [project, setProject] = useState(departmentLaunch.project ?? "");
   const [branch, setBranch] = useState("");
   const [useWorktree, setUseWorktree] = useState(true);
   const [injectPrompt, setInjectPrompt] = useState(false);
@@ -103,6 +109,7 @@ export function DelegationSpawnForm({
       const branchName = branch.trim();
       const promptText = prompt.trim();
       if (subsidiaryId) body.subsidiary_id = subsidiaryId;
+      if (department) body.department = department.id;
       if (projectName) body.project = projectName;
       if (branchName) {
         body.branch = branchName;
@@ -143,6 +150,11 @@ export function DelegationSpawnForm({
 
   return (
     <form onSubmit={submit} className={`space-y-2 ${className}`}>
+      {department && (
+        <div className="text-[11px] text-subtle">
+          部署「{department.name}」として起動します。未入力の項目には部署の既定値が入ります。
+        </div>
+      )}
       {showTitle && (
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">新規セッション</span>

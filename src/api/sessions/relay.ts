@@ -18,7 +18,7 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     // thinking は既定で Concordia の DB / WebUI / 中継へ載せない。保持先は provider
     // 自身のローカル transcript に限り、設定を明示的に有効化したときだけ流通させる。
-    const relayThinking = parsed.data.kind !== "thinking" || deps.isThinkingEnabled?.() === true;
+    const relayThinking = parsed.data.kind !== "thinking" || deps.isThinkingEnabled?.(id) === true;
     const ts = nowSec();
     if (session.status === "active") deps.repo.updateHeartbeat(id, ts);
     const discordRow = deps.channelDirectory.findSessionChannel(id);

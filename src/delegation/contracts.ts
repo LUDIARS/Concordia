@@ -75,6 +75,8 @@ export interface InvokeInput {
    */
   task_binding?: "caller";
   subsidiary_id?: string | null;
+  /** 起動する部署 (spec/feature/departments.md)。 所有会社・廃止を受付時に検証する。 */
+  department_id?: string | null;
   project?: string | null;
   requester_discord_user_id?: string | null;
   source_discord_guild_id?: string | null;

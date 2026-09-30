@@ -33,14 +33,15 @@ export class SessionsRepo {
     target_project?: string | null;
     active_repos?: string[];
     team_id?: string | null;
+    department_id?: string | null;
   }): void {
     this.db
       .prepare(
         `INSERT INTO sessions(
           id, provider, repo_path, repo_origin, branch, host,
           started_at, ended_at, status, last_seen_at, current_task,
-          transcript_path, metadata, target_project, active_repos, team_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, NULL, ?, ?, ?, ?, ?)`,
+          transcript_path, metadata, target_project, active_repos, team_id, department_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, NULL, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
@@ -56,6 +57,7 @@ export class SessionsRepo {
         input.target_project ?? null,
         JSON.stringify(input.active_repos ?? []),
         input.team_id ?? null,
+        input.department_id ?? null,
       );
   }
 
@@ -100,6 +102,8 @@ export class SessionsRepo {
     provider?: ProviderName;
     subsidiary_id?: string;
     team_id?: string;
+    /** 所属部署で絞る (spec/feature/departments.md §7)。 */
+    department_id?: string;
     /** 取得上限。 省略時は 200 (従来値)。 1..500 に丸める。 */
     limit?: number;
     /** 取得開始位置。 省略時は 0。 */
@@ -114,6 +118,7 @@ export class SessionsRepo {
     if (filter.status)      { where.push("status = ?");      args.push(filter.status); }
     if (filter.provider)    { where.push("provider = ?");    args.push(filter.provider); }
     if (filter.team_id)     { where.push("team_id = ?");     args.push(filter.team_id); }
+    if (filter.department_id) { where.push("department_id = ?"); args.push(filter.department_id); }
     if (filter.subsidiary_id) {
       where.push("json_extract(metadata, '$.subsidiary_id') = ?");
       args.push(filter.subsidiary_id);

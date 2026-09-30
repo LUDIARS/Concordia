@@ -3,6 +3,7 @@ import { useState } from "react";
 import { HarnessRulesPanel } from "./manuals/HarnessRulesPanel.js";
 import { InjectManualsPanel } from "./manuals/InjectManualsPanel.js";
 import { MajorInjectPanel } from "./manuals/MajorInjectPanel.js";
+import { UseCasesPanel } from "./manuals/UseCasesPanel.js";
 
 // マニュアルページ。 「AI に何を守らせるか / 何を渡すか」の設定をここ 1 箇所に集約する。
 //
@@ -14,7 +15,7 @@ import { MajorInjectPanel } from "./manuals/MajorInjectPanel.js";
 // どちらも「LLM に注入される自然文」であり、 運用中に一番よく触る設定なので、
 // タブ切り替えで並べて詳細に編集できるようにしている。
 
-type Tab = "harness" | "inject" | "major";
+type Tab = "harness" | "inject" | "major" | "use-cases";
 
 const TABS: Array<{ id: Tab; label: string; summary: string }> = [
   {
@@ -31,6 +32,11 @@ const TABS: Array<{ id: Tab; label: string; summary: string }> = [
     id: "major",
     label: "主要 Inject",
     summary: "セッション・委託の注入文面と関連規則ファイル",
+  },
+  {
+    id: "use-cases",
+    label: "ユースケース",
+    summary: "部署のセッションが何をするか (フォーマット・事前データ・人の訂正)",
   },
 ];
 
@@ -70,6 +76,7 @@ export function Manuals() {
       {tab === "harness" && <HarnessRulesPanel />}
       {tab === "inject" && <InjectManualsPanel />}
       <div hidden={tab !== "major"}><MajorInjectPanel /></div>
+      {tab === "use-cases" && <UseCasesPanel />}
     </div>
   );
 }

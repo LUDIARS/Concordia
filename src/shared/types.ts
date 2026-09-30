@@ -36,6 +36,8 @@ export interface SessionRow {
    */
   target_project: string | null;
   team_id?: string | null;
+  /** 所属部署 (spec/feature/departments.md)。 NULL = 未配属。 */
+  department_id?: string | null;
   active_repos?: string;
   /**
    * エスカレーションモード (spec/feature/escalation-mode.md)。 1 の間だけ通常ワークフローの

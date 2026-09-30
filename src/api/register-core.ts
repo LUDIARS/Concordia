@@ -97,6 +97,16 @@ import {
   forgetPendingDelegationSpawnBySpawnId,
   recordPendingDelegationSpawn,
 } from "../control/pending-delegation-spawns.js";
+import { resolveDepartmentLaunch } from "../departments/launch-resolution.js";
+import { applySpawnLaunch, readSpawnLaunchRequest } from "../departments/spawn-request.js";
+import { buildLaunchContext } from "../dialogue/launch-context.js";
+import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
+import { useCasesRouter, sessionCorrectionsRouter } from "./use-cases.js";
+import { requesterProfilesRouter } from "./requester-profiles.js";
+import type { UseCasesRepo } from "../db/use-cases-repo.js";
+import type { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
+import type { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
+import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
 import type { SubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
@@ -182,6 +192,9 @@ import { concordiaBaseUrl } from "../config/service-urls.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
+import { departmentsRouter } from "./departments.js";
+import type { DepartmentsRepo } from "../db/departments-repo.js";
+import type { DepartmentService } from "../departments/service.js";
 import type { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { EscalationRepo } from "../db/escalation-repo.js";
@@ -226,6 +239,14 @@ export interface CoreDelegationDeps {
   /** 論理会話と実行セッション交代 (Astra With Sidecar)。 */
   conversations?: { service: ConversationService; repo: ConversationRepo };
   teams?: TeamsRepo;
+  /** 部署 (spec/feature/departments.md)。 未注入なら /v1/departments は生えず、 起動の department 指定は 503。 */
+  departments?: DepartmentsRepo;
+  departmentService?: DepartmentService;
+  /** 対話の前提データ (spec/feature/dialogue-context.md)。 揃っていなければ関連 API は生えない。 */
+  useCases?: UseCasesRepo;
+  useCaseService?: UseCaseService;
+  useCaseCorrections?: UseCaseCorrectionsRepo;
+  requesterProfiles?: RequesterProfilesRepo;
   projectCodes: ProjectCodesRepo;
   /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
   domainReview?: DomainReviewApiDeps;
@@ -396,7 +417,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       sessionMessages: deps.sessionMessages,
       sessionMessageReads: deps.sessionMessageReads,
       projectSessionEvent: deps.projectSessionEvent,
-      isThinkingEnabled: () => deps.adminState.getThinkingMessagesEnabled(),
+      // 全体設定を部署の出力方針で上書きする (spec/feature/departments.md §9.4)。
+      isThinkingEnabled: (sessionId) => isOutputEnabled(
+        resolveSessionOutputMode({
+          sessionDepartmentId: (id) => deps.repo.findSession(id)?.department_id ?? null,
+          departmentSettingsJson: (id) => deps.departments?.find(id)?.settings_json ?? null,
+        }, sessionId, "thinking"),
+        deps.adminState.getThinkingMessagesEnabled(),
+      ),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,
     }),
@@ -635,7 +663,38 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.staff) {
     app.route("/v1/staff", staffRouter({ repo: deps.staff }));
   }
-  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics, deps.subsidiary));
+  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics, deps.subsidiary, deps.departments));
+  if (deps.useCases && deps.useCaseService && deps.useCaseCorrections) {
+    app.route("/v1/use-cases", useCasesRouter({
+      repo: deps.useCases,
+      service: deps.useCaseService,
+      corrections: deps.useCaseCorrections,
+    }));
+    const useCases = deps.useCases;
+    const departments = deps.departments;
+    app.route("/v1/sessions", sessionCorrectionsRouter({
+      corrections: deps.useCaseCorrections,
+      lookup: {
+        sessionDepartmentId: (sessionId) => {
+          const session = deps.repo.findSession(sessionId);
+          return session ? session.department_id ?? null : undefined;
+        },
+        department: (id) => departments?.find(id) ?? null,
+        useCase: (id) => useCases.find(id),
+      },
+    }));
+  }
+  if (deps.requesterProfiles) {
+    app.route("/v1/requester-profiles", requesterProfilesRouter({ repo: deps.requesterProfiles }));
+  }
+  if (deps.departments && deps.departmentService) {
+    app.route("/v1/departments", departmentsRouter({
+      repo: deps.departments,
+      service: deps.departmentService,
+      isKnownProvider: (provider) => isSpawnProvider(provider),
+      isActiveTemplate: (callName) => Boolean(deps.delegation.findTemplateByCallName(callName)?.is_active),
+    }));
+  }
   // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
   if (deps.injectManuals) {
@@ -647,6 +706,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.harnessAudit && deps.harnessRules) {
     const conflux = new ConfluxService(deps.repo, deps.projectCodes);
     app.route("/v1/harness/conflux", harnessConfluxRouter(conflux));
+    // 部署のユースケースが read-only なら編集と git の書き込みを止める
+    // (spec/feature/dialogue-context.md §3)。 廃止したユースケースは強制しない。
+    const isSessionUseCaseReadOnly = (departmentId: string | null): boolean => {
+      if (!departmentId) return false;
+      const department = deps.departments?.find(departmentId);
+      const useCase = department?.use_case_id ? deps.useCases?.find(department.use_case_id) : null;
+      return Boolean(useCase && useCase.archived_at === null && useCase.work_mode === "read-only");
+    };
     app.route(
       "/v1/harness",
       harnessSessionRouter({
@@ -662,6 +729,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,
         blackbox: deps.harnessBlackbox,
+        // 部署の自然文ルール (spec/feature/departments.md §6)。 廃止済みでも所属セッションには渡す。
+        departmentRules: (id) => {
+          const department = deps.departments?.find(id);
+          return department ? { id: department.id, name: department.name, rules_text: department.rules_text } : null;
+        },
         // outside-scope 述語のスコープ源: target_project (明示) → repo_path (暗黙) の leaf。
         sessionScope: (id) => {
           const s = deps.repo.findSession(id);
@@ -732,6 +804,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             contractMode: contract?.mode?.value,
             contractScopeDirs: contract?.scope_dirs?.value,
             teamId,
+            departmentId: s.department_id ?? null,
+            useCaseReadOnly: isSessionUseCaseReadOnly(s.department_id ?? null),
             teamTestPolicy: teamSettings?.test_policy,
             teamWorktreePolicy: teamSettings?.worktree,
             teamVisibility: teamSettings?.visibility,
@@ -814,9 +888,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       typeof body.source_discord_channel_id === "string" && /^\d{5,32}$/.test(body.source_discord_channel_id.trim())
         ? body.source_discord_channel_id.trim()
         : null;
-    const projectName = typeof body.project === "string" ? body.project.trim() : "";
-    const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
-    const requestedWorktree = body.worktree;
     const requestedTeamValue = typeof body.team === "string" && body.team.trim() ? body.team.trim() : null;
     const requestedTeam = requestedTeamValue ? deps.teams?.findByIdOrSlug(requestedTeamValue) ?? null : null;
     if (requestedTeamValue && !deps.teams) {
@@ -829,6 +900,58 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       return c.json({ error: "team_not_owned_by_requested_organization" }, 400);
     }
     const requestedTeamId = requestedTeam?.id ?? null;
+    // 部署 (spec/feature/departments.md §5): 所有会社・廃止・チームの所属部署を検証し、
+    // 明示されなかった起動項目を部署の既定値で埋めた本体へ差し替える。 以降の
+    // project / template / provider / model の読み取りはこの本体から行う。
+    const requestedDepartmentValue = typeof body.department === "string" && body.department.trim()
+      ? body.department.trim()
+      : null;
+    if (requestedDepartmentValue && !deps.departments) {
+      return c.json({ error: "department_registry_unavailable" }, 503);
+    }
+    let requestedDepartmentId: string | null = null;
+    let dialogueBlock: string | null = null;
+    if (deps.departments) {
+      const department = resolveDepartmentLaunch(deps.departments, {
+        departmentId: requestedDepartmentValue,
+        organizationId: subsidiaryId,
+        teamDepartmentId: requestedTeam?.department_id ?? null,
+        request: readSpawnLaunchRequest(body),
+        applyDefaults: true,
+        // 部署未指定の起動は会社の既定部署 (本社なら総務) に入れる (departments.md §9.2)。
+        useOrganizationDefault: true,
+      });
+      if (!department.ok) {
+        return c.json({ error: department.error }, department.error === "department_not_found" ? 404 : 400);
+      }
+      if (department.department) {
+        body = applySpawnLaunch(body, department.launch);
+        requestedDepartmentId = department.department.id;
+        // 部署のユースケースの前提データ (dialogue-context.md §5)。 依頼者メモの中身は
+        // このブロックにだけ入り、 ログへは出さない。
+        if (deps.useCases && deps.useCaseCorrections && deps.requesterProfiles) {
+          const useCases = deps.useCases;
+          const corrections = deps.useCaseCorrections;
+          const profiles = deps.requesterProfiles;
+          const requesterDisplayName = typeof body.requester_display_name === "string"
+            ? body.requester_display_name.trim().slice(0, 100)
+            : "";
+          dialogueBlock = buildLaunchContext({
+            useCase: (id) => useCases.find(id),
+            corrections: (useCaseId, organizationId, limit) => corrections.listForLaunch(useCaseId, organizationId, limit),
+            ensureRequester: (identity, displayName) => profiles.ensure(identity, displayName),
+          }, {
+            department: department.department,
+            requester: requesterDiscordUserId
+              ? { platform: "discord", userId: requesterDiscordUserId, displayName: requesterDisplayName }
+              : null,
+          }).block;
+        }
+      }
+    }
+    const projectName = typeof body.project === "string" ? body.project.trim() : "";
+    const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
+    const requestedWorktree = body.worktree;
     let projectCwd: string | null = null;
     if (projectName) {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) {
@@ -859,7 +982,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       if (!resolvedTeamCwd.ok) return c.json({ error: resolvedTeamCwd.error }, 400);
       teamCwd = resolvedTeamCwd.cwd;
     }
-    const userPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
+    const userPrompt = [
+      dialogueBlock ?? "",
+      typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "",
+    ].filter(Boolean).join("\n\n");
     const restriction = projectName
       ? [
           `## 作業範囲の制限 (Concordia spawn)`,
@@ -927,6 +1053,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           extra_prompt: adHocPrompt || undefined,
           project: projectName || null,
           subsidiary_id: subsidiaryId,
+          department_id: requestedDepartmentId,
           requester_discord_user_id: requesterDiscordUserId,
           source_discord_guild_id: sourceDiscordGuildId,
           source_discord_channel_id: sourceDiscordChannelId,
@@ -1011,6 +1138,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         sourceDiscordChannelId,
         goalAndGo: goalAndGoEnabled(runtimeOptions),
         teamId: requestedTeamId,
+        departmentId: requestedDepartmentId,
         memoriaTaskId: memoriaTask.task?.id ?? null,
         memoriaTaskTitle: memoriaTask.task?.title ?? null,
       });
@@ -1107,6 +1235,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       goalAndGo: goalAndGoEnabled(effectiveDirectOptions),
       testSurfaceId,
       teamId: requestedTeamId,
+      departmentId: requestedDepartmentId,
       memoriaTaskId: memoriaTask.task?.id ?? null,
       memoriaTaskTitle: memoriaTask.task?.title ?? null,
     });

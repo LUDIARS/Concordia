@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "連合リンク基盤 (マルチ拠点 Phase 0+1+2)"
-description: "本社 ⇄ 拠点 (site) の WebSocket 連合リンク。別ポートの専用 listener (opt-in)・事前共有トークン認証・切断中 outbox・ハートビート・WebUI 拠点一覧・部署スコープ設定配布。"
+description: "本社 ⇄ 拠点 (site) の WebSocket 連合リンク。別ポートの専用 listener (opt-in)・事前共有トークン認証・切断中 outbox・ハートビート・WebUI 拠点一覧・担当サーバスコープ設定配布。"
 service: concordia
 domain: federation
 tags:
@@ -35,7 +35,7 @@ updated: 2026-07-31
 | ライブ接続レジストリ (WebUI 供給) | `src/federation/hq-connections.ts` |
 | 拠点登録簿 (トークン at-rest 暗号化) | `src/db/federation-sites-repo.ts` |
 | 切断中キュー (上限 + TTL、最古破棄) | `src/db/federation-outbox-repo.ts` |
-| 配布用 設定スナップショット (部署スコープ + allowlist) | `src/federation/config-snapshot.ts` |
+| 配布用 設定スナップショット (担当サーバスコープ + allowlist) | `src/federation/config-snapshot.ts` |
 | 拠点側 設定キャッシュ (オフライン起動用) | `src/federation/config-cache.ts` |
 | ロール配線 (env → repo / listener / client、opt-in 起動) | `src/federation/runtime.ts` |
 | 管理 API (loopback /v1 面) | `src/api/federation.ts` |
@@ -99,17 +99,17 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
 設定の正本は本社だけが持ち、拠点へは**接続ごとに組み立てた読み取り専用スナップショット**
 として渡す。拠点から本社の設定を書き換える経路は無い。
 
-- 配布単位は拠点の**担当部署** (`federation_sites.departments` = guild id の JSON 配列)。
+- 配布単位は拠点の**担当担当サーバ** (`federation_sites.departments` = guild id の JSON 配列)。
   本社の `discord_config.guild_id` が担当に含まれない拠点へは Discord 設定を一切渡さない
   (`src/federation/config-snapshot.ts`)。担当判定を**値を読む前**に行うのは意図的で、
-  「読んでから除外」形式だと除外漏れ 1 箇所で部署外の値が流出するため。
+  「読んでから除外」形式だと除外漏れ 1 箇所で担当サーバ外の値が流出するため。
 - 渡す Discord 設定キーは固定 allowlist (`FEDERATION_DISCORD_CONFIG_ALLOWLIST`、guild /
   category / forum / channel の id のみ)。`bot_token` 等の秘密は allowlist に無いので
   拠点へは出ない。delegation テンプレートは `id / call_name / title / target_provider /
   model` だけを渡し、`prompt_template` は本社に留める。
 - 配布の契機は 2 つだけ: link 確立直後の `config-snapshot` と、管理 API
   (`POST /v1/federation/sites/:id/config`) による明示再配布の `config-update`。
-  担当部署の変更 (`PUT …/departments`) は自動再配布しない — 縮小した担当を拠点へ即時
+  担当担当サーバの変更 (`PUT …/departments`) は自動再配布しない — 縮小した担当を拠点へ即時
   反映したい場合は再配布を明示的に呼ぶ。オフライン拠点への再配布は `delivered:false`
   を返し、次回の link 時に `config-snapshot` で追いつく。
 - 拠点は受け取った正本を `.federation-config-cache.json` (既定は cwd、
@@ -152,7 +152,7 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 `villa_pc_id` → site の順で解決する。
 
 - 拠点タグは 1 個だけ有効で、複数なら曖昧として本社へ退避しエラーを記録する。
-- 有効な拠点タグは部署 (guild) ルーティングより優先する。タグがなければ従来どおり部署で決める。
+- 有効な拠点タグは担当サーバ (guild) ルーティングより優先する。タグがなければ従来どおり担当サーバで決める。
 - 失効済み・対応づけのないPC名は拠点指定なしとして扱い、理由を warn する。
 - Villa が停止・取得不能なら拠点タグ候補は空にし、既存の guild ルーティングを継続する。
 - Discord の20文字・20個のタグ上限や既存タグとの衝突ではタグを作らず warn する。拠点タグは
@@ -162,7 +162,7 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 
 ## API (loopback /v1 面のみ)
 
-- `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + 担当部署 +
+- `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + 担当担当サーバ +
   ライブ接続状態 + 未配送数)。トークンは返さない。
 - `POST /v1/federation/sites` `{site_id, name?}` — 登録 + トークン発行。平文トークンは
   この応答のみ。

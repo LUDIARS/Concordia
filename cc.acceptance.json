@@ -2410,6 +2410,358 @@
         "src/control/project-rules-delivery.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/departments/settings.ts",
+      "tests": [
+        "src/departments/settings.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/ownership.ts",
+      "tests": [
+        "src/departments/ownership.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/launch-defaults.ts",
+      "tests": [
+        "src/departments/launch-defaults.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/project-scope.ts",
+      "tests": [
+        "src/departments/project-scope.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/rule-layers.ts",
+      "tests": [
+        "src/departments/rule-layers.test.ts",
+        "src/api/harness-session-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/spawn-request.ts",
+      "tests": [
+        "src/departments/spawn-request.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/launch-resolution.ts",
+      "tests": [
+        "src/departments/launch-resolution.test.ts",
+        "tests/departments-spawn.test.ts",
+        "tests/dialogue-context-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/service.ts",
+      "tests": [
+        "src/departments/service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/departments/output-policy.ts",
+      "tests": [
+        "src/departments/output-policy.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/departments-repo.ts",
+      "tests": [
+        "src/db/departments-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/departments.ts",
+      "tests": [
+        "src/api/departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/harness-rules-repo.ts",
+      "tests": [
+        "src/db/harness-rules-department-scope.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-session.ts",
+      "tests": [
+        "src/api/harness-session-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/register-core.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts",
+        "tests/dialogue-context-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/service.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/formats.ts",
+      "tests": [
+        "src/dialogue/use-case-service.test.ts",
+        "src/api/use-cases.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/startup-block.ts",
+      "tests": [
+        "src/dialogue/startup-block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/use-case-service.ts",
+      "tests": [
+        "src/dialogue/use-case-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/correction-service.ts",
+      "tests": [
+        "src/dialogue/correction-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/launch-context.ts",
+      "tests": [
+        "src/dialogue/launch-context.test.ts",
+        "tests/dialogue-context-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/use-cases-repo.ts",
+      "tests": [
+        "src/dialogue/use-case-service.test.ts",
+        "src/api/use-cases.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/use-case-corrections-repo.ts",
+      "tests": [
+        "src/api/use-cases.test.ts",
+        "src/dialogue/launch-context.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/requester-profiles-repo.ts",
+      "tests": [
+        "src/db/requester-profiles-repo.test.ts",
+        "src/api/requester-profiles.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/use-cases.ts",
+      "tests": [
+        "src/api/use-cases.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/requester-profiles.ts",
+      "tests": [
+        "src/api/requester-profiles.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/use-case-read-only.ts",
+      "tests": [
+        "src/harness/use-case-read-only.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/department-forum.ts",
+      "tests": [
+        "src/discord/department-forum.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/forum-spawn.ts",
+      "tests": [
+        "src/discord/department-forum-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/commands/correct.ts",
+      "tests": [
+        "src/discord/commands/correct.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/monitor/organization-groups.ts",
+      "tests": [
+        "web/src/pages/monitor/organization-groups.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-rules.ts",
+      "tests": [
+        "src/api/harness-rules-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/teams.ts",
+      "tests": [
+        "src/api/teams-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/pending-delegation-spawns.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/sessions-repo.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/teams-repo.ts",
+      "tests": [
+        "src/api/teams-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/delegation/launcher.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/forum-spawn-session.ts",
+      "tests": [
+        "src/discord/forum-spawn-session-minimal.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/team-provision.ts",
+      "tests": [
+        "src/discord/department-forum.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/events.ts",
+      "tests": [
+        "src/api/teams-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/messages/service.ts",
+      "tests": [
+        "src/messages/service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/shared/event-schema.ts",
+      "tests": [
+        "src/api/teams-departments.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/shared/types.ts",
+      "tests": [
+        "tests/departments-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/components/DelegationSpawnForm.tsx",
+      "tests": [
+        "web/src/components/DelegationSpawnForm.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/monitor/OrganizationsSection.tsx",
+      "tests": [
+        "web/src/pages/monitor/OrganizationsSection.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/Departments.tsx",
+      "tests": [
+        "web/src/pages/Departments.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/departments/DepartmentEditor.tsx",
+      "tests": [
+        "web/src/pages/Departments.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/RequesterProfiles.tsx",
+      "tests": [
+        "web/src/pages/RequesterProfiles.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/manuals/UseCasesPanel.tsx",
+      "tests": [
+        "web/src/pages/manuals/UseCasesPanel.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/manuals/UseCasesCorrections.tsx",
+      "tests": [
+        "web/src/pages/manuals/UseCasesPanel.test.tsx"
+      ],
+      "contracts": []
     }
   ]
 }

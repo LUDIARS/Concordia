@@ -310,3 +310,34 @@ describe("SessionMessageService", () => {
     });
   });
 });
+
+// 部署の出力方針で思考の保存を決める (spec/feature/departments.md §9.4)。
+describe("SessionMessageService thinking policy per session", () => {
+  it("asks the policy with the session id and keeps thinking only where it is enabled", () => {
+    const asked: string[] = [];
+    let next: ((ev: ConcordiaEvent) => void) | null = null;
+    const perSession = new SessionMessageService({
+      repo,
+      isThinkingEnabled: (sessionId) => {
+        asked.push(sessionId);
+        return sessionId === "dev-session";
+      },
+      subscribe: (l) => {
+        next = l;
+        return () => { next = null; };
+      },
+      emit: () => undefined,
+    });
+    perSession.start();
+    const thinking = (sessionId: string): ConcordiaEvent => ({
+      type: "transcript.frame", target_session_id: sessionId, seq: 1, kind: "thinking", payload: { text: "reasoning" }, ts: 1,
+    });
+
+    next!(thinking("qa-session"));
+    next!(thinking("dev-session"));
+
+    expect(asked).toEqual(["qa-session", "dev-session"]);
+    expect(repo.list("qa-session")).toHaveLength(0);
+    expect(repo.list("dev-session")).toHaveLength(1);
+  });
+});

@@ -40,6 +40,12 @@ import { StatsRepo } from "../../src/db/stats-repo.js";
 import { SubsidiaryRepo } from "../../src/db/subsidiary-repo.js";
 import { TasksRepo } from "../../src/db/tasks-repo.js";
 import { TeamsRepo } from "../../src/db/teams-repo.js";
+import { DepartmentsRepo } from "../../src/db/departments-repo.js";
+import { DepartmentService } from "../../src/departments/service.js";
+import { UseCasesRepo } from "../../src/db/use-cases-repo.js";
+import { UseCaseCorrectionsRepo } from "../../src/db/use-case-corrections-repo.js";
+import { RequesterProfilesRepo } from "../../src/db/requester-profiles-repo.js";
+import { UseCaseService } from "../../src/dialogue/use-case-service.js";
 import { EscalationRepo } from "../../src/db/escalation-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
@@ -106,6 +112,12 @@ export interface TestAppEnv {
   staff: StaffRepo;
   subsidiary: SubsidiaryRepo;
   teams: TeamsRepo;
+  departments: DepartmentsRepo;
+  departmentService: DepartmentService;
+  useCases: UseCasesRepo;
+  useCaseService: UseCaseService;
+  useCaseCorrections: UseCaseCorrectionsRepo;
+  requesterProfiles: RequesterProfilesRepo;
   adminState: AdminState;
   taskflowState: TaskflowStateStore;
   processManager: ProcessManager;
@@ -155,6 +167,19 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const staff = new StaffRepo(db);
   const subsidiary = new SubsidiaryRepo(db);
   const teams = new TeamsRepo(db);
+  const departments = new DepartmentsRepo(db);
+  const useCases = new UseCasesRepo(db);
+  const useCaseService = new UseCaseService({ repo: useCases });
+  const useCaseCorrections = new UseCaseCorrectionsRepo(db);
+  const requesterProfiles = new RequesterProfilesRepo(db);
+  const departmentService = new DepartmentService({
+    repo: departments,
+    useCases: { isAssignable: (id) => useCases.find(id)?.archived_at === null },
+    organizations: {
+      exists: (subsidiaryId) => subsidiary.find(subsidiaryId) !== null,
+      projects: (subsidiaryId) => subsidiary.listProjects(subsidiaryId),
+    },
+  });
   const taskflowState = new TaskflowStateStore(db);
   const fallbackTasks = new CcTaskRepository(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
@@ -174,8 +199,10 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
         team: team.name,
         rules: team.rules_text,
         subsidiaryId: team.subsidiary_id,
+        departmentId: team.department_id ?? null,
       } : null;
     },
+    departments,
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });
@@ -190,7 +217,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, projectCodes, adminState,
-    staff, subsidiary, teams,
+    staff, subsidiary, teams, departments, departmentService,
+    useCases, useCaseService, useCaseCorrections, requesterProfiles,
     taskStore,
     taskflowState,
     fallbackTasks,
@@ -219,7 +247,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
-    staff, subsidiary, teams,
+    staff, subsidiary, teams, departments, departmentService,
+    useCases, useCaseService, useCaseCorrections, requesterProfiles,
     taskflowState,
     processManager, config, logsDir,
   };

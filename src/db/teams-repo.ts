@@ -5,6 +5,8 @@ export interface TeamRow {
   id: string;
   /** 所有する子会社。NULL は本社チーム。 */
   subsidiary_id: string | null;
+  /** 所属部署 (spec/feature/departments.md)。 NULL = 部署に属さない。 */
+  department_id?: string | null;
   name: string;
   slug: string;
   settings_json: string;
@@ -25,6 +27,8 @@ export interface TeamWriteInput {
   slug: string;
   /** 作成後は API から移動しない。NULL は本社チーム。 */
   subsidiary_id?: string | null;
+  /** 所属部署。 会社が一致し稼働中の部署だけを API が受け付ける。 */
+  department_id?: string | null;
   settings?: unknown;
   rules_text?: string;
 }
@@ -84,13 +88,14 @@ export class TeamsRepo {
     const now = Date.now();
     const id = `team_${randomUUID().replace(/-/g, "")}`;
     this.db.prepare(`
-      INSERT INTO teams(id, name, slug, subsidiary_id, settings_json, rules_text, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO teams(id, name, slug, subsidiary_id, department_id, settings_json, rules_text, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
       input.slug,
       input.subsidiary_id ?? null,
+      input.department_id ?? null,
       JSON.stringify(input.settings ?? {}),
       input.rules_text ?? "",
       now,
@@ -104,11 +109,12 @@ export class TeamsRepo {
     if (!row) return null;
     this.db.prepare(`
       UPDATE teams
-      SET name = ?, slug = ?, settings_json = ?, rules_text = ?, updated_at = ?
+      SET name = ?, slug = ?, department_id = ?, settings_json = ?, rules_text = ?, updated_at = ?
       WHERE id = ?
     `).run(
       input.name ?? row.name,
       input.slug ?? row.slug,
+      input.department_id === undefined ? row.department_id ?? null : input.department_id,
       input.settings === undefined ? row.settings_json : JSON.stringify(input.settings),
       input.rules_text ?? row.rules_text,
       Date.now(),

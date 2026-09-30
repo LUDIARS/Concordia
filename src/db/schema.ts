@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 114;
+export const SCHEMA_VERSION = 115;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2764,6 +2764,98 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX idx_conversation_handoffs_state ON conversation_handoffs(state, updated_at);
       CREATE INDEX idx_conversation_handoffs_conversation
         ON conversation_handoffs(conversation_id, created_at DESC);
+    `);
+  },
+},
+{
+  version: 115,
+  name: "session-departments",
+  source: "departments (use case / default / forum) + department_id on sessions/delegation_runs/teams/harness_rules + use_cases / use_case_corrections / requester_profiles (spec/feature/departments.md §4 §9, spec/feature/dialogue-context.md §4)",
+  up(db) {
+    // 部署は会社 (本社 = subsidiary_id NULL / 子会社) が所有する。slug は会社ごとに一意、
+    // 既定部署は会社ごとに 1 つまで (部分 unique index で保存層でも守る)。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id               TEXT PRIMARY KEY,
+        subsidiary_id    TEXT,
+        name             TEXT NOT NULL,
+        slug             TEXT NOT NULL,
+        description      TEXT NOT NULL DEFAULT '',
+        settings_json    TEXT NOT NULL DEFAULT '{}',
+        rules_text       TEXT NOT NULL DEFAULT '',
+        sort_order       INTEGER NOT NULL DEFAULT 0,
+        use_case_id      TEXT,
+        is_default       INTEGER NOT NULL DEFAULT 0,
+        discord_forum_id TEXT,
+        archived_at      INTEGER,
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_departments_org_slug
+        ON departments(COALESCE(subsidiary_id, ''), slug);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_departments_org_default
+        ON departments(COALESCE(subsidiary_id, '')) WHERE is_default = 1;
+      CREATE INDEX IF NOT EXISTS idx_departments_org_order
+        ON departments(subsidiary_id, archived_at, sort_order);
+      CREATE INDEX IF NOT EXISTS idx_departments_forum ON departments(discord_forum_id);
+
+      -- ユースケース: 部署のセッションが何をするか (spec/feature/dialogue-context.md)。
+      CREATE TABLE IF NOT EXISTS use_cases (
+        id                    TEXT PRIMARY KEY,
+        name                  TEXT NOT NULL,
+        slug                  TEXT NOT NULL UNIQUE,
+        format                TEXT NOT NULL,
+        summary               TEXT NOT NULL DEFAULT '',
+        work_mode             TEXT NOT NULL CHECK(work_mode IN ('edit', 'read-only')),
+        pre_data              TEXT NOT NULL DEFAULT '',
+        use_requester_profile INTEGER NOT NULL DEFAULT 0,
+        archived_at           INTEGER,
+        created_at            INTEGER NOT NULL,
+        updated_at            INTEGER NOT NULL
+      );
+      -- 回答に対する人の訂正。会社 (subsidiary_id) ごとに分けて以後の起動へ渡す。
+      CREATE TABLE IF NOT EXISTS use_case_corrections (
+        id            TEXT PRIMARY KEY,
+        use_case_id   TEXT NOT NULL,
+        subsidiary_id TEXT,
+        department_id TEXT,
+        session_id    TEXT,
+        source        TEXT NOT NULL CHECK(source IN ('discord', 'webui', 'api')),
+        question      TEXT NOT NULL DEFAULT '',
+        correction    TEXT NOT NULL,
+        author        TEXT NOT NULL DEFAULT '',
+        active        INTEGER NOT NULL DEFAULT 1,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_use_case_corrections_scope
+        ON use_case_corrections(use_case_id, subsidiary_id, active, created_at DESC);
+      -- 依頼者メモ: 投稿ユーザーごとのローカルな前提 (技術者レベル・やっていること)。
+      CREATE TABLE IF NOT EXISTS requester_profiles (
+        id               TEXT PRIMARY KEY,
+        subsidiary_id    TEXT,
+        platform         TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        display_name     TEXT NOT NULL DEFAULT '',
+        skill_level      TEXT NOT NULL DEFAULT '',
+        activities       TEXT NOT NULL DEFAULT '',
+        notes            TEXT NOT NULL DEFAULT '',
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_requester_profiles_identity
+        ON requester_profiles(COALESCE(subsidiary_id, ''), platform, platform_user_id);
+    `);
+    // NULL = 未配属。部署導入前の行はすべて未配属のまま (CC-DEPT-INV-08)。
+    for (const table of ["sessions", "delegation_runs", "teams", "harness_rules"]) {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "department_id")) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN department_id TEXT`);
+      }
+    }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_department ON sessions(department_id, status);
+      CREATE INDEX IF NOT EXISTS idx_harness_rules_department ON harness_rules(department_id, enabled, sort_order);
     `);
   },
 },

@@ -2836,6 +2836,59 @@
         "src/discord/forum-spawn-consult-intake.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/consultation/private-consultation-service.ts",
+      "tests": [
+        "src/consultation/private-consultation-service.test.ts",
+        "src/discord/consult-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/private-consultations-repo.ts",
+      "tests": [
+        "src/db/private-consultations-repo.test.ts",
+        "src/consultation/private-consultation-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-channel.ts",
+      "tests": [
+        "src/discord/consult-channel.test.ts",
+        "src/discord/consult-flow.test.ts",
+        "src/discord/session-channel-private.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-modal.ts",
+      "tests": [
+        "src/discord/consult-modal.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-flow.ts",
+      "tests": [
+        "src/discord/consult-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-session.ts",
+      "tests": [
+        "src/discord/consult-session.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/commands/consult.ts",
+      "tests": [
+        "src/discord/commands/consult.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

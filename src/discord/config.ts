@@ -1,4 +1,5 @@
 import type { ForumChannel, Guild, GuildForumTagData } from "discord.js";
+import { PRIVATE_CONSULT_CATEGORY_KEY } from "./consult-channel.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
@@ -34,6 +35,11 @@ export interface DiscordConfigSnapshot {
   errorCategoryId: string;
   errorChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
+  /**
+   * プライベート相談のカテゴリ (spec/feature/tech-consultation.md §4)。 未作成なら undefined。
+   * このカテゴリのセッションチャンネルは archive へ移さず・名前を変えず、 終了時に書き込みだけ止める。
+   */
+  privateConsultCategoryId?: string;
 }
 
 const META_CATEGORY_KEY = "meta_category_id";
@@ -226,6 +232,8 @@ export async function ensureDiscordLayout(
   }
 
   repo.set("guild_id", guild.id);
+  // 相談カテゴリは最初の /consult で作る (consult-channel.ts)。 ここでは保存済みの id を運ぶだけ。
+  const privateConsultCategoryId = repo.get(PRIVATE_CONSULT_CATEGORY_KEY) ?? undefined;
   return {
     guildId: guild.id,
     forumMode,
@@ -244,6 +252,7 @@ export async function ensureDiscordLayout(
     errorCategoryId,
     errorChannelId,
     metaChannels,
+    ...(privateConsultCategoryId ? { privateConsultCategoryId } : {}),
   };
 }
 

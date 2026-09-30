@@ -35,6 +35,7 @@ export const EMPTY_SETTINGS: DepartmentSettings = {
   launch: {},
   projects: [],
   output: { thinking: "inherit", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit" },
+  private: { enabled: false, approver_min_role: "manager" },
 };
 
 export function DepartmentEditor({
@@ -63,6 +64,7 @@ export function DepartmentEditor({
   const [defaultProject, setDefaultProject] = useState(initial.launch.project ?? "");
   const [projects, setProjects] = useState(initial.projects.join(", "));
   const [output, setOutput] = useState(initial.output);
+  const [privateConsult, setPrivateConsult] = useState(initial.private ?? { enabled: false, approver_min_role: "manager" as const });
   const [rulesText, setRulesText] = useState(department.rules_text);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -77,6 +79,7 @@ export function DepartmentEditor({
     },
     projects: projects.split(",").map((value) => value.trim()).filter(Boolean),
     output,
+    private: privateConsult,
   });
 
   const save = async () => {
@@ -174,6 +177,28 @@ export function DepartmentEditor({
             </Labeled>
           ))}
         </div>
+      </fieldset>
+
+      <fieldset className="border border-border rounded p-2 space-y-2">
+        <legend className="text-xs text-subtle px-1">プライベート相談</legend>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={privateConsult.enabled}
+            onChange={(e) => setPrivateConsult({ ...privateConsult, enabled: e.target.checked })}
+          />
+          `/consult` で閉じたチャンネルの相談を受け付ける (本社の部署のみ)
+        </label>
+        <Labeled label="自動で閲覧者に加える権限者 (社員名簿の役職)">
+          <select
+            className="foundation-form"
+            value={privateConsult.approver_min_role}
+            onChange={(e) => setPrivateConsult({ ...privateConsult, approver_min_role: e.target.value as "manager" | "executive" })}
+          >
+            <option value="manager">管理職以上</option>
+            <option value="executive">執行役員のみ</option>
+          </select>
+        </Labeled>
       </fieldset>
 
       <Labeled label="部署ルール (着手前ルール供給で全体ルールの後・チームルールの前に並ぶ)">

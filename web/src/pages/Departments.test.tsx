@@ -72,6 +72,31 @@ describe("departments page", () => {
     } finally { await cleanup(); }
   });
 
+  it("saves the private consultation setting of a department", async () => {
+    const calls = stubFetch();
+    const { container, cleanup } = await render();
+    try {
+      const open = [...container.querySelectorAll("button")].find((b) => b.textContent === "技術相談課")!;
+      await act(async () => { open.click(); });
+      const toggle = [...container.querySelectorAll("label")]
+        .find((label) => label.textContent?.includes("/consult"))!
+        .querySelector("input") as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      await act(async () => { toggle.click(); });
+      const role = [...container.querySelectorAll("select")]
+        .find((select) => [...select.options].some((option) => option.value === "executive")) as HTMLSelectElement;
+      await act(async () => {
+        role.value = "executive";
+        role.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const save = [...container.querySelectorAll("button")].find((b) => b.textContent === "保存")!;
+      await act(async () => { save.click(); });
+      expect(calls.find((call) => call.method === "PATCH")?.body).toMatchObject({
+        settings: { private: { enabled: true, approver_min_role: "executive" } },
+      });
+    } finally { await cleanup(); }
+  });
+
   it("creates a department in the selected organization", async () => {
     const calls = stubFetch();
     const { container, cleanup } = await render();

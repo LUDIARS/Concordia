@@ -61,30 +61,49 @@
 **Requirement ID: `SPEC-CONSULT-PRIVATE`**
 
 - 部署設定に `private` を足す: `enabled` (既定 false) と `approver_min_role` (`manager` | `executive`、既定 `manager`)。
-- プライベートが有効な部署で `/consult` (部署選択付き) を使うと、所有会社の guild の「プライベート相談」カテゴリ
-  (無ければ作る) にテキストチャンネルを 1 本作る。作成要求に閉じた overwrites を含める (CC-CONSULT-INV-01):
-  `@everyone` 不可視、本人・権限者・Bot は可視。権限者の判定はチームの「管理」チャンネルと同じ社員名簿の判定を使う。
-- 起動は部署セッションと同じ経路 (所有会社の検査・部署の起動既定値・ユースケース) を通り、セッションはこのチャンネルに紐づく。
-- 起動できない (部署がプライベート不可・廃止・権限なし・チャンネル作成失敗) ときはコマンドの応答で理由を本人にだけ返す。
+  部署管理画面で編集する。
+- 対象は本社の部署 (本社 guild の `/consult`)。子会社のセッションは関係プロジェクトで起動範囲を閉じる
+  (subsidiary-delegation §3.4) ため、プロジェクトを持たない相談の扱いを決めるまで子会社 guild には出さない。
+- 流れ:
+  1. `/consult start department:<プライベート可の部署>` がモーダル (知りたいこと・技術レベル・役職・目的) を開く。
+     技術レベル・役職は依頼者メモの値を既定で入れる。
+  2. 送信で「プライベート相談」カテゴリ (無ければ作る) にテキストチャンネルを 1 本作る。作成要求に閉じた
+     overwrites を含める (CC-CONSULT-INV-01): `@everyone` 不可視、本人・権限者・Bot は可視。
+     権限者 = 社員名簿で `approver_min_role` 以上の Discord ユーザー。
+     チャンネル名は内容を含めない (`相談-<日付>-<短い id>`)。
+  3. 本人が起動権限 (社員名簿の `session_spawn`) を持てばそのまま起動する。持たなければチャンネル内に
+     「起動を承認」ボタンを出し、起動権限を持つ権限者が押すと起動する (承認者もこのチャンネルの閲覧者なので、
+     承認のために内容を外へ出さない)。
+  4. 起動は部署セッションと同じ admin spawn (所有会社の検査・部署の起動既定値・ユースケース・事前ヒアリング) を通る。
+     モーダルの 4 項目は `consultation_intake` (source `modal`) として渡る。
+  5. セッションの面はこのチャンネルそのもの (`session_channels.channel_kind = channel`)。Session フォーラム・
+     部署フォーラムにはスレッドを作らない。
+- 起動できない (部署がプライベート不可・廃止・本社以外・チャンネル作成失敗) ときはコマンド / モーダルの応答で
+  理由を本人にだけ返す。
 
 **Requirement ID: `SPEC-CONSULT-MEMBERS`**
 
-- チャンネル内の `/consult invite @user` / `/consult remove @user` で閲覧者を追加・除外する。
+- チャンネル内の `/consult invite user:@x` / `/consult remove user:@x` で閲覧者を追加・除外する。
   操作できるのは本人と権限者だけ (CC-CONSULT-INV-02)。本人と Bot は除外できない。
 - 権限者は相談の開始時点の名簿で追加する。名簿が変わっても既存チャンネルの閲覧者は自動では変えない (必要なら invite / remove)。
 
 **Requirement ID: `SPEC-CONSULT-VISIBILITY`**
 
-- プライベート相談のセッションの思考・状態カード・セッション情報・コスト報告はそのチャンネルにだけ出す。
-  activity・monitor・pr-queue には本文・題名を出さず、件数に含める場合も「プライベート相談」とだけ表示する。
-  連合 (federation) には同期しない (CC-CONSULT-INV-03)。
-- WebUI は運用担当の管理面なので表示するが、一覧では「プライベート」と明示する。
+- 思考・状態カード・セッション情報・コスト報告は、セッションの面 (= このチャンネル) にだけ出る。
+- 共有面の確認結果 (2026-09-30): activity は使用量の警告だけ、monitor / pr-queue はチャンネルのメンション
+  (見えない人には Discord が名前を伏せる) と金額だけ、連合 (federation) は設定の同期でセッションを運ばない。
+  いずれも本文・題名を出さない (CC-CONSULT-INV-03)。
+- 面の復旧 (再起動時の reconcile) は、プライベート相談のセッションを Session フォーラムへ作り直さない。
+  チャンネルを失ったら復旧せず、相談を閉じたものとして扱う。
+- WebUI は運用担当の管理面なので表示する。
 
 **Requirement ID: `SPEC-CONSULT-CLOSE`**
 
-- セッションの終了でチャンネルを書き込み不可 (閲覧は維持) にして残す。削除はしない。
+- セッションの終了・消失でチャンネルを書き込み不可 (閲覧は維持) にして残す。削除しない。
+- 通常のセッションチャンネルのように archive カテゴリへは移さない (カテゴリの権限に同期すると閉じた権限が外れるため)。
 
-状態所有者: 相談とチャンネル・状態 = `private_consultations`、閲覧者と追加理由 = `private_consultation_members` (consultation)。
+状態所有者: 相談とチャンネル・状態・承認前のヒアリング = `private_consultations`、閲覧者と追加理由 =
+`private_consultation_members` (consultation)。
 
 ## 5. オープン化の提案と Tabula への公開
 
@@ -116,7 +135,7 @@
 | `requester_profiles.role_title` | 役職 (次回の既定値) | dialogue-context |
 | `consultation_intakes` | 相談ごとの 4 項目、取得元 (forum / modal / api)、会社・部署・ユースケース・依頼者、受付チャンネル (起動前に集めるので session id ではなくスレッド / チャンネルで辿る)。揃ってから起動するときに 1 行記録する | dialogue-context |
 | `departments.settings_json.private` | プライベート相談の許可と権限者の最低役職 | governance |
-| `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (open / closed)・時刻 | consultation |
+| `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (pending_approval / open / closed)・承認前のヒアリング・承認者・時刻 | consultation |
 | `private_consultation_members` | 閲覧者・追加理由 (requester / approver / invited)・追加者・時刻・除外時刻 | consultation |
 | `consultation_publications` | 候補文・編集後の文・状態 (proposed / published / declined / withdrawn)・Tabula ページ id と URL・判断者・時刻 | consultation |
 

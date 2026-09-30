@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 116;
+export const SCHEMA_VERSION = 117;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2895,6 +2895,44 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_consultation_intakes_channel ON consultation_intakes(channel_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_consultation_intakes_department
         ON consultation_intakes(department_id, created_at DESC);
+    `);
+  },
+},
+{
+  version: 117,
+  name: "private-consultations",
+  source: "private_consultations + private_consultation_members (spec/feature/tech-consultation.md §4 §6)",
+  up(db) {
+    // プライベート相談: 閉じたチャンネル 1 本 = 相談 1 件。 承認前はヒアリングをここに持ち、
+    // 起動したらセッションを結ぶ。 閲覧者は追加理由 (本人 / 権限者 / 招待) ごとに残す。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS private_consultations (
+        id                TEXT PRIMARY KEY,
+        subsidiary_id     TEXT,
+        department_id     TEXT NOT NULL,
+        requester_user_id TEXT NOT NULL,
+        channel_id        TEXT UNIQUE,
+        session_id        TEXT,
+        status            TEXT NOT NULL CHECK(status IN ('pending_approval', 'open', 'closed')),
+        intake_json       TEXT NOT NULL DEFAULT '{}',
+        approved_by       TEXT,
+        approved_at       INTEGER,
+        closed_at         INTEGER,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_private_consultations_session ON private_consultations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_private_consultations_requester
+        ON private_consultations(requester_user_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS private_consultation_members (
+        consultation_id  TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        reason           TEXT NOT NULL CHECK(reason IN ('requester', 'approver', 'invited')),
+        added_by         TEXT NOT NULL,
+        added_at         INTEGER NOT NULL,
+        removed_at       INTEGER,
+        PRIMARY KEY (consultation_id, platform_user_id)
+      );
     `);
   },
 },

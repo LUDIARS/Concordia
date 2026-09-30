@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DepartmentSettingsSchema, parseDepartmentSettings } from "./settings.js";
 
 describe("DepartmentSettingsSchema", () => {
-  it("fills empty launch defaults, projects and an inherit-everything output policy", () => {
+  it("fills empty launch defaults, projects, an inherit-everything output policy and closed private consultation", () => {
     expect(DepartmentSettingsSchema.parse({})).toEqual({
       launch: {},
       projects: [],
       output: { thinking: "inherit", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit" },
+      private: { enabled: false, approver_min_role: "manager" },
     });
   });
 
@@ -43,5 +44,11 @@ describe("parseDepartmentSettings", () => {
   it("throws for a broken stored row rather than returning empty defaults", () => {
     expect(() => parseDepartmentSettings("{not json")).toThrow();
     expect(() => parseDepartmentSettings(JSON.stringify({ launch: { template: "a", provider: "b" } }))).toThrow();
+  });
+
+  it("accepts a private consultation setting and rejects an unknown approver role", () => {
+    expect(DepartmentSettingsSchema.parse({ private: { enabled: true } }).private)
+      .toEqual({ enabled: true, approver_min_role: "manager" });
+    expect(DepartmentSettingsSchema.safeParse({ private: { enabled: true, approver_min_role: "staff" } }).success).toBe(false);
   });
 });

@@ -154,6 +154,13 @@ import { DepartmentsRepo, type DepartmentRow } from "../db/departments-repo.js";
 import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
 import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
+import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
+import { StaffRepo } from "../db/staff-repo.js";
+import { roleAtLeast } from "../staff/roles.js";
+import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
+import type { ConsultCommandDeps } from "./commands/consult.js";
+import { PRIVATE_CONSULT_CATEGORY_KEY } from "./consult-channel.js";
+import { bindPrivateConsultSession, privateConsultPrompt } from "./consult-session.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import type { DepartmentOutputItem } from "../departments/settings.js";
 import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum, sessionForumNameFor } from "./department-forum.js";
@@ -575,6 +582,57 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const departmentsRepo = new DepartmentsRepo(deps.db);
   const useCasesRepo = new UseCasesRepo(deps.db);
   const requesterProfilesRepo = new RequesterProfilesRepo(deps.db);
+  // プライベート相談 (tech-consultation.md §4)。 本社 Bot だけで受け付け、 閲覧者は社員名簿から決める。
+  const privateConsultationsRepo = new PrivateConsultationsRepo(deps.db);
+  const staffRepo = new StaffRepo(deps.db);
+  const privateConsultations = new PrivateConsultationService({
+    store: privateConsultationsRepo,
+    department: (id) => departmentsRepo.find(id),
+    approvers: (minRole) => staffRepo.list({ platform: "discord" })
+      .filter((member) => roleAtLeast(member.role, minRole))
+      .map((member) => member.platform_user_id),
+    canLaunch: (userId) => deps.isLaunchUserAllowed?.(userId) === true,
+  });
+  const consultDeps: ConsultCommandDeps | undefined = subsidiaryId ? undefined : {
+    service: privateConsultations,
+    store: privateConsultationsRepo,
+    runtimeSubsidiaryId: null,
+    categoryStore: {
+      categoryId: () => configRepo.get(PRIVATE_CONSULT_CATEGORY_KEY),
+      setCategoryId: (id) => configRepo.set(PRIVATE_CONSULT_CATEGORY_KEY, id),
+    },
+    spawn: async ({ consultation, intake, guildId, channelId, requesterDisplayName }) => {
+      const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
+        prompt: privateConsultPrompt(intake),
+        department: consultation.department_id,
+        subsidiary_id: null,
+        consultation_intake: { ...intake, source: "modal" },
+        requester_discord_user_id: consultation.requester_user_id,
+        ...(requesterDisplayName ? { requester_display_name: requesterDisplayName } : {}),
+        source_discord_guild_id: guildId,
+        source_discord_channel_id: channelId,
+      });
+      return "error" in result ? { ok: false, error: result.error } : { ok: true };
+    },
+    privateDepartments: () => departmentsRepo.listForOrganization(null).filter((department) => {
+      try {
+        return parseDepartmentSettings(department.settings_json).private.enabled;
+      } catch {
+        // 設定が壊れた部署は候補に出さない (受付側でも department_settings_invalid で止まる)。
+        return false;
+      }
+    }).map((department) => ({ id: department.id, name: department.name })),
+    requesterDefaults: (userId) => {
+      const profile = requesterProfilesRepo.find({ subsidiary_id: null, platform: "discord", platform_user_id: userId });
+      return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
+    },
+    log,
+  };
+  /** セッションの終了・消失で相談を閉じる (チャンネルの lock は session-channel.ts が行う)。 */
+  const closePrivateConsultationOf = (sessionId: string): void => {
+    const consultation = privateConsultationsRepo.findBySession(sessionId);
+    if (consultation) privateConsultations.close(consultation.id);
+  };
   const departmentForumContext = (forumId: string): ForumSpawnDepartment | null => {
     const department = departmentsRepo.findByForumId(forumId);
     if (!department || department.subsidiary_id !== subsidiaryId || department.is_default === 1) return null;
@@ -1229,6 +1287,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           restoreMissing: async (sessionId) => {
             const state = deps.readModel.getSessionRelayState(sessionId);
             if (!state || state.status !== "active") return;
+            // 相談のチャンネルを失ったプライベート相談を Session フォーラムへ作り直さない (内容が共有面に出る)。
+            if (privateConsultationsRepo.findBySession(sessionId)) return;
             const surface = resolveForumSessionSurface(lay, state.delegationRunId);
             const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
             const runtimeTeamId = teamOwnedByRuntime(teamId) ? teamId : null;
@@ -1992,6 +2052,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 子会社の `/spawn` は担当プロジェクトへ閉じる (subsidiary-delegation §3.4)。
       resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
+      // プライベート相談は本社 Bot だけ (consultDeps は子会社では undefined)。
+      ...(consultDeps ? { consult: consultDeps } : {}),
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
       // guild 側に残った登録から実行されうるので dispatch でも同じ判定を通す。
@@ -2129,7 +2191,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             },
           );
           const targetForumThreadId = forumSpawn?.threadId ?? sourceForumThread?.threadId ?? null;
-          if (testSurface) {
+          // プライベート相談のセッションは相談のチャンネルそのものに結ぶ。 Session フォーラム・部署フォーラムには
+          // スレッドを作らない (tech-consultation.md §4)。
+          const privateConsultation = !delegationRun && !testSurface
+            && state?.sourceDiscordGuildId === guild.id && state?.sourceDiscordChannelId
+            ? privateConsultationsRepo.findByChannel(state.sourceDiscordChannelId)
+            : null;
+          if (privateConsultation?.channel_id) {
+            await bindPrivateConsultSession({ guild, repo: sessionChannelsRepo, webhooks, log }, {
+              sessionId,
+              channelId: privateConsultation.channel_id,
+              provider: ev.provider ?? null,
+              viewerIds: privateConsultationsRepo.members(privateConsultation.id).map((member) => member.platform_user_id),
+            });
+            privateConsultationsRepo.setSession(privateConsultation.id, sessionId);
+          } else if (testSurface) {
             await bindForumSpawnSession(
               {
                 guild,
@@ -2452,6 +2528,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.lost") {
       channelWorkState?.clear(ev.session_id);
       forgetContextPostState(ev.session_id);
+      closePrivateConsultationOf(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       // lost = wrapper の heartbeat が止まった (端末を閉じた等で実質終了)。 状態カードは
       // グレーで残さず即削除する。 旧実装は upsert でグレー化して残し、 削除は 1 時間ごとの
@@ -2464,6 +2541,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.ended") {
       channelWorkState?.clear(ev.session_id);
       forgetContextPostState(ev.session_id);
+      closePrivateConsultationOf(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)

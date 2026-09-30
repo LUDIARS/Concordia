@@ -1453,6 +1453,8 @@ export interface DepartmentSettings {
   launch: { template?: string; provider?: string; model?: string; reasoning_effort?: string; project?: string };
   projects: string[];
   output: Record<DepartmentOutputItem, DepartmentOutputMode>;
+  /** プライベート相談 (tech-consultation.md §4)。 古い保存値には無い。 */
+  private?: { enabled: boolean; approver_min_role: "manager" | "executive" };
 }
 
 export interface Department {

@@ -8,6 +8,7 @@
  * @implements spec/feature/departments.md §5
  * @implements SPEC-DEPT-LAUNCH
  * @implements SPEC-DEPT-OUTPUT
+ * @implements SPEC-CONSULT-PRIVATE
  */
 
 import { z } from "zod";
@@ -36,10 +37,20 @@ const OutputPolicySchema = z.object({
   cost_report: OutputModeSchema.default("inherit"),
 }).strict();
 
+/**
+ * プライベート相談 (spec/feature/tech-consultation.md §4)。 enabled の部署だけ `/consult` を受け付け、
+ * 社員名簿で approver_min_role 以上の人を閉じたチャンネルへ自動で加える。
+ */
+const PrivateConsultationSchema = z.object({
+  enabled: z.boolean().default(false),
+  approver_min_role: z.enum(["manager", "executive"]).default("manager"),
+}).strict();
+
 export const DepartmentSettingsSchema = z.object({
   launch: LaunchDefaultsSchema.default({}),
   projects: z.array(ProjectNameSchema).max(200).default([]),
   output: OutputPolicySchema.default({}),
+  private: PrivateConsultationSchema.default({}),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -71,6 +82,9 @@ export type DepartmentLaunchDefaults = DepartmentSettings["launch"];
 export type DepartmentOutputPolicy = DepartmentSettings["output"];
 export type DepartmentOutputItem = keyof DepartmentOutputPolicy;
 export type DepartmentOutputMode = DepartmentOutputPolicy[DepartmentOutputItem];
+export type DepartmentPrivateConsultation = DepartmentSettings["private"];
+
+export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
 export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
   thinking: "inherit",
@@ -79,7 +93,9 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
   cost_report: "inherit",
 };
 
-export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = { launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY };
+export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
+  launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION,
+};
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */
 export function parseDepartmentSettings(settingsJson: string): DepartmentSettings {

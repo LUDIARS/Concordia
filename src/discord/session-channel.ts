@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Guild, TextChannel } from "discord.js";
 import { ChannelType } from "discord.js";
+import { lockPrivateConsultChannel } from "./consult-channel.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type {
   DiscordConfigRepo,
@@ -302,6 +303,42 @@ async function fetchSessionTextChannel(
   return null;
 }
 
+/** 終了・消失したプライベート相談: 閲覧は残して書き込みを止め、 webhook を返す (archive へは移さない)。 */
+async function closePrivateConsultChannel(
+  deps: SessionChannelDeps,
+  row: DiscordSessionChannelRow,
+  status: "ended" | "lost",
+): Promise<void> {
+  deps.repo.setStatus(row.session_id, status);
+  deps.repo.setDisplayState(row.session_id, status);
+  const ch = await fetchSessionTextChannel(deps, row.channel_id);
+  if (ch) {
+    try {
+      await lockPrivateConsultChannel(ch);
+      deps.log.info(`session-channel: locked private consultation ${row.channel_id} for ${status} ${row.session_id}`);
+    } catch (e) {
+      deps.log.warn(`session-channel: private consultation lock failed for ${row.session_id}: ${(e as Error).message}`);
+    }
+  }
+  if (status === "ended" && deps.webhooks && (row.webhook_id || row.webhook_token)) {
+    try {
+      await deps.webhooks.purgeChannel(row.channel_id);
+      deps.repo.clearWebhook(row.session_id);
+    } catch (e) {
+      deps.log.warn(`session-channel: webhook purge failed for ${row.session_id}: ${(e as Error).message}`);
+    }
+  }
+}
+
+/**
+ * プライベート相談のチャンネルか (spec/feature/tech-consultation.md §4)。 archive へ移すとカテゴリの権限に
+ * 同期して閉じた overwrite が外れるので、 移動・改名の対象から外し、 終了時は書き込みだけ止める。
+ */
+function isPrivateConsultChannel(deps: SessionChannelDeps, ch: { parentId: string | null } | null | undefined): boolean {
+  const categoryId = deps.layout.privateConsultCategoryId;
+  return Boolean(categoryId) && ch?.parentId === categoryId;
+}
+
 function needsEndedArchiveReconcile(
   deps: SessionChannelDeps,
   row: DiscordSessionChannelRow,
@@ -315,6 +352,7 @@ function needsEndedArchiveReconcile(
   if (row.webhook_id || row.webhook_token) return true;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return false;
+  if (isPrivateConsultChannel(deps, ch)) return false;
   const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
   return ch.parentId !== deps.layout.archiveCategoryId || ch.name !== endedName;
 }
@@ -333,6 +371,7 @@ function needsLostArchiveReconcile(
   if (row.status !== "lost" || row.display_state !== "lost") return true;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return false;
+  if (isPrivateConsultChannel(deps, ch)) return false;
   const lostName = buildSessionChannelName("lost", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
   return ch.parentId !== deps.layout.archiveCategoryId || ch.name !== lostName;
 }
@@ -370,6 +409,12 @@ export async function onSessionStatusChanged(
         deps.webhooks?.releaseSession(input.sessionId);
       }
     }
+    return;
+  }
+
+  if ((input.status === "ended" || input.status === "lost")
+    && isPrivateConsultChannel(deps, await fetchSessionTextChannel(deps, row.channel_id))) {
+    await closePrivateConsultChannel(deps, row, input.status);
     return;
   }
 
@@ -666,8 +711,9 @@ export async function onSessionTitleChanged(
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
   // /ch_name で名前を固定している場合は title (= 処理内容) でリネームしない。
-  // topic だけ更新し、 チャンネル名はユーザ指定名を維持する。
-  const locked = row.name_locked === 1;
+  // topic だけ更新し、 チャンネル名はユーザ指定名を維持する。 プライベート相談のチャンネルも
+  // 内容を含めない名前のまま保つ (tech-consultation.md §4)。
+  const locked = row.name_locked === 1 || isPrivateConsultChannel(deps, ch);
   try {
     // status が ended/lost ならその状態を優先、active なら DB の display_state (作業中含む) を維持。
     const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
@@ -727,6 +773,11 @@ export async function onSessionWorkState(
   }
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
+  if (isPrivateConsultChannel(deps, ch)) {
+    // プライベート相談のチャンネル名は変えない (状態だけ記録する)。
+    deps.repo.setDisplayState(input.sessionId, desired);
+    return;
+  }
   // rename rate limit guard — cooldown 内は skip (= 次の状態変化/title で収束)。
   if (!deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
     deps.log.info(

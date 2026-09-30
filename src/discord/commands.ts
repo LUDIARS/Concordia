@@ -19,6 +19,9 @@ import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
 import correctCommand from "./commands/correct.js";
+import consultCommand from "./commands/consult.js";
+import { handleConsultApproval, handleConsultModalSubmit } from "./consult-flow.js";
+import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
 import effortCommand from "./commands/effort.js";
 import relictorCommand from "./commands/relictor.js";
 import handoverCommand from "./commands/handover.js";
@@ -85,6 +88,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   contextCommand,
   goalCommand,
   correctCommand,
+  consultCommand,
   effortCommand,
   relictorCommand,
   handoverCommand,
@@ -291,6 +295,17 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       isMergeUserAllowed: deps.isMergeUserAllowed,
       log: deps.log,
     });
+    return;
+  }
+  // プライベート相談のモーダル送信 / 承認ボタン (tech-consultation.md §4)。 本社 Bot だけに配線される。
+  if ((interaction.isModalSubmit() && interaction.customId.startsWith(CONSULT_MODAL_PREFIX))
+    || (interaction.isButton() && interaction.customId.startsWith(CONSULT_APPROVE_PREFIX))) {
+    if (!deps.consult) {
+      await interaction.reply({ content: "プライベート相談はこの Bot で使えません。", ephemeral: true }).catch(() => { /* best-effort */ });
+      return;
+    }
+    if (interaction.isModalSubmit()) await handleConsultModalSubmit(interaction, deps.consult);
+    else await handleConsultApproval(interaction, deps.consult);
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {

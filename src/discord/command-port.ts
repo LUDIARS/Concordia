@@ -11,6 +11,7 @@ import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.j
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
+import type { ConsultCommandDeps } from "./commands/consult.js";
 
 export interface SpawnApprovalAction {
   requesterUserId: string;
@@ -85,6 +86,8 @@ export interface DiscordCommandDeps {
    */
   /** セッションの spawn (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** プライベート相談 (spec/feature/tech-consultation.md §4)。 本社 Bot だけに配線する。 */
+  consult?: ConsultCommandDeps;
   /** セッションの end-session (管理職以上)。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;
   /** PR のマージ (`merge_pr`, 管理職以上)。 spawn 権限とは別の capability。 */

@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DepartmentSettingsSchema, parseDepartmentSettings } from "./settings.js";
 
 describe("DepartmentSettingsSchema", () => {
-  it("fills empty launch defaults and projects", () => {
-    expect(DepartmentSettingsSchema.parse({})).toEqual({ launch: {}, projects: [] });
+  it("fills empty launch defaults, projects and an inherit-everything output policy", () => {
+    expect(DepartmentSettingsSchema.parse({})).toEqual({
+      launch: {},
+      projects: [],
+      output: { thinking: "inherit", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit" },
+    });
   });
 
   it("accepts a default project that is one of the department projects", () => {

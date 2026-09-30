@@ -89,6 +89,7 @@ import {
 } from "./reaction-workflow-pr.js";
 import { stat } from "node:fs/promises";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
+import { ANSWER_EMOJI, buildAnswerText, isAnswerAction, reservedAnswerAction } from "./reaction-workflow-answer.js";
 import {
   REACTION_WORKFLOW_SOURCE,
   type InjectionProvenance,
@@ -168,8 +169,11 @@ export {
  */
 const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "context": ["🧠"],
-  // 「良い」→ そのまま実装着手 (thumbsup / ok)
-  "start-impl": ["👍", "🆗"],
+  // OK / NG の予約語 (2026-09-29)。 👍 🆗 = 「良い」、 👎 🆖 = 「NG」をセッションへ返す。
+  "ok": ANSWER_EMOJI.ok,
+  "ng": ANSWER_EMOJI.ng,
+  // そのまま実装着手。 👍 🆗 は OK の予約語へ移したので、着手の指示は 🏗️ で出す。
+  "start-impl": ["🏗️", "🏗"],
   // 🙏 → 残作業を洗い出して報告 (2 段 WF の前段)
   "enumerate-remaining": ["🙏"],
   // 🫶 / 😴 / ✨ → 残作業を重複回避で Memoria に登録 (memoria-record。 🙏 洗い出しの後段)
@@ -183,7 +187,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   // 残作業 → Memoria タスク (memo / check 系)
   "memoria-task": ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"],
   // 良くない動き → リポ作業メモリに記録 (rage / bad 系)
-  "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
+  // 👎 は NG の予約語へ移した。
+  "repo-memory-bad": ["😡", "💢", "👿", "😠"],
   // 実装タスクを積んで別セッションへ委ねる (outbox / next / dividers 系)
   "defer-impl": ["⏭️", "⏭", "📤", "🗂️", "🗂"],
   // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ CR を inject)
@@ -246,6 +251,16 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "コンテキスト残量",
     summary: "対象セッションのコンテキスト占有と残量をその場で再推定してスレッドへ返す。",
     mode: "Concordia read model (LLM を起動しない)",
+  },
+  "ok": {
+    label: "OK (良い)",
+    summary: "リアクションを付けた人が『良い』と返信したのと同じように、対象セッションへ返答を渡す (どの発言への返答かを添える)。予約語のため付け替え不可。",
+    mode: "active セッションへ inject のみ (非 active は送らず理由を返す)",
+  },
+  "ng": {
+    label: "NG",
+    summary: "リアクションを付けた人が『NG』と返信したのと同じように、対象セッションへ返答を渡す (どの発言への返答かを添える)。予約語のため付け替え不可。",
+    mode: "active セッションへ inject のみ (非 active は送らず理由を返す)",
   },
   "start-impl": {
     label: "実装着手",
@@ -398,6 +413,9 @@ export function classifyReactionWorkflow(
 ): WorkflowAction | null {
   const e = emoji.trim();
   if (isReservedNonActionEmoji(e)) return null;
+  // OK / NG は予約語。 設定 GUI の上書きより先に確定させる (付け替え不可)。
+  const answer = reservedAnswerAction(e);
+  if (answer) return answer;
   if (overrides && Object.prototype.hasOwnProperty.call(overrides, e)) {
     return overrides[e] ?? null;
   }
@@ -430,9 +448,12 @@ export function planWorkflow(
   ctx: WorkflowContext,
   models: WorkflowModels = DEFAULT_WORKFLOW_MODELS,
 ): WorkflowPlan {
-  void ctx;
   void models;
   switch (action) {
+    case "ok":
+    case "ng":
+      // 人間の返信と同じ短い語 + どの発言への返答か。 スキルは経由しない。
+      return { action, mode: "inject", prompt: buildAnswerText(action, ctx) };
     case "force-enter":
       // 対象 session に CR だけ inject して「Enter 送信」を強制する。 headless は不要。
       return { action, mode: "inject", prompt: ENTER_KEY_TEXT };
@@ -466,7 +487,8 @@ export async function migrateBuiltinWorkflowsToSkills(input: {
   const seed = buildSkillWorkflowSeed({
     catalog: input.catalog,
     builtinEmoji: WORKFLOW_EMOJI,
-    isReservedEmoji: isReservedNonActionEmoji,
+    // OK / NG の予約語もスキルへ割り当てない。
+    isReservedEmoji: (emoji) => isReservedNonActionEmoji(emoji) || reservedAnswerAction(emoji) !== null,
   });
   await updateCustomWorkflows(path, (existing) => mergeSkillEntries(existing, seed.entries));
   return { ...seed, path };
@@ -722,17 +744,20 @@ export class ReactionWorkflowRunner {
     // 👌 は誤ダブルタップで送られるため、override と JSON custom workflow より先に遮断する。
     if (isReservedNonActionEmoji(input.emoji)) return;
 
+    // OK / NG の予約語は、スキル割り当て・設定の上書き・カスタム JSON のどれよりも先に確定する。
+    const answerAction = reservedAnswerAction(input.emoji);
+
     // 「絵文字 → スキル」エントリを先に引き、 残った組み込みだけ従来分岐へ落とす
     // (設計 §11.2 の 2)。 管理設定の 絵文字→action 上書きは従来どおり効き、
     // 上書き先が移設済みアクションなら action からスキルエントリを辿る。
-    const entries = await this.loadCustomWorkflows();
-    const skillEntry = matchSkillEntry(entries, input.emoji);
+    const entries = answerAction ? [] : await this.loadCustomWorkflows();
+    const skillEntry = answerAction ? null : matchSkillEntry(entries, input.emoji);
     const builtinAction = classifyReactionWorkflow(input.emoji);
-    const action = skillEntry
+    const action = answerAction ?? (skillEntry
       // 組み込み絵文字の action は capability 判定の正本。永続 JSON が手編集されても、
       // skill entry の action で権限を弱められないよう canonical action を優先する。
       ? (builtinAction ?? skillEntry.action)
-      : classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
+      : classifyReactionWorkflow(input.emoji, this.deps.customMappings?.()));
 
     // 組み込み写像にもスキルにも無い絵文字を、 自由プロンプトの JSON で照合する。
     if (!action) {
@@ -816,6 +841,13 @@ export class ReactionWorkflowRunner {
         this.deps.log.warn(`reaction-workflow: onAccept failed: ${(e as Error).message}`);
       }
     };
+
+    // OK / NG は人間の返信の代わりなので、 稼働中のセッションにだけ渡す (headless で代行しない)。
+    if (isAnswerAction(action) && (!input.sessionId || !input.sessionActive)) {
+      notifyAccept();
+      this.relayPrResult(action, false, "このスレッドのセッションが稼働していないため、返答を渡せませんでした。", onResult);
+      return;
+    }
 
     // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
     // 🧠 context: read model が使えるならそれが先 (LLM を起動しない)。 使えない構成では

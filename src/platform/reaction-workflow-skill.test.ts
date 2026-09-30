@@ -31,12 +31,12 @@ import { defaultReactionEmojiMap } from "./reaction-workflow.js";
  */
 const DECLARED_SKILLS: SkillSeedSource[] = [
   bind("context-report", ["🧠"], "context", "inject", "opus", "repo"),
-  bind("impl", ["👍", "🆗"], "start-impl", "inject", null, "repo"),
+  bind("impl", ["🏗️", "🏗"], "start-impl", "inject", null, "repo"),
   bind("remaining-enumerate", ["🙏"], "enumerate-remaining", "inject", "sonnet", "repo"),
   bind("memoria-record", ["🫶", "😴", "✨"], "memoria-remaining", "headless", "sonnet", "memoria"),
   bind("pulse", ["📲", "🆙", "👆"], "status-check", "inject", "sonnet", "repo"),
   bind("repo-memory-good", ["😄", "😀", "😃", "😊", "🙂", "😁"], "repo-memory-good", "headless", "haiku", "repo"),
-  bind("repo-memory-bad", ["😡", "💢", "👿", "😠", "👎"], "repo-memory-bad", "inject", "haiku", "repo"),
+  bind("repo-memory-bad", ["😡", "💢", "👿", "😠"], "repo-memory-bad", "inject", "haiku", "repo"),
   bind("memoria-note", ["👀", "👁️", "👁", "👈", "📓", "✏️", "✏"], "memoria-note", "headless", "haiku", "memoria"),
   bind("memoria-task", ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"], "memoria-task", "headless", "sonnet", "memoria"),
   bind("defer-impl", ["⏭️", "⏭", "📤", "🗂️", "🗂"], "defer-impl", "headless", "sonnet", "memoria"),
@@ -121,7 +121,7 @@ describe("buildSkillWorkflowSeed (組み込み → スキルの移行、設計 �
       expect(migratedEmoji.has(normalizeWorkflowEmoji(emoji))).toBe(false);
     }
     expect([...BUILTIN_ONLY_ACTIONS].sort()).toEqual(
-      ["channel-rename", "force-enter", "list-local-prs", "submit-pr"],
+      ["channel-rename", "force-enter", "list-local-prs", "ng", "ok", "submit-pr"],
     );
   });
 

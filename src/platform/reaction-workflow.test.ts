@@ -33,9 +33,11 @@ const baseCtx: WorkflowContext = {
 
 describe("classifyReactionWorkflow", () => {
   it.each([
-    ["👍", "start-impl"],
+    ["👍", "ok"],
+    ["🆖", "ng"],
+    ["🏗️", "start-impl"],
     ["🧠", "context"],
-    ["🆗", "start-impl"],
+    ["🆗", "ok"],
     ["🙏", "enumerate-remaining"],
     ["🫶", "memoria-remaining"],
     ["😴", "memoria-remaining"],
@@ -53,7 +55,7 @@ describe("classifyReactionWorkflow", () => {
     ["✅", "memoria-task"],
     ["✔️", "memoria-task"],
     ["😡", "repo-memory-bad"],
-    ["👎", "repo-memory-bad"],
+    ["👎", "ng"],
     ["⏭️", "defer-impl"],
     ["📤", "defer-impl"],
     ["🗂️", "defer-impl"],
@@ -81,12 +83,12 @@ describe("classifyReactionWorkflow", () => {
   });
 
   it("ignores surrounding whitespace", () => {
-    expect(classifyReactionWorkflow(" 👍 ")).toBe("start-impl");
+    expect(classifyReactionWorkflow(" 👍 ")).toBe("ok");
   });
 
   it("custom overrides take precedence over defaults; add new emoji", () => {
-    const overrides = { "👍": "memoria-note" as const, "🔥": "start-impl" as const };
-    expect(classifyReactionWorkflow("👍", overrides)).toBe("memoria-note"); // 上書き
+    const overrides = { "🙏": "memoria-note" as const, "🔥": "start-impl" as const };
+    expect(classifyReactionWorkflow("🙏", overrides)).toBe("memoria-note"); // 上書き
     expect(classifyReactionWorkflow("🔥", overrides)).toBe("start-impl");   // 新規
     expect(classifyReactionWorkflow("🫶", overrides)).toBe("memoria-remaining"); // 上書きなし=既定
     expect(classifyReactionWorkflow("🎉", overrides)).toBeNull();
@@ -182,12 +184,12 @@ const SKILL_BODIES: Record<string, string> = {
 
 const CATALOG: SkillCatalogEntry[] = [
   entry("context-report", ["🧠"], "context", "inject", "opus", "repo"),
-  entry("impl", ["👍", "🆗"], "start-impl", "inject", null, "repo"),
+  entry("impl", ["🏗️", "🏗"], "start-impl", "inject", null, "repo"),
   entry("remaining-enumerate", ["🙏"], "enumerate-remaining", "inject", "sonnet", "repo"),
   entry("memoria-record", ["🫶", "😴", "✨"], "memoria-remaining", "headless", "sonnet", "memoria"),
   entry("pulse", ["📲", "🆙", "👆"], "status-check", "inject", "sonnet", "repo"),
   entry("repo-memory-good", ["😄", "😀", "😃", "😊", "🙂", "😁"], "repo-memory-good", "headless", "haiku", "repo"),
-  entry("repo-memory-bad", ["😡", "💢", "👿", "😠", "👎"], "repo-memory-bad", "inject", "haiku", "repo"),
+  entry("repo-memory-bad", ["😡", "💢", "👿", "😠"], "repo-memory-bad", "inject", "haiku", "repo"),
   entry("memoria-note", ["👀", "👁️", "👁", "👈", "📓", "✏️", "✏"], "memoria-note", "headless", "haiku", "memoria"),
   entry("memoria-task", ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"], "memoria-task", "headless", "sonnet", "memoria"),
   entry("defer-impl", ["⏭️", "⏭", "📤", "🗂️", "🗂"], "defer-impl", "headless", "sonnet", "memoria"),
@@ -302,6 +304,32 @@ describe("ReactionWorkflowRunner.handle (絵文字 → スキル)", () => {
     expect(calls[0].prompt).toContain("<skill-instructions");
     expect(calls[0].prompt).toContain("メモを Memoria に記録する");
     expect(calls[0].prompt).toContain("/memoria-note");
+  });
+
+  // 2026-09-29: 👍 🆗 / 👎 🆖 は OK / NG の予約語。 人間が「良い」「NG」と返信したのと同じに扱う。
+  it("👍 は稼働中セッションへ『良い』を返し、スキル・上書き・headless を経由しない", async () => {
+    const { runner, calls, injects } = makeRunner({ customMappings: () => ({ "👍": "memoria-note" }) });
+    await runner.handle({
+      ...baseInput, dedupeKey: "ok1", emoji: "👍", platform: "discord",
+      messageText: "migration 114 を追加してよいですか？", sessionActive: true, sessionId: "s-ok",
+    });
+    expect(calls).toHaveLength(0);
+    expect(injects).toHaveLength(1);
+    expect(injects[0].sessionId).toBe("s-ok");
+    expect(injects[0].text).toContain("\n良い\n");
+    expect(injects[0].text).toContain("migration 114 を追加してよいですか？");
+  });
+
+  it("👎 は『NG』を返し、非稼働セッションには送らず理由を返す", async () => {
+    const results: { ok: boolean; text: string }[] = [];
+    const { runner, injects } = makeRunner();
+    await runner.handle({ ...baseInput, dedupeKey: "ng1", emoji: "👎", sessionActive: true, sessionId: "s-ng" },
+      undefined, (_action, result) => results.push(result));
+    expect(injects[0].text).toContain("NG");
+    await runner.handle({ ...baseInput, dedupeKey: "ng2", emoji: "🆖", sessionActive: false, sessionId: "s-ng" },
+      undefined, (_action, result) => results.push(result));
+    expect(injects).toHaveLength(1);
+    expect(results.at(-1)).toMatchObject({ ok: false, text: expect.stringContaining("稼働していない") });
   });
 
   it("異体字セレクタ付き / 無しのどちらで押しても同じスキルに着く", async () => {

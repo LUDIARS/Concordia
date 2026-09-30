@@ -2762,6 +2762,37 @@
         "web/src/pages/manuals/UseCasesPanel.test.tsx"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/platform/reaction-workflow-answer.ts",
+      "tests": [
+        "src/platform/reaction-workflow-answer.test.ts",
+        "src/platform/reaction-workflow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/reaction-workflow.ts",
+      "tests": [
+        "src/platform/reaction-workflow.test.ts",
+        "src/platform/reaction-workflow-answer.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/reaction-workflow-action.ts",
+      "tests": [
+        "src/platform/reaction-workflow.test.ts",
+        "src/platform/reaction-workflow-capability.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/reaction-workflow-skill.ts",
+      "tests": [
+        "src/platform/reaction-workflow-skill.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

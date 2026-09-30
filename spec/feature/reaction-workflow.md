@@ -42,12 +42,12 @@ RWF の写像は **「絵文字 → Castra のスキル」の一本**に揃え�
 | 絵文字 | 意味 | スキル | WorkflowAction | 実行手段 | model |
 |---|---|---|---|---|---|
 | 🧠 | コンテキスト残量 | `context-report` | `context` | Cc read model が先。無い構成でだけ session へ inject | opus |
-| 👍 / 🆗 | 良い → そのまま実装着手 | `impl` | `start-impl` | active へ inject / 非 active は headless | — |
+| 🏗️ 🏗 | そのまま実装着手 (2026-09-29 に 👍 🆗 から移動) | `impl` | `start-impl` | active へ inject / 非 active は headless | — |
 | 🙏 | 残作業を洗い出して報告 (🫶 と対) | `remaining-enumerate` | `enumerate-remaining` | active へ inject / 非 active は headless | sonnet |
 | 🫶 😴 ✨ | 残作業を**重複回避で** Memoria に登録 | `memoria-record` | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
 | 📲 🆙 👆 | 状況どう? → 現在の作業状況を報告 | `pulse` | `status-check` | active へ inject / 非 active は headless | sonnet |
 | 😄 😀 😃 😊 🙂 😁 | 良い動き | `repo-memory-good` | `repo-memory-good` | headless (cwd = 当該リポ) | haiku |
-| 😡 💢 👿 😠 👎 | 良くない → **作業を即中断して反省** | `repo-memory-bad` | `repo-memory-bad` | active へ inject / 非 active は headless | haiku |
+| 😡 💢 👿 😠 | 良くない → **作業を即中断して反省** | `repo-memory-bad` | `repo-memory-bad` | active へ inject / 非 active は headless | haiku |
 | 👀 👁️ 👁 👈 📓 ✏️ ✏ | メッセージをメモに残す | `memoria-note` | `memoria-note` | headless (cwd = Memoria) | haiku |
 | 📝 🗒️ 🗒 ✅ ☑️ ✔️ ✔ | 残作業 → タスク登録 | `memoria-task` | `memoria-task` | headless (cwd = Memoria) | sonnet |
 | ⏭️ ⏭ 📤 🗂️ 🗂 | 実装タスクを積んで**別セッションへ委ねる** | `defer-impl` | `defer-impl` | headless (cwd = Memoria) | sonnet |
@@ -70,6 +70,17 @@ RWF の写像は **「絵文字 → Castra のスキル」の一本**に揃え�
 | 🔹 📎 | このメッセージ本文をセッションチャンネル名に反映 | `channel-rename` | Concordia `/sessions/:id/title` |
 | 📮 📬 | 作業ブランチを Revisor local PR として提出 | `submit-pr` | Concordia の local PR 提出 |
 | 📋 | Revisor local PR の一覧 | `list-local-prs` | Concordia の Revisor 読み取り口 |
+
+**OK / NG の予約語** (2026-09-29 neco 指示、スキルではない):
+
+| 絵文字 | 意味 | WorkflowAction | 実行手段 |
+|---|---|---|---|
+| 👍 🆗 | 押した人が「良い」と返信したのと同じ | `ok` | active へ inject (「良い」+ どの発言への返答か)。非 active は送らず理由を返す |
+| 👎 🆖 | 押した人が「NG」と返信したのと同じ | `ng` | 同上 (「NG」) |
+
+予約語は組み込み写像・設定 GUI の上書き・スキル割り当て・カスタム JSON のどれよりも先に確定し、
+別のアクションへ付け替えられない。肌色 modifier 付きも同一視する。👌 の予約 (下記、何もしない)
+とは別物で、こちらは「必ず OK / NG として扱う」予約である。追加の権限は要らない (返信と同じ)。
 
 写像外の絵文字は記録のみで何もしない (`null`)。👌（variation selector・肌色 modifier 付きも含む）は
 誤送信されやすいため永続的に非アクションとし、

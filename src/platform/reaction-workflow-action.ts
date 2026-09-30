@@ -14,6 +14,9 @@
  */
 export const WORKFLOW_ACTIONS = [
   "context",
+  // OK / NG の予約語 (👍 🆗 / 👎 🆖)。 スキルではなく、 付け替えできない (reaction-workflow-answer.ts)。
+  "ok",
+  "ng",
   "start-impl",
   "enumerate-remaining",
   "memoria-remaining",

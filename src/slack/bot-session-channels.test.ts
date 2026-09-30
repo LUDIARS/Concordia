@@ -245,11 +245,12 @@ describe("Slack bot session-per-channel", () => {
         ack: vi.fn(async () => {}),
       } as never);
       await vi.waitFor(() => expect(captured).toHaveLength(1));
+      // 👍 は OK の予約語 (2026-09-29)。 fixture の「👍 → impl スキル」割り当てより優先される。
       expect(captured[0]).toMatchObject({
         source: "reaction-workflow",
         provenance: {
           kind: "reaction-workflow",
-          action: "start-impl",
+          action: "ok",
           platform: "slack",
           emoji: "👍",
           sourceMessageId: "C1:1",

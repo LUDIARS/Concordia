@@ -35,6 +35,9 @@ import {
  * または CR 送信で、 LLM を必要としない。
  */
 export const BUILTIN_ONLY_ACTIONS: ReadonlySet<WorkflowAction> = new Set<WorkflowAction>([
+  // OK / NG の予約語 (スキルではない)。
+  "ok",
+  "ng",
   "force-enter",
   "channel-rename",
   "submit-pr",

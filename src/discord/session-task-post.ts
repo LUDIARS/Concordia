@@ -15,7 +15,6 @@
  */
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import { isBlankSessionTask } from "../shared/session-task.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 /** タスク本文 message を pin 済みかを記録する session metadata キー。 */
@@ -67,7 +66,6 @@ export function stripDelegationInjectHeader(text: string): string {
 /**
  * この message を pin するか。
  *
- * - 待機指示 (BLANK_SESSION_TASK) は作業の宣言ではないので pin しない (thread 上部を占有させない)。
  * - 補足・追加指示は最初のタスク本文ではないので pin しない。
  * - 既に pin 済みなら 2 通目以降は pin しない (「最初のタスク本文」だけを定位置に置く)。
  */
@@ -79,7 +77,6 @@ export function shouldPinSessionTask(input: {
   alreadyPinned: boolean;
 }): boolean {
   if (input.alreadyPinned) return false;
-  if (isBlankSessionTask(input.taskText)) return false;
   if (input.kind === "supplement" || input.kind === "parent") return false;
   if (input.kind === "startup" && input.stagedPending) return false;
   return input.taskText.trim().length > 0;

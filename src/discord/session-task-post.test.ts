@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from "vitest";
-import { BLANK_SESSION_TASK } from "../shared/session-task.js";
 import {
   buildSessionTaskMessage,
   DISCORD_TASK_PINNED_KEY,
@@ -46,10 +45,6 @@ describe("shouldPinSessionTask", () => {
 
   it("最初のタスク本文は pin する", () => {
     expect(shouldPinSessionTask(base)).toBe(true);
-  });
-
-  it("「何もするな」は pin しない", () => {
-    expect(shouldPinSessionTask({ ...base, taskText: BLANK_SESSION_TASK })).toBe(false);
   });
 
   it("段階注入の第 1 段階 (調査ブリーフ) は pin しない — 本文はまだ届いていない", () => {
@@ -117,17 +112,6 @@ describe("postSessionTaskBody", () => {
     expect(deps.sessionsRepo.mergeMetadata).toHaveBeenCalledWith("sess-1", {
       [DISCORD_TASK_POSTED_KEY]: true,
       [DISCORD_TASK_PINNED_KEY]: true,
-    });
-  });
-
-  it("「何もするな」は投稿するが pin しない", async () => {
-    const deps = makeDeps();
-    const pin = vi.fn(async () => true);
-    await postSessionTaskBody({ ...POST_BASE, taskText: BLANK_SESSION_TASK, ...deps, pin });
-    expect(deps.webhooks.send).toHaveBeenCalledTimes(1);
-    expect(pin).not.toHaveBeenCalled();
-    expect(deps.sessionsRepo.mergeMetadata).toHaveBeenCalledWith("sess-1", {
-      [DISCORD_TASK_POSTED_KEY]: true,
     });
   });
 

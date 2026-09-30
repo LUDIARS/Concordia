@@ -33,7 +33,6 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
   if (!open) return null;
   return { reason: open.reason, started_at: open.started_at, actor: open.actor };
 }
-import { BLANK_SESSION_TASK } from "../../shared/session-task.js";
 import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
 import { DECLARED_TASK_METADATA_KEY } from "../../harness/reliability/task-branch-policy.js";
 
@@ -179,11 +178,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }
       // タスク本文と作業ポリシーは Discord 上で別 message にする。 混ぜると本文が定型文に
       // 埋もれて「補足」に見え、 タスク未指定の spawn では何も写らなくなる。
-      // Cc が spawn したセッション (= claimed あり) はタスク未指定でも空にせず、
-      // 「追加指示まで待機」を明示のタスクとして渡す (質問・判断はさせない)。
-      if (claimed) {
-        meta.discord_startup_task = claimed.startupInjectText?.trim() || BLANK_SESSION_TASK;
-      }
+      // タスク未指定の spawn には何も焼かない。 以前は待機指示を明示のタスクとして
+      // 渡していたが、 指示が来なければセッションは元々待つので不要 (2026-09-29 neco 指示)。
+      const startupTaskText = claimed?.startupInjectText?.trim();
+      if (startupTaskText) meta.discord_startup_task = startupTaskText;
       const startupInjectText = [
         sessionWorkPolicyText,
         deps.resolveCcWorkflowEnabled?.()

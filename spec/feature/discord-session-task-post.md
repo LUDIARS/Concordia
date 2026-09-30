@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Discord セッションのタスク本文投稿と pin"
-description: "委託タスクの本文を起動コンテキストの定型文から切り離し、セッション thread へ独立した message として投稿する。段階注入の第 2 段階 (実装タスク) も転記する。タスク未指定の spawn は「何もするな」を明示のタスクとし、最初のタスク本文 message だけを pin する。"
+description: "委託タスクの本文を起動コンテキストの定型文から切り離し、セッション thread へ独立した message として投稿する。段階注入の第 2 段階 (実装タスク) も転記する。タスク未指定の spawn はタスク本文を投稿しない。最初のタスク本文 message だけを pin する。"
 service: concordia
 domain: chat-platforms
 tags:
@@ -53,15 +53,16 @@ updated: 2026-08-18
 
 | キー | 中身 |
 | --- | --- |
-| `metadata.discord_startup_task` | タスク本文のみ。Cc が spawn したセッション (pending delegation spawn を claim できたもの) にだけ焼く |
+| `metadata.discord_startup_task` | タスク本文のみ。Cc が spawn したセッション (pending delegation spawn を claim できたもの) で、タスク本文があるときだけ焼く |
 | `metadata.discord_startup_inject` | セッション作業ポリシー + Cc ワークフロー inject (定型文) |
 
-Cc spawn でタスク本文が空なら `BLANK_SESSION_TASK` (`"何もするな"`) を焼く
-(`src/shared/session-task.ts`)。空のまま登録すると Discord に何も写らず、
-「タスクの無いセッション」と「投稿に失敗したセッション」が区別できなくなるため。
+Cc spawn でもタスク本文が空なら焼かない。以前は待機指示
+(`BLANK_SESSION_TASK`「追加のタスク指示があるまで待機せよ。質問はするな。判断もするな。」)
+を焼いてタスク本文として投稿していたが、指示が来なければセッションは元々待つので効果がなく、
+「判断もするな」が後続の実タスクまで縛る恐れがあったため 2026-09-29 に廃止した (neco 指示)。
+タスク未指定のセッションは Discord にタスク本文 message が出ない。
 
-Cc spawn でないセッション (利用者が自分の端末で起動したもの) には焼かない。
-そのセッションのタスクは利用者が決めるので、Cc が「何もするな」を宣言する筋合いがない。
+Cc spawn でないセッション (利用者が自分の端末で起動したもの) にも焼かない。
 
 ### 3.2 投稿
 
@@ -88,7 +89,6 @@ Cc spawn でないセッション (利用者が自分の端末で起動したも
 | --- | --- |
 | 通常の起動時タスク本文 | ✅ |
 | 段階注入の第 2 段階 (`followup`) | ✅ |
-| `"何もするな"` | ❌ 作業の宣言ではない |
 | 段階注入 run の第 1 段階 (調査ブリーフ) | ❌ 本文がまだ届いていない。pin は第 2 段階に譲る |
 | 補足 (`supplement`) / 追加指示 (`parent`) | ❌ 最初のタスク本文ではない |
 | 既に pin 済み (`metadata.discord_task_pinned`) | ❌ |

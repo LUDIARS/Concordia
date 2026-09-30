@@ -2027,6 +2027,16 @@
       "contracts": []
     },
     {
+      "source": "src/discord/session-task-post.ts",
+      "tests": ["src/discord/session-task-post.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/chat-read-model.ts",
+      "tests": ["src/api/chat-read-models.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/repo-search-capabilities.ts",
       "tests": ["src/control/repo-search-capabilities.test.ts"],
       "contracts": []

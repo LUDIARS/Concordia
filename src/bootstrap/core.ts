@@ -97,6 +97,10 @@ import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
 import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
 import { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
+import { ConsultationPublicationsRepo } from "../db/consultation-publications-repo.js";
+import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
+import { PublicationService } from "../consultation/publication-service.js";
+import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
@@ -631,6 +635,26 @@ export async function startBackend(): Promise<BackendHandle> {
   const useCaseCorrectionsRepo = new UseCaseCorrectionsRepo(db);
   const requesterProfilesRepo = new RequesterProfilesRepo(db);
   const consultationIntakesRepo = new ConsultationIntakesRepo(db);
+  // プライベート相談の公開候補 (tech-consultation.md §5)。 Tabula の接続先とトークンは設定画面で schema_meta に置く
+  // (AdminState の store が secret-box で暗号化・復号する)。 読めなければ未設定として扱い、 公開を止める。
+  const readMetaSetting = (key: string): string | null => {
+    try {
+      return adminState.store.get(key);
+    } catch {
+      // 鍵の入れ替え等で復号できない値は未設定と同じ扱い (公開ボタンで理由を返す)。
+      return null;
+    }
+  };
+  const consultationPublications = new PublicationService({
+    publications: new ConsultationPublicationsRepo(db),
+    consultations: new PrivateConsultationsRepo(db),
+    departmentName: (id) => departmentsRepo.find(id)?.name ?? null,
+    tabulaConnection: () => readTabulaConnection({
+      url: readMetaSetting("services.tabula_url"),
+      token: readMetaSetting("services.tabula_import_token"),
+    }),
+    importPage: (connection, input) => importSharedPage(connection, input),
+  });
   const departmentService = new DepartmentService({
     repo: departmentsRepo,
     useCases: {
@@ -1860,6 +1884,7 @@ export async function startBackend(): Promise<BackendHandle> {
     useCaseCorrections: useCaseCorrectionsRepo,
     requesterProfiles: requesterProfilesRepo,
     consultationIntakes: consultationIntakesRepo,
+    consultationPublications,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },

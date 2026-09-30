@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 117;
+export const SCHEMA_VERSION = 118;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2933,6 +2933,35 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         removed_at       INTEGER,
         PRIMARY KEY (consultation_id, platform_user_id)
       );
+    `);
+  },
+},
+{
+  version: 118,
+  name: "consultation-publications",
+  source: "consultation_publications (spec/feature/tech-consultation.md §5 §6)",
+  up(db) {
+    // 相談から書き直した公開候補。 公開は相談者本人の承認だけ (CC-CONSULT-INV-04)。
+    // 投稿に失敗したら proposed のまま last_error を残し、 再試行できるようにする。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS consultation_publications (
+        id              TEXT PRIMARY KEY,
+        consultation_id TEXT NOT NULL,
+        status          TEXT NOT NULL CHECK(status IN ('proposed', 'published', 'declined', 'withdrawn')),
+        title           TEXT NOT NULL,
+        summary         TEXT NOT NULL,
+        published_text  TEXT,
+        card_message_id TEXT,
+        tabula_page_id  TEXT,
+        tabula_url      TEXT,
+        last_error      TEXT,
+        decided_by      TEXT,
+        decided_at      INTEGER,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_consultation_publications_consultation
+        ON consultation_publications(consultation_id, created_at DESC);
     `);
   },
 },

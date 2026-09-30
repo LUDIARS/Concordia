@@ -103,6 +103,12 @@ describe("PrivateConsultationService approval and members", () => {
     expect(store.members(id).map((m) => m.platform_user_id)).toEqual(["111", "900", "901"]);
   });
 
+  it("reports the current membership of a user", () => {
+    const { service, id } = pending();
+    expect(service.memberOf(id, "900")?.reason).toBe("approver");
+    expect(service.memberOf(id, "555")).toBeNull();
+  });
+
   it("closes idempotently and refuses member changes afterwards", () => {
     const { service, id } = pending();
     expect(service.close(id)).toBe(true);

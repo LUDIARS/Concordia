@@ -22,6 +22,12 @@ import correctCommand from "./commands/correct.js";
 import consultCommand from "./commands/consult.js";
 import { handleConsultApproval, handleConsultModalSubmit } from "./consult-flow.js";
 import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
+import {
+  CONSULT_PUBLICATION_EDIT_PREFIX,
+  CONSULT_PUBLICATION_PREFIX,
+  handlePublicationButton,
+  handlePublicationEditSubmit,
+} from "./consult-publication.js";
 import effortCommand from "./commands/effort.js";
 import relictorCommand from "./commands/relictor.js";
 import handoverCommand from "./commands/handover.js";
@@ -306,6 +312,18 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     }
     if (interaction.isModalSubmit()) await handleConsultModalSubmit(interaction, deps.consult);
     else await handleConsultApproval(interaction, deps.consult);
+    return;
+  }
+  // 公開候補カードのボタン / 直して公開のモーダル (tech-consultation.md §5)。
+  if ((interaction.isButton() && interaction.customId.startsWith(CONSULT_PUBLICATION_PREFIX))
+    || (interaction.isModalSubmit() && interaction.customId.startsWith(CONSULT_PUBLICATION_EDIT_PREFIX))) {
+    const publication = deps.consult?.publication;
+    if (!publication) {
+      await interaction.reply({ content: "公開候補の判断はこの Bot で使えません。", ephemeral: true }).catch(() => { /* best-effort */ });
+      return;
+    }
+    if (interaction.isButton()) await handlePublicationButton(interaction, publication);
+    else await handlePublicationEditSubmit(interaction, publication);
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {

@@ -10,6 +10,7 @@ import {
   handleConsultApproval,
   handleConsultMembership,
   handleConsultModalSubmit,
+  handleConsultWrap,
   type ConsultFlowDeps,
 } from "./consult-flow.js";
 
@@ -172,5 +173,39 @@ describe("handleConsultMembership", () => {
     await handleConsultMembership(requester.interaction, ctx.deps, "invite");
     expect(ctx.channel.permissionOverwrites.edit).toHaveBeenCalledWith("333", expect.objectContaining({ ViewChannel: true }), expect.anything());
     expect(String(requester.replies[0]?.content)).toContain("閲覧者に加えました");
+  });
+});
+
+describe("handleConsultWrap", () => {
+  function wrap(ctx: ReturnType<typeof setup>, actorId: string) {
+    const replies: Array<Record<string, unknown>> = [];
+    const interaction = {
+      channelId: "chan-1",
+      user: { id: actorId, displayName: "neco" },
+      reply: vi.fn(async (message: Record<string, unknown>) => { replies.push(message); }),
+    } as unknown as ChatInputCommandInteraction;
+    return { interaction, replies };
+  }
+
+  it("asks the running session for a proposal on behalf of the requester or an approver", async () => {
+    const ctx = setup({ launchers: ["900", "111"] });
+    const requestProposal = vi.fn(async () => ({ ok: true as const }));
+    ctx.deps.requestProposal = requestProposal;
+    await handleConsultModalSubmit(modal(ctx.guild, ctx.department.id).interaction, ctx.deps);
+    const consultation = ctx.store.findByChannel("chan-1")!;
+
+    const before = wrap(ctx, "111");
+    await handleConsultWrap(before.interaction, ctx.deps);
+    expect(String(before.replies[0]?.content)).toContain("動いていない");
+
+    ctx.store.setSession(consultation.id, "sess-1");
+    const outsider = wrap(ctx, "555");
+    await handleConsultWrap(outsider.interaction, ctx.deps);
+    expect(requestProposal).not.toHaveBeenCalled();
+
+    const approver = wrap(ctx, "900");
+    await handleConsultWrap(approver.interaction, ctx.deps);
+    expect(requestProposal).toHaveBeenCalledWith({ sessionId: "sess-1", actorUserId: "900", actorLabel: "neco" });
+    expect(approver.replies[0]).toMatchObject({ ephemeral: true });
   });
 });

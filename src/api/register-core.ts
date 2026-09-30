@@ -108,6 +108,8 @@ import type { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js"
 import type { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
 import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
 import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
+import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
+import { consultationsRouter } from "./consultations.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
@@ -251,6 +253,8 @@ export interface CoreDelegationDeps {
   requesterProfiles?: RequesterProfilesRepo;
   /** 事前ヒアリングの記録 (spec/feature/tech-consultation.md §3)。 未注入なら記録だけを省く。 */
   consultationIntakes?: ConsultationIntakesRepo;
+  /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
+  consultationPublications?: ConsultationPublicationService;
   projectCodes: ProjectCodesRepo;
   /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
   domainReview?: DomainReviewApiDeps;
@@ -690,6 +694,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   if (deps.requesterProfiles) {
     app.route("/v1/requester-profiles", requesterProfilesRouter({ repo: deps.requesterProfiles }));
+  }
+  if (deps.consultationPublications) {
+    app.route("/v1/consultations", consultationsRouter({
+      publications: deps.consultationPublications,
+      emit: (event) => eventBus.emit(event),
+    }));
   }
   if (deps.departments && deps.departmentService) {
     app.route("/v1/departments", departmentsRouter({

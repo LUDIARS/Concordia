@@ -104,6 +104,17 @@ type ConcordiaEventPayload =
       fields: string[];
       ts: number;
     }
+  /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 Bot が相談チャンネルへ判断カードを出す。 */
+  | {
+      type: "consultation.proposed";
+      event_id: string;
+      consultation_id: string;
+      publication_id: string;
+      channel_id: string;
+      /** Tabula の接続先とトークンが設定済みか (未設定なら公開ボタンを出さない)。 */
+      tabula_ready: boolean;
+      ts: number;
+    }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
   /**
    * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、

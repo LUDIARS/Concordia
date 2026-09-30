@@ -133,6 +133,11 @@ export class PrivateConsultationService {
     return this.ports.store.markClosed(consultationId, this.now());
   }
 
+  /** 現在の閲覧者としての行 (除外済みなら null)。 */
+  memberOf(consultationId: string, userId: string): PrivateConsultationMemberRow | null {
+    return this.ports.store.members(consultationId).find((member) => member.platform_user_id === userId) ?? null;
+  }
+
   /** 承認前に預かったヒアリング。 */
   intakeOf(consultation: PrivateConsultationRow): ConsultIntake {
     try {

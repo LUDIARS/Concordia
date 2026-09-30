@@ -2899,6 +2899,57 @@
         "src/discord/commands/consult.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/api/consultations.ts",
+      "tests": [
+        "src/api/consultations.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/proposal-request.ts",
+      "tests": [
+        "src/consultation/proposal-request.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/publication-service.ts",
+      "tests": [
+        "src/consultation/publication-service.test.ts",
+        "src/api/consultations.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/tabula-client.ts",
+      "tests": [
+        "src/consultation/tabula-client.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/consultation-publications-repo.ts",
+      "tests": [
+        "src/db/consultation-publications-repo.test.ts",
+        "src/consultation/publication-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-publication.ts",
+      "tests": [
+        "src/discord/consult-publication.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/config/settings/coverage-scan.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

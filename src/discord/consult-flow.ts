@@ -35,6 +35,7 @@ import {
   type ConsultCategoryStore,
 } from "./consult-channel.js";
 import { buildConsultApprovalRow, parseConsultApproval, readConsultModal } from "./consult-modal.js";
+import type { PublicationInteractionDeps } from "./consult-publication.js";
 
 export interface ConsultSpawnInput {
   consultation: PrivateConsultationRow;
@@ -54,6 +55,10 @@ export interface ConsultFlowDeps {
   spawn(input: ConsultSpawnInput): Promise<{ ok: true } | { ok: false; error: string }>;
   now?: () => Date;
   log: { info: (message: string) => void; warn: (message: string) => void };
+  /** `/consult wrap`: セッションへ公開候補づくりを依頼する (tech-consultation.md §5)。 */
+  requestProposal?(input: { sessionId: string; actorUserId: string; actorLabel: string }): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** 公開候補カードの判断 (Cc の API 経由)。 */
+  publication?: PublicationInteractionDeps;
 }
 
 const ERROR_MESSAGES: Readonly<Record<PrivateConsultationError, string>> = {
@@ -198,6 +203,42 @@ export async function handleConsultMembership(
   await interaction.reply({
     content: action === "invite" ? `<@${target.id}> を閲覧者に加えました。` : `<@${target.id}> を閲覧者から外しました。`,
     allowedMentions: { users: action === "invite" ? [target.id] : [] },
+  });
+}
+
+/**
+ * `/consult wrap`: 相談の区切りで、 セッションに公開候補づくりを依頼する。 相談者本人か権限者だけ。
+ * 候補の文面はセッションが作り API へ出す。 公開の判断はチャンネルのカードで本人が行う。
+ */
+export async function handleConsultWrap(interaction: ChatInputCommandInteraction, deps: ConsultFlowDeps): Promise<void> {
+  const consultation = interaction.channelId ? deps.store.findByChannel(interaction.channelId) : null;
+  if (!consultation) {
+    await interaction.reply({ content: consultErrorMessage("consultation_not_found"), ephemeral: true });
+    return;
+  }
+  if (consultation.status !== "open" || !consultation.session_id) {
+    await interaction.reply({ content: "この相談のセッションは動いていないため、公開候補を作れません。", ephemeral: true });
+    return;
+  }
+  const actor = deps.service.memberOf(consultation.id, interaction.user.id);
+  if (!actor || (actor.reason !== "requester" && actor.reason !== "approver")) {
+    await interaction.reply({ content: consultErrorMessage("not_allowed"), ephemeral: true });
+    return;
+  }
+  if (!deps.requestProposal) {
+    await interaction.reply({ content: "公開候補の依頼はこの Bot で使えません。", ephemeral: true });
+    return;
+  }
+  const requested = await deps.requestProposal({
+    sessionId: consultation.session_id,
+    actorUserId: interaction.user.id,
+    actorLabel: interaction.user.displayName ?? interaction.user.id,
+  });
+  await interaction.reply({
+    content: requested.ok
+      ? "セッションに公開候補づくりを依頼しました。候補が届いたら、このチャンネルに判断カードが出ます。"
+      : `依頼に失敗しました: ${requested.error}`,
+    ephemeral: true,
   });
 }
 

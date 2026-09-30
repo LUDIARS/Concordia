@@ -295,6 +295,17 @@ describe("更新の検証", () => {
     expect(writer.calls).toEqual([["writeDiscordSecret", "conn_token_enc", "tok"]]);
   });
 
+  it("兄弟サービスの接続先とトークンを schema_meta に書く (store 側で暗号化される)", () => {
+    const writer = recordingWriter();
+    expect(applySettingUpdate("services.tabula_import_token", "tok", writer).ok).toBe(true);
+    expect(applySettingUpdate("services.tabula_url", "http://127.0.0.1:5196", writer).ok).toBe(true);
+    expect(applySettingUpdate("services.tabula_url", "ftp://x", writer).ok).toBe(false);
+    expect(writer.calls).toEqual([
+      ["writeMeta", "services.tabula_import_token", "tok"],
+      ["writeMeta", "services.tabula_url", "http://127.0.0.1:5196"],
+    ]);
+  });
+
   it("session-end 回収猶予を DB 上書き可能な設定として書く", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("session.reaper_session_end_grace_sec", 180, writer).ok).toBe(true);

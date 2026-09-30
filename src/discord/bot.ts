@@ -161,6 +161,9 @@ import { PrivateConsultationService } from "../consultation/private-consultation
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import { PRIVATE_CONSULT_CATEGORY_KEY } from "./consult-channel.js";
 import { bindPrivateConsultSession, privateConsultPrompt } from "./consult-session.js";
+import { ConsultationPublicationsRepo, type ConsultationPublicationRow } from "../db/consultation-publications-repo.js";
+import { buildProposalRequest } from "../consultation/proposal-request.js";
+import { buildPublicationCard } from "./consult-publication.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import type { DepartmentOutputItem } from "../departments/settings.js";
 import { departmentSessionForumId, ensureDepartmentForum, needsDepartmentForum, sessionForumNameFor } from "./department-forum.js";
@@ -584,6 +587,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const requesterProfilesRepo = new RequesterProfilesRepo(deps.db);
   // プライベート相談 (tech-consultation.md §4)。 本社 Bot だけで受け付け、 閲覧者は社員名簿から決める。
   const privateConsultationsRepo = new PrivateConsultationsRepo(deps.db);
+  const consultationPublicationsRepo = new ConsultationPublicationsRepo(deps.db);
   const staffRepo = new StaffRepo(deps.db);
   const privateConsultations = new PrivateConsultationService({
     store: privateConsultationsRepo,
@@ -625,6 +629,28 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     requesterDefaults: (userId) => {
       const profile = requesterProfilesRepo.find({ subsidiary_id: null, platform: "discord", platform_user_id: userId });
       return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
+    },
+    // 公開候補 (tech-consultation.md §5)。 依頼はセッションへの inject、 判断は Cc の API (Tabula の秘密は Cc 本体だけが持つ)。
+    requestProposal: async ({ sessionId, actorUserId, actorLabel }) => {
+      const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", `/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
+        text: buildProposalRequest({ sessionId, concordiaUrl: deps.concordiaUrl }),
+        source: `discord:${actorUserId}:consult-wrap`,
+        author_label: actorLabel,
+      });
+      return "error" in result ? { ok: false, error: result.error } : { ok: true };
+    },
+    publication: {
+      findPublication: (id) => consultationPublicationsRepo.find(id),
+      decide: async ({ publicationId, decision, actorUserId, editedSummary }) => {
+        const result = await callConcordia<{ publication: ConsultationPublicationRow }>(
+          deps.concordiaUrl,
+          "POST",
+          `/v1/consultations/publications/${encodeURIComponent(publicationId)}/${decision}`,
+          { actor_user_id: actorUserId, ...(editedSummary !== undefined ? { edited_summary: editedSummary } : {}) },
+        );
+        return "error" in result ? { ok: false, error: result.error } : { ok: true, publication: result.publication };
+      },
+      log,
     },
     log,
   };
@@ -2482,6 +2508,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           { kind: "changed", eventId: ev.event_id, teamId: ev.team_id, fields: ev.fields, ts: ev.ts },
         );
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
+      return;
+    }
+    if (ev.type === "consultation.proposed") {
+      // 公開候補の判断カードは相談チャンネルの中にだけ出す (CC-CONSULT-INV-04)。
+      if (!consultDeps) return;
+      void (async () => {
+        const publication = consultationPublicationsRepo.find(ev.publication_id);
+        const channel = await guild.channels.fetch(ev.channel_id).catch(() => null);
+        if (!publication || !channel || channel.type !== ChannelType.GuildText) return;
+        const card = buildPublicationCard(publication, { tabulaReady: ev.tabula_ready });
+        const message = await channel.send({ ...card, allowedMentions: { parse: [] } });
+        consultationPublicationsRepo.setCardMessage(publication.id, message.id);
+      })().catch((error) => log.warn(`publication card post failed publication=${ev.publication_id}: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "department.changed") {

@@ -109,21 +109,25 @@
 
 **Requirement ID: `SPEC-CONSULT-PUBLISH`**
 
-- 相談の区切り (終了時、または `/consult wrap`) にセッションへ公開候補づくりを依頼する。セッションは会話の文脈を持つので、
-  候補の文面はセッションが作り Cc の API へ提出する。候補は**書き直した要約**で、会話の転載・個人・社内固有・秘密・
-  人の評価に当たる内容を含めない。
-- 候補はチャンネル内にボタン付きで出す: 公開する / 直して公開 (モーダルで編集) / 公開しない。
-  **公開を決められるのは相談者本人だけ**。権限者は候補の取り下げだけできる (CC-CONSULT-INV-04)。
+- 相談の区切りで、相談者本人か権限者が相談チャンネルで `/consult wrap` を使うと、Cc がセッションへ公開候補づくりを依頼する
+  (inject)。セッションは会話の文脈を持つので、候補の文面はセッションが作り `POST /v1/consultations/proposals`
+  (`session_id` / `title` / `summary`) で出す。受け付けるのは相談中 (open) の相談のセッションだけ。
+- 候補は**書き直した要約**で、会話の転載・個人・社内固有・秘密・人の評価に当たる内容を含めない (依頼文で指示する)。
+- 候補はチャンネル内に判断カードとして出す: 公開する / 直して公開 (モーダルで編集、4,000 文字まで) / 公開しない /
+  取り下げ。**公開・公開しないを決められるのは相談者本人だけ**。権限者は取り下げだけできる (CC-CONSULT-INV-04)。
+  権限の判定は Cc の API (`POST /v1/consultations/publications/:id/{publish|decline|withdraw}`、`actor_user_id` は
+  Bot が操作者を渡す) が持つ。
 - オープン相談 (フォーラム) の公開候補は対象外 (必要になったら拡張する)。
 
 **Requirement ID: `SPEC-CONSULT-TABULA`**
 
-- 承認された要約を Tabula の取り込み API でメンバー共有のページとして作り、URL をチャンネルへ返す。
-  タグは「技術相談」と部署名。ページ所有者は Tabula の取り込み用所有者 (既存設定) のまま、共有範囲だけ「メンバー全員」。
-- Tabula 側の変更: 取り込み API で共有範囲を指定できるようにする (現状は所有者だけの非公開ページしか作れない)。
-- Cc は Tabula の接続先と取り込みトークンを設定 UI (DB) で持つ。env からは読まない。未設定なら公開ボタンを出さず、
-  理由を候補に添える (無言で握りつぶさない)。
-- 投稿に失敗したら候補を「提案」のまま残し、理由をチャンネルへ返す (再試行できる)。
+- 公開はメンバー共有 (`visibility: shared`) のページとして Tabula の取り込み API に送り、URL をカードへ返す。
+  タグは「技術相談」と部署名。ページ所有者は Tabula の取り込み用所有者のまま。冪等キーは公開候補の id。
+- Cc は Tabula の接続先 (`services.tabula_url`) と取り込みトークン (`services.tabula_import_token`) を設定画面 (DB) で持つ。
+  トークンは secret-box で暗号化して `schema_meta` に置き、API には実値を返さない。env からは読まない。
+  Tabula の秘密は Cc 本体だけが持ち、Bot へは渡さない (公開は Cc の API を通す)。
+- 未設定なら公開系のボタンを出さず、理由をカードに添える (無言で押せない状態にしない)。
+- 投稿に失敗したら候補を「提案」のまま残し、理由 (`last_error`) を記録して本人に伝える。もう一度押せば再試行できる。
 
 状態所有者: 候補・判断・投稿結果 = `consultation_publications` (consultation)。
 
@@ -137,7 +141,7 @@
 | `departments.settings_json.private` | プライベート相談の許可と権限者の最低役職 | governance |
 | `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (pending_approval / open / closed)・承認前のヒアリング・承認者・時刻 | consultation |
 | `private_consultation_members` | 閲覧者・追加理由 (requester / approver / invited)・追加者・時刻・除外時刻 | consultation |
-| `consultation_publications` | 候補文・編集後の文・状態 (proposed / published / declined / withdrawn)・Tabula ページ id と URL・判断者・時刻 | consultation |
+| `consultation_publications` | 題名・候補文・公開した文・状態 (proposed / published / declined / withdrawn)・カードの message id・Tabula ページ id と URL・最後の失敗・判断者・時刻 | consultation |
 
 ## 7. 分割
 

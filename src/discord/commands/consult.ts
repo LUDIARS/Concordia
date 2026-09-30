@@ -3,7 +3,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import type { ConsultIntakeDefaults } from "../../dialogue/intake.js";
 import type { DiscordCommandSpec } from "../command-port.js";
-import { handleConsultMembership, type ConsultFlowDeps } from "../consult-flow.js";
+import { handleConsultMembership, handleConsultWrap, type ConsultFlowDeps } from "../consult-flow.js";
 import { buildConsultModal } from "../consult-modal.js";
 
 /**
@@ -11,6 +11,7 @@ import { buildConsultModal } from "../consult-modal.js";
  *
  * - `start department:<部署>`: 事前ヒアリングのモーダルを開く。 送信で閉じたチャンネルを作る (consult-flow.ts)。
  * - `invite user:@x` / `remove user:@x`: 相談チャンネル内で閲覧者を足し引きする (相談者本人と権限者のみ)。
+ * - `wrap`: 相談の区切りで、 セッションに公開候補 (書き直した要約) づくりを依頼する (§5)。
  *
  * 本社 guild だけに出す (子会社の許可コマンドには載せない)。
  */
@@ -39,7 +40,10 @@ const consultCommand: DiscordCommandSpec = {
     .addSubcommand((sub) => sub
       .setName("remove")
       .setDescription("この相談の閲覧者から外す (相談者本人と権限者のみ)")
-      .addUserOption((o) => o.setName("user").setDescription("外す人").setRequired(true))),
+      .addUserOption((o) => o.setName("user").setDescription("外す人").setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName("wrap")
+      .setDescription("この相談から全体に共有できる知見の公開候補を作ってもらう (相談者本人と権限者のみ)")),
   async execute(interaction, deps) {
     const consult = deps.consult;
     if (!consult) {
@@ -47,6 +51,10 @@ const consultCommand: DiscordCommandSpec = {
       return;
     }
     const sub = interaction.options.getSubcommand();
+    if (sub === "wrap") {
+      await handleConsultWrap(interaction, consult);
+      return;
+    }
     if (sub === "invite" || sub === "remove") {
       await handleConsultMembership(interaction, consult, sub);
       return;

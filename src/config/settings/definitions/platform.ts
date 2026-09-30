@@ -48,6 +48,38 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "secret", envName: "EXCUBITOR_SERVICE_CONFIG_JSON", dbKey: null,
     defaultValue: null, editable: false,
   },
+  // Actio のチャット連携 (CC-ACTIO-CHAT-01)。 通常は Excubitor の注入設定から読み、 env はその上書き。
+  // 共有秘密と Discord の宛先 (team / workspace id) なので値は出さない。
+  {
+    key: "services.actio_chat_shared_secret", section: "services",
+    label: "Actio チャット共有秘密",
+    description: "Actio とのチャット連携の共有秘密。 通常は Excubitor 注入設定の actioChatSharedSecret から読む。 変更は Excubitor 側で行う。",
+    kind: "secret", envName: "ACTIO_CHAT_SHARED_SECRET", dbKey: null,
+    defaultValue: null, editable: false,
+  },
+  {
+    key: "services.actio_chat_destinations", section: "services",
+    label: "Actio チャット宛先",
+    description: "チームごとの Actio チャット宛先 (teamId / subsidiaryId / workspaceId) の JSON 配列。 通常は Excubitor 注入設定の actioChatDestinations から読む。",
+    kind: "secret", envName: "CONCORDIA_ACTIO_CHAT_DESTINATIONS", dbKey: null,
+    defaultValue: null, editable: false,
+  },
+  // 技術相談の公開候補の投稿先 (spec/feature/tech-consultation.md §5)。 秘密は env から読まず DB + 設定画面の 1 系統。
+  {
+    key: "services.tabula_url", section: "services",
+    label: "Tabula の接続先",
+    description: "技術相談の公開候補を投稿する Tabula の URL。 未設定なら公開ボタンを出さず、 理由を候補に添える。",
+    kind: "string", envName: null, dbKey: "services.tabula_url",
+    defaultValue: null, editable: true,
+    stringPattern: "^https?://", stringPatternDescription: "http:// または https:// で始まる URL",
+  },
+  {
+    key: "services.tabula_import_token", section: "services",
+    label: "Tabula 取り込みトークン",
+    description: "Tabula の TABULA_IMPORT_TOKEN と同じ値。 schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。",
+    kind: "secret", envName: null, dbKey: "services.tabula_import_token",
+    defaultValue: null, editable: true,
+  },
   envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
     "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),
   envString("services.concordia_base_url", "services", "Concordia 自身の URL", "CONCORDIA_BASE_URL", "http://127.0.0.1:11111", "MCP サーバ等の別プロセスが叩く Concordia の loopback URL。"),

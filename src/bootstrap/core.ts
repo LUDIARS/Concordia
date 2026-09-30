@@ -96,6 +96,7 @@ import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output
 import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
 import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
+import { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
@@ -629,6 +630,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const useCaseService = new UseCaseService({ repo: useCasesRepo });
   const useCaseCorrectionsRepo = new UseCaseCorrectionsRepo(db);
   const requesterProfilesRepo = new RequesterProfilesRepo(db);
+  const consultationIntakesRepo = new ConsultationIntakesRepo(db);
   const departmentService = new DepartmentService({
     repo: departmentsRepo,
     useCases: {
@@ -1857,6 +1859,7 @@ export async function startBackend(): Promise<BackendHandle> {
     useCaseService,
     useCaseCorrections: useCaseCorrectionsRepo,
     requesterProfiles: requesterProfilesRepo,
+    consultationIntakes: consultationIntakesRepo,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },

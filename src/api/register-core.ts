@@ -106,6 +106,8 @@ import { requesterProfilesRouter } from "./requester-profiles.js";
 import type { UseCasesRepo } from "../db/use-cases-repo.js";
 import type { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
 import type { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
+import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
+import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
@@ -247,6 +249,8 @@ export interface CoreDelegationDeps {
   useCaseService?: UseCaseService;
   useCaseCorrections?: UseCaseCorrectionsRepo;
   requesterProfiles?: RequesterProfilesRepo;
+  /** 事前ヒアリングの記録 (spec/feature/tech-consultation.md §3)。 未注入なら記録だけを省く。 */
+  consultationIntakes?: ConsultationIntakesRepo;
   projectCodes: ProjectCodesRepo;
   /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
   domainReview?: DomainReviewApiDeps;
@@ -936,15 +940,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const requesterDisplayName = typeof body.requester_display_name === "string"
             ? body.requester_display_name.trim().slice(0, 100)
             : "";
+          const intakes = deps.consultationIntakes;
           dialogueBlock = buildLaunchContext({
             useCase: (id) => useCases.find(id),
             corrections: (useCaseId, organizationId, limit) => corrections.listForLaunch(useCaseId, organizationId, limit),
             ensureRequester: (identity, displayName) => profiles.ensure(identity, displayName),
+            // 事前ヒアリングの技術レベル・役職は次回の既定値、 4 項目は相談ごとの記録 (tech-consultation.md §3)。
+            saveRequesterDefaults: (identity, fields) => { profiles.upsert(identity, fields); },
+            ...(intakes ? { recordIntake: (input: Parameters<ConsultationIntakesRepo["record"]>[0]) => { intakes.record(input); } } : {}),
           }, {
             department: department.department,
             requester: requesterDiscordUserId
               ? { platform: "discord", userId: requesterDiscordUserId, displayName: requesterDisplayName }
               : null,
+            intake: readConsultIntakeRequest(body),
           }).block;
         }
       }

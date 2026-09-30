@@ -45,6 +45,7 @@ import { DepartmentService } from "../../src/departments/service.js";
 import { UseCasesRepo } from "../../src/db/use-cases-repo.js";
 import { UseCaseCorrectionsRepo } from "../../src/db/use-case-corrections-repo.js";
 import { RequesterProfilesRepo } from "../../src/db/requester-profiles-repo.js";
+import { ConsultationIntakesRepo } from "../../src/db/consultation-intakes-repo.js";
 import { UseCaseService } from "../../src/dialogue/use-case-service.js";
 import { EscalationRepo } from "../../src/db/escalation-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
@@ -118,6 +119,7 @@ export interface TestAppEnv {
   useCaseService: UseCaseService;
   useCaseCorrections: UseCaseCorrectionsRepo;
   requesterProfiles: RequesterProfilesRepo;
+  consultationIntakes: ConsultationIntakesRepo;
   adminState: AdminState;
   taskflowState: TaskflowStateStore;
   processManager: ProcessManager;
@@ -172,6 +174,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const useCaseService = new UseCaseService({ repo: useCases });
   const useCaseCorrections = new UseCaseCorrectionsRepo(db);
   const requesterProfiles = new RequesterProfilesRepo(db);
+  const consultationIntakes = new ConsultationIntakesRepo(db);
   const departmentService = new DepartmentService({
     repo: departments,
     useCases: { isAssignable: (id) => useCases.find(id)?.archived_at === null },
@@ -218,7 +221,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, projectCodes, adminState,
     staff, subsidiary, teams, departments, departmentService,
-    useCases, useCaseService, useCaseCorrections, requesterProfiles,
+    useCases, useCaseService, useCaseCorrections, requesterProfiles, consultationIntakes,
     taskStore,
     taskflowState,
     fallbackTasks,
@@ -248,7 +251,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff, subsidiary, teams, departments, departmentService,
-    useCases, useCaseService, useCaseCorrections, requesterProfiles,
+    useCases, useCaseService, useCaseCorrections, requesterProfiles, consultationIntakes,
     taskflowState,
     processManager, config, logsDir,
   };

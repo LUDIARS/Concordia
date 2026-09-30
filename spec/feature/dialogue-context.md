@@ -56,12 +56,14 @@ updated: 2026-09-30
 
 **Requirement ID: `SPEC-DLG-FORMATS`**
 
-| key | 名前 | 作業モード | 依頼者メモを使う | 用途 |
-|---|---|---|---|---|
-| `chores` | 雑用 | edit | しない | 何でも引き受ける汎用 (総務) |
-| `qa` | 一問一答 Q&A | read-only | する | 質問に回答を返す (技術相談課) |
-| `sparring` | 壁打ち相談 | read-only | する | 考えの整理・選択肢の比較に付き合う |
-| `research-report` | 調査レポート | read-only | しない | 調べて根拠付きの報告を返す |
+| key | 名前 | 作業モード | 依頼者メモを使う | 事前ヒアリング | 用途 |
+|---|---|---|---|---|---|
+| `chores` | 雑用 | edit | しない | しない | 何でも引き受ける汎用 (総務) |
+| `qa` | 一問一答 Q&A | read-only | する | する | 質問に回答を返す (技術相談課) |
+| `sparring` | 壁打ち相談 | read-only | する | する | 考えの整理・選択肢の比較に付き合う |
+| `research-report` | 調査レポート | read-only | しない | しない | 調べて根拠付きの報告を返す |
+
+事前ヒアリング (知りたいこと・技術レベル・役職・目的) の中身は [技術相談](tech-consultation.md) §3。
 
 フォーマットは作成時の初期値だけを与える。作成後の値はユースケース側が正で、フォーマットの
 変更が既存ユースケースを書き換えることはない。
@@ -93,6 +95,7 @@ CREATE TABLE use_cases (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, format TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '', work_mode TEXT NOT NULL CHECK(work_mode IN ('edit','read-only')),
   pre_data TEXT NOT NULL DEFAULT '', use_requester_profile INTEGER NOT NULL DEFAULT 0,
+  intake_enabled INTEGER NOT NULL DEFAULT 0,  -- migration 116 (tech-consultation.md §3)
   archived_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE use_case_corrections (
@@ -104,6 +107,7 @@ CREATE TABLE use_case_corrections (
 CREATE TABLE requester_profiles (
   id TEXT PRIMARY KEY, subsidiary_id TEXT, platform TEXT NOT NULL, platform_user_id TEXT NOT NULL,
   display_name TEXT NOT NULL DEFAULT '', skill_level TEXT NOT NULL DEFAULT '',
+  role_title TEXT NOT NULL DEFAULT '',  -- migration 116 (役職。事前ヒアリングの既定値)
   activities TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
@@ -125,6 +129,8 @@ CREATE TABLE requester_profiles (
 - 問: … / 訂正: …
 ### 依頼者について (use_requester_profile かつ依頼者が分かる場合)
 - 技術者レベル: … / やっていること: … / メモ: …
+### 今回の相談 (事前ヒアリングを使うユースケースで 4 項目が揃ったとき)
+- 知りたいこと: … / 技術レベル: … / 役職: … / 目的: … (空なら「知ること自体が目的」と明示)
 ```
 
 訂正は新しい順に最大 30 件・合計 6,000 文字。依頼者メモが空なら節ごと省く。
@@ -146,6 +152,7 @@ CREATE TABLE requester_profiles (
 
 - WebUI の「依頼者メモ」ページで会社ごとに一覧・編集する。部署フォーラムからの起動で未登録の
   投稿者は、空のメモ行を作っておく (誰がいるか分かるように)。表示名は投稿時点の Discord 表示名。
+- 技術レベルと役職は事前ヒアリングの答えで更新し、次の相談の既定値にする (tech-consultation.md §3)。
 - API: `GET/PUT /v1/requester-profiles` (loopback のみ)。
 
 ## 8. 検証

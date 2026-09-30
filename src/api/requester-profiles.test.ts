@@ -17,14 +17,16 @@ describe("requesterProfilesRouter", () => {
   it("upserts notes per company and lists them separately (CC-DLG-INV-01)", async () => {
     const { app } = makeApp();
     const created = await app.request("/v1/requester-profiles", put({
-      platform: "discord", platform_user_id: "111", skill_level: "中級", activities: "Unity のゲーム開発",
+      platform: "discord", platform_user_id: "111", skill_level: "中級", role_title: "エンジニア", activities: "Unity のゲーム開発",
     }));
     expect(created.status).toBe(200);
     await app.request("/v1/requester-profiles", put({ subsidiary_id: "glab", platform: "discord", platform_user_id: "111", notes: "外部" }));
     await app.request("/v1/requester-profiles", put({ platform: "discord", platform_user_id: "111", notes: "DDD を学習中" }));
 
     const head = await (await app.request("/v1/requester-profiles")).json() as { profiles: Array<Record<string, string>> };
-    expect(head.profiles).toMatchObject([{ skill_level: "中級", activities: "Unity のゲーム開発", notes: "DDD を学習中" }]);
+    expect(head.profiles).toMatchObject([{
+      skill_level: "中級", role_title: "エンジニア", activities: "Unity のゲーム開発", notes: "DDD を学習中",
+    }]);
     const glab = await (await app.request("/v1/requester-profiles?subsidiary_id=glab")).json() as { profiles: unknown[] };
     expect(glab.profiles).toMatchObject([{ notes: "外部", skill_level: "" }]);
   });

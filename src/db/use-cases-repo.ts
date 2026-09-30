@@ -18,6 +18,8 @@ export interface UseCaseRow {
   work_mode: UseCaseWorkMode;
   pre_data: string;
   use_requester_profile: number;
+  /** 事前ヒアリング (tech-consultation.md §3)。 1 = 回答前に 4 項目を揃える。 */
+  intake_enabled: number;
   archived_at: number | null;
   created_at: number;
   updated_at: number;
@@ -31,6 +33,7 @@ export interface UseCaseWriteInput {
   work_mode: UseCaseWorkMode;
   pre_data: string;
   use_requester_profile: boolean;
+  intake_enabled: boolean;
 }
 
 export class UseCasesRepo {
@@ -53,11 +56,11 @@ export class UseCasesRepo {
     const id = `uc_${randomUUID().replace(/-/g, "")}`;
     this.db.prepare(`
       INSERT INTO use_cases(id, name, slug, format, summary, work_mode, pre_data, use_requester_profile,
-        archived_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        intake_enabled, archived_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     `).run(
       id, input.name, input.slug, input.format, input.summary, input.work_mode, input.pre_data,
-      input.use_requester_profile ? 1 : 0, now, now,
+      input.use_requester_profile ? 1 : 0, input.intake_enabled ? 1 : 0, now, now,
     );
     return this.find(id)!;
   }
@@ -67,7 +70,8 @@ export class UseCasesRepo {
     if (!row) return null;
     this.db.prepare(`
       UPDATE use_cases
-      SET name = ?, slug = ?, format = ?, summary = ?, work_mode = ?, pre_data = ?, use_requester_profile = ?, updated_at = ?
+      SET name = ?, slug = ?, format = ?, summary = ?, work_mode = ?, pre_data = ?, use_requester_profile = ?,
+        intake_enabled = ?, updated_at = ?
       WHERE id = ?
     `).run(
       input.name ?? row.name,
@@ -77,6 +81,7 @@ export class UseCasesRepo {
       input.work_mode ?? row.work_mode,
       input.pre_data ?? row.pre_data,
       input.use_requester_profile === undefined ? row.use_requester_profile : (input.use_requester_profile ? 1 : 0),
+      input.intake_enabled === undefined ? row.intake_enabled : (input.intake_enabled ? 1 : 0),
       now,
       id,
     );

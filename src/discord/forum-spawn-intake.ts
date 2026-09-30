@@ -21,6 +21,7 @@ import {
   StringSelectMenuBuilder,
   type Interaction,
 } from "discord.js";
+import { consultIntakeReplyBlock } from "../dialogue/intake.js";
 
 const CUSTOM_ID_PREFIX = "forum-spawn-intake:";
 const PENDING_TTL_MS = 60 * 60 * 1000;
@@ -29,8 +30,11 @@ export const MAX_ASK_COUNT = 3;
 /** Discord の select menu は 25 件まで。 */
 const MAX_PROJECT_CHOICES = 25;
 
-/** spawn に必要だが投稿から取れなかった項目。 template = 起動テンプレ (モデル) を決められない。 */
-export type ForumSpawnMissingField = "project" | "task" | "template";
+/**
+ * spawn に必要だが投稿から取れなかった項目。 template = 起動テンプレ (モデル) を決められない。
+ * consultation = 技術相談の事前ヒアリング (技術レベル・役職・目的) が欠けている (tech-consultation.md §3)。
+ */
+export type ForumSpawnMissingField = "project" | "task" | "template" | "consultation";
 
 /** テンプレ質問の選択肢。 label には provider / model を添えて選びやすくする。 */
 export interface ForumSpawnTemplateChoice {
@@ -181,8 +185,14 @@ export function buildForumSpawnIntakeQuestion(input: {
   chosenModel?: string;
   chosenEffort?: string;
   suggestion?: ForumSpawnModelSuggestion;
+  /** consultation の質問文 (dialogue/intake.ts の buildConsultIntakeQuestion)。 */
+  consultationQuestion?: string;
   threadId: string;
 }): { content: string; components: ForumSpawnIntakeComponentRow[] } {
+  // 事前ヒアリングだけが不足なら、 起動の不足としてではなく回答の前提を尋ねる文面にする。
+  if (input.missing.length === 1 && input.missing[0] === "consultation") {
+    return { content: `<@${input.requesterUserId}> ${input.consultationQuestion ?? CONSULTATION_FALLBACK_QUESTION}`, components: [] };
+  }
   // モデルだけが不足 (project/task は揃っている) なら Test forum 同型のモデル/Effort カード。
   if (
     input.missing.length === 1 && input.missing[0] === "template"
@@ -206,6 +216,9 @@ export function buildForumSpawnIntakeQuestion(input: {
   }
   if (input.missing.includes("template")) {
     asks.push("- **起動テンプレ (モデル)**: どのテンプレ / モデルでセッションを起動しますか");
+  }
+  if (input.missing.includes("consultation")) {
+    asks.push(`- **相談の前提**: ${input.consultationQuestion ?? CONSULTATION_FALLBACK_QUESTION}`);
   }
   const choices = input.projectChoices.slice(0, MAX_PROJECT_CHOICES);
   const truncated = input.projectChoices.length > choices.length;
@@ -231,6 +244,9 @@ export function buildForumSpawnIntakeQuestion(input: {
   }
   return { content, components };
 }
+
+/** consultation の質問文が渡されなかったときの文面 (呼び出し側の配線漏れでも黙らない)。 */
+const CONSULTATION_FALLBACK_QUESTION = "回答の前提として、技術レベル・役職・目的をこのスレッドに返信してください。";
 
 /** 回答を本文へ足す。 元の本文を消さずに追記し、再解決に掛ける。 */
 export function supplementForumSpawnBody(body: string, additions: readonly string[]): string {
@@ -265,6 +281,8 @@ export interface ForumSpawnIntakeRequest {
   modelChoices?: readonly ForumSpawnModelChoice[];
   /** モデル質問の初期選択にする機械サジェスト。 候補に無い nick は無視する。 */
   suggestion?: ForumSpawnModelSuggestion;
+  /** 事前ヒアリングの質問文 (missing に consultation を含むとき)。 */
+  consultationQuestion?: string;
 }
 
 /**
@@ -297,6 +315,7 @@ export async function requestForumSpawnIntake(
     templateChoices: request.templateChoices,
     modelChoices: request.modelChoices,
     ...(suggestion ? { chosenModel: suggestion.nick, chosenEffort: suggestion.effort, suggestion } : {}),
+    ...(request.consultationQuestion ? { consultationQuestion: request.consultationQuestion } : {}),
     threadId: request.threadId,
   });
   deps.store.set(request.threadId, {
@@ -384,7 +403,8 @@ export async function handleForumSpawnIntakeReply(
     return false;
   }
 
-  await resume(deps, pending, [text]);
+  // 事前ヒアリングへの返信は見出し付きで足す。 ラベルの無い返信を、 聞いた項目への答えとして読むため。
+  await resume(deps, pending, [pending.missing.includes("consultation") ? consultIntakeReplyBlock(text) : text]);
   return true;
 }
 
@@ -536,11 +556,16 @@ export function pruneForumSpawnIntakes(store: ForumSpawnIntakeStore, now = Date.
   }
 }
 
+const MISSING_FIELD_LABELS: Readonly<Record<ForumSpawnMissingField, string>> = {
+  project: "関係プロジェクト",
+  task: "タスク内容",
+  template: "起動テンプレ (モデル)",
+  consultation: "相談の前提 (技術レベル・役職)",
+};
+
 /** 打ち切り時にスレッドへ返す文面 (質問を出せなかったときの明示。 無言で捨てない)。 */
 export function forumSpawnIntakeGiveUpMessage(missing: readonly ForumSpawnMissingField[]): string {
-  const labels = missing.map(
-    (m) => (m === "project" ? "関係プロジェクト" : m === "template" ? "起動テンプレ (モデル)" : "タスク内容"),
-  );
+  const labels = missing.map((m) => MISSING_FIELD_LABELS[m]);
   return `${labels.join(" と ")}を特定できないため、このスレッドでは起動しません。`
     + "情報を本文に書いた新しいスレッドで依頼してください。";
 }

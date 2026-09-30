@@ -32,6 +32,12 @@ import {
   forumSpawnIntakeGiveUpMessage,
   type ForumSpawnMissingField,
 } from "./forum-spawn-intake.js";
+import {
+  buildConsultIntakeQuestion,
+  resolveConsultIntake,
+  type ConsultIntake,
+  type ConsultIntakeDefaults,
+} from "../dialogue/intake.js";
 
 const FORUM_SPAWN_TRIGGER_PREFIX = "discord-forum";
 const MAX_GUARD_ADVISORY_POST_CLAIMS = 5_000;
@@ -141,11 +147,18 @@ export interface ForumSpawnDepartment {
   /** 起動既定値がテンプレートか provider を持つ (モデルを聞き返さない)。 */
   hasLaunchDefault: boolean;
   archived: boolean;
+  /** ユースケースが事前ヒアリングを使う (tech-consultation.md §3)。 */
+  intake?: boolean;
 }
 
 export interface ForumSpawnDeps {
   sessionForumId: string;
   department?: ForumSpawnDepartment;
+  /**
+   * 事前ヒアリングの既定値 (依頼者メモの技術レベル・役職)。 部署の会社で引く。
+   * 値はブロックと聞き返しの確認文にだけ使い、 ログへは出さない (CC-CONSULT-INV-05)。
+   */
+  consultIntakeDefaults?: (userId: string) => ConsultIntakeDefaults | null;
   /** 投稿者の表示名 (依頼者メモの表示名に使う)。 取れなければ null。 */
   resolveUserDisplayName?: (guildId: string, userId: string) => Promise<string | null>;
   botUserId: string;
@@ -204,6 +217,8 @@ export interface ForumSpawnDeps {
     title: string;
     body: string;
     missing: readonly ForumSpawnMissingField[];
+    /** missing に consultation を含むときの質問文。 */
+    consultationQuestion?: string;
   }) => Promise<boolean>;
   hasExistingRun: (triggeredBy: string) => boolean;
   /**
@@ -367,6 +382,31 @@ export async function executeForumSpawn(
       return { ok: false, error: "project out of subsidiary scope" };
     }
   }
+  // 技術相談の事前ヒアリング (tech-consultation.md §3)。 回答の前提が揃うまで起動しない。
+  // 承認カードより前に聞く — 承認は揃った内容に対して出す (承認後の追記で内容を変えない)。
+  let consultationIntake: ConsultIntake | null = null;
+  if (deps.department?.intake) {
+    const resolved = resolveConsultIntake({
+      title,
+      body,
+      defaults: thread.ownerId ? deps.consultIntakeDefaults?.(thread.ownerId) ?? null : null,
+    });
+    if (resolved.missing.length > 0) {
+      if (suppliedContent?.approved) {
+        deps.log.warn(`forum-spawn approved content lacks consultation intake thread=${thread.id}`);
+        await reply(deps, thread, forumSpawnIntakeGiveUpMessage(["consultation"]));
+        return { ok: false, error: "approved content incomplete" };
+      }
+      await askForMissingForumSpawnInfo(deps, thread, {
+        title,
+        body,
+        missing: ["consultation"],
+        consultationQuestion: buildConsultIntakeQuestion(resolved),
+      });
+      return { ok: false, error: "consultation intake requested" };
+    }
+    consultationIntake = resolved.intake;
+  }
   const templates = await deps.templates();
   const modelChoices = forumModelChoices(templates);
   let template: DelegationTemplateLite | null = null;
@@ -514,6 +554,7 @@ export async function executeForumSpawn(
     subsidiary_id: deps.subsidiaryId ?? null,
     ...(deps.department ? { department: deps.department.id } : {}),
     ...(requesterDisplayName ? { requester_display_name: requesterDisplayName } : {}),
+    ...(consultationIntake ? { consultation_intake: { ...consultationIntake, source: "forum" } } : {}),
     requester_discord_user_id: thread.ownerId,
     source_discord_guild_id: thread.guildId,
     source_discord_channel_id: thread.id,
@@ -593,7 +634,7 @@ export async function executeForumSpawn(
 async function askForMissingForumSpawnInfo(
   deps: ForumSpawnDeps,
   thread: ForumSpawnThread,
-  content: { title: string; body: string; missing: readonly ForumSpawnMissingField[] },
+  content: { title: string; body: string; missing: readonly ForumSpawnMissingField[]; consultationQuestion?: string },
 ): Promise<void> {
   const missing = content.missing.length > 0 ? content.missing : (["project"] as const);
   deps.log.info(`forum-spawn info missing thread=${thread.id} fields=${missing.join(",")}`);
@@ -605,6 +646,7 @@ async function askForMissingForumSpawnInfo(
         title: content.title,
         body: content.body,
         missing,
+        ...(content.consultationQuestion ? { consultationQuestion: content.consultationQuestion } : {}),
       });
       if (asked) return;
     } catch (error) {

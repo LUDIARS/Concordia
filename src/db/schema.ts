@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 115;
+export const SCHEMA_VERSION = 116;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2856,6 +2856,45 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_department ON sessions(department_id, status);
       CREATE INDEX IF NOT EXISTS idx_harness_rules_department ON harness_rules(department_id, enabled, sort_order);
+    `);
+  },
+},
+{
+  version: 116,
+  name: "consultation-intake",
+  source: "use_cases.intake_enabled + requester_profiles.role_title + consultation_intakes (spec/feature/tech-consultation.md §3 §6)",
+  up(db) {
+    const columns = (table: string) =>
+      (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name);
+    // 事前ヒアリングは一問一答 Q&A と壁打ち相談の既定で ON (既存のユースケースもフォーマットに合わせる)。
+    if (!columns("use_cases").includes("intake_enabled")) {
+      db.exec("ALTER TABLE use_cases ADD COLUMN intake_enabled INTEGER NOT NULL DEFAULT 0");
+      db.exec("UPDATE use_cases SET intake_enabled = 1 WHERE format IN ('qa', 'sparring')");
+    }
+    // 役職は技術レベルと並ぶ依頼者メモの既定値 (次回の聞き返し・モーダルに使う)。
+    if (!columns("requester_profiles").includes("role_title")) {
+      db.exec("ALTER TABLE requester_profiles ADD COLUMN role_title TEXT NOT NULL DEFAULT ''");
+    }
+    // 相談ごとの 4 項目。 起動前に集めるので session id ではなく受付のチャンネル (スレッド) で辿る。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS consultation_intakes (
+        id               TEXT PRIMARY KEY,
+        subsidiary_id    TEXT,
+        department_id    TEXT NOT NULL,
+        use_case_id      TEXT,
+        platform         TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        channel_id       TEXT,
+        source           TEXT NOT NULL CHECK(source IN ('forum', 'modal', 'api')),
+        topic            TEXT NOT NULL,
+        skill_level      TEXT NOT NULL,
+        role_title       TEXT NOT NULL,
+        purpose          TEXT NOT NULL DEFAULT '',
+        created_at       INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_consultation_intakes_channel ON consultation_intakes(channel_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_consultation_intakes_department
+        ON consultation_intakes(department_id, created_at DESC);
     `);
   },
 },

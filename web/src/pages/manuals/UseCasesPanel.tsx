@@ -83,7 +83,8 @@ export function UseCasesPanel() {
         {selectedFormat && (
           <div className="text-xs text-subtle">
             {selectedFormat.summary} (作業モード: {selectedFormat.workMode === "read-only" ? "読み取り専用" : "編集可"} /
-            依頼者メモ: {selectedFormat.useRequesterProfile ? "使う" : "使わない"})
+            依頼者メモ: {selectedFormat.useRequesterProfile ? "使う" : "使わない"} /
+            事前ヒアリング: {selectedFormat.intake ? "する" : "しない"})
           </div>
         )}
       </div>
@@ -96,6 +97,7 @@ export function UseCasesPanel() {
             </button>
             <span className="text-xs text-subtle">{useCase.format_name}</span>
             <span className="text-xs text-subtle">{useCase.work_mode === "read-only" ? "読み取り専用" : "編集可"}</span>
+            {useCase.intake_enabled && <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-subtle">事前ヒアリング</span>}
             {useCase.archived && <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-subtle">廃止</span>}
             <button type="button" className="ml-auto text-xs text-accent"
               onClick={() => void run(() => (useCase.archived ? api.useCaseRestore(useCase.id) : api.useCaseArchive(useCase.id)))}>
@@ -123,12 +125,14 @@ function UseCaseEditor({ useCase, onSaved }: { useCase: UseCase; onSaved: () => 
   const [workMode, setWorkMode] = useState(useCase.work_mode);
   const [preData, setPreData] = useState(useCase.pre_data);
   const [useProfile, setUseProfile] = useState(useCase.use_requester_profile);
+  const [intake, setIntake] = useState(useCase.intake_enabled);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const save = async () => {
     try {
       await api.useCaseUpdate(useCase.id, {
         name: name.trim(), summary, work_mode: workMode, pre_data: preData, use_requester_profile: useProfile,
+        intake_enabled: intake,
       });
       setMessage({ ok: true, text: "保存しました" });
       onSaved();
@@ -152,6 +156,10 @@ function UseCaseEditor({ useCase, onSaved }: { useCase: UseCase; onSaved: () => 
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={useProfile} onChange={(e) => setUseProfile(e.target.checked)} />
         依頼者メモ (技術者レベル・やっていること) を起動時に渡す
+      </label>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={intake} onChange={(e) => setIntake(e.target.checked)} />
+        回答の前に事前ヒアリング (知りたいこと・技術レベル・役職・目的) を揃える
       </label>
       <div className="flex items-center gap-3">
         <button type="button" className="px-3 py-1.5 rounded bg-accent text-white text-sm" onClick={() => void save()}>保存</button>

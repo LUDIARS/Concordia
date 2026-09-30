@@ -13,6 +13,8 @@ export interface UseCaseFormat {
   name: string;
   workMode: UseCaseWorkMode;
   useRequesterProfile: boolean;
+  /** 回答前に事前ヒアリング (知りたいこと・技術レベル・役職・目的) を揃えるか (tech-consultation.md §3)。 */
+  intake: boolean;
   summary: string;
   preData: string;
 }
@@ -26,6 +28,7 @@ export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>>
     name: "雑用",
     workMode: "edit",
     useRequesterProfile: false,
+    intake: false,
     summary: "依頼された作業を何でも引き受ける。実装・調査・整理のどれでもよい。",
     preData: [
       "- 依頼の対象と完了の形を最初に確認し、分からない点だけを質問する。",
@@ -37,6 +40,7 @@ export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>>
     name: "一問一答 Q&A",
     workMode: "read-only",
     useRequesterProfile: true,
+    intake: true,
     summary: "投げられた質問に回答を返す。コードやファイルは変更しない。",
     preData: [
       "- 結論を先に 1〜3 行で書き、その後に理由と具体例を続ける。",
@@ -50,6 +54,7 @@ export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>>
     name: "壁打ち相談",
     workMode: "read-only",
     useRequesterProfile: true,
+    intake: true,
     summary: "依頼者の考えの整理に付き合い、論点と選択肢を一緒に詰める。",
     preData: [
       "- まず依頼者の目的と制約を言い直して確認する。",
@@ -62,6 +67,7 @@ export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>>
     name: "調査レポート",
     workMode: "read-only",
     useRequesterProfile: false,
+    intake: false,
     summary: "指定された事柄を調べ、根拠付きの報告を返す。",
     preData: [
       "- 調べた範囲と調べていない範囲を分けて書く。",

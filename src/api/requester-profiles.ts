@@ -20,6 +20,7 @@ const IdentitySchema = z.object({
 const FieldsSchema = z.object({
   display_name: z.string().max(100).optional(),
   skill_level: z.string().max(200).optional(),
+  role_title: z.string().max(200).optional(),
   activities: z.string().max(4_000).optional(),
   notes: z.string().max(8_000).optional(),
 });

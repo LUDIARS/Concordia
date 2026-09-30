@@ -151,6 +151,8 @@ import { resolveTeamCardChannel, type TeamCardKind } from "../shared/team-card-r
 import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { DepartmentsRepo, type DepartmentRow } from "../db/departments-repo.js";
+import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
+import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import type { DepartmentOutputItem } from "../departments/settings.js";
@@ -571,6 +573,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   // 部署 (spec/feature/departments.md §9)。 論理 runtime は自社所有の部署だけを扱う。
   const departmentsRepo = new DepartmentsRepo(deps.db);
+  const useCasesRepo = new UseCasesRepo(deps.db);
+  const requesterProfilesRepo = new RequesterProfilesRepo(deps.db);
   const departmentForumContext = (forumId: string): ForumSpawnDepartment | null => {
     const department = departmentsRepo.findByForumId(forumId);
     if (!department || department.subsidiary_id !== subsidiaryId || department.is_default === 1) return null;
@@ -585,7 +589,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 聞き返しを減らす判断材料が無いものとして扱う。
       log.warn(`department settings unreadable department=${department.id}`);
     }
-    return { id: department.id, name: department.name, projects, hasLaunchDefault, archived: department.archived_at !== null };
+    // ユースケースが事前ヒアリングを使うなら、 回答の前提が揃うまで起動しない (tech-consultation.md §3)。
+    const useCase = department.use_case_id ? useCasesRepo.find(department.use_case_id) : null;
+    const intake = useCase !== null && useCase.archived_at === null && useCase.intake_enabled === 1;
+    return {
+      id: department.id, name: department.name, projects, hasLaunchDefault, archived: department.archived_at !== null, intake,
+    };
   };
   // セッションのスレッド置き場: チームの面 → 部署のフォーラム → 既定 (Session フォーラム)。
   const sessionDepartmentForumId = (sessionId: string, fallbackForumId: string): string => {
@@ -1638,6 +1647,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     return {
       sessionForumId: targetForumId,
       ...(department ? { department } : {}),
+      // 事前ヒアリングの既定値は依頼者メモ (部署の会社 = この Bot の会社) から引く。
+      consultIntakeDefaults: (userId) => {
+        const profile = requesterProfilesRepo.find({
+          subsidiary_id: subsidiaryId ?? null, platform: "discord", platform_user_id: userId,
+        });
+        return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
+      },
       resolveUserDisplayName: async (guildId, userId) => {
         const guild = await client.guilds.fetch(guildId).catch(() => null);
         const member = await guild?.members.fetch(userId).catch(() => null);
@@ -1714,6 +1730,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               : deps.subsidiary?.resolveProjects() ?? [],
             modelChoices,
             ...(suggestion ? { suggestion } : {}),
+            ...(input.consultationQuestion ? { consultationQuestion: input.consultationQuestion } : {}),
           },
         );
       },

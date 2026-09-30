@@ -42,6 +42,21 @@ describe("useCasesRouter", () => {
     });
   });
 
+  it("defaults the intake from the format and lets it be switched", async () => {
+    const { app } = makeApp();
+    const qa = await (await app.request("/v1/use-cases", json("POST", { name: "技術相談", slug: "tech-qa", format: "qa" }))).json() as {
+      use_case: { id: string; intake_enabled: boolean };
+    };
+    expect(qa.use_case.intake_enabled).toBe(true);
+    const chores = await (await app.request("/v1/use-cases", json("POST", { name: "雑用", slug: "chores", format: "chores" }))).json() as {
+      use_case: { intake_enabled: boolean };
+    };
+    expect(chores.use_case.intake_enabled).toBe(false);
+
+    const patched = await app.request(`/v1/use-cases/${qa.use_case.id}`, json("PATCH", { intake_enabled: false }));
+    expect(await patched.json()).toMatchObject({ use_case: { intake_enabled: false } });
+  });
+
   it("rejects an unknown format and a duplicate slug", async () => {
     const { app } = makeApp();
     expect((await app.request("/v1/use-cases", json("POST", { name: "x", slug: "x", format: "poem" }))).status).toBe(400);

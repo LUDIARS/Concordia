@@ -6,7 +6,10 @@
  *
  * @implements spec/feature/dialogue-context.md §5
  * @implements SPEC-DLG-STARTUP
+ * @implements SPEC-CONSULT-INTAKE
  */
+
+import { CONSULT_INTAKE_FIELDS, CONSULT_INTAKE_LABELS, type ConsultIntake } from "./intake.js";
 
 export const MAX_LAUNCH_CORRECTIONS = 30;
 export const MAX_LAUNCH_CORRECTION_CHARS = 6_000;
@@ -28,6 +31,8 @@ export interface StartupBlockInput {
     activities: string;
     notes: string;
   } | null;
+  /** 事前ヒアリング (tech-consultation.md §3)。 ユースケースが使う設定で、 揃ったときだけ渡す。 */
+  intake?: ConsultIntake | null;
 }
 
 export function buildDialogueStartupBlock(input: StartupBlockInput): string {
@@ -45,6 +50,10 @@ export function buildDialogueStartupBlock(input: StartupBlockInput): string {
   }
   const requester = renderRequester(input.requester ?? null);
   if (requester.length > 0) lines.push("", "### 依頼者について", ...requester);
+  const intake = renderIntake(input.intake ?? null);
+  if (intake.length > 0) {
+    lines.push("", "### 今回の相談 (この技術レベル・役職・目的に合わせた粒度で答える)", ...intake);
+  }
   return lines.join("\n");
 }
 
@@ -78,6 +87,16 @@ function renderRequester(requester: StartupBlockInput["requester"]): string[] {
     ...(name ? [`- 名前: ${oneLine(name)}`] : []),
     ...filled.map(([label, value]) => `- ${label}: ${oneLine(value)}`),
   ];
+}
+
+function renderIntake(intake: ConsultIntake | null): string[] {
+  if (!intake) return [];
+  return CONSULT_INTAKE_FIELDS.map((field) => {
+    const value = intake[field].trim();
+    // 目的は任意。 空でも「知ること自体が目的」として扱えるよう明示する。
+    if (!value) return field === "purpose" ? `- ${CONSULT_INTAKE_LABELS[field]}: (回答なし。知ること自体が目的として扱う)` : null;
+    return `- ${CONSULT_INTAKE_LABELS[field]}: ${oneLine(value)}`;
+  }).filter((line): line is string => line !== null);
 }
 
 /** 改行を詰めて 1 行にする (Markdown の箇条書きを崩さない)。 */

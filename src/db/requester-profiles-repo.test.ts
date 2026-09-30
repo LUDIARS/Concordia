@@ -26,4 +26,12 @@ describe("RequesterProfilesRepo", () => {
     expect(repo.list(null)).toHaveLength(1);
     expect(repo.list("glab")).toHaveLength(1);
   });
+
+  it("keeps the role title as a separate default next to the skill level", () => {
+    const repo = new RequesterProfilesRepo(makeTestDb());
+    repo.upsert(identity, { skill_level: "中級", role_title: "エンジニア" }, 1);
+    expect(repo.find(identity)).toMatchObject({ skill_level: "中級", role_title: "エンジニア" });
+    repo.upsert(identity, { role_title: "マネージャー" }, 2);
+    expect(repo.find(identity)).toMatchObject({ skill_level: "中級", role_title: "マネージャー" });
+  });
 });

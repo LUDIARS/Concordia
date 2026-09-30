@@ -29,6 +29,7 @@ export interface UseCaseCreateRequest {
   work_mode?: UseCaseWorkMode;
   pre_data?: string;
   use_requester_profile?: boolean;
+  intake_enabled?: boolean;
 }
 
 export type UseCaseServiceError =
@@ -58,6 +59,7 @@ export class UseCaseService {
       work_mode: request.work_mode ?? format.workMode,
       pre_data: request.pre_data ?? format.preData,
       use_requester_profile: request.use_requester_profile ?? format.useRequesterProfile,
+      intake_enabled: request.intake_enabled ?? format.intake,
     }, this.now());
     return { ok: true, useCase };
   }

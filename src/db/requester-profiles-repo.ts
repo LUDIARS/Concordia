@@ -18,6 +18,8 @@ export interface RequesterProfileRow {
   platform_user_id: string;
   display_name: string;
   skill_level: string;
+  /** 役職 (tech-consultation.md §3)。 技術レベルと並ぶ事前ヒアリングの既定値。 */
+  role_title: string;
   activities: string;
   notes: string;
   created_at: number;
@@ -33,6 +35,7 @@ export interface RequesterIdentity {
 export interface RequesterProfileFields {
   display_name?: string;
   skill_level?: string;
+  role_title?: string;
   activities?: string;
   notes?: string;
 }
@@ -76,19 +79,23 @@ export class RequesterProfilesRepo {
       const id = `rp_${randomUUID().replace(/-/g, "")}`;
       this.db.prepare(`
         INSERT INTO requester_profiles(id, subsidiary_id, platform, platform_user_id, display_name, skill_level,
-          activities, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          role_title, activities, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, identity.subsidiary_id, identity.platform, identity.platform_user_id,
-        fields.display_name ?? "", fields.skill_level ?? "", fields.activities ?? "", fields.notes ?? "", now, now,
+        fields.display_name ?? "", fields.skill_level ?? "", fields.role_title ?? "", fields.activities ?? "",
+        fields.notes ?? "", now, now,
       );
       return this.findById(id)!;
     }
     this.db.prepare(`
-      UPDATE requester_profiles SET display_name = ?, skill_level = ?, activities = ?, notes = ?, updated_at = ? WHERE id = ?
+      UPDATE requester_profiles
+      SET display_name = ?, skill_level = ?, role_title = ?, activities = ?, notes = ?, updated_at = ?
+      WHERE id = ?
     `).run(
       fields.display_name ?? existing.display_name,
       fields.skill_level ?? existing.skill_level,
+      fields.role_title ?? existing.role_title,
       fields.activities ?? existing.activities,
       fields.notes ?? existing.notes,
       now,

@@ -11,7 +11,7 @@ describe("requester profiles page", () => {
     const calls: Array<{ url: string; method: string; body: unknown }> = [];
     const profile = {
       id: "rp-1", subsidiary_id: null, platform: "discord", platform_user_id: "123456", display_name: "neco",
-      skill_level: "中級", activities: "Unity のゲーム開発", notes: "", updated_at: 1,
+      skill_level: "中級", role_title: "エンジニア", activities: "Unity のゲーム開発", notes: "", updated_at: 1,
     };
     vi.stubGlobal("fetch", vi.fn(async (url: unknown, options?: RequestInit) => {
       const method = options?.method ?? "GET";
@@ -30,7 +30,7 @@ describe("requester profiles page", () => {
       const save = [...container.querySelectorAll("button")].find((b) => b.textContent === "保存")!;
       await act(async () => { save.click(); });
       expect(calls.find((call) => call.method === "PUT")?.body).toMatchObject({
-        subsidiary_id: null, platform: "discord", platform_user_id: "123456", skill_level: "中級",
+        subsidiary_id: null, platform: "discord", platform_user_id: "123456", skill_level: "中級", role_title: "エンジニア",
       });
       expect(container.textContent).toContain("保存しました");
     } finally {

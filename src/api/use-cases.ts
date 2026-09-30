@@ -29,6 +29,8 @@ const CreateSchema = z.object({
   work_mode: WorkModeSchema.optional(),
   pre_data: z.string().max(50_000).optional(),
   use_requester_profile: z.boolean().optional(),
+  // 事前ヒアリング (tech-consultation.md §3)。 省略時はフォーマットの既定。
+  intake_enabled: z.boolean().optional(),
 }).strict();
 
 const PatchSchema = z.object({
@@ -39,6 +41,8 @@ const PatchSchema = z.object({
   work_mode: WorkModeSchema.optional(),
   pre_data: z.string().max(50_000).optional(),
   use_requester_profile: z.boolean().optional(),
+  // 事前ヒアリング (tech-consultation.md §3)。 省略時はフォーマットの既定。
+  intake_enabled: z.boolean().optional(),
 }).strict();
 
 const CorrectionCreateSchema = z.object({
@@ -177,6 +181,7 @@ export function serializeUseCase(row: UseCaseRow) {
   return {
     ...row,
     use_requester_profile: row.use_requester_profile === 1,
+    intake_enabled: row.intake_enabled === 1,
     archived: row.archived_at !== null,
     format_name: USE_CASE_FORMATS[row.format]?.name ?? row.format,
   };

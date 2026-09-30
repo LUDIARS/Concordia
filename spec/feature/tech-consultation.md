@@ -44,6 +44,12 @@
   - プライベート相談: `/consult` が Discord のモーダル (入力欄 4 つ) を開く。
   - オープン相談: 投稿本文から読み取り、欠けた必須項目と目的を Bot がスレッドで 1 回にまとめて聞き返す
     (モデルの聞き返しと同じ流儀)。必須項目が揃ってから起動する。目的が空のままでも必須が揃えば起動する。
+    - 本文の「知りたいこと: / 技術レベル: / 役職: / 目的:」の行を読む。知りたいことの行が無ければ投稿の題名
+      (無ければ本文の最初の段落) を知りたいこととみなす。
+    - 技術レベル・役職が依頼者メモにあれば聞かずに使い、聞き返しに「この値で答えます。違えば直してください」と添える。
+    - 返信は見出し付きで本文へ足す。ラベルの無い返信は、まだ空の項目へ 技術レベル → 役職 → 目的 の順に割り当てる。
+    - 返信を 1 度受けたら目的だけのためには再度聞かない。必須が欠ければ同じスレッドで最大 3 回まで聞き返す。
+    - 承認カード (起動権限の無い投稿者) は項目が揃ってから出す。承認後の再入で欠けていたら起動しない。
 - 技術レベルと役職は依頼者メモ (`requester_profiles.skill_level` / 新設 `role_title`) に保存し、
   次回のモーダルに既定値として入れる。本人がモーダルで書き換えたら上書きする。
 - 4 項目は起動時の対話前提ブロック (dialogue-context.md §5) に「今回の相談」節として入る。
@@ -108,7 +114,7 @@
 |---|---|---|
 | `use_cases.intake_enabled` | 事前ヒアリングの on / off | dialogue-context |
 | `requester_profiles.role_title` | 役職 (次回の既定値) | dialogue-context |
-| `consultation_intakes` | 相談ごとの 4 項目、取得元 (modal / forum)、状態 (collecting / complete)、session_id | dialogue-context |
+| `consultation_intakes` | 相談ごとの 4 項目、取得元 (forum / modal / api)、会社・部署・ユースケース・依頼者、受付チャンネル (起動前に集めるので session id ではなくスレッド / チャンネルで辿る)。揃ってから起動するときに 1 行記録する | dialogue-context |
 | `departments.settings_json.private` | プライベート相談の許可と権限者の最低役職 | governance |
 | `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (open / closed)・時刻 | consultation |
 | `private_consultation_members` | 閲覧者・追加理由 (requester / approver / invited)・追加者・時刻・除外時刻 | consultation |

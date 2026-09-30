@@ -1490,6 +1490,7 @@ export interface UseCaseFormat {
   name: string;
   workMode: "edit" | "read-only";
   useRequesterProfile: boolean;
+  intake: boolean;
   summary: string;
   preData: string;
 }
@@ -1502,6 +1503,8 @@ export interface UseCaseWrite {
   work_mode: "edit" | "read-only";
   pre_data: string;
   use_requester_profile: boolean;
+  /** 事前ヒアリング (知りたいこと・技術レベル・役職・目的) を揃えてから回答する。 */
+  intake_enabled: boolean;
 }
 
 export interface UseCase extends UseCaseWrite {
@@ -1533,6 +1536,7 @@ export interface RequesterProfile {
   platform_user_id: string;
   display_name: string;
   skill_level: string;
+  role_title: string;
   activities: string;
   notes: string;
   updated_at: number;
@@ -1544,6 +1548,7 @@ export interface RequesterProfileWrite {
   platform_user_id: string;
   display_name?: string;
   skill_level?: string;
+  role_title?: string;
   activities?: string;
   notes?: string;
 }

@@ -47,7 +47,8 @@ export function RequesterProfiles() {
         <h1 className="text-lg font-semibold">依頼者メモ</h1>
         <p className="text-subtle text-sm mt-1">
           投稿ユーザーの技術者レベルややっていることを書いておくと、依頼者メモを使うユースケース
-          (一問一答 Q&A・壁打ち相談) の回答がその人に合わせた粒度になります。Cc の外へは出しません。
+          (一問一答 Q&A・壁打ち相談) の回答がその人に合わせた粒度になります。技術者レベルと役職は
+          事前ヒアリングの答えで更新され、次の相談の既定値になります。Cc の外へは出しません。
         </p>
       </header>
 
@@ -78,6 +79,7 @@ export function RequesterProfiles() {
 function ProfileRow({ profile, onChanged }: { profile: RequesterProfile; onChanged: () => void }) {
   const [displayName, setDisplayName] = useState(profile.display_name);
   const [skillLevel, setSkillLevel] = useState(profile.skill_level);
+  const [roleTitle, setRoleTitle] = useState(profile.role_title ?? "");
   const [activities, setActivities] = useState(profile.activities);
   const [notes, setNotes] = useState(profile.notes);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -90,6 +92,7 @@ function ProfileRow({ profile, onChanged }: { profile: RequesterProfile; onChang
         platform_user_id: profile.platform_user_id,
         display_name: displayName,
         skill_level: skillLevel,
+        role_title: roleTitle,
         activities,
         notes,
       });
@@ -116,9 +119,10 @@ function ProfileRow({ profile, onChanged }: { profile: RequesterProfile; onChang
         <code>{profile.platform_user_id}</code>
         <button type="button" className="ml-auto text-danger" onClick={() => void remove()}>削除</button>
       </div>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 md:grid-cols-3">
         <input className="foundation-form" placeholder="表示名" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         <input className="foundation-form" placeholder="技術者レベル (例: 初級 / 中級 / 上級)" value={skillLevel} onChange={(e) => setSkillLevel(e.target.value)} />
+        <input className="foundation-form" placeholder="役職 (例: エンジニア / デザイナー)" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} />
       </div>
       <textarea className="foundation-form w-full min-h-[60px]" placeholder="やっていること (例: Unity でゲーム開発)"
         value={activities} onChange={(e) => setActivities(e.target.value)} />

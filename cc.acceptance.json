@@ -2805,6 +2805,37 @@
         "src/discord/config.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/dialogue/intake.ts",
+      "tests": [
+        "src/dialogue/intake.test.ts",
+        "src/discord/forum-spawn-consult-intake.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/dialogue/intake-request.ts",
+      "tests": [
+        "src/dialogue/intake-request.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/consultation-intakes-repo.ts",
+      "tests": [
+        "src/db/consultation-intakes-repo.test.ts",
+        "src/dialogue/launch-context.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/forum-spawn-intake.ts",
+      "tests": [
+        "src/discord/forum-spawn-intake.test.ts",
+        "src/discord/forum-spawn-consult-intake.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

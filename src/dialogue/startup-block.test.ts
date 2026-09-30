@@ -57,6 +57,21 @@ describe("buildDialogueStartupBlock", () => {
     expect(nameOnly).not.toContain("依頼者について");
   });
 
+  it("adds the consultation intake as the last section and marks an empty purpose", () => {
+    const block = buildDialogueStartupBlock({
+      ...base,
+      intake: { topic: "DDD って何が良いの", skill_level: "初級", role_title: "デザイナー", purpose: "" },
+    });
+    expect(block.endsWith([
+      "### 今回の相談 (この技術レベル・役職・目的に合わせた粒度で答える)",
+      "- 知りたいこと: DDD って何が良いの",
+      "- 技術レベル: 初級",
+      "- 役職: デザイナー",
+      "- 目的: (回答なし。知ること自体が目的として扱う)",
+    ].join("\n"))).toBe(true);
+    expect(buildDialogueStartupBlock({ ...base, intake: null })).not.toContain("今回の相談");
+  });
+
   it("omits empty sections", () => {
     const block = buildDialogueStartupBlock({ ...base, useCase: { ...base.useCase, summary: " ", preData: "" } });
     expect(block).toBe("## 部署: 技術相談課 / ユースケース: 技術相談 (一問一答 Q&A)");

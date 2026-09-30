@@ -68,6 +68,7 @@
     "spec/feature/approval-inbox.md",
     "spec/feature/danger-command-approval.md",
     "spec/feature/question-session-retention.md",
-    "spec/feature/departments.md"
+    "spec/feature/departments.md",
+    "spec/feature/tech-consultation.md#4-プライベート相談"
   ]
 }

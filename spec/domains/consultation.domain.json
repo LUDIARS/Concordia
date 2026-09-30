@@ -1,0 +1,20 @@
+{
+  "name": "consultation",
+  "description": "技術相談のプライベート相談と公開: 閉じたチャンネルでの相談 (作成・閲覧者・招待/除外・終了時のロック)、共有面への不出力、相談から書き直した公開候補の本人承認と Tabula への投稿を持つ。事前ヒアリングの項目と起動ブロックは dialogue-context、部署設定は governance が持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/consultation/[^/]+$" },
+    { "pathPattern": "(^|/)src/db/private-consultations-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/consultation-publications-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/consultations(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/consult-[^/]+$" },
+    { "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the consultation domain: private consultation channels (closed at creation, members, invites, lock on end), keeping private content off shared surfaces, and requester-approved publication of rewritten summaries to Tabula.",
+  "specRefs": [
+    "spec/feature/tech-consultation.md"
+  ],
+  "rationale": "プライベート相談は Discord の権限・チャンネル寿命・公開承認という、部署 (governance) や対話の前提データ (dialogue-context) とは別の理由で変わる。Discord 固有の面 (src/discord/consult-*) もここに寄せ、相談の状態遷移と権限判定は src/consultation/ に閉じる。"
+}

@@ -1,0 +1,124 @@
+# 技術相談 — 事前ヒアリング・プライベート相談・Tabula への公開
+
+> 2026-09-30 neco 指示:「技術相談課の相談は、事前情報として『何について知りたいか』『説明にあたっての
+> 技術レベル』『あなたの役職』を取得し、可能な限り『目的』を問う (知ることが目的の問いもあるので問題はない)」
+> 「プライベートでブロックするものも作りたいのでフォーラムではないやり方。プライベート設定を作り、
+> プライベートの場合はコマンドで投稿して専用カテゴリにプライベートチャンネルを自動作成。必要な権限者を
+> 自動追加し、本人・追加された管理者・任意で招待した人が見られる」「共有したい情報でセンシティブでないものは
+> オープンにする提案を AI が行う。オープンになった情報は Tabula に投稿」。
+> 設計は director case `dir_687ecaf4` plan v1 を推奨案のまま承認 (同日)。
+
+- 価値: [UX-CC-W6](../ux/product.md) / シナリオ UX-CC-S7
+- 関連: [部署](departments.md) (部署設定・部署フォーラム)、[対話の前提データ](dialogue-context.md)
+  (ユースケース・依頼者メモ・起動ブロック)、[社員名簿](staff-roster.md) (権限者の判定)
+
+## 1. 用語
+
+| 用語 | 意味 |
+|---|---|
+| 事前ヒアリング | 回答を始める前に揃える 4 項目: 知りたいこと・技術レベル・役職・目的 |
+| オープン相談 | 部署フォーラムへの投稿で始まる相談。スレッドは guild の誰でも見られる |
+| プライベート相談 | `/consult` で始まる相談。閉じたテキストチャンネルで行う |
+| 権限者 | 部署設定で自動追加される閲覧者。既定は社員名簿の管理職以上 |
+| 公開候補 | 相談から AI が書き直した、全体に共有してよさそうな知見の要約 |
+
+## 2. 不変条件
+
+| ID | 条件 | 強制箇所 (実装時に確定) |
+|---|---|---|
+| CC-CONSULT-INV-01 | プライベート相談チャンネルは作成と同時に閉じる (作成後に閉じる隙間を作らない) | チャンネル作成時の permission overwrites |
+| CC-CONSULT-INV-02 | 閲覧できるのは本人・権限者・招待された人・Bot だけ。招待・除外は本人か権限者だけ | 招待コマンドの判定 + overwrites |
+| CC-CONSULT-INV-03 | プライベート相談の本文・思考・カードは共有面 (フォーラム・activity・monitor・pr-queue・連合) に出さない | 出力の配送判定 |
+| CC-CONSULT-INV-04 | Tabula への公開は相談者本人が承認した要約だけ。承認前の候補は外へ出さない | 公開ボタンの判定 |
+| CC-CONSULT-INV-05 | ヒアリング内容と依頼者メモはローカル DB だけに置き、連合・通知・ログへ出さない | 既存の依頼者メモの規則 (dialogue-context.md §7) を継承 |
+
+## 3. 事前ヒアリング
+
+**Requirement ID: `SPEC-CONSULT-INTAKE`**
+
+- ユースケースに「事前ヒアリング」(on / off) を持たせる。フォーマットの既定は一問一答 Q&A・壁打ち相談で on、
+  雑用・調査レポートで off。作成後はマニュアル画面で切り替えられる。
+- 項目: 知りたいこと (必須) / 説明にあたっての技術レベル (必須) / あなたの役職 (必須) / 目的 (任意だが必ず問う)。
+  目的は「知ること自体が目的」も正当な答えとして受け付け、聞き返しで責めない。
+- 取得:
+  - プライベート相談: `/consult` が Discord のモーダル (入力欄 4 つ) を開く。
+  - オープン相談: 投稿本文から読み取り、欠けた必須項目と目的を Bot がスレッドで 1 回にまとめて聞き返す
+    (モデルの聞き返しと同じ流儀)。必須項目が揃ってから起動する。目的が空のままでも必須が揃えば起動する。
+- 技術レベルと役職は依頼者メモ (`requester_profiles.skill_level` / 新設 `role_title`) に保存し、
+  次回のモーダルに既定値として入れる。本人がモーダルで書き換えたら上書きする。
+- 4 項目は起動時の対話前提ブロック (dialogue-context.md §5) に「今回の相談」節として入る。
+
+状態所有者: ヒアリング内容 = `consultation_intakes` (dialogue-context)。技術レベル・役職の既定値 = `requester_profiles`。
+
+## 4. プライベート相談
+
+**Requirement ID: `SPEC-CONSULT-PRIVATE`**
+
+- 部署設定に `private` を足す: `enabled` (既定 false) と `approver_min_role` (`manager` | `executive`、既定 `manager`)。
+- プライベートが有効な部署で `/consult` (部署選択付き) を使うと、所有会社の guild の「プライベート相談」カテゴリ
+  (無ければ作る) にテキストチャンネルを 1 本作る。作成要求に閉じた overwrites を含める (CC-CONSULT-INV-01):
+  `@everyone` 不可視、本人・権限者・Bot は可視。権限者の判定はチームの「管理」チャンネルと同じ社員名簿の判定を使う。
+- 起動は部署セッションと同じ経路 (所有会社の検査・部署の起動既定値・ユースケース) を通り、セッションはこのチャンネルに紐づく。
+- 起動できない (部署がプライベート不可・廃止・権限なし・チャンネル作成失敗) ときはコマンドの応答で理由を本人にだけ返す。
+
+**Requirement ID: `SPEC-CONSULT-MEMBERS`**
+
+- チャンネル内の `/consult invite @user` / `/consult remove @user` で閲覧者を追加・除外する。
+  操作できるのは本人と権限者だけ (CC-CONSULT-INV-02)。本人と Bot は除外できない。
+- 権限者は相談の開始時点の名簿で追加する。名簿が変わっても既存チャンネルの閲覧者は自動では変えない (必要なら invite / remove)。
+
+**Requirement ID: `SPEC-CONSULT-VISIBILITY`**
+
+- プライベート相談のセッションの思考・状態カード・セッション情報・コスト報告はそのチャンネルにだけ出す。
+  activity・monitor・pr-queue には本文・題名を出さず、件数に含める場合も「プライベート相談」とだけ表示する。
+  連合 (federation) には同期しない (CC-CONSULT-INV-03)。
+- WebUI は運用担当の管理面なので表示するが、一覧では「プライベート」と明示する。
+
+**Requirement ID: `SPEC-CONSULT-CLOSE`**
+
+- セッションの終了でチャンネルを書き込み不可 (閲覧は維持) にして残す。削除はしない。
+
+状態所有者: 相談とチャンネル・状態 = `private_consultations`、閲覧者と追加理由 = `private_consultation_members` (consultation)。
+
+## 5. オープン化の提案と Tabula への公開
+
+**Requirement ID: `SPEC-CONSULT-PUBLISH`**
+
+- 相談の区切り (終了時、または `/consult wrap`) にセッションへ公開候補づくりを依頼する。セッションは会話の文脈を持つので、
+  候補の文面はセッションが作り Cc の API へ提出する。候補は**書き直した要約**で、会話の転載・個人・社内固有・秘密・
+  人の評価に当たる内容を含めない。
+- 候補はチャンネル内にボタン付きで出す: 公開する / 直して公開 (モーダルで編集) / 公開しない。
+  **公開を決められるのは相談者本人だけ**。権限者は候補の取り下げだけできる (CC-CONSULT-INV-04)。
+- オープン相談 (フォーラム) の公開候補は対象外 (必要になったら拡張する)。
+
+**Requirement ID: `SPEC-CONSULT-TABULA`**
+
+- 承認された要約を Tabula の取り込み API でメンバー共有のページとして作り、URL をチャンネルへ返す。
+  タグは「技術相談」と部署名。ページ所有者は Tabula の取り込み用所有者 (既存設定) のまま、共有範囲だけ「メンバー全員」。
+- Tabula 側の変更: 取り込み API で共有範囲を指定できるようにする (現状は所有者だけの非公開ページしか作れない)。
+- Cc は Tabula の接続先と取り込みトークンを設定 UI (DB) で持つ。env からは読まない。未設定なら公開ボタンを出さず、
+  理由を候補に添える (無言で握りつぶさない)。
+- 投稿に失敗したら候補を「提案」のまま残し、理由をチャンネルへ返す (再試行できる)。
+
+状態所有者: 候補・判断・投稿結果 = `consultation_publications` (consultation)。
+
+## 6. データ
+
+| テーブル / 列 | 内容 | ドメイン |
+|---|---|---|
+| `use_cases.intake_enabled` | 事前ヒアリングの on / off | dialogue-context |
+| `requester_profiles.role_title` | 役職 (次回の既定値) | dialogue-context |
+| `consultation_intakes` | 相談ごとの 4 項目、取得元 (modal / forum)、状態 (collecting / complete)、session_id | dialogue-context |
+| `departments.settings_json.private` | プライベート相談の許可と権限者の最低役職 | governance |
+| `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (open / closed)・時刻 | consultation |
+| `private_consultation_members` | 閲覧者・追加理由 (requester / approver / invited)・追加者・時刻・除外時刻 | consultation |
+| `consultation_publications` | 候補文・編集後の文・状態 (proposed / published / declined / withdrawn)・Tabula ページ id と URL・判断者・時刻 | consultation |
+
+## 7. 分割
+
+| # | リポ | 内容 | task md |
+|---|---|---|---|
+| 1 | Cc | 事前ヒアリング | `spec/tasks/2026-09-30-consult-intake.md` |
+| 2 | Cc | プライベート相談 | `spec/tasks/2026-09-30-consult-private.md` |
+| 3 | Tb | 取り込み API の共有範囲指定 | Tabula の `spec/tasks/2026-09-30-import-member-sharing.md` (Tb の PR に含める) |
+| 4 | Cc | オープン化の提案と Tabula 投稿 | `spec/tasks/2026-09-30-consult-publish-tabula.md` |

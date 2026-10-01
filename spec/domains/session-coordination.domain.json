@@ -51,6 +51,7 @@
     "spec/feature/delegation-spawn-target-validation.md",
     "spec/feature/inject-context-gating.md",
     "spec/feature/astra-with-sidecar.md",
-    "spec/feature/project-rules-inject.md"
+    "spec/feature/project-rules-inject.md",
+    "spec/feature/session-language-guard.md"
   ]
 }

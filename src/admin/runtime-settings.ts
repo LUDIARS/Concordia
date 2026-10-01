@@ -25,6 +25,7 @@ const KEYS = {
   finishedRunAutoReap: "admin.delegation_finished_run_auto_reap",
   finishedRunGraceSec: "admin.delegation_finished_run_grace_sec",
   thinkingMessages: "admin.thinking_messages_enabled",
+  languageGuard: "admin.language_guard_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -128,6 +129,16 @@ export class RuntimeSettingsStore {
     return false;
   }
   setThinkingMessagesEnabled(value: boolean): void { this.store.setBoolean(KEYS.thinkingMessages, value); }
+
+  /**
+   * 英語化したセッションへ日本語の補正を inject するか (既定 ON — 2026-10-01 neco 指示)。
+   * 解決順は DB (WebUI 設定) → 既定。
+   */
+  getLanguageGuardEnabled(): boolean {
+    const raw = this.store.get(KEYS.languageGuard);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    return true;
+  }
 
   /**
    * 内部 cron (src/scheduler/cron-jobs.ts) の call_name を、コード再デプロイなしで

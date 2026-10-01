@@ -61,3 +61,15 @@ describe("RuntimeSettingsStore.getHarnessMainPushAllowlist", () => {
     expect(settings.getHarnessMainPushAllowlist()).toEqual([]);
   });
 });
+
+describe("RuntimeSettingsStore.getLanguageGuardEnabled", () => {
+  it("未設定なら ON、WebUI で保存した値を優先する", () => {
+    const store = makeStore();
+    const settings = new RuntimeSettingsStore(store);
+    expect(settings.getLanguageGuardEnabled()).toBe(true);
+    store.setBoolean("admin.language_guard_enabled", false);
+    expect(settings.getLanguageGuardEnabled()).toBe(false);
+    store.set("admin.language_guard_enabled", "true");
+    expect(settings.getLanguageGuardEnabled()).toBe(true);
+  });
+});

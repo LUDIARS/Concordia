@@ -162,6 +162,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: false,
     editable: true,
   },
+  {
+    key: "session.language_guard_enabled",
+    section: "session",
+    label: "英語化したら日本語へ戻す",
+    description:
+      "セッションの発言が英語だけになったら「日本語で」と 1 回 inject する。 日本語に戻るか人間の発言が届くまで再送しない (spec/feature/session-language-guard.md)。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.language_guard_enabled",
+    defaultValue: true,
+    editable: true,
+  },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
   envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 neco 指示)。"),

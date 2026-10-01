@@ -142,6 +142,7 @@ import { buildForumSpawnTrigger } from "../discord/forum-spawn.js";
 import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
+import { startLanguageGuard } from "../control/language-guard.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
@@ -2359,6 +2360,15 @@ export async function startBackend(): Promise<BackendHandle> {
           info: (message) => log.info(message),
           warn: (message) => log.warn(message),
         },
+      }),
+    );
+    trackPostListenHandle(
+      startLanguageGuard({
+        repo,
+        isEnabled: () => adminState.getLanguageGuardEnabled(),
+        // 質問の回答待ちには補正も送らない (言い直しで同じ質問を出し直させない)。
+        hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+        log: { info: (message) => log.info(message) },
       }),
     );
     trackPostListenHandle(

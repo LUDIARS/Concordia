@@ -3160,6 +3160,49 @@
       "contracts": [
         "CC-AT-DISCOVERY-01"
       ]
+    },
+    {
+      "source": "src/control/language-drift.ts",
+      "tests": [
+        "src/control/language-drift.test.ts"
+      ],
+      "contracts": [
+        "CC-LANG-INV-01"
+      ]
+    },
+    {
+      "source": "src/control/language-guard.ts",
+      "tests": [
+        "src/control/language-guard.test.ts"
+      ],
+      "contracts": [
+        "CC-LANG-INV-02",
+        "CC-LANG-INV-03"
+      ]
+    },
+    {
+      "source": "src/admin/runtime-settings.ts",
+      "tests": [
+        "src/admin/runtime-settings.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/admin/state.ts",
+      "tests": [
+        "src/admin/runtime-settings.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/config/settings/definitions/session.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
     }
   ]
 }

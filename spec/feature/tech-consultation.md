@@ -147,10 +147,15 @@
   **担当プロジェクトを持たず、ユースケースが読み取り専用の部署** (技術相談課) はプロジェクト無しで起動する (CC-CONSULT-INV-06)。
   - 部署フォーラム: 本文からプロジェクトを拾わず、関係プロジェクトの照合もしない (`ForumSpawnDepartment.projectless`)。
   - `/consult`: 子会社 guild に登録する。部署の候補はその子会社の、プライベート相談を許可した相談部署だけ。
-- 閉じ込め (CC-CONSULT-INV-07)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
+- 相談用ディレクトリ (2026-10-02 neco 指示「全く別のディレクトリで起動して欲しい (Cc 以下の相談用のディレクトリ)」):
+  読み取り専用で担当プロジェクトを持たない部署は、本社・子会社とも会社ごとの相談用ディレクトリで起動する。
+  - 置き場所は `CONCORDIA_CONSULT_WORKSPACE_ROOT`、既定は Concordia 配下の `consult-workspaces/` (git 管理外)。
+    本社は `head-office/`、子会社は `<子会社 id>/`。
+  - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければここで起動する (指定があればそれに従う)。
+    ツールは制限しない。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
+- 子会社の閉じ込め (CC-CONSULT-INV-07)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
   起動する claude 本体で閉じる:
-  - cwd は `<相談用ディレクトリの置き場所>/<子会社 id>` (空)。置き場所は `CONCORDIA_CONSULT_WORKSPACE_ROOT`、
-    既定は `~/.concordia/consult-workspaces` (Castra の外。上位の CLAUDE.md を読ませない)。
+  - cwd は子会社の相談用ディレクトリ。
   - claude の引数 `--tools=WebSearch,TodoWrite --strict-mcp-config --disable-slash-commands`。Read・シェル・編集・
     MCP・スキルを持たない。provider は claude だけ (他の provider は 400 `projectless_consult_requires_claude`)。
   - 起動要求に project / cwd / team / branch / worktree / 利用者の args / テンプレの prompt 注入があれば 400
@@ -159,7 +164,8 @@
   (居ない人の member overwrite はチャンネル作成ごと失敗させる)。在籍の確認に失敗したら受け付けない。
   名簿の外の人を足すことはできない。
 - 子会社では公開候補 (`/consult wrap` と判断カード) を出さない。公開は本社の知見共有の面で、相談セッションはシェルも持たない。
-- 残る露出: 起動時の共通資料案内 (Castra のパス名) はセッションに渡る。中身は読めない。
+- 残る露出: 起動時の共通資料案内 (Castra のパス名) と、相談用ディレクトリの上位にある CLAUDE.md (Castra・Concordia)
+  はセッションに読み込まれる。ファイルの中身を読むツールは無い。
 
 状態所有者: 相談用ディレクトリの場所 = 起動設定 (admin spawn)。判定 = consultation (`src/consultation/projectless-consult.ts`)。
 

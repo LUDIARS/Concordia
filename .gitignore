@@ -104,3 +104,6 @@ review/*
 # 再生成の手順は spec/setup/reproducible-build.md にある。
 /report/
 /harness-runtime/
+
+# プロジェクトを持たない相談部署の作業ディレクトリ (spec/feature/tech-consultation.md §6)
+/consult-workspaces/

@@ -1,10 +1,10 @@
 /**
  * プロジェクトを持たない相談 (子会社の相談窓口) の判定と閉じ込め (spec/feature/tech-consultation.md §6)。
  *
- * 子会社のセッションは関係プロジェクトで起動範囲を閉じる (subsidiary-delegation §3.4)。 相談課は元々
- * プロジェクト外の質問を受ける課なので、 子会社では「担当プロジェクトを持たず、 ユースケースが
- * 読み取り専用」の部署に限ってプロジェクト無しで起動する。 その代わり本社の作業領域を読ませないよう、
- * 空の相談用ディレクトリで起動し、 使えるツールを Web 検索だけに絞る (CC-CONSULT-INV-06/07)。
+ * 相談課は元々プロジェクト外の質問を受ける課。 「担当プロジェクトを持たず、 ユースケースが読み取り専用」の
+ * 部署は、 プロジェクトではなく Concordia 配下の相談用ディレクトリ (会社ごと) で起動する (2026-10-02 neco 指示)。
+ * 子会社のセッションは関係プロジェクトで起動範囲を閉じる (subsidiary-delegation §3.4) ので、 子会社では
+ * さらに使えるツールを Web 検索だけに絞る (CC-CONSULT-INV-06/07)。
  *
  * 業務判断だけを持つ純関数。 ディレクトリの作成と起動は呼び出し側 (admin spawn) が行う。
  *
@@ -41,8 +41,15 @@ export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze(
   "--disable-slash-commands",
 ]);
 
-/** 相談用ディレクトリ。 子会社ごとに 1 つ。 id は Cc が発行した値だが、 パス区切りは潰しておく。 */
-export function projectlessConsultWorkspace(root: string, subsidiaryId: string): string {
+/** 本社の相談用ディレクトリ名。 子会社 id (uuid) とは重ならない。 */
+export const HEAD_OFFICE_CONSULT_WORKSPACE = "head-office";
+
+/**
+ * 相談用ディレクトリ。 会社ごとに 1 つ (本社は `head-office`)。 子会社 id は Cc が発行した値だが、
+ * パス区切りは潰しておく。
+ */
+export function projectlessConsultWorkspace(root: string, subsidiaryId: string | null): string {
+  if (subsidiaryId === null) return join(root, HEAD_OFFICE_CONSULT_WORKSPACE);
   const safe = subsidiaryId.replace(/[^A-Za-z0-9_-]/g, "_");
   return join(root, safe || "_");
 }

@@ -29,6 +29,10 @@ describe("projectlessConsultWorkspace", () => {
     expect(projectlessConsultWorkspace("/srv/cw", "be9848ab-06ae")).toBe(join("/srv/cw", "be9848ab-06ae"));
   });
 
+  it("本社は head-office", () => {
+    expect(projectlessConsultWorkspace("/srv/cw", null)).toBe(join("/srv/cw", "head-office"));
+  });
+
   it("パス区切りや .. を含む id でも root の外へ出ない", () => {
     expect(projectlessConsultWorkspace("/srv/cw", "../../etc")).toBe(join("/srv/cw", "______etc"));
     expect(projectlessConsultWorkspace("/srv/cw", "")).toBe(join("/srv/cw", "_"));

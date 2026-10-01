@@ -37,7 +37,7 @@ describe("resolveProjectlessConsultLaunch", () => {
     const p = ports();
     const result = await resolveProjectlessConsultLaunch({ subsidiaryId: "glab", department: department(), specifiedScope: [] }, p);
     expect(result).toEqual({
-      kind: "confined",
+      kind: "consult-workspace",
       cwd: join("/srv/cw", "glab"),
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
@@ -45,9 +45,21 @@ describe("resolveProjectlessConsultLaunch", () => {
     expect(p.ensureDir).toHaveBeenCalledWith(join("/srv/cw", "glab"));
   });
 
-  it("本社・部署なし・プロジェクトを持つ部署・編集可のユースケースは対象外", async () => {
-    expect(await resolveProjectlessConsultLaunch({ subsidiaryId: null, department: department(), specifiedScope: [] }, ports()))
-      .toEqual({ kind: "none" });
+  it("本社の相談部署は本社の相談用ディレクトリで、 ツールを制限せずに起動する", async () => {
+    const p = ports();
+    expect(await resolveProjectlessConsultLaunch(
+      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [] }, p,
+    )).toEqual({ kind: "consult-workspace", cwd: join("/srv/cw", "head-office"), claudeArgs: [], restriction: null });
+    expect(p.ensureDir).toHaveBeenCalledWith(join("/srv/cw", "head-office"));
+  });
+
+  it("本社で作業領域を明示した起動はその指定に従う", async () => {
+    expect(await resolveProjectlessConsultLaunch(
+      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: ["project"] }, ports(),
+    )).toEqual({ kind: "none" });
+  });
+
+  it("部署なし・プロジェクトを持つ部署・編集可のユースケースは対象外", async () => {
     expect(await resolveProjectlessConsultLaunch({ subsidiaryId: "glab", department: null, specifiedScope: [] }, ports()))
       .toEqual({ kind: "none" });
     expect(await resolveProjectlessConsultLaunch({

@@ -27,6 +27,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
   let subsidiaryId: string;
   let consultDepartmentId: string;
   let editDepartmentId: string;
+  let headOfficeConsultId: string;
 
   beforeEach(() => {
     spawnCalls = [];
@@ -54,9 +55,13 @@ describe("projectless consultation spawn in a subsidiary", () => {
     const edit = env.departmentService.create({
       subsidiary_id: subsidiaryId, name: "総務", slug: "general", settings: {}, use_case_id: chores.id,
     });
-    if (!consult.ok || !edit.ok) throw new Error("department setup failed");
+    const headOffice = env.departmentService.create({
+      subsidiary_id: null, name: "技術相談課", slug: "tech-consulting", settings: {}, use_case_id: qa.id,
+    });
+    if (!consult.ok || !edit.ok || !headOffice.ok) throw new Error("department setup failed");
     consultDepartmentId = consult.department.id;
     editDepartmentId = edit.department.id;
+    headOfficeConsultId = headOffice.department.id;
   }, 30_000);
 
   it("spawns claude in the subsidiary consult workspace with the tool restriction", async () => {
@@ -88,7 +93,21 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls).toEqual([]);
   });
 
-  it("leaves other departments and the head office untouched", async () => {
+  it("spawns a head-office consultation in the head-office consult workspace without tool restriction", async () => {
+    // 2026-10-02: 本社の相談部署はプロジェクトが無く、 cwd を決められずに起動に失敗していた。
+    const response = await spawnSession(env, { department: headOfficeConsultId, provider: "claude", prompt: "DDD の利点は?" });
+    expect(response.status).toBe(200);
+    expect(spawnCalls[0]?.cwd).toBe(join(workspaceRoot, "head-office"));
+    expect(spawnCalls[0]?.args ?? []).not.toEqual(expect.arrayContaining(["--strict-mcp-config"]));
+  });
+
+  it("leaves a head-office consultation with an explicit cwd on that cwd", async () => {
+    const response = await spawnSession(env, { department: headOfficeConsultId, provider: "claude", cwd: env.logsDir });
+    expect(response.status).toBe(200);
+    expect(spawnCalls[0]?.cwd).toBe(env.logsDir);
+  });
+
+  it("leaves other departments untouched", async () => {
     const response = await spawnSession(env, {
       department: editDepartmentId, subsidiary_id: subsidiaryId, provider: "claude", cwd: env.logsDir,
     });

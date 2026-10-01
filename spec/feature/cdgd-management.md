@@ -104,6 +104,19 @@ session / delegation run の状態を直接書き換えない。
 
 dots はセッション終了・成果記録を完了扱いしない。受入・効果確認は代行できない。
 
+## 契約 CC-MGMT-06 人間の管理面 (Web / Discord)
+
+2026-10-01 neco 指示「上から順に対応」の 2 件目。
+- Web `/management`: 任務の一覧・作成・停止・再開・トークン回転 (平文は応答時だけ画面に出し、保存しない)、
+  依頼の一覧と人間操作 (承認・却下・受入・効果あり・効果なし)。操作者名を入力して記録する。
+- Discord 本社 guild の `CDGD管理` チャンネル: 人間が見るべき状態 (waiting_human / launch_failed /
+  execution_finished / outcome_recorded / 効果確認待ちの accepted) になった依頼をカードで出す。
+  以後の状態変化は同じカードを編集する。ボタンは状態で許される操作だけを有効にし、操作者は
+  `discord:<user id>` で記録する。押せるのはセッション起動権限を持つ人だけ (雑務と同じ判定)。
+- 配達は依頼の revision ごとに記録する (`delivered_revision` / `discord_message_id`)。保存してから配達し、
+  配達失敗は依頼の状態を変えず次の周期で再送する (CC-INV-06)。
+- これらの経路は `/v1/admin/management/*` を使い、dots のトークンでは呼べない (CC-MGMT-INV-01)。
+
 ## 不変条件
 
 - CC-MGMT-INV-01: dots のトークンで呼べるのは CC-MGMT-03 だけ。サービスへの書込み・受入・承認経路を持たない。
@@ -125,16 +138,15 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
 `src/api/management.ts`: dots 向け・受付口・成果・管理面の HTTP。
 `src/mcp/management-server.ts`: dots 用 stdio MCP。
 `src/bootstrap/core.ts` / `src/api/register-core.ts`: 寿命と経路の配線。
-保存は migration 120 `management-sidecar`。
+`src/discord/management.ts`: CDGD管理チャンネルのカード・ボタン・配達。
+`web/src/pages/Management.tsx`: 任務と依頼の管理画面。
+保存は migration 120 `management-sidecar`、配達記録は migration 121 `management-delivery`。
 
 ## 未接続 (後続)
 
-- Web の任務管理画面 (`web/src/pages/Management.tsx`)。初期版の管理は `/v1/admin/management/*` を直接使う。
-
-- Cf → Cc の変更 push (人間コメント・試遊結果)。Cf 側 adapter が必要。Cf 側でも AI 返信を origin=ai で送ること。
+- Cf → Cc の変更通知は Cf PR #2219 で配備済み (コメント・返信・AI 要約・評価)。採否・ビルド・試遊結果は未対応。
 - Di・Pf・Terpsichore の変更 push。
 - dots から Cc への実接続 (接続済み PC での MCP 実行) の検証。公式資料上の前提: PC オンライン・ChatGPT アプリ起動中。
-- Discord への依頼状態通知・人間判断待ちのボタン。
 
 ## 復旧
 

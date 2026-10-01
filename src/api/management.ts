@@ -153,7 +153,20 @@ export function managementAdminRouter(service: ManagementService): Hono {
     try {
       const missionId = c.req.query("mission_id")?.trim() || null;
       const limit = intQuery(c.req.query("limit"), 100, 1, 500)!;
-      return c.json({ requests: service.repo.listRequests(missionId, limit) });
+      const items = service.listRequestsWithActions(missionId, limit);
+      return c.json({ requests: items.map((item) => ({ ...item.request, mission_name: item.mission_name, actions: item.actions })) });
+    } catch (error) { return handle(c, error); }
+  });
+
+  // 人間向けカードの配達 (CC-MGMT-06)。 Discord 配達側が読み、 送った revision を返す。
+  app.get("/deliveries", (c) => {
+    const items = service.deliveries();
+    return c.json({ deliveries: items.map((item) => ({ ...item.request, mission_name: item.mission_name, actions: item.actions })) });
+  });
+
+  app.post("/requests/:id/delivery", async (c) => {
+    try {
+      return c.json({ request: service.recordDelivery(c.req.param("id"), await readBody(c)) });
     } catch (error) { return handle(c, error); }
   });
 

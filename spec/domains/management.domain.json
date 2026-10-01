@@ -7,6 +7,7 @@
     { "pathPattern": "(^|/)src/management/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/management(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/mcp/management-server(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/management(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Management(\\.test)?\\.tsx$" },
     { "pathPattern": "(^|/)tests/management-wiring\\.test\\.ts$" }
   ],

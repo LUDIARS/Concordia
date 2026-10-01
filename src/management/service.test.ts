@@ -157,6 +157,30 @@ describe("decisions and acknowledgement (CC-MGMT-INV-04)", () => {
   });
 });
 
+describe("human card deliveries (CC-MGMT-06)", () => {
+  it("returns cards only for states that need a human and records the delivered revision", () => {
+    const { service, request, human } = setup();
+    const queued = request("r1", [human("c1").seq]).request;
+    const gated = request("r2", [human("c2", "variant/2").seq], { kind: "spec_change", target_key: "variant/2" }).request;
+    const first = service.deliveries();
+    expect(first.map((d) => d.request.id)).toEqual([gated.id]);
+    expect(first[0]?.actions).toEqual(["approve", "reject"]);
+    expect(service.repo.findRequest(queued.id)?.delivered_revision).toBe(queued.revision);
+    service.recordDelivery(gated.id, { revision: gated.revision, message_id: "123" });
+    expect(service.deliveries()).toEqual([]);
+    service.humanAction(gated.id, "approve", { actor: "discord:1" });
+    const edited = service.deliveries();
+    expect(edited.map((d) => [d.request.id, d.request.discord_message_id, d.actions])).toEqual([[gated.id, "123", []]]);
+  });
+
+  it("never moves the delivered revision backwards", () => {
+    const { service, request, human } = setup();
+    const row = request("r1", [human("c1").seq], { kind: "spec_change" }).request;
+    service.recordDelivery(row.id, { revision: 3, message_id: "9" });
+    expect(service.recordDelivery(row.id, { revision: 1 }).delivered_revision).toBe(3);
+  });
+});
+
 describe("outcome and acceptance (CC-MGMT-05)", () => {
   it("lets only the assignee record an outcome and only a human accept it", () => {
     const { request, human, repo, service } = setup();

@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 120;
+export const SCHEMA_VERSION = 121;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3073,6 +3073,18 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_management_requests_state ON management_requests(state, created_at);
       CREATE INDEX IF NOT EXISTS idx_management_requests_target ON management_requests(project_code, target_key, kind);
+    `);
+  },
+},
+{
+  version: 121,
+  name: "management-delivery",
+  source: "management_requests.delivered_revision / discord_message_id (spec/feature/cdgd-management.md CC-MGMT-06)",
+  up(db) {
+    // 依頼カードの配達記録。 revision ごとに配達し、 同じカードを編集し続ける (CC-INV-06)。
+    db.exec(`
+      ALTER TABLE management_requests ADD COLUMN delivered_revision INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE management_requests ADD COLUMN discord_message_id TEXT;
     `);
   },
 },

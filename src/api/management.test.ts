@@ -81,6 +81,18 @@ describe("management HTTP", () => {
     expect((await call("POST", "/v1/admin/management/requests/x/accept", { actor: "neco" })).status).toBe(404);
   });
 
+  it("serves card deliveries and request actions to the human surfaces", async () => {
+    const { call } = setup();
+    await createMission(call);
+    const missions = await (await call("GET", "/v1/admin/management/missions")).json() as { missions: Array<{ id: string }> };
+    expect(missions.missions).toHaveLength(1);
+    const deliveries = await (await call("GET", "/v1/admin/management/deliveries")).json() as { deliveries: unknown[] };
+    expect(deliveries.deliveries).toEqual([]);
+    expect((await call("POST", "/v1/admin/management/requests/missing/delivery", { revision: 1 })).status).toBe(404);
+    const requests = await (await call("GET", "/v1/admin/management/requests")).json() as { requests: unknown[] };
+    expect(requests.requests).toEqual([]);
+  });
+
   it("refuses new requests after stop but keeps reads", async () => {
     const { call } = setup();
     const { token, mission } = await createMission(call);

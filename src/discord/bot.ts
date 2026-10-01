@@ -1,6 +1,7 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
+import { startManagementDiscord, type ManagementDiscord } from "./management.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
@@ -864,6 +865,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
   let choresDiscord: ChoresDiscord | null = null;
+  let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
     const session = deps.sessionsRepo.findSession(sessionId);
@@ -1003,6 +1005,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const clearRuntimeTimers = (): void => {
     choresDiscord?.stopChores();
     choresDiscord = null;
+    managementDiscord?.stop();
+    managementDiscord = null;
     sprintDialoguesDiscord?.stop();
     sprintDialoguesDiscord = null;
     phaseTitleSync?.stop();
@@ -1055,6 +1059,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           workspaceRoot: workspaceRoots[0] ?? process.cwd(), allowed: deps.isLaunchUserAllowed, reply: deps.runHeadless, log });
         choresDiscord?.stopChores();
         choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
+          baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
+        managementDiscord?.stop();
+        managementDiscord = await startManagementDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
           baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
@@ -2041,6 +2048,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (!inScope(interaction.guildId)) return;
     if (sprintDialoguesDiscord?.handlesInteraction(interaction)) {
       void sprintDialoguesDiscord.interaction(interaction).catch(error => log.warn(`sprint dialogue choice failed: ${String(error)}`));
+      return;
+    }
+    if (managementDiscord?.handlesInteraction(interaction)) {
+      void managementDiscord.interaction(interaction).catch((error) => log.warn(`management interaction failed: ${String(error)}`));
       return;
     }
     if (choresDiscord?.handlesInteraction(interaction)) {

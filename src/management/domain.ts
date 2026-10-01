@@ -91,6 +91,9 @@ export interface ManagementRequest {
   created_at: number;
   updated_at: number;
   revision: number;
+  /** 人間向けカードを配達した revision (CC-MGMT-06)。 */
+  delivered_revision: number;
+  discord_message_id: string | null;
 }
 
 /** spawn 照合の寿命 (pending-delegation-spawns の TTL と同じ)。 */
@@ -293,6 +296,17 @@ export function humanTransition(
     case "effect_not_met":
       return state === "accepted" && requiresEffectCheck ? action : null;
   }
+}
+
+/** 人間の管理面で操作できるボタン (CC-MGMT-06)。 状態ごとに許される操作だけを返す。 */
+export function availableHumanActions(state: RequestState, requiresEffectCheck: boolean): HumanAction[] {
+  const all: HumanAction[] = ["approve", "reject", "accept", "effect_confirmed", "effect_not_met"];
+  return all.filter((action) => humanTransition(state, action, requiresEffectCheck) !== null);
+}
+
+/** 新しいカードを出す状態。 それ以外はカードがある場合だけ編集する。 */
+export function needsHumanAttention(state: RequestState, requiresEffectCheck: boolean): boolean {
+  return state === "launch_failed" || availableHumanActions(state, requiresEffectCheck).length > 0;
 }
 
 /** 担当セッションが成果を記録できる状態。 */

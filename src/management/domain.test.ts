@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  availableHumanActions,
   decideIntake,
   humanTransition,
   isAiOnlyEvidence,
+  needsHumanAttention,
   ManagementInputError,
   requireSeqs,
   startOfJstDay,
@@ -72,6 +74,23 @@ describe("humanTransition (CC-MGMT-05 / INV-07)", () => {
     expect(humanTransition("dispatched", "accept", true)).toBeNull();
     expect(humanTransition("accepted", "effect_confirmed", true)).toBe("effect_confirmed");
     expect(humanTransition("accepted", "effect_not_met", false)).toBeNull();
+  });
+});
+
+describe("human cards (CC-MGMT-06)", () => {
+  it("offers only the actions the state allows", () => {
+    expect(availableHumanActions("waiting_human", true)).toEqual(["approve", "reject"]);
+    expect(availableHumanActions("outcome_recorded", true)).toEqual(["accept"]);
+    expect(availableHumanActions("accepted", true)).toEqual(["effect_confirmed", "effect_not_met"]);
+    expect(availableHumanActions("accepted", false)).toEqual([]);
+    expect(availableHumanActions("dispatched", true)).toEqual([]);
+  });
+
+  it("raises a card for launch failures and human decisions only", () => {
+    expect(needsHumanAttention("launch_failed", false)).toBe(true);
+    expect(needsHumanAttention("waiting_human", false)).toBe(true);
+    expect(needsHumanAttention("queued", true)).toBe(false);
+    expect(needsHumanAttention("accepted", false)).toBe(false);
   });
 });
 

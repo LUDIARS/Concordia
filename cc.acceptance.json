@@ -3075,6 +3075,24 @@
       "contracts": [
         "CC-MGMT-04"
       ]
+    },
+    {
+      "source": "src/discord/management.ts",
+      "tests": [
+        "src/discord/management.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-06"
+      ]
+    },
+    {
+      "source": "web/src/pages/Management.tsx",
+      "tests": [
+        "web/src/pages/Management.test.tsx"
+      ],
+      "contracts": [
+        "CC-MGMT-06"
+      ]
     }
   ]
 }

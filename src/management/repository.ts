@@ -70,6 +70,8 @@ function toRequest(row: Row): ManagementRequest {
     created_at: row.created_at as number,
     updated_at: row.updated_at as number,
     revision: row.revision as number,
+    delivered_revision: (row.delivered_revision as number | undefined) ?? 0,
+    discord_message_id: (row.discord_message_id as string | null | undefined) ?? null,
   };
 }
 
@@ -339,6 +341,20 @@ export class ManagementRepository {
       ? this.db.prepare("SELECT * FROM management_requests WHERE mission_id = ? ORDER BY created_at DESC LIMIT ?").all(missionId, limit)
       : this.db.prepare("SELECT * FROM management_requests ORDER BY created_at DESC LIMIT ?").all(limit);
     return (rows as Row[]).map(toRequest);
+  }
+
+  /** 前回配達より新しい revision の依頼 (CC-MGMT-06)。 カードの要否は呼び出し側が決める。 */
+  undeliveredRequests(limit: number): ManagementRequest[] {
+    return (this.db.prepare(`SELECT * FROM management_requests WHERE delivered_revision < revision
+      ORDER BY updated_at ASC LIMIT ?`).all(limit) as Row[]).map(toRequest);
+  }
+
+  /** 配達記録は前進だけ。 古い revision の報告は無視する。 */
+  markDelivered(id: string, revision: number, messageId: string | null): ManagementRequest | null {
+    this.db.prepare(`UPDATE management_requests SET delivered_revision = ?,
+      discord_message_id = COALESCE(?, discord_message_id) WHERE id = ? AND delivered_revision < ?`)
+      .run(revision, messageId, id, revision);
+    return this.findRequest(id);
   }
 
   /** 終わっていない依頼 (文脈用)。 */

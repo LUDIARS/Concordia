@@ -1,8 +1,10 @@
 import {
+  availableHumanActions,
   boundedInt,
   canRecordOutcome,
   decideIntake,
   humanTransition,
+  needsHumanAttention,
   ManagementInputError,
   optionalKey,
   optionalText,
@@ -51,6 +53,12 @@ export class ManagementError extends Error {
   constructor(readonly code: string, message: string, readonly status: 400 | 401 | 403 | 404 | 409) {
     super(message);
   }
+}
+
+export interface DeliveryItem {
+  request: ManagementRequest;
+  mission_name: string;
+  actions: HumanAction[];
 }
 
 export interface SubmitResult {
@@ -245,6 +253,7 @@ export class ManagementService {
         session_id: verdict.kind === "attach" ? verdict.parent.session_id : null,
         spawn_id: null, launch_deadline_at: null, outcome_summary: null, outcome_refs: [],
         human_note: null, error: null, created_at: now, updated_at: now, revision: 1,
+        delivered_revision: 0, discord_message_id: null,
       });
       this.repo.insertDecision({
         id: this.ports.id(), mission_id: mission.id, decision_key: `request:${input.request_key}`,
@@ -302,6 +311,43 @@ export class ManagementService {
     if (!next) throw new ManagementError("conflict", "依頼が同時に更新されました。読み直してください", 409);
     this.appendLifecycle(next, `request_${nextState}`, `依頼 ${next.request_key} を人間が ${action} しました`);
     return next;
+  }
+
+  /**
+   * 人間向けカードの配達候補 (CC-MGMT-06)。 カードが要らない変化はここで配達済みにして
+   * 次回から返さない。 カードがある依頼は状態が何であれ編集対象として返す。
+   */
+  deliveries(limit = 20): DeliveryItem[] {
+    const items: DeliveryItem[] = [];
+    for (const request of this.repo.undeliveredRequests(limit * 2)) {
+      const mission = this.repo.findMission(request.mission_id);
+      const effect = mission?.requires_effect_check ?? false;
+      if (!request.discord_message_id && !needsHumanAttention(request.state, effect)) {
+        this.repo.markDelivered(request.id, request.revision, null);
+        continue;
+      }
+      items.push({ request, mission_name: mission?.name ?? "(削除済み任務)", actions: availableHumanActions(request.state, effect) });
+      if (items.length >= limit) break;
+    }
+    return items;
+  }
+
+  recordDelivery(id: string, body: Record<string, unknown>): ManagementRequest {
+    const revision = boundedInt(body.revision, "revision", 0, 1, Number.MAX_SAFE_INTEGER);
+    const messageId = body.message_id === undefined || body.message_id === null ? null : requireText(body.message_id, "message_id", 32);
+    if (messageId !== null && !/^\d{1,25}$/.test(messageId)) throw new ManagementInputError("invalid_input", "message_id が不正です");
+    const request = this.repo.findRequest(id);
+    if (!request) throw new ManagementError("not_found", "依頼が見つかりません", 404);
+    return this.repo.markDelivered(id, revision, messageId)!;
+  }
+
+  /** 管理画面用: 依頼と、その状態で押せる操作。 */
+  listRequestsWithActions(missionId: string | null, limit: number): DeliveryItem[] {
+    const missions = new Map(this.repo.listMissions().map((m) => [m.id, m]));
+    return this.repo.listRequests(missionId, limit).map((request) => {
+      const mission = missions.get(request.mission_id);
+      return { request, mission_name: mission?.name ?? "(削除済み任務)", actions: availableHumanActions(request.state, mission?.requires_effect_check ?? false) };
+    });
   }
 
   /** Cc 自身の状態変化を変更列へ積む (source=cc, origin=system)。 */

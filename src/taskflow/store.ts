@@ -14,6 +14,8 @@ export interface TaskCreateInput {
   title: string; body: string; kind: string; memoryLinks: string[];
   status?: TaskStatus;
   dueAt?: string | null;
+  /** Explicit Actio team; must be one of the project's registered teams. */
+  teamId?: string | null;
 }
 
 export interface TaskScanScope { project?: string }

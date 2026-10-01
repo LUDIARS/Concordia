@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { ActioBinding } from "./actio-binding.js";
 import type { ActioTransport } from "./actio-transport.js";
 import type { TaskStatus } from "./types.js";
+import { taskTeamInScope } from "./actio-team-selection.js";
 import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
 import type { PlanningTask } from "./continuation-plan.js";
@@ -117,7 +118,7 @@ export class ActioWorkflowClient {
     const dependencyIds = [...new Set(tasks.flatMap((task) => task.blockedBy ?? []))].filter((id) => !tasks.some((task) => task.id === id));
     for (const id of dependencyIds) {
       const dependency = z.object({ task: Task }).parse(await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`)).task;
-      if (dependency.teamId !== binding.teamId || (!binding.teamId && dependency.ownerId !== binding.ownerId)) throw new Error("Actio dependency ownership mismatch");
+      if (!taskTeamInScope(binding, dependency.teamId) || (!dependency.teamId && dependency.ownerId !== binding.ownerId)) throw new Error("Actio dependency ownership mismatch");
       planning.push({ id, status: dependency.status === "done" ? "done" : "blocked", blockedBy: [],
         workingSessionId: null,
         isCriticalPath: false, slackDays: null, criticalPathError: null, pullRequests: [] });
@@ -156,7 +157,7 @@ export class ActioWorkflowClient {
   }
 
   private scoped(binding: ActioBinding, task: ActioWorkflowTask): ActioWorkflowTask {
-    if (task.projectId !== binding.projectId || task.ownerId !== binding.ownerId || task.teamId !== binding.teamId
+    if (task.projectId !== binding.projectId || task.ownerId !== binding.ownerId || !taskTeamInScope(binding, task.teamId)
       || task.source !== ACTIO_WORKFLOW_SOURCE || task.pluginId !== ACTIO_WORKFLOW_SOURCE) {
       throw new Error("Actio task ownership mismatch");
     }

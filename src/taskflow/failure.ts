@@ -28,7 +28,10 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
     code: "actio_project_ambiguous", status: 503, message: "Actio のプロジェクト登録を一意に特定できません。",
   }],
   ["Actio project team registration is ambiguous", {
-    code: "actio_project_ambiguous", status: 503, message: "Actio のプロジェクトに複数チームが登録されています。対象を明示する接続設定を確認してください。",
+    code: "actio_project_ambiguous", status: 503, message: "Actio のプロジェクトに複数チームが登録されています。actio_team_id で対象チームを指定してください。",
+  }],
+  ["Actio team is not registered for the project", {
+    code: "actio_team_invalid", status: 400, message: "指定したチームはこのプロジェクトの Actio 登録チームに含まれていません。候補チームから選んでください。",
   }],
   ["Invalid Actio project list response", {
     code: "actio_response_invalid", status: 502, message: "Actio のプロジェクト一覧が契約と一致しません。",

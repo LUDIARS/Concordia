@@ -165,7 +165,8 @@ Explicit headquarters bindings suppress discovery for their repository even if
 their project label differs. Bearer-only deployments never enable local discovery
 when selection yields no configured binding. Organizational checks remain intact.
 
-A selected multi-team project still fails closed. Unscoped queries still validate
+A selected multi-team project resolves to a team-less binding with its registered
+team candidates (CC-AT-TEAM-02); it no longer fails closed. Unscoped queries still validate
 all candidates and never silently omit an ambiguous project. Team ambiguity is a
 safe HTTP 503 configuration failure, not an opaque HTTP 500. No task, permission,
 team assignment or credential is rewritten as part of selection.
@@ -178,11 +179,42 @@ Local test execution, service restart and merge require separate authorization.
 
 ## Local team task access (CC-AT-TEAM-01)
 
-UX-CC-W1/W5, CC-INV-02: local discovery preserves exactly one registered teamId instead of converting team work to personal work. Multiple registered teams fail as ambiguous; explicit bindings retain precedence. Local subsidiary bindings and bearer-to-local fallback remain forbidden. Every team operation verifies loopback identity and the matching leader entry from Actio /api/teams before task I/O. Actio owns authorization and task state; its task routes must independently enforce the verified local-owner team policy. No team membership, owner privilege, or project assignment is rewritten.
+UX-CC-W1/W5, CC-INV-02: local discovery preserves exactly one registered teamId instead of converting team work to personal work. Multiple registered teams are handled by CC-AT-TEAM-02; explicit bindings retain precedence. Local subsidiary bindings and bearer-to-local fallback remain forbidden. Every team operation verifies loopback identity and the matching leader entry from Actio /api/teams before task I/O. Actio owns authorization and task state; its task routes must independently enforce the verified local-owner team policy. No team membership, owner privilege, or project assignment is rewritten.
 
 Recovery: deploy the Actio route authorization fix before using team bindings. On authorization or discovery failure, preserve the original task source identity and report failure; do not redirect to personal scope. Acceptance covers single-team preservation, multi-team rejection, missing/wrong/member team denial, and existing identity/subsidiary/bearer rejection cases.
 
 For local team creation Cc sends the verified single local owner as assigneeId, satisfying Actio's required assignee without inventing a different recipient. Personal and bearer bindings keep their existing payload.
+
+## Multi-team projects and explicit delegation team (CC-AT-TEAM-02)
+
+Actio task: `actio:64ae686f-78e7-4c07-9ad1-037cc3e99aa1` (2026-10-01). A project registered to
+several Actio teams is a legitimate state (e.g. Cernere in LUDIARS-Foundation and GLab). Tasks
+can be filed from either team; a team's backlog only shows tasks on that team.
+
+- Discovery (`src/taskflow/actio-project-binding.ts`): 0 / 1 registered teams keep the previous
+  binding. 2+ teams produce one team-less binding (`teamId: null`) that carries
+  `teamCandidates` (the registered teamIds). Cc never picks one of them by itself.
+- Selection (`src/taskflow/actio-team-selection.ts`, pure): `selectActioTeam(binding, requested)`
+  returns the binding unchanged when nothing is requested, uses the requested team only when it
+  equals the binding's team or is one of its candidates, and otherwise throws
+  `ActioTeamSelectionError` (code `actio_team_invalid`, with the candidate list). A configured
+  binding's team is never overridden.
+- Scope (`src/taskflow/actio-task-client.ts`): a team-less multi-team binding accepts tasks whose
+  team is `null` or one of its candidates, so a team task created by explicit selection can still
+  be read, claimed and updated through the repository binding.
+- Delegation (`src/delegation/contracts.ts`, `src/delegation/actio-task.ts`, `src/api/delegation.ts`,
+  `src/mcp/delegation-server.ts`): `POST /v1/delegation/invoke` and MCP `delegation_invoke` accept an
+  optional `actio_team_id`; it is passed to `TaskStore.create` as `teamId`. Without it a multi-team
+  project gets a team-less task (Actio accepts `teamId: null`: minimal input mode, no lane or
+  assignee requirement, no team/project membership check).
+- Failure (`src/delegation/seal-failure.ts`, `src/delegation/service.ts`): when sealing fails, the
+  invoke error keeps the historical text and adds `detail: { code, message }` from
+  `src/taskflow/failure.ts`. When the binding is multi-team, `detail.candidate_team_ids` and a hint
+  to pass `actio_team_id` are added. Raw exception text, tokens and configuration values are never
+  returned.
+
+Recovery: pass `actio_team_id` with one of `candidate_team_ids`, or omit it for a team-less task.
+Rollback reverts these files; no data migration is involved.
 
 ## CC-TASK-MERGE-END-01: マージまで委託を継続する
 

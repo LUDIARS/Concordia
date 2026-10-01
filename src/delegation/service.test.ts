@@ -14,6 +14,8 @@ import {
 } from "./service.js";
 import { DelegationEffortBlackbox } from "./effort-blackbox.js";
 import { spawnSession } from "../control/spawner.js";
+import { ActioTeamSelectionError } from "../taskflow/actio-team-selection.js";
+import { SEAL_FAILURE_ERROR } from "./seal-failure.js";
 
 // The test creates and removes a real Git worktree. Keep a finite timeout, but
 // do not make a busy Windows review worker fail a correct worktree operation.
@@ -782,6 +784,49 @@ describe("DelegationService.invoke", () => {
       expect(created).toEqual([]);
       expect(reads).toEqual(["actio:task-a"]);
       if (r.ok) expect(JSON.parse(r.run.args_json)).toMatchObject({ taskflow_reference: "actio:task-a" });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  // CC-AT-TEAM-02 C-1 / C-4: a seal failure is classified, and no run is created.
+  it("returns the classified seal failure with candidate teams and creates no run", async () => {
+    const created: Array<{ teamId?: string | null }> = [];
+    const taskStore = {
+      create: async (input: { teamId?: string | null }) => {
+        created.push(input);
+        throw new ActioTeamSelectionError(["team_a", "team_b"]);
+      },
+    };
+    let spawned = 0;
+    const sealed = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => { spawned += 1; return { ok: true, pid: 1, command: ["stub"] }; },
+      taskStore: () => taskStore as never,
+      concordiaUrl: "http://127.0.0.1:11111",
+    });
+    const cwd = mkdtempSync(join(tmpdir(), "deleg-team-"));
+    repo.createTemplate({
+      call_name: "team-impl",
+      title: "実装委託 (team)",
+      target_provider: "claude",
+      prompt_template: "implement ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: cwd,
+    });
+    try {
+      const r = await sealed.invoke({
+        call_name: "team-impl", args: { task: "x" }, actio_team_id: "team_unknown", parent_session_id: "parent-team",
+      });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error).toBe(SEAL_FAILURE_ERROR);
+      expect(r.details).toMatchObject({ code: "actio_team_invalid", candidate_team_ids: ["team_a", "team_b"] });
+      expect(JSON.stringify(r.details)).not.toContain("Actio team is not registered");
+      expect(created[0]?.teamId).toBe("team_unknown");
+      expect(spawned).toBe(0);
+      expect(repo.listRunsByParentSession("parent-team")).toEqual([]);
     } finally {
       rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }

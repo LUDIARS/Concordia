@@ -23,8 +23,18 @@ describe("Actio registration resolution", () => {
     expect(mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["team"] }])).toEqual([
       { ...explicit, projectId: "El", teamId: "team" },
     ]);
-    expect(() => mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["a", "b"] }]))
-      .toThrow("team registration is ambiguous");
+  });
+
+  /** CC-AT-TEAM-02: several teams stay team-less and only expose the registered candidates. */
+  it("keeps a multi-team project team-less with its registered candidates", () => {
+    expect(mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["a", "b"] }])).toEqual([
+      { ...explicit, projectId: "El", teamId: null, teamCandidates: ["a", "b"] },
+    ]);
+    // 0 / 1 team registrations carry no candidates (unchanged shape).
+    expect(mergeActioProjectBindings([], [repo], [project])[0]).not.toHaveProperty("teamCandidates");
+    expect(mergeActioProjectBindings([], [repo], [{ ...project, teamIds: ["team"] }])[0]).not.toHaveProperty("teamCandidates");
+    // An explicit configured binding still wins over a multi-team registration.
+    expect(mergeActioProjectBindings([explicit], [repo], [{ ...project, teamIds: ["a", "b"] }])).toEqual([explicit]);
   });
 
   it("rejects ambiguous registrations and duplicate repository identities", () => {
@@ -67,8 +77,10 @@ describe("Actio registration resolution", () => {
       registered: async () => [{ ...project, code: "Other", teamIds: ["a", "b"] }, { ...project, teamIds: ["team"] }],
     });
     await expect(read(scope)).resolves.toEqual([{ ...explicit, projectId: "El", teamId: "team" }]);
-    await expect(read({ project: "Other" })).rejects.toThrow("team registration is ambiguous");
-    await expect(read()).rejects.toThrow("team registration is ambiguous");
+    await expect(read({ project: "Other" })).resolves.toEqual([{
+      ...explicit, repoPath: other.repo_path, project: "Other", projectId: "Other", teamId: null, teamCandidates: ["a", "b"],
+    }]);
+    await expect(read()).resolves.toHaveLength(2);
   });
 
   it("does not reopen discovery when an explicit binding has a different project label", async () => {

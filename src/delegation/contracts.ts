@@ -75,6 +75,11 @@ export interface InvokeInput {
    */
   task_binding?: "caller";
   subsidiary_id?: string | null;
+  /**
+   * 実装タスクを載せる Actio チーム。 プロジェクトの登録 teamIds に含まれる場合だけ受理する。
+   * 未指定ならチームを選ばない (複数チーム登録のプロジェクトではチーム無しタスクになる)。
+   */
+  actio_team_id?: string | null;
   /** 起動する部署 (spec/feature/departments.md)。 所有会社・廃止を受付時に検証する。 */
   department_id?: string | null;
   project?: string | null;

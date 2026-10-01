@@ -73,6 +73,7 @@ import { readFederationEnv } from "../federation/env.js";
 import { normalizeSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { TaskStore } from "../taskflow/store.js";
 import { sealDelegationTask } from "./actio-task.js";
+import { describeSealFailure, SEAL_FAILURE_ERROR } from "./seal-failure.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -301,8 +302,9 @@ export class DelegationService {
         def = sealed.definition;
         input = sealed.invocation;
         renderedPrompt = sealed.prompt;
-      } catch {
-        return { ok: false, error: "Actio task registration or execution claim failed; inspect the existing task/run before retry" };
+      } catch (error) {
+        // Keep the historical error text; the classified reason goes in details.
+        return { ok: false, error: SEAL_FAILURE_ERROR, details: describeSealFailure(error) };
       }
     }
     const startedAt = Date.now();

@@ -106,9 +106,11 @@ async function main(): Promise<void> {
           reasoning_effort: z.string().optional(),
         }).optional().describe("One-shot model/provider/reasoning overrides"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),
+        actio_team_id: z.string().trim().min(1).max(120).optional()
+          .describe("Actio team for the implementation task; must be one of the project's registered teams. Omit for a team-less task"),
       },
     },
-    async ({ call_name, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides }) => {
+    async ({ call_name, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides, actio_team_id }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
@@ -127,6 +129,7 @@ async function main(): Promise<void> {
           spawn,
           options,
           overrides,
+          actio_team_id,
         },
       );
       if (!r.ok) {

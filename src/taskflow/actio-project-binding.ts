@@ -1,6 +1,8 @@
 import { repositoryKey, type ActioBinding } from "./actio-binding.js";
 import { LOCAL_ACTIO_ACCESS, type ActioProject } from "./actio-projects.js";
 import { matchesActioBindingScope, type ActioBindingScope } from "./actio-binding-scope.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:06867ed4 */
+import augurContract_d3322aca from './actio-project-binding.contract.js'; /* augur-inject:contract-predicate:0bf5f3a9 */
 
 export interface RepositoryProject { code: string; project: string; repo_path: string }
 
@@ -19,10 +21,13 @@ export function mergeActioProjectBindings(
     if (matches.length > 1) throw new Error("Actio project registration is ambiguous");
     if (matches.length === 0) continue;
     // Preserve the registered team; never choose arbitrarily or drop team scope.
-    if (matches[0]!.teamIds.length > 1) throw new Error("Actio project team registration is ambiguous");
+    // Several teams are legitimate: stay team-less and keep the candidates so only
+    // an explicitly requested registered team can be used (selectActioTeam).
+    const teamIds = matches[0]!.teamIds;
     const binding: ActioBinding = {
       ...LOCAL_ACTIO_ACCESS, repoPath: repo.repo_path, project: repo.project, projectId: repo.code,
-      teamId: matches[0]!.teamIds[0] ?? null,
+      teamId: teamIds.length === 1 ? teamIds[0]! : null,
+      ...(teamIds.length > 1 ? { teamCandidates: [...teamIds] } : {}),
     };
     if (result.some(other => repositoryKey(other.repoPath) === repositoryKey(binding.repoPath)
       && other.subsidiaryId === null)) throw new Error("Actio project registration is ambiguous");
@@ -32,6 +37,8 @@ export function mergeActioProjectBindings(
   }
   return result;
 }
+// @ts-expect-error augur-inject
+mergeActioProjectBindings = contract(mergeActioProjectBindings, { ...augurContract_d3322aca, contractId: 'actio-team-C-5', mode: 'observe', sample: 1, where: 'src/taskflow/actio-project-binding.ts:8', rule: 'contract-wrap', id: 'd3322aca' }); /* augur-inject:contract-wrap:d3322aca */
 
 /** Read on demand: adding an Actio registration needs no Cc restart or second registry. */
 export function createActioBindingReader(input: {

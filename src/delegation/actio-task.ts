@@ -12,7 +12,7 @@ export async function sealDelegationTask(input: {
   if (!cwd || !store.create) throw new Error("Actio task store and repository binding are required");
   const task = await store.create({
     issuedBySessionId: invocation.parent_session_id ?? null,
-    repoPath: cwd, subsidiaryId: invocation.subsidiary_id ?? null,
+    repoPath: cwd, subsidiaryId: invocation.subsidiary_id ?? null, teamId: invocation.actio_team_id ?? null,
     // Stable even when the POST response is lost before the run exists locally.
     sourceRef: `delegation:${createHash("sha256").update(JSON.stringify([
       invocation.parent_session_id ?? null, definition.template_id ?? definition.call_name,

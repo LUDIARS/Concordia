@@ -134,6 +134,54 @@ describe("ActioTaskStore", () => {
     expect(create.mock.calls[0]![0]).toEqual(HQ);
   });
 
+  /** CC-AT-TEAM-02: a multi-team binding uses only an explicitly requested registered team. */
+  describe("multi-team project creation", () => {
+    const MULTI: ActioBinding = { ...HQ, teamCandidates: ["team-a", "team-b"] };
+    const input = {
+      repoPath: HQ.repoPath, subsidiaryId: null, sourceRef: "session:s1:req-1",
+      title: "タイトル", body: "本文", kind: "実装", memoryLinks: [],
+    };
+
+    it("creates the task on the requested registered team", async () => {
+      const create = vi.fn(async (_binding: ActioBinding, _input: CreateInput) =>
+        ({ task: task({ teamId: "team-b" }), existed: false }));
+      const { store } = fixture([MULTI], { create } as never);
+      const document = await store.create({ ...input, teamId: "team-b" });
+      expect(document.path).toBe("actio:task-1");
+      expect(create.mock.calls[0]![0]).toMatchObject({ teamId: "team-b", teamCandidates: ["team-a", "team-b"] });
+    });
+
+    it("creates a team-less task when no team is requested", async () => {
+      const { store, create } = fixture([MULTI]);
+      await store.create(input);
+      expect(create.mock.calls[0]![0]).toMatchObject({ teamId: null });
+    });
+
+    it("rejects an unregistered team before any Actio write", async () => {
+      const { store, create } = fixture([MULTI]);
+      await expect(store.create({ ...input, teamId: "team-x" })).rejects.toMatchObject({
+        message: "Actio team is not registered for the project", candidateTeamIds: ["team-a", "team-b"],
+      });
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("names the candidate teams when Actio refuses a team-less task", async () => {
+      const { store } = fixture([MULTI], {
+        create: vi.fn(async () => { throw new Error("Actio task request rejected (400)"); }),
+      } as never);
+      await expect(store.create(input)).rejects.toMatchObject({
+        message: "Actio task request rejected (400)", candidateTeamIds: ["team-a", "team-b"],
+      });
+    });
+
+    it("keeps single-team and personal bindings unchanged without a request", async () => {
+      const { store, create } = fixture([{ ...HQ, teamId: "team-1" }]);
+      await store.create(input);
+      expect(create.mock.calls[0]![0]).toEqual({ ...HQ, teamId: "team-1" });
+      await expect(store.create({ ...input, teamId: "team-2" })).rejects.toThrow("not registered");
+    });
+  });
+
   it("writes a status through the client", async () => {
     const { store, setStatus } = fixture();
 

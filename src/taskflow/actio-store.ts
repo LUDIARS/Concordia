@@ -3,6 +3,7 @@ import { isAbsolute, win32 } from "node:path";
 import { repositoryKey, type ActioBinding } from "./actio-binding.js";
 import { matchesActioBindingScope, type ActioBindingReader, type ActioBindingScope } from "./actio-binding-scope.js";
 import { workflowStatus, type ActioWorkflowClient, type ActioWorkflowTask } from "./actio-task-client.js";
+import { ActioTeamCandidatesError, selectActioTeam } from "./actio-team-selection.js";
 import { mainRepositoryKey } from "./repository-identity.js";
 import type { TaskflowStateStore } from "./state-store.js";
 import type { RemainingTasksInput, TaskCreateInput, TaskScanScope, TaskStore } from "./store.js";
@@ -81,8 +82,14 @@ export class ActioTaskStore implements TaskStore {
   }
 
   async create(input: TaskCreateInput): Promise<TaskDocument> {
-    const binding = await this.binding(input.repoPath, input.subsidiaryId);
-    const result = await this.client.create(binding, input);
+    const binding = selectActioTeam(await this.binding(input.repoPath, input.subsidiaryId), input.teamId);
+    let result: Awaited<ReturnType<ActioWorkflowClient["create"]>>;
+    try { result = await this.client.create(binding, input); }
+    catch (error) {
+      // A team-less task on a multi-team project may be refused; name the teams to choose from.
+      if (binding.teamId !== null || !binding.teamCandidates?.length || !(error instanceof Error)) throw error;
+      throw new ActioTeamCandidatesError(error.message, binding.teamCandidates);
+    }
     return this.document(binding, result.task);
   }
 

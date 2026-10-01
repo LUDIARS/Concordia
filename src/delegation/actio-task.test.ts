@@ -33,6 +33,25 @@ function fixture(override: Partial<TaskStore> = {}) {
 }
 
 describe("sealDelegationTask", () => {
+  /** CC-AT-TEAM-02: the invoke's actio_team_id is the only team the store may use. */
+  it("passes an explicit actio_team_id to the task store", async () => {
+    const { store, create } = fixture();
+    await sealDelegationTask({
+      store, definition: definition(), invocation: invocation({ actio_team_id: "team_b" }), runId: "run-1", content: CONTENT,
+    });
+    expect(create.mock.calls[0]![0].teamId).toBe("team_b");
+  });
+
+  it("does not associate a run when the store rejects the requested team", async () => {
+    const { store, associate } = fixture({
+      create: vi.fn(async () => { throw new Error("Actio team is not registered for the project"); }),
+    });
+    await expect(sealDelegationTask({
+      store, definition: definition(), invocation: invocation({ actio_team_id: "unknown" }), runId: "run-1", content: CONTENT,
+    })).rejects.toThrow("not registered");
+    expect(associate).not.toHaveBeenCalled();
+  });
+
   it("stores the rendered content in Actio and hands the child only a reference", async () => {
     const { store, create } = fixture();
 
@@ -44,7 +63,7 @@ describe("sealDelegationTask", () => {
     expect(create.mock.calls[0]![0]).toMatchObject({
       repoPath: REPO, subsidiaryId: null, title: "実装委託 (Opus / xhigh)", body: CONTENT,
       kind: "実装", memoryLinks: ["mem-1"], status: "delegated",
-      issuedBySessionId: "parent-1",
+      issuedBySessionId: "parent-1", teamId: null,
     });
     expect(sealed.prompt).toContain("actio:task-1");
     expect(sealed.prompt).not.toContain(CONTENT);

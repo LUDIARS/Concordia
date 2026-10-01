@@ -3095,6 +3095,152 @@
       ]
     },
     {
+      "source": "src/taskflow/actio-team-selection.ts",
+      "tests": [
+        "src/taskflow/actio-team-selection.test.ts",
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02",
+        "actio-team-C-2",
+        "actio-team-C-3",
+        "actio-team-C-4"
+      ]
+    },
+    {
+      "source": "src/delegation/seal-failure.ts",
+      "tests": [
+        "src/delegation/seal-failure.test.ts",
+        "src/delegation/service.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02",
+        "actio-team-C-1"
+      ]
+    },
+    {
+      "source": "src/delegation/service.ts",
+      "tests": [
+        "src/delegation/service.test.ts",
+        "src/api/delegation-invoke-team.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/delegation/actio-task.ts",
+      "tests": [
+        "src/delegation/actio-task.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/delegation/contracts.ts",
+      "tests": [
+        "src/delegation/actio-task.test.ts",
+        "src/api/delegation-invoke-team.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/api/delegation.ts",
+      "tests": [
+        "src/api/delegation-invoke-team.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/mcp/delegation-server.ts",
+      "tests": [
+        "src/api/delegation-invoke-team.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-project-binding.ts",
+      "tests": [
+        "src/taskflow/actio-project-binding.test.ts",
+        "src/api/taskflow-project-scope.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02",
+        "actio-team-C-5"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-store.ts",
+      "tests": [
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-task-client.ts",
+      "tests": [
+        "src/taskflow/actio-team-selection.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-binding.ts",
+      "tests": [
+        "src/taskflow/actio-project-binding.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/store.ts",
+      "tests": [
+        "src/taskflow/actio-store.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/failure.ts",
+      "tests": [
+        "src/delegation/seal-failure.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/delegation/ontime-runtime.ts",
+      "tests": [
+        "src/delegation/seal-failure.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
+      "source": "src/taskflow/ontime-runtime.ts",
+      "tests": [
+        "src/taskflow/actio-team-selection.test.ts",
+        "src/taskflow/actio-project-binding.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-TEAM-02"
+      ]
+    },
+    {
       "source": "src/management/remote-config.ts",
       "tests": [
         "src/management/remote-config.test.ts"

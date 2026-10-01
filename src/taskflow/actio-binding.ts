@@ -18,7 +18,11 @@ const Binding = z.object({
   }
 });
 
-export type ActioBinding = z.infer<typeof Binding>;
+/**
+ * `teamCandidates` is never configured: discovery sets it when a project is
+ * registered to several Actio teams and the binding itself stays team-less.
+ */
+export type ActioBinding = z.infer<typeof Binding> & { readonly teamCandidates?: readonly string[] };
 export type ActioAccess = Pick<ActioBinding, "ownerId" | "authMode" | "tokenEnv" | "teamId" | "subsidiaryId">;
 
 /** Configuration errors must not expose tokens or raw configuration values. */

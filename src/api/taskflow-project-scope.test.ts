@@ -1,4 +1,4 @@
-/** @implements spec/feature/task-workflow-v3.md CC-AT-SCOPE-01 */
+/** @implements spec/feature/task-workflow-v3.md CC-AT-SCOPE-01 / CC-AT-TEAM-02 */
 import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import type { ActioBinding } from "../taskflow/actio-binding.js";
@@ -48,12 +48,21 @@ describe.each(["/tasks", "/overview"])("project-scoped %s", (path) => {
     expect(list.mock.calls[0]![0]).toMatchObject({ projectId: "Tp", teamId: "musa", ownerId: "actio-local" });
   });
 
-  it.each(["?project=Other", ""])("rejects selected or unscoped ambiguity before task I/O: %s", async (query) => {
+  // CC-AT-TEAM-02: a multi-team project is legitimate; it is read through a team-less
+  // binding that carries the registered candidates instead of failing as ambiguous.
+  it("reads a selected multi-team project through a team-less binding", async () => {
     const { app, list } = fixture();
-    const response = await app.request(path + query);
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ reason: "actio_project_ambiguous" });
-    expect(list).not.toHaveBeenCalled();
+    const response = await app.request(`${path}?project=Other`);
+    expect(response.status).toBe(200);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list.mock.calls[0]![0]).toMatchObject({ projectId: "Other", teamId: null, teamCandidates: ["a", "b"] });
+  });
+
+  it("includes a multi-team project in unscoped reads", async () => {
+    const { app, list } = fixture();
+    const response = await app.request(path);
+    expect(response.status).toBe(200);
+    expect(list.mock.calls.map(([binding]) => binding.projectId).sort()).toEqual(["Other", "Tp"]);
   });
 
   it("returns no tasks for an unknown project without reading another project's tasks", async () => {

@@ -185,6 +185,8 @@ const InvokeSchema = z.object({
    * 経由) と同じ trust boundary (loopback 自己呼び出し) で運ぶ。
    */
   subsidiary_id: z.string().trim().min(1).max(120).optional().nullable(),
+  /** 実装タスクを載せる Actio チーム (プロジェクトの登録 teamIds のいずれか)。 */
+  actio_team_id: z.string().trim().min(1).max(120).optional().nullable(),
   /** 起動する部署 id (spec/feature/departments.md §5)。 所有会社・廃止を service が検証する。 */
   department: z.string().trim().min(1).max(120).optional().nullable(),
   project: z.string().max(120).optional().nullable(),
@@ -739,6 +741,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       } : parsed.data.overrides,
       parent_session_id: parentSessionId,
       subsidiary_id: parsed.data.subsidiary_id ?? null,
+      actio_team_id: parsed.data.actio_team_id ?? null,
       department_id: parsed.data.department ?? null,
       project: parsed.data.project ?? null,
       requester_discord_user_id: parsed.data.requester_discord_user_id ?? null,

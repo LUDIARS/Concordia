@@ -15,8 +15,7 @@
   [対話の前提データ](dialogue-context.md) (依頼者メモ)、[子会社委任](subsidiary-delegation.md)、
   [local PR](revisor-local-pr-submission.md)
 
-本書は設計であり、実装・テスト・人間による UX 評価は未実施。深刻度ごとの加算量 (§7.2) は提案値で、
-neco の確認を受けていない。設定で変えられる形にするので、実装は提案値のまま進められる。
+本書は設計であり、実装・テスト・人間による UX 評価は未実施。報奨の台帳と加算量は [個人の AI 予算](personal-ai-budget.md) が持つ。
 
 ## 1. 用語
 
@@ -29,8 +28,8 @@ neco の確認を受けていない。設定で変えられる形にするので
 | 判定 | 採用 / 重複 / 対象外 / 情報不足 | 修正の完了 |
 | hotfix | 採用と同時に修正の委託を起動し、スプリントを待たずに審査へ出すこと | バックログに積む修正 |
 | 反映確認 | 修正を含むデプロイを Cc が確認した、または権限者が証拠付きで閉じた事実 | PR の提出、審査通過、マージ |
-| 報奨 | 反映確認の時点で受取人の個人残高へ加算するトークン数 | 子会社の日次 budget |
-| 個人残高 | 受取人ごとのトークン残高。所属の日次 budget を超えた後の消費に充てる | 全体の日次 budget (停止スイッチ) |
+| 報奨 | 反映確認の時点で受取人の報酬分へ加算するトークン数 | 子会社の日次 budget |
+| 報酬分 | 受取人ごとの報奨の残高。月間分が尽きた後の消費に充てる ([個人の AI 予算](personal-ai-budget.md)) | 月間分、子会社の日次 budget |
 | 公開名 | 報告者が公開面に出してよいと自分で決めた名前。未設定は「匿名」 | Discord の表示名、実名 |
 
 ## 2. 不変条件
@@ -42,7 +41,7 @@ neco の確認を受けていない。設定で変えられる形にするので
 | CC-BOUNTY-INV-03 | 受付は外部 (Actio・Revisor・AI) の成否より先に永続化する。外部の失敗で報告を失わない | 受付 use case の順序 |
 | CC-BOUNTY-INV-04 | 報奨は 1 報告につき 1 回、反映確認の証拠と結び付けて付ける。重複と判定された報告には付けない | 残高台帳の一意制約 `(report_id, kind=grant)` |
 | CC-BOUNTY-INV-05 | 本社所属・受取人不明の報告は報奨なし。記録と通知は同じに扱う | 報奨の判定 (純関数) |
-| CC-BOUNTY-INV-06 | 個人残高は全体の日次 budget (停止スイッチ) を超えさせない。残高は負にならない | budget 判定の拡張、台帳の CAS |
+| CC-BOUNTY-INV-06 | (欠番。個人の予算の上限は [個人の AI 予算](personal-ai-budget.md) の CC-PBUDGET-INV-02 / 03 が持つ) | — |
 | CC-BOUNTY-INV-07 | 公開面に出すのは、公開プロジェクトの・採用済みの・AI が書き直した要約と公開名だけ。原文、非公開プロジェクト、機微な報告 (反映前) は出さない。判定できなければ出さない | 公開読み出しの判定 (純関数) |
 | CC-BOUNTY-INV-08 | AI の判定は権限者が覆せる。判定の変更は誰がいつ何から何へ変えたかを履歴に残す | 再審 use case + 判定履歴 |
 | CC-BOUNTY-INV-09 | PR の提出・審査通過・マージを反映確認に置き換えない (CC-INV-04) | 状態遷移 (純関数) |
@@ -174,40 +173,15 @@ CC-INV-02 (権限)、CC-INV-03 (依頼同一性)、CC-INV-06 (配達) は本機�
 
 **Requirement ID: `SPEC-BOUNTY-REWARD`**
 
-- 報奨は反映確認と同じ use case で付ける。条件 (純関数): 判定が採用、重複でない、`self_inflicted` でない、
-  受取人が居る、受取人の所属が子会社。満たさない報告は「報奨なし」と理由を記録する。
-- 加算量は深刻度で決める (§7.2)。`bounty_balance_ledger` へ `grant` を 1 行書く。`(report_id, kind)` の一意制約で
-  二重に付かない (CC-BOUNTY-INV-04)。
-- 判定が後から覆って採用でなくなった場合、未使用ぶんを上限に `revoke` を書く。使った後の残高は負にしない。
+- 報奨は反映確認と同じ use case から依頼する。条件 (純関数): 判定が採用、重複でない、`self_inflicted` でない、
+  受取人が居る。満たさない報告は「報奨なし」と理由を記録する。
+- 付与そのもの (加算量・一意性・本社所属の除外・台帳・本人への通知) は [個人の AI 予算](personal-ai-budget.md) が持つ。
+  bug-bounty は種類 `bounty`・根拠 (報告 id)・深刻度・受取人を渡すだけで、台帳を直接書かない (CC-BOUNTY-INV-04)。
+- 判定が後から覆って採用でなくなった場合は、同じ port へ取り消しを依頼する。
 
-### 7.1 個人残高の使い方
-
-**Requirement ID: `SPEC-BOUNTY-BALANCE`**
-
-- 普段の集計は変えない。子会社の日次 budget に達して新しい作業が止まる場面で、依頼者の個人残高が正なら
-  その依頼者のセッションだけ通す。
-- 通したセッションが子会社の超過中に使ったトークンを、個人残高から `debit` する。計上はセッションの累積トークンの
-  正の差分で、既存の使用量サンプルと同じ流儀 (負の差分は 0)。`(session_id, date_iso)` 単位で累積を更新し、
-  再起動を跨いでも二重に引かない。
-- 残高が 0 になったら、そのセッションの次の払い出しから止める (実行中の処理は打ち切らない)。
-- 全体の日次 budget (停止スイッチ) が超過中は、残高があっても通さない (CC-BOUNTY-INV-06)。
-- 残高に期限は付けない。`/bug balance` で本人が残高と履歴を確認できる (応答は本人にだけ返す)。
-- 消費を個人へ帰属させる鍵は、セッションの依頼者 (`discord_requester_user_id` と所属会社)。依頼者の無いセッションは
-  個人残高を使わない。
-
-### 7.2 深刻度ごとの加算量 (提案値・未承認)
-
-| 深刻度 | 加算トークン | 設定キー |
-|---|---|---|
-| s1 致命 | 2,000,000 | `bounty.reward_tokens.s1` |
-| s2 重大 | 1,000,000 | `bounty.reward_tokens.s2` |
-| s3 通常 | 500,000 | `bounty.reward_tokens.s3` |
-| s4 軽微 | 100,000 | `bounty.reward_tokens.s4` |
-
-設定画面 (運用) で変えられる。付与済みの報奨は、設定を変えても遡って変えない。
-
-状態所有者: 残高台帳 = `bounty_balance_ledger` (bug-bounty)。日次 budget と停止スイッチ = observability (既存)。
-bug-bounty は budget の判定へ「この依頼者に残高があるか」を答える port を提供し、observability の表を直接書かない。
+個人の予算は月間分と報酬分に分かれ、月間分から先に消費する (2026-10-02 neco 指示)。消費の順序、子会社と全体の
+上限との関係、残高の確認 (`/budget`)、本社の調整 (`/reward`)、加算量の既定値は [個人の AI 予算](personal-ai-budget.md) を
+正本とする。本書では持たない (`/bug balance` と `bounty_balance_ledger`、設定 `bounty.reward_tokens.*` は作らない)。
 
 ## 8. 公開面 (Actio の認証なしの領域)
 
@@ -258,10 +232,9 @@ Cc の WebUI に「バグバウンティ」ページを置く。運用担当の�
 - 詳細: 原文、仕分けの結果と根拠、履歴 (`bounty_report_events`)、Actio タスクと PR へのリンク、反映の証拠。
   権限者の操作: 判定・深刻度・自己起因の変更、再審の決定、タスク作成の再試行、手動クローズ。操作は §5・§7 の
   use case を呼び、画面が状態を直接書かない。
-- 残高: 受取人ごとの残高と台帳 (grant / debit / revoke)。
-- 設定: 深刻度ごとの加算量と hotfix の 1 日の上限は既存の設定画面に足す。`bounty_public` は `/projects` に足す。
-- API: `GET /v1/bounty/reports` (絞り込み・ページング・原文なし)、`GET /v1/bounty/reports/:id`、
-  `GET /v1/bounty/balances`、`GET /v1/bounty/balances/:reporterId/ledger`。
+- 残高と台帳は「個人の AI 予算」ページ ([個人の AI 予算](personal-ai-budget.md) §7) が持つ。報告の詳細からそこへリンクする。
+- 設定: hotfix の 1 日の上限は既存の設定画面に足す。`bounty_public` は `/projects` に足す。
+- API: `GET /v1/bounty/reports` (絞り込み・ページング・原文なし)、`GET /v1/bounty/reports/:id`。
 
 ## 9. 状態遷移
 
@@ -286,9 +259,8 @@ withdrawn: 報告者本人が、採用前に取り下げた
 | `bounty_reports` | id、会社、対象プロジェクト、報告者 (reporter id または session id)、受取人 (reporter id、null 可)、原文 (何が起きたか・再現手順)、受付口と冪等キー、状態、判定・深刻度・機微・自己起因・hotfix 可否、重複先、公開用の題名と要約、Actio タスクの参照と作成の失敗理由、`fix_pr`、反映の証拠 (デプロイの code / hash、または手動の根拠と操作者)、時刻 | bug-bounty |
 | `bounty_report_events` | 報告 id、種別 (受付・仕分け結果・判定変更・再審・タスク作成・hotfix 起動・PR 記録・反映・報奨・通知)、前後の値、操作者 (AI / 人 / システム)、時刻 | bug-bounty |
 | `bounty_reporters` | id、会社、プラットフォーム、プラットフォームのユーザー id、公開名、時刻。`(会社, プラットフォーム, ユーザー id)` で一意 | bug-bounty |
-| `bounty_balance_ledger` | id、受取人、種別 (grant / debit / revoke)、トークン数、報告 id (grant / revoke)、session id と日付 (debit)、時刻。`(report_id, kind)` と `(session_id, date_iso, kind)` で一意 | bug-bounty |
 | `project_codes.bounty_public` | 公開面に出してよいか (0 / 1、既定 0) | project-code-registry |
-| 設定 `bounty.reward_tokens.*`、`bounty.hotfix_daily_limit` | 加算量、プロジェクトごとの 1 日の hotfix 起動上限 | configuration |
+| 設定 `bounty.hotfix_daily_limit` | プロジェクトごとの 1 日の hotfix 起動上限 | configuration |
 
 原文は Cc のローカル DB だけに置く。連合・通知・ログ・Actio・公開面へ出さない。
 
@@ -335,7 +307,7 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
   §7 の手動クローズだけになる。実装の最初に確認する。
 - 子会社の日次 budget の判定が 1 か所に集まっているか。複数経路なら、残高の判定を足す箇所を実装時に洗い出す。
 - Cocoiru 側の報告フォームと通知の形。Cocoiru のコードは本設計では読んでいない。
-- 深刻度ごとの加算量 (§7.2) は提案値。
+- 深刻度ごとの加算量は提案値 ([個人の AI 予算](personal-ai-budget.md) §5)。
 - Actio が `source: "concordia.bounty.v1"` を受けるか (現状は `concordia.taskflow.v3` を明示的に受ける)。
 
 ## 15. 分割
@@ -346,9 +318,9 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 |---|---|---|---|
 | 1 | Cc | 報告台帳と受付 (§3・§4・§9・§10、`/bug`、セッション API)、クラシファイアと起動案内 (§8.1) | `spec/tasks/2026-10-02-bounty-intake.md` |
 | 2 | Cc | AI の仕分け・再審・Actio タスク作成・hotfix (§5・§6) | `spec/tasks/2026-10-02-bounty-triage-fix.md` |
-| 3 | Cc | 反映確認・デプロイ通知・報奨と個人残高 (§7) | `spec/tasks/2026-10-02-bounty-close-reward.md` |
+| 3 | Cc | 反映確認・デプロイ通知・報奨の依頼 (§7)。前提: 個人の AI 予算 A | `spec/tasks/2026-10-02-bounty-close-reward.md` |
 | 4 | Cc / At | 公開読み出し API と Actio の公開面 (§8)、Actio の source 受け入れ | Cc: `spec/tasks/2026-10-02-bounty-public.md`、At: Actio の PR に含める |
-| 5 | Cc | WebUI (§8.2) | `spec/tasks/2026-10-02-bounty-webui.md` |
+| 5 | Cc | WebUI (§8.2。残高は個人の AI 予算のページ) | `spec/tasks/2026-10-02-bounty-webui.md` |
 | 6 | Castra / Cocoiru | セッション用スキル `bug-bounty-report`、Cocoiru の報告フォーム | Cocoiru は別途 (§14) |
 
 依存: 2 → 1、3 → 2、4 → 1 (Cc 側) と 2 (公開用の要約)、5 → 1〜3。1 から順に進める。

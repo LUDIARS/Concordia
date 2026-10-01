@@ -1,0 +1,20 @@
+{
+  "name": "personal-ai-budget",
+  "description": "個人の AI 予算: 子会社の個人ごとに月間分と報酬分のトークン予算を持ち、月間分から先に消費する。報奨 (バグ報告・技術相談・Tabula 公開・本社の調整) の付与と一意性、消費の計上、払い出しの可否、本人と本社への表示を持つ。全体と子会社の日次 budget は observability、報奨の根拠となる出来事は bug-bounty と consultation が持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/personal-budget/[^/]+$" },
+    { "pathPattern": "(^|/)src/db/personal-budget-[^/]+-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/personal-budget[^/]*\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/commands/(reward|budget)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/PersonalBudget[^/]*\\.tsx?$" },
+    { "pathPattern": "(^|/)tests/personal-budget[^/]*\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the personal-ai-budget domain: per-person monthly and reward token budgets for subsidiary members, monthly-first consumption, dispatch gating under the global and subsidiary caps, idempotent reward grants by kind and source, head-office manual adjustments with a recorded reason, and balance views limited to the person and head-office approvers.",
+  "specRefs": [
+    "spec/feature/personal-ai-budget.md",
+    "spec/ux/product.md"
+  ],
+  "rationale": "個人の予算は、報奨の理由 (バグ報告・相談・公開・調整) とも、組織の上限 (全体・子会社の日次 budget) とも別の理由で変わる。台帳と消費の順序を 1 か所に閉じ、報奨を依頼する側と払い出しを止める側の両方へ port で答える。支援ドメイン (運用・組織) であり、コアではない。"
+}

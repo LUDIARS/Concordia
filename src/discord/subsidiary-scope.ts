@@ -12,6 +12,9 @@
  *    Session forum の起動承認・不足情報の回答) は使える。
  *  - 会社運営の面 (コントロールパネル / PR キュー / Test forum の操作 / チーム管理 /
  *    執行役員への spawn 一回許可) は出さない。本社の事情が出張先へ漏れるため。
+ *  - `/consult` (プライベート相談) は出す (2026-10-01 neco 指示: 子会社の相談窓口)。 受けるのは
+ *    その子会社のプロジェクトを持たない相談部署だけ (tech-consultation.md §6)。 公開候補 (Tabula へ
+ *    出す wrap とそのカード) は本社の知見共有の面なので出さない。
  *
  * @implements spec/feature/subsidiary-delegation.md §3.1
  */
@@ -23,12 +26,13 @@ import { isQuestionInteraction } from "./question.js";
 import { isPermissionInteraction } from "./permission.js";
 import { isForumSpawnApprovalInteraction } from "./forum-spawn-approval.js";
 import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
+import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
 
 /**
  * 子会社 guild へ登録する slash command。
  * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加"]);
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
@@ -57,5 +61,8 @@ export function isSubsidiarySessionSurface(interaction: Interaction): boolean {
   if (isForumSpawnIntakeInteraction(interaction)) return true;
   if (!("customId" in interaction) || typeof interaction.customId !== "string") return false;
   return interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)
-    || interaction.customId.startsWith(PLAN_PREFIX);
+    || interaction.customId.startsWith(PLAN_PREFIX)
+    // プライベート相談の受付モーダルと承認ボタン。 公開候補 (consult:pub*) は含めない。
+    || interaction.customId.startsWith(CONSULT_MODAL_PREFIX)
+    || interaction.customId.startsWith(CONSULT_APPROVE_PREFIX);
 }

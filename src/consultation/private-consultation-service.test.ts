@@ -7,7 +7,12 @@ import { PrivateConsultationService } from "./private-consultation-service.js";
 
 const intake = { topic: "評価面談の伝え方", skill_level: "初級", role_title: "マネージャー", purpose: "" };
 
-function setup(options: { launchers?: string[]; privateSetting?: Record<string, unknown>; subsidiary?: string | null } = {}) {
+function setup(options: {
+  launchers?: string[];
+  privateSetting?: Record<string, unknown>;
+  subsidiary?: string | null;
+  projectless?: boolean;
+} = {}) {
   const db = makeTestDb();
   const departments = new DepartmentsRepo(db);
   const store = new PrivateConsultationsRepo(db);
@@ -27,6 +32,7 @@ function setup(options: { launchers?: string[]; privateSetting?: Record<string, 
       .filter(([, role]) => minRole === "manager" || role === "executive")
       .map(([id]) => id),
     canLaunch: (userId) => launchers.has(userId),
+    isProjectless: () => options.projectless ?? false,
     now: () => clock++,
   });
   return { service, store, department, departments };
@@ -54,19 +60,43 @@ describe("PrivateConsultationService.start", () => {
     expect(started.members.map((m) => m.platform_user_id)).toEqual(["111", "901"]);
   });
 
-  it("rejects departments that do not accept private consultations and subsidiaries", () => {
+  it("rejects departments that do not accept private consultations, belong to another company, or need a project", () => {
     const closed = setup({ privateSetting: { enabled: false } });
     expect(closed.service.start({ departmentId: closed.department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake }))
       .toEqual({ ok: false, error: "department_not_private" });
 
-    const child = setup({ subsidiary: "glab" });
-    expect(child.service.start({ departmentId: child.department.id, runtimeSubsidiaryId: "glab", requesterUserId: "111", intake }))
-      .toEqual({ ok: false, error: "head_office_only" });
+    const child = setup({ subsidiary: "glab", projectless: true });
+    expect(child.service.start({ departmentId: child.department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake }))
+      .toEqual({ ok: false, error: "department_other_organization" });
+    const head = setup();
+    expect(head.service.start({ departmentId: head.department.id, runtimeSubsidiaryId: "glab", requesterUserId: "111", intake }))
+      .toEqual({ ok: false, error: "department_other_organization" });
+
+    const projectBound = setup({ subsidiary: "glab", projectless: false });
+    expect(projectBound.service.start({ departmentId: projectBound.department.id, runtimeSubsidiaryId: "glab", requesterUserId: "111", intake }))
+      .toEqual({ ok: false, error: "subsidiary_requires_projectless" });
 
     const archived = setup();
     archived.departments.setArchived(archived.department.id, true);
     expect(archived.service.start({ departmentId: archived.department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake }))
       .toEqual({ ok: false, error: "department_archived" });
+  });
+
+  it("opens a subsidiary consultation for a projectless department and records the company (tech-consultation.md §6)", () => {
+    const { service, department } = setup({ subsidiary: "glab", projectless: true, launchers: ["900", "901", "111"] });
+    const started = service.start({ departmentId: department.id, runtimeSubsidiaryId: "glab", requesterUserId: "111", intake });
+    if (!started.ok) throw new Error(started.error);
+    expect(started.consultation).toMatchObject({ subsidiary_id: "glab", status: "open" });
+  });
+
+  it("narrows approvers to the viewer candidates but never adds people outside the roster", () => {
+    const { service, department } = setup({ launchers: ["900", "901", "111"] });
+    const started = service.start({
+      departmentId: department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake,
+      viewerCandidates: ["901", "777"],
+    });
+    if (!started.ok) throw new Error(started.error);
+    expect(started.members.map((m) => [m.platform_user_id, m.reason])).toEqual([["111", "requester"], ["901", "approver"]]);
   });
 
   it("requires the required intake items", () => {

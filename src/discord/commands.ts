@@ -303,7 +303,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     });
     return;
   }
-  // プライベート相談のモーダル送信 / 承認ボタン (tech-consultation.md §4)。 本社 Bot だけに配線される。
+  // プライベート相談のモーダル送信 / 承認ボタン (tech-consultation.md §4)。 子会社 Bot は相談部署のある会社で配線される (§6)。
   if ((interaction.isModalSubmit() && interaction.customId.startsWith(CONSULT_MODAL_PREFIX))
     || (interaction.isButton() && interaction.customId.startsWith(CONSULT_APPROVE_PREFIX))) {
     if (!deps.consult) {

@@ -13,7 +13,8 @@ describe("Discord command registration", () => {
 
   it("registers only safe session commands for subsidiary guilds", () => {
     // /spawn は子会社では出さない (2026-09-02 neco 指示: 起動は Session forum 一本)。
-    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "ch_name", "バックログに追加"]);
+    // /consult は子会社の相談窓口として出す (2026-10-01、 tech-consultation.md §6)。
+    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "ch_name", "consult", "バックログに追加"]);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
     expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);
     expect(isSubsidiaryAllowedCommand("end-session")).toBe(false);

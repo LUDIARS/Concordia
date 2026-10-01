@@ -29,6 +29,18 @@ describe("子会社 guild で使えるコマンド", () => {
     },
   );
 
+  it("プライベート相談 /consult は出す (2026-10-01、 子会社の相談窓口)", () => {
+    expect(isSubsidiaryAllowedCommand("consult")).toBe(true);
+    expect(isSubsidiaryAllowedInteraction({ commandName: "consult" } as never)).toBe(true);
+  });
+
+  it("相談の受付モーダルと承認ボタンは通し、 公開候補の面は通さない", () => {
+    expect(isSubsidiarySessionSurface(surface("consult:modal:dept_1", { button: false }))).toBe(true);
+    expect(isSubsidiarySessionSurface(surface("consult:approve:pc_1"))).toBe(true);
+    expect(isSubsidiarySessionSurface(surface("consult:pub:approve:pub_1"))).toBe(false);
+    expect(isSubsidiarySessionSurface(surface("consult:pubedit:pub_1", { button: false }))).toBe(false);
+  });
+
   it("コマンド interaction はコマンド名で判定する", () => {
     expect(isSubsidiaryAllowedInteraction({ commandName: "spawn" } as never)).toBe(false);
     expect(isSubsidiaryAllowedInteraction({ commandName: "prs" } as never)).toBe(false);

@@ -13,10 +13,11 @@ import { buildConsultModal } from "../consult-modal.js";
  * - `invite user:@x` / `remove user:@x`: 相談チャンネル内で閲覧者を足し引きする (相談者本人と権限者のみ)。
  * - `wrap`: 相談の区切りで、 セッションに公開候補 (書き直した要約) づくりを依頼する (§5)。
  *
- * 本社 guild だけに出す (子会社の許可コマンドには載せない)。
+ * 本社 guild と、 子会社 guild (その会社のプロジェクトを持たない相談部署だけ、 tech-consultation.md §6) に出す。
+ * 子会社では wrap (公開候補) を使えない (Bot が requestProposal を配線しない)。
  */
 export interface ConsultCommandDeps extends ConsultFlowDeps {
-  /** 本社でプライベート相談を受け付ける稼働中の部署 (補完用)。 */
+  /** この Bot の会社でプライベート相談を受け付ける稼働中の部署 (補完用)。 */
   privateDepartments(): ReadonlyArray<{ id: string; name: string }>;
   /** モーダルの既定値 (依頼者メモの技術レベル・役職)。 */
   requesterDefaults(userId: string): ConsultIntakeDefaults | null;

@@ -2,8 +2,10 @@
  * プライベート相談のユースケース (application)。 部署の検査・閲覧者の決定・承認・招待・終了を持つ。
  * Discord のチャンネル操作は呼び出し側 (src/discord/consult-*) が、 ここが返した閲覧者の集合どおりに行う。
  *
- * - 対象は本社の、 プライベート相談を許可した稼働中の部署だけ (tech-consultation.md §4)。
- * - 閲覧者 = 本人 + 社員名簿で部署の approver_min_role 以上の人。 以後の追加・除外は本人か権限者だけ
+ * - 対象は Bot の会社が持つ、 プライベート相談を許可した稼働中の部署だけ (tech-consultation.md §4)。
+ *   子会社の部署はプロジェクトを持たない相談部署に限る (§6、 CC-CONSULT-INV-06)。
+ * - 閲覧者 = 本人 + 社員名簿で部署の approver_min_role 以上の人。 呼び出し側はその guild に居る人へ
+ *   絞り込めるが、 名簿の外へ広げることはできない。 以後の追加・除外は本人か権限者だけ
  *   (CC-CONSULT-INV-02)。 本人は除外できない。
  * - 本人が起動権限を持てばそのまま open、 持たなければ承認待ち。 承認できるのは起動権限を持つ閲覧者。
  *
@@ -33,6 +35,8 @@ export interface PrivateConsultationPorts {
   approvers(minRole: DepartmentPrivateConsultation["approver_min_role"]): readonly string[];
   /** 起動権限 (社員名簿の session_spawn)。 */
   canLaunch(userId: string): boolean;
+  /** プロジェクトを持たない相談部署か (projectless-consult.ts)。 子会社の部署はこれが真のときだけ受ける。 */
+  isProjectless(department: DepartmentRow): boolean;
   now?: () => number;
 }
 
@@ -40,7 +44,8 @@ export type PrivateConsultationError =
   | "department_not_found"
   | "department_archived"
   | "department_not_private"
-  | "head_office_only"
+  | "department_other_organization"
+  | "subsidiary_requires_projectless"
   | "department_settings_invalid"
   | "intake_incomplete"
   | "consultation_not_found"
@@ -72,6 +77,11 @@ export class PrivateConsultationService {
     runtimeSubsidiaryId: string | null;
     requesterUserId: string;
     intake: Partial<Record<keyof ConsultIntake, unknown>>;
+    /**
+     * 閲覧者に入れてよい人 (例: その guild に居る人)。 指定すれば権限者をこの集合で絞る。
+     * 名簿の権限者に無い人はここに挙げても足されない。
+     */
+    viewerCandidates?: readonly string[];
   }): Result<StartedConsultation> {
     const checked = this.privateDepartment(input.departmentId, input.runtimeSubsidiaryId);
     if (!checked.ok) return checked;
@@ -81,7 +91,7 @@ export class PrivateConsultationService {
     const launchable = this.ports.canLaunch(input.requesterUserId);
     // いったん承認待ちで作り、 本人が起動権限を持てば本人の承認として開く (承認者と時刻を必ず残す)。
     const consultation = this.ports.store.create({
-      subsidiary_id: null,
+      subsidiary_id: checked.department.subsidiary_id,
       department_id: checked.department.id,
       requester_user_id: input.requesterUserId,
       status: "pending_approval",
@@ -89,8 +99,10 @@ export class PrivateConsultationService {
     }, now);
     if (launchable) this.ports.store.markOpen(consultation.id, input.requesterUserId, now);
     this.addMember(consultation.id, input.requesterUserId, "requester", input.requesterUserId, now);
+    const candidates = input.viewerCandidates ? new Set(input.viewerCandidates) : null;
     for (const approver of this.ports.approvers(checked.settings.approver_min_role)) {
-      if (approver !== input.requesterUserId) this.addMember(consultation.id, approver, "approver", "system", now);
+      if (approver === input.requesterUserId || (candidates && !candidates.has(approver))) continue;
+      this.addMember(consultation.id, approver, "approver", "system", now);
     }
     return {
       ok: true,
@@ -153,9 +165,14 @@ export class PrivateConsultationService {
     | { ok: false; error: PrivateConsultationError } {
     const department = this.ports.department(departmentId);
     if (!department) return { ok: false, error: "department_not_found" };
-    // 子会社のセッションは関係プロジェクトで起動範囲を閉じるため、 相談は本社の部署だけで受ける。
-    if (department.subsidiary_id !== null || runtimeSubsidiaryId !== null) return { ok: false, error: "head_office_only" };
+    // 部署は Bot の会社のものだけ (他社の部署の相談チャンネルを作らない)。
+    if (department.subsidiary_id !== runtimeSubsidiaryId) return { ok: false, error: "department_other_organization" };
     if (department.archived_at !== null) return { ok: false, error: "department_archived" };
+    // 子会社のセッションは関係プロジェクトで起動範囲を閉じる。 例外はプロジェクトを持たない相談部署だけで、
+    // その起動は空の相談用ディレクトリとツール制限で閉じ込める (tech-consultation.md §6)。
+    if (department.subsidiary_id !== null && !this.ports.isProjectless(department)) {
+      return { ok: false, error: "subsidiary_requires_projectless" };
+    }
     let settings: DepartmentPrivateConsultation;
     try {
       settings = parseDepartmentSettings(department.settings_json).private;

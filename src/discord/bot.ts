@@ -159,6 +159,8 @@ import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
 import { StaffRepo } from "../db/staff-repo.js";
 import { roleAtLeast } from "../staff/roles.js";
 import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
+import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
+import { consultGuildMemberIds } from "./consult-guild-members.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
@@ -588,7 +590,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const departmentsRepo = new DepartmentsRepo(deps.db);
   const useCasesRepo = new UseCasesRepo(deps.db);
   const requesterProfilesRepo = new RequesterProfilesRepo(deps.db);
-  // プライベート相談 (tech-consultation.md §4)。 本社 Bot だけで受け付け、 閲覧者は社員名簿から決める。
+  // プライベート相談 (tech-consultation.md §4)。 閲覧者は社員名簿から決める。 子会社 Bot は、 その会社の
+  // プロジェクトを持たない相談部署だけを受ける (§6)。
   // 「プライベート」カテゴリ (相談と報告用で共通、 private-channels.md §1)。 統合前の相談カテゴリのキーも読む。
   const privateCategoryStore = {
     categoryId: () => configRepo.get(PRIVATE_CATEGORY_KEY) ?? configRepo.get(LEGACY_PRIVATE_CATEGORY_KEY),
@@ -600,6 +603,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let privateChannelProvisioner: PrivateChannelProvisioner | null = null;
   const consultationPublicationsRepo = new ConsultationPublicationsRepo(deps.db);
   const staffRepo = new StaffRepo(deps.db);
+  /** プロジェクトを持たない相談部署か (tech-consultation.md §6)。 壊れた設定は false (受けない)。 */
+  const isDepartmentProjectlessConsult = (department: DepartmentRow): boolean => {
+    let projects: readonly string[];
+    try {
+      projects = parseDepartmentSettings(department.settings_json).projects;
+    } catch {
+      return false;
+    }
+    const useCase = department.use_case_id ? useCasesRepo.find(department.use_case_id) : null;
+    return isProjectlessConsultDepartment({ projects, useCase });
+  };
+  /** 相談の権限者になりうる名簿の人 (管理職以上)。 部署ごとの最低役職はサービスがさらに絞る。 */
+  const approverRosterIds = (): string[] => staffRepo.list({ platform: "discord" })
+    .filter((member) => roleAtLeast(member.role, "manager"))
+    .map((member) => member.platform_user_id);
   const privateConsultations = new PrivateConsultationService({
     store: privateConsultationsRepo,
     department: (id) => departmentsRepo.find(id),
@@ -607,38 +625,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       .filter((member) => roleAtLeast(member.role, minRole))
       .map((member) => member.platform_user_id),
     canLaunch: (userId) => deps.isLaunchUserAllowed?.(userId) === true,
+    isProjectless: (department) => isDepartmentProjectlessConsult(department),
   });
-  const consultDeps: ConsultCommandDeps | undefined = subsidiaryId ? undefined : {
-    service: privateConsultations,
-    store: privateConsultationsRepo,
-    runtimeSubsidiaryId: null,
-    categoryStore: privateCategoryStore,
-    spawn: async ({ consultation, intake, guildId, channelId, requesterDisplayName }) => {
-      const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
-        prompt: privateConsultPrompt(intake),
-        department: consultation.department_id,
-        subsidiary_id: null,
-        consultation_intake: { ...intake, source: "modal" },
-        requester_discord_user_id: consultation.requester_user_id,
-        ...(requesterDisplayName ? { requester_display_name: requesterDisplayName } : {}),
-        source_discord_guild_id: guildId,
-        source_discord_channel_id: channelId,
-      });
-      return "error" in result ? { ok: false, error: result.error } : { ok: true };
-    },
-    privateDepartments: () => departmentsRepo.listForOrganization(null).filter((department) => {
-      try {
-        return parseDepartmentSettings(department.settings_json).private.enabled;
-      } catch {
-        // 設定が壊れた部署は候補に出さない (受付側でも department_settings_invalid で止まる)。
-        return false;
-      }
-    }).map((department) => ({ id: department.id, name: department.name })),
-    requesterDefaults: (userId) => {
-      const profile = requesterProfilesRepo.find({ subsidiary_id: null, platform: "discord", platform_user_id: userId });
-      return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
-    },
-    // 公開候補 (tech-consultation.md §5)。 依頼はセッションへの inject、 判断は Cc の API (Tabula の秘密は Cc 本体だけが持つ)。
+  // 公開候補 (tech-consultation.md §5)。 依頼はセッションへの inject、 判断は Cc の API (Tabula の秘密は Cc 本体だけが持つ)。
+  // 子会社では出さない (§6: 公開は本社の知見共有の面。 相談セッションはシェルも持たない)。
+  const headOfficePublication: Pick<ConsultCommandDeps, "requestProposal" | "publication"> = subsidiaryId ? {} : {
     requestProposal: async ({ sessionId, actorUserId, actorLabel }) => {
       const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", `/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
         text: buildProposalRequest({ sessionId, concordiaUrl: deps.concordiaUrl }),
@@ -660,6 +651,41 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       },
       log,
     },
+  };
+  const consultDeps: ConsultCommandDeps = {
+    service: privateConsultations,
+    store: privateConsultationsRepo,
+    runtimeSubsidiaryId: subsidiaryId ?? null,
+    categoryStore: privateCategoryStore,
+    // 子会社 guild には本社の権限者が居ないことがある。 居ない人の overwrite はチャンネル作成ごと失敗させる。
+    ...(subsidiaryId ? { viewerCandidates: (guild: Guild) => consultGuildMemberIds(guild, approverRosterIds()) } : {}),
+    spawn: async ({ consultation, intake, guildId, channelId, requesterDisplayName }) => {
+      const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
+        prompt: privateConsultPrompt(intake),
+        department: consultation.department_id,
+        subsidiary_id: consultation.subsidiary_id,
+        consultation_intake: { ...intake, source: "modal" },
+        requester_discord_user_id: consultation.requester_user_id,
+        ...(requesterDisplayName ? { requester_display_name: requesterDisplayName } : {}),
+        source_discord_guild_id: guildId,
+        source_discord_channel_id: channelId,
+      });
+      return "error" in result ? { ok: false, error: result.error } : { ok: true };
+    },
+    privateDepartments: () => departmentsRepo.listForOrganization(subsidiaryId ?? null).filter((department) => {
+      try {
+        if (!parseDepartmentSettings(department.settings_json).private.enabled) return false;
+      } catch {
+        // 設定が壊れた部署は候補に出さない (受付側でも department_settings_invalid で止まる)。
+        return false;
+      }
+      return !subsidiaryId || isDepartmentProjectlessConsult(department);
+    }).map((department) => ({ id: department.id, name: department.name })),
+    requesterDefaults: (userId) => {
+      const profile = requesterProfilesRepo.find({ subsidiary_id: subsidiaryId ?? null, platform: "discord", platform_user_id: userId });
+      return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
+    },
+    ...headOfficePublication,
     log,
   };
   /** セッションの終了・消失で相談を閉じる (チャンネルの lock は session-channel.ts が行う)。 */
@@ -684,8 +710,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // ユースケースが事前ヒアリングを使うなら、 回答の前提が揃うまで起動しない (tech-consultation.md §3)。
     const useCase = department.use_case_id ? useCasesRepo.find(department.use_case_id) : null;
     const intake = useCase !== null && useCase.archived_at === null && useCase.intake_enabled === 1;
+    // 子会社でもプロジェクト無しで起動できる相談部署か (tech-consultation.md §6)。
+    const projectless = isProjectlessConsultDepartment({ projects, useCase });
     return {
       id: department.id, name: department.name, projects, hasLaunchDefault, archived: department.archived_at !== null, intake,
+      projectless,
     };
   };
   // セッションのスレッド置き場: チームの面 → 部署のフォーラム → 既定 (Session フォーラム)。
@@ -2104,8 +2133,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 子会社の `/spawn` は担当プロジェクトへ閉じる (subsidiary-delegation §3.4)。
       resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
-      // プライベート相談は本社 Bot だけ (consultDeps は子会社では undefined)。
-      ...(consultDeps ? { consult: consultDeps } : {}),
+      // プライベート相談。 子会社 Bot は自社のプロジェクトを持たない相談部署だけを扱う (tech-consultation.md §6)。
+      consult: consultDeps,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
       // guild 側に残った登録から実行されうるので dispatch でも同じ判定を通す。
@@ -2543,7 +2572,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (ev.type === "consultation.proposed") {
       // 公開候補の判断カードは相談チャンネルの中にだけ出す (CC-CONSULT-INV-04)。
-      if (!consultDeps) return;
+      // 公開候補は本社だけ (子会社は wrap を出さない、 tech-consultation.md §6)。
+      if (subsidiaryId) return;
       void (async () => {
         const publication = consultationPublicationsRepo.find(ev.publication_id);
         const channel = await guild.channels.fetch(ev.channel_id).catch(() => null);

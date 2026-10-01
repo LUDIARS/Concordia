@@ -2164,7 +2164,9 @@
       "source": "src/discord/subsidiary-scope.ts",
       "tests": [
         "src/discord/actio-backlog-command.test.ts",
-        "src/platform/actio-chat-admission.test.ts"
+        "src/platform/actio-chat-admission.test.ts",
+        "src/discord/subsidiary-scope.test.ts",
+        "src/discord/commands.test.ts"
       ],
       "contracts": [
         "CC-ACTIO-CHAT-COMMAND-01"
@@ -3349,6 +3351,29 @@
       "contracts": [
         "CC-AT-DISCOVERY-01"
       ]
+    },
+    {
+      "source": "src/consultation/projectless-consult.ts",
+      "tests": [
+        "src/consultation/projectless-consult.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/projectless-consult-launch.ts",
+      "tests": [
+        "src/consultation/projectless-consult-launch.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-guild-members.ts",
+      "tests": [
+        "src/discord/consult-guild-members.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

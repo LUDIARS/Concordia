@@ -30,6 +30,7 @@ function setup(options: { launchers?: string[]; createFails?: boolean } = {}) {
     department: (id) => departments.find(id),
     approvers: () => ["900"],
     canLaunch: (userId) => launchers.has(userId),
+    isProjectless: () => true,
   });
   const sent: Array<Record<string, unknown>> = [];
   const created: Array<Record<string, unknown>> = [];
@@ -119,6 +120,25 @@ describe("handleConsultModalSubmit", () => {
     await handleConsultModalSubmit(interaction, ctx.deps);
     expect(replies[0]).toMatchObject({ ephemeral: true, content: "部署が見つかりません。" });
     expect(ctx.created).toHaveLength(0);
+  });
+
+  it("drops approvers who are not in the guild before creating the channel (subsidiary guild)", async () => {
+    const ctx = setup({ launchers: ["900", "111"] });
+    ctx.deps.viewerCandidates = vi.fn(async () => []);
+    await handleConsultModalSubmit(modal(ctx.guild, ctx.department.id).interaction, ctx.deps);
+    const channelRequest = ctx.created.find((c) => c.type === ChannelType.GuildText)!;
+    expect((channelRequest.permissionOverwrites as Array<{ id: string }>).map((o) => o.id))
+      .toEqual(["everyone-role", "111", "bot-1"]);
+  });
+
+  it("refuses without creating a channel when the guild members cannot be checked", async () => {
+    const ctx = setup({ launchers: ["900", "111"] });
+    ctx.deps.viewerCandidates = vi.fn(async () => { throw new Error("rate limited"); });
+    const { interaction, replies } = modal(ctx.guild, ctx.department.id);
+    await handleConsultModalSubmit(interaction, ctx.deps);
+    expect(replies[0]).toMatchObject({ ephemeral: true });
+    expect(ctx.created).toHaveLength(0);
+    expect(ctx.store.findByChannel("chan-1")).toBeNull();
   });
 
   it("closes the consultation when the channel cannot be created", async () => {

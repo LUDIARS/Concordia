@@ -51,6 +51,11 @@ export interface ConsultFlowDeps {
   /** この Bot (論理 runtime) の会社。 本社なら null。 */
   runtimeSubsidiaryId: string | null;
   categoryStore: PrivateCategoryStore;
+  /**
+   * この guild に居る閲覧者候補 (子会社 guild 用)。 未指定なら絞らない。 居ない人へ member overwrite を
+   * 付けるとチャンネル作成ごと失敗するため、 子会社では名簿の権限者をその guild の在籍者に絞る。
+   */
+  viewerCandidates?(guild: Guild): Promise<readonly string[]>;
   /** 部署のセッションを起動する (admin spawn)。 */
   spawn(input: ConsultSpawnInput): Promise<{ ok: true } | { ok: false; error: string }>;
   now?: () => Date;
@@ -65,7 +70,8 @@ const ERROR_MESSAGES: Readonly<Record<PrivateConsultationError, string>> = {
   department_not_found: "部署が見つかりません。",
   department_archived: "この部署は廃止されています。",
   department_not_private: "この部署はプライベート相談を受け付けていません。",
-  head_office_only: "プライベート相談は本社の部署だけで受け付けています。",
+  department_other_organization: "この部署はこのサーバでは受け付けていません。",
+  subsidiary_requires_projectless: "この部署はこのサーバでプライベート相談を受け付けていません。",
   department_settings_invalid: "部署の設定を読めないため受け付けられません。運用担当に確認してください。",
   intake_incomplete: "知りたいこと・技術レベル・役職を入力してください。",
   consultation_not_found: "このチャンネルはプライベート相談のチャンネルではありません。",
@@ -86,11 +92,23 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
     await interaction.reply({ content: "この送信を受け付けられませんでした。", ephemeral: true });
     return;
   }
+  let viewerCandidates: readonly string[] | undefined;
+  if (deps.viewerCandidates) {
+    try {
+      viewerCandidates = await deps.viewerCandidates(guild);
+    } catch (error) {
+      // 在籍を確かめられないまま広く足すと作成ごと失敗しうる。 権限者なしで続けず、 本人に理由を返す。
+      deps.log.warn(`consult viewer lookup failed guild=${guild.id}: ${(error as Error).message}`);
+      await interaction.reply({ content: "権限者を確認できなかったため受け付けられませんでした。時間をおいてもう一度お試しください。", ephemeral: true });
+      return;
+    }
+  }
   const started = deps.service.start({
     departmentId: submitted.departmentId,
     runtimeSubsidiaryId: deps.runtimeSubsidiaryId,
     requesterUserId: interaction.user.id,
     intake: submitted.intake,
+    ...(viewerCandidates ? { viewerCandidates } : {}),
   });
   if (!started.ok) {
     await interaction.reply({ content: consultErrorMessage(started.error), ephemeral: true });

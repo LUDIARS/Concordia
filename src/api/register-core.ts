@@ -9,7 +9,8 @@ import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
-import { access, utimes } from "node:fs/promises";
+import { access, mkdir, utimes } from "node:fs/promises";
+import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { reportError } from "../errors.js";
@@ -257,6 +258,11 @@ export interface CoreDelegationDeps {
   requesterProfiles?: RequesterProfilesRepo;
   /** 事前ヒアリングの記録 (spec/feature/tech-consultation.md §3)。 未注入なら記録だけを省く。 */
   consultationIntakes?: ConsultationIntakesRepo;
+  /**
+   * 子会社のプロジェクトを持たない相談の作業ディレクトリの置き場所 (spec/feature/tech-consultation.md §6)。
+   * 本社の作業領域 (Castra) の外に置く。 未注入ならその起動は 503。
+   */
+  consultWorkspaceRoot?: string;
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
   /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
@@ -1012,6 +1018,28 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
     }
     const explicitCwd = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null;
+    // 子会社のプロジェクトを持たない相談部署は、 空の相談用ディレクトリとツール制限で閉じ込める
+    // (spec/feature/tech-consultation.md §6)。 作業領域の指定は受け付けない。
+    const projectlessConsult = deps.departments && requestedDepartmentId
+      ? await resolveProjectlessConsultLaunch({
+        subsidiaryId,
+        department: deps.departments.find(requestedDepartmentId),
+        specifiedScope: [
+          ...(projectName ? ["project"] : []),
+          ...(explicitCwd ? ["cwd"] : []),
+          ...(requestedTeam ? ["team"] : []),
+          ...(requestedBranch ? ["branch"] : []),
+          ...(requestedWorktree !== undefined && requestedWorktree !== false ? ["worktree"] : []),
+          ...(body.inject_prompt === true ? ["inject_prompt"] : []),
+        ],
+      }, {
+        useCase: (id) => deps.useCases?.find(id) ?? null,
+        workspaceRoot: deps.consultWorkspaceRoot,
+        ensureDir: async (path) => { await mkdir(path, { recursive: true }); },
+      })
+      : { kind: "none" as const };
+    if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
+    const consultConfinement = projectlessConsult.kind === "confined" ? projectlessConsult : null;
     let teamCwd: string | null = null;
     if (requestedTeam && !projectCwd && !explicitCwd) {
       const resolvedTeamCwd = await resolveTeamSpawnCwd({
@@ -1026,7 +1054,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       dialogueBlock ?? "",
       typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "",
     ].filter(Boolean).join("\n\n");
-    const restriction = projectName
+    const restriction = consultConfinement ? consultConfinement.restriction : projectName
       ? [
           `## 作業範囲の制限 (Concordia spawn)`,
           `このセッションはプロジェクト「${projectName}」専用です。`,
@@ -1071,7 +1099,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
         ...(requestedTeamId ? { team: requestedTeamId } : {}),
       };
-      const cwdOverride = projectCwd ?? explicitCwd ?? teamCwd ?? undefined;
+      const cwdOverride = projectCwd ?? explicitCwd ?? teamCwd ?? consultConfinement?.cwd ?? undefined;
 
       if (injectPrompt) {
         // prompt 注入あり = delegation invoke 本体に委譲 (render + prompt file + env + run 記録 + --model)。
@@ -1147,7 +1175,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         spawn.effectiveModel,
       );
       const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
-      const spawnArgs = [...spawn.args, ...runtimeArgs];
+      // ツール制限は claude の引数で掛ける。 他の provider では閉じ込められないので起動しない。
+      if (consultConfinement && spawn.provider !== "claude") {
+        return c.json({ error: "projectless_consult_requires_claude" }, 400);
+      }
+      const spawnArgs = [...spawn.args, ...runtimeArgs, ...(consultConfinement?.claudeArgs ?? [])];
       const startupText = [userPrompt ? restriction : "", taskPrompt, userPrompt]
         .filter(Boolean)
         .join("\n\n");
@@ -1233,9 +1265,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       resolved.effectiveModel,
     );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveDirectOptions);
+    if (consultConfinement && resolved.provider !== "claude") {
+      return c.json({ error: "projectless_consult_requires_claude" }, 400);
+    }
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
+    // 閉じ込めの claude 引数 (--tools 等) を利用者の引数で広げさせない。
+    if (consultConfinement && userArgs.length > 0) {
+      return c.json({ error: "projectless_consult_scope_fixed: args" }, 400);
+    }
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
@@ -1248,6 +1287,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const directCwd = projectCwd
       ?? explicitCwd
       ?? teamCwd
+      ?? consultConfinement?.cwd
       ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
     const directTarget = await prepareSpawnTarget({
       cwd: directCwd,
@@ -1282,11 +1322,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const result = sessionSpawn({
       provider: resolved.provider,
       mode,
-      args: [...resolved.args, ...runtimeArgs, ...userArgs],
+      args: [...resolved.args, ...runtimeArgs, ...userArgs, ...(consultConfinement?.claudeArgs ?? [])],
       cwd: directTarget.cwd,
       cwdProvided:
         Boolean(projectCwd?.trim()) ||
         Boolean(teamCwd?.trim()) ||
+        consultConfinement !== null ||
         (typeof body.cwd === "string" && body.cwd.trim().length > 0),
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,

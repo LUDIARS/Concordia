@@ -76,6 +76,8 @@ export interface TestAppOptions {
   rng?: () => number;
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   sessionSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+  /** 子会社のプロジェクトを持たない相談の作業ディレクトリの置き場所 (tech-consultation.md §6)。 */
+  consultWorkspaceRoot?: string;
   chatRoutes?: boolean;
   costRoutes?: boolean;
   costOverviewSource?: "live" | "samples";
@@ -226,6 +228,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     taskflowState,
     fallbackTasks,
     sessionSpawn: opts.sessionSpawn,
+    ...(opts.consultWorkspaceRoot ? { consultWorkspaceRoot: opts.consultWorkspaceRoot } : {}),
     spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,

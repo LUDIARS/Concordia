@@ -149,6 +149,11 @@ export interface ForumSpawnDepartment {
   archived: boolean;
   /** ユースケースが事前ヒアリングを使う (tech-consultation.md §3)。 */
   intake?: boolean;
+  /**
+   * 担当プロジェクトを持たない読み取り専用の相談部署 (tech-consultation.md §6)。 子会社でもプロジェクト無しで
+   * 起動し、 本文からプロジェクトを拾わない (起動は Cc が空の相談用ディレクトリに閉じ込める)。
+   */
+  projectless?: boolean;
 }
 
 export interface ForumSpawnDeps {
@@ -327,12 +332,17 @@ export async function executeForumSpawn(
   // 部署フォーラムで担当プロジェクトが無い部署 (技術相談など) はプロジェクトを要らない。
   // ただし子会社は関係プロジェクトで起動範囲を閉じる (subsidiary-delegation §3.4) ため、
   // 部署であってもプロジェクトを必須にする (本社の作業領域全体を子会社の依頼で読ませない)。
+  // 例外は読み取り専用の相談部署 (tech-consultation.md §6): プロジェクトを拾わず、 Cc が空の
+  // 相談用ディレクトリとツール制限で閉じ込めて起動する。
   const inSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
-  const projectRequired = !deps.department || departmentProjects.length > 0 || inSubsidiary;
-  const project = (suppliedContent?.project ? asSubsidiaryProjectTarget(suppliedContent.project) : null)
-    ?? deps.resolveProjectTarget(title, body)
-    ?? matchSubsidiaryProjectInText(title, body, deps.resolveSubsidiaryProjects?.() ?? [])
-    ?? matchSubsidiaryProjectInText(title, body, departmentProjects);
+  const projectlessConsult = inSubsidiary && deps.department?.projectless === true;
+  const projectRequired = !projectlessConsult
+    && (!deps.department || departmentProjects.length > 0 || inSubsidiary);
+  const project = projectlessConsult ? null
+    : (suppliedContent?.project ? asSubsidiaryProjectTarget(suppliedContent.project) : null)
+      ?? deps.resolveProjectTarget(title, body)
+      ?? matchSubsidiaryProjectInText(title, body, deps.resolveSubsidiaryProjects?.() ?? [])
+      ?? matchSubsidiaryProjectInText(title, body, departmentProjects);
   // Session forum への投稿は「起動依頼」。 起動に要る情報が欠けていたら平文の拒否で
   // 終わらせず、 同じスレッドで聞き返す (2026-09-01 neco 指示 3)。
   const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null || !projectRequired });

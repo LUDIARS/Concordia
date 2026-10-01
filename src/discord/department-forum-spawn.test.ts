@@ -97,6 +97,30 @@ describe("department forum spawn", () => {
     expect(await executeForumSpawn(d, thread())).toEqual({ ok: false, error: "missing information requested" });
   });
 
+  it("launches a projectless consultation inside a subsidiary without picking up a project (tech-consultation.md §6)", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ ok: true, pid: 8 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    // 本文のプロジェクト名が解決できても、 相談部署では拾わない (関係プロジェクト外の拒否にも回さない)。
+    const d = deps({
+      subsidiaryId: "glab",
+      resolveSubsidiaryProjects: () => [],
+      department: department({ projectless: true }),
+      resolveProjectTarget: () => ({ project: "Concordia", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+    });
+
+    expect(await executeForumSpawn(d, thread())).toEqual({ ok: true });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ department: "dept-qa", subsidiary_id: "glab" });
+    expect(body).not.toHaveProperty("project");
+  });
+
+  it("does not treat a projectless department as projectless when the flag is off in a subsidiary", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const d = deps({ subsidiaryId: "glab", resolveSubsidiaryProjects: () => [], department: department({ projectless: false }) });
+    expect(await executeForumSpawn(d, thread())).toEqual({ ok: false, error: "missing information requested" });
+  });
+
   it("does not launch from an archived department", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

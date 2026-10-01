@@ -1,0 +1,21 @@
+{
+  "name": "bug-bounty",
+  "description": "バグバウンティ: 仕組みの不具合の報告を Discord・セッション・Cocoiru から受け付け、AI が仕分け、採用した報告を Actio のタスクと hotfix の委託へつなぎ、反映を確認して報告者個人の AI 予算 (個人残高) へ報奨を付ける。公開プロジェクトの採用済み報告は書き直した要約と公開名だけを公開面へ出す。日次 budget と停止スイッチは observability、デプロイ通知は service-deployed-notify、依頼者メモは dialogue-context が持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/bounty/[^/]+$" },
+    { "pathPattern": "(^|/)src/db/bounty-[^/]+-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/bounty[^/]*\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/bounty-[^/]+$" },
+    { "pathPattern": "(^|/)src/discord/commands/bug(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/Bounty[^/]*\\.tsx?$" },
+    { "pathPattern": "(^|/)tests/bounty[^/]*\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the bug-bounty domain: report intake from Discord, sessions and Cocoiru, read-only AI triage that treats report text as data, linking accepted reports to Actio tasks and hotfix delegations, closing on confirmed deployment, granting per-person AI budget once per report, and exposing only rewritten summaries of public projects.",
+  "specRefs": [
+    "spec/feature/bug-bounty.md",
+    "spec/ux/product.md"
+  ],
+  "rationale": "報告は Actio のタスクでも Cc の委託でもなく、報告者・重複・判定・報奨という別の理由で変わる状態を持つ。受付・仕分け・反映確認・報奨の判断を src/bounty/ に閉じ、Actio・Revisor・委託・budget は port 越しに使う。支援ドメイン (運用・組織) であり、コアではない。"
+}

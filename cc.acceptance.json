@@ -2996,6 +2996,85 @@
         "src/api/private-channels.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/management/domain.ts",
+      "tests": [
+        "src/management/domain.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-04",
+        "CC-MGMT-05"
+      ]
+    },
+    {
+      "source": "src/management/repository.ts",
+      "tests": [
+        "src/management/service.test.ts",
+        "src/management/dispatcher.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-02",
+        "CC-MGMT-04"
+      ]
+    },
+    {
+      "source": "src/management/service.ts",
+      "tests": [
+        "src/management/service.test.ts",
+        "src/api/management.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-01",
+        "CC-MGMT-02",
+        "CC-MGMT-04",
+        "CC-MGMT-05"
+      ]
+    },
+    {
+      "source": "src/management/dispatcher.ts",
+      "tests": [
+        "src/management/dispatcher.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-04"
+      ]
+    },
+    {
+      "source": "src/api/management.ts",
+      "tests": [
+        "src/api/management.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-03"
+      ]
+    },
+    {
+      "source": "src/mcp/management-server.ts",
+      "tests": [
+        "src/mcp/management-server.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-03"
+      ]
+    },
+    {
+      "source": "src/management/prompt.ts",
+      "tests": [
+        "src/management/prompt.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-04"
+      ]
+    },
+    {
+      "source": "src/management/runtime.ts",
+      "tests": [
+        "src/management/runtime.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-04"
+      ]
     }
   ]
 }

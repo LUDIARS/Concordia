@@ -1,9 +1,11 @@
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { choresRouter } from "./chores.js";
+import { managementAdminRouter, managementRouter } from "./management.js";
 import { sprintDialoguesRouter } from "./sprint-dialogues.js";
 import { actioChatRouter, type ActioChatDeps } from "./actio-chat.js";
 import type { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import type { ChoresService } from "../chores/service.js";
+import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
@@ -319,6 +321,8 @@ export interface CoreRuntimeDeps {
   actioChat?: ActioChatDeps;
   sprintDialogues?: SprintDialoguesRepository;
   chores?: ChoresService;
+  /** CDGD マネジメント層 (spec/feature/cdgd-management.md)。 */
+  management?: ManagementService;
   adminState: AdminState;
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
@@ -374,6 +378,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.actioChat) app.route("/v1/actio-chat", actioChatRouter(deps.actioChat));
   if (deps.sprintDialogues) app.route("/v1/sprint-dialogues", sprintDialoguesRouter(deps.sprintDialogues));
   if (deps.chores) app.route("/v1/chores", choresRouter(deps.chores));
+  if (deps.management) {
+    app.route("/v1/management", managementRouter(deps.management));
+    app.route("/v1/admin/management", managementAdminRouter(deps.management));
+  }
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
   if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));

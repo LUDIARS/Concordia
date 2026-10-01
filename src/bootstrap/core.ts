@@ -1,5 +1,6 @@
 // @spec ハーネス信頼性の実装境界
 import { createChoresRuntime } from "../chores/runtime.js";
+import { createManagementRuntime } from "../management/runtime.js";
 import { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
@@ -1802,6 +1803,18 @@ export async function startBackend(): Promise<BackendHandle> {
   };
 
   const choresRuntime = createChoresRuntime(db, () => adminState.getWorkspaceRoot(), isCostBlocked);
+  // CDGD マネジメント層 (dots サイドカー)。 任務・依頼・変更列は Cc が所有する (spec/feature/cdgd-management.md)。
+  const managementRuntime = createManagementRuntime({
+    db,
+    concordiaUrl: publicUrl,
+    isBlocked: isCostBlocked,
+    projectByCode: (code) => {
+      const row = projectCodesRepo.findByCode(code);
+      return row ? { project: row.project, repo_path: row.repo_path } : null;
+    },
+    departmentExists: (id) => departmentsRepo.find(id) !== null,
+    writePrompt: (text) => delegationService.writeAdHocPrompt(text),
+  });
   const actioChatSharedSecret = readActioChatSecret(process.env);
   const chatDestinations = readChatDestinations(process.env);
   const app = buildApp({
@@ -1846,6 +1859,7 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     },
     chores: choresRuntime.service,
+    management: managementRuntime.service,
     repo,
     controlJobs,
     metrics: metricsStore,
@@ -2725,6 +2739,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("chores", () => choresRuntime.stop());
+  resources.own("management", () => managementRuntime.stop());
   resources.own("post-listen handles", () => {
     for (const handle of postListenHandles.splice(0).reverse()) {
       try { handle.stop(); }

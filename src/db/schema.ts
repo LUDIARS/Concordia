@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 119;
+export const SCHEMA_VERSION = 120;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2989,6 +2989,90 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_at            INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_private_channels_status ON private_channels(status, created_at);
+    `);
+  },
+},
+{
+  version: 120,
+  name: "management-sidecar",
+  source: "management_missions / management_events / management_decisions / management_requests (spec/feature/cdgd-management.md)",
+  up(db) {
+    // CDGD マネジメント層 (dots サイドカー)。 任務・変更・判断・依頼・処理済み位置を Cc が所有する。
+    // 冪等キーは UNIQUE (CC-MGMT-INV-02)、 依頼の遷移は revision の CAS で行う。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS management_missions (
+        id                      TEXT PRIMARY KEY,
+        name                    TEXT NOT NULL,
+        department_id           TEXT,
+        project_codes           TEXT NOT NULL,
+        goal                    TEXT NOT NULL,
+        allowed_kinds           TEXT NOT NULL,
+        human_gate_kinds        TEXT NOT NULL,
+        requires_effect_check   INTEGER NOT NULL DEFAULT 0,
+        max_open_requests       INTEGER NOT NULL,
+        daily_request_limit     INTEGER NOT NULL,
+        review_interval_minutes INTEGER NOT NULL,
+        status                  TEXT NOT NULL CHECK(status IN ('active', 'stopped')),
+        token_hash              TEXT NOT NULL UNIQUE,
+        acknowledged_seq        INTEGER NOT NULL DEFAULT 0,
+        created_at              INTEGER NOT NULL,
+        updated_at              INTEGER NOT NULL,
+        revision                INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS management_events (
+        seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_key         TEXT NOT NULL UNIQUE,
+        source            TEXT NOT NULL,
+        kind              TEXT NOT NULL,
+        project_code      TEXT NOT NULL,
+        target_key        TEXT,
+        origin            TEXT NOT NULL CHECK(origin IN ('human', 'ai', 'system')),
+        parent_request_id TEXT,
+        summary           TEXT NOT NULL,
+        ref_url           TEXT,
+        observed_at       INTEGER NOT NULL,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_management_events_project ON management_events(project_code, seq);
+      CREATE TABLE IF NOT EXISTS management_decisions (
+        id            TEXT PRIMARY KEY,
+        mission_id    TEXT NOT NULL,
+        decision_key  TEXT NOT NULL,
+        verdict       TEXT NOT NULL,
+        evidence_seqs TEXT NOT NULL,
+        rationale     TEXT NOT NULL,
+        request_id    TEXT,
+        created_at    INTEGER NOT NULL,
+        UNIQUE(mission_id, decision_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_management_decisions_mission ON management_decisions(mission_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS management_requests (
+        id                  TEXT PRIMARY KEY,
+        mission_id          TEXT NOT NULL,
+        request_key         TEXT NOT NULL,
+        kind                TEXT NOT NULL,
+        project_code        TEXT NOT NULL,
+        target_key          TEXT NOT NULL,
+        purpose             TEXT NOT NULL,
+        completion_criteria TEXT NOT NULL,
+        evidence_seqs       TEXT NOT NULL,
+        rationale           TEXT NOT NULL,
+        state               TEXT NOT NULL,
+        attached_to         TEXT,
+        session_id          TEXT,
+        spawn_id            TEXT UNIQUE,
+        launch_deadline_at  INTEGER,
+        outcome_summary     TEXT,
+        outcome_refs        TEXT NOT NULL DEFAULT '[]',
+        human_note          TEXT,
+        error               TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        revision            INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(mission_id, request_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_management_requests_state ON management_requests(state, created_at);
+      CREATE INDEX IF NOT EXISTS idx_management_requests_target ON management_requests(project_code, target_key, kind);
     `);
   },
 },

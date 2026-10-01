@@ -102,6 +102,9 @@ describe("handleConsultModalSubmit", () => {
       intake: { topic: "評価の伝え方", skill_level: "初級", role_title: "マネージャー", purpose: "" },
     }));
     expect(ctx.sent[0]).not.toHaveProperty("components");
+    // 権限者は表示も通知もしない (2026-10-02)。 メンションは相談者本人だけ。
+    expect(String(ctx.sent[0]!.content)).not.toContain("<@900>");
+    expect(ctx.sent[0]!.allowedMentions).toEqual({ users: ["111"] });
     expect(String(replies.at(-1)?.content)).toContain("セッションを起動しました");
   });
 

@@ -110,8 +110,10 @@ describe("DepartmentService", () => {
     const created = service.create({ subsidiary_id: null, name: "y", slug: "y", settings: { output: { thinking: "off" } } });
     if (!created.ok) throw new Error("setup failed");
     expect(JSON.parse(repo.find(created.department.id)!.settings_json)).toEqual({
-      launch: {}, projects: [], output: { thinking: "off", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit" },
+      launch: {}, projects: [], output: { thinking: "off", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit",
+        intermediate: "inherit", inject_transcript: "inherit", context_usage: "inherit" },
       private: { enabled: false, approver_min_role: "manager" },
+      startup_inject: "full",
     });
   });
 

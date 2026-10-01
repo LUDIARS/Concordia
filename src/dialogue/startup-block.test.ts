@@ -68,6 +68,7 @@ describe("buildDialogueStartupBlock", () => {
       "- 技術レベル: 初級",
       "- 役職: デザイナー",
       "- 目的: (回答なし。知ること自体が目的として扱う)",
+      "- 説明の仕方: 初級: 小学五年生でわかるように話す。専門用語は使わない (どうしても要る言葉は身近なたとえで言い換える)。",
     ].join("\n"))).toBe(true);
     expect(buildDialogueStartupBlock({ ...base, intake: null })).not.toContain("今回の相談");
   });

@@ -161,6 +161,9 @@ import { roleAtLeast } from "../staff/roles.js";
 import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
 import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
 import { guildMemberIds } from "./guild-member-ids.js";
+import { createConsultationClosure } from "./consult-closure-wiring.js";
+import { join } from "node:path";
+import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
@@ -627,6 +630,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     canLaunch: (userId) => deps.isLaunchUserAllowed?.(userId) === true,
     isProjectless: (department) => isDepartmentProjectlessConsult(department),
   });
+  // 相談の後始末 (tech-consultation.md §7): セッション終了・24 時間で閉じ、 共有を問い、 答えが出たらチャンネルを削除する。
+  const consultationClosure = createConsultationClosure({
+    consultations: privateConsultationsRepo,
+    publications: consultationPublicationsRepo,
+    sessionMessages: new SessionMessagesRepo(deps.db),
+    callConcordia: (method, path, body) => callConcordia(deps.concordiaUrl, method, path, body),
+    runHeadless: (prompt, opts) => deps.runHeadless(prompt, opts),
+    confidentialTermsPath: process.env.CONCORDIA_CONFIDENTIAL_TERMS_FILE?.trim()
+      || join(workspaceRoots[0] ?? process.cwd(), ".claude", "state", "confidential-terms.json"),
+    projectNames: () => projectCodesRepo.list().map((row) => row.project),
+    guild: () => activeGuild,
+    log,
+  });
   // 公開候補 (tech-consultation.md §5)。 依頼はセッションへの inject、 判断は Cc の API (Tabula の秘密は Cc 本体だけが持つ)。
   // 子会社では出さない (§6: 公開は本社の知見共有の面。 相談セッションはシェルも持たない)。
   const headOfficePublication: Pick<ConsultCommandDeps, "requestProposal" | "publication"> = subsidiaryId ? {} : {
@@ -649,6 +665,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         );
         return "error" in result ? { ok: false, error: result.error } : { ok: true, publication: result.publication };
       },
+      // 答えが出たら相談の後始末を終える (チャンネル削除、 §7)。
+      onDecided: (publication) => consultationClosure.onShareDecided(publication.consultation_id),
       log,
     },
   };
@@ -692,7 +710,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   /** セッションの終了・消失で相談を閉じる (チャンネルの lock は session-channel.ts が行う)。 */
   const closePrivateConsultationOf = (sessionId: string): void => {
     const consultation = privateConsultationsRepo.findBySession(sessionId);
-    if (consultation) privateConsultations.close(consultation.id);
+    if (!consultation) return;
+    // 閉じて後始末 (共有の問い・チャンネル削除) を始める (tech-consultation.md §7)。
+    void consultationClosure.closeConsultation(consultation.id)
+      .catch((error) => log.warn(`consultation closure failed consultation=${consultation.id}: ${(error as Error).message}`));
   };
   const departmentForumContext = (forumId: string): ForumSpawnDepartment | null => {
     const department = departmentsRepo.findByForumId(forumId);
@@ -905,6 +926,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
+  let consultClosureTimer: ReturnType<typeof setInterval> | null = null;
   let commandRegistrationWatch: CommandRegistrationWatchHandle | null = null;
   let reactionListenerTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
@@ -942,6 +964,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
    * 「10 分の自動確認」だけで、 ターンごとには呼ばない。
    */
   const contextUsageLine = async (sessionId: string): Promise<string | null> => {
+    // 部署の出力方針でコンテキストサイズを出さない (技術相談課、 departments.md §9.4)。
+    if (!sessionOutputEnabled(sessionId, "context_usage")) return null;
     try {
       const session = deps.sessionsRepo.findSession(sessionId);
       if (!session) return null;
@@ -1048,6 +1072,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (prQueueTimer) { clearInterval(prQueueTimer); prQueueTimer = null; }
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
+    if (consultClosureTimer) { clearInterval(consultClosureTimer); consultClosureTimer = null; }
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
     if (reactionListenerTimer) { clearInterval(reactionListenerTimer); reactionListenerTimer = null; }
     if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
@@ -1527,6 +1552,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         testForumTimer.unref?.();
       } else {
         log.info("test-forum periodic reconcile disabled");
+      }
+      // 相談の後始末の見回り (24 時間の期限・共有の締め切り・削除の再試行、 tech-consultation.md §7)。
+      const consultClosureSec = readOptionalIntEnv("CONCORDIA_CONSULT_CLOSURE_SWEEP_SEC", 600, 60);
+      if (consultClosureSec > 0) {
+        consultClosureTimer = setInterval(() => {
+          void consultationClosure.sweep()
+            .catch((e) => log.warn(`consultation closure sweep failed: ${(e as Error).message}`));
+        }, consultClosureSec * 1000);
+        consultClosureTimer.unref?.();
       }
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
@@ -2404,6 +2438,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             && (needsStartupTaskPost || needsStartupContextPost)
             && !startupContextInflight.has(sessionId)
             && webhookPool
+            // 部署の出力方針で Cc の指令の転記を出さない (技術相談課、 departments.md §9.4)。
+            && sessionOutputEnabled(sessionId, "inject_transcript")
           ) {
             startupContextInflight.add(sessionId);
             try {
@@ -2739,6 +2775,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
         // ready の報告用プライベートチャンネルへの明示投稿を通す (private-channels.md §4)。
         isReadyPrivateChannel: (channelId) => privateChannelsRepo.isReadyChannel(channelId),
+        // 部署の出力方針 (途中の発言・Cc の指令の転記、 departments.md §9.4)。
+        relayOutputPolicy: (sessionId) => ({
+          intermediate: sessionOutputEnabled(sessionId, "intermediate"),
+          injectTranscript: sessionOutputEnabled(sessionId, "inject_transcript"),
+        }),
         onSessionMessagePosted,
         log,
       }, ev);
@@ -2923,6 +2964,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const delegationKind = taskKindForInjectSource(src);
       if (delegationKind) {
         if (!isActiveDiscordSession(ev.target_session_id)) return;
+        if (!sessionOutputEnabled(ev.target_session_id, "inject_transcript")) return;
         const surface = sessionChannelsRepo.findBySessionId(ev.target_session_id);
         if (!surface || !webhooks) return;
         const webhookPool = webhooks;

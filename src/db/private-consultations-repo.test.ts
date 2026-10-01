@@ -30,6 +30,30 @@ describe("PrivateConsultationsRepo", () => {
     expect(repo.find(created.id)).toMatchObject({ status: "closed", closed_at: 6 });
   });
 
+  it("walks the closure states once each and lists what the sweep needs (tech-consultation.md §7)", () => {
+    const repo = new PrivateConsultationsRepo(makeTestDb());
+    const id = repo.create(base, 1).id;
+    repo.setChannel(id, "chan-1", 2);
+    repo.markOpen(id, "222", 3);
+    expect(repo.listOpen().map((row) => row.id)).toEqual([id]);
+    expect(repo.find(id)?.wrap_status).toBe("pending");
+
+    repo.markClosed(id, 10);
+    expect(repo.listOpen()).toEqual([]);
+    expect(repo.listClosedPendingWrap().map((row) => row.id)).toEqual([id]);
+
+    expect(repo.advanceWrap(id, "pending", "asking", 11)).toBe(true);
+    expect(repo.advanceWrap(id, "pending", "asking", 12)).toBe(false);
+    expect(repo.find(id)).toMatchObject({ wrap_status: "asking", share_asked_at: 11 });
+    expect(repo.listAsking().map((row) => row.id)).toEqual([id]);
+
+    expect(repo.advanceWrap(id, "asking", "done", 20)).toBe(true);
+    expect(repo.listDoneWithChannel().map((row) => row.id)).toEqual([id]);
+    repo.markChannelDeleted(id, 21);
+    expect(repo.listDoneWithChannel()).toEqual([]);
+    expect(repo.find(id)?.channel_deleted_at).toBe(21);
+  });
+
   it("keeps members with their reason and restores a removed member as re-added", () => {
     const repo = new PrivateConsultationsRepo(makeTestDb());
     const { id } = repo.create(base, 1);

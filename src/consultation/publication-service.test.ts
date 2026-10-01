@@ -46,6 +46,28 @@ describe("PublicationService.propose", () => {
   });
 });
 
+describe("PublicationService share on close (tech-consultation.md §7)", () => {
+  it("asks to share only after the consultation is closed", () => {
+    const { service, consultations, consultation } = setup();
+    expect(service.proposeOnClose({ consultationId: consultation.id, title: "T", summary: "S" }))
+      .toEqual({ ok: false, error: "consultation_not_closed" });
+    consultations.markClosed(consultation.id);
+    expect(service.proposeOnClose({ consultationId: consultation.id, title: "T", summary: "S" }))
+      .toMatchObject({ ok: true, consultation: { id: consultation.id }, publication: { status: "proposed" } });
+    expect(service.proposeOnClose({ consultationId: "pc_missing", title: "T", summary: "S" }))
+      .toEqual({ ok: false, error: "consultation_not_found" });
+  });
+
+  it("treats no answer as 'do not share' once", () => {
+    const { service, consultations, consultation } = setup();
+    consultations.markClosed(consultation.id);
+    const asked = service.proposeOnClose({ consultationId: consultation.id, title: "T", summary: "S" });
+    if (!asked.ok) throw new Error(asked.error);
+    expect(service.expire(asked.publication.id)).toMatchObject({ ok: true, publication: { status: "declined", decided_by: "timeout" } });
+    expect(service.expire(asked.publication.id)).toEqual({ ok: false, error: "not_proposed" });
+  });
+});
+
 describe("PublicationService decisions (CC-CONSULT-INV-04)", () => {
   function proposed(options: Parameters<typeof setup>[0] = {}) {
     const ctx = setup(options);

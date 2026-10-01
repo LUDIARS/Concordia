@@ -233,6 +233,21 @@ slug は会社ごとに一意 (本社と子会社で同じ slug を使える)。
 | `status_card` | 状態カード |
 | `session_info_card` | スレッドのセッション情報表示 (off なら 1 行の簡易表示にする。webhook 面は残す) |
 | `cost_report` | 終了時のコスト報告 |
+| `intermediate` | 指示 1 回ごとの最後の発言 (最終回答・会話の要約) 以外の途中の発言 (2026-10-02 追加) |
+| `inject_transcript` | Cc が送った指令の転記 (task / delegation / system、起動時のタスク本文・起動コンテキスト) |
+| `context_usage` | コンテキストの使用量 (サイズ) の表示 |
+
+前提質問 (question) と状態カードはこの方針の外で、常に投稿する。技術相談課は `intermediate` / `inject_transcript` /
+`context_usage` を off にする (「FINAL ANSWER のみ」「Inject 指令は非表示」「コンテキストサイズも不要」、2026-10-02 neco 指示)。
+
+### 9.5 起動時の注入
+
+**Requirement ID: `SPEC-DEPT-STARTUP-INJECT`**
+
+- 部署設定 `startup_inject` は `full` (既定) / `initial-only`。
+- `initial-only` の部署のセッションには、Cc の作業ポリシー・Cc ワークフローの案内・以後の `[Cc policy update]`・
+  プロジェクト規則を送らない。初回指示 (前提データと依頼本文) だけを渡す (技術相談課。「spawn inject は総務用で、
+  相談課は初期の Inject のみで良い」2026-10-02 neco 指示)。
 
 ## 10. 検証
 

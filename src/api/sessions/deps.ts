@@ -1,3 +1,4 @@
+import type { DepartmentStartupInject } from "../../departments/settings.js";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../../db/participants-repo.js";
 import type { HarnessAuditRepo } from "../../db/harness-audit-repo.js";
@@ -103,6 +104,8 @@ export interface SessionsApiDeps {
   isThinkingEnabled?: (sessionId: string) => boolean;
   resolveWorkspaceRoots?: () => string[];
   resolveCcWorkflowEnabled?: () => boolean;
+  /** 部署の起動時の注入方針 (departments.md §9.5)。 未注入・部署なしは全部送る。 */
+  departmentStartupInject?: (departmentId: string) => DepartmentStartupInject;
   /** 実行中セッションへの model/effort 反映。 未注入なら Lictor へ直接切替を送る (runtime-switch)。 */
   applyModelEffort?: import("../../contract/runtime-apply.js").ApplyModelEffortFn;
   /** session-end ??????????????????????????????????????? (??????*/

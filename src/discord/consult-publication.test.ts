@@ -75,6 +75,23 @@ describe("publication interactions", () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ components: [] }));
   });
 
+  it("hands the decided publication to the closure after the card is closed (tech-consultation.md §7)", async () => {
+    const decided = publication({ status: "declined", decided_by: "111" });
+    const onDecided = vi.fn(async () => { throw new Error("delete failed"); });
+    const d = { ...deps({ ok: true, publication: decided }), onDecided };
+    const interaction = {
+      customId: "consult:pub:cp_1:decline",
+      user: { id: "111" },
+      deferUpdate: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+    };
+    await handlePublicationButton(interaction as unknown as ButtonInteraction, d);
+    expect(onDecided).toHaveBeenCalledWith(decided);
+    // 後始末の失敗は判断を取り消さず、 記録だけ残す。
+    expect(d.log.warn).toHaveBeenCalled();
+  });
+
   it("tells the presser privately when they may not decide", async () => {
     const d = deps({ ok: false, error: "not_requester" });
     const interaction = {

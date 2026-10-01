@@ -63,3 +63,22 @@ export function projectlessConsultRestriction(): string {
     "- 社内固有の事情を推測で書かず、分からないことは分からないと答えてください。",
   ].join("\n");
 }
+
+/**
+ * 相談用ディレクトリに置く Claude Code のローカル設定 (`.claude/settings.local.json`)。
+ *
+ * 相談用ディレクトリは Concordia 配下にあるため、 そのままでは上位の CLAUDE.md (Castra の略称表など) と
+ * Concordia の自動メモリが相談セッションに読み込まれ、 回答へ社内のプロジェクト名が漏れた (2026-10-02)。
+ * 指示ファイルはすべて読まず、 自動メモリも使わない (CC-CONSULT-INV-08)。
+ */
+export function consultWorkspaceClaudeSettings(): Record<string, unknown> {
+  return {
+    claudeMdExcludes: ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.claude/rules/**"],
+    autoMemoryEnabled: false,
+  };
+}
+
+/** 相談セッションの起動 env。 自動メモリを読まない (設定ファイルと二重に止める)。 */
+export const CONSULT_SESSION_ENV: Readonly<Record<string, string>> = Object.freeze({
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+});

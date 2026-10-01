@@ -134,17 +134,16 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
     return;
   }
   deps.store.setChannel(consultation.id, channel.id);
-  const viewers = members.map((member) => `<@${member.platform_user_id}>`).join(" ");
   await channel.send({
     content: [
       `<@${consultation.requester_user_id}> のプライベート相談です。`,
-      `このチャンネルを見られるのは ${viewers} と Bot だけです。`,
+      "このチャンネルは相談者本人と執行役員だけが見られます。",
       "`/consult invite` / `/consult remove` で閲覧者を足し引きできます (相談者本人と権限者のみ)。",
       needsApproval ? "起動には起動権限を持つ権限者の承認が要ります。" : "",
     ].filter(Boolean).join("\n"),
     ...(needsApproval ? { components: [buildConsultApprovalRow(consultation.id)] } : {}),
-    // 閲覧者への通知は出す (相談が来たことを知らせる)。 閲覧者以外はそもそも見えない。
-    allowedMentions: { users: members.map((member) => member.platform_user_id) },
+    // 権限者 (執行役員) は表示も通知もしない (2026-10-02 neco 指示)。 通知するのは相談者本人だけ。
+    allowedMentions: { users: [consultation.requester_user_id] },
   });
   if (!needsApproval) {
     const launched = await launch(deps, consultation.id, guild, channel.id, interaction.user.displayName ?? null);

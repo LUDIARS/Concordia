@@ -54,7 +54,8 @@ export function buildPublicationCard(publication: ConsultationPublicationRow, op
     ? `${publication.summary.slice(0, MAX_CARD_SUMMARY)}\n… (続きは公開時にそのまま載ります)`
     : publication.summary;
   const lines = [
-    "**公開候補** — 相談から書き直した要約です。公開するかどうかは相談者本人が決めます。",
+    "**この内容を全体共有しますか？** — 相談から書き直した要約です。共有するかどうかは相談者本人が決めます。",
+    "24 時間反応がなければ共有しません。答えが出たらこのチャンネルは削除されます。",
     `**${publication.title}**`,
     summary,
   ];
@@ -65,10 +66,10 @@ export function buildPublicationCard(publication: ConsultationPublicationRow, op
     .setStyle(style)
     .setDisabled(disabled);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    button("publish", "公開する", ButtonStyle.Primary, !options.tabulaReady),
-    button("edit", "直して公開", ButtonStyle.Secondary,
+    button("publish", "共有する", ButtonStyle.Primary, !options.tabulaReady),
+    button("edit", "直して共有", ButtonStyle.Secondary,
       !options.tabulaReady || publication.summary.length > MAX_EDITABLE_SUMMARY),
-    button("decline", "公開しない", ButtonStyle.Danger),
+    button("decline", "共有しない", ButtonStyle.Danger),
     button("withdraw", "取り下げ (権限者)", ButtonStyle.Secondary),
   );
   return { content: lines.join("\n").slice(0, 2_000), components: [row] };
@@ -118,6 +119,16 @@ export interface PublicationInteractionDeps {
     editedSummary?: string;
   }): Promise<{ ok: true; publication: ConsultationPublicationRow } | { ok: false; error: string }>;
   log: { info: (message: string) => void; warn: (message: string) => void };
+  /** 判断が決まった後 (相談の後始末を進める、 tech-consultation.md §7)。 失敗しても判断は取り消さない。 */
+  onDecided?(publication: ConsultationPublicationRow): Promise<void>;
+}
+
+async function notifyDecided(deps: PublicationInteractionDeps, publication: ConsultationPublicationRow): Promise<void> {
+  try {
+    await deps.onDecided?.(publication);
+  } catch (error) {
+    deps.log.warn(`publication after-decision failed publication=${publication.id}: ${(error as Error).message}`);
+  }
 }
 
 export async function handlePublicationButton(interaction: ButtonInteraction, deps: PublicationInteractionDeps): Promise<void> {
@@ -139,6 +150,7 @@ export async function handlePublicationButton(interaction: ButtonInteraction, de
     return;
   }
   await interaction.editReply({ content: decidedPublicationContent(result.publication), components: [], allowedMentions: { parse: [] } });
+  await notifyDecided(deps, result.publication);
 }
 
 export async function handlePublicationEditSubmit(
@@ -159,4 +171,5 @@ export async function handlePublicationEditSubmit(
       .catch((error: unknown) => deps.log.warn(`publication card update failed: ${(error as Error).message}`));
   }
   await interaction.editReply({ content: `公開しました: ${result.publication.tabula_url ?? ""}` });
+  await notifyDecided(deps, result.publication);
 }

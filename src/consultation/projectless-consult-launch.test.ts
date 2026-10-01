@@ -28,7 +28,7 @@ function ports(workMode = "read-only") {
   return {
     useCase: vi.fn(() => ({ work_mode: workMode, archived_at: null })),
     workspaceRoot: "/srv/cw",
-    ensureDir: vi.fn(async () => undefined),
+    prepareWorkspace: vi.fn(async () => undefined),
   };
 }
 
@@ -41,16 +41,24 @@ describe("resolveProjectlessConsultLaunch", () => {
       cwd: join("/srv/cw", "glab"),
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
+      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
     });
-    expect(p.ensureDir).toHaveBeenCalledWith(join("/srv/cw", "glab"));
+    // 上位の CLAUDE.md と自動メモリを読ませない設定を書く (CC-CONSULT-INV-08)。
+    expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "glab"), expect.objectContaining({
+      claudeMdExcludes: expect.arrayContaining(["**/CLAUDE.md", "**/AGENTS.md"]),
+      autoMemoryEnabled: false,
+    }));
   });
 
   it("本社の相談部署は本社の相談用ディレクトリで、 ツールを制限せずに起動する", async () => {
     const p = ports();
     expect(await resolveProjectlessConsultLaunch(
       { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [] }, p,
-    )).toEqual({ kind: "consult-workspace", cwd: join("/srv/cw", "head-office"), claudeArgs: [], restriction: null });
-    expect(p.ensureDir).toHaveBeenCalledWith(join("/srv/cw", "head-office"));
+    )).toEqual({
+      kind: "consult-workspace", cwd: join("/srv/cw", "head-office"), claudeArgs: [], restriction: null,
+      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
+    });
+    expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "head-office"), expect.objectContaining({ autoMemoryEnabled: false }));
   });
 
   it("本社で作業領域を明示した起動はその指定に従う", async () => {
@@ -73,7 +81,7 @@ describe("resolveProjectlessConsultLaunch", () => {
     const p = ports();
     expect(await resolveProjectlessConsultLaunch({ subsidiaryId: "glab", department: department(), specifiedScope: ["cwd", "project"] }, p))
       .toEqual({ kind: "error", status: 400, error: "projectless_consult_scope_fixed: cwd,project" });
-    expect(p.ensureDir).not.toHaveBeenCalled();
+    expect(p.prepareWorkspace).not.toHaveBeenCalled();
   });
 
   it("置き場所が未設定なら起動しない", async () => {

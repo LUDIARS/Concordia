@@ -10,6 +10,7 @@
  */
 
 import { CONSULT_INTAKE_FIELDS, CONSULT_INTAKE_LABELS, type ConsultIntake } from "./intake.js";
+import { skillLevelGuidance } from "./skill-level.js";
 
 export const MAX_LAUNCH_CORRECTIONS = 30;
 export const MAX_LAUNCH_CORRECTION_CHARS = 6_000;
@@ -91,12 +92,14 @@ function renderRequester(requester: StartupBlockInput["requester"]): string[] {
 
 function renderIntake(intake: ConsultIntake | null): string[] {
   if (!intake) return [];
-  return CONSULT_INTAKE_FIELDS.map((field) => {
+  const lines = CONSULT_INTAKE_FIELDS.map((field) => {
     const value = intake[field].trim();
     // 目的は任意。 空でも「知ること自体が目的」として扱えるよう明示する。
     if (!value) return field === "purpose" ? `- ${CONSULT_INTAKE_LABELS[field]}: (回答なし。知ること自体が目的として扱う)` : null;
     return `- ${CONSULT_INTAKE_LABELS[field]}: ${oneLine(value)}`;
   }).filter((line): line is string => line !== null);
+  // 技術レベルに合わせた説明の仕方 (初級 / 中級 / 上級、 tech-consultation.md §3)。
+  return intake.skill_level.trim() ? [...lines, ...skillLevelGuidance(intake.skill_level)] : lines;
 }
 
 /** 改行を詰めて 1 行にする (Markdown の箇条書きを崩さない)。 */

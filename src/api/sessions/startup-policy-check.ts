@@ -16,7 +16,7 @@ import { resolveMajorInjectText } from "../../control/major-inject-resolver.js";
 import { selectContextScope } from "../../control/inject-context-scope.js";
 import { deliverProjectRules } from "../../control/project-rules-delivery.js";
 
-export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks">;
+export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks" | "departmentStartupInject">;
 const log = createChildLogger("startup-policy");
 const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
@@ -59,6 +59,10 @@ export async function refreshStartupPolicy(deps: PolicyDeps, id: string): Promis
   const session = deps.repo.findSession(id);
   if (!session) return { revision: null, changed: false, delivery: "unconfirmed" };
   const baseline = readStartupPolicy(session.metadata);
+  // 起動時の注入を「初期だけ」にした部署は、 作業ポリシーの更新もプロジェクト規則も送らない (departments.md §9.5)。
+  if (session.department_id && deps.departmentStartupInject?.(session.department_id) === "initial-only") {
+    return { revision: baseline?.revision ?? null, changed: false, delivery: "unconfirmed" };
+  }
   const { policy } = await resolveStartupPolicy(deps, session, baseline?.fields.requestedBranch || null);
   const current = deps.repo.findSession(id);
   if (!current || current.repo_path !== session.repo_path || current.branch !== session.branch

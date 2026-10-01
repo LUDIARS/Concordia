@@ -11,6 +11,7 @@ import type { WebhookPool } from "./webhook-pool.js";
 import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import { buildAttachFiles, DISCORD_ATTACH_MAX_BYTES } from "./attachment-files.js";
+import { isFinalAnswerMessage, shouldRelaySessionMessage, type RelayOutputPolicy } from "./relay-output-filter.js";
 
 const BASE64_BYTES_PER_QUARTET = 3;
 const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
@@ -22,6 +23,8 @@ export function getEgressDedupStats(): { skipped_chat_posted: number; skipped_tr
 }
 
 export interface EgressDeps {
+  /** 部署の出力方針。 未指定なら全部流す (relay-output-filter.ts)。 */
+  relayOutputPolicy?: (sessionId: string) => RelayOutputPolicy;
   guild: Guild;
   layout: DiscordConfigSnapshot;
   webhooks: WebhookPool;
@@ -199,6 +202,8 @@ async function handleSessionMessage(
   // these echoes raw command input back into the thread. The WebUI keeps the
   // full record; only an ingress Discord has not already seen is relayed.
   if (ev.message.author_type === "user" && !isRelayableUserOrigin(ev.message.author_platform)) return;
+  const outputPolicy = deps.relayOutputPolicy?.(ev.target_session_id);
+  if (outputPolicy && !shouldRelaySessionMessage(ev.message, outputPolicy)) return;
 
   const content = formatSessionMessageContent(ev.message);
   const existingDiscordId = deps.deliveryRepo.findExternalId(ev.message.id, "discord");
@@ -337,8 +342,7 @@ export function isTurnEndMessage(message: SessionMessagePayload): boolean {
 }
 
 function isFinalReportMessage(message: SessionMessagePayload): boolean {
-  return message.author_type === "summary"
-    || (message.author_type === "assistant" && message.metadata?.phase === "final_answer");
+  return isFinalAnswerMessage(message);
 }
 
 function isCompletionMessage(message: SessionMessagePayload): boolean {

@@ -2,6 +2,8 @@
  * 相談からの公開候補のユースケース (spec/feature/tech-consultation.md §5)。
  *
  * - 候補はセッションが書き直した要約として出す (propose)。 相談中 (open) のセッションだけが出せる。
+ * - 相談を閉じた後は、 Cc が判定して書き直した要約で「全体共有しますか？」を出す (proposeOnClose、 §7)。
+ *   24 時間反応がなければ「共有しない」とみなす (expire)。
  * - 公開・公開しないを決められるのは相談者本人だけ。 権限者は取り下げだけできる (CC-CONSULT-INV-04)。
  * - 公開は Tabula にメンバー共有ページを作ってから published にする。 投稿に失敗したら proposed のまま
  *   理由を残し、 もう一度押せば再試行できる。 Tabula が未設定なら公開できない (黙って成功にしない)。
@@ -20,10 +22,13 @@ import type { TabulaConnection, TabulaImportInput, TabulaImportResult } from "./
 export const MAX_PUBLICATION_TITLE_CHARS = 200;
 export const MAX_PUBLICATION_SUMMARY_CHARS = 20_000;
 export const CONSULTATION_TAG = "技術相談";
+/** 反応なしで閉じた候補の decided_by。 */
+export const EXPIRED_BY = "timeout";
 
 export type PublicationError =
   | "consultation_not_found"
   | "consultation_not_open"
+  | "consultation_not_closed"
   | "publication_not_found"
   | "not_proposed"
   | "not_requester"
@@ -67,6 +72,31 @@ export class PublicationService {
     }
     const publication = this.ports.publications.create({ consultation_id: consultation.id, title, summary }, this.now());
     return { ok: true, publication, consultation, tabulaReady: this.ports.tabulaConnection() !== null };
+  }
+
+  /** 閉じた相談の共有の問い (tech-consultation.md §7)。 判定と書き直しは呼び出し側 (Cc) が済ませている。 */
+  proposeOnClose(input: { consultationId: string; title: unknown; summary: unknown }): Result<{
+    publication: ConsultationPublicationRow;
+    consultation: PrivateConsultationRow;
+    tabulaReady: boolean;
+  }> {
+    const consultation = this.ports.consultations.find(input.consultationId);
+    if (!consultation) return { ok: false, error: "consultation_not_found" };
+    if (consultation.status !== "closed") return { ok: false, error: "consultation_not_closed" };
+    const title = typeof input.title === "string" ? input.title.trim() : "";
+    const summary = typeof input.summary === "string" ? input.summary.trim() : "";
+    if (!title || !summary || title.length > MAX_PUBLICATION_TITLE_CHARS || summary.length > MAX_PUBLICATION_SUMMARY_CHARS) {
+      return { ok: false, error: "invalid_proposal" };
+    }
+    const publication = this.ports.publications.create({ consultation_id: consultation.id, title, summary }, this.now());
+    return { ok: true, publication, consultation, tabulaReady: this.ports.tabulaConnection() !== null };
+  }
+
+  /** 共有の問いに 24 時間反応がなかった (§7)。 「共有しない」として閉じる。 */
+  expire(publicationId: string): Result<{ publication: ConsultationPublicationRow }> {
+    const target = this.target(publicationId);
+    if (!target.ok) return target;
+    return this.close(publicationId, "declined", EXPIRED_BY);
   }
 
   /** 相談者本人が公開する。 editedSummary を渡せば直した文で公開する。 */

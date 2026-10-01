@@ -2,7 +2,7 @@
  * 子会社のプロジェクトを持たない相談部署からの起動 (spec/feature/tech-consultation.md §6) の結合確認。
  * admin spawn が相談用ディレクトリを cwd にし、 claude のツール制限を付け、 作業領域の指定を拒否する。
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SpawnRequest } from "../src/control/spawner.js";
@@ -98,6 +98,10 @@ describe("projectless consultation spawn in a subsidiary", () => {
     const response = await spawnSession(env, { department: headOfficeConsultId, provider: "claude", prompt: "DDD の利点は?" });
     expect(response.status).toBe(200);
     expect(spawnCalls[0]?.cwd).toBe(join(workspaceRoot, "head-office"));
+    // 上位の CLAUDE.md と自動メモリを読まない (2026-10-02 の流出対策、 CC-CONSULT-INV-08)。
+    const settings = JSON.parse(readFileSync(join(workspaceRoot, "head-office", ".claude", "settings.local.json"), "utf8")) as Record<string, unknown>;
+    expect(settings).toMatchObject({ autoMemoryEnabled: false, claudeMdExcludes: expect.arrayContaining(["**/CLAUDE.md"]) });
+    expect(spawnCalls[0]?.env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
     expect(spawnCalls[0]?.args ?? []).not.toEqual(expect.arrayContaining(["--strict-mcp-config"]));
   });
 

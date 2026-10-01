@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 121;
+export const SCHEMA_VERSION = 122;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3085,6 +3085,22 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec(`
       ALTER TABLE management_requests ADD COLUMN delivered_revision INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE management_requests ADD COLUMN discord_message_id TEXT;
+    `);
+  },
+},
+{
+  version: 122,
+  name: "private-consultation-closure",
+  source: "private_consultations.wrap_status / share_asked_at / channel_deleted_at (spec/feature/tech-consultation.md §7)",
+  up(db) {
+    // 相談の後始末: 閉じた後に共有を問い (asking)、 答えが出たら done にしてチャンネルを削除する。
+    // 導入前の相談は legacy にして、 自動の判定・削除の対象にしない (既存チャンネルを黙って消さない)。
+    db.exec(`
+      ALTER TABLE private_consultations ADD COLUMN wrap_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(wrap_status IN ('pending', 'asking', 'done', 'legacy'));
+      ALTER TABLE private_consultations ADD COLUMN share_asked_at INTEGER;
+      ALTER TABLE private_consultations ADD COLUMN channel_deleted_at INTEGER;
+      UPDATE private_consultations SET wrap_status = 'legacy';
     `);
   },
 },

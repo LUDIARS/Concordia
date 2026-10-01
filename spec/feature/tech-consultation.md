@@ -33,6 +33,8 @@
 | CC-CONSULT-INV-05 | ヒアリング内容と依頼者メモはローカル DB だけに置き、連合・通知・ログへ出さない | 既存の依頼者メモの規則 (dialogue-context.md §7) を継承 |
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
 | CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。子会社ごとの空の相談用ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
+| CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない) | 相談用ディレクトリの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
+| CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
 
 ## 3. 事前ヒアリング
 
@@ -164,12 +166,45 @@
   (居ない人の member overwrite はチャンネル作成ごと失敗させる)。在籍の確認に失敗したら受け付けない。
   名簿の外の人を足すことはできない。
 - 子会社では公開候補 (`/consult wrap` と判断カード) を出さない。公開は本社の知見共有の面で、相談セッションはシェルも持たない。
-- 残る露出: 起動時の共通資料案内 (Castra のパス名) と、相談用ディレクトリの上位にある CLAUDE.md (Castra・Concordia)
-  はセッションに読み込まれる。ファイルの中身を読むツールは無い。
+- 上位の CLAUDE.md と自動メモリは読ませない (CC-CONSULT-INV-08)。2026-10-02、相談用ディレクトリを Concordia 配下に移した
+  直後に、Castra の CLAUDE.md (略称表) と Concordia の自動メモリが相談セッションに読み込まれ、回答に社内のプロジェクト名が
+  出た。相談用ディレクトリを用意するたびに `.claude/settings.local.json` を書き、起動 env でも自動メモリを止める。
+- 閲覧者は執行役員 (権限者の最低役職を executive に設定) で、案内文には列挙もメンションもしない (2026-10-02 neco 指示)。
+- 起動時の注入は初期だけ (部署設定 `startup_inject: initial-only`、departments.md §9.5)、出力は最終回答だけ
+  (`output.intermediate` / `inject_transcript` / `context_usage` を off、§9.4)。前提質問と状態カードは残る。
+- 説明の仕方は技術レベルに合わせる (初級: 小学五年生でわかるように専門用語なし / 中級: 専門用語可、シニアの話は噛み砕く /
+  上級: シニアとして扱う。`src/dialogue/skill-level.ts`)。
+- 残る露出: 起動時の共通資料案内 (Castra のパス名) はセッションに渡る (初期だけの部署では送らない)。
 
 状態所有者: 相談用ディレクトリの場所 = 起動設定 (admin spawn)。判定 = consultation (`src/consultation/projectless-consult.ts`)。
 
-## 7. データ
+## 7. 相談チャンネルの後始末
+
+**Requirement ID: `SPEC-CONSULT-CLOSURE`**
+
+> 2026-10-02 neco 指示:「相談チャンネルは、起動から 24 時間が経過するか『セッション終了』または /end-session でセッション終了を
+> 検知した後、内容がセンシティブなものかどうか確認し公開可能と判断した時チャンネルに『この内容を全体共有しますか？』の
+> ダイアログを投稿する。セッションはこの回答を待たずに終了して良い。ユーザーの反応が 24 時間ない場合は NO と判断する。
+> 回答が終わったらチャンネルを削除する」。推奨案 (承認ボタンはメンション無し / 公開できなければ即削除 / 子会社は問わない) で承認。
+
+- きっかけ: セッションの終了・消失 (`session.ended` / `session.lost`)、または見回り (既定 10 分、`CONCORDIA_CONSULT_CLOSURE_SWEEP_SEC`)
+  で開始から 24 時間を過ぎた相談のセッションを止める (`POST /v1/admin/stop-session/:id`)。
+- 判定 (本社だけ): 相談者の発言と最終回答を `claude -p` (会話のみ) に渡し、共有してよいか・書き直した題名と本文を JSON で受ける。
+  読めない・欠けるは共有しない。要約に秘匿語辞書 (`CONCORDIA_CONFIDENTIAL_TERMS_FILE`、既定 Castra の
+  `.claude/state/confidential-terms.json`) や Cc のプロジェクト名が残れば共有しない (語は記録せず件数だけ)。判定に失敗したら次の見回りでやり直す。
+- 問い: 共有できるときだけ `POST /v1/consultations/:id/share-proposal` で候補を作り、相談チャンネルに
+  「この内容を全体共有しますか？」カード (共有する / 直して共有 / 共有しない / 取り下げ) を出す。
+  24 時間反応がなければ `POST /v1/consultations/publications/:id/expire` で「共有しない」(decided_by = timeout)。
+- 片付け: 答えが出たら (共有・共有しない・取り下げ・期限切れ)、共有しないと判定したら、子会社なら、チャンネルを削除する。
+  削除に失敗したら次の見回りで再試行する。
+- 状態は `private_consultations.wrap_status` (pending → asking → done、導入前の相談は legacy で対象外) が正本。
+  1 段ずつ条件付きで進めるので、見回りとイベントが重なっても二重に問わない (CC-CONSULT-INV-09)。
+- 手動の `/consult wrap` (§5) は残す。
+
+状態所有者: 後始末の状態 = `private_consultations` (consultation)。判断 = `src/consultation/closure-policy.ts`、
+手順 = `closure-service.ts`、Discord・Cc API との接続 = `src/discord/consult-closure-wiring.ts`。
+
+## 8. データ
 
 | テーブル / 列 | 内容 | ドメイン |
 |---|---|---|
@@ -177,11 +212,11 @@
 | `requester_profiles.role_title` | 役職 (次回の既定値) | dialogue-context |
 | `consultation_intakes` | 相談ごとの 4 項目、取得元 (forum / modal / api)、会社・部署・ユースケース・依頼者、受付チャンネル (起動前に集めるので session id ではなくスレッド / チャンネルで辿る)。揃ってから起動するときに 1 行記録する | dialogue-context |
 | `departments.settings_json.private` | プライベート相談の許可と権限者の最低役職 | governance |
-| `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (pending_approval / open / closed)・承認前のヒアリング・承認者・時刻 | consultation |
+| `private_consultations` | 会社・部署・相談者・チャンネル・セッション・状態 (pending_approval / open / closed)・承認前のヒアリング・承認者・時刻・後始末の状態 (wrap_status)・共有を問うた時刻・チャンネル削除時刻 (migration 122) | consultation |
 | `private_consultation_members` | 閲覧者・追加理由 (requester / approver / invited)・追加者・時刻・除外時刻 | consultation |
 | `consultation_publications` | 題名・候補文・公開した文・状態 (proposed / published / declined / withdrawn)・カードの message id・Tabula ページ id と URL・最後の失敗・判断者・時刻 | consultation |
 
-## 8. 分割
+## 9. 分割
 
 | # | リポ | 内容 | task md |
 |---|---|---|---|
@@ -190,3 +225,4 @@
 | 3 | Tb | 取り込み API の共有範囲指定 | Tabula の `spec/tasks/2026-09-30-import-member-sharing.md` (Tb の PR に含める) |
 | 4 | Cc | オープン化の提案と Tabula 投稿 | `spec/tasks/2026-09-30-consult-publish-tabula.md` |
 | 5 | Cc | 子会社の相談窓口 (プロジェクトを持たない相談) | `spec/tasks/2026-10-01-subsidiary-consult-desk.md` |
+| 6 | Cc | 相談課の後始末と出力の絞り込み | `spec/tasks/2026-10-02-consult-closure.md` |

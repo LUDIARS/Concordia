@@ -180,11 +180,17 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // 埋もれて「補足」に見え、 タスク未指定の spawn では何も写らなくなる。
       // タスク未指定の spawn には何も焼かない。 以前は待機指示を明示のタスクとして
       // 渡していたが、 指示が来なければセッションは元々待つので不要 (2026-09-29 neco 指示)。
+      // 部署が起動時の注入を「初期だけ」にしていれば、 Cc の作業ポリシーと協調の案内を送らない。
+      // 初回指示 (前提データと依頼本文) だけを渡す (技術相談課、 departments.md §9.5)。
+      const sessionDepartmentId = claimed?.departmentId ?? claimedDelegationRun?.department_id ?? null;
+      const initialInjectOnly = sessionDepartmentId !== null
+        && deps.departmentStartupInject?.(sessionDepartmentId) === "initial-only";
+      if (initialInjectOnly) sessionWorkPolicyText = null;
       const startupTaskText = claimed?.startupInjectText?.trim();
       if (startupTaskText) meta.discord_startup_task = startupTaskText;
       const startupInjectText = [
         sessionWorkPolicyText,
-        deps.resolveCcWorkflowEnabled?.()
+        deps.resolveCcWorkflowEnabled?.() && !initialInjectOnly
           ? renderCcWorkflowStartupInject(input.id, deps.majorInject)
           : null,
       ].filter((text): text is string => Boolean(text?.trim())).join("\n\n");

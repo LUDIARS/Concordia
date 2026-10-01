@@ -405,7 +405,8 @@ export function resolveAgentHomeCwd(
 const SPAWN_ENV_ALLOW_PREFIXES = ["LICTOR_", "CONCORDIA_"] as const;
 // Claude's official thinking control is needed for Cc-owned delegation only.
 // Keep this an exact allowlist entry instead of allowing the full CLAUDE_* family.
-const SPAWN_ENV_ALLOWED_KEYS = new Set(["CLAUDE_CODE_DISABLE_THINKING"]);
+// 相談セッションは自動メモリを読まない (spec/feature/tech-consultation.md §6、 CC-CONSULT-INV-08)。
+const SPAWN_ENV_ALLOWED_KEYS = new Set(["CLAUDE_CODE_DISABLE_THINKING", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]);
 
 /** allowlist prefix の key だけを残す (CWE-78 env 注入対策、 pure)。 */
 export function sanitizeSpawnEnv(

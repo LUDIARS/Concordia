@@ -13,6 +13,8 @@ import type Database from "better-sqlite3";
 
 export type PrivateConsultationStatus = "pending_approval" | "open" | "closed";
 export type PrivateConsultationMemberReason = "requester" | "approver" | "invited";
+/** 後始末の状態 (tech-consultation.md §7)。 legacy は導入前の相談で、 自動の判定・削除をしない。 */
+export type PrivateConsultationWrapStatus = "pending" | "asking" | "done" | "legacy";
 
 export interface PrivateConsultationRow {
   id: string;
@@ -26,6 +28,9 @@ export interface PrivateConsultationRow {
   approved_by: string | null;
   approved_at: number | null;
   closed_at: number | null;
+  wrap_status: PrivateConsultationWrapStatus;
+  share_asked_at: number | null;
+  channel_deleted_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -98,6 +103,54 @@ export class PrivateConsultationsRepo {
       UPDATE private_consultations SET status = 'closed', closed_at = ?, updated_at = ?
       WHERE id = ? AND status != 'closed'
     `).run(now, now, id).changes > 0;
+  }
+
+  /** 開いている相談 (24 時間の期限を見る)。 */
+  listOpen(): PrivateConsultationRow[] {
+    return this.db.prepare("SELECT * FROM private_consultations WHERE status = 'open' ORDER BY created_at").all() as
+      PrivateConsultationRow[];
+  }
+
+  /** 閉じたが後始末をまだしていない相談。 */
+  listClosedPendingWrap(): PrivateConsultationRow[] {
+    return this.db.prepare(
+      "SELECT * FROM private_consultations WHERE status = 'closed' AND wrap_status = 'pending' ORDER BY closed_at",
+    ).all() as PrivateConsultationRow[];
+  }
+
+  /** 共有を問うている相談。 */
+  listAsking(): PrivateConsultationRow[] {
+    return this.db.prepare("SELECT * FROM private_consultations WHERE wrap_status = 'asking' ORDER BY share_asked_at")
+      .all() as PrivateConsultationRow[];
+  }
+
+  /** 後始末が済んだのにチャンネルが残っている相談 (削除の再試行)。 */
+  listDoneWithChannel(): PrivateConsultationRow[] {
+    return this.db.prepare(`
+      SELECT * FROM private_consultations
+      WHERE wrap_status = 'done' AND channel_id IS NOT NULL AND channel_deleted_at IS NULL
+      ORDER BY updated_at
+    `).all() as PrivateConsultationRow[];
+  }
+
+  /** 後始末を 1 段進める。 期待する現在の状態のときだけ変える (二重処理を防ぐ)。 */
+  advanceWrap(
+    id: string,
+    from: PrivateConsultationWrapStatus,
+    to: Exclude<PrivateConsultationWrapStatus, "legacy">,
+    now: number = Date.now(),
+  ): boolean {
+    return this.db.prepare(`
+      UPDATE private_consultations
+      SET wrap_status = ?, share_asked_at = CASE WHEN ? = 'asking' THEN ? ELSE share_asked_at END, updated_at = ?
+      WHERE id = ? AND wrap_status = ?
+    `).run(to, to, now, now, id, from).changes > 0;
+  }
+
+  markChannelDeleted(id: string, now: number = Date.now()): void {
+    this.db.prepare(
+      "UPDATE private_consultations SET channel_deleted_at = ?, updated_at = ? WHERE id = ? AND channel_deleted_at IS NULL",
+    ).run(now, now, id);
   }
 
   /** 閲覧者を加える。 除外済みの人を加え直したら理由と時刻を更新する。 */

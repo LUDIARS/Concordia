@@ -18,7 +18,9 @@
 import type { DepartmentRow } from "../db/departments-repo.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import {
+  CONSULT_SESSION_ENV,
   PROJECTLESS_CONSULT_CLAUDE_ARGS,
+  consultWorkspaceClaudeSettings,
   isProjectlessConsultDepartment,
   projectlessConsultRestriction,
   projectlessConsultWorkspace,
@@ -36,7 +38,8 @@ export interface ProjectlessConsultLaunchPorts {
   useCase(id: string): ProjectlessConsultInput["useCase"];
   /** 相談用ディレクトリの置き場所。 未設定ならこの起動は受けない。 */
   workspaceRoot: string | undefined;
-  ensureDir(path: string): Promise<void>;
+  /** ディレクトリを用意し、 Claude Code のローカル設定 (指示ファイル・自動メモリを読まない) を書く。 */
+  prepareWorkspace(path: string, claudeSettings: Record<string, unknown>): Promise<void>;
 }
 
 export type ProjectlessConsultLaunch =
@@ -48,6 +51,8 @@ export type ProjectlessConsultLaunch =
     claudeArgs: readonly string[];
     /** 子会社だけ: 初回指示の先頭に置く作業範囲の説明。 本社は null。 */
     restriction: string | null;
+    /** 起動 env (自動メモリを読まない)。 */
+    env: Readonly<Record<string, string>>;
   }
   | { kind: "error"; status: 400 | 503; error: string };
 
@@ -74,8 +79,11 @@ export async function resolveProjectlessConsultLaunch(
   }
   if (!ports.workspaceRoot) return { kind: "error", status: 503, error: "projectless_consult_workspace_unavailable" };
   const cwd = projectlessConsultWorkspace(ports.workspaceRoot, subsidiaryId);
-  await ports.ensureDir(cwd);
+  await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings());
   return inSubsidiary
-    ? { kind: "consult-workspace", cwd, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: projectlessConsultRestriction() }
-    : { kind: "consult-workspace", cwd, claudeArgs: [], restriction: null };
+    ? {
+      kind: "consult-workspace", cwd, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: projectlessConsultRestriction(),
+      env: CONSULT_SESSION_ENV,
+    }
+    : { kind: "consult-workspace", cwd, claudeArgs: [], restriction: null, env: CONSULT_SESSION_ENV };
 }

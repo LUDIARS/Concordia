@@ -9,10 +9,11 @@ import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
-import { access, mkdir, utimes } from "node:fs/promises";
+import { access, mkdir, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
+import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { reportError } from "../errors.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
@@ -452,6 +453,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         deps.adminState.getThinkingMessagesEnabled(),
       ),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
+      // 部署の起動時の注入方針 (departments.md §9.5)。 壊れた設定は全部送る側へ倒す (表示の出し分けだけで権限には効かない)。
+      departmentStartupInject: (departmentId) => {
+        const department = deps.departments?.find(departmentId);
+        if (!department) return "full";
+        try {
+          return parseDepartmentSettings(department.settings_json).startup_inject;
+        } catch {
+          return "full";
+        }
+      },
       harnessAudit: deps.harnessAudit,
     }),
   );
@@ -1035,7 +1046,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }, {
         useCase: (id) => deps.useCases?.find(id) ?? null,
         workspaceRoot: deps.consultWorkspaceRoot,
-        ensureDir: async (path) => { await mkdir(path, { recursive: true }); },
+        prepareWorkspace: async (path, claudeSettings) => {
+          await mkdir(join(path, ".claude"), { recursive: true });
+          await writeFile(join(path, ".claude", "settings.local.json"), `${JSON.stringify(claudeSettings, null, 2)}
+`, "utf8");
+        },
       })
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
@@ -1226,6 +1241,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: {
           ...(spawn.env ?? {}),
+          ...(consultConfinement?.env ?? {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
           ...interactiveSpawnEnvironment(spawn.provider, startupPromptPath),
@@ -1279,6 +1295,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
+      ...(consultConfinement?.env ?? {}),
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
       ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
       ...interactiveSpawnEnvironment(

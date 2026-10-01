@@ -45,6 +45,17 @@ it("repairs missing policy without tracking workflow changes", async () => {
   expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(false);
 });
 
+it("sends no policy update to a session of a department that takes the initial inject only (departments.md §9.5)", async () => {
+  const { repo, deps } = fixture();
+  repo.insertSession({ id: "consult-fixture", provider: "claude", repo_path: "E:/fixture/consult",
+    repo_origin: null, branch: null, host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null,
+    metadata: null, department_id: "dept-qa" });
+  const consultDeps = { ...deps, departmentStartupInject: (id: string) => (id === "dept-qa" ? "initial-only" as const : "full" as const) };
+  // 方針が未保存でも (通常は修復の注入が出る) 、 初期だけの部署には何も送らない。
+  expect((await refreshStartupPolicy(consultDeps, "consult-fixture")).changed).toBe(false);
+  expect(repo.recentEvents("consult-fixture", 10)).toHaveLength(0);
+});
+
 it("reports a hook binding mismatch without replacing the registered worktree", async () => {
   const { repo, app } = fixture();
   const response = await app.request("/policy-fixture/startup-policy-check", { method: "POST",

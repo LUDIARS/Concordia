@@ -35,7 +35,20 @@ const OutputPolicySchema = z.object({
   status_card: OutputModeSchema.default("inherit"),
   session_info_card: OutputModeSchema.default("inherit"),
   cost_report: OutputModeSchema.default("inherit"),
+  // 2026-10-02 neco 指示 (技術相談課は「FINAL ANSWER のみ」・Inject 指令は非表示・コンテキストサイズも不要)。
+  /** 指示 1 回ごとの最後の発言 (最終回答) 以外の、 途中の発言。 */
+  intermediate: OutputModeSchema.default("inherit"),
+  /** Cc が送った指令 (inject) の転記。 */
+  inject_transcript: OutputModeSchema.default("inherit"),
+  /** コンテキストの使用量 (サイズ) の表示。 */
+  context_usage: OutputModeSchema.default("inherit"),
 }).strict();
+
+/**
+ * 起動時の Cc の注入 (作業ポリシー・プロジェクト規則・共通資料と以後の policy update)。
+ * `initial-only` は初回指示 (前提データと依頼本文) だけを渡す (技術相談課、 2026-10-02 neco 指示)。
+ */
+const StartupInjectSchema = z.enum(["full", "initial-only"]);
 
 /**
  * プライベート相談 (spec/feature/tech-consultation.md §4)。 enabled の部署だけ `/consult` を受け付け、
@@ -51,6 +64,7 @@ export const DepartmentSettingsSchema = z.object({
   projects: z.array(ProjectNameSchema).max(200).default([]),
   output: OutputPolicySchema.default({}),
   private: PrivateConsultationSchema.default({}),
+  startup_inject: StartupInjectSchema.default("full"),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -83,6 +97,7 @@ export type DepartmentOutputPolicy = DepartmentSettings["output"];
 export type DepartmentOutputItem = keyof DepartmentOutputPolicy;
 export type DepartmentOutputMode = DepartmentOutputPolicy[DepartmentOutputItem];
 export type DepartmentPrivateConsultation = DepartmentSettings["private"];
+export type DepartmentStartupInject = DepartmentSettings["startup_inject"];
 
 export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
@@ -91,10 +106,13 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
   status_card: "inherit",
   session_info_card: "inherit",
   cost_report: "inherit",
+  intermediate: "inherit",
+  inject_transcript: "inherit",
+  context_usage: "inherit",
 };
 
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
-  launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION,
+  launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full",
 };
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */

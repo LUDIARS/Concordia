@@ -3382,6 +3382,50 @@
         "src/discord/spawn-approval.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/dialogue/skill-level.ts",
+      "tests": [
+        "src/dialogue/skill-level.test.ts",
+        "src/dialogue/startup-block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/relay-output-filter.ts",
+      "tests": [
+        "src/discord/relay-output-filter.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/closure-policy.ts",
+      "tests": [
+        "src/consultation/closure-policy.test.ts",
+        "src/consultation/closure-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/closure-service.ts",
+      "tests": [
+        "src/consultation/closure-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/confidential-terms.ts",
+      "tests": [
+        "src/consultation/confidential-terms.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/consult-closure-wiring.ts",
+      "tests": [
+        "src/discord/consult-closure-wiring.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

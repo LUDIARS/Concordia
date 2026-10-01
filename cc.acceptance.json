@@ -3369,9 +3369,17 @@
       "contracts": []
     },
     {
-      "source": "src/discord/consult-guild-members.ts",
+      "source": "src/discord/guild-member-ids.ts",
       "tests": [
-        "src/discord/consult-guild-members.test.ts"
+        "src/discord/guild-member-ids.test.ts",
+        "src/discord/spawn-approval.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/spawn-approval.ts",
+      "tests": [
+        "src/discord/spawn-approval.test.ts"
       ],
       "contracts": []
     }

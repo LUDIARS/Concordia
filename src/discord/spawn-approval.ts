@@ -8,6 +8,7 @@ import {
   type Interaction,
 } from "discord.js";
 import type { DiscordCommandDeps, SpawnApprovalStore } from "./command-port.js";
+import { guildMemberIds } from "./guild-member-ids.js";
 
 export type { SpawnApprovalStore } from "./command-port.js";
 
@@ -26,10 +27,22 @@ export async function requestSpawnApproval(
   deps: DiscordCommandDeps,
 ): Promise<void> {
   const store = deps.spawnApprovals;
-  const executiveIds = validExecutiveIds(deps.listExecutiveDiscordUserIds?.() ?? []);
+  let executiveIds = validExecutiveIds(deps.listExecutiveDiscordUserIds?.() ?? []);
+  // 社員名簿は会社の所属を持たない。 このサーバにいない執行役員へはメンションしない (staff-roster.md §9)。
+  if (executiveIds.length > 0 && interaction.guild) {
+    try {
+      executiveIds = await guildMemberIds(interaction.guild, executiveIds);
+    } catch {
+      await interaction.reply({
+        content: "執行役員の在籍を確認できなかったため、許可を申請できませんでした。時間をおいてもう一度お試しください。",
+        ephemeral: true,
+      });
+      return;
+    }
+  }
   if (!store || executiveIds.length === 0 || !interaction.guildId) {
     await interaction.reply({
-      content: "このユーザーにはセッション起動権限がありません。許可を依頼できる執行役員が登録されていません。",
+      content: "このユーザーにはセッション起動権限がありません。このサーバに許可を依頼できる執行役員がいません。",
       ephemeral: true,
     });
     return;

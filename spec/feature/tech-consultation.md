@@ -160,7 +160,7 @@
     MCP・スキルを持たない。provider は claude だけ (他の provider は 400 `projectless_consult_requires_claude`)。
   - 起動要求に project / cwd / team / branch / worktree / 利用者の args / テンプレの prompt 注入があれば 400
     `projectless_consult_scope_fixed`。置き場所が未設定なら 503。
-- 閲覧者: 社員名簿は本社と子会社で共通なので、名簿の権限者のうちその guild に在籍する人だけを閉じたチャンネルに入れる
+- 閲覧者: 社員名簿は本社と子会社で共通で会社の所属を持たないので、本社・子会社とも名簿の権限者のうちその guild に在籍する人だけを閉じたチャンネルに入れる ([社員名簿 §9](staff-roster.md))
   (居ない人の member overwrite はチャンネル作成ごと失敗させる)。在籍の確認に失敗したら受け付けない。
   名簿の外の人を足すことはできない。
 - 子会社では公開候補 (`/consult wrap` と判断カード) を出さない。公開は本社の知見共有の面で、相談セッションはシェルも持たない。

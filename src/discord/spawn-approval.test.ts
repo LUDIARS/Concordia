@@ -72,6 +72,41 @@ describe("spawn approval", () => {
     expect(store.size).toBe(1);
   });
 
+  it("does not mention executives who are not members of the guild (staff-roster.md §9)", async () => {
+    const reply = vi.fn(async (_payload: unknown) => undefined);
+    const store: SpawnApprovalStore = new Map();
+    const guild = {
+      members: {
+        fetch: vi.fn(async (id: string) => {
+          if (id === "333333333333333333") return { id };
+          throw Object.assign(new Error("Unknown Member"), { code: 10007 });
+        }),
+      },
+    };
+    await requestSpawnApproval({ ...spawnInteraction("111111111111111111"), guild, reply } as never, {
+      spawnApprovals: store,
+      listExecutiveDiscordUserIds: () => ["222222222222222222", "333333333333333333"],
+    } as never);
+
+    const payload = reply.mock.calls[0]![0] as { content: string; allowedMentions: { users: string[] } };
+    expect(payload.allowedMentions.users).toEqual(["333333333333333333", "111111111111111111"]);
+    expect(payload.content).not.toContain("222222222222222222");
+  });
+
+  it("refuses without mentioning anyone when no executive is in the guild", async () => {
+    const reply = vi.fn(async (_payload: unknown) => undefined);
+    const store: SpawnApprovalStore = new Map();
+    const guild = { members: { fetch: vi.fn(async () => { throw Object.assign(new Error("Unknown Member"), { code: 10007 }); }) } };
+    await requestSpawnApproval({ ...spawnInteraction("111111111111111111"), guild, reply } as never, {
+      spawnApprovals: store,
+      listExecutiveDiscordUserIds: () => ["222222222222222222"],
+    } as never);
+
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(String((reply.mock.calls[0]![0] as { content: string }).content)).not.toContain("<@");
+    expect(store.size).toBe(0);
+  });
+
   it("removes an approval request when its Discord message cannot be created", async () => {
     const store: SpawnApprovalStore = new Map();
     const failure = new Error("interaction expired");

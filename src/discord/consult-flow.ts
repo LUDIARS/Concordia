@@ -52,8 +52,9 @@ export interface ConsultFlowDeps {
   runtimeSubsidiaryId: string | null;
   categoryStore: PrivateCategoryStore;
   /**
-   * この guild に居る閲覧者候補 (子会社 guild 用)。 未指定なら絞らない。 居ない人へ member overwrite を
-   * 付けるとチャンネル作成ごと失敗するため、 子会社では名簿の権限者をその guild の在籍者に絞る。
+   * この guild に居る閲覧者候補。 未指定なら絞らない。 社員名簿は会社の所属を持たないので、 名簿の権限者を
+   * その guild の在籍者に絞る (staff-roster.md §9)。 居ない人へ member overwrite を付けるとチャンネル作成ごと失敗し、
+   * メンションも届かない。
    */
   viewerCandidates?(guild: Guild): Promise<readonly string[]>;
   /** 部署のセッションを起動する (admin spawn)。 */

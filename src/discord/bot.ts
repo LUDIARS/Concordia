@@ -160,7 +160,7 @@ import { StaffRepo } from "../db/staff-repo.js";
 import { roleAtLeast } from "../staff/roles.js";
 import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
 import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
-import { consultGuildMemberIds } from "./consult-guild-members.js";
+import { guildMemberIds } from "./guild-member-ids.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
@@ -657,8 +657,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     store: privateConsultationsRepo,
     runtimeSubsidiaryId: subsidiaryId ?? null,
     categoryStore: privateCategoryStore,
-    // 子会社 guild には本社の権限者が居ないことがある。 居ない人の overwrite はチャンネル作成ごと失敗させる。
-    ...(subsidiaryId ? { viewerCandidates: (guild: Guild) => consultGuildMemberIds(guild, approverRosterIds()) } : {}),
+    // 社員名簿は会社の所属を持たないので、 閲覧者 (とメンション) はその guild に在籍する権限者だけにする
+    // (staff-roster.md §9)。 居ない人の overwrite はチャンネル作成ごと失敗させる。
+    viewerCandidates: (guild: Guild) => guildMemberIds(guild, approverRosterIds()),
     spawn: async ({ consultation, intake, guildId, channelId, requesterDisplayName }) => {
       const result = await callConcordia<{ ok: boolean }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
         prompt: privateConsultPrompt(intake),

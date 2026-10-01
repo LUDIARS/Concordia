@@ -1,6 +1,7 @@
 // @spec ハーネス信頼性の実装境界
 import { createChoresRuntime } from "../chores/runtime.js";
 import { createManagementRuntime } from "../management/runtime.js";
+import { startManagementRemote } from "../management/remote-startup.js";
 import { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
@@ -1815,6 +1816,8 @@ export async function startBackend(): Promise<BackendHandle> {
     departmentExists: (id) => departmentsRepo.find(id) !== null,
     writePrompt: (text) => delegationService.writeAdHocPrompt(text),
   });
+  // dots 専用の入口 (CC-MGMT-07)。 既定 OFF、 失敗しても Cc 本体は止めない。
+  const managementRemote = startManagementRemote(process.env, managementRuntime.service);
   const actioChatSharedSecret = readActioChatSecret(process.env);
   const chatDestinations = readChatDestinations(process.env);
   const app = buildApp({
@@ -2739,6 +2742,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("chores", () => choresRuntime.stop());
+  resources.own("management remote", () => managementRemote.stop());
   resources.own("management", () => managementRuntime.stop());
   resources.own("post-listen handles", () => {
     for (const handle of postListenHandles.splice(0).reverse()) {

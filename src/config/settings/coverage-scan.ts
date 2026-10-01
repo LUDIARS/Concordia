@@ -69,6 +69,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
   PATH: "実行ファイルの探索パス (OS 提供)。 repo 検索のツール検出で読むだけで、 Concordia の設定ではない",
   EXCUBITOR_SERVICE_VERSION: "Excubitor が稼働プロセスへ注入する配備バージョン。 Concordia の設定ではない",
+  CONCORDIA_MANAGEMENT_TOKEN: "dots 側 PC で動く管理用 MCP クライアント (src/mcp/management-server.ts) が読む任務トークン。 Concordia 本体の設定ではない",
 
   // 子プロセスへ**書き出す**変数。 Concordia が読む設定ではない。
   CONCORDIA_SESSION_ID: "spawn する子へ注入する識別子 (書き出し専用)",

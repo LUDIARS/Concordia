@@ -3,6 +3,7 @@
 # 中央 catalog/services.yaml は撤去された (サービス所有定義への移行 2026-08-04)。
 # ここが concordia 本体定義の正本。federation listener の割当メモも残す。
 # federation_listen_port: 11112
+# management_listen_port: 11113 (dots 専用の入口、spec/feature/cdgd-management.md CC-MGMT-07)
 services:
   - code: concordia
     name: Concordia (AI 協調)
@@ -46,6 +47,11 @@ services:
       CONCORDIA_HTTP_CACHE_REPORTS_TTL_MS: "10000"
       CONCORDIA_HTTP_CACHE_HARNESS_AUDIT_TTL_MS: "5000"
       CONCORDIA_REDIS_URL: redis://127.0.0.1:6379
+      # dots 専用の入口。 リモート PC の dots から 6 操作だけを受ける。 host=tailscale は
+      # この PC の Tailscale アドレスに bind する (IP を catalog に書かない)。
+      CONCORDIA_MANAGEMENT_LISTEN: "1"
+      CONCORDIA_MANAGEMENT_LISTEN_HOST: tailscale
+      CONCORDIA_MANAGEMENT_LISTEN_PORT: "11113"
       CONCORDIA_REDIS_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_READ_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_WRITE_TIMEOUT_MS: "500"

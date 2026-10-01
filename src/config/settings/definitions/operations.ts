@@ -264,6 +264,13 @@ export const GITHUB_ISSUE_SETTINGS: readonly SettingDefinition[] = [
   },
 ] as const;
 
+/** dots 専用の入口 (spec/feature/cdgd-management.md CC-MGMT-07)。 再起動で反映する。 */
+export const MANAGEMENT_SETTINGS: readonly SettingDefinition[] = [
+  envBoolean("management.listen_enabled", "management", "dots 専用の入口を立てる", "CONCORDIA_MANAGEMENT_LISTEN", false, "リモート PC の dots から 6 操作だけを受ける listener を起動する。 既定 OFF。"),
+  envString("management.listen_host", "management", "入口の bind ホスト", "CONCORDIA_MANAGEMENT_LISTEN_HOST", null, "入口の待ち受けアドレス。 未設定は 127.0.0.1。 Tailscale のアドレスを指定して使う。"),
+  envInteger("management.listen_port", "management", "入口のポート", "CONCORDIA_MANAGEMENT_LISTEN_PORT", null, "入口のポート。 有効時は必須 (暗黙の既定ポートで外部面を立てない)。"),
+] as const;
+
 export const FEDERATION_SETTINGS: readonly SettingDefinition[] = [
   envBoolean("federation.listen_enabled", "federation", "本社 listener を立てる", "CONCORDIA_FEDERATION_LISTEN", false, "拠点からの接続を受ける連合 listener を起動する。 既定 OFF (opt-in)。"),
   envString("federation.listen_host", "federation", "listener の bind ホスト", "CONCORDIA_FEDERATION_LISTEN_HOST", null, "連合 listener の待ち受けアドレス。"),

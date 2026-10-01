@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { ManagementInputError, isHumanAction } from "../management/domain.js";
 import { ManagementError, publicMission, type ManagementService } from "../management/service.js";
 
@@ -61,16 +62,41 @@ export function managementRouter(service: ManagementService): Hono {
     } catch (error) { return handle(c, error); }
   });
 
-  // ── dots 向け (Bearer) ──
+  registerDotsRoutes(app, service);
+  return app;
+}
+
+/** dots の認証失敗を数える guard。 dots 専用の入口 (CC-MGMT-07) だけが渡す。 */
+export interface DotsAuthGuard {
+  /** 窓内の失敗が上限を超えた送信元なら true。 */
+  isLimited(c: Context): boolean;
+  recordFailure(c: Context): void;
+}
+
+/**
+ * dots 向けの 6 操作 (CC-MGMT-03)。 Bearer トークン必須。 本体の /v1/management と
+ * dots 専用の入口の両方がこれだけを共有する。
+ */
+export function registerDotsRoutes(app: Hono, service: ManagementService, guard?: DotsAuthGuard): void {
+  const authenticate = (c: Context) => {
+    if (guard?.isLimited(c)) throw new ManagementError("rate_limited", "認証失敗が多すぎます。しばらく待ってください", 429);
+    try {
+      return service.authenticate(bearer(c));
+    } catch (error) {
+      if (error instanceof ManagementError && error.code === "unauthorized") guard?.recordFailure(c);
+      throw error;
+    }
+  };
+
   app.get("/context", (c) => {
     try {
-      return c.json(service.context(service.authenticate(bearer(c))));
+      return c.json(service.context(authenticate(c)));
     } catch (error) { return handle(c, error); }
   });
 
   app.get("/changes", (c) => {
     try {
-      const mission = service.authenticate(bearer(c));
+      const mission = authenticate(c);
       const after = intQuery(c.req.query("after"), null, 0, Number.MAX_SAFE_INTEGER);
       const limit = intQuery(c.req.query("limit"), 100, 1, 500)!;
       return c.json(service.changes(mission, after, limit));
@@ -79,7 +105,7 @@ export function managementRouter(service: ManagementService): Hono {
 
   app.post("/decisions", async (c) => {
     try {
-      const mission = service.authenticate(bearer(c));
+      const mission = authenticate(c);
       const result = service.recordDecision(mission, await readBody(c));
       return c.json(result, result.created ? 201 : 200);
     } catch (error) { return handle(c, error); }
@@ -87,7 +113,7 @@ export function managementRouter(service: ManagementService): Hono {
 
   app.post("/requests", async (c) => {
     try {
-      const mission = service.authenticate(bearer(c));
+      const mission = authenticate(c);
       const result = service.submitRequest(mission, await readBody(c));
       return c.json(result, result.created ? 201 : 200);
     } catch (error) { return handle(c, error); }
@@ -95,18 +121,28 @@ export function managementRouter(service: ManagementService): Hono {
 
   app.get("/requests/:key", (c) => {
     try {
-      const mission = service.authenticate(bearer(c));
+      const mission = authenticate(c);
       return c.json({ request: service.getRequest(mission, c.req.param("key")) });
     } catch (error) { return handle(c, error); }
   });
 
   app.post("/acknowledge", async (c) => {
     try {
-      const mission = service.authenticate(bearer(c));
+      const mission = authenticate(c);
       return c.json(service.acknowledge(mission, await readBody(c)));
     } catch (error) { return handle(c, error); }
   });
+}
 
+/** dots 専用の入口用: 6 操作だけを /v1/management に載せ、 他は全部 404。 */
+export function managementRemoteApp(service: ManagementService, guard: DotsAuthGuard, maxBodyBytes: number): Hono {
+  const app = new Hono();
+  const api = new Hono();
+  api.use("*", async (c, next) => { c.header("cache-control", "no-store"); await next(); });
+  api.use("*", bodyLimit({ maxSize: maxBodyBytes, onError: (c) => c.json({ error: "payload_too_large" }, 413) }));
+  registerDotsRoutes(api, service, guard);
+  app.route("/v1/management", api);
+  app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;
 }
 

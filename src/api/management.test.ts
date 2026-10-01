@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ManagementRepository } from "../management/repository.js";
 import { ManagementService } from "../management/service.js";
-import { managementAdminRouter, managementRouter } from "./management.js";
+import { managementAdminRouter, managementRemoteApp, managementRouter } from "./management.js";
 
 function setup() {
   let sequence = 0;
@@ -101,5 +101,45 @@ describe("management HTTP", () => {
     expect((await call("POST", "/v1/management/decisions", {
       decision_key: "d", verdict: "wait", evidence_seqs: [1], rationale: "r",
     }, token)).status).toBe(403);
+  });
+});
+
+describe("dots remote app (CC-MGMT-07 / CC-MGMT-INV-08)", () => {
+  function remote(limitAfter = 5) {
+    const { service, call } = setup();
+    let failures = 0;
+    const app = managementRemoteApp(service, {
+      isLimited: () => failures >= limitAfter,
+      recordFailure: () => { failures += 1; },
+    }, 1024);
+    const send = (method: string, path: string, body?: string, token?: string) => app.request(path, {
+      method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      ...(body !== undefined ? { body } : {}),
+    });
+    return { service, call, send };
+  }
+
+  it("exposes the six dots operations and nothing else", async () => {
+    const { call, send } = remote();
+    const { token } = await createMission(call);
+    expect((await send("GET", "/v1/management/context", undefined, token)).status).toBe(200);
+    expect((await send("GET", "/v1/management/changes", undefined, token)).status).toBe(200);
+    expect((await send("POST", "/v1/management/events", "{}", token)).status).toBe(404);
+    expect((await send("POST", "/v1/management/requests/x/outcome", "{}", token)).status).toBe(404);
+    expect((await send("GET", "/v1/admin/management/missions", undefined, token)).status).toBe(404);
+  });
+
+  it("limits repeated authentication failures with 429", async () => {
+    const { call, send } = remote(2);
+    const { token } = await createMission(call);
+    expect((await send("GET", "/v1/management/context", undefined, "bad")).status).toBe(401);
+    expect((await send("GET", "/v1/management/context", undefined, "bad")).status).toBe(401);
+    expect((await send("GET", "/v1/management/context", undefined, token)).status).toBe(429);
+  });
+
+  it("refuses bodies over the limit", async () => {
+    const { call, send } = remote();
+    const { token } = await createMission(call);
+    expect((await send("POST", "/v1/management/decisions", JSON.stringify({ rationale: "x".repeat(2048) }), token)).status).toBe(413);
   });
 });

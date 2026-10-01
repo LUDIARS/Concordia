@@ -3093,6 +3093,73 @@
       "contracts": [
         "CC-MGMT-06"
       ]
+    },
+    {
+      "source": "src/management/remote-config.ts",
+      "tests": [
+        "src/management/remote-config.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-07"
+      ]
+    },
+    {
+      "source": "src/management/auth-failure-limiter.ts",
+      "tests": [
+        "src/management/auth-failure-limiter.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-07"
+      ]
+    },
+    {
+      "source": "src/management/remote-listener.ts",
+      "tests": [
+        "src/management/remote-listener.test.ts",
+        "src/api/management.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-07"
+      ]
+    },
+    {
+      "source": "src/management/remote-startup.ts",
+      "tests": [
+        "src/management/remote-startup.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-07"
+      ]
+    },
+    {
+      "source": "src/config/settings/definitions/index.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
+    },
+    {
+      "source": "src/config/settings/sections.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
+    },
+    {
+      "source": "src/config/settings/types.ts",
+      "tests": [
+        "src/config/settings/coverage.test.ts",
+        "src/config/settings/registry.test.ts"
+      ],
+      "contracts": [
+        "CC-AT-DISCOVERY-01"
+      ]
     }
   ]
 }

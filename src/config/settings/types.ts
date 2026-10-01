@@ -51,6 +51,7 @@ export type SettingSectionId =
   | "deploy-notify"
   | "github"
   | "federation"
+  | "management"
   | "runtime";
 
 /** レジストリに載る値の表現。 secret は値を持たない (API に実値を出さないため)。 */

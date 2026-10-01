@@ -117,6 +117,23 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
   配達失敗は依頼の状態を変えず次の周期で再送する (CC-INV-06)。
 - これらの経路は `/v1/admin/management/*` を使い、dots のトークンでは呼べない (CC-MGMT-INV-01)。
 
+## 契約 CC-MGMT-07 dots 専用の入口 (リモート PC 向け)
+
+2026-10-01 neco 判断「専用入口を作る」。dots の接続先がリモート PC のとき、Cc 本体の
+`127.0.0.1:11111` には届かない。トンネルで 11111 を晒すと loopback 信頼の管理 API まで届くので、
+dots 用の 6 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
+
+- 既定 OFF。`CONCORDIA_MANAGEMENT_LISTEN=1` で有効、`CONCORDIA_MANAGEMENT_LISTEN_HOST` (既定 127.0.0.1) と
+  `CONCORDIA_MANAGEMENT_LISTEN_PORT` (有効時は必須、暗黙の既定ポートを作らない) で待ち受ける。
+  ポートの正本は Concordia の Excubitor catalog。変更は再起動で反映する。
+- 通すのは `/v1/management/{context,changes,decisions,requests,requests/:key,acknowledge}` だけ。
+  変更の受付口 (`/events`)・成果記録 (`/requests/:id/outcome`)・`/v1/admin/*` ほか全経路は 404。
+- 全操作で Bearer トークン必須 (CC-MGMT-INV-01)。認証失敗は送信元ごとに 1 分 5 回までで、超えたら
+  その窓の間は 429 を返す。本文は 64KiB まで。
+- TLS は前段 (Tailscale など) に任せる。host に `tailscale` を指定すると、起動時にこの PC の Tailscale アドレス
+  (100.64.0.0/10) を探して bind する (マシン固有の IP を catalog に書かない)。見つからなければ起動せず通知する。
+- 起動失敗 (ポート使用中など) は Cc 本体を止めず、エラー通知とログに出す。
+
 ## 不変条件
 
 - CC-MGMT-INV-01: dots のトークンで呼べるのは CC-MGMT-03 だけ。サービスへの書込み・受入・承認経路を持たない。
@@ -126,6 +143,7 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
 - CC-MGMT-INV-05: 停止した任務は新しい依頼・判断を受けず、実行中依頼の状態を保持する。
 - CC-MGMT-INV-06: 根拠が AI 由来だけの依頼は受け付けない。
 - CC-MGMT-INV-07: waiting_human は人間の管理面の操作でしか解除しない (CC-INV-08)。
+- CC-MGMT-INV-08: dots 専用の入口からは CC-MGMT-03 の 6 操作以外に到達できない。
 
 ## 実装
 
@@ -140,6 +158,7 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
 `src/bootstrap/core.ts` / `src/api/register-core.ts`: 寿命と経路の配線。
 `src/discord/management.ts`: CDGD管理チャンネルのカード・ボタン・配達。
 `web/src/pages/Management.tsx`: 任務と依頼の管理画面。
+`src/management/remote-config.ts` / `src/management/remote-listener.ts`: dots 専用の入口の設定と寿命。
 保存は migration 120 `management-sidecar`、配達記録は migration 121 `management-delivery`。
 
 ## 未接続 (後続)

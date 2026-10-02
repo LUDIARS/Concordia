@@ -4,6 +4,7 @@ import type { ActioBinding } from "./actio-binding.js";
 import type { ActioTransport } from "./actio-transport.js";
 import type { TaskStatus } from "./types.js";
 import { taskTeamInScope } from "./actio-team-selection.js";
+import { isLegacyReferenceInScope } from "./actio-reference-scope.js";
 import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
 import type { PlanningTask } from "./continuation-plan.js";
@@ -43,6 +44,19 @@ export class ActioWorkflowClient {
 
   async get(binding: ActioBinding, id: string): Promise<ActioWorkflowTask> {
     return this.decode(binding, await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`));
+  }
+
+  /**
+   * 指示参照の関連付け・表示のためだけの読み込み (CC-TASK-LINKED-FOLLOWUP)。v3 タスクは get と同じ範囲、
+   * 旧来タスク (cc-taskmd) は isLegacyReferenceInScope の範囲で受け入れる。書き込み・作業候補の判定には使わない。
+   */
+  async getReference(binding: ActioBinding, id: string): Promise<{ task: ActioWorkflowTask; legacy: boolean }> {
+    const result = z.object({ task: Task }).safeParse(await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`));
+    if (!result.success) throw new Error("Invalid Actio task response");
+    const task = result.data.task;
+    if (task.source === ACTIO_WORKFLOW_SOURCE) return { task: this.scoped(binding, task), legacy: false };
+    if (!isLegacyReferenceInScope(binding, task)) throw new Error("Actio task ownership mismatch");
+    return { task, legacy: true };
   }
 
   async create(binding: ActioBinding, input: {

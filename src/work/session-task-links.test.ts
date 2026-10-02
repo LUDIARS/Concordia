@@ -26,6 +26,28 @@ describe("session instruction to Actio task links", () => {
     expect(JSON.parse(sessions.findSession("s")!.metadata!).unrelated).toBe("keep");
   });
 
+  it("prefers the reference-only read so legacy tasks can be linked and shown (CC-TASK-LINKED-FOLLOWUP)", async () => {
+    const sessions = fixture();
+    const read = vi.fn(async () => { throw new Error("Actio task ownership mismatch"); });
+    const readReference = vi.fn(async () => ({ path: "actio:L-1", repoPath: "/repo", frontmatter: { actio_status: "done", legacy_source: "cc-taskmd" } }));
+    const tasks = { read, readReference } as never;
+    const input = { sessions, tasks, sessionId: "s", instructionRef: "human-message-legacy", taskReference: "actio:L-1", now: () => 100 };
+    expect((await addSessionTaskLink(input)).kind).toBe("linked");
+    expect(readReference).toHaveBeenCalledWith("/repo", "actio:L-1", "team-a");
+    expect(read).not.toHaveBeenCalled();
+    const views = await readLinkedTaskViews({ sessions, tasks, sessionId: "s" });
+    expect(views.links.map((link) => [link.task_reference, link.status, link.state])).toEqual([["actio:L-1", "done", "current"]]);
+  });
+
+  it("still reports an out-of-scope reference from the reference-only read", async () => {
+    const sessions = fixture();
+    const readReference = vi.fn(async () => { throw new Error("Actio task ownership mismatch"); });
+    const result = await addSessionTaskLink({ sessions, tasks: { readReference } as never, sessionId: "s",
+      instructionRef: "human-message-other", taskReference: "actio:X-1" });
+    expect(result.kind).toBe("task_out_of_scope");
+    expect(readSessionTaskLinks(sessions.findSession("s")!.metadata)).toEqual([]);
+  });
+
   it("does not save a result from a previous branch after the Actio read", async () => {
     const sessions = fixture();
     let complete!: (value: { path: string; repoPath: string }) => void;

@@ -28,6 +28,20 @@ session-coordination は協調のコア候補、http-interface はその操作�
   正本や自動再開条件にしない。既存の実装契約・承認証拠・権限判定は別契約として維持する。
 - 既存 Actio 状態を使い、この変更だけで新たな細分化 phase や実行権限を作らない。
 
+### 旧来タスク (cc-taskmd) の参照 (2026-10-02)
+
+Cc taskflow v3 以前の形で登録された Actio タスク (source `cc-taskmd`、タスク md を本文にしたもの)
+も、人間の指示への参照として関連付け・状態表示ができる。neco 2026-10-02 の指示。
+
+- 状態所有者は変わらない (Actio)。Cc は参照だけを持つ。
+- 参照用の読み込み (`TaskStore.readReference`) は taskflow の作業用読み込み (`read`) と分ける。
+  旧来タスクは作業候補・状態更新・担当割り当ての対象にならず、taskflow state にも登録しない。
+- 受け入れる範囲 (不変条件):
+  - v3 タスク: 従来どおり (project・owner・team・source・pluginId がすべて binding と一致)。
+  - 旧来タスク: source が `cc-taskmd`、project と owner が binding と一致、team は binding の
+    範囲内か、team を持たない場合は owner が一致すること (依存タスクの読み込みと同じ規則)。
+  - それ以外の source (手入力・他サービス由来等) は従来どおり範囲外として拒否する。
+
 ## Goal & Go と人間待ち
 
 マージまで許可された対象作業の 1 ループは、PR 提出・Test OK で区切らず、PR の

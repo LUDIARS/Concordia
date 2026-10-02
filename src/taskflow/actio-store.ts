@@ -81,6 +81,21 @@ export class ActioTaskStore implements TaskStore {
     return this.document(binding, await this.client.get(binding, this.id(reference)));
   }
 
+  /**
+   * 指示参照の関連付け・表示用 (CC-TASK-LINKED-FOLLOWUP)。v3 タスクは read と同じ文書を返す。
+   * 旧来タスクは taskflow state に登録せず、runtime を持たない文書を返す (作業候補・状態更新の対象にしない)。
+   */
+  async readReference(repoPath: string, reference: string, subsidiaryId: string | null): Promise<TaskDocument> {
+    const binding = await this.binding(repoPath, subsidiaryId);
+    const { task, legacy } = await this.client.getReference(binding, this.id(reference));
+    if (!legacy) return this.document(binding, task);
+    return {
+      path: `actio:${task.id}`, repoPath: binding.repoPath, title: task.title, body: task.description ?? "",
+      frontmatter: { task: task.id, project: binding.project, actio_status: task.status, legacy_source: task.source,
+        kind: "legacy", created: task.createdAt.slice(0, 10), due_at: task.deadline ?? null, memory_links: [] },
+    };
+  }
+
   async create(input: TaskCreateInput): Promise<TaskDocument> {
     const binding = selectActioTeam(await this.binding(input.repoPath, input.subsidiaryId), input.teamId);
     let result: Awaited<ReturnType<ActioWorkflowClient["create"]>>;

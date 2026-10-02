@@ -3495,6 +3495,52 @@
         "tests/projectless-consult-spawn.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/taskflow/actio-reference-scope.ts",
+      "tests": [
+        "src/taskflow/actio-reference-scope.test.ts",
+        "src/taskflow/actio-reference-read.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-LINKED-FOLLOWUP"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-task-client.ts",
+      "tests": [
+        "src/taskflow/actio-reference-read.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-LINKED-FOLLOWUP"
+      ]
+    },
+    {
+      "source": "src/taskflow/actio-store.ts",
+      "tests": [
+        "src/taskflow/actio-reference-read.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-LINKED-FOLLOWUP"
+      ]
+    },
+    {
+      "source": "src/taskflow/store.ts",
+      "tests": [
+        "src/taskflow/actio-reference-read.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-LINKED-FOLLOWUP"
+      ]
+    },
+    {
+      "source": "src/work/session-task-links.ts",
+      "tests": [
+        "src/work/session-task-links.test.ts"
+      ],
+      "contracts": [
+        "CC-TASK-LINKED-FOLLOWUP"
+      ]
     }
   ]
 }

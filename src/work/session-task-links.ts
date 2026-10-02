@@ -47,6 +47,11 @@ function taskReadFailure(error: unknown): "not_found" | "task_out_of_scope" | "t
   return "task_unavailable";
 }
 
+/** 関連付け・表示は参照専用の読み込みを優先する (旧来タスクも対象)。無い store は従来の read。 */
+function referenceReader(tasks: Pick<TaskStore, "read" | "readReference">): TaskStore["read"] {
+  return tasks.readReference?.bind(tasks) ?? tasks.read?.bind(tasks);
+}
+
 export function readSessionTaskLinks(metadata: string | null): SessionTaskLink[] {
   try {
     const parsed = JSON.parse(metadata ?? "{}") as Record<string, unknown>;
@@ -71,7 +76,7 @@ function sameBinding(before: SessionRow, after: SessionRow | null): boolean {
 
 export async function addSessionTaskLink(input: {
   sessions: Pick<SessionsRepo, "findSession" | "updateMetadata">;
-  tasks: Pick<TaskStore, "read">;
+  tasks: Pick<TaskStore, "read" | "readReference">;
   sessionId: string;
   instructionRef: string;
   taskReference: string;
@@ -88,10 +93,11 @@ export async function addSessionTaskLink(input: {
   const existing = prior.find((link) => link.instruction_ref === instructionRef && link.task_reference === taskReference);
   if (existing) return { kind: "existing", link: existing };
   if (allPrior.length >= MAX_LINKS) return { kind: "limit" };
-  if (!tasks.read) return { kind: "task_unavailable" };
+  const readTask = referenceReader(tasks);
+  if (!readTask) return { kind: "task_unavailable" };
   let taskRepoPath: string;
   try {
-    const task = await tasks.read(before.repo_path, taskReference, readSubsidiaryId(before.metadata));
+    const task = await readTask(before.repo_path, taskReference, readSubsidiaryId(before.metadata));
     if (task.path !== taskReference || !task.repoPath) return { kind: "task_out_of_scope" };
     taskRepoPath = task.repoPath;
   } catch (error) {
@@ -116,7 +122,7 @@ export async function addSessionTaskLink(input: {
 
 export async function readLinkedTaskViews(input: {
   sessions: Pick<SessionsRepo, "findSession">;
-  tasks: Pick<TaskStore, "read">;
+  tasks: Pick<TaskStore, "read" | "readReference">;
   sessionId: string;
 }): Promise<{ kind: "current" | "stale_binding" | "not_found"; links: LinkedTaskView[] }> {
   const before = input.sessions.findSession(input.sessionId);
@@ -125,7 +131,7 @@ export async function readLinkedTaskViews(input: {
   const result: LinkedTaskView[] = [];
   for (const link of links) {
     try {
-      const task = await input.tasks.read?.(before.repo_path, link.task_reference, readSubsidiaryId(before.metadata));
+      const task = await referenceReader(input.tasks)?.(before.repo_path, link.task_reference, readSubsidiaryId(before.metadata));
       const rawStatus = task?.repoPath === link.repo_path ? task.frontmatter.actio_status : null;
       const current = typeof rawStatus === "string" && ACTIO_STATUSES.has(rawStatus);
       result.push({ ...link, status: current ? rawStatus as LinkedTaskView["status"] : "unknown",

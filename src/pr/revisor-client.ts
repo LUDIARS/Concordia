@@ -149,12 +149,31 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
     return `http://127.0.0.1:${await this.resolvePort()}`;
   }
 
+  /**
+   * 全件の full 表示は審査レポートを丸ごと含み、 数百 MB になって読み切れない (2026-10-02: 292MB)。
+   * 審査中・待ちの PR (state=open) だけ full で読み、 閉じた PR は summary (id / status 等) で補う。
+   * summary が読めないときは open だけを返す — 閉じた PR は「見えない = 確認できない」扱いになり、
+   * 勝手にマージ待ちへ出ることはない。
+   */
   async listLocalPrs(): Promise<RevisorLocalPr[]> {
     const port = await this.resolvePort();
+    const [open, summary] = await Promise.all([
+      this.fetchListing(port, "?state=open", this.timeoutMs),
+      this.fetchListing(port, "?view=summary&state=all", SUMMARY_LIST_TIMEOUT_MS).catch(() => null),
+    ]);
+    const openRows = open.flatMap(toLocalPr);
+    if (!summary) return openRows;
+    const openById = new Map(openRows.map((pr) => [pr.id, pr]));
+    const merged = summary.flatMap(toLocalPr).map((pr) => openById.get(pr.id) ?? pr);
+    const seen = new Set(merged.map((pr) => pr.id));
+    return [...merged, ...openRows.filter((pr) => !seen.has(pr.id))];
+  }
+
+  private async fetchListing(port: number, query: string, timeoutMs: number): Promise<unknown[]> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs`, {
+      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs${query}`, {
         headers: {
           "x-concordia-actor": "concordia",
         },
@@ -170,48 +189,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
       if (!Array.isArray(body?.pullRequests)) {
         throw new Error("Revisor returned an invalid local PR listing");
       }
-      // 同定に必要なフィールドが欠けた行は捨てる (壊れた 1 行で一覧全体を落とさない)。
-      // 残りは宣言したフィールドだけを明示的に写す — 欠けたまま返すと status 未設定の PR が
-      // WebUI で「クローズ済み」側に落ちたり `undefined → undefined` と描かれる。 未知
-      // フィールドは通さない: Revisor 内部の値 (ローカルパス等) を Concordia の API 応答
-      // 経由でブラウザへ素通しさせないため。
-      return body.pullRequests.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const pr = item as Record<string, unknown>;
-        if (typeof pr.id !== "string" || typeof pr.number !== "number" || typeof pr.repository !== "string") {
-          return [];
-        }
-        const text = (key: string, fallback = ""): string =>
-          typeof pr[key] === "string" ? pr[key] as string : fallback;
-        const optionalText = (key: string): string | null =>
-          typeof pr[key] === "string" ? pr[key] as string : null;
-        const stringList = (key: string): string[] =>
-          Array.isArray(pr[key]) ? (pr[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
-        return [{
-          id: pr.id,
-          number: pr.number,
-          repository: pr.repository,
-          title: text("title"),
-          author: text("author"),
-          // status 不明を open 扱いにはしない (勝手にマージ待ちへ出さない)。
-          status: text("status", "unknown"),
-          checkStatus: text("checkStatus", "unknown"),
-          draft: pr.draft === true,
-          headRef: text("headRef"),
-          baseRef: text("baseRef"),
-          headSha: text("headSha"),
-          reviewedHeadSha: optionalText("reviewedHeadSha"),
-          reviewer: optionalText("reviewer"),
-          labels: stringList("labels"),
-          reasons: stringList("reasons"),
-          advisories: stringList("advisories"),
-          humanQuestion: optionalText("humanQuestion"),
-          createdAt: text("createdAt"),
-          updatedAt: text("updatedAt"),
-          sessionId: optionalText("sessionId"),
-          reviewLane: pr.reviewLane === "fast" ? "fast" : "standard",
-        }];
-      });
+      return body.pullRequests;
     } finally {
       clearTimeout(timer);
     }
@@ -411,4 +389,52 @@ export function createRevisorClient(
     excubitor,
     token: () => resolveToken()?.trim() || "",
   });
+}
+
+/** summary 一覧の初回生成は Revisor 側で十数秒かかる (2 回目以降はキャッシュ)。 */
+const SUMMARY_LIST_TIMEOUT_MS = 30_000;
+
+/**
+ * 同定に必要なフィールドが欠けた行は捨てる (壊れた 1 行で一覧全体を落とさない)。
+ * 残りは宣言したフィールドだけを明示的に写す — 欠けたまま返すと status 未設定の PR が
+ * WebUI で「クローズ済み」側に落ちたり `undefined → undefined` と描かれる。 未知
+ * フィールドは通さない: Revisor 内部の値 (ローカルパス等) を Concordia の API 応答
+ * 経由でブラウザへ素通しさせないため。 summary 行は headRef 等を持たないので空になる。
+ */
+function toLocalPr(item: unknown): RevisorLocalPr[] {
+  if (!item || typeof item !== "object") return [];
+  const pr = item as Record<string, unknown>;
+  if (typeof pr.id !== "string" || typeof pr.number !== "number" || typeof pr.repository !== "string") {
+    return [];
+  }
+  const text = (key: string, fallback = ""): string =>
+    typeof pr[key] === "string" ? pr[key] as string : fallback;
+  const optionalText = (key: string): string | null =>
+    typeof pr[key] === "string" ? pr[key] as string : null;
+  const stringList = (key: string): string[] =>
+    Array.isArray(pr[key]) ? (pr[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
+  return [{
+    id: pr.id,
+    number: pr.number,
+    repository: pr.repository,
+    title: text("title"),
+    author: text("author"),
+    // status 不明を open 扱いにはしない (勝手にマージ待ちへ出さない)。
+    status: text("status", "unknown"),
+    checkStatus: text("checkStatus", "unknown"),
+    draft: pr.draft === true,
+    headRef: text("headRef"),
+    baseRef: text("baseRef"),
+    headSha: text("headSha"),
+    reviewedHeadSha: optionalText("reviewedHeadSha"),
+    reviewer: optionalText("reviewer"),
+    labels: stringList("labels"),
+    reasons: stringList("reasons"),
+    advisories: stringList("advisories"),
+    humanQuestion: optionalText("humanQuestion"),
+    createdAt: text("createdAt"),
+    updatedAt: text("updatedAt"),
+    sessionId: optionalText("sessionId"),
+    reviewLane: pr.reviewLane === "fast" ? "fast" : "standard",
+  }];
 }

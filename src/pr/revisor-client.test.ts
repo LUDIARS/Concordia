@@ -151,7 +151,7 @@ describe("RevisorClient", () => {
 
     await expect(client.listLocalPrs()).resolves.toEqual([]);
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://127.0.0.1:4240/v1/local-prs",
+      "http://127.0.0.1:4240/v1/local-prs?state=open",
       // token 未設定なら authorization ヘッダ自体を付けない。
       expect.objectContaining({ headers: { "x-concordia-actor": "concordia" } }),
     );
@@ -177,11 +177,45 @@ describe("RevisorClient", () => {
     expect(prs.map((pr) => pr.id)).toEqual(["lpr-1"]);
     expect(await client.baseUrl()).toBe("http://127.0.0.1:4240");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://127.0.0.1:4240/v1/local-prs",
+      "http://127.0.0.1:4240/v1/local-prs?state=open",
       expect.objectContaining({
         headers: { "x-concordia-actor": "concordia" },
       }),
     );
+  });
+
+  it("reads open PRs in full and fills closed ones from the summary listing", async () => {
+    const fetchImpl = vi.fn(async (url: unknown) => {
+      const open = String(url).endsWith("?state=open");
+      return new Response(JSON.stringify({ pullRequests: open
+        ? [{ id: "lpr-open", number: 9, repository: "LUDIARS/Concordia", status: "open", headRef: "feat/x", sessionId: "s-1" }]
+        : [
+          { id: "lpr-open", number: 9, repository: "LUDIARS/Concordia", status: "open" },
+          { id: "lpr-merged", number: 8, repository: "LUDIARS/Concordia", status: "merged" },
+        ] }), { status: 200 });
+    });
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+    const prs = await client.listLocalPrs();
+    expect(prs.map((pr) => [pr.id, pr.status, pr.headRef, pr.sessionId])).toEqual([
+      ["lpr-open", "open", "feat/x", "s-1"],
+      ["lpr-merged", "merged", "", null],
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith("http://127.0.0.1:4240/v1/local-prs?view=summary&state=all", expect.anything());
+    expect(fetchImpl).not.toHaveBeenCalledWith("http://127.0.0.1:4240/v1/local-prs", expect.anything());
+  });
+
+  it("falls back to the open PRs when the summary listing cannot be read", async () => {
+    const fetchImpl = vi.fn(async (url: unknown) => String(url).endsWith("?state=open")
+      ? new Response(JSON.stringify({ pullRequests: [{ id: "lpr-open", number: 9, repository: "LUDIARS/Concordia", status: "open" }] }), { status: 200 })
+      : new Response(JSON.stringify({ error: "busy" }), { status: 503 }));
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+    expect((await client.listLocalPrs()).map((pr) => pr.id)).toEqual(["lpr-open"]);
   });
 
   it("fails the local PR listing when Revisor answers with an error or a non-array body", async () => {

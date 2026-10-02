@@ -7,7 +7,7 @@
 > Actio の認証なしオープンな領域で報告者と合わせて確認できる」「実装 Opus」。
 >
 > 置き場所の判断 (同日、Fable の意見を neco が採用): 新サービスは作らない。報告の台帳・仕分け・報奨は Cc、
-> 修正タスクは Actio、公開の閲覧面は Actio。スプリントと違うのはタスクではなく、その手前の「報告」である。
+> 修正タスクは Actio、公開の閲覧面は Actio (パブリックイシュー)。スプリントと違うのはタスクではなく、その手前の「報告」である。
 
 - 価値: [UX-CC-W7](../ux/product.md) / シナリオ UX-CC-S8
 - 所属: `bug-bounty` (支援: 運用・組織)。コアドメインではない。
@@ -45,6 +45,7 @@
 | CC-BOUNTY-INV-07 | 公開面に出すのは、公開プロジェクトの・採用済みの・AI が書き直した要約と公開名だけ。原文、非公開プロジェクト、機微な報告 (反映前) は出さない。判定できなければ出さない | 公開読み出しの判定 (純関数) |
 | CC-BOUNTY-INV-08 | AI の判定は権限者が覆せる。判定の変更は誰がいつ何から何へ変えたかを履歴に残す | 再審 use case + 判定履歴 |
 | CC-BOUNTY-INV-09 | PR の提出・審査通過・マージを反映確認に置き換えない (CC-INV-04) | 状態遷移 (純関数) |
+| CC-BOUNTY-INV-10 | 人の名前で報告・取り下げ・公開名の変更ができるのは Bot と Cocoiru だけ。セッションは自分の session id の報告しか出せない | 操作者の経路の内部トークン (2/5 で実装) |
 
 CC-INV-02 (権限)、CC-INV-03 (依頼同一性)、CC-INV-06 (配達) は本機能にもそのまま適用する。
 
@@ -183,20 +184,38 @@ CC-INV-02 (権限)、CC-INV-03 (依頼同一性)、CC-INV-06 (配達) は本機�
 上限との関係、残高の確認 (`/budget`)、本社の調整 (`/reward`)、加算量の既定値は [個人の AI 予算](personal-ai-budget.md) を
 正本とする。本書では持たない (`/bug balance` と `bounty_balance_ledger`、設定 `bounty.reward_tokens.*` は作らない)。
 
-## 8. 公開面 (Actio の認証なしの領域)
+## 8. 公開面 — Actio の「パブリックイシュー」
 
 **Requirement ID: `SPEC-BOUNTY-PUBLIC`**
 
+> 2026-10-02 neco 指示:「プロジェクトが public のものは Actio の認証なしオープンな領域で報告者と合わせて確認できる」
+> 「Actio のバグバウンティのバグは『パブリックイシュー』とし、他のバウンティがない公開物も見れるようにする」
+> (公開物 = 公開プロジェクトの Actio タスクのうち)「正確にはバグ等のイシュー的なタスク」。
+
+Actio の認証なしの領域に「パブリックイシュー」を置く。並ぶのは公開プロジェクトの 2 種類。
+
+| 種類 | 出どころ | 表示する項目 |
+|---|---|---|
+| バウンティのイシュー | 採用済みのバグ報告 (Cc)。対応する Actio タスク (`source: concordia.bounty.v1`) の状態を添える | 公開用の題名と要約、深刻度、状態、公開名 (報告者)、報奨のトークン数、受付と反映の時刻 |
+| バウンティのないイシュー | Actio のタスクのうち種別がイシュー (`kind: "issue"`。バグ・不具合・改善要望など) のもの | 題名、公開用の要約 (あれば)、状態、優先度、作成と完了の時刻 |
+
+- 公開プロジェクトかどうかは Cc の `project_codes.public_issues` (0 / 1、既定 0) で決める。`/projects` で人が設定する。
+  GitHub の公開状態から自動で 1 にしない (公開リポでも出したくない場合があり、判定できないときは出さない)。
 - Cc は `GET /v1/bounty/public-reports?project=<code>` を持つ。返すのは次をすべて満たす報告だけ (CC-BOUNTY-INV-07):
-  対象プロジェクトの `project_codes.bounty_public` が 1、判定が採用、(機微なら) 反映済み。
-- 返す項目: 報告 id、プロジェクトコード、公開用の題名と要約、深刻度、状態 (修正待ち / 修正中 / 反映済み)、
-  公開名、報奨のトークン数 (付与済みのとき)、受付と反映の時刻。原文・受付口・プラットフォームの id・判定の内部理由は返さない。
-- `bounty_public` は project registry (`/projects`) で人が設定する。既定は 0。GitHub の公開状態から自動で 1 にしない
-  (公開リポでも報告を公開したくない場合があり、判定できないときは出さない)。
-- Actio は `/public/bounty` (ページ) と `/api/public/bounty/reports` (JSON) を、ローカルモードの境界と認証の外に置く。
-  Actio のサーバが Cc の上記 API を読み、60 秒までメモリに持って返す。Actio の DB には保存しない
-  (正本を複製しない・個人データを Actio に置かない)。GET だけを受け、`project` はコードの形式で検証する。
-- Cc に届かないときは「取得できません」を表示し、古い内容を成功として出し続けない (保持は 60 秒まで)。
+  プロジェクトの `public_issues` が 1、判定が採用、(機微なら) 反映済み。原文・受付口・プラットフォームの id・判定の
+  内部理由は返さない。対応する Actio タスクの参照 (報告 id = `sourceRef`) を返し、Actio が状態を突き合わせる。
+- Cc は公開プロジェクトのコード一覧を `GET /v1/projects/public-issues` で返す。Actio はこれで「どのプロジェクトのイシューを
+  出してよいか」を決める (Actio のプロジェクト同期に公開の印を足してもよい。正本は Cc)。
+- Actio のタスクに種別 `issue` を足す (既存は `task` / `goal`)。バウンティ由来のタスクは `issue` で作る。
+- バウンティのないイシューは、公開プロジェクトの `kind: "issue"` のタスクを既定で並べる。タスクごとに「公開しない」を
+  選べる (`public_hidden`)。本文 (`description` / `requirements`) は出さず、公開用の要約 (`public_summary`、任意) だけ出す。
+  担当者・作成者は出さない (個人データを公開面へ出さない)。
+- 同じイシューを二重に並べない: `source: concordia.bounty.v1` のタスクはバウンティのイシューの行にまとめる。
+- Actio は `/public/issues` (ページ) と `/api/public/issues` (JSON) を、ローカルモードの境界と認証の外に置く。GET だけを受け、
+  `project` はコードの形式で検証する。Cc から読んだ内容は 60 秒までメモリに持ち、Actio の DB には保存しない
+  (正本を複製しない・個人データを Actio に置かない)。
+- Cc に届かないときは、バウンティのイシューの欄に「取得できません」を表示し、古い内容を成功として出し続けない。
+  公開プロジェクトの一覧も取れないときは、何も出さない (判定できなければ出さない)。
 - 外から到達させるには、公開 URL の該当パスを Cloudflare Access の対象から外す設定が要る。これは Cloudflare 側の
   運用作業で、本機能の実装には含めない (neco の実行が必要)。
 
@@ -233,7 +252,7 @@ Cc の WebUI に「バグバウンティ」ページを置く。運用担当の�
   権限者の操作: 判定・深刻度・自己起因の変更、再審の決定、タスク作成の再試行、手動クローズ。操作は §5・§7 の
   use case を呼び、画面が状態を直接書かない。
 - 残高と台帳は「個人の AI 予算」ページ ([個人の AI 予算](personal-ai-budget.md) §7) が持つ。報告の詳細からそこへリンクする。
-- 設定: hotfix の 1 日の上限は既存の設定画面に足す。`bounty_public` は `/projects` に足す。
+- 設定: hotfix の 1 日の上限は既存の設定画面に足す。`public_issues` は `/projects` に足す。
 - API: `GET /v1/bounty/reports` (絞り込み・ページング・原文なし)、`GET /v1/bounty/reports/:id`。
 
 ## 9. 状態遷移
@@ -259,7 +278,8 @@ withdrawn: 報告者本人が、採用前に取り下げた
 | `bounty_reports` | id、会社、対象プロジェクト、報告者 (reporter id または session id)、受取人 (reporter id、null 可)、原文 (何が起きたか・再現手順)、受付口と冪等キー、状態、判定・深刻度・機微・自己起因・hotfix 可否、重複先、公開用の題名と要約、Actio タスクの参照と作成の失敗理由、`fix_pr`、反映の証拠 (デプロイの code / hash、または手動の根拠と操作者)、時刻 | bug-bounty |
 | `bounty_report_events` | 報告 id、種別 (受付・仕分け結果・判定変更・再審・タスク作成・hotfix 起動・PR 記録・反映・報奨・通知)、前後の値、操作者 (AI / 人 / システム)、時刻 | bug-bounty |
 | `bounty_reporters` | id、会社、プラットフォーム、プラットフォームのユーザー id、公開名、時刻。`(会社, プラットフォーム, ユーザー id)` で一意 | bug-bounty |
-| `project_codes.bounty_public` | 公開面に出してよいか (0 / 1、既定 0) | project-code-registry |
+| `project_codes.public_issues` | パブリックイシューに出してよいプロジェクトか (0 / 1、既定 0) | project-code-registry |
+| Actio `tasks.kind = "issue"`、`tasks.public_hidden`、`tasks.public_summary` | イシューの種別、公開しない印、公開用の要約 | Actio (task) |
 | 設定 `bounty.hotfix_daily_limit` | プロジェクトごとの 1 日の hotfix 起動上限 | configuration |
 
 原文は Cc のローカル DB だけに置く。連合・通知・ログ・Actio・公開面へ出さない。
@@ -319,7 +339,7 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 | 1 | Cc | 報告台帳と受付 (§3・§4・§9・§10、`/bug`、セッション API)、クラシファイアと起動案内 (§8.1) | `spec/tasks/2026-10-02-bounty-intake.md` |
 | 2 | Cc | AI の仕分け・再審・Actio タスク作成・hotfix (§5・§6) | `spec/tasks/2026-10-02-bounty-triage-fix.md` |
 | 3 | Cc | 反映確認・デプロイ通知・報奨の依頼 (§7)。前提: 個人の AI 予算 A | `spec/tasks/2026-10-02-bounty-close-reward.md` |
-| 4 | Cc / At | 公開読み出し API と Actio の公開面 (§8)、Actio の source 受け入れ | Cc: `spec/tasks/2026-10-02-bounty-public.md`、At: Actio の PR に含める |
+| 4 | Cc / At | 公開読み出し API と Actio の「パブリックイシュー」(§8)、Actio のイシュー種別と source 受け入れ | Cc: `spec/tasks/2026-10-02-bounty-public.md`、At: Actio の PR に含める |
 | 5 | Cc | WebUI (§8.2。残高は個人の AI 予算のページ) | `spec/tasks/2026-10-02-bounty-webui.md` |
 | 6 | Castra / Cocoiru | セッション用スキル `bug-bounty-report`、Cocoiru の報告フォーム | Cocoiru は別途 (§14) |
 

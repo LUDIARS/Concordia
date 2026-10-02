@@ -4,7 +4,10 @@
  * - 起動から 24 時間で、 開いている相談のセッションを止める (止まれば終了として閉じる)。
  * - 閉じた相談は、 本社なら会話を判定し、 センシティブでなく公開できるときだけ「この内容を全体共有しますか？」を出す。
  *   判定の要約に秘匿語や Cc のプロジェクト名が残っていれば出さない。 子会社の相談は問わずに閉じる。
- * - 共有の問いに 24 時間反応がなければ「共有しない」。 答えが出たらチャンネルを削除する。
+ * - 共有の問いに 24 時間反応がなければ「共有しない」。 答えが出たら終える (done)。
+ * - チャンネルはすぐには消さず、 次の見回り (24 時間のおそうじ) でまとめて消す
+ *   (2026-10-02 neco 指示「速攻消さずに 24 時間のおそうじで一緒に消す」)。 フォーラムの公開相談は対象外で、
+ *   総務と同じくクローズして残す (このサービスはプライベート相談だけを扱う)。
  * - セッションは共有の答えを待たない (閉じた後に問う)。
  *
  * 状態は private_consultations.wrap_status (pending → asking → done) が正本。 1 段ずつ条件付きで進めるので、
@@ -64,11 +67,9 @@ export class ConsultationClosureService {
     if (consultation) await this.wrap(consultation);
   }
 
-  /** 共有の答えが出た (公開・共有しない・取り下げ) ら終える。 */
+  /** 共有の答えが出た (公開・共有しない・取り下げ) ら終える。 チャンネルは次の見回りで消す。 */
   async onShareDecided(consultationId: string): Promise<void> {
-    if (this.ports.store.advanceWrap(consultationId, "asking", "done", this.now())) {
-      await this.removeChannel(consultationId);
-    }
+    this.ports.store.advanceWrap(consultationId, "asking", "done", this.now());
   }
 
   /** 定期の見回り。 期限・取りこぼし・削除の再試行をまとめて進める。 */
@@ -101,9 +102,8 @@ export class ConsultationClosureService {
         }
         return;
       }
-      if (this.ports.store.advanceWrap(consultation.id, "pending", "done", this.now())) {
-        await this.removeChannel(consultation.id);
-      }
+      // 共有しない。 チャンネルは次の見回りで消す。
+      this.ports.store.advanceWrap(consultation.id, "pending", "done", this.now());
     } finally {
       this.judging.delete(consultation.id);
     }

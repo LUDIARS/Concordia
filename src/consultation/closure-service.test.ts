@@ -50,14 +50,18 @@ describe("ConsultationClosureService", () => {
     expect(ports.deleteChannel).not.toHaveBeenCalled();
   });
 
-  it("deletes the channel once the requester answers", async () => {
+  it("finishes once the requester answers and deletes the channel at the next cleanup, not at once", async () => {
     const { service, store, publications, ports, id } = setup();
     await service.closeConsultation(id);
     const publication = publications.listForConsultation(id)[0]!;
     publications.markClosed(publication.id, "declined", "111");
     await service.onShareDecided(id);
-    expect(store.find(id)).toMatchObject({ wrap_status: "done", channel_deleted_at: expect.any(Number) });
+    // 2026-10-02 neco 指示: 速攻消さずに 24 時間のおそうじ (見回り) で一緒に消す。
+    expect(store.find(id)).toMatchObject({ wrap_status: "done", channel_deleted_at: null });
+    expect(ports.deleteChannel).not.toHaveBeenCalled();
+    await service.sweep();
     expect(ports.deleteChannel).toHaveBeenCalledWith("chan-1");
+    expect(store.find(id)?.channel_deleted_at).toEqual(expect.any(Number));
   });
 
   it("treats 24 hours without an answer as 'do not share' and then deletes the channel", async () => {
@@ -72,11 +76,13 @@ describe("ConsultationClosureService", () => {
     expect(store.find(id)).toMatchObject({ wrap_status: "done", channel_deleted_at: expect.any(Number) });
   });
 
-  it("deletes the channel without asking when the conversation is not publishable or leaks internal names", async () => {
+  it("finishes without asking when the conversation is not publishable or leaks internal names", async () => {
     const notPublishable = setup({ judge: async () => '{"publishable": false}' });
     await notPublishable.service.closeConsultation(notPublishable.id);
     expect(notPublishable.ports.proposeShare).not.toHaveBeenCalled();
     expect(notPublishable.store.find(notPublishable.id)).toMatchObject({ wrap_status: "done" });
+    expect(notPublishable.ports.deleteChannel).not.toHaveBeenCalled();
+    await notPublishable.service.sweep();
     expect(notPublishable.ports.deleteChannel).toHaveBeenCalledTimes(1);
 
     const leaking = setup({ judge: async () => '{"publishable": true, "title": "InternalProduct の話", "summary": "s"}' });
@@ -87,11 +93,13 @@ describe("ConsultationClosureService", () => {
     expect(JSON.stringify(leaking.ports.log.info.mock.calls)).not.toContain("InternalProduct");
   });
 
-  it("never asks in a subsidiary and just deletes the channel", async () => {
+  it("never asks in a subsidiary and deletes the channel at the next cleanup", async () => {
     const { service, store, ports, id } = setup({ subsidiary: "glab" });
     await service.closeConsultation(id);
     expect(ports.judge).not.toHaveBeenCalled();
-    expect(store.find(id)).toMatchObject({ wrap_status: "done", channel_deleted_at: expect.any(Number) });
+    expect(store.find(id)).toMatchObject({ wrap_status: "done", channel_deleted_at: null });
+    await service.sweep();
+    expect(store.find(id)?.channel_deleted_at).toEqual(expect.any(Number));
   });
 
   it("keeps the consultation pending when the judge fails and retries on the next sweep", async () => {
@@ -117,6 +125,7 @@ describe("ConsultationClosureService", () => {
     const { service, store, ports, id } = setup({ subsidiary: "glab" });
     ports.deleteChannel.mockResolvedValueOnce("failed" as never);
     await service.closeConsultation(id);
+    await service.sweep();
     expect(store.find(id)?.channel_deleted_at).toBeNull();
     await service.sweep();
     expect(store.find(id)?.channel_deleted_at).not.toBeNull();

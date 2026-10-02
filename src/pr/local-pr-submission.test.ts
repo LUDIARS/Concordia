@@ -673,4 +673,28 @@ describe("submitSessionLocalPr", () => {
     expect(listLocalPullRequests).toHaveBeenCalledTimes(1);
     expect(submitLocalPullRequest).not.toHaveBeenCalled();
   });
+
+  // CC-RV-OPEN-LIST-01: 二重提出の照合は提出先リポジトリの open PR だけを読む。
+  it("asks Revisor only for the target repository's open PRs", async () => {
+    const listLocalPullRequests = vi.fn(gateway().listLocalPullRequests);
+    await submitSessionLocalPr({
+      revisor: gateway({ listLocalPullRequests }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, request);
+    expect(listLocalPullRequests).toHaveBeenCalledWith({ repository: "LUDIARS/Concordia" });
+  });
+
+  it("reads no PR listing when the repository is not registered", async () => {
+    const listLocalPullRequests = vi.fn(gateway().listLocalPullRequests);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({ listRepositories: async () => [], listLocalPullRequests }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, request);
+    expect(result).toMatchObject({ submitted: false, reason: "repository_not_registered" });
+    expect(listLocalPullRequests).not.toHaveBeenCalled();
+  });
 });

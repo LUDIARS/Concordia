@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./pr-queue.md
   - ./pr-local-gate.md
-updated: 2026-09-04
+updated: 2026-10-02
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
@@ -209,6 +209,10 @@ none の 2 値しか取らない。
 
 - `src/pr/revisor-local-pr-client.ts` — local PR API クライアント (登録一覧 / PR 一覧 / 提出)。
   ポート解決は Excubitor catalog が正本 (port-source-rule)
+- `src/pr/revisor-repository-open-prs.ts` — 提出の照合に使う 1 リポジトリ分の open PR (CC-RV-OPEN-LIST-01)
+- `src/pr/revisor-http.ts` — Revisor への JSON リクエストと失敗理由の分類 (CC-RV-LIST-SCOPE-01)
+- `src/pr/revisor-listing-overlay.ts` — 一覧の組み立て (要約一覧に open の詳細を重ねる、#2263 の方式)
+- `src/pr/revisor-branch-lookup.ts` — (リポジトリ, ブランチ) からの PR 照合 (決着済みを含む)
 - `src/pr/local-pr-submission.ts` — 判定 (純関数) と提出の実行
 - `src/pr/session-task-pr-content.ts` — worktree の task md 読み取りと PR 用セクション生成
 - `src/pr/branch-commits.ts` — `base..branch` のコミット件名読み取り (読み取り専用 git、
@@ -267,7 +271,23 @@ PR は誰も昇格できなくなる。要求セッションが active である
 
 ## Open PR discovery (CC-RV-OPEN-LIST-01)
 
-UX-CC-W3/W5, CC-INV-03: submission and unknown-outcome reconciliation read only `GET /v1/local-prs?state=open`. Revisor owns PR state. The full open records retain headRef and sessionId for retry and deduplication; summary records omit those fields. Closed review reports are not downloaded. Invalid responses remain errors, never an empty queue.
+UX-CC-W3/W5, CC-INV-03: submission and unknown-outcome reconciliation read only the open PRs of the target repository. Concordia lists `GET /v1/local-prs?view=summary&state=open`, keeps the rows of that repository (`selectRepositoryOpenCandidates`), and reads each candidate through `GET /v1/local-prs/:id` to obtain headRef and sessionId (summary records omit those fields). A candidate that is gone (404) or no longer open by the time it is read is dropped. Other repositories' review records and closed review reports are not downloaded. When the repository is not registered, no PR listing is read. Revisor owns PR state. Invalid responses remain errors, never an empty queue.
+
+Callers without a repository (session PR operations, GitHub tracker) keep the detailed open listing `GET /v1/local-prs?state=open`.
+
+## CC-RV-LIST-SCOPE-01: 一覧の取得範囲と失敗理由
+
+価値 UX-CC-W1/W3: Revisor の PR が増えても、一覧表示・提出・goal 判断がタイムアウトで止まらず、止まったときは理由が分かる。
+
+背景 (2026-10-02 実測): 全件の詳細一覧は約 290 MB。#2263 で `RevisorClient.listLocalPrs` は「open は詳細 (`state=open`)、閉じた PR は要約 (`view=summary&state=all`)」になった。`state=open` の詳細は約 3 MB・キャッシュ切れで 7 秒あり、提出 (15 秒) が時々 "This operation was aborted" で落ちていた。
+
+規則:
+
+- 一覧表示 (`GET /v1/prs/revisor`、`/rv-prs` ダイジェスト、test forum のマージ操作) は #2263 の方式のまま (`overlayOpenDetails`)。決着済みの行は要約なので headRef / sessionId が空になる。test forum のマージ操作は id・repository・number・status だけで対象を決めるので影響しない。マージ確認 (`isAlreadyMerged`) は単一取得 (CC-RV-TARGET-01) のまま。
+- ブランチで PR を引く goal-machine の照合 (`findSessionLocalPr`) は `RevisorLocalPrReader.findLocalPrByBranch` を使う。open の詳細一覧で一致を探し、無ければ要約一覧から同じリポジトリの決着済み PR を新しい順に最大 10 件選び、単一取得で headRef を照合する。上限より古い決着済み PR は照合しない (照合したいのは直近に終わった作業の PR)。読めなかったときは「PR 無し」ではなく `RevisorLookupUnavailable`。
+- 取得失敗は `RevisorRequestError.reason` で `timeout` / `unreachable` / `http_error` / `invalid_response` に分ける (`src/pr/revisor-http.ts`)。打ち切りは自前の期限フラグで判定し、AbortError の種類だけで timeout と断定しない。`GET /v1/prs/revisor` は `error` に加えて `error_reason` を返す (分類できない失敗は null)。エラー応答のメッセージは従来の `<label> failed (<status>)` 形を保ち、応答喪失の照合判定 (`isInconclusiveSubmissionError`) は従来どおり働く。
+
+復旧: この変更の revert。Revisor 側の API は変更しない。
 
 ## CC-RV-TARGET-01: 対象PRの限定照会
 

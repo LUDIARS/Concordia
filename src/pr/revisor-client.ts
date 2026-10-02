@@ -2,6 +2,9 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { toTokenResolver } from "./revisor-token.js";
 import { RevisorMergeError } from "./revisor-merge-outcome.js";
+import { requestRevisorJson, RevisorRequestError } from "./revisor-http.js";
+import { overlayOpenDetails } from "./revisor-listing-overlay.js";
+import { findLocalPrByBranch as lookupLocalPrByBranch } from "./revisor-branch-lookup.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -72,6 +75,11 @@ export interface RevisorLocalPrReader {
   getLocalPr?(id: string): Promise<Pick<RevisorLocalPr, "id" | "repository" | "status"> | null>;
   /** Revisor に登録された local PR を新しい順で返す。 */
   listLocalPrs(): Promise<RevisorLocalPr[]>;
+  /**
+   * (リポジトリ, ブランチ) の local PR を決着済みも含めて 1 件探す。 `listLocalPrs` の
+   * 決着済みの行は要約で headRef が空なので、 ブランチで引く経路はこちらを使う。
+   */
+  findLocalPrByBranch?(repository: string, branch: string): Promise<RevisorLocalPr | null>;
   /** Revisor の WebUI を開くための base URL (loopback)。 */
   baseUrl(): Promise<string>;
 }
@@ -161,38 +169,54 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
       this.fetchListing(port, "?state=open", this.timeoutMs),
       this.fetchListing(port, "?view=summary&state=all", SUMMARY_LIST_TIMEOUT_MS).catch(() => null),
     ]);
-    const openRows = open.flatMap(toLocalPr);
-    if (!summary) return openRows;
-    const openById = new Map(openRows.map((pr) => [pr.id, pr]));
-    const merged = summary.flatMap(toLocalPr).map((pr) => openById.get(pr.id) ?? pr);
-    const seen = new Set(merged.map((pr) => pr.id));
-    return [...merged, ...openRows.filter((pr) => !seen.has(pr.id))];
+    return overlayOpenDetails(summary ? summary.flatMap(toLocalPr) : null, open.flatMap(toLocalPr));
   }
 
+  /**
+   * open の詳細一覧 → 同じリポジトリの直近の決着済み (単一取得) の順で探す
+   * (`revisor-branch-lookup.ts`)。 全件の詳細一覧は読まない。
+   */
+  async findLocalPrByBranch(repository: string, branch: string): Promise<RevisorLocalPr | null> {
+    const port = await this.resolvePort();
+    return lookupLocalPrByBranch({
+      listOpenLocalPrs: async () => (await this.fetchListing(port, "?state=open", this.timeoutMs)).flatMap(toLocalPr),
+      listLocalPrSummaries: async () =>
+        (await this.fetchListing(port, "?view=summary&state=all", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr),
+      getLocalPrDetail: async (id) => {
+        const body = await requestRevisorJson({
+          fetchImpl: this.fetchImpl,
+          url: `http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}`,
+          init: { headers: { "x-concordia-actor": "concordia" } },
+          timeoutMs: this.timeoutMs,
+          label: "Revisor local PR lookup",
+          allowNotFound: true,
+        });
+        if (body === null) return null;
+        const row = toLocalPr((body as { pullRequest?: unknown }).pullRequest)[0];
+        if (!row) throw new RevisorRequestError("Revisor returned an invalid local PR", "invalid_response");
+        return row;
+      },
+    }, repository, branch);
+  }
+
+  /** 失敗は RevisorRequestError (timeout / unreachable / http_error / invalid_response)。 */
   private async fetchListing(port: number, query: string, timeoutMs: number): Promise<unknown[]> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs${query}`, {
+    const body = await requestRevisorJson({
+      fetchImpl: this.fetchImpl,
+      url: `http://127.0.0.1:${port}/v1/local-prs${query}`,
+      init: {
         headers: {
           "x-concordia-actor": "concordia",
         },
-        signal: controller.signal,
-      });
-      const body = await response.json().catch(() => null) as
-        | { pullRequests?: unknown; error?: unknown }
-        | null;
-      if (!response.ok) {
-        const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
-        throw new Error(`Revisor local PR listing failed (${response.status})${detail}`);
-      }
-      if (!Array.isArray(body?.pullRequests)) {
-        throw new Error("Revisor returned an invalid local PR listing");
-      }
-      return body.pullRequests;
-    } finally {
-      clearTimeout(timer);
+      },
+      timeoutMs,
+      label: "Revisor local PR listing",
+    });
+    const rows = body && typeof body === "object" && "pullRequests" in body ? body.pullRequests : null;
+    if (!Array.isArray(rows)) {
+      throw new RevisorRequestError("Revisor returned an invalid local PR listing", "invalid_response");
     }
+    return rows;
   }
 
   /** @implements CC-RV-TARGET-01 */

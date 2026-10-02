@@ -13,6 +13,8 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { toTokenResolver } from "./revisor-token.js";
 import type { PrSourceLink } from "./session-source-links.js";
+import { requestRevisorJson, RevisorRequestError } from "./revisor-http.js";
+import { listRepositoryOpenPrs } from "./revisor-repository-open-prs.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -55,10 +57,19 @@ export interface SubmitLocalPrInput {
   fastLane?: boolean;
 }
 
+export interface LocalPrListFilter {
+  /** owner/repo (表記ゆれは正規化して比較する)。 */
+  repository?: string;
+}
+
 /** local PR の提出・照会に必要な操作だけを表す最小インタフェース (テスト差し替え用)。 */
 export interface RevisorLocalPrGateway {
   listRepositories(): Promise<RevisorRepositoryRegistration[]>;
-  listLocalPullRequests(): Promise<RevisorLocalPrSummary[]>;
+  /**
+   * open な local PR を詳細付きで返す。 repository を渡すとそのリポジトリ分だけを読む
+   * (提出の照合はこちらを使い、 全リポジトリの詳細一覧に依存しない)。
+   */
+  listLocalPullRequests(filter?: LocalPrListFilter): Promise<RevisorLocalPrSummary[]>;
   submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary>;
   retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary>;
   promoteLocalPullRequest(id: string, sessionId: string): Promise<RevisorLocalPrSummary>;
@@ -106,6 +117,16 @@ function asLocalPr(value: unknown): RevisorLocalPrSummary | null {
   };
 }
 
+function toLocalPrList(body: unknown): RevisorLocalPrSummary[] {
+  const rows = body && typeof body === "object" && "pullRequests" in body ? body.pullRequests : null;
+  if (!Array.isArray(rows)) {
+    throw new RevisorRequestError("Revisor returned an invalid local PR listing", "invalid_response");
+  }
+  return rows
+    .map(asLocalPr)
+    .filter((row): row is RevisorLocalPrSummary => row !== null);
+}
+
 export class RevisorLocalPrClient implements RevisorLocalPrGateway {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
   private readonly token: () => string;
@@ -130,14 +151,18 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
     return port;
   }
 
-  private async request(path: string, init?: RequestInit): Promise<unknown> {
+  /**
+   * 失敗は RevisorRequestError (timeout / unreachable / http_error) で投げる。
+   * allowNotFound の 404 は null を返す。
+   */
+  private async request(path: string, init?: RequestInit, allowNotFound = false): Promise<unknown> {
     const port = await this.resolvePort();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      // token は保持せずリクエストごとに解決する (設定変更が再起動なしで効く)。
-      const token = this.token();
-      const response = await this.fetchImpl(`http://127.0.0.1:${port}${path}`, {
+    // token は保持せずリクエストごとに解決する (設定変更が再起動なしで効く)。
+    const token = this.token();
+    return requestRevisorJson({
+      fetchImpl: this.fetchImpl,
+      url: `http://127.0.0.1:${port}${path}`,
+      init: {
         ...init,
         headers: {
           ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -145,39 +170,42 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
           ...(init?.body ? { "content-type": "application/json" } : {}),
           ...(init?.headers ?? {}),
         },
-        signal: controller.signal,
-      });
-      const body = await response.json().catch(() => null) as { error?: unknown } | null;
-      if (!response.ok) {
-        const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
-        throw new Error(`Revisor ${path} failed (${response.status})${detail}`);
-      }
-      return body;
-    } finally {
-      clearTimeout(timer);
-    }
+      },
+      timeoutMs: this.timeoutMs,
+      label: `Revisor ${path}`,
+      allowNotFound,
+    });
   }
 
   async listRepositories(): Promise<RevisorRepositoryRegistration[]> {
     const body = await this.request("/v1/repositories") as { repositories?: unknown } | null;
     if (!Array.isArray(body?.repositories)) {
-      throw new Error("Revisor returned an invalid repository listing");
+      throw new RevisorRequestError("Revisor returned an invalid repository listing", "invalid_response");
     }
     return body.repositories
       .map(asRepository)
       .filter((row): row is RevisorRepositoryRegistration => row !== null);
   }
 
-  async listLocalPullRequests(): Promise<RevisorLocalPrSummary[]> {
+  async listLocalPullRequests(filter: LocalPrListFilter = {}): Promise<RevisorLocalPrSummary[]> {
+    if (filter.repository) {
+      // 提出の照合: open の要約一覧から対象リポジトリの PR を選び、その分だけ詳細を読む。
+      return listRepositoryOpenPrs({
+        listOpenSummaries: async () => toLocalPrList(await this.request("/v1/local-prs?view=summary&state=open")),
+        getDetail: async (id) => {
+          const body = await this.request(`/v1/local-prs/${encodeURIComponent(id)}`, undefined, true);
+          if (body === null) return null;
+          const pullRequest = asLocalPr((body as { pullRequest?: unknown }).pullRequest);
+          if (!pullRequest) {
+            throw new RevisorRequestError("Revisor returned an invalid local PR", "invalid_response");
+          }
+          return pullRequest;
+        },
+      }, filter.repository);
+    }
     // Closed review reports grow without bound. Open records retain the branch
     // and session identity needed for retry/reconciliation (summary omits them).
-    const body = await this.request("/v1/local-prs?state=open") as { pullRequests?: unknown } | null;
-    if (!Array.isArray(body?.pullRequests)) {
-      throw new Error("Revisor returned an invalid local PR listing");
-    }
-    return body.pullRequests
-      .map(asLocalPr)
-      .filter((row): row is RevisorLocalPrSummary => row !== null);
+    return toLocalPrList(await this.request("/v1/local-prs?state=open"));
   }
 
   async submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary> {

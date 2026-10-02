@@ -32,6 +32,7 @@ import type { StaffRepo } from "../db/staff-repo.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { buildRevisorLocalPrDigest } from "../pr/local-pr-listing.js";
 import { isOwnerRepo } from "../pr/normalize.js";
+import { revisorFailureReason } from "../pr/revisor-http.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
 import type {
   RevisorLocalPrCloser,
@@ -156,14 +157,20 @@ export function prsRouter(deps: PrsApiDeps): Hono {
    */
   app.get("/revisor", async (c) => {
     if (!deps.revisor) {
-      return c.json({ configured: false, base_url: null, pull_requests: [], error: null });
+      return c.json({ configured: false, base_url: null, pull_requests: [], error: null, error_reason: null });
     }
     try {
       const [pullRequests, baseUrl] = await Promise.all([
         deps.revisor.listLocalPrs(),
         deps.revisor.baseUrl(),
       ]);
-      return c.json({ configured: true, base_url: baseUrl, pull_requests: pullRequests, error: null });
+      return c.json({
+        configured: true,
+        base_url: baseUrl,
+        pull_requests: pullRequests,
+        error: null,
+        error_reason: null,
+      });
     } catch (error) {
       // Revisor が落ちていても PRs ページ自体は開けるべきなので 200 + error で返す。
       return c.json({
@@ -171,6 +178,8 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         base_url: null,
         pull_requests: [],
         error: error instanceof Error ? error.message : "Revisor request failed",
+        // timeout / unreachable / http_error / invalid_response。 分類できない失敗は null。
+        error_reason: revisorFailureReason(error),
       });
     }
   });

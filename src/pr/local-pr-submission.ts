@@ -256,19 +256,24 @@ export async function submitSessionLocalPr(
     // 公開先が GitHub でも事前審査は共通。公開経路 (team settings `revisor_lane`) を
     // 理由に審査を省略しない — GitHub PR の公開は publishReviewedBranch が審査通過を
     // 確認してから行う。
-    const [registrations, openPullRequests] = await Promise.all([
-      deps.revisor.listRepositories(),
-      deps.revisor.listLocalPullRequests(),
-    ]);
+    const registrations = await deps.revisor.listRepositories();
     // base ref は登録側が正本なので、 コミット確認の前に登録を解決しておく
     // (照合規則は plan と同じ関数を使う — ここだけ揺れると未登録扱いで黙って止まる)。
     const registration = findRegistration(request.repository, registrations);
     // plan と同じ trim を通してから git に渡す。 生値を渡すと空白付きのブランチ名で
     // git が落ち、 plan なら通る提出が "error" として消える。
     const branch = request.branch?.trim() ?? "";
-    const commits = registration && branch
-      ? await deps.listBranchCommits(request.repoPath, registration.baseRef, branch)
-      : [];
+    // 二重提出の照合は提出先リポジトリの open PR だけで足りる (CC-RV-OPEN-LIST-01)。
+    // 全リポジトリの詳細一覧を読まないので、 他リポジトリの審査記録の重さで提出が
+    // 打ち切られない。 未登録なら plan が照合前に止めるので一覧は読まない。
+    const [commits, openPullRequests] = await Promise.all([
+      registration && branch
+        ? deps.listBranchCommits(request.repoPath, registration.baseRef, branch)
+        : Promise.resolve([]),
+      registration
+        ? deps.revisor.listLocalPullRequests({ repository: registration.repository })
+        : Promise.resolve([]),
+    ]);
 
     const plan = planLocalPrSubmission({
       repository: request.repository,
@@ -382,7 +387,9 @@ export async function submitSessionLocalPr(
       const reconciled = await reconcileInconclusiveSubmission({
         repository: request.repository,
         branch: request.branch?.trim() ?? "",
-        listOpenPullRequests: () => deps.revisor.listLocalPullRequests(),
+        listOpenPullRequests: () => deps.revisor.listLocalPullRequests(
+          request.repository ? { repository: request.repository } : {},
+        ),
       });
       if (reconciled) {
         deps.log.info(

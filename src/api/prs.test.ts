@@ -1,3 +1,4 @@
+import { RevisorRequestError } from "../pr/revisor-http.js";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 
@@ -681,5 +682,33 @@ describe("GET /v1/prs/revisor/digest", () => {
     expect(body.error).toBe("revisor_request_failed");
     expect(body.markdown).toContain("取得できませんでした");
     expect(body.markdown).not.toContain("ECONNREFUSED");
+  });
+
+  // CC-RV-LIST-SCOPE-01: 一覧の取得失敗は理由を区別して返す。
+  it.each([
+    ["timeout", new RevisorRequestError("Revisor local PR listing timed out after 10000ms", "timeout")],
+    ["unreachable", new RevisorRequestError("Revisor local PR listing request failed: fetch failed", "unreachable")],
+    ["invalid_response", new RevisorRequestError("Revisor returned an invalid local PR listing", "invalid_response")],
+  ] as const)("returns error_reason=%s for /v1/prs/revisor", async (reason, error) => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs: async () => { throw error; },
+      baseUrl: async () => "http://127.0.0.1:4240",
+    });
+    const res = await app.request("/v1/prs/revisor");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { error: string | null; error_reason: string | null };
+    expect(body.error_reason).toBe(reason);
+    expect(body.error).toBe(error.message);
+  });
+
+  it("returns error_reason=null when the listing succeeds", async () => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs: async () => [],
+      baseUrl: async () => "http://127.0.0.1:4240",
+    });
+    const body = await (await app.request("/v1/prs/revisor")).json() as { error_reason: string | null };
+    expect(body.error_reason).toBeNull();
   });
 });

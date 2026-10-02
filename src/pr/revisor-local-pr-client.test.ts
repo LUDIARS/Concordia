@@ -1,3 +1,4 @@
+import { revisorFailureReason } from "./revisor-http.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { createRevisorLocalPrClient, RevisorLocalPrClient } from "./revisor-local-pr-client.js";
@@ -205,5 +206,52 @@ describe("RevisorLocalPrClient", () => {
     });
 
     await expect(client.listLocalPullRequests()).rejects.toThrow("invalid local PR listing");
+  });
+
+  // CC-RV-OPEN-LIST-01: 提出の照合は open の要約一覧 + 対象リポジトリ分の単一取得だけを読む。
+  it("scopes submission matching to the target repository without the detailed open listing", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      const path = String(url).replace("http://127.0.0.1:4240", "");
+      if (path === "/v1/local-prs?view=summary&state=open") {
+        return json({ pullRequests: [
+          { id: "local-pr-1", number: 8, repository: "LUDIARS/Concordia", status: "open" },
+          { id: "local-pr-2", number: 3, repository: "LUDIARS/Revisor", status: "open" },
+        ] });
+      }
+      if (path === "/v1/local-prs/local-pr-1") return json({ pullRequest: { ...LOCAL_PR, sessionId: "owner" } });
+      return json({ error: "unexpected" }, 500);
+    });
+    const client = new RevisorLocalPrClient({ excubitor: { findService: findService() }, fetchImpl });
+
+    expect(await client.listLocalPullRequests({ repository: "https://github.com/LUDIARS/Concordia.git" }))
+      .toEqual([{ ...LOCAL_PR, sessionId: "owner" }]);
+    const paths = fetchImpl.mock.calls.map(([url]) => String(url).replace("http://127.0.0.1:4240", ""));
+    expect(paths).toEqual(["/v1/local-prs?view=summary&state=open", "/v1/local-prs/local-pr-1"]);
+  });
+
+  it("drops a candidate that disappeared between the summary and the detail read", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => String(url).endsWith("state=open")
+      ? json({ pullRequests: [{ id: "local-pr-1", number: 8, repository: "LUDIARS/Concordia", status: "open" }] })
+      : json({ error: "not_found" }, 404));
+    const client = new RevisorLocalPrClient({ excubitor: { findService: findService() }, fetchImpl });
+    expect(await client.listLocalPullRequests({ repository: "LUDIARS/Concordia" })).toEqual([]);
+  });
+
+  it("tells a timed-out listing apart from an invalid one", async () => {
+    const slow = new RevisorLocalPrClient({
+      excubitor: { findService: findService() },
+      timeoutMs: 5,
+      fetchImpl: vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")));
+      })),
+    });
+    const timedOut = await slow.listLocalPullRequests({ repository: "LUDIARS/Concordia" }).catch((e: unknown) => e);
+    expect(revisorFailureReason(timedOut)).toBe("timeout");
+
+    const invalid = new RevisorLocalPrClient({
+      excubitor: { findService: findService() },
+      fetchImpl: vi.fn(async () => json({ items: [] })),
+    });
+    expect(revisorFailureReason(await invalid.listLocalPullRequests().catch((e: unknown) => e))).toBe("invalid_response");
   });
 });

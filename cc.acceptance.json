@@ -235,9 +235,12 @@
     {
       "source": "src/api/prs.ts",
       "tests": [
-        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts"
+        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts",
+        "src/api/prs.test.ts"
       ],
-      "contracts": []
+      "contracts": [
+        "CC-RV-LIST-SCOPE-01"
+      ]
     },
     {
       "source": "src/api/sessions.ts",
@@ -898,7 +901,8 @@
         "src/taskflow/runtime-failure.test.ts"
       ],
       "contracts": [
-        "CC-TF-DIAG-01"
+        "CC-TF-DIAG-01",
+        "CC-RV-LIST-SCOPE-01"
       ]
     },
     {
@@ -1600,7 +1604,8 @@
         "src/pr/revisor-local-pr-client.test.ts"
       ],
       "contracts": [
-        "CC-RV-OPEN-LIST-01"
+        "CC-RV-OPEN-LIST-01",
+        "CC-RV-LIST-SCOPE-01"
       ]
     },
     {
@@ -1619,7 +1624,8 @@
         "src/pr/revisor-client.test.ts"
       ],
       "contracts": [
-        "CC-RV-TARGET-01"
+        "CC-RV-TARGET-01",
+        "CC-RV-LIST-SCOPE-01"
       ]
     },
     {
@@ -3540,6 +3546,63 @@
       ],
       "contracts": [
         "CC-TASK-LINKED-FOLLOWUP"
+      ]
+    },
+    {
+      "source": "src/pr/local-pr-submission.ts",
+      "tests": [
+        "src/pr/local-pr-submission.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-OPEN-LIST-01"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-http.ts",
+      "tests": [
+        "src/pr/revisor-http.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-LIST-SCOPE-01"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-repository-open-prs.ts",
+      "tests": [
+        "src/pr/revisor-repository-open-prs.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-OPEN-LIST-01"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-listing-overlay.ts",
+      "tests": [
+        "src/pr/revisor-listing-overlay.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-LIST-SCOPE-01"
+      ]
+    },
+    {
+      "source": "src/pr/revisor-branch-lookup.ts",
+      "tests": [
+        "src/pr/revisor-branch-lookup.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-LIST-SCOPE-01"
+      ]
+    },
+    {
+      "source": "src/pr/ontime-runtime.ts",
+      "tests": [
+        "src/pr/revisor-http.test.ts",
+        "src/pr/revisor-repository-open-prs.test.ts",
+        "src/pr/revisor-listing-overlay.test.ts",
+        "src/pr/revisor-branch-lookup.test.ts"
+      ],
+      "contracts": [
+        "CC-RV-LIST-SCOPE-01"
       ]
     }
   ]

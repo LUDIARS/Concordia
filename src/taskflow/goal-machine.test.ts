@@ -93,4 +93,24 @@ describe("findSessionLocalPr", () => {
       expect(events).toEqual([]);
     } finally { stop(); }
   });
+
+  // 一覧の決着済みの行は要約で headRef が空。 reader のブランチ照合を優先して使う。
+  it("prefers the reader's branch lookup so a merged PR is not mistaken for a missing one", async () => {
+    const findLocalPrByBranch = vi.fn(async () => localPr({ status: "merged" }));
+    const found = await findSessionLocalPr({
+      sessionId: "s-1",
+      sessions: sessions(),
+      revisor: { ...reader([localPr({ status: "merged", headRef: "" })]), findLocalPrByBranch },
+    });
+    expect(found?.status).toBe("merged");
+    expect(findLocalPrByBranch).toHaveBeenCalledWith("https://github.com/LUDIARS/Concordia.git", "feat/thing");
+  });
+
+  it("treats a failed branch lookup as unavailable evidence", async () => {
+    await expect(findSessionLocalPr({
+      sessionId: "s-1",
+      sessions: sessions(),
+      revisor: { ...reader([]), findLocalPrByBranch: async () => { throw new Error("timed out"); } },
+    })).rejects.toBeInstanceOf(RevisorLookupUnavailable);
+  });
 });

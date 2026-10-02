@@ -26,18 +26,22 @@ export async function findSessionLocalPr(input: {
 }): Promise<RevisorLocalPr | null> {
   const session = input.sessions.findSession(input.sessionId);
   if (!session?.repo_origin || !session.branch) return null;
-  const key = normalizeRepoOrigin(session.repo_origin).toLowerCase();
-  let pullRequests: RevisorLocalPr[];
   try {
-    pullRequests = await input.revisor.listLocalPrs();
+    // 一覧の決着済みの行は要約で headRef が空なので、 ブランチ照合は reader に任せる
+    // (マージ済みの作業 PR を「PR 無し」と取り違えない。 CC-RV-LIST-SCOPE-01)。
+    if (input.revisor.findLocalPrByBranch) {
+      return await input.revisor.findLocalPrByBranch(session.repo_origin, session.branch);
+    }
+    const key = normalizeRepoOrigin(session.repo_origin).toLowerCase();
+    const pullRequests = await input.revisor.listLocalPrs();
+    return pullRequests.find((pr) =>
+      normalizeRepoOrigin(pr.repository).toLowerCase() === key
+      && pr.headRef === session.branch) ?? null;
   } catch {
     // A failed lookup is not evidence that no PR exists. Let the boundary
     // stop completion and report a safe reason without the upstream payload.
     throw new RevisorLookupUnavailable();
   }
-  return pullRequests.find((pr) =>
-    normalizeRepoOrigin(pr.repository).toLowerCase() === key
-    && pr.headRef === session.branch) ?? null;
 }
 
 export function findSessionPr(input: { sessionId: string; sessions: SessionsRepo; prs: PrRecordsRepo }): PrRecordRow | null {

@@ -1,3 +1,4 @@
+import { revisorFailureReason } from "./revisor-http.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRevisorClient,
@@ -344,5 +345,42 @@ describe("RevisorClient", () => {
     }
     const [readDeadline, mergeDeadline] = timers;
     expect(mergeDeadline).toBeGreaterThan(readDeadline);
+  });
+
+  // CC-RV-LIST-SCOPE-01: 決着済みの行は要約で headRef が空なので、ブランチ照合は単一取得で確かめる。
+  it("finds a merged PR by branch through the summary listing and the single-PR detail", async () => {
+    const fetchImpl = vi.fn(async (url: unknown) => {
+      const path = String(url).replace("http://127.0.0.1:4240", "");
+      if (path === "/v1/local-prs?state=open") return new Response(JSON.stringify({ pullRequests: [] }), { status: 200 });
+      if (path === "/v1/local-prs?view=summary&state=all") {
+        return new Response(JSON.stringify({ pullRequests: [
+          { id: "lpr-merged", number: 8, repository: "LUDIARS/Concordia", status: "merged", updatedAt: "2026-10-02T00:00:00Z" },
+        ] }), { status: 200 });
+      }
+      if (path === "/v1/local-prs/lpr-merged") {
+        return new Response(JSON.stringify({ pullRequest: {
+          id: "lpr-merged", number: 8, repository: "LUDIARS/Concordia", status: "merged", headRef: "feat/x",
+        } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+    });
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+    expect(await client.findLocalPrByBranch("https://github.com/LUDIARS/Concordia.git", "feat/x"))
+      .toMatchObject({ id: "lpr-merged", status: "merged", headRef: "feat/x" });
+    expect(fetchImpl).not.toHaveBeenCalledWith("http://127.0.0.1:4240/v1/local-prs", expect.anything());
+  });
+
+  it("classifies a timed-out listing as timeout", async () => {
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      timeoutMs: 5,
+      fetchImpl: vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")));
+      })),
+    });
+    expect(revisorFailureReason(await client.listLocalPrs().catch((e: unknown) => e))).toBe("timeout");
   });
 });

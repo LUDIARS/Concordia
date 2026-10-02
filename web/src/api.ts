@@ -1326,6 +1326,8 @@ export interface RevisorLocalPrsResult {
   base_url: string | null;
   pull_requests: RevisorLocalPr[];
   error: string | null;
+  /** 取得失敗の分類 (timeout / unreachable / http_error / invalid_response)。 */
+  error_reason?: "timeout" | "unreachable" | "http_error" | "invalid_response" | null;
 }
 
 /** kind 別 Inject マニュアル (GET/PUT /v1/admin/inject-manuals)。 */

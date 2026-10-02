@@ -169,6 +169,13 @@
   役職から選ぶ。デザイナー・アート・サウンド → Astra (`astra-mid`、codex)、それ以外 (エンジニア・企画・不明) → Opus
   (`opus-5-5-movable`)。effort は medium。テンプレート名は `CONCORDIA_CONSULT_OPUS_TEMPLATE` / `CONCORDIA_CONSULT_ASTRA_TEMPLATE`
   で差し替えられる。部署フォーラムからの相談でもモデルを聞き返さない (`src/consultation/consult-model.ts`)。
+- 重複した相談の近道 (2026-10-02 neco 指示「相談セッションの内容は重複があればセッションや Tabula を案内し、その内容のキャッシュ
+  された回答を返却する」「重複の場合もセッションは起動して回答をショートカットするだけ」): 相談部署の起動では、公開済みの相談
+  (`consultation_publications` の published、新しい順に 500 件) から、事前ヒアリングの話題と依頼本文に似たものを文字の 2 文字組の
+  一致度 (Dice 係数 0.3 以上、上位 3 件) で選び、初回指示に「過去の公開回答」として記事のリンク・要約・公開済みの回答を添える。
+  セッションは必ず起動し、重複かどうかの最終判断はモデルに任せる (同じなら公開済みの回答を要約して記事を案内し、足りない点だけ
+  答える)。回答は FINAL ANSWER として出る。非公開の相談の回答は他の人に返さないため、候補は公開済みのものに限る
+  (`src/consultation/duplicate-consultation.ts`)。
 - 閉じ込め (CC-CONSULT-INV-07、本社・子会社とも)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
   起動する claude 本体で閉じる:
   - cwd は役職フォルダ。

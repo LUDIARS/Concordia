@@ -658,8 +658,9 @@ export async function startBackend(): Promise<BackendHandle> {
       return null;
     }
   };
+  const consultationPublicationsRepo = new ConsultationPublicationsRepo(db);
   const consultationPublications = new PublicationService({
-    publications: new ConsultationPublicationsRepo(db),
+    publications: consultationPublicationsRepo,
     consultations: new PrivateConsultationsRepo(db),
     departmentName: (id) => departmentsRepo.find(id)?.name ?? null,
     tabulaConnection: () => readTabulaConnection({
@@ -1918,6 +1919,7 @@ export async function startBackend(): Promise<BackendHandle> {
     consultWorkspaceRoot: process.env.CONCORDIA_CONSULT_WORKSPACE_ROOT?.trim()
       || resolve(process.cwd(), "..", "..", "Consult"),
     consultationPublications,
+    publishedConsultations: consultationPublicationsRepo,
     privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,

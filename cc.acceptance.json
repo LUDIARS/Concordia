@@ -3481,6 +3481,14 @@
       "contracts": []
     },
     {
+      "source": "src/consultation/duplicate-consultation.ts",
+      "tests": [
+        "src/consultation/duplicate-consultation.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/consultation/consult-model.ts",
       "tests": [
         "src/consultation/consult-model.test.ts",

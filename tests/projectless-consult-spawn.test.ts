@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SpawnRequest } from "../src/control/spawner.js";
 import { PROJECTLESS_CONSULT_CLAUDE_ARGS } from "../src/consultation/projectless-consult.js";
+import { ConsultationPublicationsRepo } from "../src/db/consultation-publications-repo.js";
 import { makeTestDir } from "./helpers/db.js";
 import { makeTestApp } from "./helpers/test-app.js";
 
@@ -104,6 +105,28 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(engineer.status).toBe(200);
     expect(spawnCalls[1]?.provider).toBe("claude");
     expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
+  });
+
+  it("starts the session even for a duplicate and adds the published answer as a shortcut", async () => {
+    // 2026-10-02 neco 指示「重複の場合もセッションは起動して回答をショートカットするだけ」。
+    const publications = new ConsultationPublicationsRepo(env.db);
+    const row = publications.create({ consultation_id: "c-old", title: "Unity の当たり判定がすり抜ける", summary: "高速な弾が壁をすり抜ける原因と対策" });
+    publications.markPublished(row.id, {
+      published_text: "連続衝突判定 (CCD) を使う。", tabula_page_id: "p1", tabula_url: "https://tabula.example/p/1", decided_by: "u1",
+    });
+
+    const response = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "claude",
+      prompt: "Unity で弾が壁をすり抜けます。当たり判定の対策は?",
+    });
+    expect(response.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    const promptFile = spawnCalls[0]?.env?.CONCORDIA_DELEGATION_PROMPT_FILE;
+    expect(promptFile).toBeTruthy();
+    const startup = readFileSync(promptFile!, "utf8");
+    expect(startup).toContain("過去の公開回答");
+    expect(startup).toContain("https://tabula.example/p/1");
+    expect(startup).toContain("連続衝突判定 (CCD) を使う。");
   });
 
   it("rejects a project, cwd, extra args or an unconfinable provider (CC-CONSULT-INV-07)", async () => {

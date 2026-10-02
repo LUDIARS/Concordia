@@ -13,6 +13,14 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
+import {
+  duplicateShortcutBlock,
+  findDuplicateCandidates,
+  type PublishedConsultation,
+} from "../consultation/duplicate-consultation.js";
+
+/** 重複の候補として見る公開済みの相談の件数 (新しい順)。 */
+const PUBLISHED_CONSULTATION_SCAN_LIMIT = 500;
 import { confinementArgsFor, consultEffortOptions, consultModelForRole, consultTemplateFor } from "../consultation/consult-model.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
@@ -269,6 +277,8 @@ export interface CoreDelegationDeps {
   consultWorkspaceRoot?: string;
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
+  /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
+  publishedConsultations?: { listPublished(limit: number): PublishedConsultation[] };
   /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
   privateChannels?: PrivateChannelsRepo;
   projectCodes: ProjectCodesRepo;
@@ -1097,8 +1107,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       if (!resolvedTeamCwd.ok) return c.json({ error: resolvedTeamCwd.error }, 400);
       teamCwd = resolvedTeamCwd.cwd;
     }
+    // 重複した相談の近道: 公開済みの相談から似たものを選び、 初回指示に添える (セッションは必ず起動する)。
+    const consultDuplicateBlock = consultConfinement && deps.publishedConsultations
+      ? duplicateShortcutBlock(findDuplicateCandidates(
+        [readConsultIntakeRequest(body)?.values.topic ?? "", typeof body.prompt === "string" ? body.prompt : ""].join("\n"),
+        deps.publishedConsultations.listPublished(PUBLISHED_CONSULTATION_SCAN_LIMIT),
+      ))
+      : null;
     const userPrompt = [
       dialogueBlock ?? "",
+      consultDuplicateBlock ?? "",
       typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "",
     ].filter(Boolean).join("\n\n");
     const restriction = consultConfinement?.restriction ? consultConfinement.restriction : projectName

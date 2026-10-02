@@ -52,6 +52,13 @@ export class ConsultationPublicationsRepo {
     ).all(consultationId) as ConsultationPublicationRow[];
   }
 
+  /** 公開済みの相談 (新しい順)。 重複した相談の近道の候補 (duplicate-consultation.ts)。 */
+  listPublished(limit: number): ConsultationPublicationRow[] {
+    return this.db.prepare(
+      "SELECT * FROM consultation_publications WHERE status = 'published' ORDER BY decided_at DESC, id DESC LIMIT ?",
+    ).all(limit) as ConsultationPublicationRow[];
+  }
+
   setCardMessage(id: string, messageId: string, now: number = Date.now()): void {
     this.db.prepare("UPDATE consultation_publications SET card_message_id = ?, updated_at = ? WHERE id = ?")
       .run(messageId, now, id);

@@ -65,6 +65,7 @@ import { TaskflowStateStore } from "../../src/taskflow/state-store.js";
 import { CcTaskRepository } from "../../src/fallback-tasks/repository.js";
 import { inboxItems } from "../../src/inbox/read-model.js";
 import { registerCleanup } from "./cleanup.js";
+import { ConsultationPublicationsRepo } from "../../src/db/consultation-publications-repo.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
 export interface TestAppOptions {
@@ -229,6 +230,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     fallbackTasks,
     sessionSpawn: opts.sessionSpawn,
     ...(opts.consultWorkspaceRoot ? { consultWorkspaceRoot: opts.consultWorkspaceRoot } : {}),
+    publishedConsultations: new ConsultationPublicationsRepo(db),
     spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,

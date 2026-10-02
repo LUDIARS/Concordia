@@ -7,7 +7,9 @@ import {
   type StaffMember,
   type StaffPlatform,
   type StaffRole,
+  type UsageBudget,
 } from "../api.js";
+import { UsageBudgetEditor } from "../components/UsageBudgetEditor.js";
 import { StaffAddForm } from "./staff/StaffAddForm.js";
 import { StaffRoleLegend } from "./staff/StaffRoleLegend.js";
 
@@ -41,9 +43,13 @@ function StaffRow({
   onRoleChange,
   onNoteCommit,
   onRemove,
+  budget,
+  onBudgetChanged,
 }: {
   member: StaffMember;
   busy: boolean;
+  budget: UsageBudget | null;
+  onBudgetChanged: () => void;
   onRoleChange: (role: StaffRole) => void;
   onNoteCommit: (note: string) => void;
   onRemove: () => void;
@@ -92,6 +98,12 @@ function StaffRow({
           className="foundation-form text-sm w-full min-w-32"
         />
       </td>
+      <td className="py-1.5 pr-2">
+        {/* 月次予算は Discord の依頼者で数える (spec/feature/usage-budgets.md)。 */}
+        {member.platform === "discord"
+          ? <UsageBudgetEditor scope="user" targetId={member.platform_user_id} budget={budget} onChanged={onBudgetChanged} />
+          : <span className="text-[11px] text-subtle">-</span>}
+      </td>
       <td className="py-1.5 pr-2 text-[11px] text-subtle whitespace-nowrap">
         {fmtTs(member.last_seen_at)}
       </td>
@@ -115,10 +127,13 @@ export function Staff() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<StaffPlatform | "all">("all");
+  const [budgets, setBudgets] = useState<UsageBudget[]>([]);
 
   async function refresh() {
     try {
-      setData(await api.staffList());
+      const [staff, usage] = await Promise.all([api.staffList(), api.usageBudgets().catch(() => ({ budgets: [] }))]);
+      setBudgets(usage.budgets);
+      setData(staff);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -234,6 +249,7 @@ export function Staff() {
                 <th className="pb-1 font-normal">現在の役職</th>
                 <th className="pb-1 font-normal">変更</th>
                 <th className="pb-1 font-normal">メモ</th>
+                <th className="pb-1 font-normal">月の予算 (トークン)</th>
                 <th className="pb-1 font-normal">最終アクセス</th>
                 <th />
               </tr>
@@ -246,6 +262,8 @@ export function Staff() {
                     key={key}
                     member={member}
                     busy={busyId === key}
+                    budget={budgets.find((b) => b.scope === "user" && b.target_id === member.platform_user_id) ?? null}
+                    onBudgetChanged={() => void refresh()}
                     onRoleChange={(role) => void run(
                       key,
                       () => api.staffUpdate(member.platform, member.platform_user_id, { role }),

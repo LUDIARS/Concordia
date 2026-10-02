@@ -115,6 +115,19 @@ type ConcordiaEventPayload =
       tabula_ready: boolean;
       ts: number;
     }
+  /**
+   * 月次予算の閾値 (80 / 100%) に達した知らせ (spec/feature/usage-budgets.md §5)。
+   * ユーザーは本社 Bot が本人へ DM、 チームはチームを持つ Bot がチームのコスト面へ投稿する。
+   */
+  | {
+      type: "usage_budget.notice";
+      event_id: string;
+      scope: "user" | "team";
+      target_id: string;
+      threshold: 80 | 100;
+      text: string;
+      ts: number;
+    }
   /** 報告用プライベートチャンネルの作成依頼 (spec/feature/private-channels.md §2)。 本社 Bot が作る。 */
   | { type: "discord.private_channel.requested"; event_id: string; private_channel_id: string; ts: number }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }

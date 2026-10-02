@@ -76,6 +76,8 @@ export interface StalledSessionNudgeOptions {
   cooldownSec?: number;
   /** OFF なら何もしない。 既定 ON。 */
   enabled?: boolean;
+  /** 自動確認を送らないセッション (部署の auto_check が off、 departments.md §9.6)。 */
+  isAutoCheckDisabled?: (session: SessionRow) => boolean;
   /** epoch-ms を返す注入可能クロック (テスト用)。 既定 Date.now。 */
   now?: () => number;
   /** transcript の mtime(epoch-ms) を返す seam (テスト用)。 既定 fs。 */
@@ -320,6 +322,7 @@ export function startStalledSessionNudge(
 
     const nudged: string[] = [];
     for (const s of active) {
+      if (opts.isAutoCheckDisabled?.(s)) continue;
       const mtime = await mtimeOf(s);
       if (mtime == null) continue; // transcript 不明 (idle 計測不能) はスキップ。
       const idleMs = nowMs - mtime;

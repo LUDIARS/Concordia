@@ -271,6 +271,20 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
   });
 
+  it("does not nudge a session whose department turned auto-check off (consultation, departments.md §9.6)", async () => {
+    const s = fakeSession({ id: "consult-1" });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([s]), now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 3_700_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "回答しました。" }),
+      intervalMs: 1_000_000,
+      isAutoCheckDisabled: (session) => session.id === "consult-1",
+    });
+    expect(await h.runOnce()).toEqual([]);
+    h.stop();
+    expect(injects()).toHaveLength(0);
+  });
+
   it("does not nudge a session with an explicit human wait", async () => {
     const s = fakeSession({ id: "human-wait", metadata: JSON.stringify({ cc_human_wait: {
       active: true, summary: "判断待ち", task_references: ["actio:T-1"], since: NOW,

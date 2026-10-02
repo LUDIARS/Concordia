@@ -56,6 +56,12 @@ const OutputPolicySchema = z.object({
 const StartupInjectSchema = z.enum(["full", "initial-only"]);
 
 /**
+ * 自動確認 (応答が止まったときの確認と Goal & Go の継続確認)。 `off` の部署のセッションには送らない
+ * (技術相談課、 2026-10-02 neco 指示「相談セッションは自動確認しない」)。
+ */
+const AutoCheckSchema = z.enum(["on", "off"]);
+
+/**
  * プライベート相談 (spec/feature/tech-consultation.md §4)。 enabled の部署だけ `/consult` を受け付け、
  * 社員名簿で approver_min_role 以上の人を閉じたチャンネルへ自動で加える。
  */
@@ -70,6 +76,7 @@ export const DepartmentSettingsSchema = z.object({
   output: OutputPolicySchema.default({}),
   private: PrivateConsultationSchema.default({}),
   startup_inject: StartupInjectSchema.default("full"),
+  auto_check: AutoCheckSchema.default("on"),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -103,6 +110,7 @@ export type DepartmentOutputItem = keyof DepartmentOutputPolicy;
 export type DepartmentOutputMode = DepartmentOutputPolicy[DepartmentOutputItem];
 export type DepartmentPrivateConsultation = DepartmentSettings["private"];
 export type DepartmentStartupInject = DepartmentSettings["startup_inject"];
+export type DepartmentAutoCheck = DepartmentSettings["auto_check"];
 
 export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
@@ -118,7 +126,7 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
 };
 
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
-  launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full",
+  launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full", auto_check: "on",
 };
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */

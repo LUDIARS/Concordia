@@ -4,6 +4,7 @@ import {
   MAX_JUDGE_TRANSCRIPT_CHARS,
   SHARE_ANSWER_TIMEOUT_MS,
   countLeakedTerms,
+  dailySweepDay,
   isConsultationOverdue,
   isShareAnswerOverdue,
   parseShareJudgement,
@@ -53,6 +54,16 @@ describe("parseShareJudgement", () => {
     expect(parseShareJudgement('{"publishable": false, "title": "T", "summary": "S"}')).toEqual(no);
     expect(parseShareJudgement('{"publishable": true, "title": "", "summary": "S"}')).toEqual(no);
     expect(parseShareJudgement("{broken")).toEqual(no);
+  });
+});
+
+describe("dailySweepDay", () => {
+  it("朝の指定時刻を過ぎてから、 その日 1 回だけ回す", () => {
+    const at = (h: number, day = 15) => new Date(2026, 9, day, h).getTime();
+    expect(dailySweepDay(at(8), 9, null)).toBeNull();
+    expect(dailySweepDay(at(9), 9, null)).toBe("2026-10-15");
+    expect(dailySweepDay(at(14), 9, "2026-10-15")).toBeNull();
+    expect(dailySweepDay(at(9, 16), 9, "2026-10-15")).toBe("2026-10-16");
   });
 });
 

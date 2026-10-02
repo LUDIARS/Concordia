@@ -144,6 +144,15 @@ describe("handleConsultModalSubmit", () => {
     expect(ctx.store.findByChannel("chan-1")).toBeNull();
   });
 
+  it("refuses before creating a channel when the requester's monthly budget is used up (usage-budgets.md §5)", async () => {
+    const ctx = setup({ launchers: ["900", "111"] });
+    ctx.deps.budgetCheck = vi.fn(async () => ({ allowed: false, notice: "あなたの今月の予算を使い切りました" }));
+    const { interaction, replies } = modal(ctx.guild, ctx.department.id);
+    await handleConsultModalSubmit(interaction, ctx.deps);
+    expect(replies[0]).toMatchObject({ ephemeral: true, content: "あなたの今月の予算を使い切りました" });
+    expect(ctx.created).toHaveLength(0);
+  });
+
   it("closes the consultation when the channel cannot be created", async () => {
     const ctx = setup({ createFails: true });
     const { interaction, replies } = modal(ctx.guild, ctx.department.id);

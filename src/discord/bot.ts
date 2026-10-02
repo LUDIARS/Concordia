@@ -162,6 +162,8 @@ import { PrivateConsultationService } from "../consultation/private-consultation
 import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
 import { guildMemberIds } from "./guild-member-ids.js";
 import { createConsultationClosure } from "./consult-closure-wiring.js";
+import { dailySweepDay } from "../consultation/closure-policy.js";
+import { deliverUsageBudgetNotice } from "./usage-budget-notice.js";
 import { join } from "node:path";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
@@ -675,6 +677,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     store: privateConsultationsRepo,
     runtimeSubsidiaryId: subsidiaryId ?? null,
     categoryStore: privateCategoryStore,
+    // 相談者の月次予算に残りが無ければ始めない (usage-budgets.md §5)。
+    budgetCheck: async (requesterUserId) => {
+      const result = await callConcordia<{ allowed: boolean; notice?: string }>(
+        deps.concordiaUrl, "GET", `/v1/usage-budgets/check?user=${encodeURIComponent(requesterUserId)}`,
+      );
+      return "error" in result ? { allowed: true } : result;
+    },
     // 社員名簿は会社の所属を持たないので、 閲覧者 (とメンション) はその guild に在籍する権限者だけにする
     // (staff-roster.md §9)。 居ない人の overwrite はチャンネル作成ごと失敗させる。
     viewerCandidates: (guild: Guild) => guildMemberIds(guild, approverRosterIds()),
@@ -1555,14 +1564,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info("test-forum periodic reconcile disabled");
       }
       // 相談の後始末の見回り (24 時間の期限・共有の締め切り・削除の再試行、 tech-consultation.md §7)。
-      const consultClosureSec = readOptionalIntEnv("CONCORDIA_CONSULT_CLOSURE_SWEEP_SEC", 600, 60);
-      if (consultClosureSec > 0) {
-        consultClosureTimer = setInterval(() => {
-          void consultationClosure.sweep()
-            .catch((e) => log.warn(`consultation closure sweep failed: ${(e as Error).message}`));
-        }, consultClosureSec * 1000);
-        consultClosureTimer.unref?.();
-      }
+      // 毎朝 1 回 (既定 9 時、 CONCORDIA_CONSULT_CLOSURE_HOUR)。 1 時間ごとに時刻を見て、 その日まだなら回す。
+      const consultClosureHour = Math.min(23, readOptionalIntEnv("CONCORDIA_CONSULT_CLOSURE_HOUR", 9, 0));
+      let consultClosureLastDay: string | null = null;
+      consultClosureTimer = setInterval(() => {
+        const day = dailySweepDay(Date.now(), consultClosureHour, consultClosureLastDay);
+        if (!day) return;
+        consultClosureLastDay = day;
+        void consultationClosure.sweep()
+          .catch((e) => log.warn(`consultation closure sweep failed: ${(e as Error).message}`));
+      }, 60 * 60 * 1000);
+      consultClosureTimer.unref?.();
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
       } else {
@@ -2606,6 +2618,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "discord.private_channel.requested") {
       void privateChannelProvisioner?.provision(ev.private_channel_id)
         .catch((error) => log.warn(`private channel provision failed id=${ev.private_channel_id}: ${(error as Error).message}`));
+      return;
+    }
+    if (ev.type === "usage_budget.notice") {
+      // 月次予算の 80% / 100% の知らせ (usage-budgets.md §5)。
+      void deliverUsageBudgetNotice({
+        isHeadOffice: !subsidiaryId,
+        sendDirectMessage: async (userId, text) => {
+          const user = await client.users.fetch(userId);
+          await user.send({ content: text, allowedMentions: { parse: [] } });
+        },
+        teamCostChannelId: (teamId) => (teamOwnedByRuntime(teamId) ? resolveTeamCardChannel(teamsRepo, teamId, "cost-session") : null),
+        sendToChannel: async (channelId, text) => {
+          const channel = await guild.channels.fetch(channelId).catch(() => null);
+          if (!channel || channel.type !== ChannelType.GuildText) throw new Error("team cost channel unavailable");
+          await channel.send({ content: text, allowedMentions: { parse: [] } });
+        },
+        log,
+      }, ev);
       return;
     }
     if (ev.type === "consultation.proposed") {

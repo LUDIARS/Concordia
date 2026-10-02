@@ -3604,6 +3604,71 @@
       "contracts": [
         "CC-RV-LIST-SCOPE-01"
       ]
+    },
+    {
+      "source": "src/api/prs.ts",
+      "tests": [
+        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/usage-budget.ts",
+      "tests": [
+        "src/cost/usage-budget.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/usage-budget-tracker.ts",
+      "tests": [
+        "src/cost/usage-budget-tracker.test.ts",
+        "tests/usage-budget-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/usage-budgets-repo.ts",
+      "tests": [
+        "src/db/usage-budgets-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/usage-budgets.ts",
+      "tests": [
+        "src/api/usage-budgets.test.ts",
+        "tests/usage-budget-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/usage-budget-notice.ts",
+      "tests": [
+        "src/discord/usage-budget-notice.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/components/UsageBudgetEditor.tsx",
+      "tests": [
+        "web/src/components/UsageBudgetEditor.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/Staff.tsx",
+      "tests": [
+        "web/src/pages/usage-budget-pages.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/teams/TeamCost.tsx",
+      "tests": [
+        "web/src/pages/usage-budget-pages.test.tsx"
+      ],
+      "contracts": []
     }
   ]
 }

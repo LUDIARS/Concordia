@@ -125,6 +125,10 @@ import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js
 import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
 import { consultationsRouter } from "./consultations.js";
+import { usageBudgetsRouter } from "./usage-budgets.js";
+import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
+import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
+import { budgetNoticeText } from "../cost/usage-budget.js";
 import type { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { privateChannelsRouter } from "./private-channels.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
@@ -275,6 +279,8 @@ export interface CoreDelegationDeps {
    * 既定は E:/Document/Consult (役職ごとのフォルダと相談専用の Claude 設定フォルダ)。 未注入ならその起動は 503。
    */
   consultWorkspaceRoot?: string;
+  /** ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 未注入なら API も起動時の判定も無い。 */
+  usageBudgets?: { repo: UsageBudgetsRepo; tracker: UsageBudgetTracker };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
@@ -746,6 +752,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       emit: (event) => eventBus.emit(event),
     }));
   }
+  if (deps.usageBudgets) {
+    app.route("/v1/usage-budgets", usageBudgetsRouter({ budgets: deps.usageBudgets.repo, tracker: deps.usageBudgets.tracker }));
+  }
   if (deps.consultationPublications) {
     app.route("/v1/consultations", consultationsRouter({
       publications: deps.consultationPublications,
@@ -1079,6 +1088,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       })
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
+    // 月次予算 (spec/feature/usage-budgets.md §5): チームで起動するならチーム、 それ以外は依頼者の予算に残りが無ければ起動しない。
+    if (deps.usageBudgets) {
+      const budget = await deps.usageBudgets.tracker.checkLaunch({ teamId: requestedTeamId, requesterUserId: requesterDiscordUserId });
+      if (!budget.allowed && budget.subject && budget.evaluation) {
+        return c.json({ error: `budget_exhausted: ${budgetNoticeText(budget.subject, budget.evaluation)}` }, 402);
+      }
+    }
     const consultConfinement = projectlessConsult.kind === "consult-workspace" ? projectlessConsult : null;
     // 子会社の相談だけツールを制限する (claude は --tools、 codex はシェル等を外す。 consult-model.ts)。
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;

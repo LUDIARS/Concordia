@@ -254,6 +254,14 @@ FINAL ANSWER は session.message で届くので、chat 経路はすべて途中
   プロジェクト規則を送らない。初回指示 (前提データと依頼本文) だけを渡す (技術相談課。「spawn inject は総務用で、
   相談課は初期の Inject のみで良い」2026-10-02 neco 指示)。
 
+### 9.6 自動確認
+
+**Requirement ID: `SPEC-DEPT-AUTO-CHECK`**
+
+- 部署設定 `auto_check` は `on` (既定) / `off`。
+- `off` の部署のセッションには、応答が止まったときの自動確認 (`stalled-session-nudge`) と Goal & Go の継続確認を
+  送らない (技術相談課。「相談セッションは自動確認しない」2026-10-02 neco 指示)。
+
 ## 10. 検証
 
 - 純関数: 所有・廃止・チーム整合・担当プロジェクト・既定値の適用・ルールの重ね方。

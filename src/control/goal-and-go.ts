@@ -1,4 +1,5 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { SessionRow } from "../shared/types.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
 import { shouldClearIdleNudgeFromFrame } from "./idle-nudge.js";
 import { describeGoal, readGoalFromMetadata, type Goal } from "./goal.js";
@@ -37,6 +38,8 @@ export interface StartGoalAndGoOptions {
    * @see ./pending-question-blocker.js
    */
   hasPendingQuestion?: PendingQuestionProbe;
+  /** 自動確認を送らないセッション (部署の auto_check が off、 departments.md §9.6)。 */
+  isAutoCheckDisabled?: (session: SessionRow) => boolean;
   seconds: number;
   maxContinuations: number;
   maxRuntimeSec: number;
@@ -192,6 +195,7 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     if (session.status !== "active") return;
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled || status.stopped_reason !== null) return;
+    if (opts.isAutoCheckDisabled?.(session)) return;
     // 人間の回答待ちなら自走しない。continuation_count も消費せず、回答後の継続を残す。
     if (isHumanWaitActive(opts.repo, sessionId) || !allowAutoInject({
       probe: opts.hasPendingQuestion,

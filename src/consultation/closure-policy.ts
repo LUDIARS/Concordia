@@ -96,3 +96,14 @@ export function countLeakedTerms(text: string, terms: readonly string[]): number
   }
   return hits;
 }
+
+/**
+ * 後始末の見回りは毎朝 1 回でよい (2026-10-02 neco 指示「24 時間の掃除も毎朝の確認で行うので、
+ * 厳密には 24 時間以上放置されていても問題はない」)。 local の日付ごとに、 指定時刻を過ぎた最初の確認で 1 回だけ回す。
+ */
+export function dailySweepDay(nowMs: number, hour: number, lastRunDay: string | null): string | null {
+  const now = new Date(nowMs);
+  if (now.getHours() < hour) return null;
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return day === lastRunDay ? null : day;
+}

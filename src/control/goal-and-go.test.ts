@@ -340,6 +340,26 @@ describe("startGoalAndGo", () => {
     unsubscribe();
   });
 
+  it("does not continue a session whose department turned auto-check off (departments.md §9.6)", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      isAutoCheckDisabled: () => true,
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+      now: () => 100,
+    });
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次のタスク", ts: 1 });
+    expect(injected).toHaveLength(0);
+    handle.stop();
+    unsubscribe();
+  });
+
   it("revalidates Actio dependencies before injecting", async () => {
     const env = fakeRepo(setGoalAndGoEnabled(null, true));
     const canContinue = vi.fn(async () => false);

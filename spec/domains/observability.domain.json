@@ -62,7 +62,8 @@
     "Runtime function metrics / Vestigium 出力",
     "Runtime function metrics / snapshot API",
     "Operational log lifecycle — bounded cc-live retention",
-    "Runtime function metrics / イベントループ停止時の被疑者記録"
+    "Runtime function metrics / イベントループ停止時の被疑者記録",
+    "ユーザーとチームの月次予算"
   ],
   "rationale": "instrumentation と operational logging は業務ドメイン (chat / delegation / federation) のどれにも属さず、それら全てを横断して計測・記録する。observability として独立させることで、業務層 → 観測層の単方向依存 (観測層は業務層を import しない) を維持でき、計測点やログ寿命管理の追加が業務ドメインの結合度に混入しなくなる。"
 }

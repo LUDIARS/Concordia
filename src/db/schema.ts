@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 122;
+export const SCHEMA_VERSION = 123;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3101,6 +3101,33 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       ALTER TABLE private_consultations ADD COLUMN share_asked_at INTEGER;
       ALTER TABLE private_consultations ADD COLUMN channel_deleted_at INTEGER;
       UPDATE private_consultations SET wrap_status = 'legacy';
+    `);
+  },
+},
+{
+  version: 123,
+  name: "usage-budgets",
+  source: "usage_budgets / usage_budget_notices (spec/feature/usage-budgets.md §4)",
+  up(db) {
+    // ユーザー / チームの月次トークン上限予算。 行が無ければ無制限 (今の動きを変えない)。
+    // 通知は月ごと・閾値ごとに 1 回だけ (80 / 100)。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_budgets (
+        scope        TEXT NOT NULL CHECK(scope IN ('user', 'team')),
+        target_id    TEXT NOT NULL,
+        limit_tokens INTEGER NOT NULL CHECK(limit_tokens >= 0),
+        updated_by   TEXT,
+        updated_at   INTEGER NOT NULL,
+        PRIMARY KEY (scope, target_id)
+      );
+      CREATE TABLE IF NOT EXISTS usage_budget_notices (
+        scope       TEXT NOT NULL,
+        target_id   TEXT NOT NULL,
+        month       TEXT NOT NULL,
+        threshold   INTEGER NOT NULL CHECK(threshold IN (80, 100)),
+        notified_at INTEGER NOT NULL,
+        PRIMARY KEY (scope, target_id, month, threshold)
+      );
     `);
   },
 },

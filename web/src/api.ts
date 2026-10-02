@@ -705,6 +705,18 @@ async function putSettings(updates: Record<string, unknown>): Promise<SettingsUp
   return { ok: false, rejected: body?.rejected ?? [{ code: "invalid_value", key: "", detail: `${r.status}` }] };
 }
 
+/** 月次予算 (spec/feature/usage-budgets.md)。 消費は今月に始まったセッションの累積トークン。 */
+export type UsageBudgetScope = "user" | "team";
+export interface UsageBudget {
+  scope: UsageBudgetScope;
+  target_id: string;
+  limit_tokens: number;
+  consumed_tokens: number;
+  ratio: number;
+  exhausted: boolean;
+  updated_at: number;
+}
+
 export const api = {
   allSettings: () => get<{ sections: SettingsSectionPayload[] }>("/v1/admin/settings"),
   updateSettings: putSettings,
@@ -1146,6 +1158,13 @@ export const api = {
     patch<{ rule: HarnessRule }>(`/v1/harness-rules/${encodeURIComponent(id)}`, body),
   harnessRuleDelete: (id: string) =>
     del<{ ok: boolean; error?: string }>(`/v1/harness-rules/${encodeURIComponent(id)}`),
+
+  // ── 月次予算 (spec/feature/usage-budgets.md §6) ──
+  usageBudgets: () => get<{ budgets: UsageBudget[] }>("/v1/usage-budgets"),
+  usageBudgetSet: (scope: UsageBudgetScope, targetId: string, limitTokens: number) =>
+    put<{ budget: UsageBudget }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`, { limit_tokens: limitTokens }),
+  usageBudgetRemove: (scope: UsageBudgetScope, targetId: string) =>
+    del<{ removed: boolean }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`),
 
   // ── 社員名簿 (役職権限登録リスト) ──
   staffList: () => get<StaffListResult>("/v1/staff"),

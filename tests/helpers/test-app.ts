@@ -67,6 +67,8 @@ import { inboxItems } from "../../src/inbox/read-model.js";
 import { registerCleanup } from "./cleanup.js";
 import { ConsultationPublicationsRepo } from "../../src/db/consultation-publications-repo.js";
 import { makeTestDb, makeTestDir } from "./db.js";
+import { UsageBudgetsRepo } from "../../src/db/usage-budgets-repo.js";
+import { UsageBudgetTracker } from "../../src/cost/usage-budget-tracker.js";
 
 export interface TestAppOptions {
   /** 事前に seed 済みの DB を共有する場合に指定 (省略時は makeTestDb)。 */
@@ -79,6 +81,8 @@ export interface TestAppOptions {
   sessionSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   /** 子会社のプロジェクトを持たない相談の作業ディレクトリの置き場所 (tech-consultation.md §6)。 */
   consultWorkspaceRoot?: string;
+  /** 月次予算を組み込む。 readUsage はセッションごとの消費トークン (spec/feature/usage-budgets.md)。 */
+  usageBudgets?: { readUsage: (session: import("../../src/shared/types.js").SessionRow) => Promise<{ total: number } | null> };
   chatRoutes?: boolean;
   costRoutes?: boolean;
   costOverviewSource?: "live" | "samples";
@@ -133,6 +137,19 @@ export interface TestAppEnv {
 export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const db = opts.db ?? makeTestDb();
   const repo = new SessionsRepo(db);
+  const usageBudgets = opts.usageBudgets
+    ? (() => {
+      const budgetsRepo = new UsageBudgetsRepo(db);
+      return {
+        repo: budgetsRepo,
+        tracker: new UsageBudgetTracker({
+          budgets: budgetsRepo,
+          sessionsInRange: (startMs, endMs) => repo.listSessionsInRange(Math.floor(startMs / 1000), Math.floor(endMs / 1000)),
+          readUsage: opts.usageBudgets!.readUsage,
+        }),
+      };
+    })()
+    : null;
   const controlJobs = new ControlJobsRepo(db);
   const tasks = new TasksRepo(db);
   const escalations = new EscalationRepo(db);
@@ -231,6 +248,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionSpawn: opts.sessionSpawn,
     ...(opts.consultWorkspaceRoot ? { consultWorkspaceRoot: opts.consultWorkspaceRoot } : {}),
     publishedConsultations: new ConsultationPublicationsRepo(db),
+    ...(usageBudgets ? { usageBudgets } : {}),
     spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,

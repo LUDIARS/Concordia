@@ -10,6 +10,7 @@ describe("DepartmentSettingsSchema", () => {
         intermediate: "inherit", inject_transcript: "inherit", context_usage: "inherit", session_end_report: "inherit" },
       private: { enabled: false, approver_min_role: "manager" },
       startup_inject: "full",
+      auto_check: "on",
     });
   });
 

@@ -13,6 +13,11 @@ import { inspectImplementationRepo } from "../implementation-tools/repo-context.
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { basename, dirname, join, normalize, resolve } from "node:path";
+import { parseDepartmentSettings } from "../departments/settings.js";
+import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
+import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
+import { budgetNoticeText } from "../cost/usage-budget.js";
+import { readSessionUsage } from "../cost/log-usage.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
@@ -551,6 +556,30 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const db = openDb(dbPath);
   const repo = new SessionsRepo(db);
+  // ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 消費はその月に始まったセッションの provider ログ累積。
+  const usageBudgetsRepo = new UsageBudgetsRepo(db);
+  const usageBudgetTracker = new UsageBudgetTracker({
+    budgets: usageBudgetsRepo,
+    // sessions.started_at は epoch 秒。
+    sessionsInRange: (startMs, endMs) => repo.listSessionsInRange(Math.floor(startMs / 1000), Math.floor(endMs / 1000)),
+    readUsage: (session) => readSessionUsage(session),
+  });
+  // 80% / 100% の知らせを 10 分ごとに見回る (月・閾値ごとに 1 回)。 配送は Bot が担う。
+  const usageBudgetNoticeTimer = setInterval(() => {
+    void usageBudgetTracker.sweepNotices(async (notice) => {
+      eventBus.emit({
+        type: "usage_budget.notice",
+        event_id: randomUUID(),
+        scope: notice.subject.scope,
+        target_id: notice.subject.targetId,
+        threshold: notice.threshold,
+        text: budgetNoticeText(notice.subject, notice.evaluation),
+        ts: Math.floor(Date.now() / 1000),
+      });
+      return true;
+    }).catch((err) => log.warn({ err }, "usage budget notice sweep failed"));
+  }, 10 * 60 * 1000);
+  usageBudgetNoticeTimer.unref?.();
   const controlJobs = new ControlJobsRepo(db);
   // プロセス再起動時は in-memory の WS 接続が全部消えているので、
   // sessions.ws_clients を 0 にリセットして整合性を保つ.
@@ -642,6 +671,16 @@ export async function startBackend(): Promise<BackendHandle> {
     }, sessionId, "session_end_report"),
     true,
   ));
+  // 部署が自動確認を止めていれば (相談課、 departments.md §9.6)、 停止確認と Goal & Go の継続確認を送らない。
+  const isSessionAutoCheckDisabled = (session: { department_id?: string | null }): boolean => {
+    const department = session.department_id ? departmentsRepo.find(session.department_id) : null;
+    if (!department) return false;
+    try {
+      return parseDepartmentSettings(department.settings_json).auto_check === "off";
+    } catch {
+      return false;
+    }
+  };
   // 対話の前提データ (spec/feature/dialogue-context.md)。
   const useCasesRepo = new UseCasesRepo(db);
   const useCaseService = new UseCaseService({ repo: useCasesRepo });
@@ -1920,6 +1959,7 @@ export async function startBackend(): Promise<BackendHandle> {
       || resolve(process.cwd(), "..", "..", "Consult"),
     consultationPublications,
     publishedConsultations: consultationPublicationsRepo,
+    usageBudgets: { repo: usageBudgetsRepo, tracker: usageBudgetTracker },
     privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
@@ -2260,6 +2300,7 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,
+        isAutoCheckDisabled: isSessionAutoCheckDisabled,
         resolveWorkState: async (session) => {
           const live = await readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId: session.id });
           const registrations = await revisorRepositoryClient.listRepositories();
@@ -2367,6 +2408,7 @@ export async function startBackend(): Promise<BackendHandle> {
       startGoalAndGo({
         repo,
         taskStore,
+        isAutoCheckDisabled: isSessionAutoCheckDisabled,
         // 人間の回答待ちのセッションは自走継続しない (未回答質問が blocker)。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
         seconds: cfg.goalAndGoIdleSec,

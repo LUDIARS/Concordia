@@ -19,6 +19,7 @@ export {
 } from "../delegation/forum-model-selection.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { isProjectNameInScope } from "../subsidiary/project-scope.js";
+import { budgetRefusalText } from "./usage-budget-notice.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
 import { callConcordia } from "./commands/_util.js";
 import type { ForumDelegationSelectionInput, ForumDelegationSelection } from "./forum-delegation-selector.js";
@@ -609,8 +610,10 @@ export async function executeForumSpawn(
     deps.log.warn(
       `forum-spawn failed thread=${thread.id} target=${spawnLabel}: ${JSON.stringify(error)}`,
     );
-    await reply(deps, thread, "セッション起動に失敗しました。Bot のログを確認してください。");
-    return { ok: false, error: "session spawn failed" };
+    // 月次予算を使い切っていたら、 その理由だけは本人に返す (数値だけで内部情報を含まない、 usage-budgets.md §5)。
+    const budgetRefusal = budgetRefusalText(String(error));
+    await reply(deps, thread, budgetRefusal ?? "セッション起動に失敗しました。Bot のログを確認してください。");
+    return { ok: false, error: budgetRefusal ? "budget exhausted" : "session spawn failed" };
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} target=${spawnLabel} ` +

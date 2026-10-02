@@ -4,13 +4,20 @@
  */
 
 import { useEffect, useState } from "react";
-import { api, type TeamCostSeries, type TeamMetrics } from "../../api.js";
+import { api, type TeamCostSeries, type TeamMetrics, type UsageBudget } from "../../api.js";
 import { TimeSeriesChart } from "../../components/TimeSeriesChart.js";
+import { UsageBudgetEditor } from "../../components/UsageBudgetEditor.js";
 import { fmtTokensShort } from "./model.js";
 
 export function TeamCost({ teamId, metrics }: { teamId: string; metrics?: TeamMetrics }) {
   const [series, setSeries] = useState<TeamCostSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [budget, setBudget] = useState<UsageBudget | null>(null);
+  // チームで起動したセッションはチームの月次予算を消費する (spec/feature/usage-budgets.md)。
+  const loadBudget = () => void api.usageBudgets()
+    .then((result) => setBudget(result.budgets.find((b) => b.scope === "team" && b.target_id === teamId) ?? null))
+    .catch(() => setBudget(null));
+  useEffect(loadBudget, [teamId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +33,10 @@ export function TeamCost({ teamId, metrics }: { teamId: string; metrics?: TeamMe
   if (!series) return <div className="text-subtle text-sm">loading…</div>;
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm">
+        <span>月の予算 (トークン):</span>
+        <UsageBudgetEditor scope="team" targetId={teamId} budget={budget} onChanged={loadBudget} />
+      </div>
       {metrics && (
         <div className="text-sm">
           本日の消費: <span className="font-semibold">{fmtTokensShort(metrics.today_cost_tokens)}</span> tokens

@@ -57,6 +57,8 @@ export interface ConsultFlowDeps {
    * メンションも届かない。
    */
   viewerCandidates?(guild: Guild): Promise<readonly string[]>;
+  /** 相談者の月次予算に残りがあるか (usage-budgets.md §5)。 未指定なら確かめない。 */
+  budgetCheck?(requesterUserId: string): Promise<{ allowed: boolean; notice?: string }>;
   /** 部署のセッションを起動する (admin spawn)。 */
   spawn(input: ConsultSpawnInput): Promise<{ ok: true } | { ok: false; error: string }>;
   now?: () => Date;
@@ -92,6 +94,14 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
   if (!submitted || !guild) {
     await interaction.reply({ content: "この送信を受け付けられませんでした。", ephemeral: true });
     return;
+  }
+  // 予算を使い切っていたら、 チャンネルを作る前に本人にだけ伝えて止める。
+  if (deps.budgetCheck) {
+    const budget = await deps.budgetCheck(interaction.user.id).catch(() => ({ allowed: true }));
+    if (!budget.allowed) {
+      await interaction.reply({ content: ("notice" in budget && budget.notice) || "今月の予算を使い切っているため相談を始められません。", ephemeral: true });
+      return;
+    }
   }
   let viewerCandidates: readonly string[] | undefined;
   if (deps.viewerCandidates) {

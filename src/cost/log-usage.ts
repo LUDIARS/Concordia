@@ -33,6 +33,23 @@ export const CLAUDE_PROJECTS_ROOT = join(homedir(), ".claude", "projects");
 /** Codex のセッションログ親 (~/.codex/sessions)。 */
 export const CODEX_SESSIONS_ROOT = join(homedir(), ".codex", "sessions");
 
+/**
+ * ~/.claude 以外の Claude Code の設定フォルダ (CLAUDE_CONFIG_DIR) で動くセッションのログ親。
+ * 相談は専用の設定フォルダ (`<相談の置き場所>/.claude-config`) で動き、 transcript もその下の projects に書く
+ * (spec/feature/tech-consultation.md §6)。 ここに足さないと予算・コスト報告で相談の消費が 0 になる。
+ */
+let extraClaudeProjectRoots: readonly string[] = [];
+
+/** 起動時に、 ~/.claude 以外の Claude Code のログ親を登録する。 */
+export function setExtraClaudeProjectRoots(roots: readonly string[]): void {
+  extraClaudeProjectRoots = [...roots];
+}
+
+/** Claude Code のログ親すべて (~/.claude/projects と、 登録した設定フォルダの projects)。 */
+export function claudeProjectRoots(): readonly string[] {
+  return [CLAUDE_PROJECTS_ROOT, ...extraClaudeProjectRoots];
+}
+
 /** head 読み (limit 付き readLines) で読む先頭チャンクのバイト数。 */
 const HEAD_CHUNK_BYTES = 256 * 1024;
 
@@ -135,10 +152,12 @@ export async function readSessionUsage(
 export async function enumerateRecentLogTotals(maxAgeMs: number, now: number): Promise<Array<{ path: string; total: number }>> {
   const cutoff = now - maxAgeMs;
   const out: Array<{ path: string; total: number }> = [];
-  await collectRecent(CLAUDE_PROJECTS_ROOT, 3, cutoff, async (p) => {
-    const t = await readClaudeUsage(p);
-    if (t) out.push({ path: p, total: t.total });
-  });
+  for (const root of claudeProjectRoots()) {
+    await collectRecent(root, 3, cutoff, async (p) => {
+      const t = await readClaudeUsage(p);
+      if (t) out.push({ path: p, total: t.total });
+    });
+  }
   await collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, async (p) => {
     const t = await readCodexUsage(p);
     if (t) out.push({ path: p, total: t.total });
@@ -198,7 +217,11 @@ export async function collectRecent(
  */
 export async function resolveSessionTranscript(s: SessionRow): Promise<string | null> {
   if (s.provider === "claude-code") {
-    return resolveTrustedTranscriptPath(s.transcript_path, CLAUDE_PROJECTS_ROOT);
+    for (const root of claudeProjectRoots()) {
+      const resolved = await resolveTrustedTranscriptPath(s.transcript_path, root);
+      if (resolved) return resolved;
+    }
+    return null;
   }
   if (s.provider === "codex-cli") {
     return resolveTrustedTranscriptPath(s.transcript_path, CODEX_SESSIONS_ROOT);

@@ -17,7 +17,7 @@
 
 import { stat } from "node:fs/promises";
 import {
-  CLAUDE_PROJECTS_ROOT,
+  claudeProjectRoots,
   CODEX_SESSIONS_ROOT,
   collectRecent,
   nn,
@@ -129,7 +129,9 @@ const defaultIo: LogTotalsCacheIo = {
   enumeratePaths: async (maxAgeMs, now) => {
     const cutoff = now - maxAgeMs;
     const out: Array<{ path: string; kind: "claude" | "codex" }> = [];
-    await collectRecent(CLAUDE_PROJECTS_ROOT, 3, cutoff, (p) => { out.push({ path: p, kind: "claude" }); });
+    for (const root of claudeProjectRoots()) {
+      await collectRecent(root, 3, cutoff, (p) => { out.push({ path: p, kind: "claude" }); });
+    }
     await collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, (p) => { out.push({ path: p, kind: "codex" }); });
     return out;
   },

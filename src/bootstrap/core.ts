@@ -17,7 +17,8 @@ import { parseDepartmentSettings } from "../departments/settings.js";
 import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
-import { readSessionUsage } from "../cost/log-usage.js";
+import { readSessionUsage, setExtraClaudeProjectRoots } from "../cost/log-usage.js";
+import { consultClaudeConfigDir } from "../consultation/projectless-consult.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
@@ -663,6 +664,12 @@ export async function startBackend(): Promise<BackendHandle> {
   const teamsRepo = new TeamsRepo(db);
   // 部署 (spec/feature/departments.md)。 部署行を書くのは DepartmentService だけ。
   const departmentsRepo = new DepartmentsRepo(db);
+  // 相談の作業ディレクトリの置き場所 (tech-consultation.md §6)。 既定は Castra の外の E:/Document/Consult
+  // (Concordia はワークスペース直下で動くので 2 つ上)。 相談は専用の設定フォルダで動き transcript もその下に書くので、
+  // 予算・コスト報告の集計で読めるようにログ親として登録する。
+  const consultWorkspaceRoot = process.env.CONCORDIA_CONSULT_WORKSPACE_ROOT?.trim()
+    || resolve(process.cwd(), "..", "..", "Consult");
+  setExtraClaudeProjectRoots([join(consultClaudeConfigDir(consultWorkspaceRoot), "projects")]);
   // 終了時の /session-end 自動指示と独白を部署の出力方針で止める (相談、 departments.md §9.4)。
   setSessionEndOutputResolver((sessionId) => isOutputEnabled(
     resolveSessionOutputMode({
@@ -1955,8 +1962,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // プロジェクトを持たない相談部署の作業ディレクトリ (tech-consultation.md §6)。 役職ごとのフォルダを置く場所で、
     // 既定は Castra (E:/Document/Ars) の外の E:/Document/Consult。 Castra のメモリやワークフローを引き継がない
     // (2026-10-02 neco 指示)。 Concordia はワークスペース直下 (E:/Document/Ars/Concordia) で動くので 2 つ上に置く。
-    consultWorkspaceRoot: process.env.CONCORDIA_CONSULT_WORKSPACE_ROOT?.trim()
-      || resolve(process.cwd(), "..", "..", "Consult"),
+    consultWorkspaceRoot,
     consultationPublications,
     publishedConsultations: consultationPublicationsRepo,
     usageBudgets: { repo: usageBudgetsRepo, tracker: usageBudgetTracker },

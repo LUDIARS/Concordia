@@ -3715,6 +3715,20 @@
         "web/src/pages/usage-budget-pages.test.tsx"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/cost/log-usage.ts",
+      "tests": [
+        "src/cost/log-usage.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/log-totals-cache.ts",
+      "tests": [
+        "src/cost/log-totals-cache.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

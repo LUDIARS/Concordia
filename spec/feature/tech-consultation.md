@@ -187,6 +187,8 @@
     (Lictor の事前焼き込みは ~/.claude.json にしか書かないため)。ログイン情報もその設定フォルダに持つ。未ログインなら claude の
     相談は 503 `projectless_consult_claude_login_required` (初回は人が `CLAUDE_CONFIG_DIR=<設定フォルダ> claude` でログインする)。
     Lictor のフック (ハーネスのゲート) は `--settings` で渡るので、設定フォルダを分けても効く。
+    transcript も設定フォルダの `projects` に書かれるので、Cc は起動時にそこを Claude Code のログ親として登録し
+    (`setExtraClaudeProjectRoots`)、予算・コスト報告・ログ集計で相談の消費を数える (2026-10-03 修正、それまでは 0 だった)。
   - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_doc_max_bytes=0 -c mcp_servers={}`。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
     AGENTS.md・プラグイン・MCP も読ませない。画像を読む view_image はパスを指定すれば画像を読める余地が残る。

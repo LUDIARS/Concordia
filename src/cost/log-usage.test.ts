@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CLAUDE_PROJECTS_ROOT, resolveSessionTranscript, resolveTrustedTranscriptPath } from "./log-usage.js";
+import {
+  CLAUDE_PROJECTS_ROOT,
+  claudeProjectRoots,
+  resolveSessionTranscript,
+  resolveTrustedTranscriptPath,
+  setExtraClaudeProjectRoots,
+} from "./log-usage.js";
 import type { SessionRow } from "../shared/types.js";
 
 // CLAUDE_PROJECTS_ROOT は ~/.claude/projects 固定なので、 そこに一時プロジェクトフォルダを
@@ -71,6 +77,25 @@ describe("resolveSessionTranscript", () => {
     const s = sess("33333333-2222-3333-4444-555555555555", "E:/Document/Ars");
     s.transcript_path = outside;
     expect(await resolveSessionTranscript(s)).toBeNull();
+  });
+
+  it("登録した設定フォルダ (相談の CLAUDE_CONFIG_DIR) の transcript も正本として読む", async () => {
+    // 2026-10-03: 相談は専用の設定フォルダで動き transcript をその下に書くため、 予算・コスト報告で消費が 0 になっていた。
+    const configProjects = join(tmpdir(), `consult-config-projects-${Date.now()}`);
+    mkdirSync(join(configProjects, "E--Document-Consult-engineer"), { recursive: true });
+    madeDirs.push(configProjects);
+    const transcript = join(configProjects, "E--Document-Consult-engineer", "consult.jsonl");
+    writeFileSync(transcript, "{}"+String.fromCharCode(10), "utf8");
+    const s = sess("55555555-2222-3333-4444-555555555555", "E:/Document/Consult/engineer");
+    s.transcript_path = transcript;
+    expect(await resolveSessionTranscript(s)).toBeNull();
+    setExtraClaudeProjectRoots([configProjects]);
+    try {
+      expect(claudeProjectRoots()).toEqual([CLAUDE_PROJECTS_ROOT, configProjects]);
+      expect(await resolveSessionTranscript(s)).toBeTruthy();
+    } finally {
+      setExtraClaudeProjectRoots([]);
+    }
   });
 
   it("codex-sdk など JSONL を持たない provider は null", async () => {

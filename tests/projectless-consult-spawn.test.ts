@@ -107,6 +107,70 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
   });
 
+  it("puts the role folder's CLAUDE.md and skills into the first prompt only for providers that cannot read them (CC-CONSULT-INV-11)", async () => {
+    const intake = (role: string) => ({ topic: "音の質感", skill_level: "初級", role_title: role, purpose: "", source: "modal" });
+    for (const role of ["sound", "engineer"]) {
+      mkdirSync(join(workspaceRoot, role, ".claude", "skills", "level-match"), { recursive: true });
+      writeFileSync(join(workspaceRoot, role, "CLAUDE.md"), `${role} の前提`);
+      writeFileSync(join(workspaceRoot, role, ".claude", "skills", "level-match", "SKILL.md"), "---\nname: level-match\n---\nレベルに合わせる手順");
+    }
+    // 相談者のデータフォルダの中は読まない。
+    mkdirSync(join(workspaceRoot, "sound", "123456789012345678"), { recursive: true });
+    writeFileSync(join(workspaceRoot, "sound", "123456789012345678", "CLAUDE.md"), "相談者のメモ");
+    const startupOf = (request: SpawnRequest | undefined): string =>
+      readFileSync(request!.env!.CONCORDIA_DELEGATION_PROMPT_FILE!, "utf8");
+
+    // Astra (codex): テンプレート経路。 制限の直後、 依頼本文の前に載る。
+    const sound = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "残響の作り方は?",
+      requester_discord_user_id: "123456789012345678", consultation_intake: intake("サウンドクリエイター"),
+    });
+    expect(sound.status).toBe(200);
+    expect(spawnCalls[0]?.provider).toBe("codex");
+    const soundStartup = startupOf(spawnCalls[0]);
+    expect(soundStartup).toContain("## 相談窓口の前提と手順");
+    expect(soundStartup).toContain("sound の前提");
+    expect(soundStartup).toContain("### 手順: level-match");
+    expect(soundStartup).toContain("レベルに合わせる手順");
+    expect(soundStartup).not.toContain("name: level-match");
+    expect(soundStartup).not.toContain("相談者のメモ");
+    expect(soundStartup.indexOf("## 作業範囲の制限")).toBeLessThan(soundStartup.indexOf("## 相談窓口の前提と手順"));
+    expect(soundStartup.indexOf("## 相談窓口の前提と手順")).toBeLessThan(soundStartup.indexOf("残響の作り方は?"));
+
+    // codex を provider 直指定した素の経路でも載る。
+    const direct = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "codex", prompt: "Q",
+      consultation_intake: intake("サウンドクリエイター"),
+    });
+    expect(direct.status).toBe(200);
+    expect(startupOf(spawnCalls[1])).toContain("sound の前提");
+
+    // claude は自分で読むので載せない。
+    const engineer = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
+    });
+    expect(engineer.status).toBe(200);
+    expect(spawnCalls[2]?.provider).toBe("claude");
+    expect(startupOf(spawnCalls[2])).not.toContain("## 相談窓口の前提と手順");
+
+    // 相談以外の部署の起動では載せない。
+    const other = await spawnSession(env, {
+      department: editDepartmentId, subsidiary_id: subsidiaryId, provider: "codex", cwd: env.logsDir, prompt: "Q",
+    });
+    expect(other.status).toBe(200);
+    expect(startupOf(spawnCalls[3])).not.toContain("## 相談窓口の前提と手順");
+  });
+
+  it("starts an Astra consultation without the block when the role folder has no CLAUDE.md or skills", async () => {
+    const response = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "codex", prompt: "Q",
+    });
+    expect(response.status).toBe(200);
+    const startup = readFileSync(spawnCalls[0]!.env!.CONCORDIA_DELEGATION_PROMPT_FILE!, "utf8");
+    expect(startup).toContain("## 作業範囲の制限");
+    expect(startup).not.toContain("## 相談窓口の前提と手順");
+  });
+
   it("starts the session even for a duplicate and adds the published answer as a shortcut", async () => {
     // 2026-10-02 neco 指示「重複の場合もセッションは起動して回答をショートカットするだけ」。
     const publications = new ConsultationPublicationsRepo(env.db);

@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
+import { loadInlineRoleGuidance } from "../consultation/role-guidance-files.js";
 import {
   duplicateShortcutBlock,
   findDuplicateCandidates,
@@ -227,6 +228,7 @@ import type { EscalationRepo } from "../db/escalation-repo.js";
 const restartLog = createChildLogger("api/backend-restart");
 const spawnMemoriaLog = createChildLogger("api/spawn-memoria");
 const inquiryLog = createChildLogger("api/inquiry-context");
+const consultGuidanceLog = createChildLogger("api/consult-role-guidance");
 
 export interface CoreSessionDeps {
   repo: SessionsRepo;
@@ -1160,6 +1162,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ].filter(Boolean).join("\n")
       : "";
     const adHocPrompt = [restriction, taskPrompt, userPrompt].filter(Boolean).join("\n\n");
+    // 指示ファイルを自分で読めない provider (Astra / codex) の相談には、 役職フォルダの CLAUDE.md とスキルを
+    // 作業範囲の制限の直後に載せる (CC-CONSULT-INV-11)。 provider はテンプレート解決後に決まるので経路ごとに呼ぶ。
+    // テンプレの prompt 注入 (delegation invoke) は相談では受け付けない (projectless_consult_scope_fixed)。
+    const restrictionWithRoleGuidance = async (provider: string): Promise<string> => {
+      const guidance = consultConfinement
+        ? await loadInlineRoleGuidance(consultConfinement.cwd, provider, consultGuidanceLog)
+        : null;
+      return [restriction, guidance ?? ""].filter(Boolean).join("\n\n");
+    };
 
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
@@ -1262,7 +1273,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       if (consultArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
       if (consultLoginMissing(spawn.provider)) return c.json({ error: "projectless_consult_claude_login_required" }, 503);
       const spawnArgs = [...spawn.args, ...runtimeArgs, ...consultArgs];
-      const startupText = [userPrompt ? restriction : "", taskPrompt, userPrompt]
+      const startupText = [userPrompt ? await restrictionWithRoleGuidance(spawn.provider) : "", taskPrompt, userPrompt]
         .filter(Boolean)
         .join("\n\n");
       const startupPromptPath = startupText
@@ -1358,6 +1369,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (consultConfined && userArgs.length > 0) {
       return c.json({ error: "projectless_consult_scope_fixed: args" }, 400);
     }
+    const directPrompt = consultConfinement
+      ? [await restrictionWithRoleGuidance(resolved.provider), taskPrompt, userPrompt].filter(Boolean).join("\n\n")
+      : adHocPrompt;
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
       ...(consultConfinement?.env ?? {}),
@@ -1365,7 +1379,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
       ...interactiveSpawnEnvironment(
         resolved.provider,
-        adHocPrompt ? await deps.delegationService.writeAdHocPrompt(adHocPrompt) : null,
+        directPrompt ? await deps.delegationService.writeAdHocPrompt(directPrompt) : null,
       ),
     };
     const directCwd = projectCwd
@@ -1393,7 +1407,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       subsidiaryId,
       project: projectName || null,
       requesterDiscordUserId,
-      startupInjectText: adHocPrompt || null,
+      startupInjectText: directPrompt || null,
       sourceDiscordGuildId,
       sourceDiscordChannelId,
       goalAndGo: goalAndGoEnabled(effectiveDirectOptions),
@@ -1425,7 +1439,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ok: true,
       pid: result.pid,
       command: result.command,
-      injected_prompt: !!adHocPrompt,
+      injected_prompt: !!directPrompt,
       project: projectName || null,
       cwd: directTarget.cwd ?? null,
       branch: directTarget.branch,

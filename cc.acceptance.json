@@ -3382,6 +3382,45 @@
       "contracts": []
     },
     {
+      "source": "src/consultation/role-guidance.ts",
+      "tests": [
+        "src/consultation/role-guidance.test.ts",
+        "src/consultation/role-guidance-files.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": [
+        "CC-CONSULT-INV-11"
+      ]
+    },
+    {
+      "source": "src/consultation/role-guidance-files.ts",
+      "tests": [
+        "src/consultation/role-guidance-files.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": [
+        "CC-CONSULT-INV-11"
+      ]
+    },
+    {
+      "source": "src/consultation/ontime-runtime.ts",
+      "tests": [
+        "src/consultation/role-guidance.test.ts"
+      ],
+      "contracts": [
+        "CC-CONSULT-INV-11"
+      ]
+    },
+    {
+      "source": "src/api/register-core.ts",
+      "tests": [
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": [
+        "CC-CONSULT-INV-11"
+      ]
+    },
+    {
       "source": "src/discord/guild-member-ids.ts",
       "tests": [
         "src/discord/guild-member-ids.test.ts",

@@ -34,6 +34,7 @@
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
 | CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
 | CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない。Castra のメモリやワークフローを引き継がない) | 役職フォルダの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
+| CC-CONSULT-INV-11 | 相談セッションは provider に関わらず、役職フォルダの指示 (CLAUDE.md とスキル) を受け取る。載せるのは役職フォルダ自身のものだけ (上位のフォルダ・相談者のデータフォルダの中は読まない) | claude は自分で読む。それ以外は admin spawn が初回指示に載せる (`needsInlineRoleGuidance` / `buildRoleGuidanceBlock` (`src/consultation/role-guidance.ts`)、`loadInlineRoleGuidance` (`src/consultation/role-guidance-files.ts`)) |
 | CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
 | CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
 
@@ -189,6 +190,20 @@
   - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_doc_max_bytes=0 -c mcp_servers={}`。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
     AGENTS.md・プラグイン・MCP も読ませない。画像を読む view_image はパスを指定すれば画像を読める余地が残る。
+  - 指示ファイルを読めない provider では、役職フォルダの CLAUDE.md とスキルを Cc が初回指示に載せる (CC-CONSULT-INV-11、
+    2026-10-02 neco 指示「役職は spawn 前に決定するので読み分けで良い」)。上の引数のため Astra (codex) は役職フォルダの
+    CLAUDE.md もスキルも読めず、デザイナー・サウンドの相談者だけ役職ごとの回答の作り方 (技術レベルに合わせる・非公開の内容を
+    検索語に入れない・できない依頼の断り方など) が効かない回答を受け取っていた。
+    - 対象は相談の作業ディレクトリで起動し、解決後の provider が claude 以外のとき (`needsInlineRoleGuidance`)。claude は自分で
+      読むので載せない (二重になる)。テンプレート経路・provider 直指定の経路とも、provider の解決後に組む。
+    - 読むのは役職フォルダ直下の `CLAUDE.md` と `.claude/skills/<名前>/SKILL.md` だけ。相談者のデータフォルダや上位のフォルダは読まない
+      (CC-CONSULT-INV-08 と同じ範囲)。無い・読めないファイルはその分を載せずに起動を続け、読めなかったものは warn ログに名前だけ出す。
+    - 置き場所は「作業範囲の制限」の直後、対話の前提データの前。見出し `## 相談窓口の前提と手順` に続けて「このセッションではスキルを
+      呼び出せません。『〜を読んでください』とある手順は、下に全文を載せています」の 1 行、CLAUDE.md の本文、スキルごとの
+      `### 手順: <スキル名>` と本文 (frontmatter を外す、名前順) を並べる。
+    - 全体の上限は 40,000 文字。超えるときはスキル単位で後ろから載せるのをやめ、途中で切った本文は載せない。載せなかったスキル名は
+      warn ログに出す (本文はログに出さない)。
+    - 状態を持たない。問題が出たら admin spawn の配線を外せば従来の初回指示に戻る。
   - それ以外の provider は 400 `projectless_consult_requires_confinable_provider`。
   - 起動要求に project / cwd / team / branch / worktree / 利用者の args / テンプレの prompt 注入があれば 400
     `projectless_consult_scope_fixed`。置き場所が未設定なら 503。
@@ -209,7 +224,7 @@
   上級: シニアとして扱う。`src/dialogue/skill-level.ts`)。
 - 残る露出: 起動時の共通資料案内 (Castra のパス名) はセッションに渡る (初期だけの部署では送らない)。
 
-状態所有者: 作業ディレクトリの場所 = 起動設定 (admin spawn)。役職の区分 = consultation (`src/consultation/consult-role.ts`)。判定 = consultation (`src/consultation/projectless-consult.ts`)。
+状態所有者: 作業ディレクトリの場所 = 起動設定 (admin spawn)。役職の区分 = consultation (`src/consultation/consult-role.ts`)。判定 = consultation (`src/consultation/projectless-consult.ts`)。役職の指示を初回指示に載せるか・その組み立て = consultation (`src/consultation/role-guidance.ts`)、読み込み = `src/consultation/role-guidance-files.ts`。
 
 ## 7. 相談チャンネルの後始末
 

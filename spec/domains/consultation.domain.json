@@ -10,7 +10,8 @@
     { "pathPattern": "(^|/)src/api/consultations(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/discord/consult-[^/]+$" },
     { "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$" }
+    { "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$" },
+    { "pathPattern": "(^|/)tests/projectless-consult[^/]*\\.test\\.ts$" }
   ],
   "cardTemplate": "Summarise the consultation domain: private consultation channels (closed at creation, members, invites, lock on end), keeping private content off shared surfaces, and requester-approved publication of rewritten summaries to Tabula.",
   "specRefs": [

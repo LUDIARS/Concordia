@@ -76,7 +76,27 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls[0]?.args?.slice(-PROJECTLESS_CONSULT_CLAUDE_ARGS.length)).toEqual([...PROJECTLESS_CONSULT_CLAUDE_ARGS]);
   });
 
-  it("rejects a project, cwd, extra args or a non-claude provider (CC-CONSULT-INV-07)", async () => {
+  it("chooses the model from the requester's role: Astra (codex, confined) for sound, Opus for engineers, effort medium", async () => {
+    const intake = (role: string) => ({ topic: "音の質感", skill_level: "中級", role_title: role, purpose: "", source: "modal" });
+
+    const sound = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("サウンドクリエイター"),
+    });
+    expect(sound.status).toBe(200);
+    expect(spawnCalls[0]?.provider).toBe("codex");
+    // GLab でも Astra。 シェル・プラグイン・AGENTS.md・MCP を外して閉じ込める (2026-10-02 neco 指示「GLab も Astra」)。
+    expect(spawnCalls[0]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "project_doc_max_bytes=0"]));
+    expect(spawnCalls[0]?.args?.join(" ")).toContain("medium");
+
+    const engineer = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
+    });
+    expect(engineer.status).toBe(200);
+    expect(spawnCalls[1]?.provider).toBe("claude");
+    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
+  });
+
+  it("rejects a project, cwd, extra args or an unconfinable provider (CC-CONSULT-INV-07)", async () => {
     const withCwd = await spawnSession(env, {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "claude", cwd: env.logsDir,
     });
@@ -88,8 +108,8 @@ describe("projectless consultation spawn in a subsidiary", () => {
     });
     expect(await withArgs.json()).toEqual({ error: "projectless_consult_scope_fixed: args" });
 
-    const codex = await spawnSession(env, { department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "codex" });
-    expect(await codex.json()).toEqual({ error: "projectless_consult_requires_claude" });
+    const gemini = await spawnSession(env, { department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "gemini" });
+    expect(await gemini.json()).toEqual({ error: "projectless_consult_requires_confinable_provider" });
     expect(spawnCalls).toEqual([]);
   });
 

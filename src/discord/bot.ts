@@ -735,8 +735,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // 子会社でもプロジェクト無しで起動できる相談部署か (tech-consultation.md §6)。
     const projectless = isProjectlessConsultDepartment({ projects, useCase });
     return {
-      id: department.id, name: department.name, projects, hasLaunchDefault, archived: department.archived_at !== null, intake,
-      projectless,
+      // 相談部署はモデルを聞き返さない。 Cc が相談者の職種から選ぶ (tech-consultation.md §6)。
+      id: department.id, name: department.name, projects, hasLaunchDefault: hasLaunchDefault || projectless,
+      archived: department.archived_at !== null, intake, projectless,
     };
   };
   // セッションのスレッド置き場: チームの面 → 部署のフォーラム → 既定 (Session フォーラム)。

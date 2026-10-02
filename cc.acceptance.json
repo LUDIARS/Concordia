@@ -3435,6 +3435,14 @@
       "contracts": [
         "CC-MGMT-08"
       ]
+    },
+    {
+      "source": "src/consultation/consult-model.ts",
+      "tests": [
+        "src/consultation/consult-model.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

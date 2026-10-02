@@ -11,6 +11,7 @@ import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
 import { access, mkdir, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
+import { confinementArgsFor, consultEffortOptions, consultModelForRole, consultTemplateFor } from "../consultation/consult-model.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -1055,8 +1056,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
     const consultConfinement = projectlessConsult.kind === "consult-workspace" ? projectlessConsult : null;
-    // ツール制限は claude の引数で掛ける (子会社だけ)。
-    const consultClaudeArgs = consultConfinement?.claudeArgs ?? [];
+    // 子会社の相談だけツールを制限する (claude は --tools、 codex はシェル等を外す。 consult-model.ts)。
+    const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;
+    const consultArgsFor = (provider: string): readonly string[] | null =>
+      consultConfined ? confinementArgsFor(provider, consultConfinement!.claudeArgs) : [];
+    // 相談部署は相談者の職種でモデルを決め、 effort は medium (エンジニア・企画は Opus、 デザイナー・サウンドは Astra。
+    // tech-consultation.md §6)。 起動要求がモデルを明示していればそれに従う。
+    const consultModelChosen = consultConfinement !== null
+      && !(typeof body.template === "string" && body.template.trim())
+      && !(typeof body.provider === "string" && body.provider.trim())
+      && !(typeof body.model === "string" && body.model.trim());
+    if (consultModelChosen) {
+      const roleTitle = readConsultIntakeRequest(body)?.values.role_title ?? null;
+      body = { ...body, template: consultTemplateFor(consultModelForRole(roleTitle)) };
+    }
     let teamCwd: string | null = null;
     if (requestedTeam && !projectCwd && !explicitCwd) {
       const resolvedTeamCwd = await resolveTeamSpawnCwd({
@@ -1114,6 +1127,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       const runtimeOptions = {
         ...parseRuntimeOptions(tpl.runtime_options_json),
         ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
+        ...(consultModelChosen ? consultEffortOptions(tpl.target_provider === "claude" ? "claude" : "codex") : {}),
         ...(requestedTeamId ? { team: requestedTeamId } : {}),
       };
       const cwdOverride = projectCwd ?? explicitCwd ?? teamCwd ?? consultConfinement?.cwd ?? undefined;
@@ -1192,11 +1206,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         spawn.effectiveModel,
       );
       const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
-      // ツール制限は claude の引数で掛ける。 他の provider では閉じ込められないので起動しない。
-      if (consultClaudeArgs.length > 0 && spawn.provider !== "claude") {
-        return c.json({ error: "projectless_consult_requires_claude" }, 400);
-      }
-      const spawnArgs = [...spawn.args, ...runtimeArgs, ...consultClaudeArgs];
+      // 閉じ込められない provider では子会社の相談を起動しない。
+      const consultArgs = consultArgsFor(spawn.provider);
+      if (consultArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
+      const spawnArgs = [...spawn.args, ...runtimeArgs, ...consultArgs];
       const startupText = [userPrompt ? restriction : "", taskPrompt, userPrompt]
         .filter(Boolean)
         .join("\n\n");
@@ -1283,14 +1296,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       resolved.effectiveModel,
     );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveDirectOptions);
-    if (consultClaudeArgs.length > 0 && resolved.provider !== "claude") {
-      return c.json({ error: "projectless_consult_requires_claude" }, 400);
-    }
+    const consultDirectArgs = consultArgsFor(resolved.provider);
+    if (consultDirectArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
     // 閉じ込めの claude 引数 (--tools 等) を利用者の引数で広げさせない。
-    if (consultClaudeArgs.length > 0 && userArgs.length > 0) {
+    if (consultConfined && userArgs.length > 0) {
       return c.json({ error: "projectless_consult_scope_fixed: args" }, 400);
     }
     const spawnEnv: Record<string, string> = {
@@ -1341,7 +1353,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const result = sessionSpawn({
       provider: resolved.provider,
       mode,
-      args: [...resolved.args, ...runtimeArgs, ...userArgs, ...consultClaudeArgs],
+      args: [...resolved.args, ...runtimeArgs, ...userArgs, ...consultDirectArgs],
       cwd: directTarget.cwd,
       cwdProvided:
         Boolean(projectCwd?.trim()) ||

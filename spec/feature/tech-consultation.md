@@ -155,11 +155,20 @@
     本社は `head-office/`、子会社は `<子会社 id>/`。
   - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければここで起動する (指定があればそれに従う)。
     ツールは制限しない。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
+- モデル (2026-10-02 neco 指示「エンジニアと企画の相談は Opus、デザイナーとサウンドの相談は Astra で起動。モデルとエフォートは
+  自動 (medium)」「GLab も Astra」): 相談部署の起動で、要求がテンプレート・provider・モデルを明示していなければ、事前ヒアリングの
+  役職から選ぶ。デザイナー・アート・サウンド → Astra (`astra-mid`、codex)、それ以外 (エンジニア・企画・不明) → Opus
+  (`opus-5-5-movable`)。effort は medium。テンプレート名は `CONCORDIA_CONSULT_OPUS_TEMPLATE` / `CONCORDIA_CONSULT_ASTRA_TEMPLATE`
+  で差し替えられる。部署フォーラムからの相談でもモデルを聞き返さない (`src/consultation/consult-model.ts`)。
 - 子会社の閉じ込め (CC-CONSULT-INV-07)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
   起動する claude 本体で閉じる:
   - cwd は子会社の相談用ディレクトリ。
   - claude の引数 `--tools=WebSearch,TodoWrite --strict-mcp-config --disable-slash-commands`。Read・シェル・編集・
-    MCP・スキルを持たない。provider は claude だけ (他の provider は 400 `projectless_consult_requires_claude`)。
+    MCP・スキルを持たない。
+  - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_doc_max_bytes=0 -c mcp_servers={}`。
+    codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
+    AGENTS.md・プラグイン・MCP も読ませない。画像を読む view_image はパスを指定すれば画像を読める余地が残る。
+  - それ以外の provider は 400 `projectless_consult_requires_confinable_provider`。
   - 起動要求に project / cwd / team / branch / worktree / 利用者の args / テンプレの prompt 注入があれば 400
     `projectless_consult_scope_fixed`。置き場所が未設定なら 503。
 - 閲覧者: 社員名簿は本社と子会社で共通で会社の所属を持たないので、本社・子会社とも名簿の権限者のうちその guild に在籍する人だけを閉じたチャンネルに入れる ([社員名簿 §9](staff-roster.md))

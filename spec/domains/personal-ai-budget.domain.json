@@ -1,6 +1,6 @@
 {
   "name": "personal-ai-budget",
-  "description": "個人の AI 予算: 子会社の個人ごとに月間分と報酬分のトークン予算を持ち、月間分から先に消費する。報奨 (バグ報告・技術相談・Tabula 公開・本社の調整) の付与と一意性、消費の計上、払い出しの可否、本人と本社への表示を持つ。全体と子会社の日次 budget は observability、報奨の根拠となる出来事は bug-bounty と consultation が持つ。",
+  "description": "個人の AI 予算: 子会社の個人ごとに月間分と報酬分のトークン予算を持ち、月間分から先に消費する。報奨 (バグ報告・Tabula 公開・本社の調整) の付与と一意性、消費の計上、払い出しの可否、本人と本社への表示を持つ。全体と子会社の日次 budget は observability、報奨の根拠となる出来事は bug-bounty と consultation が持つ。",
   "presetRules": [],
   "templateRules": [],
   "membership": [

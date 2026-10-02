@@ -32,6 +32,8 @@ memory_links: []
 
 - [ ] タスクの種別に `issue` を足す (既存は `task` / `goal`)。作成・更新 API と画面で選べる。`public_hidden` (公開しない) と
       `public_summary` (公開用の要約、任意) を足す。
+- [ ] 通常のバグ報告 (Castra のスキル `bug-report`) が `issue` 導入前に作った `kind: "task"`・source `cc-command`・
+      sourceRef `bug:*` のタスクを `issue` へ移す (`spec/feature/bug-bounty.md` §8)。スキルも `issue` で作るよう Castra 側を直す。
 - [ ] `/public/issues` (ページ) と `/api/public/issues` (JSON) を、ローカルモードの境界と認証の外に置く。GET だけ。
       `project` はコードの形式で検証する。
 - [ ] 並べるもの: Cc の公開読み出し API から取ったバウンティのイシューと、公開プロジェクトの `kind: "issue"` で `public_hidden` でない

@@ -19,6 +19,11 @@ import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
 import { readSessionUsage, setExtraClaudeProjectRoots } from "../cost/log-usage.js";
 import { consultClaudeConfigDir } from "../consultation/projectless-consult.js";
+import { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
+import { readSessionUsageTimeline } from "../cost/usage-timeline.js";
+import { DEFAULT_COST_MULTIPLIER, departmentCostMultiplier } from "../cost/budget-multiplier.js";
+import { offerBudgetResumes } from "../cost/budget-resume.js";
+import { BUDGET_SUSPENSION_KEY } from "../cost/budget-suspension.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
@@ -559,11 +564,21 @@ export async function startBackend(): Promise<BackendHandle> {
   const repo = new SessionsRepo(db);
   // ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 消費はその月に始まったセッションの provider ログ累積。
   const usageBudgetsRepo = new UsageBudgetsRepo(db);
+  const usageBudgetMultipliersRepo = new UsageBudgetMultipliersRepo(db);
   const usageBudgetTracker = new UsageBudgetTracker({
     budgets: usageBudgetsRepo,
     // sessions.started_at は epoch 秒。
     sessionsInRange: (startMs, endMs) => repo.listSessionsInRange(Math.floor(startMs / 1000), Math.floor(endMs / 1000)),
     readUsage: (session) => readSessionUsage(session),
+    // 人の指示ごとの帰属と倍率 (usage-budgets.md §3)。 部署・社員名簿の repo はこの後で作るので、 呼ばれた時点で引く。
+    readTimeline: (session) => readSessionUsageTimeline(session),
+    sessionEvents: (sessionId) => repo.eventsByKind(sessionId, "inject"),
+    departmentMultiplier: (departmentId) =>
+      departmentCostMultiplier(departmentId ? departmentsRepo.find(departmentId)?.settings_json ?? null : null),
+    roleMultiplier: (userId) => {
+      const role = userId ? staffRepo.roleOf("discord", userId) : null;
+      return role ? usageBudgetMultipliersRepo.find(role)?.multiplier ?? DEFAULT_COST_MULTIPLIER : DEFAULT_COST_MULTIPLIER;
+    },
   });
   // 80% / 100% の知らせを 10 分ごとに見回る (月・閾値ごとに 1 回)。 配送は Bot が担う。
   const usageBudgetNoticeTimer = setInterval(() => {
@@ -578,7 +593,21 @@ export async function startBackend(): Promise<BackendHandle> {
         ts: Math.floor(Date.now() / 1000),
       });
       return true;
-    }).catch((err) => log.warn({ err }, "usage budget notice sweep failed"));
+    })
+      // 予算が戻った中断に「再開」ボタンを出す (usage-budgets.md §5.3)。 集計は直前の見回りのキャッシュを使う。
+      .then(() => offerBudgetResumes({
+        listSuspended: () => repo.listWithMetadataKey(BUDGET_SUSPENSION_KEY),
+        status: (subject) => usageBudgetTracker.cachedStatus(subject),
+        mergeMetadata: (id, partial) => repo.mergeMetadata(id, partial),
+        offer: (sessionId, text) => eventBus.emit({
+          type: "usage_budget.resumable",
+          event_id: randomUUID(),
+          session_id: sessionId,
+          text,
+          ts: Math.floor(Date.now() / 1000),
+        }),
+      }))
+      .catch((err) => log.warn({ err }, "usage budget notice sweep failed"));
   }, 10 * 60 * 1000);
   usageBudgetNoticeTimer.unref?.();
   const controlJobs = new ControlJobsRepo(db);
@@ -1965,7 +1994,7 @@ export async function startBackend(): Promise<BackendHandle> {
     consultWorkspaceRoot,
     consultationPublications,
     publishedConsultations: consultationPublicationsRepo,
-    usageBudgets: { repo: usageBudgetsRepo, tracker: usageBudgetTracker },
+    usageBudgets: { repo: usageBudgetsRepo, tracker: usageBudgetTracker, multipliers: usageBudgetMultipliersRepo },
     privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,

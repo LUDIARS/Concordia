@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 123;
+export const SCHEMA_VERSION = 124;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3127,6 +3127,22 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         threshold   INTEGER NOT NULL CHECK(threshold IN (80, 100)),
         notified_at INTEGER NOT NULL,
         PRIMARY KEY (scope, target_id, month, threshold)
+      );
+    `);
+  },
+},
+{
+  version: 124,
+  name: "usage-budget-role-multipliers",
+  source: "usage_budget_role_multipliers (spec/feature/usage-budgets.md §4)",
+  up(db) {
+    // 月次予算の属性 (社員名簿の役職) ごとのコスト倍率。 行が無い役職は 1 (今の数え方を変えない)。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_budget_role_multipliers (
+        role       TEXT PRIMARY KEY CHECK(role IN ('staff', 'manager', 'executive')),
+        multiplier REAL NOT NULL CHECK(multiplier > 0 AND multiplier <= 10),
+        updated_by TEXT,
+        updated_at INTEGER NOT NULL
       );
     `);
   },

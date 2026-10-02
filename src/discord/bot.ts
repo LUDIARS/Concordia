@@ -164,6 +164,7 @@ import { guildMemberIds } from "./guild-member-ids.js";
 import { createConsultationClosure } from "./consult-closure-wiring.js";
 import { dailySweepDay } from "../consultation/closure-policy.js";
 import { deliverUsageBudgetNotice } from "./usage-budget-notice.js";
+import { deliverBudgetResumable } from "./budget-resume.js";
 import { join } from "node:path";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
@@ -2282,6 +2283,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // (本社 Bot は子会社セッションを写さず、 子会社 Bot は自分のセッションのみ写す)。
     const evSid = eventSessionId(ev);
     if (evSid !== null && !ownsSession(evSid)) return;
+
+    if (ev.type === "usage_budget.resumable") {
+      // 予算が戻った中断セッションのスレッドへ「再開」ボタンを出す (usage-budgets.md §5.3)。
+      void deliverBudgetResumable({
+        channelIdForSession: (sessionId) => sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null,
+        send: async (channelId, message) => {
+          const channel = await guild.channels.fetch(channelId).catch(() => null);
+          if (!channel || !channel.isTextBased()) throw new Error("session channel unavailable");
+          await channel.send(message);
+        },
+        log,
+      }, ev);
+      return;
+    }
 
     if (ev.type === "session.started") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);

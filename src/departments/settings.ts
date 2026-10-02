@@ -9,6 +9,7 @@
  * @implements SPEC-DEPT-LAUNCH
  * @implements SPEC-DEPT-OUTPUT
  * @implements SPEC-CONSULT-PRIVATE
+ * @implements SPEC-USAGE-BUDGET-MULTIPLIER
  */
 
 import { z } from "zod";
@@ -70,6 +71,14 @@ const PrivateConsultationSchema = z.object({
   approver_min_role: z.enum(["manager", "executive"]).default("manager"),
 }).strict();
 
+/**
+ * 月次予算の数え方 (spec/feature/usage-budgets.md §3.1、 2026-10-02 neco 指示)。 この部署のセッションの消費は
+ * 本来のトークン × cost_multiplier で予算から引く (例: モデル固定の相談部署は 0.25)。 既定 1。
+ */
+const BudgetSettingsSchema = z.object({
+  cost_multiplier: z.number().gt(0).max(10).default(1),
+}).strict();
+
 export const DepartmentSettingsSchema = z.object({
   launch: LaunchDefaultsSchema.default({}),
   projects: z.array(ProjectNameSchema).max(200).default([]),
@@ -77,6 +86,7 @@ export const DepartmentSettingsSchema = z.object({
   private: PrivateConsultationSchema.default({}),
   startup_inject: StartupInjectSchema.default("full"),
   auto_check: AutoCheckSchema.default("on"),
+  budget: BudgetSettingsSchema.default({}),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -111,6 +121,7 @@ export type DepartmentOutputMode = DepartmentOutputPolicy[DepartmentOutputItem];
 export type DepartmentPrivateConsultation = DepartmentSettings["private"];
 export type DepartmentStartupInject = DepartmentSettings["startup_inject"];
 export type DepartmentAutoCheck = DepartmentSettings["auto_check"];
+export type DepartmentBudgetSettings = DepartmentSettings["budget"];
 
 export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
@@ -127,6 +138,7 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
 
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
   launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full", auto_check: "on",
+  budget: { cost_multiplier: 1 },
 };
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */

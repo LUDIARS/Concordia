@@ -717,6 +717,14 @@ export interface UsageBudget {
   updated_at: number;
 }
 
+/** 月次予算の役職ごとのコスト倍率 (usage-budgets.md §3.1)。 行が無い役職は 1。 */
+export interface UsageBudgetRoleMultiplier {
+  role: StaffRole;
+  multiplier: number;
+  updated_by: string | null;
+  updated_at: number;
+}
+
 export const api = {
   allSettings: () => get<{ sections: SettingsSectionPayload[] }>("/v1/admin/settings"),
   updateSettings: putSettings,
@@ -1165,6 +1173,11 @@ export const api = {
     put<{ budget: UsageBudget }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`, { limit_tokens: limitTokens }),
   usageBudgetRemove: (scope: UsageBudgetScope, targetId: string) =>
     del<{ removed: boolean }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`),
+  usageBudgetRoleMultipliers: () => get<{ multipliers: UsageBudgetRoleMultiplier[] }>("/v1/usage-budgets/role-multipliers"),
+  usageBudgetRoleMultiplierSet: (role: StaffRole, multiplier: number) =>
+    put<{ multiplier: UsageBudgetRoleMultiplier }>(`/v1/usage-budgets/role-multipliers/${role}`, { multiplier }),
+  usageBudgetRoleMultiplierRemove: (role: StaffRole) =>
+    del<{ removed: boolean }>(`/v1/usage-budgets/role-multipliers/${role}`),
 
   // ── 社員名簿 (役職権限登録リスト) ──
   staffList: () => get<StaffListResult>("/v1/staff"),
@@ -1476,6 +1489,8 @@ export interface DepartmentSettings {
   output: Record<DepartmentOutputItem, DepartmentOutputMode>;
   /** プライベート相談 (tech-consultation.md §4)。 古い保存値には無い。 */
   private?: { enabled: boolean; approver_min_role: "manager" | "executive" };
+  /** 月次予算の数え方 (usage-budgets.md §3.1)。 消費 × cost_multiplier を予算から引く。 古い保存値には無い。 */
+  budget?: { cost_multiplier: number };
 }
 
 export interface Department {

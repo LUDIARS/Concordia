@@ -349,6 +349,18 @@ export class SessionsRepo {
       .all(cutoff) as SessionRow[];
   }
 
+  /** 指定 metadata key を持つ session を返す (状態は問わない。 予算切れの中断の一覧など)。 */
+  listWithMetadataKey(key: string): SessionRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE json_valid(metadata)
+           AND json_extract(metadata, ?) IS NOT NULL
+         ORDER BY started_at DESC`,
+      )
+      .all(`$.${key}`) as SessionRow[];
+  }
+
   /** ended のまま指定 metadata key を保持し、traffic / WS が途絶えた session を返す。 */
   findStaleEndedWithMetadataKey(cutoff: number, key: string): SessionRow[] {
     return this.db

@@ -128,6 +128,11 @@ type ConcordiaEventPayload =
       text: string;
       ts: number;
     }
+  /**
+   * 予算切れで中断したセッションの予算が戻った (spec/feature/usage-budgets.md §5.3)。
+   * そのセッションを持つ Bot が、 セッションのスレッドへ「再開」ボタンを出す。
+   */
+  | { type: "usage_budget.resumable"; event_id: string; session_id: string; text: string; ts: number }
   /** 報告用プライベートチャンネルの作成依頼 (spec/feature/private-channels.md §2)。 本社 Bot が作る。 */
   | { type: "discord.private_channel.requested"; event_id: string; private_channel_id: string; ts: number }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
@@ -274,6 +279,7 @@ export function eventSessionId(event: ConcordiaEvent): string | null {
     case "session.ended":
     case "session.event":
     case "session.task_changed":
+    case "usage_budget.resumable":
       return event.session_id;
     case "transcript.frame":
     case "session.inject":

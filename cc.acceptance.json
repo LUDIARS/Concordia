@@ -3729,6 +3729,165 @@
         "src/cost/log-totals-cache.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/cost/budget-multiplier.ts",
+      "tests": [
+        "src/cost/budget-multiplier.test.ts",
+        "src/cost/usage-budget-tracker.test.ts"
+      ],
+      "contracts": [
+        "budget-C-1"
+      ]
+    },
+    {
+      "source": "src/cost/usage-timeline.ts",
+      "tests": [
+        "src/cost/usage-timeline.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/usage-attribution.ts",
+      "tests": [
+        "src/cost/usage-attribution.test.ts",
+        "src/cost/usage-budget-tracker.test.ts"
+      ],
+      "contracts": [
+        "budget-C-2"
+      ]
+    },
+    {
+      "source": "src/cost/budget-suspension.ts",
+      "tests": [
+        "src/cost/budget-suspension.test.ts",
+        "src/cost/usage-budget-gate.test.ts"
+      ],
+      "contracts": [
+        "budget-C-3",
+        "budget-C-4",
+        "budget-C-5"
+      ]
+    },
+    {
+      "source": "src/cost/conversation-launch.ts",
+      "tests": [
+        "src/cost/conversation-launch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/usage-budget-gate.ts",
+      "tests": [
+        "src/cost/usage-budget-gate.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-resume.ts",
+      "tests": [
+        "src/cost/budget-resume.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/ontime-runtime.ts",
+      "tests": [
+        "src/cost/budget-multiplier.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-multiplier.contract.ts",
+      "tests": [
+        "src/cost/budget-multiplier.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/usage-attribution.contract.ts",
+      "tests": [
+        "src/cost/usage-attribution.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-gate.contract.ts",
+      "tests": [
+        "src/cost/budget-suspension.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-resume-permission.contract.ts",
+      "tests": [
+        "src/cost/budget-suspension.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-resumable.contract.ts",
+      "tests": [
+        "src/cost/budget-suspension.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/budget-resume-launch.ts",
+      "tests": [
+        "src/control/budget-resume-launch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/wrapped-session-stop.ts",
+      "tests": [
+        "src/control/wrapped-session-stop.test.ts",
+        "tests/admin-api.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/usage-budget-multipliers-repo.ts",
+      "tests": [
+        "src/db/usage-budget-multipliers-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/budget-resume.ts",
+      "tests": [
+        "src/discord/budget-resume.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/staff/BudgetRoleMultipliers.tsx",
+      "tests": [
+        "web/src/pages/staff/BudgetRoleMultipliers.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/harness-session.ts",
+      "tests": [
+        "src/api/harness-session-budget.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/departments/DepartmentEditor.tsx",
+      "tests": [
+        "web/src/pages/departments/DepartmentEditor.budget.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/sessions-repo.ts",
+      "tests": [
+        "src/cost/budget-resume.test.ts"
+      ],
+      "contracts": []
     }
   ]
 }

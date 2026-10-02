@@ -12,6 +12,7 @@ import {
 import { UsageBudgetEditor } from "../components/UsageBudgetEditor.js";
 import { StaffAddForm } from "./staff/StaffAddForm.js";
 import { StaffRoleLegend } from "./staff/StaffRoleLegend.js";
+import { BudgetRoleMultipliers } from "./staff/BudgetRoleMultipliers.js";
 
 // 社員 (役職権限登録リスト) ページ。
 //
@@ -204,6 +205,8 @@ export function Staff() {
       )}
 
       {data && <StaffRoleLegend data={data} />}
+
+      <BudgetRoleMultipliers />
 
       <StaffAddForm
         busy={busyId === "create"}

@@ -153,6 +153,11 @@ export interface HarnessSessionApiDeps {
   mainPushAllowlist?: () => string[];
   mentionUserId?: () => string | null;
   onVibesFileLimit?: (sessionId: string) => void;
+  /**
+   * 月次予算の判定 (spec/feature/usage-budgets.md §5.2)。 その時点の消費を引き受ける帰属先の予算が尽きていれば deny。
+   * 未注入なら判定しない。 判定の失敗はツールを止めない (集計の不調で全作業を止めない)。
+   */
+  budgetGate?: (sessionId: string) => Promise<{ deny: false } | { deny: true; reason: string }>;
 }
 
 function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
@@ -283,6 +288,18 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       deterministic.decision = "deny";
       deterministic.blocked = true;
       deterministic.reason += ` / ${DDD_INSTRUCTION}`;
+    }
+    if (session_id && deps.budgetGate) {
+      const budget = await deps.budgetGate(session_id).catch((e: unknown) => {
+        hlog.warn({ err: (e as Error).message, session_id }, "usage budget gate failed");
+        return { deny: false as const };
+      });
+      if (budget.deny) {
+        deterministic.hits.push({ rule: "usage-budget", decision: "deny", reason: budget.reason });
+        deterministic.decision = "deny";
+        deterministic.blocked = true;
+        deterministic.reason += ` / ${budget.reason}`;
+      }
     }
     let verdict = deterministic;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;

@@ -27,6 +27,7 @@ import { isPermissionInteraction } from "./permission.js";
 import { isForumSpawnApprovalInteraction } from "./forum-spawn-approval.js";
 import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
 import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
+import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
 
 /**
  * 子会社 guild へ登録する slash command。
@@ -64,5 +65,7 @@ export function isSubsidiarySessionSurface(interaction: Interaction): boolean {
     || interaction.customId.startsWith(PLAN_PREFIX)
     // プライベート相談の受付モーダルと承認ボタン。 公開候補 (consult:pub*) は含めない。
     || interaction.customId.startsWith(CONSULT_MODAL_PREFIX)
-    || interaction.customId.startsWith(CONSULT_APPROVE_PREFIX);
+    || interaction.customId.startsWith(CONSULT_APPROVE_PREFIX)
+    // 予算切れで中断したセッションの「再開」 (usage-budgets.md §5.3)。 子会社のセッションも再開できる。
+    || interaction.customId.startsWith(BUDGET_RESUME_PREFIX);
 }

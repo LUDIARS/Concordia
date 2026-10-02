@@ -130,6 +130,14 @@ import { usageBudgetsRouter } from "./usage-budgets.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
+import { UsageBudgetGate } from "../cost/usage-budget-gate.js";
+import { readConversationLaunch } from "../cost/conversation-launch.js";
+import type { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
+import { resumeSuspendedSession } from "../cost/budget-resume.js";
+import { BUDGET_SUSPENSION_KEY } from "../cost/budget-suspension.js";
+import { planBudgetResumeLaunch } from "../control/budget-resume-launch.js";
+import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
+import type { DepartmentRow } from "../db/departments-repo.js";
 import type { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { privateChannelsRouter } from "./private-channels.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
@@ -192,7 +200,7 @@ import {
 import { reapOrphans } from "../control/reaper.js";
 import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
-import { runSessionEndFlow } from "../control/end-session-flow.js";
+import { stopWrappedSession, type WrappedSessionStopDeps } from "../control/wrapped-session-stop.js";
 import { startDetachedBackendRestart } from "../control/backend-restart.js";
 import type { TaskStore } from "../taskflow/store.js";
 import type { TaskflowStateStore } from "../taskflow/state-store.js";
@@ -229,6 +237,7 @@ const restartLog = createChildLogger("api/backend-restart");
 const spawnMemoriaLog = createChildLogger("api/spawn-memoria");
 const inquiryLog = createChildLogger("api/inquiry-context");
 const consultGuidanceLog = createChildLogger("api/consult-role-guidance");
+const usageBudgetLog = createChildLogger("api/usage-budget");
 
 export interface CoreSessionDeps {
   repo: SessionsRepo;
@@ -282,7 +291,7 @@ export interface CoreDelegationDeps {
    */
   consultWorkspaceRoot?: string;
   /** ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 未注入なら API も起動時の判定も無い。 */
-  usageBudgets?: { repo: UsageBudgetsRepo; tracker: UsageBudgetTracker };
+  usageBudgets?: { repo: UsageBudgetsRepo; tracker: UsageBudgetTracker; multipliers?: UsageBudgetMultipliersRepo };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
@@ -416,6 +425,34 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   app.route("/v1/harness/reliability", harnessReliabilityRouter({ repo: deps.repo, messages: deps.sessionMessages,
     questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude }));
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;
+  // Lictor で包んだセッションの通常の終了 (admin stop と予算切れの中断が共有する)。
+  const wrappedSessionStopDeps: WrappedSessionStopDeps = {
+    repo: deps.repo,
+    controlJobs: deps.controlJobs,
+    endFlow: {
+      repo: deps.repo,
+      chat: deps.chat,
+      config: deps.config,
+      harnessAudit: deps.harnessAudit,
+      usageFrames: deps.transcriptLogs,
+      questionState: deps.channelDirectory,
+      memoria: deps.memoria,
+    },
+  };
+  // 月次予算を使い切ったら作業の途中でもツールを止め、 中断を記録して終了する (usage-budgets.md §5.2)。
+  const usageBudgetGate = deps.usageBudgets
+    ? new UsageBudgetGate({
+      tracker: deps.usageBudgets.tracker,
+      findSession: (id) => deps.repo.findSession(id),
+      mergeMetadata: (id, partial) => deps.repo.mergeMetadata(id, partial),
+      readConversation: readConversationLaunch,
+      endSession: async (id) => {
+        const stopped = await stopWrappedSession(wrappedSessionStopDeps, id, { stoppedBy: "budget", source: "budget-exhausted" });
+        if (!stopped.ok) throw new Error(stopped.error);
+      },
+      log: usageBudgetLog,
+    })
+    : null;
   // 未回答の質問は blocker: 回答が来るまで自動 inject を出さない。
   const hasPendingQuestion = pendingQuestionProbe(deps.pendingQuestions);
   // ワークフローに属する API は、 設定で無効なら 404 ではなく 409 + 理由を返す。
@@ -755,7 +792,49 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }));
   }
   if (deps.usageBudgets) {
-    app.route("/v1/usage-budgets", usageBudgetsRouter({ budgets: deps.usageBudgets.repo, tracker: deps.usageBudgets.tracker }));
+    const usageBudgets = deps.usageBudgets;
+    // プロジェクトを持たない相談部署 (相談専用の Claude 設定フォルダで起動する、 tech-consultation.md §6)。
+    const isConsultDepartment = (department: DepartmentRow): boolean => {
+      let projects: readonly string[];
+      try {
+        projects = parseDepartmentSettings(department.settings_json).projects;
+      } catch {
+        return false;
+      }
+      const useCase = department.use_case_id ? deps.useCases?.find(department.use_case_id) ?? null : null;
+      return isProjectlessConsultDepartment({ projects, useCase });
+    };
+    app.route("/v1/usage-budgets", usageBudgetsRouter({
+      budgets: usageBudgets.repo,
+      tracker: usageBudgets.tracker,
+      ...(usageBudgets.multipliers ? { multipliers: usageBudgets.multipliers } : {}),
+      listSuspended: () => deps.repo.listWithMetadataKey(BUDGET_SUSPENSION_KEY),
+      // 中断したセッションを `claude --resume` で起動し直す (usage-budgets.md §5.3)。 管理者 = 執行役員。
+      resume: (sessionId, actorUserId) => resumeSuspendedSession({
+        findSession: (id) => deps.repo.findSession(id),
+        status: (subject) => usageBudgets.tracker.status(subject),
+        isAdmin: (userId) => deps.staff?.roleOf("discord", userId) === "executive",
+        mergeMetadata: (id, partial) => deps.repo.mergeMetadata(id, partial),
+        launch: async (session, suspension) => {
+          const department = session.department_id ? deps.departments?.find(session.department_id) ?? null : null;
+          const plan = planBudgetResumeLaunch({
+            session,
+            conversationId: suspension.conversation_id ?? "",
+            cwd: suspension.cwd ?? session.repo_path,
+            consultWorkspaceRoot: department && isConsultDepartment(department) ? deps.consultWorkspaceRoot ?? null : null,
+          });
+          if (!plan.ok) return plan;
+          const spawnId = randomUUID();
+          recordPendingDelegationSpawn({ ...plan.pending, spawnId });
+          const result = sessionSpawn({ ...plan.spawn, spawnId });
+          if (!result.ok) {
+            forgetPendingDelegationSpawnBySpawnId(spawnId);
+            return { ok: false, error: result.error };
+          }
+          return { ok: true, pid: result.pid };
+        },
+      }, sessionId, actorUserId),
+    }));
   }
   if (deps.consultationPublications) {
     app.route("/v1/consultations", consultationsRouter({
@@ -805,6 +884,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,
         blackbox: deps.harnessBlackbox,
+        ...(usageBudgetGate ? { budgetGate: (id: string) => usageBudgetGate.check(id) } : {}),
         // 部署の自然文ルール (spec/feature/departments.md §6)。 廃止済みでも所属セッションには渡す。
         departmentRules: (id) => {
           const department = deps.departments?.find(id);
@@ -1465,66 +1545,18 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // 4. durable control queue へ停止ジョブを登録する。
   //    taskkill / signal は別プロセスの control-worker が実行する。
   app.post("/v1/admin/stop-session/:id", async (c) => {
-    const id = c.req.param("id");
-    const session = deps.repo.findSession(id);
-    if (!session) return c.json({ error: "not_found" }, 404);
-    if (!session.metadata) {
-      return c.json({ error: "session has no metadata — was it lictor-wrapped?" }, 400);
-    }
-    let meta: { lictor_pid?: number; agent_client_pid?: number };
-    try {
-      meta = JSON.parse(session.metadata) as { lictor_pid?: number; agent_client_pid?: number };
-    } catch {
-      return c.json({ error: "session.metadata is not JSON" }, 400);
-    }
-    if (typeof meta.lictor_pid !== "number") {
-      return c.json({ error: "session.metadata.lictor_pid missing" }, 400);
-    }
-    const now = Math.floor(Date.now() / 1000);
-    deps.repo.setStatus(id, "ended", now, now);
-    deps.repo.appendEvent({
-      session_id: id,
-      ts: now,
-      kind: "end",
-      payload: { stopped_by: "admin", duration_sec: now - session.started_at },
-    });
-    const ended = deps.repo.findSession(id)!;
-    await runSessionEndFlow(
-      {
-        repo: deps.repo,
-        chat: deps.chat,
-        config: deps.config,
-        harnessAudit: deps.harnessAudit,
-        usageFrames: deps.transcriptLogs,
-        questionState: deps.channelDirectory,
-        memoria: deps.memoria,
-      },
-      ended,
-    );
-    const lictorJob = deps.controlJobs.enqueueStopProcess({
-      pid: meta.lictor_pid,
+    const stopped = await stopWrappedSession(wrappedSessionStopDeps, c.req.param("id"), {
+      stoppedBy: "admin",
       source: "admin-stop-session",
-      sessionId: id,
-      role: "lictor",
-      expectedCommand: null,
     });
-    let agentClientJob: ReturnType<ControlJobsRepo["enqueueStopProcess"]> | null = null;
-    if (typeof meta.agent_client_pid === "number") {
-      agentClientJob = deps.controlJobs.enqueueStopProcess({
-        pid: meta.agent_client_pid,
-        source: "admin-stop-session",
-        sessionId: id,
-        role: "agent-client",
-        expectedCommand: null,
-      });
-    }
+    if (!stopped.ok) return c.json({ error: stopped.error }, stopped.status);
     return c.json({
       ok: true,
       status: "queued",
-      pid: meta.lictor_pid,
-      agent_client_pid: meta.agent_client_pid ?? null,
-      job_id: lictorJob.id,
-      agent_client_job_id: agentClientJob?.id ?? null,
+      pid: stopped.pid,
+      agent_client_pid: stopped.agentClientPid,
+      job_id: stopped.jobId,
+      agent_client_job_id: stopped.agentClientJobId,
       // report / 独白は claude -p を 2 回叩くので非同期生成に回した。 この応答時点では
       // まだ出来ていないため、 false (=生成されなかった) と偽らず "queued" を返す。
       // 完成した report は GET /v1/reports/:id で読める。

@@ -42,10 +42,13 @@ export function DepartmentEditor({
   department,
   useCases,
   onSaved,
+  client = api,
 }: {
   department: Department;
   useCases: UseCase[];
   onSaved: (department: Department) => void;
+  /** 保存の口。 テストは偽物を渡す (vitest のモジュール共有で vi.mock が他ファイルのモックに負けるため)。 */
+  client?: Pick<typeof api, "departmentUpdate">;
 }) {
   const initial = department.settings ?? EMPTY_SETTINGS;
   const [name, setName] = useState(department.name);
@@ -65,11 +68,15 @@ export function DepartmentEditor({
   const [projects, setProjects] = useState(initial.projects.join(", "));
   const [output, setOutput] = useState(initial.output);
   const [privateConsult, setPrivateConsult] = useState(initial.private ?? { enabled: false, approver_min_role: "manager" as const });
+  const [costMultiplier, setCostMultiplier] = useState(String(initial.budget?.cost_multiplier ?? 1));
   const [rulesText, setRulesText] = useState(department.rules_text);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // 画面に項目の無い設定 (startup_inject・auto_check など) を落とさないよう、 保存済みの設定を土台にする。
+  // 落とすとサーバーが既定値に戻し、 相談課の「初回だけの注入」「自動確認なし」が外れる。
   const buildSettings = (): DepartmentSettings => ({
+    ...initial,
     launch: {
       ...(launchKind === "template" && template.trim() ? { template: template.trim() } : {}),
       ...(launchKind === "provider" ? { provider } : {}),
@@ -80,9 +87,15 @@ export function DepartmentEditor({
     projects: projects.split(",").map((value) => value.trim()).filter(Boolean),
     output,
     private: privateConsult,
+    budget: { cost_multiplier: Number(costMultiplier) },
   });
 
   const save = async () => {
+    const multiplier = Number(costMultiplier);
+    if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) {
+      setMessage({ ok: false, text: "予算のコスト倍率は 0 より大きく 10 以下で入力してください" });
+      return;
+    }
     setBusy(true);
     setMessage(null);
     const body: DepartmentWrite = {
@@ -96,7 +109,7 @@ export function DepartmentEditor({
       rules_text: rulesText,
     };
     try {
-      const r = await api.departmentUpdate(department.id, body);
+      const r = await client.departmentUpdate(department.id, body);
       onSaved(r.department);
       setMessage({ ok: true, text: "保存しました" });
     } catch (error) {
@@ -198,6 +211,20 @@ export function DepartmentEditor({
             <option value="manager">管理職以上</option>
             <option value="executive">執行役員のみ</option>
           </select>
+        </Labeled>
+      </fieldset>
+
+      <fieldset className="border border-border rounded p-2 space-y-2">
+        <legend className="text-xs text-subtle px-1">月次予算</legend>
+        <Labeled label="コスト倍率 (この部署のセッションの消費 × 倍率を予算から引く。既定 1)">
+          <input
+            type="text"
+            inputMode="decimal"
+            aria-label="予算のコスト倍率"
+            className="foundation-form w-24"
+            value={costMultiplier}
+            onChange={(e) => setCostMultiplier(e.target.value)}
+          />
         </Labeled>
       </fieldset>
 

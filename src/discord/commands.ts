@@ -17,6 +17,7 @@ import projectCodeCommand from "./commands/project-code.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
+import { BUDGET_RESUME_PREFIX, handleBudgetResumeButton } from "./budget-resume.js";
 import goalCommand from "./commands/goal.js";
 import correctCommand from "./commands/correct.js";
 import consultCommand from "./commands/consult.js";
@@ -344,6 +345,11 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     if(interaction.isButton()&&interaction.customId.startsWith(PLAN_PREFIX)){await handlePlanButton(interaction,deps.concordiaUrl);return;}
     if (interaction.isButton() && interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)) {
       await handleContextCompactButton(interaction, { sessionsRepo: deps.sessionsRepo, concordiaUrl: deps.concordiaUrl });
+      return;
+    }
+    // 予算切れで中断したセッションの「再開」(usage-budgets.md §5.3)。 押せる人の判定は Concordia が持つ。
+    if (interaction.isButton() && interaction.customId.startsWith(BUDGET_RESUME_PREFIX)) {
+      await handleBudgetResumeButton(interaction, { concordiaUrl: deps.concordiaUrl });
       return;
     }
     const control = parseTestControlId(interaction.customId);

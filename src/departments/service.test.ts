@@ -115,6 +115,7 @@ describe("DepartmentService", () => {
       private: { enabled: false, approver_min_role: "manager" },
       startup_inject: "full",
       auto_check: "on",
+      budget: { cost_multiplier: 1 },
     });
   });
 

@@ -11,6 +11,7 @@ describe("DepartmentSettingsSchema", () => {
       private: { enabled: false, approver_min_role: "manager" },
       startup_inject: "full",
       auto_check: "on",
+      budget: { cost_multiplier: 1 },
     });
   });
 
@@ -47,6 +48,13 @@ describe("parseDepartmentSettings", () => {
   it("throws for a broken stored row rather than returning empty defaults", () => {
     expect(() => parseDepartmentSettings("{not json")).toThrow();
     expect(() => parseDepartmentSettings(JSON.stringify({ launch: { template: "a", provider: "b" } }))).toThrow();
+  });
+
+  it("defaults the budget cost multiplier to 1 and keeps it within (0, 10]", () => {
+    expect(DepartmentSettingsSchema.parse({}).budget).toEqual({ cost_multiplier: 1 });
+    expect(DepartmentSettingsSchema.parse({ budget: { cost_multiplier: 0.25 } }).budget.cost_multiplier).toBe(0.25);
+    expect(DepartmentSettingsSchema.safeParse({ budget: { cost_multiplier: 0 } }).success).toBe(false);
+    expect(DepartmentSettingsSchema.safeParse({ budget: { cost_multiplier: 11 } }).success).toBe(false);
   });
 
   it("accepts a private consultation setting and rejects an unknown approver role", () => {

@@ -41,6 +41,10 @@ describe("子会社 guild で使えるコマンド", () => {
     expect(isSubsidiarySessionSurface(surface("consult:pubedit:pub_1", { button: false }))).toBe(false);
   });
 
+  it("予算切れで中断したセッションの「再開」ボタンは通す", () => {
+    expect(isSubsidiarySessionSurface(surface("budget:resume:lictor-1"))).toBe(true);
+  });
+
   it("コマンド interaction はコマンド名で判定する", () => {
     expect(isSubsidiaryAllowedInteraction({ commandName: "spawn" } as never)).toBe(false);
     expect(isSubsidiaryAllowedInteraction({ commandName: "prs" } as never)).toBe(false);

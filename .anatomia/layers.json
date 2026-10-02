@@ -20,6 +20,7 @@
     { "glob": "src/management/runtime.ts", "layer": "application" },
     { "glob": "src/management/repository.ts", "layer": "infrastructure" },
     { "glob": "src/management/remote-config.ts", "layer": "infrastructure" },
+    { "glob": "src/management/cf-access.ts", "layer": "infrastructure" },
     { "glob": "src/management/auth-failure-limiter.ts", "layer": "infrastructure" },
     { "glob": "src/management/remote-listener.ts", "layer": "infrastructure" },
     { "glob": "src/management/remote-startup.ts", "layer": "application" },

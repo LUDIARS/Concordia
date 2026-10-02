@@ -40,3 +40,15 @@ describe("dots remote entrance lifecycle (CC-MGMT-07)", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("public access not yet configured (CC-MGMT-08)", () => {
+  it("still starts the Tailscale side and reports that the public side is closed", async () => {
+    const report = vi.fn();
+    const close = vi.fn(async () => {});
+    const start = vi.fn(async () => ({ host: "127.0.0.1", port: 11113, close }));
+    const runtime = startManagementRemote({ ...env, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "cdgd-mgmt.ai-run-do.com" }, service, start, report);
+    await runtime.stop();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith("management", expect.stringContaining("全て拒否"));
+  });
+});

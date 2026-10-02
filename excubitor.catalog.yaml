@@ -52,6 +52,9 @@ services:
       CONCORDIA_MANAGEMENT_LISTEN: "1"
       CONCORDIA_MANAGEMENT_LISTEN_HOST: tailscale
       CONCORDIA_MANAGEMENT_LISTEN_PORT: "11113"
+      # Cloudflare Tunnel で公開するホスト名 (CC-MGMT-08)。 この Host 宛ては Access JWT 必須。
+      # team / aud は cf:ex-access で Excubitor runtime-config (cloudflareAccess) に入れる。
+      CONCORDIA_MANAGEMENT_PUBLIC_HOST: cdgd-mgmt.ai-run-do.com
       CONCORDIA_REDIS_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_READ_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_WRITE_TIMEOUT_MS: "500"

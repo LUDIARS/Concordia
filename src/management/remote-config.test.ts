@@ -34,3 +34,27 @@ describe("dots remote entrance config (CC-MGMT-07)", () => {
     expect(findTailscaleAddress(() => ({ ts: [nic("100.100.100.100", true)] }))).toBeNull();
   });
 });
+
+describe("public access config (CC-MGMT-08)", () => {
+  const base = { CONCORDIA_MANAGEMENT_LISTEN: "1", CONCORDIA_MANAGEMENT_LISTEN_PORT: "11113" };
+  const TEAM = "https://example.cloudflareaccess.com";
+  const AUD = "a".repeat(64);
+
+  it("reads team / aud from the dedicated env first, then the Excubitor runtime-config", () => {
+    expect(readManagementRemoteConfig({ ...base, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "CDGD-MGMT.ai-run-do.com",
+      CONCORDIA_MANAGEMENT_CF_ACCESS_TEAM_DOMAIN: TEAM, CONCORDIA_MANAGEMENT_CF_ACCESS_AUD: AUD })?.publicAccess)
+      .toEqual({ host: "cdgd-mgmt.ai-run-do.com", access: { teamDomain: TEAM, audience: AUD } });
+    const runtime = JSON.stringify({ cloudflareAccess: { teamDomain: TEAM, audience: AUD } });
+    expect(readManagementRemoteConfig({ ...base, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "cdgd-mgmt.ai-run-do.com",
+      EXCUBITOR_SERVICE_CONFIG_JSON: runtime })?.publicAccess?.access).toEqual({ teamDomain: TEAM, audience: AUD });
+  });
+
+  it("keeps access null until both values exist, and rejects half or malformed settings", () => {
+    expect(readManagementRemoteConfig({ ...base, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "cdgd-mgmt.ai-run-do.com" })?.publicAccess)
+      .toEqual({ host: "cdgd-mgmt.ai-run-do.com", access: null });
+    expect(() => readManagementRemoteConfig({ ...base, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "cdgd-mgmt.ai-run-do.com",
+      CONCORDIA_MANAGEMENT_CF_ACCESS_TEAM_DOMAIN: TEAM })).toThrow();
+    expect(() => readManagementRemoteConfig({ ...base, CONCORDIA_MANAGEMENT_PUBLIC_HOST: "not a host" })).toThrow(/hostname/);
+    expect(readManagementRemoteConfig(base)?.publicAccess).toBeUndefined();
+  });
+});

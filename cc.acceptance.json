@@ -3426,6 +3426,15 @@
         "src/discord/consult-closure-wiring.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/management/cf-access.ts",
+      "tests": [
+        "src/management/cf-access.test.ts"
+      ],
+      "contracts": [
+        "CC-MGMT-08"
+      ]
     }
   ]
 }

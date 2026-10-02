@@ -27,3 +27,15 @@ describe("management MCP server", () => {
     expect(await failing("POST", "/v1/management/requests", {})).toMatchObject({ ok: false, status: 0, body: { error: "result_unknown" } });
   });
 });
+
+describe("management MCP client with a Cloudflare service token (CC-MGMT-08)", () => {
+  it("adds the service token headers only when configured", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+    await createManagementCaller("https://cdgd-mgmt.example", "tok", fetchImpl as unknown as typeof fetch,
+      { clientId: "id", clientSecret: "secret" })("GET", "/v1/management/context");
+    const headers = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headers["cf-access-client-id"]).toBe("id");
+    expect(headers["cf-access-client-secret"]).toBe("secret");
+    expect(headers.authorization).toBe("Bearer tok");
+  });
+});

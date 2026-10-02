@@ -134,6 +134,22 @@ dots 用の 6 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
   (100.64.0.0/10) を探して bind する (マシン固有の IP を catalog に書かない)。見つからなければ起動せず通知する。
 - 起動失敗 (ポート使用中など) は Cc 本体を止めず、エラー通知とログに出す。
 
+## 契約 CC-MGMT-08 Cloudflare Access 経由の公開 (dots 専用クラウド向け)
+
+2026-10-02 neco 指示「dots リモートからやる場合、CF Access で専用の認証フローを作る」「1 よい」。
+dots の専用クラウドは Tailscale に入れないため、CC-MGMT-07 の入口を Cloudflare Tunnel で公開する。
+
+- `CONCORDIA_MANAGEMENT_PUBLIC_HOST` (例 `cdgd-mgmt.ai-run-do.com`) を設定すると、この Host 宛ての要求は
+  Cloudflare Access の application token (`Cf-Access-Jwt-Assertion`) を検証できたものだけ通す (403 `access_required`)。
+  検証はチームの JWKS で RS256 署名と iss / aud / exp / nbf を見る。人間 (email) とサービストークン (common_name) の両方を受ける。
+- Tailscale から直接来る要求 (Host が IP) には課さない。入口は Tailscale のアドレスに bind したまま、Tunnel の origin もそこへ向ける。
+- team / aud は `CONCORDIA_MANAGEMENT_CF_ACCESS_TEAM_DOMAIN` / `_AUD` を優先し、無ければ Excubitor runtime-config の
+  `cloudflareAccess` (cf:ex-access が書く) を使う。両方未設定の間は公開 Host 宛てを全部 403 にし (検証なしで開けない)、
+  Tailscale 側は動かしてエラー通知に出す。片方だけ・形式不正は設定ミスとして入口を起動しない。
+- 任務トークン (Bearer) は従来どおり必須。Access は「入口に届いてよい相手」、トークンは「どの任務か」を決める。
+- dots 側の MCP クライアントは `CONCORDIA_MANAGEMENT_CF_CLIENT_ID` / `_SECRET` があればサービストークンのヘッダを付ける。
+- Access アプリ・サービストークン・許可ポリシー・Tunnel route・DNS は Cloudflare 側の設定 (人間が作る、または cf:* を人間が実行)。
+
 ## 不変条件
 
 - CC-MGMT-INV-01: dots のトークンで呼べるのは CC-MGMT-03 だけ。サービスへの書込み・受入・承認経路を持たない。
@@ -144,6 +160,7 @@ dots 用の 6 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
 - CC-MGMT-INV-06: 根拠が AI 由来だけの依頼は受け付けない。
 - CC-MGMT-INV-07: waiting_human は人間の管理面の操作でしか解除しない (CC-INV-08)。
 - CC-MGMT-INV-08: dots 専用の入口からは CC-MGMT-03 の 6 操作以外に到達できない。
+- CC-MGMT-INV-09: 公開ホスト宛ての要求は Access の JWT を検証できない限り任務トークンの照合まで進まない。
 
 ## 実装
 
@@ -159,6 +176,7 @@ dots 用の 6 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
 `src/discord/management.ts`: CDGD管理チャンネルのカード・ボタン・配達。
 `web/src/pages/Management.tsx`: 任務と依頼の管理画面。
 `src/management/remote-config.ts` / `src/management/remote-listener.ts`: dots 専用の入口の設定と寿命。
+`src/management/cf-access.ts`: Cloudflare Access の JWT 検証。
 保存は migration 120 `management-sidecar`、配達記録は migration 121 `management-delivery`。
 
 ## 未接続 (後続)

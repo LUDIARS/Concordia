@@ -135,10 +135,38 @@ export function registerDotsRoutes(app: Hono, service: ManagementService, guard?
 }
 
 /** dots 専用の入口用: 6 操作だけを /v1/management に載せ、 他は全部 404。 */
-export function managementRemoteApp(service: ManagementService, guard: DotsAuthGuard, maxBodyBytes: number): Hono {
+/**
+ * Cloudflare Tunnel 経由の公開 (CC-MGMT-08)。 `host` 宛ての要求は Access の JWT
+ * (Cf-Access-Jwt-Assertion) を検証できたものだけ通す。
+ */
+export interface PublicAccessGate {
+  host: string;
+  verify(assertion: string | undefined): Promise<unknown | null>;
+}
+
+function requestHost(c: Context): string {
+  const raw = (c.req.header("host") ?? "").trim().toLowerCase();
+  return raw.startsWith("[") ? raw : raw.replace(/:\d+$/, "");
+}
+
+export function managementRemoteApp(
+  service: ManagementService,
+  guard: DotsAuthGuard,
+  maxBodyBytes: number,
+  publicAccess?: PublicAccessGate,
+): Hono {
   const app = new Hono();
   const api = new Hono();
   api.use("*", async (c, next) => { c.header("cache-control", "no-store"); await next(); });
+  if (publicAccess) {
+    api.use("*", async (c, next) => {
+      if (requestHost(c) === publicAccess.host) {
+        const identity = await publicAccess.verify(c.req.header("cf-access-jwt-assertion"));
+        if (!identity) return c.json({ error: "access_required" }, 403);
+      }
+      await next();
+    });
+  }
   api.use("*", bodyLimit({ maxSize: maxBodyBytes, onError: (c) => c.json({ error: "payload_too_large" }, 413) }));
   registerDotsRoutes(api, service, guard);
   app.route("/v1/management", api);

@@ -114,6 +114,30 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
+    key: "workspace.consult_root",
+    section: "workspace",
+    label: "相談用ワークスペースルート",
+    description:
+      "プロジェクトを持たない相談部署の作業ディレクトリの親 (tech-consultation.md §6)。 未設定なら Concordia 配下の consult-workspaces。",
+    kind: "string",
+    envName: "CONCORDIA_CONSULT_WORKSPACE_ROOT",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
+  {
+    key: "workspace.confidential_terms_file",
+    section: "workspace",
+    label: "秘匿語の辞書ファイル",
+    description:
+      "相談の後始末で公開候補から除く秘匿語の辞書 (JSON)。 未設定ならプライマリルートの .claude/state/confidential-terms.json。",
+    kind: "string",
+    envName: "CONCORDIA_CONFIDENTIAL_TERMS_FILE",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
+  {
     key: "workspace.ludiars_root",
     section: "workspace",
     label: "LUDIARS_ROOT (注入 env)",

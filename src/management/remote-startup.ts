@@ -30,6 +30,9 @@ export function startManagementRemote(
     return { stop: async () => {} };
   }
   if (!config) return { stop: async () => {} };
+  if (config.publicAccess && !config.publicAccess.access) {
+    report("management", `dots 専用の入口: 公開ホスト ${config.publicAccess.host} の Cloudflare Access 設定 (team / aud) が未設定です。設定されるまで公開側の要求は全て拒否します (Tailscale 側は動きます)`);
+  }
   const started: Promise<ManagementRemoteHandle | null> = start(config, service).then(
     (handle) => {
       log.info(`management remote listener started on ${handle.host}:${handle.port}`);

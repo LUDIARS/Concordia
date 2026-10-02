@@ -5,6 +5,8 @@
  * env:
  *   CONCORDIA_BASE_URL         (既定 http://127.0.0.1:11111)
  *   CONCORDIA_MANAGEMENT_TOKEN 任務のトークン (Cc 管理画面で発行)
+ *   CONCORDIA_MANAGEMENT_CF_CLIENT_ID / CONCORDIA_MANAGEMENT_CF_CLIENT_SECRET
+ *                              Cloudflare Access 経由の公開入口を使うときのサービストークン (CC-MGMT-08)
  *
  * 公開するのは CC-MGMT-03 の 6 操作だけ。 サービスへの書込み・受入・承認の tool は持たない
  * (CC-MGMT-INV-01)。 spec/feature/cdgd-management.md。
@@ -25,12 +27,27 @@ export interface ManagementCallResult {
 
 export type ManagementCaller = (method: "GET" | "POST", path: string, body?: unknown) => Promise<ManagementCallResult>;
 
-export function createManagementCaller(baseUrl: string, token: string, fetchImpl: typeof fetch = fetch): ManagementCaller {
+/** Cloudflare Access のサービストークン。 両方そろったときだけヘッダに載せる。 */
+export interface CfServiceToken {
+  clientId: string;
+  clientSecret: string;
+}
+
+export function createManagementCaller(
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+  serviceToken: CfServiceToken | null = null,
+): ManagementCaller {
   return async (method, path, body) => {
     try {
       const res = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${path}`, {
         method,
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+          ...(serviceToken ? { "cf-access-client-id": serviceToken.clientId, "cf-access-client-secret": serviceToken.clientSecret } : {}),
+        },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
@@ -120,7 +137,13 @@ export function buildManagementServer(call: ManagementCaller): McpServer {
 async function main(): Promise<void> {
   const token = process.env.CONCORDIA_MANAGEMENT_TOKEN?.trim();
   if (!token) throw new Error("CONCORDIA_MANAGEMENT_TOKEN is required");
-  const server = buildManagementServer(createManagementCaller(concordiaBaseUrl(), token));
+  const clientId = process.env.CONCORDIA_MANAGEMENT_CF_CLIENT_ID?.trim();
+  const clientSecret = process.env.CONCORDIA_MANAGEMENT_CF_CLIENT_SECRET?.trim();
+  if (Boolean(clientId) !== Boolean(clientSecret)) {
+    throw new Error("CONCORDIA_MANAGEMENT_CF_CLIENT_ID and CONCORDIA_MANAGEMENT_CF_CLIENT_SECRET must be set together");
+  }
+  const serviceToken = clientId && clientSecret ? { clientId, clientSecret } : null;
+  const server = buildManagementServer(createManagementCaller(concordiaBaseUrl(), token, fetch, serviceToken));
   await server.connect(new StdioServerTransport());
   process.stderr.write("[concordia-management-mcp] connected via stdio\n");
 }

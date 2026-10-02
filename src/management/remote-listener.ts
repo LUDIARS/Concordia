@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import type { Server } from "node:http";
 import { managementRemoteApp } from "../api/management.js";
 import { AuthFailureLimiter } from "./auth-failure-limiter.js";
+import { CfAccessVerifier, type JwksFetcher } from "./cf-access.js";
 import { REMOTE_MAX_BODY_BYTES, type ManagementRemoteConfig } from "./remote-config.js";
 import type { ManagementService } from "./service.js";
 
@@ -26,11 +27,16 @@ export function startManagementRemoteListener(
   config: ManagementRemoteConfig,
   service: ManagementService,
   limiter = new AuthFailureLimiter(),
+  fetchJwks?: JwksFetcher,
 ): Promise<ManagementRemoteHandle> {
+  const verifier = config.publicAccess?.access ? new CfAccessVerifier(config.publicAccess.access, fetchJwks) : null;
   const app = managementRemoteApp(service, {
     isLimited: (c) => limiter.isLimited(remoteOf(c)),
     recordFailure: (c) => limiter.recordFailure(remoteOf(c)),
-  }, REMOTE_MAX_BODY_BYTES);
+  }, REMOTE_MAX_BODY_BYTES, config.publicAccess
+    // Access 未設定の間は公開 Host 宛てを全部拒否する (検証なしで通さない)。
+    ? { host: config.publicAccess.host, verify: async (assertion) => (verifier ? verifier.verify(assertion) : null) }
+    : undefined);
   return new Promise((resolve, reject) => {
     const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server;
     const pruneTimer = setInterval(() => limiter.prune(), 60_000);

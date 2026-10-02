@@ -269,6 +269,9 @@ export const MANAGEMENT_SETTINGS: readonly SettingDefinition[] = [
   envBoolean("management.listen_enabled", "management", "dots 専用の入口を立てる", "CONCORDIA_MANAGEMENT_LISTEN", false, "リモート PC の dots から 6 操作だけを受ける listener を起動する。 既定 OFF。"),
   envString("management.listen_host", "management", "入口の bind ホスト", "CONCORDIA_MANAGEMENT_LISTEN_HOST", null, "入口の待ち受けアドレス。 未設定は 127.0.0.1。 Tailscale のアドレスを指定して使う。"),
   envInteger("management.listen_port", "management", "入口のポート", "CONCORDIA_MANAGEMENT_LISTEN_PORT", null, "入口のポート。 有効時は必須 (暗黙の既定ポートで外部面を立てない)。"),
+  envString("management.public_host", "management", "入口の公開ホスト名", "CONCORDIA_MANAGEMENT_PUBLIC_HOST", null, "Cloudflare Tunnel で公開するホスト名。 この Host 宛ての要求は Access の JWT を必須にする。 設定時は team / aud も必須。"),
+  envString("management.cf_access_team_domain", "management", "Access の team domain", "CONCORDIA_MANAGEMENT_CF_ACCESS_TEAM_DOMAIN", null, "https://<team>.cloudflareaccess.com。 未設定なら Excubitor runtime-config の cloudflareAccess.teamDomain を使う。"),
+  envString("management.cf_access_aud", "management", "Access の audience tag", "CONCORDIA_MANAGEMENT_CF_ACCESS_AUD", null, "入口用 Access アプリの AUD。 未設定なら Excubitor runtime-config の cloudflareAccess.audience を使う。"),
 ] as const;
 
 export const FEDERATION_SETTINGS: readonly SettingDefinition[] = [

@@ -1,4 +1,5 @@
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
+import { parseCfAccessConfig, type CfAccessConfig } from "./cf-access.js";
 
 /**
  * dots 専用の入口 (CC-MGMT-07) の設定。 既定 OFF、 有効時はポート必須 (暗黙の既定ポートで
@@ -10,6 +11,45 @@ import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 export interface ManagementRemoteConfig {
   host: string;
   port: number;
+  /**
+   * Cloudflare Tunnel 経由の公開 (CC-MGMT-08)。 この Host 宛ての要求には Access の JWT を必須にする。
+   * Tailscale から直接来る要求 (Host が IP) には課さない。 access が null (team / aud 未設定) の間は
+   * 公開 Host 宛てを全部拒否する (公開側を検証なしで開けない)。
+   */
+  publicAccess?: { host: string; access: CfAccessConfig | null };
+}
+
+const HOSTNAME = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Excubitor runtime-config (cf:ex-access が書く cloudflareAccess) から team / aud を読む。 */
+function runtimeAccess(raw: string | undefined): { teamDomain?: string; audience?: string } {
+  if (!raw?.trim()) return {};
+  try {
+    const config = JSON.parse(raw) as { cloudflareAccess?: { teamDomain?: unknown; audience?: unknown } };
+    const access = config.cloudflareAccess;
+    return {
+      ...(typeof access?.teamDomain === "string" ? { teamDomain: access.teamDomain } : {}),
+      ...(typeof access?.audience === "string" ? { audience: access.audience } : {}),
+    };
+  } catch {
+    throw new Error("EXCUBITOR_SERVICE_CONFIG_JSON is not valid JSON");
+  }
+}
+
+/**
+ * 公開ホストの設定。 team / aud は専用 env を優先し、 無ければ Excubitor runtime-config から読む。
+ * 両方とも未設定なら access=null (公開側は全拒否、 Tailscale 側は動かす)。 片方だけ・形式不正は throw。
+ */
+export function readPublicAccess(env: Readonly<Record<string, string | undefined>>): ManagementRemoteConfig["publicAccess"] {
+  const host = env.CONCORDIA_MANAGEMENT_PUBLIC_HOST?.trim().toLowerCase();
+  if (!host) return undefined;
+  if (!HOSTNAME.test(host)) throw new Error("CONCORDIA_MANAGEMENT_PUBLIC_HOST must be a hostname");
+  const runtime = runtimeAccess(env.EXCUBITOR_SERVICE_CONFIG_JSON);
+  const access = parseCfAccessConfig(
+    env.CONCORDIA_MANAGEMENT_CF_ACCESS_TEAM_DOMAIN ?? runtime.teamDomain,
+    env.CONCORDIA_MANAGEMENT_CF_ACCESS_AUD ?? runtime.audience,
+  );
+  return { host, access };
 }
 
 export const DEFAULT_REMOTE_HOST = "127.0.0.1";
@@ -45,9 +85,13 @@ export function readManagementRemoteConfig(
   if (!Number.isInteger(port) || port <= 0 || port >= 65536) {
     throw new Error("CONCORDIA_MANAGEMENT_LISTEN=1 requires CONCORDIA_MANAGEMENT_LISTEN_PORT (no implicit default port)");
   }
+  const publicAccess = readPublicAccess(env);
   const raw = env.CONCORDIA_MANAGEMENT_LISTEN_HOST?.trim() || DEFAULT_REMOTE_HOST;
-  if (raw.toLowerCase() !== TAILSCALE_HOST_KEYWORD) return { host: raw, port };
-  const host = findTailscaleAddress(interfaces);
-  if (!host) throw new Error("CONCORDIA_MANAGEMENT_LISTEN_HOST=tailscale but no Tailscale (100.64.0.0/10) address was found");
-  return { host, port };
+  let host = raw;
+  if (raw.toLowerCase() === TAILSCALE_HOST_KEYWORD) {
+    const found = findTailscaleAddress(interfaces);
+    if (!found) throw new Error("CONCORDIA_MANAGEMENT_LISTEN_HOST=tailscale but no Tailscale (100.64.0.0/10) address was found");
+    host = found;
+  }
+  return { host, port, ...(publicAccess ? { publicAccess } : {}) };
 }

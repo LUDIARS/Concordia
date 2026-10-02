@@ -143,3 +143,27 @@ describe("dots remote app (CC-MGMT-07 / CC-MGMT-INV-08)", () => {
     expect((await send("POST", "/v1/management/decisions", JSON.stringify({ rationale: "x".repeat(2048) }), token)).status).toBe(413);
   });
 });
+
+describe("public access gate (CC-MGMT-08 / CC-MGMT-INV-09)", () => {
+  async function gated(verifyResult: unknown | null) {
+    const { service, call } = setup();
+    const { token } = await createMission(call);
+    const verify = vi.fn(async () => verifyResult);
+    const app = managementRemoteApp(service, { isLimited: () => false, recordFailure: () => {} }, 1024,
+      { host: "cdgd-mgmt.ai-run-do.com", verify });
+    const send = (host: string, assertion?: string) => app.request("/v1/management/context", {
+      headers: { host, authorization: `Bearer ${token}`, ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}) },
+    });
+    return { send, verify };
+  }
+
+  it("requires a verified Access assertion on the public host only", async () => {
+    const denied = await gated(null);
+    expect((await denied.send("cdgd-mgmt.ai-run-do.com", "x")).status).toBe(403);
+    expect((await denied.send("CDGD-MGMT.ai-run-do.com:443")).status).toBe(403);
+    expect((await denied.send("100.122.174.105:11113")).status).toBe(200);
+    const allowed = await gated({ commonName: "dots" });
+    expect((await allowed.send("cdgd-mgmt.ai-run-do.com", "jwt")).status).toBe(200);
+    expect(allowed.verify).toHaveBeenCalledWith("jwt");
+  });
+});

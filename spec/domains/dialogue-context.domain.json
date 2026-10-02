@@ -19,6 +19,7 @@
   ],
   "cardTemplate": "Summarise the dialogue-context domain: use cases (formats, work mode, pre-data), accumulated human corrections, and requester profiles assembled into a session's startup input.",
   "specRefs": [
+    "spec/feature/planning-adjustment.md",
     "spec/feature/dialogue-context.md",
     "spec/feature/departments.md#9-部署ごとにやることと出力を分ける-v22026-09-30-neco-指示",
     "spec/feature/tech-consultation.md#3-事前ヒアリング"

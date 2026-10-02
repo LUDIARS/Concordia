@@ -2,6 +2,11 @@
   "version": 1,
   "implementations": [
     {
+      "source": "src/dialogue/planning-adjustment.ts",
+      "tests": ["src/dialogue/planning-adjustment.test.ts"],
+      "contracts": ["CC-PLAN-01", "CC-PLAN-02", "CC-PLAN-03", "CC-PLAN-04"]
+    },
+    {
       "source": "src/anatomia/domain-map-client.ts",
       "tests": [
         "src/anatomia/domain-map-client.test.ts"
@@ -462,6 +467,7 @@
     {
       "source": "web/src/api.ts",
       "tests": [
+        "src/dialogue/planning-adjustment.test.ts",
         "tests/harness-reliability/conflux.test.ts",
         "web/src/pages/Inbox.test.tsx",
         "web/src/pages/manuals/MajorInjectPanel.test.tsx"
@@ -2546,6 +2552,7 @@
     {
       "source": "src/dialogue/formats.ts",
       "tests": [
+        "src/dialogue/planning-adjustment.test.ts",
         "src/dialogue/use-case-service.test.ts",
         "src/api/use-cases.test.ts"
       ],

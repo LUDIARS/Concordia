@@ -33,7 +33,7 @@ describe("useCasesRouter", () => {
   it("lists the formats and creates a use case from one", async () => {
     const { app } = makeApp();
     const formats = await (await app.request("/v1/use-cases/formats")).json() as { formats: Array<{ key: string }> };
-    expect(formats.formats.map((format) => format.key)).toEqual(["chores", "qa", "sparring", "research-report"]);
+    expect(formats.formats.map((format) => format.key)).toEqual(["chores", "qa", "sparring", "research-report", "planning-adjustment"]);
 
     const created = await app.request("/v1/use-cases", json("POST", { name: "技術相談", slug: "tech-qa", format: "qa" }));
     expect(created.status).toBe(201);

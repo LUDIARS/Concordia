@@ -62,6 +62,7 @@ updated: 2026-09-30
 | `qa` | 一問一答 Q&A | read-only | する | する | 質問に回答を返す (技術相談課) |
 | `sparring` | 壁打ち相談 | read-only | する | する | 考えの整理・選択肢の比較に付き合う |
 | `research-report` | 調査レポート | read-only | しない | しない | 調べて根拠付きの報告を返す |
+| `planning-adjustment` | 企画調整 | edit | する | しない | 非エンジニアと体験の言葉で相談・調整・確認する ([企画調整課](planning-adjustment.md)) |
 
 事前ヒアリング (知りたいこと・技術レベル・役職・目的) の中身は [技術相談](tech-consultation.md) §3。
 

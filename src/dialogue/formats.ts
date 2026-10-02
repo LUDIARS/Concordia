@@ -6,6 +6,8 @@
  * @implements SPEC-DLG-FORMATS
  */
 
+import { PLANNING_ADJUSTMENT_FORMAT } from "./planning-adjustment.js";
+
 export type UseCaseWorkMode = "edit" | "read-only";
 
 export interface UseCaseFormat {
@@ -19,10 +21,11 @@ export interface UseCaseFormat {
   preData: string;
 }
 
-export const USE_CASE_FORMAT_KEYS = ["chores", "qa", "sparring", "research-report"] as const;
+export const USE_CASE_FORMAT_KEYS = ["chores", "qa", "sparring", "research-report", "planning-adjustment"] as const;
 export type UseCaseFormatKey = typeof USE_CASE_FORMAT_KEYS[number];
 
 export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>> = {
+  "planning-adjustment": PLANNING_ADJUSTMENT_FORMAT,
   chores: {
     key: "chores",
     name: "雑用",

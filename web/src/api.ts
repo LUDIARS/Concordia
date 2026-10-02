@@ -1506,7 +1506,7 @@ export interface DepartmentWrite {
   is_default?: boolean;
 }
 
-export type UseCaseFormatKey = "chores" | "qa" | "sparring" | "research-report";
+export type UseCaseFormatKey = "chores" | "qa" | "sparring" | "research-report" | "planning-adjustment";
 
 export interface UseCaseFormat {
   key: UseCaseFormatKey;

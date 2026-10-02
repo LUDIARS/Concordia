@@ -65,6 +65,7 @@
   ],
   "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
   "specRefs": [
+    "spec/feature/planning-adjustment.md",
     "spec/feature/approval-inbox.md",
     "spec/feature/danger-command-approval.md",
     "spec/feature/question-session-retention.md",

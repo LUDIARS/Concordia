@@ -3459,6 +3459,28 @@
       ]
     },
     {
+      "source": "src/consultation/consult-role.ts",
+      "tests": [
+        "src/consultation/consult-role.test.ts",
+        "src/consultation/projectless-consult.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/end-session-command.ts",
+      "tests": [
+        "src/control/end-session-command.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/end-session-flow.ts",
+      "tests": [
+        "tests/end-session-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/consultation/consult-model.ts",
       "tests": [
         "src/consultation/consult-model.test.ts",

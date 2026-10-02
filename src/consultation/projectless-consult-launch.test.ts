@@ -29,36 +29,53 @@ function ports(workMode = "read-only") {
     useCase: vi.fn(() => ({ work_mode: workMode, archived_at: null })),
     workspaceRoot: "/srv/cw",
     prepareWorkspace: vi.fn(async () => undefined),
+    prepareClaudeConfig: vi.fn(async () => true),
   };
 }
 
 describe("resolveProjectlessConsultLaunch", () => {
-  it("子会社の読み取り専用・プロジェクト無しの部署は相談用ディレクトリに閉じ込める", async () => {
+  it("子会社の読み取り専用・プロジェクト無しの部署は役職のディレクトリに閉じ込め、 相談者のデータフォルダを作る", async () => {
     const p = ports();
-    const result = await resolveProjectlessConsultLaunch({ subsidiaryId: "glab", department: department(), specifiedScope: [] }, p);
+    const result = await resolveProjectlessConsultLaunch({
+      subsidiaryId: "glab", department: department(), specifiedScope: [],
+      roleTitle: "サウンドクリエイター", requesterDiscordUserId: "123456789012345678",
+    }, p);
+    const cwd = join("/srv/cw", "sound");
+    const dataDir = join(cwd, "123456789012345678");
     expect(result).toEqual({
       kind: "consult-workspace",
-      cwd: join("/srv/cw", "glab"),
+      cwd,
+      dataDir,
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
-      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
+      claudeConfigReady: true,
+      env: {
+        CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+        CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
+        CONCORDIA_CONSULT_DATA_DIR: dataDir,
+      },
     });
+    // 相談専用の設定フォルダを用意し、 役職フォルダの信頼を書く (利用者の ~/.claude を読ませない)。
+    expect(p.prepareClaudeConfig).toHaveBeenCalledWith(join("/srv/cw", ".claude-config"), cwd);
     // 上位の CLAUDE.md と自動メモリを読ませない設定を書く (CC-CONSULT-INV-08)。
-    expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "glab"), expect.objectContaining({
-      claudeMdExcludes: expect.arrayContaining(["**/CLAUDE.md", "**/AGENTS.md"]),
+    expect(p.prepareWorkspace).toHaveBeenCalledWith(cwd, expect.objectContaining({
+      claudeMdExcludes: expect.arrayContaining(["/srv/cw/CLAUDE.md", "/srv/cw/AGENTS.md"]),
       autoMemoryEnabled: false,
-    }));
+    }), dataDir);
   });
 
-  it("本社の相談部署は本社の相談用ディレクトリで、 ツールを制限せずに起動する", async () => {
-    const p = ports();
+  it("本社の相談部署も子会社と同じく閉じ込めて起動する。 Discord 以外の起動はデータフォルダを作らない", async () => {
+    // 2026-10-02 neco 指示「本社の相談も同じで」。
+    const p = { ...ports(), prepareClaudeConfig: vi.fn(async () => false) };
     expect(await resolveProjectlessConsultLaunch(
-      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [] }, p,
+      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [], roleTitle: "エンジニア" }, p,
     )).toEqual({
-      kind: "consult-workspace", cwd: join("/srv/cw", "head-office"), claudeArgs: [], restriction: null,
-      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
+      kind: "consult-workspace", cwd: join("/srv/cw", "engineer"), dataDir: null,
+      claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: expect.stringContaining("プロジェクトを持たない相談"),
+      claudeConfigReady: false,
+      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config") },
     });
-    expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "head-office"), expect.objectContaining({ autoMemoryEnabled: false }));
+    expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "engineer"), expect.objectContaining({ autoMemoryEnabled: false }), null);
   });
 
   it("本社で作業領域を明示した起動はその指定に従う", async () => {

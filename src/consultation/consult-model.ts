@@ -11,16 +11,17 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
+import { consultRoleFolder } from "./consult-role.js";
+
 export type ConsultModelNick = "opus" | "astra";
 
 /** 相談の effort (自動)。 */
 export const CONSULT_EFFORT = "medium";
 
-const ASTRA_ROLE = /デザイ|アート|イラスト|グラフィック|ui\b|ux\b|サウンド|音響|音楽|作曲|コンポーザ|sound|design|art\b|artist/i;
-
 /** 役職から相談のモデルを選ぶ。 デザイナー・サウンドは Astra、 それ以外 (エンジニア・企画・不明) は Opus。 */
 export function consultModelForRole(roleTitle: string | null | undefined): ConsultModelNick {
-  return roleTitle && ASTRA_ROLE.test(roleTitle) ? "astra" : "opus";
+  const folder = consultRoleFolder(roleTitle);
+  return folder === "designer" || folder === "sound" ? "astra" : "opus";
 }
 
 /** モデルごとの起動テンプレート (call_name)。 env で差し替えられる。 */

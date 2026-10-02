@@ -9,8 +9,10 @@ import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
-import { access, mkdir, utimes, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
+import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
 import { confinementArgsFor, consultEffortOptions, consultModelForRole, consultTemplateFor } from "../consultation/consult-model.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
@@ -262,7 +264,7 @@ export interface CoreDelegationDeps {
   consultationIntakes?: ConsultationIntakesRepo;
   /**
    * プロジェクトを持たない相談部署の作業ディレクトリの置き場所 (spec/feature/tech-consultation.md §6)。
-   * 既定は Concordia 配下の `consult-workspaces/` (会社ごとのディレクトリ)。 未注入ならその起動は 503。
+   * 既定は E:/Document/Consult (役職ごとのフォルダと相談専用の Claude 設定フォルダ)。 未注入ならその起動は 503。
    */
   consultWorkspaceRoot?: string;
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
@@ -1030,7 +1032,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
     }
     const explicitCwd = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null;
-    // プロジェクトを持たない相談部署は、 Concordia 配下の相談用ディレクトリ (会社ごと) で起動する。
+    // プロジェクトを持たない相談部署は、 役職ごとの作業ディレクトリで起動し、 相談者の Discord の個人 ID のフォルダを作る。
     // 子会社はさらにツールを制限し、 作業領域の指定を受け付けない (spec/feature/tech-consultation.md §6)。
     const projectlessConsult = deps.departments && requestedDepartmentId
       ? await resolveProjectlessConsultLaunch({
@@ -1044,13 +1046,25 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           ...(requestedWorktree !== undefined && requestedWorktree !== false ? ["worktree"] : []),
           ...(body.inject_prompt === true ? ["inject_prompt"] : []),
         ],
+        roleTitle: readConsultIntakeRequest(body)?.values.role_title ?? null,
+        requesterDiscordUserId,
       }, {
         useCase: (id) => deps.useCases?.find(id) ?? null,
         workspaceRoot: deps.consultWorkspaceRoot,
-        prepareWorkspace: async (path, claudeSettings) => {
+        prepareWorkspace: async (path, claudeSettings, dataDir) => {
           await mkdir(join(path, ".claude"), { recursive: true });
+          if (dataDir) await mkdir(dataDir, { recursive: true });
           await writeFile(join(path, ".claude", "settings.local.json"), `${JSON.stringify(claudeSettings, null, 2)}
 `, "utf8");
+        },
+        prepareClaudeConfig: async (configDir, roleWorkspace) => {
+          await mkdir(configDir, { recursive: true });
+          const claudeJsonPath = join(configDir, ".claude.json");
+          const current = await readFile(claudeJsonPath, "utf8").then((text) => JSON.parse(text) as unknown, () => null);
+          const next = withConsultWorkspaceTrust(current, roleWorkspace);
+          if (next) await writeFile(claudeJsonPath, `${JSON.stringify(next, null, 2)}
+`, "utf8");
+          return existsSync(join(configDir, ".credentials.json"));
         },
       })
       : { kind: "none" as const };
@@ -1060,6 +1074,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;
     const consultArgsFor = (provider: string): readonly string[] | null =>
       consultConfined ? confinementArgsFor(provider, consultConfinement!.claudeArgs) : [];
+    // claude の相談は相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) にログインしていないと起動できない。
+    const consultLoginMissing = (provider: string): boolean =>
+      consultConfinement !== null && provider === "claude" && !consultConfinement.claudeConfigReady;
     // 相談部署は相談者の職種でモデルを決め、 effort は medium (エンジニア・企画は Opus、 デザイナー・サウンドは Astra。
     // tech-consultation.md §6)。 起動要求がモデルを明示していればそれに従う。
     const consultModelChosen = consultConfinement !== null
@@ -1209,6 +1226,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       // 閉じ込められない provider では子会社の相談を起動しない。
       const consultArgs = consultArgsFor(spawn.provider);
       if (consultArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
+      if (consultLoginMissing(spawn.provider)) return c.json({ error: "projectless_consult_claude_login_required" }, 503);
       const spawnArgs = [...spawn.args, ...runtimeArgs, ...consultArgs];
       const startupText = [userPrompt ? restriction : "", taskPrompt, userPrompt]
         .filter(Boolean)
@@ -1298,6 +1316,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveDirectOptions);
     const consultDirectArgs = consultArgsFor(resolved.provider);
     if (consultDirectArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
+    if (consultLoginMissing(resolved.provider)) return c.json({ error: "projectless_consult_claude_login_required" }, 503);
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];

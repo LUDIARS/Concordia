@@ -2,7 +2,8 @@
  * プロジェクトを持たない相談 (子会社の相談窓口) の判定と閉じ込め (spec/feature/tech-consultation.md §6)。
  *
  * 相談課は元々プロジェクト外の質問を受ける課。 「担当プロジェクトを持たず、 ユースケースが読み取り専用」の
- * 部署は、 プロジェクトではなく Concordia 配下の相談用ディレクトリ (会社ごと) で起動する (2026-10-02 neco 指示)。
+ * 部署は、 プロジェクトではなく相談用の作業ディレクトリ (役職ごと、 既定 E:/Document/Consult/<役職>) で起動する
+ * (2026-10-02 neco 指示)。
  * 子会社のセッションは関係プロジェクトで起動範囲を閉じる (subsidiary-delegation §3.4) ので、 子会社では
  * さらに使えるツールを Web 検索だけに絞る (CC-CONSULT-INV-06/07)。
  *
@@ -11,7 +12,8 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { consultRoleFolder } from "./consult-role.js";
 
 export interface ProjectlessConsultInput {
   /** 部署の担当プロジェクト。 */
@@ -29,29 +31,61 @@ export function isProjectlessConsultDepartment(input: ProjectlessConsultInput): 
 }
 
 /**
- * プロジェクト無しの相談セッションに渡す claude の起動引数。
- * - `--tools=`: 組み込みツールを Web 検索と ToDo だけにする (Read / シェル / 編集は存在しない)。
+ * プロジェクト無しの相談セッションに渡す claude の起動引数 (本社・子会社とも。 2026-10-02 neco 指示「本社の相談も同じで」)。
+ * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキルだけにする (Read / シェル / 編集は存在しない)。
  *   ハーネスのフックは Castra 配下の一部ツールにしか掛からないため、 ここで閉じる。
  * - `--strict-mcp-config`: 利用者設定の MCP (Notion 等) を読み込まない。
- * - `--disable-slash-commands`: 利用者のスキル本文を読み込まない。
+ * スキルは役職フォルダのものを使う。 利用者のスキル (~/.claude) は相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) で外す
+ * (consultClaudeConfigDir)。
  */
 export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze([
-  "--tools=WebSearch,TodoWrite",
+  "--tools=WebSearch,TodoWrite,Skill",
   "--strict-mcp-config",
-  "--disable-slash-commands",
 ]);
 
-/** 本社の相談用ディレクトリ名。 子会社 id (uuid) とは重ならない。 */
-export const HEAD_OFFICE_CONSULT_WORKSPACE = "head-office";
+/**
+ * 相談専用の Claude 設定フォルダ (`<root>/.claude-config`)。 `CLAUDE_CONFIG_DIR` で渡し、 利用者の
+ * ~/.claude (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読ませない。 ログイン情報もここに持つ
+ * (初回は人が `CLAUDE_CONFIG_DIR=<このフォルダ> claude` でログインする)。
+ */
+export function consultClaudeConfigDir(root: string): string {
+  return join(root, ".claude-config");
+}
+
+/** claude.json の projects のキー (前方スラッシュ。 Lictor の normalizeProjectKey と同じ流儀)。 */
+function claudeProjectKey(cwd: string): string {
+  return cwd.replace(/\\/g, "/").replace(/\/$/, "");
+}
 
 /**
- * 相談用ディレクトリ。 会社ごとに 1 つ (本社は `head-office`)。 子会社 id は Cc が発行した値だが、
- * パス区切りは潰しておく。
+ * 相談専用の設定フォルダの claude.json に、 役職フォルダの信頼 (trust picker を出さない) を書き足す。
+ * Lictor の事前焼き込みは ~/.claude.json にしか書かないため、 ここで書く。 変更が無ければ null。
  */
-export function projectlessConsultWorkspace(root: string, subsidiaryId: string | null): string {
-  if (subsidiaryId === null) return join(root, HEAD_OFFICE_CONSULT_WORKSPACE);
-  const safe = subsidiaryId.replace(/[^A-Za-z0-9_-]/g, "_");
-  return join(root, safe || "_");
+export function withConsultWorkspaceTrust(claudeJson: unknown, roleWorkspace: string): Record<string, unknown> | null {
+  if (!claudeJson || typeof claudeJson !== "object" || Array.isArray(claudeJson)) return null;
+  const root = claudeJson as Record<string, unknown>;
+  const projects = (root.projects && typeof root.projects === "object" && !Array.isArray(root.projects)
+    ? root.projects : {}) as Record<string, Record<string, unknown>>;
+  const key = claudeProjectKey(roleWorkspace);
+  if (projects[key]?.hasTrustDialogAccepted === true) return null;
+  return { ...root, projects: { ...projects, [key]: { ...(projects[key] ?? {}), hasTrustDialogAccepted: true } } };
+}
+
+/**
+ * 相談の作業ディレクトリ。 役職ごとに 1 つ (`<root>/<役職フォルダ>`)。 役職フォルダごとにスキルとメモリを
+ * 使い分ける (2026-10-02 neco 指示)。 本社・子会社で分けない。
+ */
+export function consultRoleWorkspace(root: string, roleTitle: string | null | undefined): string {
+  return join(root, consultRoleFolder(roleTitle));
+}
+
+/**
+ * 相談者のデータの置き場所 (`<役職フォルダ>/<Discord の個人 ID>`)。 Discord 以外からの起動 (ID が無い) は null。
+ * ID は数字だけを受ける (パスを作るため)。
+ */
+export function consultPersonalDataDir(roleWorkspace: string, discordUserId: string | null | undefined): string | null {
+  const id = discordUserId?.trim() ?? "";
+  return /^\d{5,32}$/.test(id) ? join(roleWorkspace, id) : null;
 }
 
 /** 初回指示の先頭に置く作業範囲の説明 (強制はツール制限が担い、 これは説明)。 */
@@ -64,21 +98,34 @@ export function projectlessConsultRestriction(): string {
   ].join("\n");
 }
 
+const INSTRUCTION_FILES = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude/rules/**"] as const;
+
 /**
- * 相談用ディレクトリに置く Claude Code のローカル設定 (`.claude/settings.local.json`)。
+ * 役職フォルダに置く Claude Code のローカル設定 (`.claude/settings.local.json`)。
  *
- * 相談用ディレクトリは Concordia 配下にあるため、 そのままでは上位の CLAUDE.md (Castra の略称表など) と
- * Concordia の自動メモリが相談セッションに読み込まれ、 回答へ社内のプロジェクト名が漏れた (2026-10-02)。
- * 指示ファイルはすべて読まず、 自動メモリも使わない (CC-CONSULT-INV-08)。
+ * 2026-10-02、 相談用ディレクトリを Concordia 配下に置いたところ、 上位の CLAUDE.md (Castra の略称表など) と
+ * 自動メモリが相談セッションに読み込まれ、 回答へ社内のプロジェクト名が漏れた。 Castra のメモリと
+ * ワークフローは引き継がない (CC-CONSULT-INV-08)。 役職フォルダ自身の CLAUDE.md とスキルは使い分けのために
+ * 読ませ、 上位のフォルダと、 相談者ごとのデータフォルダの中の指示ファイルは読ませない。
+ * 自動メモリは使わない (相談で使う環境のメモリは別途指定する)。
  */
-export function consultWorkspaceClaudeSettings(): Record<string, unknown> {
+export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<string, unknown> {
+  const ancestors: string[] = [];
+  for (let dir = dirname(roleWorkspace); ; dir = dirname(dir)) {
+    ancestors.push(dir);
+    if (dirname(dir) === dir) break;
+  }
+  const slash = (path: string) => path.replace(/\\/g, "/").replace(/\/$/, "");
   return {
-    claudeMdExcludes: ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.claude/rules/**"],
+    claudeMdExcludes: [
+      ...ancestors.flatMap((dir) => INSTRUCTION_FILES.map((file) => `${slash(dir)}/${file}`)),
+      ...INSTRUCTION_FILES.map((file) => `${slash(roleWorkspace)}/*/**/${file}`),
+    ],
     autoMemoryEnabled: false,
   };
 }
 
-/** 相談セッションの起動 env。 自動メモリを読まない (設定ファイルと二重に止める)。 */
+/** 相談セッションの起動 env (共通部分)。 自動メモリを読まない (設定ファイルと二重に止める)。 */
 export const CONSULT_SESSION_ENV: Readonly<Record<string, string>> = Object.freeze({
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
 });

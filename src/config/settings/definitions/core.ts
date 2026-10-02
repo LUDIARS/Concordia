@@ -118,7 +118,7 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     section: "workspace",
     label: "相談用ワークスペースルート",
     description:
-      "プロジェクトを持たない相談部署の作業ディレクトリの親 (tech-consultation.md §6)。 未設定なら Concordia 配下の consult-workspaces。",
+      "プロジェクトを持たない相談部署の作業ディレクトリの親 (tech-consultation.md §6)。 役職ごとのフォルダと相談専用の Claude 設定フォルダ (.claude-config) を置く。未設定なら E:/Document/Consult (Concordia の 2 つ上の Consult)。",
     kind: "string",
     envName: "CONCORDIA_CONSULT_WORKSPACE_ROOT",
     dbKey: null,

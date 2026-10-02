@@ -2,11 +2,12 @@
  * プロジェクトを持たない相談部署から起動するときの作業ディレクトリと閉じ込めを決める
  * (spec/feature/tech-consultation.md §6)。
  *
- * admin spawn から呼ぶ application use case。 対象なら会社ごとの相談用ディレクトリ (Concordia 配下) を
- * 用意して、 そこを cwd とする起動指示を返す。
+ * admin spawn から呼ぶ application use case。 対象なら役職ごとの作業ディレクトリと、 相談者の Discord の
+ * 個人 ID のデータフォルダを用意して、 役職のディレクトリを cwd とする起動指示を返す (2026-10-02 neco 指示)。
  * - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければ相談用ディレクトリで起動する。
- *   指定があればその指定に従う (対象外)。 ツールは制限しない。
- * - 子会社: 作業領域の指定は拒否し、 claude のツール制限を付ける。
+ *   指定があればその指定に従う (対象外)。
+ * - 子会社: 作業領域の指定は拒否する。
+ * - どちらも claude のツール制限を付け、 相談専用の Claude 設定フォルダで起動する (2026-10-02 neco 指示「本社の相談も同じで」)。
  * 対象でなければ何もしない (プロジェクトを持つ部署・部署なしの起動は従来どおり)。
  *
  * - CC-CONSULT-INV-06: プロジェクト無しで相談用ディレクトリに入るのは、 読み取り専用で担当プロジェクトを持たない部署だけ。
@@ -20,10 +21,12 @@ import { parseDepartmentSettings } from "../departments/settings.js";
 import {
   CONSULT_SESSION_ENV,
   PROJECTLESS_CONSULT_CLAUDE_ARGS,
+  consultClaudeConfigDir,
+  consultPersonalDataDir,
+  consultRoleWorkspace,
   consultWorkspaceClaudeSettings,
   isProjectlessConsultDepartment,
   projectlessConsultRestriction,
-  projectlessConsultWorkspace,
   type ProjectlessConsultInput,
 } from "./projectless-consult.js";
 
@@ -32,14 +35,26 @@ export interface ProjectlessConsultLaunchRequest {
   department: DepartmentRow | null;
   /** 起動要求が作業領域を指定した項目 (project / cwd / team / branch / worktree / テンプレ prompt 注入)。 */
   specifiedScope: readonly string[];
+  /** 事前ヒアリングの役職 (作業ディレクトリの役職フォルダを決める)。 */
+  roleTitle?: string | null;
+  /** 相談者の Discord の個人 ID (データフォルダを作る)。 */
+  requesterDiscordUserId?: string | null;
 }
 
 export interface ProjectlessConsultLaunchPorts {
   useCase(id: string): ProjectlessConsultInput["useCase"];
   /** 相談用ディレクトリの置き場所。 未設定ならこの起動は受けない。 */
   workspaceRoot: string | undefined;
-  /** ディレクトリを用意し、 Claude Code のローカル設定 (指示ファイル・自動メモリを読まない) を書く。 */
-  prepareWorkspace(path: string, claudeSettings: Record<string, unknown>): Promise<void>;
+  /**
+   * 役職のディレクトリを用意して Claude Code のローカル設定 (上位の指示ファイル・自動メモリを読まない) を書き、
+   * データフォルダがあればそれも作る。
+   */
+  prepareWorkspace(path: string, claudeSettings: Record<string, unknown>, dataDir: string | null): Promise<void>;
+  /**
+   * 相談専用の Claude 設定フォルダを用意し、 役職フォルダの信頼を書く。 ログイン済みなら true
+   * (未ログインでも Astra (codex) の相談は起動できるので、 ここでは拒否しない)。
+   */
+  prepareClaudeConfig(configDir: string, roleWorkspace: string): Promise<boolean>;
 }
 
 export type ProjectlessConsultLaunch =
@@ -47,11 +62,15 @@ export type ProjectlessConsultLaunch =
   | {
     kind: "consult-workspace";
     cwd: string;
-    /** 子会社だけ: claude のツール制限。 本社は空。 */
+    /** claude のツール制限。 */
     claudeArgs: readonly string[];
-    /** 子会社だけ: 初回指示の先頭に置く作業範囲の説明。 本社は null。 */
+    /** 初回指示の先頭に置く作業範囲の説明。 */
     restriction: string | null;
-    /** 起動 env (自動メモリを読まない)。 */
+    /** 相談専用の Claude 設定フォルダにログイン済みか (claude で起動するときに必要)。 */
+    claudeConfigReady: boolean;
+    /** 相談者のデータフォルダ (Discord 以外からの起動は null)。 */
+    dataDir: string | null;
+    /** 起動 env (自動メモリを読まない・データフォルダの場所)。 */
     env: Readonly<Record<string, string>>;
   }
   | { kind: "error"; status: 400 | 503; error: string };
@@ -78,12 +97,18 @@ export async function resolveProjectlessConsultLaunch(
     return { kind: "error", status: 400, error: `projectless_consult_scope_fixed: ${request.specifiedScope.join(",")}` };
   }
   if (!ports.workspaceRoot) return { kind: "error", status: 503, error: "projectless_consult_workspace_unavailable" };
-  const cwd = projectlessConsultWorkspace(ports.workspaceRoot, subsidiaryId);
-  await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings());
-  return inSubsidiary
-    ? {
-      kind: "consult-workspace", cwd, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: projectlessConsultRestriction(),
-      env: CONSULT_SESSION_ENV,
-    }
-    : { kind: "consult-workspace", cwd, claudeArgs: [], restriction: null, env: CONSULT_SESSION_ENV };
+  const cwd = consultRoleWorkspace(ports.workspaceRoot, request.roleTitle);
+  const dataDir = consultPersonalDataDir(cwd, request.requesterDiscordUserId);
+  await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings(cwd), dataDir);
+  const configDir = consultClaudeConfigDir(ports.workspaceRoot);
+  const claudeConfigReady = await ports.prepareClaudeConfig(configDir, cwd);
+  const env = {
+    ...CONSULT_SESSION_ENV,
+    CLAUDE_CONFIG_DIR: configDir,
+    ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
+  };
+  return {
+    kind: "consult-workspace", cwd, dataDir, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
+    restriction: projectlessConsultRestriction(), claudeConfigReady, env,
+  };
 }

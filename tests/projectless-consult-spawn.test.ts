@@ -2,7 +2,7 @@
  * 子会社のプロジェクトを持たない相談部署からの起動 (spec/feature/tech-consultation.md §6) の結合確認。
  * admin spawn が相談用ディレクトリを cwd にし、 claude のツール制限を付け、 作業領域の指定を拒否する。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SpawnRequest } from "../src/control/spawner.js";
@@ -32,6 +32,10 @@ describe("projectless consultation spawn in a subsidiary", () => {
   beforeEach(() => {
     spawnCalls = [];
     workspaceRoot = makeTestDir("concordia-consult-ws-");
+    // 相談専用の Claude 設定フォルダにログイン済みの状態 (claude の相談の前提)。
+    mkdirSync(join(workspaceRoot, ".claude-config"), { recursive: true });
+    writeFileSync(join(workspaceRoot, ".claude-config", ".credentials.json"), "{}");
+    writeFileSync(join(workspaceRoot, ".claude-config", ".claude.json"), JSON.stringify({ projects: {} }));
     env = makeTestApp({
       consultWorkspaceRoot: workspaceRoot,
       sessionSpawn: (request) => {
@@ -64,15 +68,21 @@ describe("projectless consultation spawn in a subsidiary", () => {
     headOfficeConsultId = headOffice.department.id;
   }, 30_000);
 
-  it("spawns claude in the subsidiary consult workspace with the tool restriction", async () => {
+  it("spawns claude in the role workspace with the tool restriction and a per-requester data folder", async () => {
     const response = await spawnSession(env, {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "claude", prompt: "DDD の利点は?",
+      requester_discord_user_id: "123456789012345678",
+      consultation_intake: { topic: "設計", skill_level: "中級", role_title: "エンジニア", purpose: "", source: "modal" },
     });
     expect(response.status).toBe(200);
     expect(spawnCalls).toHaveLength(1);
-    const expectedCwd = join(workspaceRoot, subsidiaryId.replace(/[^A-Za-z0-9_-]/g, "_"));
+    // 役職ごとのフォルダ (2026-10-02 neco 指示「作業ディレクトリは E:/Document/Consult/役職ごとのフォルダ」)。
+    const expectedCwd = join(workspaceRoot, "engineer");
     expect(spawnCalls[0]?.cwd).toBe(expectedCwd);
     expect(existsSync(expectedCwd)).toBe(true);
+    const dataDir = join(expectedCwd, "123456789012345678");
+    expect(existsSync(dataDir)).toBe(true);
+    expect(spawnCalls[0]?.env).toMatchObject({ CONCORDIA_CONSULT_DATA_DIR: dataDir });
     expect(spawnCalls[0]?.args?.slice(-PROJECTLESS_CONSULT_CLAUDE_ARGS.length)).toEqual([...PROJECTLESS_CONSULT_CLAUDE_ARGS]);
   });
 
@@ -113,16 +123,33 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls).toEqual([]);
   });
 
-  it("spawns a head-office consultation in the head-office consult workspace without tool restriction", async () => {
+  it("spawns a head-office consultation the same way as a subsidiary one (role workspace, tool restriction, own config dir)", async () => {
+    // 2026-10-02 neco 指示「本社の相談も同じで」。
     // 2026-10-02: 本社の相談部署はプロジェクトが無く、 cwd を決められずに起動に失敗していた。
     const response = await spawnSession(env, { department: headOfficeConsultId, provider: "claude", prompt: "DDD の利点は?" });
     expect(response.status).toBe(200);
-    expect(spawnCalls[0]?.cwd).toBe(join(workspaceRoot, "head-office"));
+    expect(spawnCalls[0]?.cwd).toBe(join(workspaceRoot, "general"));
     // 上位の CLAUDE.md と自動メモリを読まない (2026-10-02 の流出対策、 CC-CONSULT-INV-08)。
-    const settings = JSON.parse(readFileSync(join(workspaceRoot, "head-office", ".claude", "settings.local.json"), "utf8")) as Record<string, unknown>;
-    expect(settings).toMatchObject({ autoMemoryEnabled: false, claudeMdExcludes: expect.arrayContaining(["**/CLAUDE.md"]) });
-    expect(spawnCalls[0]?.env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
-    expect(spawnCalls[0]?.args ?? []).not.toEqual(expect.arrayContaining(["--strict-mcp-config"]));
+    const settings = JSON.parse(readFileSync(join(workspaceRoot, "general", ".claude", "settings.local.json"), "utf8")) as Record<string, unknown>;
+    expect(settings).toMatchObject({ autoMemoryEnabled: false, claudeMdExcludes: expect.arrayContaining([`${workspaceRoot.replace(/\\/g, "/")}/CLAUDE.md`]) });
+    expect(spawnCalls[0]?.env).toMatchObject({
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      CLAUDE_CONFIG_DIR: join(workspaceRoot, ".claude-config"),
+    });
+    expect(spawnCalls[0]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
+    // 役職フォルダの信頼を相談専用の claude.json に書く (trust picker で止まらない)。
+    const claudeJson = JSON.parse(readFileSync(join(workspaceRoot, ".claude-config", ".claude.json"), "utf8")) as {
+      projects: Record<string, { hasTrustDialogAccepted?: boolean }>;
+    };
+    expect(claudeJson.projects[join(workspaceRoot, "general").replace(/\\/g, "/")]?.hasTrustDialogAccepted).toBe(true);
+  });
+
+  it("refuses a claude consultation until the consult config dir is logged in", async () => {
+    rmSync(join(workspaceRoot, ".claude-config", ".credentials.json"));
+    const response = await spawnSession(env, { department: headOfficeConsultId, provider: "claude", prompt: "Q" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "projectless_consult_claude_login_required" });
+    expect(spawnCalls).toEqual([]);
   });
 
   it("leaves a head-office consultation with an explicit cwd on that cwd", async () => {

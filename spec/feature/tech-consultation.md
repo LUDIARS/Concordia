@@ -32,8 +32,8 @@
 | CC-CONSULT-INV-04 | Tabula への公開は相談者本人が承認した要約だけ。承認前の候補は外へ出さない | 公開ボタンの判定 |
 | CC-CONSULT-INV-05 | ヒアリング内容と依頼者メモはローカル DB だけに置き、連合・通知・ログへ出さない | 既存の依頼者メモの規則 (dialogue-context.md §7) を継承 |
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
-| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。子会社ごとの空の相談用ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
-| CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない) | 相談用ディレクトリの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
+| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
+| CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない。Castra のメモリやワークフローを引き継がない) | 役職フォルダの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
 | CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
 | CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
 
@@ -150,22 +150,35 @@
   **担当プロジェクトを持たず、ユースケースが読み取り専用の部署** (技術相談課) はプロジェクト無しで起動する (CC-CONSULT-INV-06)。
   - 部署フォーラム: 本文からプロジェクトを拾わず、関係プロジェクトの照合もしない (`ForumSpawnDepartment.projectless`)。
   - `/consult`: 子会社 guild に登録する。部署の候補はその子会社の、プライベート相談を許可した相談部署だけ。
-- 相談用ディレクトリ (2026-10-02 neco 指示「全く別のディレクトリで起動して欲しい (Cc 以下の相談用のディレクトリ)」):
-  読み取り専用で担当プロジェクトを持たない部署は、本社・子会社とも会社ごとの相談用ディレクトリで起動する。
-  - 置き場所は `CONCORDIA_CONSULT_WORKSPACE_ROOT`、既定は Concordia 配下の `consult-workspaces/` (git 管理外)。
-    本社は `head-office/`、子会社は `<子会社 id>/`。
+- 作業ディレクトリ (2026-10-02 neco 指示「相談は役職ごとにディレクトリを分けてスキルやメモリを使い分ける。Castra のメモリや
+  ワークフローは引き継がない。相談で使用する環境のメモリは別途指定する。作業ディレクトリは E:/Document/Consult/役職ごとのフォルダとし、
+  データを Discord の個人 ID のフォルダを作って保存する」):
+  読み取り専用で担当プロジェクトを持たない部署は、本社・子会社とも役職ごとの作業ディレクトリで起動する。
+  - 置き場所は `CONCORDIA_CONSULT_WORKSPACE_ROOT`、既定は `E:/Document/Consult` (Concordia の 2 つ上の `Consult`)。
+    Castra (E:/Document/Ars) の外に置き、Castra の CLAUDE.md・スキル・hook を引き継がない。
+  - 役職フォルダは事前ヒアリングの役職から `engineer` / `planner` / `designer` / `sound` / `general` (読めない・未記入) に
+    読む (`src/consultation/consult-role.ts`)。モデル選び (下記) も同じ区分を使う。本社・子会社では分けない。
+  - 役職フォルダ自身の CLAUDE.md とスキル (`.claude/`) は役職ごとの使い分けのために読ませる。中身は人が置く。
+    相談で使う環境のメモリは別途指定する (自動メモリは使わない)。
+  - 相談者のデータは役職フォルダの下に Discord の個人 ID のフォルダ (`<役職>/<Discord ID>/`) を作って保存する。場所は起動 env
+    `CONCORDIA_CONSULT_DATA_DIR` で渡す。Discord 以外からの起動 (ID が無い) では作らない。
   - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければここで起動する (指定があればそれに従う)。
-    ツールは制限しない。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
+    ツールの制限と設定フォルダは子会社と同じ (2026-10-02 neco 指示「本社の相談も同じで」)。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
 - モデル (2026-10-02 neco 指示「エンジニアと企画の相談は Opus、デザイナーとサウンドの相談は Astra で起動。モデルとエフォートは
   自動 (medium)」「GLab も Astra」): 相談部署の起動で、要求がテンプレート・provider・モデルを明示していなければ、事前ヒアリングの
   役職から選ぶ。デザイナー・アート・サウンド → Astra (`astra-mid`、codex)、それ以外 (エンジニア・企画・不明) → Opus
   (`opus-5-5-movable`)。effort は medium。テンプレート名は `CONCORDIA_CONSULT_OPUS_TEMPLATE` / `CONCORDIA_CONSULT_ASTRA_TEMPLATE`
   で差し替えられる。部署フォーラムからの相談でもモデルを聞き返さない (`src/consultation/consult-model.ts`)。
-- 子会社の閉じ込め (CC-CONSULT-INV-07)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
+- 閉じ込め (CC-CONSULT-INV-07、本社・子会社とも)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
   起動する claude 本体で閉じる:
-  - cwd は子会社の相談用ディレクトリ。
-  - claude の引数 `--tools=WebSearch,TodoWrite --strict-mcp-config --disable-slash-commands`。Read・シェル・編集・
-    MCP・スキルを持たない。
+  - cwd は役職フォルダ。
+  - claude の引数 `--tools=WebSearch,TodoWrite,Skill --strict-mcp-config`。Read・シェル・編集・利用者の MCP を持たない。
+  - claude は相談専用の設定フォルダ (`<置き場所>/.claude-config`) を `CLAUDE_CONFIG_DIR` にして起動する。利用者の ~/.claude
+    (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読まず、スキルは役職フォルダ (`<役職>/.claude/skills`) のものだけを使う
+    (2026-10-02 neco 選択「設定を分けて使えるようにする」)。役職フォルダの信頼はその設定フォルダの `.claude.json` に Cc が書く
+    (Lictor の事前焼き込みは ~/.claude.json にしか書かないため)。ログイン情報もその設定フォルダに持つ。未ログインなら claude の
+    相談は 503 `projectless_consult_claude_login_required` (初回は人が `CLAUDE_CONFIG_DIR=<設定フォルダ> claude` でログインする)。
+    Lictor のフック (ハーネスのゲート) は `--settings` で渡るので、設定フォルダを分けても効く。
   - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_doc_max_bytes=0 -c mcp_servers={}`。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
     AGENTS.md・プラグイン・MCP も読ませない。画像を読む view_image はパスを指定すれば画像を読める余地が残る。
@@ -178,7 +191,8 @@
 - 子会社では公開候補 (`/consult wrap` と判断カード) を出さない。公開は本社の知見共有の面で、相談セッションはシェルも持たない。
 - 上位の CLAUDE.md と自動メモリは読ませない (CC-CONSULT-INV-08)。2026-10-02、相談用ディレクトリを Concordia 配下に移した
   直後に、Castra の CLAUDE.md (略称表) と Concordia の自動メモリが相談セッションに読み込まれ、回答に社内のプロジェクト名が
-  出た。相談用ディレクトリを用意するたびに `.claude/settings.local.json` を書き、起動 env でも自動メモリを止める。
+  出た。役職フォルダを用意するたびに `.claude/settings.local.json` を書き、上位のフォルダと相談者のデータフォルダの中の
+  CLAUDE.md / CLAUDE.local.md / AGENTS.md / `.claude/rules` を `claudeMdExcludes` で外す。起動 env でも自動メモリを止める。
 - 閲覧者は執行役員 (権限者の最低役職を executive に設定) で、案内文には列挙もメンションもしない (2026-10-02 neco 指示)。
 - 起動時の注入は初期だけ (部署設定 `startup_inject: initial-only`、departments.md §9.5)、出力は最終回答だけ
   (状態カード以外の `output.*` をすべて off、departments.md §9.4)。前提質問と状態カードは残る。
@@ -188,7 +202,7 @@
   上級: シニアとして扱う。`src/dialogue/skill-level.ts`)。
 - 残る露出: 起動時の共通資料案内 (Castra のパス名) はセッションに渡る (初期だけの部署では送らない)。
 
-状態所有者: 相談用ディレクトリの場所 = 起動設定 (admin spawn)。判定 = consultation (`src/consultation/projectless-consult.ts`)。
+状態所有者: 作業ディレクトリの場所 = 起動設定 (admin spawn)。役職の区分 = consultation (`src/consultation/consult-role.ts`)。判定 = consultation (`src/consultation/projectless-consult.ts`)。
 
 ## 7. 相談チャンネルの後始末
 

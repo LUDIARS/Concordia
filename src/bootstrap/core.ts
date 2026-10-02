@@ -12,7 +12,7 @@ import { inspectImplementationRepo } from "../implementation-tools/repo-context.
 
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
-import { basename, dirname, join, normalize } from "node:path";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
@@ -1912,10 +1912,11 @@ export async function startBackend(): Promise<BackendHandle> {
     useCaseCorrections: useCaseCorrectionsRepo,
     requesterProfiles: requesterProfilesRepo,
     consultationIntakes: consultationIntakesRepo,
-    // プロジェクトを持たない相談部署の作業ディレクトリ (tech-consultation.md §6)。 Concordia 配下に
-    // 会社ごとのディレクトリを置く (2026-10-02 neco 指示「Cc 以下の相談用のディレクトリ」)。
+    // プロジェクトを持たない相談部署の作業ディレクトリ (tech-consultation.md §6)。 役職ごとのフォルダを置く場所で、
+    // 既定は Castra (E:/Document/Ars) の外の E:/Document/Consult。 Castra のメモリやワークフローを引き継がない
+    // (2026-10-02 neco 指示)。 Concordia はワークスペース直下 (E:/Document/Ars/Concordia) で動くので 2 つ上に置く。
     consultWorkspaceRoot: process.env.CONCORDIA_CONSULT_WORKSPACE_ROOT?.trim()
-      || join(process.cwd(), "consult-workspaces"),
+      || resolve(process.cwd(), "..", "..", "Consult"),
     consultationPublications,
     privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,

@@ -34,6 +34,7 @@
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
 | CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。子会社ごとの空の相談用ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
 | CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない) | 相談用ディレクトリの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
+| CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
 | CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
 
 ## 3. 事前ヒアリング
@@ -180,7 +181,9 @@
   出た。相談用ディレクトリを用意するたびに `.claude/settings.local.json` を書き、起動 env でも自動メモリを止める。
 - 閲覧者は執行役員 (権限者の最低役職を executive に設定) で、案内文には列挙もメンションもしない (2026-10-02 neco 指示)。
 - 起動時の注入は初期だけ (部署設定 `startup_inject: initial-only`、departments.md §9.5)、出力は最終回答だけ
-  (`output.intermediate` / `inject_transcript` / `context_usage` を off、§9.4)。前提質問と状態カードは残る。
+  (状態カード以外の `output.*` をすべて off、departments.md §9.4)。前提質問と状態カードは残る。
+  **相談は FINAL ANSWER 以外を投稿しない** (CC-CONSULT-INV-10)。chat 経路の投稿・セッション情報カード・コスト報告・
+  終了時の `/session-end` 自動指示と #報告 への独白も出さない (2026-10-02 neco 指示)。
 - 説明の仕方は技術レベルに合わせる (初級: 小学五年生でわかるように専門用語なし / 中級: 専門用語可、シニアの話は噛み砕く /
   上級: シニアとして扱う。`src/dialogue/skill-level.ts`)。
 - 残る露出: 起動時の共通資料案内 (Castra のパス名) はセッションに渡る (初期だけの部署では送らない)。

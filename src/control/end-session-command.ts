@@ -21,6 +21,7 @@ import {
   pickSessionEndInjectText,
 } from "./auto-session-end-inject.js";
 import { runSessionEndFlow } from "./end-session-flow.js";
+import { sessionEndOutputEnabled } from "./session-end-output.js";
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "./session-end-process.js";
 
 export interface EndSessionCommandDeps {
@@ -60,9 +61,10 @@ export async function endSessionNow(
     return { session, report: deps.repo.findReport(session.id) };
   }
   const now = nowSec();
-  // fire-and-forget: Lictor WS が無い / failure でも report 生成は続行
+  // fire-and-forget: Lictor WS が無い / failure でも report 生成は続行。
+  // 部署の出力方針で止めたセッション (相談) には /session-end を送らない (session-end-output.ts)。
   try {
-    const injected = emitAutoSessionEndInject(session);
+    const injected = sessionEndOutputEnabled(session.id) && emitAutoSessionEndInject(session);
     if (injected) {
       deps.repo.appendEvent({
         session_id: session.id,

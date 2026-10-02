@@ -95,6 +95,7 @@ import { TeamsRepo } from "../db/teams-repo.js";
 import { DepartmentsRepo } from "../db/departments-repo.js";
 import { DepartmentService } from "../departments/service.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
+import { setSessionEndOutputResolver } from "../control/session-end-output.js";
 import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
 import { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
@@ -633,6 +634,14 @@ export async function startBackend(): Promise<BackendHandle> {
   const teamsRepo = new TeamsRepo(db);
   // 部署 (spec/feature/departments.md)。 部署行を書くのは DepartmentService だけ。
   const departmentsRepo = new DepartmentsRepo(db);
+  // 終了時の /session-end 自動指示と独白を部署の出力方針で止める (相談、 departments.md §9.4)。
+  setSessionEndOutputResolver((sessionId) => isOutputEnabled(
+    resolveSessionOutputMode({
+      sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
+      departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
+    }, sessionId, "session_end_report"),
+    true,
+  ));
   // 対話の前提データ (spec/feature/dialogue-context.md)。
   const useCasesRepo = new UseCasesRepo(db);
   const useCaseService = new UseCaseService({ repo: useCasesRepo });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionReportRow, SessionRow } from "../shared/types.js";
 import { SESSION_END_PENDING_AT_KEY } from "./session-end-process.js";
+import { setSessionEndOutputResolver } from "./session-end-output.js";
 
 vi.mock("./end-session-flow.js", () => ({
   runSessionEndFlow: vi.fn(async () => ({ report: null })),
@@ -82,5 +83,28 @@ describe("endSessionNow", () => {
     );
 
     expect(repo.mergeMetadata).not.toHaveBeenCalled();
+  });
+
+  it("部署の出力方針で止めたセッション (相談) には /session-end を自動で送らない", async () => {
+    const run = async (enabled: boolean) => {
+      const session = { id: "s-consult", status: "active", provider: "claude", metadata: null, started_at: 0 } as unknown as SessionRow;
+      const repo = {
+        findSession: vi.fn(() => session),
+        findReport: vi.fn(() => null),
+        mergeMetadata: vi.fn(),
+        setStatus: vi.fn(),
+        appendEvent: vi.fn(),
+        allEvents: vi.fn(() => []),
+      };
+      setSessionEndOutputResolver(() => enabled);
+      try {
+        await endSessionNow({ repo } as unknown as EndSessionCommandDeps, session, "test", () => 1000);
+      } finally {
+        setSessionEndOutputResolver(null);
+      }
+      return repo.appendEvent.mock.calls.map(([event]) => (event as { kind: string }).kind);
+    };
+    expect(await run(false)).toEqual(["end"]);
+    expect(await run(true)).toEqual(["inject", "end"]);
   });
 });

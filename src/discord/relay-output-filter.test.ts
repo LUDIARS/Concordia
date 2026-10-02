@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldRelaySessionMessage } from "./relay-output-filter.js";
+import { shouldRelaySessionChatPost, shouldRelaySessionMessage } from "./relay-output-filter.js";
 
 const all = { intermediate: true, injectTranscript: true };
 const consult = { intermediate: false, injectTranscript: false };
@@ -25,5 +25,10 @@ describe("shouldRelaySessionMessage", () => {
     expect(shouldRelaySessionMessage({ author_type: "delegation" }, policy)).toBe(false);
     expect(shouldRelaySessionMessage({ author_type: "system" }, policy)).toBe(false);
     expect(shouldRelaySessionMessage({ author_type: "assistant" }, policy)).toBe(true);
+  });
+
+  it("途中の発言を止めた方針では chat 経路の投稿 (独白・圧縮の通知など) を一切流さない", () => {
+    expect(shouldRelaySessionChatPost(consult)).toBe(false);
+    expect(shouldRelaySessionChatPost(all)).toBe(true);
   });
 });

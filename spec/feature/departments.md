@@ -236,9 +236,14 @@ slug は会社ごとに一意 (本社と子会社で同じ slug を使える)。
 | `intermediate` | 指示 1 回ごとの最後の発言 (最終回答・会話の要約) 以外の途中の発言 (2026-10-02 追加) |
 | `inject_transcript` | Cc が送った指令の転記 (task / delegation / system、起動時のタスク本文・起動コンテキスト) |
 | `context_usage` | コンテキストの使用量 (サイズ) の表示 |
+| `session_end_report` | 終了時の `/session-end` の自動指示と #報告 への独白 (全体設定は無く、inherit は出す。2026-10-02 追加) |
 
-前提質問 (question) と状態カードはこの方針の外で、常に投稿する。技術相談課は `intermediate` / `inject_transcript` /
-`context_usage` を off にする (「FINAL ANSWER のみ」「Inject 指令は非表示」「コンテキストサイズも不要」、2026-10-02 neco 指示)。
+前提質問 (question) と状態カードはこの方針の外で、常に投稿する。技術相談課は状態カード以外をすべて off にする
+(「FINAL ANSWER のみ」「Inject 指令は非表示」「コンテキストサイズも不要」「/session-end 的なのは投稿しなくて良い」、2026-10-02 neco 指示)。
+
+`intermediate` を off にしたセッションは、chat 経路の投稿 (lictor chat・圧縮の通知・終了の独白など) も流さない。
+FINAL ANSWER は session.message で届くので、chat 経路はすべて途中の発言として扱う。#報告 などのメタチャンネル宛ても止める
+(非公開の相談の中身がそこへ漏れないように)。
 
 ### 9.5 起動時の注入
 

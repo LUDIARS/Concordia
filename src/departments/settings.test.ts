@@ -7,7 +7,7 @@ describe("DepartmentSettingsSchema", () => {
       launch: {},
       projects: [],
       output: { thinking: "inherit", status_card: "inherit", session_info_card: "inherit", cost_report: "inherit",
-        intermediate: "inherit", inject_transcript: "inherit", context_usage: "inherit" },
+        intermediate: "inherit", inject_transcript: "inherit", context_usage: "inherit", session_end_report: "inherit" },
       private: { enabled: false, approver_min_role: "manager" },
       startup_inject: "full",
     });

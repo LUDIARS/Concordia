@@ -11,7 +11,12 @@ import type { WebhookPool } from "./webhook-pool.js";
 import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import { buildAttachFiles, DISCORD_ATTACH_MAX_BYTES } from "./attachment-files.js";
-import { isFinalAnswerMessage, shouldRelaySessionMessage, type RelayOutputPolicy } from "./relay-output-filter.js";
+import {
+  isFinalAnswerMessage,
+  shouldRelaySessionChatPost,
+  shouldRelaySessionMessage,
+  type RelayOutputPolicy,
+} from "./relay-output-filter.js";
 
 const BASE64_BYTES_PER_QUARTET = 3;
 const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
@@ -80,6 +85,9 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const chatMeta = row.metadata;
   if (chatMeta.source === "discord") return;
   const sessionId = row.sessionId;
+  // 部署の出力方針で途中の発言を止めたセッション (相談) は、 chat 経路の投稿を一切流さない。
+  const chatPolicy = sessionId ? deps.relayOutputPolicy?.(sessionId) : undefined;
+  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy)) return;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
   const session = sessionId ? deps.readModel.getSessionRelayState(sessionId) : null;
   if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) {

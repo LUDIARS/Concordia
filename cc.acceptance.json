@@ -3399,6 +3399,28 @@
       "contracts": []
     },
     {
+      "source": "src/control/session-end-output.ts",
+      "tests": [
+        "src/control/end-session-command.test.ts",
+        "tests/end-session-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/end-session-command.ts",
+      "tests": [
+        "src/control/end-session-command.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/end-session-flow.ts",
+      "tests": [
+        "tests/end-session-flow.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/consultation/closure-policy.ts",
       "tests": [
         "src/consultation/closure-policy.test.ts",

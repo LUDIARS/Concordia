@@ -42,3 +42,12 @@ export function shouldRelaySessionMessage(message: RelayableMessage, policy: Rel
   if (!policy.intermediate && !isFinalAnswerMessage(message)) return false;
   return true;
 }
+
+/**
+ * セッションが chat 経路 (lictor chat・圧縮の通知・終了の独白など) で出す投稿を流すか。
+ * FINAL ANSWER は session.message で届くので、 chat 経路の投稿はすべて途中の発言として扱う。
+ * #報告 などのメタチャンネル宛ても止める (非公開の相談の中身がそこへ漏れないように)。
+ */
+export function shouldRelaySessionChatPost(policy: RelayOutputPolicy): boolean {
+  return policy.intermediate;
+}

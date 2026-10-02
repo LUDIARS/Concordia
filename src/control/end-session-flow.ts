@@ -42,6 +42,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
 import { lastHumanRequester } from "./requester.js";
+import { sessionEndOutputEnabled } from "./session-end-output.js";
 import type { SummaryFlags } from "../report/summary-flags.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
@@ -211,9 +212,10 @@ export async function generateAndPostReport(
     );
   }
 
-  // 4. 独白を #報告 channel に投稿 (report が生成できた時だけ)
+  // 4. 独白を #報告 channel に投稿 (report が生成できた時だけ)。 部署の出力方針で止めたセッション
+  //    (相談) は投稿しない。 report 自体は残す (session-end-output.ts)。
   let postedMessageId: number | null = null;
-  if (report) {
+  if (report && sessionEndOutputEnabled(id)) {
     const monologue = extractMonologue(report.summary_md);
     if (monologue) {
       try {

@@ -13,6 +13,7 @@ import { ChatRepo } from "../src/db/chat-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
 import { runSessionEndFlow, generateAndPostReport, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
+import { setSessionEndOutputResolver } from "../src/control/session-end-output.js";
 import { makeTestDb } from "./helpers/db.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
 import type { ProviderName, SessionEventRow, SessionReportRow } from "../src/shared/types.js";
@@ -127,6 +128,21 @@ describe("runSessionEndFlow", () => {
     const posted = events.find((ev) => ev.type === "chat.posted" && ev.message_id === m!.id);
     expect(posted).toMatchObject({ type: "chat.posted", session_id: "s2" });
     expect(m!.channel).toBe("報告");
+  });
+
+  it("部署の出力方針で止めたセッション (相談) は独白を #報告 に投稿しない (report は残す)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s-consult", now);
+    setSessionEndOutputResolver((id) => id !== "s-consult");
+    try {
+      const result = await generateAndPostReport(env, ended);
+      expect(result.report).not.toBeNull();
+      expect(result.postedMessageId).toBeNull();
+    } finally {
+      setSessionEndOutputResolver(null);
+    }
+    expect(env.chat.list({ channel: "報告", limit: 10 }).some((m) => m.session_id === "s-consult")).toBe(false);
+    expect(env.repo.findReport("s-consult")).not.toBeNull();
   });
 
   it("codex-sdk は usageFrames 経由で transcript frame から usage をレポートに載せる", async () => {

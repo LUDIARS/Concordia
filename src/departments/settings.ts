@@ -42,6 +42,11 @@ const OutputPolicySchema = z.object({
   inject_transcript: OutputModeSchema.default("inherit"),
   /** コンテキストの使用量 (サイズ) の表示。 */
   context_usage: OutputModeSchema.default("inherit"),
+  /**
+   * セッション終了時の /session-end の自動指示と、 #報告 への独白 (2026-10-02 neco 指示、 相談はクローズしないので出さない)。
+   * 全体設定は無く、 inherit は出す。
+   */
+  session_end_report: OutputModeSchema.default("inherit"),
 }).strict();
 
 /**
@@ -109,6 +114,7 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
   intermediate: "inherit",
   inject_transcript: "inherit",
   context_usage: "inherit",
+  session_end_report: "inherit",
 };
 
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {

@@ -14,9 +14,6 @@
       "pathPattern": "(^|/)src/library/[^/]+$"
     },
     {
-      "pathPattern": "(^|/)src/model-catalog/[^/]+$"
-    },
-    {
       "pathPattern": "(^|/)src/model-review/[^/]+$"
     }
   ],

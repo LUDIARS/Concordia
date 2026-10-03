@@ -68,6 +68,8 @@ export function inquiryRouter(deps: {
       source: "auto:inquiry",
     })) return false;
     const ts = now();
+    if (!eventBus.canDeliverInject({type:"session.inject",target_session_id:record.session_id,
+      text:record.instruction,source:"auto:inquiry",ts})) return false;
     eventBus.emit({
       type: "session.inject",
       target_session_id: record.session_id,

@@ -145,6 +145,9 @@ import type { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { privateChannelsRouter } from "./private-channels.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
+import type { ModelRoleRepo } from "../db/model-role-repo.js";
+import type { ResidentSidecarPorts } from "../delegation/sidecar/resident-service.js";
+import { ASTRA_WITH_SIDECAR_PROFILE } from "../delegation/sidecar/profile.js";
 import { subsidiaryRouter } from "./subsidiary.js";
 import type { SubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -319,6 +322,8 @@ export interface CoreDelegationDeps {
   /** delegation 実行キュー (同時実行上限 + 待ち行列)。 未注入なら /v1/delegation/queue は 503。 */
   delegationQueue?: DelegationQueue;
   modelCatalog: ModelCatalogRepo;
+  modelRoles?: ModelRoleRepo;
+  residentSidecars?: ResidentSidecarPorts;
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
@@ -721,6 +726,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }));
   }
   app.route("/v1/delegation", delegationRouter({
+    residents:deps.residentSidecars,
     sidecar: sidecarRecords
       ? {
           findSession: (sessionId) => deps.repo.findSession(sessionId),
@@ -728,6 +734,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           listRunsByParentSession: (sessionId) => deps.delegation.listRunsByParentSession(sessionId, 500),
           records: sidecarRecords,
           now: () => Date.now(),
+          resolveChildSpec: () => {
+            const template = deps.delegation.findTemplateByCallName("sol-mid");
+            const role = deps.modelRoles?.find("codex","sol");
+            return { ...ASTRA_WITH_SIDECAR_PROFILE.child,model:template?.model ?? role?.modelId ?? ASTRA_WITH_SIDECAR_PROFILE.child.model };
+          },
         }
       : undefined,
     repo: deps.delegation,
@@ -752,7 +763,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     syncForumTags: deps.syncDiscordForumTags,
     hasPendingQuestion,
   }));
-  app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
+  app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog,roles:deps.modelRoles }));
   app.route("/v1/inquiry", inquiryRouter({
     sessions: deps.repo,
     config: deps.config,

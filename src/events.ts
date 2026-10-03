@@ -305,7 +305,17 @@ type Listener = (ev: ConcordiaEvent) => void;
 
 class EventBus {
   private listeners = new Set<Listener>();
+  private injectGates = new Set<(event: Extract<ConcordiaEvent,{type:"session.inject"}>) => boolean>();
 
+  registerInjectGate(gate: (event: Extract<ConcordiaEvent,{type:"session.inject"}>) => boolean): () => void {
+    this.injectGates.add(gate);
+    return () => { this.injectGates.delete(gate); };
+  }
+
+  canDeliverInject(ev:Extract<ConcordiaEvent,{type:"session.inject"}>):boolean {
+    for(const gate of this.injectGates) if(!gate(ev)) return false;
+    return true;
+  }
   emit(ev: ConcordiaEvent): void {
     for (const l of this.listeners) {
       try { l(ev); } catch { /* swallow */ }

@@ -22,8 +22,8 @@
  *     セッションへ同じ確認を積み上げても transcript を汚すだけで復帰しないため。
  *     Cc 再起動で in-memory の nudge 記録が消えた場合は、 transcript 末尾が
  *     「未応答の自動確認」 のままかどうかで同じ抑止を効かせる。
- *   - 上記は候補を絞るための判定。実際の再送は human-response-confirmation の永続状態で
- *     止め、人間の入力があるまで解除しない。assistant/tool による更新では再送しない。
+ *   - nudge 配達は独立した永続記録で抑止する。AI活動または子/審査の進行で再評価する。
+ *     真正の人間回答待ちは human-wait / 質問 / 対人確認の状態所有者で保護する。
  *
  * 意図的に人間判断を仰いで止まっているセッションは除外する — そこへ「続行しろ」 と
  * 被せると人間の判断停止を踏み潰すため。待ちの signal は 2 系統あり、 どちらでも除外する:
@@ -43,7 +43,9 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
-import { claimHumanResponseConfirmation } from "./human-response-confirmation.js";
+import { isWaitingForHumanResponse } from "./human-response-confirmation.js";
+import { claimNudgeDelivery,readNudgeProgress } from "./nudge-delivery.js";
+import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { isHumanWaitActive } from "./human-wait.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
@@ -322,9 +324,12 @@ export function startStalledSessionNudge(
 
     const nudged: string[] = [];
     for (const s of active) {
+      if (readResidentMarker(s.metadata)) continue; // Resident work is watched by its current run; idle is intentional.
       if (opts.isAutoCheckDisabled?.(s)) continue;
       const mtime = await mtimeOf(s);
       if (mtime == null) continue; // transcript 不明 (idle 計測不能) はスキップ。
+      const progressMs = readNudgeProgress(s.metadata);
+      if (progressMs > (lastNudge.get(s.id) ?? 0)) lastNudge.delete(s.id);
       const idleMs = nowMs - mtime;
       // 安い判定 (idle / cooldown) を先に。 awaiting は transcript 読みが要るので候補だけ評価。
       if (
@@ -356,7 +361,7 @@ export function startStalledSessionNudge(
       // 前回の自動確認が transcript 末尾に未応答のまま残っている = 反応が無い。
       // in-memory の lastNudge が消えていて (Cc 再起動後など) mtime ゲートを
       // 素通りした場合も、 ここで再確認を止める。
-      if (isUnansweredNudge(tail)) {
+      if (isUnansweredNudge(tail) && progressMs <= mtime) {
         log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
@@ -369,9 +374,8 @@ export function startStalledSessionNudge(
         || latest.branch !== s.branch || latest.target_project !== s.target_project
         || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
         || latest.current_task !== s.current_task) continue;
-      // A transcript update can be an AI reply to our own nudge. Keep waiting until
-      // an explicit human response reopens the durable confirmation gate.
-      if (!claimHumanResponseConfirmation(opts.repo, s.id)) continue;
+      if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
+      if (!claimNudgeDelivery(opts.repo,s.id,mtime,nowMs)) continue;
       lastNudge.set(s.id, nowMs);
       eventBus.emit({
         type: "session.inject",

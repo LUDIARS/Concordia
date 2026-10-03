@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 125;
+export const SCHEMA_VERSION = 126;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -857,6 +857,7 @@ const STATEMENTS = [
      ON cost_one_shot_calls(ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_cost_one_shot_calls_service
      ON cost_one_shot_calls(service, ts DESC)`,
+
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.
@@ -3164,6 +3165,46 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_by TEXT,
         updated_at INTEGER NOT NULL
       );
+    `);
+  },
+},
+{
+  version: 126,
+  name: "resident-sidecars-model-roles",
+  source: "resident_sidecars resident_sidecar_requests model_role_snapshots model_role_history model_refresh_days delegation_model_following v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS resident_sidecars (
+        id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, generation TEXT NOT NULL UNIQUE,
+        repo_path TEXT NOT NULL, organization TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('starting','busy','idle','closing','closed')),
+        child_session_id TEXT, current_run_id TEXT, branch TEXT NOT NULL, close_reason TEXT, created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS resident_sidecar_live_parent ON resident_sidecars(parent_id) WHERE state!='closed';
+      CREATE TABLE IF NOT EXISTS resident_sidecar_requests (
+        parent_id TEXT NOT NULL, request_key TEXT NOT NULL, child_id TEXT NOT NULL, generation TEXT NOT NULL,
+        run_id TEXT NOT NULL UNIQUE, delivery TEXT NOT NULL CHECK(delivery IN ('prepared','delivered','unknown','result','failed')),reason TEXT,
+        PRIMARY KEY(parent_id,request_key)
+      );
+      CREATE TABLE IF NOT EXISTS model_role_snapshots (
+        provider TEXT NOT NULL, role TEXT NOT NULL, revision TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+        PRIMARY KEY(provider,role)
+      );
+      CREATE TABLE IF NOT EXISTS model_role_history (
+        provider TEXT NOT NULL, role TEXT NOT NULL, revision TEXT NOT NULL, before_json TEXT NOT NULL,
+        after_json TEXT NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL,
+        PRIMARY KEY(provider,role,revision)
+      );
+      CREATE TABLE IF NOT EXISTS model_refresh_days (
+        day TEXT PRIMARY KEY, status TEXT NOT NULL, owner TEXT NOT NULL, lease_until INTEGER NOT NULL,
+        attempts INTEGER NOT NULL, reason TEXT
+      );
+      CREATE TABLE IF NOT EXISTS delegation_model_following (
+        template_id TEXT PRIMARY KEY, role TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO delegation_model_following(template_id,role)
+        SELECT id,'sol' FROM delegation_templates WHERE call_name IN ('sol-mid','sol-xhigh')
+        AND target_provider='codex' AND model IN ('gpt-6-sol','gpt-6.1-sol');
     `);
   },
 },

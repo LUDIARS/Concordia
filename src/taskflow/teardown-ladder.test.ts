@@ -2,10 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { readTeardownLadder, scheduleTeardownLadder, startTeardownLadderWatch } from "./teardown-ladder.js";
 
 describe("teardown ladder", () => {
+  it("does not schedule a completed request or a stale owner against a resident", () => {
+    const marker = {id:"resident",generation:"g",parentId:"p"};
+    const row = {id:"s",provider:"codex-cli",status:"active",metadata:JSON.stringify({cc_resident_child:marker})} as any;
+    const latest = {...row,metadata:JSON.stringify({cc_resident_child:{...marker,parentId:"other"}})};
+    const repo = {findSession:()=>latest,appendEvent:vi.fn(),mergeMetadata:vi.fn()} as any;
+    expect(scheduleTeardownLadder(repo,row,"completed-run",10)).toBe(false);
+    expect(scheduleTeardownLadder(repo,row,"resident:g",10)).toBe(false);
+    expect(repo.appendEvent).not.toHaveBeenCalled();
+  });
   it("schedules exactly once per run", () => {
     let metadata = "{}";
     const row = { id: "s1", provider: "codex-cli", status: "active", metadata } as any;
     const repo = {
+      findSession: () => row,
       appendEvent: vi.fn(),
       mergeMetadata: vi.fn((_id, patch) => { metadata = JSON.stringify(patch); row.metadata = metadata; }),
     } as any;
@@ -19,6 +29,7 @@ describe("teardown ladder", () => {
     let now = 0;
     const row = { id: "s1", provider: "codex-cli", status: "active", metadata: "{}" } as any;
     const repo = {
+      findSession: () => row,
       appendEvent: vi.fn(),
       mergeMetadata: vi.fn((_id, patch) => { row.metadata = JSON.stringify({ ...JSON.parse(row.metadata), ...patch }); }),
       listSessions: vi.fn(() => [row]),

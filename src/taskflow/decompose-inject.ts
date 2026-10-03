@@ -59,8 +59,13 @@ export async function injectDecompositionWhenMissing(input: {
     sessionId: target,
     source: `taskflow:${input.run.id}:decompose`,
   })) return false;
+  const event = { type:"session.inject",target_session_id:target,text:DECOMPOSE_PROMPT,
+    source:`taskflow:${input.run.id}:decompose`,ts:Math.floor(Date.now()/1000) } as const;
+  // Do not claim durable delivery when the current human/resident gate refuses.
+  // No awaits between this check, record and emit; WS repeats the latest check.
+  if (!eventBus.canDeliverInject(event)) return false;
   injectedRuns.add(input.run.id);
   input.sessions.appendEvent({ session_id: target, ts: Math.floor(Date.now() / 1000), kind: "inject", payload: { text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose` } });
-  eventBus.emit({ type: "session.inject", target_session_id: target, text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose`, ts: Math.floor(Date.now() / 1000) });
+  eventBus.emit(event);
   return true;
 }

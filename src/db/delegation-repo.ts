@@ -507,6 +507,20 @@ export class DelegationRepo {
   }
 
   // ── runs ──────────────────────────────────────────────────
+  followRoleModels(before: {provider:string;role:string;modelId:string},next: {modelId:string}): void {
+    if (before.provider !== "codex" || before.role !== "sol") return;
+    this.db.prepare("UPDATE delegation_templates SET model=? WHERE id IN (SELECT template_id FROM delegation_model_following WHERE role='sol') AND target_provider='codex' AND model=?")
+      .run(next.modelId,before.modelId);
+  }
+  isModelFollowing(templateId: string): boolean {
+    return !!this.db.prepare("SELECT template_id FROM delegation_model_following WHERE template_id=?").get(templateId);
+  }
+  pinTemplateModel(templateId: string): void {
+    this.db.prepare("DELETE FROM delegation_model_following WHERE template_id=?").run(templateId);
+  }
+  trackTemplateModel(templateId: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO delegation_model_following(template_id,role) VALUES(?,'sol')").run(templateId);
+  }
 
   createRun(input: CreateRunInput): DelegationRunRow {
     const id = input.id ?? randomUUID();
@@ -943,6 +957,11 @@ export class DelegationRepo {
     return this.findRun(runId);
   }
 
+  /** Reuse the verified workspace for a new resident request, never a terminal run ID. */
+  reuseRunWorkspace(runId:string,original:DelegationRunRow): void {
+    this.db.prepare("UPDATE delegation_runs SET spawn_cwd=?,spawn_branch=?,spawn_worktree_path=?,effective_model=? WHERE id=? AND status='running'")
+      .run(original.spawn_cwd,original.spawn_branch,original.spawn_worktree_path,original.effective_model,runId);
+  }
   updateRunStatus(
     runId: string,
     status: DelegationRunRow["status"],

@@ -4,13 +4,24 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
-  it("upgrades an existing Sol delegation without replacing its identity or edited prompt", () => {
+  it("follows a declared default and retains a manual same-ID pin", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    const old = repo.createTemplate({call_name:"sol-mid",title:"Sol",target_provider:"codex",model:"gpt-6-sol",prompt_template:"custom"});
+    repo.trackTemplateModel(old.id);
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplate(old.id)?.model).toBe("gpt-6.1-sol");
+    repo.pinTemplateModel(old.id);
+    repo.updateTemplate(old.id,{model:"gpt-6-sol"});
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplate(old.id)?.model).toBe("gpt-6-sol");
+  });
+  it("preserves an explicitly selected Sol model and edited prompt", () => {
     const repo = new DelegationRepo(makeTestDb());
     const old = repo.createTemplate({ call_name: "sol-mid", title: "Sol", target_provider: "codex", model: "gpt-5.6-sol", prompt_template: "original" });
     repo.updateTemplate(old.id, { prompt_template: "operator instructions" });
     seedDelegationTemplates(repo);
     seedDelegationTemplates(repo);
-    expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({ id: old.id, model: "gpt-6-sol", prompt_template: "operator instructions" });
+    expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({ id: old.id, model: "gpt-5.6-sol", prompt_template: "operator instructions" });
     expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("gpt-6-sol");
   });
 
@@ -435,14 +446,14 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
     expect(repo.findTemplateByCallName("opus-5-5-movable")).toMatchObject({

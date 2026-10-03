@@ -8,6 +8,7 @@
  * @implements spec/feature/astra-with-sidecar.md §モデル選択と委任契約
  */
 
+import { initialRoleModel } from "../../model-catalog/role-policy.js";
 export const ASTRA_WITH_SIDECAR_CALL_NAME = "astra-with-sidecar";
 export const ASTRA_WITH_SIDECAR_TITLE = "Astra With Sidecar";
 
@@ -20,7 +21,7 @@ export interface SidecarModelSpec {
 
 export const ASTRA_WITH_SIDECAR_PROFILE = {
   parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: "gpt-6-astra", effort: "medium" },
-  child: { call_name: "sol-mid", provider: "codex", model: "gpt-6-sol", effort: "medium" },
+  child: { call_name: "sol-mid", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
   /** 初期同時実行数。親子の同じファイルへの同時編集を避けるため 1 から始める。 */
   maxConcurrentChildren: 1,
   /** 同じ依頼 (task_reference + request_version) を子へ出し直せる回数の上限。 */

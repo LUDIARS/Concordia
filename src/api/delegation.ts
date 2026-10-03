@@ -61,7 +61,12 @@ import { continuationAnswerContext } from "../delegation/continuation-answers.js
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import { guardSidecarInvoke, recordSidecarLaunch, type SidecarInvokeGuardPorts } from "../delegation/sidecar/invoke-guard.js";
 import { reviewSidecarReturn } from "../delegation/sidecar/return-contract.js";
-import { isSidecarParentMetadata } from "../delegation/sidecar/profile.js";
+import { ASTRA_WITH_SIDECAR_PROFILE, isSidecarParentMetadata } from "../delegation/sidecar/profile.js";
+import { parseSidecarPacket,sidecarRequestKey } from "../delegation/sidecar/packet.js";
+import { continueResidentSidecar,prepareResidentChild,type ResidentSidecarPorts } from "../delegation/sidecar/resident-service.js";
+import { reconcileResidentSidecars,closeResidentSidecar } from "../delegation/sidecar/resident-runtime.js";
+import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 const statusLogger = createChildLogger("delegation-status");
@@ -215,6 +220,7 @@ const AcceptanceReportSchema = z.object({
   note: z.string().max(4000).optional(),
 });
 const StatusSchema = z.object({
+  resident_generation: z.string().min(1).max(200).optional(),
   status: z.enum(["running", "completed", "partial", "failed"]),
   detail: z.string().max(4000).optional(),
   result: z.string().max(4000).optional(),
@@ -264,6 +270,7 @@ const RunCommitSchema = z.object({
 });
 
 export interface DelegationApiDeps {
+  residents?: ResidentSidecarPorts;
   answeredQuestions?: Pick<DiscordPendingQuestionsRepo, "listAnsweredBySession">;
   repo: DelegationRepo;
   service: DelegationService;
@@ -307,6 +314,19 @@ const QueueSettingsSchema = z.object({
 
 export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
+  app.get("/sidecar/residents/:parent",(c) => {
+    const child = deps.residents?.residents.findByParent(c.req.param("parent"));
+    return child ? c.json(child) : c.json({error:"resident_not_found"},404);
+  });
+  app.post("/sidecar/residents/:parent/close",async (c) => {
+    const body = z.object({ generation:z.string().min(1) }).strict().safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({error:"invalid_body"},400);
+    const child = deps.residents?.residents.findByParent(c.req.param("parent"));
+    if (!child || !deps.residents) return c.json({error:"resident_not_found"},404);
+    if (body.data.generation !== child.generation) return c.json({error:"generation_conflict"},409);
+    closeResidentSidecar(deps.residents,child,"explicit_stop");
+    return c.json({ok:true,state:"closing"},202);
+  });
   app.route("/internal-agent-selection", internalAgentSelectionRouter(deps.repo));
 
   function invalidateTemplates(
@@ -651,6 +671,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     let row: ReturnType<DelegationRepo["updateTemplate"]>;
     try {
       row = deps.repo.updateTemplate(id, parsed.data);
+      if (parsed.data.model !== undefined) deps.repo.pinTemplateModel(id);
     } catch (error) {
       if ((error as Error).message === REVIEW_ONLY_UNFINISHED_RUN_ERROR) {
         return c.json({ error: REVIEW_ONLY_UNFINISHED_RUN_ERROR }, 409);
@@ -685,10 +706,28 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const parentSessionId = resolveParentSessionId(c.req, parsed.data.parent_session_id);
+    const residentParent = parentSessionId ? deps.sessions?.findSession(parentSessionId) : null;
+    const isResident = residentParent && isSidecarParentMetadata(residentParent.metadata);
+    if (isResident && deps.residents) {
+      const packet = parseSidecarPacket(parsed.data.args.sidecar_packet);
+      if (!packet.ok) return c.json({ error:"sidecar_packet_invalid",issues:packet.issues },400);
+      const organization = readSubsidiaryId(residentParent.metadata) ?? "";
+      if ((parsed.data.subsidiary_id ?? "") !== organization) return c.json({ error:"resident_organization_mismatch" },409);
+      reconcileResidentSidecars(deps.residents);
+      const previous = deps.residents.residents.receipt(residentParent.id,sidecarRequestKey(packet.packet));
+      if (previous) return c.json({ ok:true,resident:true,receipt:previous,run:deps.repo.findRun(previous.run_id) },202);
+    }
     if (deps.sidecar) {
       // Astra With Sidecar の親は、親の contract (model/effort/branch) を子へ持ち込まず、
       // profile と委任パケットで起動入力を固定する。 通常の親はこの分岐を通らない。
-      const guarded = guardSidecarInvoke(deps.sidecar, {
+      const existingResident = isResident ? deps.residents?.residents.findByParent(residentParent.id) : null;
+      const guardPorts = existingResident ? { ...deps.sidecar,
+        resolveChildSpec:() => ({ ...(deps.sidecar?.resolveChildSpec?.() ?? ASTRA_WITH_SIDECAR_PROFILE.child),model:existingResident.model }),
+        findTemplateByCallName:(callName:string) => {
+          const template = deps.sidecar!.findTemplateByCallName(callName);
+          return template ? {...template,model:existingResident.model} : null;
+        } } : deps.sidecar;
+      const guarded = guardSidecarInvoke(guardPorts, {
         call_name: parsed.data.call_name,
         args: parsed.data.args,
         parent_session_id: parentSessionId,
@@ -706,14 +745,43 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         }, guarded.status);
       }
       if (guarded.kind === "allow") {
-        const sidecarResult = await deps.service.invoke(guarded.input);
+        if (existingResident && deps.residents) {
+          try {
+            const receipt = await continueResidentSidecar(deps.residents,{ parentId:residentParent!.id,
+              packet:guarded.packet,organization:readSubsidiaryId(residentParent!.metadata) ?? "",invocation:guarded.input });
+            if (receipt) {
+              recordSidecarLaunch(deps.sidecar,{parentSessionId:residentParent!.id,requestKey:guarded.requestKey,runId:receipt.run_id,error:null});
+              emitDelegationRunChanged(deps.repo.findRun(receipt.run_id));
+              return c.json({ok:true,resident:true,receipt,run:deps.repo.findRun(receipt.run_id)},202);
+            }
+          } catch (error) { return c.json({error:error instanceof Error ? error.message : "resident_followup_failed"},409); }
+        }
+        let reserved: ReturnType<typeof prepareResidentChild> | null = null;
+        if (isResident && deps.residents) {
+          try { reserved = prepareResidentChild(deps.residents,{ parentId:residentParent.id,packet:guarded.packet,
+            organization:readSubsidiaryId(residentParent.metadata) ?? "",model:guarded.input.overrides!.model! }); }
+          catch (error) { return c.json({ error:error instanceof Error ? error.message : "resident_reservation_failed" },409); }
+        }
+        const sidecarResult = await deps.service.invoke({ ...guarded.input,
+          ...(reserved ? { reserved_run_id:reserved.receipt.run_id,
+            extra_prompt:`Resident child generation ${reserved.child.generation}: report this run, then remain available; do not end the session after reporting.` } : {}) });
         recordSidecarLaunch(deps.sidecar, {
           parentSessionId: parentSessionId!,
           requestKey: guarded.requestKey,
           runId: sidecarResult.ok ? sidecarResult.run.id : null,
           error: sidecarResult.ok ? null : sidecarResult.error,
         });
-        if (!sidecarResult.ok) return c.json({ error: sidecarResult.error, detail: sidecarResult.details }, 400);
+        if (!sidecarResult.ok) {
+          // Service errors before launch are definitive; a returned run may carry
+          // an uncertain spawn outcome and remains reserved for reconciliation.
+          if (reserved && deps.residents && !deps.repo.findRun(reserved.receipt.run_id))
+          {
+            deps.residents.residents.close(reserved.child.id,reserved.child.generation,true,`validation_failed:${sidecarResult.error}`);
+            deps.residents.residents.failRequest(reserved.receipt.parent_id,reserved.receipt.request_key,sidecarResult.error);
+          }
+          return c.json({ error: sidecarResult.error, detail: sidecarResult.details }, 400);
+        }
+        if (reserved && deps.residents) reconcileResidentSidecars(deps.residents);
         emitDelegationRunChanged(sidecarResult.run);
         return c.json({
           ...serializeInvokeResult(sidecarResult),
@@ -800,6 +868,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = StatusSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const resident = row.parent_session_id ? deps.residents?.residents.findByParent(row.parent_session_id) : null;
+    if (resident && resident.current_run_id === row.id
+      && parsed.data.resident_generation !== undefined && parsed.data.resident_generation !== resident.generation) {
+      return c.json({error:"resident_generation_mismatch"},409);
+    }
     const status = normalizeDelegationStatus(parsed.data.status);
     if (!status) return c.json({ error: "invalid_status" }, 400);
     const parentMetadata = row.parent_session_id ? deps.sidecar?.findSession(row.parent_session_id)?.metadata ?? null : null;
@@ -872,7 +945,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       : parsed.data.remaining ?? [];
     const workRemaining = effectiveRemaining.filter((item) => !isWaitRemaining(item));
     const isPartial = workRemaining.length > 0;
-    const continuation = isPartial ? readRunContinuation(deps.sessions, row.child_session_id) : "requeue";
+    const residentMarker = readResidentMarker(row.child_session_id ? deps.sessions?.findSession(row.child_session_id)?.metadata ?? null : null);
+    const continuation = isPartial ? (residentMarker ? "in-session" : readRunContinuation(deps.sessions, row.child_session_id)) : "requeue";
     let requeuedRun = null;
     let partialRequeueClaimed = false;
     let partialFailureError: string | null = null;
@@ -958,6 +1032,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       persistedStatus === "failed" ? (partialFailureError ?? parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
     )!;
     emitDelegationRunChanged(updated);
+    if (deps.residents) reconcileResidentSidecars(deps.residents);
     if ((!isPartial || partialFailureError) && (persistedStatus === "completed" || persistedStatus === "failed")) {
       deps.service.recordEffortOutcome(updated, persistedStatus);
       // 終了時に依頼ファイルを掃き出す。 サンドボックス下の委託先は `.git` に書けないので、
@@ -992,10 +1067,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (updated.status === "completed" || updated.status === "failed") {
       void deps.queue?.drain();
     }
-    if (updated.status === "completed" && !isPartial && deps.sessions && deps.taskStore) {
+    if (updated.status === "completed" && !isPartial && !residentMarker && deps.sessions && deps.taskStore) {
       await injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
     }
-    if (updated.status === "completed" && !isPartial) void deps.onTaskflowCompleted?.(updated);
+    if (updated.status === "completed" && !isPartial && !residentMarker) void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated), requeued_run: requeuedRun ? serializeRun(requeuedRun) : null });
   });
 

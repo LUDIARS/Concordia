@@ -6,6 +6,7 @@
 
 import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
+import { initialRoleModel } from "../model-catalog/role-policy.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -120,7 +121,7 @@ function codexTemplate(opts: {
     // sandbox 起動を外す運用 (dangerously bypass、codex login は Windows 側) で踏まない。
     // 最新の spawner は macOS でも OS 標準ターミナルで起動する。
     target_provider: "codex",
-    model: `gpt-6-${opts.modelName}`,
+    model: initialRoleModel(opts.modelName),
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
     },
@@ -1235,7 +1236,12 @@ export function seedDelegationTemplates(
   identifiers: SeedIdentifiers = {},
 ): void {
   for (const tpl of withParttimerCallOnly(seedTemplates(identifiers))) {
-    repo.upsertTemplate(tpl);
+    const existing = repo.findTemplateByCallName(tpl.call_name);
+    // Preserve explicit pins; only the old standard Sol default is migrated.
+    const model = (tpl.call_name === "sol-mid" || tpl.call_name === "sol-xhigh")
+      && existing?.model && (existing.model !== "gpt-6-sol" || !repo.isModelFollowing(existing.id)) ? existing.model : tpl.model;
+    const saved = repo.upsertTemplate({ ...tpl, model });
+    if (!existing && (tpl.call_name === "sol-mid" || tpl.call_name === "sol-xhigh")) repo.trackTemplateModel(saved.id);
   }
   // 既定2件 (forum-claude-session / forum-codex-session) は forum_tag を常に維持し、
   // 必ず forum spawn の入口を用意する。 カスタム forum template が存在しても既定を

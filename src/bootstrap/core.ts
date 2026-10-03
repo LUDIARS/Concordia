@@ -67,6 +67,18 @@ import { DEFAULT_DESK_CHANNEL_NAME } from "../discord/config.js";
 import { seedDelegationTemplates } from "../delegation/seed.js";
 import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "../model-catalog/seed.js";
+import { ModelRoleRepo } from "../db/model-role-repo.js";
+import { seedInitialRoles } from "../model-catalog/initial-roles.js";
+import { startDailyModelRefresh } from "../model-catalog/daily-refresh.js";
+import { codexOfficialModelProvider } from "../model-catalog/codex-provider.js";
+import { resolveCodexModelCommand } from "../model-catalog/codex-command.js";
+import { ResidentSidecarRepo } from "../delegation/sidecar/lifecycle-repo.js";
+import { startResidentSidecars } from "../delegation/sidecar/resident-runtime.js";
+import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
+import { decideAutomaticContinuation,isAutomaticContinuationSource } from "../control/automatic-continuation-policy.js";
+import { isWaitingForHumanResponse,recoverLegacyNudgeConfirmations } from "../control/human-response-confirmation.js";
+import { startNudgeProgress } from "../control/nudge-delivery.js";
+import { isHumanWaitActive } from "../control/human-wait.js";
 import { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
@@ -911,6 +923,23 @@ export async function startBackend(): Promise<BackendHandle> {
   // Astra With Sidecar (spec/feature/astra-with-sidecar.md): 振り分け・起動の記録と、
   // 論理会話・実行セッション交代。 交代は reconciler が再起動後も照合して進める。
   const sidecarRecords = new SidecarRecordsRepo(db);
+  const modelRoles = new ModelRoleRepo(db,(before,next) => delegationRepo.followRoleModels(before,next));
+  seedInitialRoles(modelRoles);
+  const residentSidecars = {
+    residents:new ResidentSidecarRepo(db),runs:delegationRepo,sessions:repo,now:Date.now,
+    canStartRequest:() => !delegationQueue.enabled() || delegationQueue.hasCapacity(),
+    async prepareRequest(input:import("../delegation/contracts.js").InvokeInput,runId:string):Promise<{ok:true;text:string} | {ok:false;error:string}> {
+      const result = await delegationService.invoke({...input,spawn:false,reserved_run_id:runId});
+      return result.ok ? {ok:true,text:result.rendered_prompt} : {ok:false,error:result.error};
+    },
+    async deliver(sessionId:string,text:string,requestId:string):Promise<"unknown"> {
+      repo.appendEvent({ session_id:sessionId,kind:"inject",ts:Math.floor(Date.now()/1000),payload:{text,source:`delegation:${requestId}:continue`} });
+      eventBus.emit({ type:"session.inject",target_session_id:sessionId,text,source:`delegation:${requestId}:continue`,ts:Math.floor(Date.now()/1000) });
+      // The existing WS path has no correlated delivery acknowledgement. A result
+      // bearing this run ID is confirmation; connection presence alone is not.
+      return "unknown";
+    },
+  };
   const conversationRepo = new ConversationRepo(db);
   const conversationService = new ConversationService(createConversationServicePorts({
     conversations: conversationRepo,
@@ -2017,6 +2046,8 @@ export async function startBackend(): Promise<BackendHandle> {
     confirmService,
     delegationQueue,
     modelCatalog,
+    modelRoles,
+    residentSidecars,
     testingClaims,
     subsidiary: subsidiaryRepo,
     harnessRules: harnessRepo,
@@ -2181,6 +2212,31 @@ export async function startBackend(): Promise<BackendHandle> {
   function startPostListenBackground(): void {
     if (shuttingDown) return;
     registerPostListenWorkflowBindings();
+    recoverLegacyNudgeConfirmations(repo);
+    trackPostListenHandle(startNudgeProgress(repo));
+    trackPostListenHandle(startResidentSidecars(residentSidecars));
+    trackPostListenHandle(startDailyModelRefresh({ repo:modelRoles,log,
+      provider:{ async discover(signal) {
+        const command = await resolveCodexModelCommand({ platform:process.platform,path:process.env.PATH ?? "",
+          explicit:process.env.CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE,nodeExecutable:process.execPath });
+        return codexOfficialModelProvider({ ...command,cwd:process.cwd() }).discover(signal);
+      } } }));
+    const removeContinuationGate = eventBus.registerInjectGate((event) => {
+      const isNewConfirmation=event.source === "taskflow:residual:decompose:human-confirmation";
+      if (!isAutomaticContinuationSource(event.source) && !isNewConfirmation) return true;
+      const session = repo.findSession(event.target_session_id);
+      let pending:boolean | "unknown" = "unknown";
+      try { pending = pendingQuestions.findLatestUnanswered(event.target_session_id) !== null; }
+      catch { /* Explicit unknown is suppressed, never human approval. */ }
+      const marker = readResidentMarker(session?.metadata ?? null);
+      const resident = marker ? residentSidecars.residents.findByParent(marker.parentId) : null;
+      const decision = decideAutomaticContinuation({ active:session?.status === "active",humanWait:isHumanWaitActive(repo,event.target_session_id),
+        pendingQuestion:pending,humanConfirmation:!isNewConfirmation && isWaitingForHumanResponse(repo,event.target_session_id),
+        residentIdle:!!resident && resident.state === "idle",bindingMatches:true });
+      if (!decision.allow) log.debug({session_id:event.target_session_id,reason:decision.reason},"automatic continuation suppressed");
+      return decision.allow;
+    });
+    trackPostListenHandle({ stop:removeContinuationGate });
     trackPostListenHandle(
       startReaper(
         { repo, controlJobs },

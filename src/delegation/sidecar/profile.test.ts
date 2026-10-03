@@ -10,14 +10,14 @@ const matching = {
   call_name: "sol-mid",
   is_active: 1,
   target_provider: "codex",
-  model: "gpt-6-sol",
+  model: "gpt-6.1-sol",
   runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
 };
 
 describe("Astra With Sidecar profile", () => {
   it("pins the parent to Astra medium and the child to Sol medium with one concurrent child", () => {
     expect(ASTRA_WITH_SIDECAR_PROFILE.parent).toMatchObject({ provider: "codex", model: "gpt-6-astra", effort: "medium" });
-    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-mid", model: "gpt-6-sol", effort: "medium" });
+    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-mid", model: "gpt-6.1-sol", effort: "medium" });
     expect(ASTRA_WITH_SIDECAR_PROFILE.maxConcurrentChildren).toBe(1);
   });
 

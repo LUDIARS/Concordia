@@ -3,6 +3,7 @@ import { eventBus } from "../events.js";
 import { AUTO_SESSION_END_INJECT_SOURCE, pickSessionEndInjectText } from "../control/auto-session-end-inject.js";
 import type { SessionRow } from "../shared/types.js";
 import { createChildLogger } from "../shared/logger.js";
+import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 
 export const TEARDOWN_LADDER_META_KEY = "teardown_ladder";
 const DEFAULT_RETRY_SEC = 300;
@@ -10,6 +11,8 @@ const DEFAULT_FORCE_SEC = 900;
 const log = createChildLogger("teardown-ladder");
 
 export interface TeardownLadderState {
+  resident_id?: string;
+  resident_parent_id?: string;
   run_key: string;
   started_at: number;
   retries_sent: number;
@@ -42,11 +45,20 @@ function injectSessionEnd(sessions: SessionsRepo, session: SessionRow, runKey: s
 
 /** run 単位 exactly-once で t0 inject と永続 schedule を作る。 */
 export function scheduleTeardownLadder(sessions: SessionsRepo, session: SessionRow, runKey: string, now: number): boolean {
+  const latestMarker = readResidentMarker(sessions.findSession(session.id)?.metadata ?? null);
+  if ((readResidentMarker(session.metadata) || latestMarker) && !runKey.startsWith("resident:")) return false;
+  if (runKey.startsWith("resident:")) {
+    const expected = readResidentMarker(session.metadata);
+    const actual = readResidentMarker(sessions.findSession(session.id)?.metadata ?? null);
+    if (!expected || !actual || actual.id !== expected.id || actual.parentId !== expected.parentId
+      || actual.generation !== expected.generation || runKey !== `resident:${actual.generation}`) return false;
+  }
   const current = readTeardownLadder(session.metadata);
   if (current?.run_key === runKey) return false;
   injectSessionEnd(sessions, session, runKey, 0, now);
   sessions.mergeMetadata(session.id, {
-    [TEARDOWN_LADDER_META_KEY]: { run_key: runKey, started_at: now, retries_sent: 0 },
+    [TEARDOWN_LADDER_META_KEY]: { run_key: runKey, started_at: now, retries_sent: 0,
+      ...(latestMarker ? {resident_id:latestMarker.id,resident_parent_id:latestMarker.parentId} : {}) },
   });
   return true;
 }
@@ -73,6 +85,11 @@ export function startTeardownLadderWatch(deps: TeardownLadderWatchDeps): { stop(
     for (const session of deps.sessions.listSessions({ status: "active" })) {
       const state = readTeardownLadder(session.metadata);
       if (!state || inFlight.has(session.id)) continue;
+      if (state.run_key.startsWith("resident:")) {
+        const marker = readResidentMarker(session.metadata);
+        if (!marker || state.run_key !== `resident:${marker.generation}`
+          || state.resident_id !== marker.id || state.resident_parent_id !== marker.parentId) continue;
+      }
       const elapsed = now - state.started_at;
       if (elapsed >= forceSec) {
         inFlight.add(session.id);

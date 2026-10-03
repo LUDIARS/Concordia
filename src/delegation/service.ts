@@ -295,7 +295,7 @@ export class DelegationService {
     if (!branchResolution.ok) return { ok: false, error: branchResolution.error };
     input = { ...input, branch: branchResolution.branch ?? undefined };
 
-    const runId = randomUUID();
+    const runId = input.reserved_run_id ?? randomUUID();
     if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND && input.task_binding !== "caller") {
       try {
         const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId, content: renderedPrompt });

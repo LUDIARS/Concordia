@@ -14,6 +14,7 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import type { RunningAgentProc } from "../control/agent-process-scan.js";
 import { matchesObservedProcessGeneration, parseLictorPid } from "../control/session-process-metadata.js";
+import { readResidentMarker } from "./sidecar/lifecycle-policy.js";
 
 /**
  * finished_at からこの時間が経ってもプロセスが生きていれば残留とみなす。
@@ -61,6 +62,7 @@ export function findZombieRuns(input: FindZombieRunsInput): ZombieRun[] {
 
     const session = input.findSession(childSessionId);
     if (!session) continue;
+    if (readResidentMarker(session.metadata)) continue;
     const pid = parseLictorPid(session.metadata ?? null);
     if (pid === null) continue;
     const process = processByPid.get(pid);

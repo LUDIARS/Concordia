@@ -17,6 +17,7 @@ import { ASTRA_WITH_SIDECAR_PROFILE, isSidecarParentMetadata } from "./profile.j
 import type { SidecarInvokeEventRow, SidecarRecordsRepo } from "./records-repo.js";
 
 export interface SidecarInvokeGuardPorts {
+  resolveChildSpec?: () => import("./profile.js").SidecarModelSpec;
   findSession: (sessionId: string) => { metadata: string | null; branch: string | null } | null;
   findTemplateByCallName: (callName: string) => DelegationTemplateRow | null;
   listRunsByParentSession: (sessionId: string) => DelegationRunRow[];
@@ -63,7 +64,9 @@ export function guardSidecarInvoke(ports: SidecarInvokeGuardPorts, request: Side
     return reject(400, "sidecar_packet_invalid", "args.sidecar_packet is missing or invalid", { issues: parsed.issues });
   }
   const packet = parsed.packet;
+  const child = ports.resolveChildSpec?.() ?? ASTRA_WITH_SIDECAR_PROFILE.child;
   const decision = decideSidecarInvoke({
+    childSpec: child,
     requestedCallName: request.call_name,
     childTemplate: ports.findTemplateByCallName(request.call_name),
     packet,
@@ -76,7 +79,6 @@ export function guardSidecarInvoke(ports: SidecarInvokeGuardPorts, request: Side
     return reject(status, decision.code, decision.detail, decision.blockingRunIds ? { blocking_run_ids: decision.blockingRunIds } : {});
   }
 
-  const child = ASTRA_WITH_SIDECAR_PROFILE.child;
   const input: InvokeInput = {
     call_name: child.call_name,
     args: {

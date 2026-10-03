@@ -217,16 +217,17 @@
       "contracts": []
     },
     {
-      "source": "src/api/delegation.ts",
-      "tests": [
-        "tests/blocks/agent-delegation/delegation-template.block.test.ts",
-        "src/api/internal-agent-selection.test.ts",
-        "src/api/delegation-partial.test.ts"
-      ],
-      "contracts": [
-        "CC-TF-SESSION-01"
-      ]
-    },
+    "source":  "src/api/delegation.ts",
+    "tests":  [
+                  "tests/blocks/agent-delegation/delegation-template.block.test.ts",
+                  "src/api/internal-agent-selection.test.ts",
+                  "src/api/delegation-partial.test.ts",
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+                      "CC-TF-SESSION-01"
+                  ]
+},
     {
       "source": "src/api/chat.ts",
       "tests": [
@@ -2717,12 +2718,15 @@
       "contracts": []
     },
     {
-      "source": "src/events.ts",
-      "tests": [
-        "src/api/teams-departments.test.ts"
-      ],
-      "contracts": []
-    },
+    "source":  "src/events.ts",
+    "tests":  [
+                  "src/api/teams-departments.test.ts",
+                  "src/api/ws-continuation.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
     {
       "source": "src/messages/service.ts",
       "tests": [
@@ -3163,14 +3167,15 @@
       ]
     },
     {
-      "source": "src/api/delegation.ts",
-      "tests": [
-        "src/api/delegation-invoke-team.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
+    "source":  "src/api/delegation.ts",
+    "tests":  [
+                  "src/api/delegation-invoke-team.test.ts",
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+                      "CC-AT-TEAM-02"
+                  ]
+},
     {
       "source": "src/mcp/delegation-server.ts",
       "tests": [
@@ -3981,5 +3986,214 @@
       ],
       "contracts": []
     }
-  ]
+  ,
+{
+    "source":  "src/model-catalog/http-port.ts",
+    "tests":  [
+                  "src/model-catalog/http-port.test.ts"
+              ],
+    "contracts":  [
+                      "SC-MODEL-06",
+                      "SC-MODEL-07"
+                  ]
+},
+{
+    "source":  "src/api/model-catalog.ts",
+    "tests":  [
+                  "tests/model-role-api.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/model-catalog/daily-refresh.ts",
+    "tests":  [
+                  "src/model-catalog/refresh.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/delegation/sidecar/resident-service.ts",
+    "tests":  [
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/delegation/zombie-run-detect.ts",
+    "tests":  [
+                  "src/delegation/finished-run-reaper.test.ts"
+              ],
+    "contracts":  [
+                      "SC-LIFE-04"
+                  ]
+},
+{
+    "source":  "src/delegation/run-watchdog.ts",
+    "tests":  [
+                  "src/delegation/run-watchdog.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/model-catalog/codex-command.ts",
+    "tests":  [
+                  "src/model-catalog/codex-provider.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/taskflow/teardown-ladder.ts",
+    "tests":  [
+                  "src/taskflow/teardown-ladder.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/delegation/sidecar/lifecycle-repo.ts",
+    "tests":  [
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/db/model-role-repo.ts",
+    "tests":  [
+                  "src/model-catalog/refresh.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/model-catalog/refresh.ts",
+    "tests":  [
+                  "src/model-catalog/refresh.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/control/human-response-confirmation.ts",
+    "tests":  [
+                  "src/control/human-response-confirmation.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/control/nudge-delivery.ts",
+    "tests":  [
+                  "src/control/nudge-delivery.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/model-catalog/role-policy.ts",
+    "tests":  [
+                  "src/model-catalog/role-policy.test.ts"
+              ],
+    "contracts":  [
+                      "SC-MODEL-01",
+                      "SC-MODEL-02",
+                      "SC-MODEL-03",
+                      "SC-MODEL-04",
+                      "SC-MODEL-05"
+                  ]
+},
+{
+    "source":  "src/api/inquiry.ts",
+    "tests":  [
+                  "src/api/inquiry.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/model-catalog/initial-roles.ts",
+    "tests":  [
+                  "src/model-catalog/refresh.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/delegation/sidecar/lifecycle-policy.ts",
+    "tests":  [
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+                      "SC-LIFE-01",
+                      "SC-LIFE-02",
+                      "SC-LIFE-03"
+                  ]
+},
+{
+    "source":  "src/api/ws.ts",
+    "tests":  [
+                  "src/api/ws-continuation.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/delegation/sidecar/resident-runtime.ts",
+    "tests":  [
+                  "src/delegation/sidecar/lifecycle.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+},
+{
+    "source":  "src/control/automatic-continuation-policy.ts",
+    "tests":  [
+                  "src/control/automatic-continuation-policy.test.ts"
+              ],
+    "contracts":  [
+                      "SC-WAIT-01",
+                      "SC-WAIT-02",
+                      "SC-WAIT-03"
+                  ]
+},
+{
+    "source":  "src/model-catalog/codex-provider.ts",
+    "tests":  [
+                  "src/model-catalog/codex-provider.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+}
+,
+{
+    "source":  "src/taskflow/residual-binding.ts",
+    "tests":  [
+                  "src/taskflow/residual-binding.test.ts"
+              ],
+    "contracts":  [
+
+                  ]
+}
+]
 }

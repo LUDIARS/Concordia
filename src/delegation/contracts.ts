@@ -46,6 +46,8 @@ export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefi
 }
 
 export interface InvokeInput {
+  /** Internal pre-I/O reservation identity, never accepted from an arbitrary HTTP body. */
+  reserved_run_id?: string;
   call_name: string;
   args: Record<string, unknown>;
   cwd?: string;

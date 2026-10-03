@@ -1,0 +1,13 @@
+{
+  "name": "model-catalog",
+  "description": "Supporting boundary owning adopted role snapshots, verified provider capabilities, daily refresh leases and public resolution.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/model-catalog/[^/]+$" },
+    { "pathPattern": "(^|/)src/db/model-role-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)tests/model-role-api\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Describe role snapshot ownership, capability validation, refresh CAS and recovery.",
+  "specRefs": ["spec/feature/sidecar-lifecycle-model-refresh.md", "spec/interface/model-catalog-port.md", "spec/architecture/ddd.md"]
+}

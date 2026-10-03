@@ -9,7 +9,6 @@ const KEY = "human_response_confirmation";
 /** Only provenance-bearing human input can reopen a confirmation cycle. */
 export function humanResponseSession(event: ConcordiaEvent): string | null {
   if (event.type === "question.answered") return event.target_session_id;
-  if (event.type === "session.event" && event.kind === "user_activity") return event.session_id;
   if (event.type === "session.inject"
     && (parseRequesterSource(event.source) || event.provenance?.actorId?.trim())) {
     return event.target_session_id;
@@ -43,6 +42,7 @@ export function claimHumanResponseConfirmation(repo: ConfirmationSessions, sessi
   const session = repo.findSession(sessionId);
   if (!session || session.status !== "active" || isWaiting(session.metadata)) return false;
   repo.mergeMetadata(sessionId, { [KEY]: true });
+  repo.mergeMetadata(sessionId,{ human_response_confirmation_source:"explicit_human_confirmation" });
   return true;
 }
 
@@ -55,4 +55,12 @@ export function startHumanResponseConfirmation(repo: ConfirmationSessions): { st
     repo.mergeMetadata(sessionId, { [KEY]: false });
   });
   return { stop: unsubscribe };
+}
+/** Recover only attributed nudge latches. Ambiguous legacy booleans can also be
+ * genuine runtime/checkResidual questions and must survive until human input. */
+export function recoverLegacyNudgeConfirmations(repo: Pick<SessionsRepo,"findAllActive" | "updateMetadata">): void {
+  for (const session of repo.findAllActive()) repo.updateMetadata(session.id,(metadata) => {
+    if (metadata[KEY] !== true || metadata.human_response_confirmation_source !== "auto:stall-nudge") return metadata;
+    return { ...metadata,[KEY]:false,legacy_nudge_confirmation_recovered:true };
+  });
 }

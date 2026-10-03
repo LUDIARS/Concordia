@@ -7,6 +7,9 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import type { ModelRoleRepo } from "../db/model-role-repo.js";
+import { resolveRoleSnapshot } from "../model-catalog/role-policy.js";
+import { randomUUID } from "node:crypto";
 import {
   MODEL_PROVIDERS,
   type ModelCatalogRepo,
@@ -35,10 +38,35 @@ const PatchSchema = z.object({
 
 export interface ModelCatalogApiDeps {
   repo: ModelCatalogRepo;
+  roles?: ModelRoleRepo;
+  now?: () => number;
 }
 
 export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
   const app = new Hono();
+  app.get("/refresh-status",(c) => c.json({status:deps.roles?.refreshStatus() ?? null}));
+  app.get("/roles/:provider/:role", (c) => {
+    if (!deps.roles) return c.json({ error:"model_catalog_unavailable" },503);
+    const snapshot = deps.roles.find(c.req.param("provider"),c.req.param("role"));
+    if (!snapshot) return c.json({ error:"model_role_not_found" },404);
+    try { return c.json(resolveRoleSnapshot(snapshot,(deps.now ?? Date.now)(),c.req.query("context"))); }
+    catch (error) { return c.json({ error:error instanceof Error ? error.message : "model_snapshot_invalid" },503); }
+  });
+  app.patch("/roles/:provider/:role", async (c) => {
+    const parsed = z.object({ pinned:z.boolean(),expectedRevision:z.string().min(1) }).strict().safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error:"invalid_body" },400);
+    const current = deps.roles?.find(c.req.param("provider"),c.req.param("role"));
+    if (!current) return c.json({ error:"model_role_not_found" },404);
+    const next = { ...current,pinned:parsed.data.pinned,revision:randomUUID() };
+    if (!deps.roles!.adopt(parsed.data.expectedRevision,next,"manual_pin_changed",(deps.now ?? Date.now)())) return c.json({ error:"revision_conflict" },409);
+    return c.json(next);
+  });
+  app.post("/roles/:provider/:role/rollback", async (c) => {
+    const parsed = z.object({ revision:z.string().min(1) }).strict().safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error:"invalid_body" },400);
+    if (!deps.roles?.rollback(c.req.param("provider"),c.req.param("role"),parsed.data.revision,randomUUID(),(deps.now ?? Date.now)())) return c.json({ error:"rollback_unavailable" },409);
+    return c.json(deps.roles.find(c.req.param("provider"),c.req.param("role")));
+  });
 
   function serialize(row: ReturnType<ModelCatalogRepo["find"]>) {
     if (!row) return row;

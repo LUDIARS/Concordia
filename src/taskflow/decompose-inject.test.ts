@@ -39,6 +39,15 @@ describe("DECOMPOSE_PROMPT", () => {
 });
 
 describe("injectDecompositionWhenMissing", () => {
+  it("does not mark an undelivered request as injected and retries after a gate reopens", async () => {
+    const {sessions,store} = fixture(); const target = run();
+    const remove = eventBus.registerInjectGate(() => false);
+    try {
+      expect(await injectDecompositionWhenMissing({run:target,sessions,store})).toBe(false);
+      expect(sessions.recentEvents("parent-1",10).filter(event => event.kind === "inject")).toHaveLength(0);
+    } finally { remove(); }
+    expect(await injectDecompositionWhenMissing({run:target,sessions,store})).toBe(true);
+  });
   it("injects once and records the run as its source", async () => {
     const { sessions, store } = fixture();
     const target = run();

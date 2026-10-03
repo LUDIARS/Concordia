@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
-import { claimHumanResponseConfirmation, isWaitingForHumanResponse, startHumanResponseConfirmation } from "./human-response-confirmation.js";
+import { claimHumanResponseConfirmation, isWaitingForHumanResponse, startHumanResponseConfirmation, recoverLegacyNudgeConfirmations } from "./human-response-confirmation.js";
 import { checkResidual } from "../taskflow/residual-blackbox.js";
 import type { TaskMdStore } from "../taskflow/md-store.js";
 import { startPhaseCompaction } from "./phase-compaction.js";
@@ -12,6 +12,10 @@ function harness() {
   const events: object[] = [];
   const repo = {
     findSession: () => row,
+    findAllActive: () => [row],
+    updateMetadata: (_id: string, update: (metadata: Record<string,unknown>) => Record<string,unknown>) => {
+      row.metadata = JSON.stringify(update(JSON.parse(row.metadata ?? "{}")));
+    },
     // Mirrors SessionsRepo.mergeMetadata: an unparseable blob is replaced, not thrown on.
     mergeMetadata: (_id: string, patch: object) => {
       let current: object = {};
@@ -24,6 +28,15 @@ function harness() {
 }
 
 describe("human response confirmation", () => {
+  it("recovers only attributed legacy nudges and preserves ambiguous genuine waits", () => {
+    const h = harness();
+    h.row.metadata = JSON.stringify({human_response_confirmation:true});
+    recoverLegacyNudgeConfirmations(h.repo);
+    expect(isWaitingForHumanResponse(h.repo,"session")).toBe(true);
+    h.row.metadata = JSON.stringify({human_response_confirmation:true,human_response_confirmation_source:"auto:stall-nudge"});
+    recoverLegacyNudgeConfirmations(h.repo);
+    expect(isWaitingForHumanResponse(h.repo,"session")).toBe(false);
+  });
   it("keeps the latch across listener restart and AI/automatic output, then reopens on human input", () => {
     const h = harness();
     let watch = startHumanResponseConfirmation(h.repo);

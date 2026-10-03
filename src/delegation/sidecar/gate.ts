@@ -25,6 +25,7 @@ export interface SidecarChildRunFacts {
 }
 
 export interface SidecarGateInput {
+  childSpec?: import("./profile.js").SidecarModelSpec;
   requestedCallName: string;
   childTemplate: SidecarTemplateFacts | null;
   packet: SidecarPacket;
@@ -49,7 +50,7 @@ export type SidecarGateDecision =
   | { allow: false; code: SidecarGateCode; detail: string; blockingRunIds?: string[] };
 
 export function decideSidecarInvoke(input: SidecarGateInput): SidecarGateDecision {
-  const profile = ASTRA_WITH_SIDECAR_PROFILE;
+  const profile = { ...ASTRA_WITH_SIDECAR_PROFILE, child: input.childSpec ?? ASTRA_WITH_SIDECAR_PROFILE.child };
   if (input.requestedCallName !== profile.child.call_name) {
     return {
       allow: false,

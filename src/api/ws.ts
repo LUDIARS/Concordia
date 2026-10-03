@@ -152,6 +152,9 @@ export function attachWsServer(
   const clientSession = new WeakMap<WebSocket, string | null>();
 
   const unsub = eventBus.subscribe((ev) => {
+    // Observers still receive the original event. Only command delivery to the
+    // agent is suppressed, immediately before touching its transport.
+    if(ev.type === "session.inject" && !eventBus.canDeliverInject(ev)) return;
     const eventType = (ev as { type?: unknown }).type;
     if (!isConcordiaEventType(eventType)) {
       log.warn({ type: eventType }, "unknown event skipped for ws broadcast");

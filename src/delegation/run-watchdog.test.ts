@@ -99,6 +99,15 @@ function captureEvents(): { events: ConcordiaEvent[]; stop: () => void } {
 }
 
 describe("startDelegationRunWatchdog", () => {
+  it("does not consume nudge attempts while current delivery is blocked", async () => {
+    const deps = makeDeps({}); const remove = eventBus.registerInjectGate(() => false);
+    try {
+      expect(await runOnceWith(deps.options)).toEqual([]);
+      expect(deps.runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
+      expect(deps.runsRepo.recordWatchdogEscalation).not.toHaveBeenCalled();
+    } finally { remove(); }
+    expect(await runOnceWith(deps.options)).toEqual([{runId:"run-1",action:"nudged"}]);
+  });
   let stopCapture: (() => void) | null = null;
   afterEach(() => {
     stopCapture?.();

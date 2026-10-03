@@ -4,6 +4,8 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/control/automatic-continuation-policy(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/nudge-delivery(\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/stalled-session-nudge(\\.test)?\\.ts$"
     },
@@ -22,6 +24,7 @@
     "goal-and-go-resumption"
   ],
   "specRefs": [
+    "spec/feature/sidecar-lifecycle-model-refresh.md",
     "spec/feature/actio-pr-continuation.md",
     "spec/feature/session-work-phases.md",
     "spec/feature/human-response-confirmation.md",

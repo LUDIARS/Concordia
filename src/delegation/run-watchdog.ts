@@ -201,6 +201,8 @@ export function startDelegationRunWatchdog(
       }
 
       const lastSec = opts.lastActivitySec(run.child_session_id);
+      if (!eventBus.canDeliverInject({type:"session.inject",target_session_id:run.child_session_id,
+        text:"",source:DELEGATION_WATCHDOG_SOURCE,ts:Math.floor(nowMs/1000)})) continue;
       if (lastSec == null) {
         // transcript が 1 行も無い = ターンが 1 度も回っていない = 委託プロンプトが
         // 届いていない。 活動時刻が測れないので spawn からの経過を基準に拾う
@@ -270,6 +272,8 @@ export function startDelegationRunWatchdog(
         continue;
       }
 
+      if (!eventBus.canDeliverInject({type:"session.inject",target_session_id:run.child_session_id,
+        text:"",source:DELEGATION_WATCHDOG_SOURCE,ts:Math.floor(nowMs/1000)})) continue;
       opts.runs.recordWatchdogNudge(run.id, nowMs, lastActivityMs);
       deliverNudge(run.child_session_id, buildChildNudgeText(run, Math.round(idleMs / 60_000)), nowMs);
       actions.push({ runId: run.id, action: "nudged" });

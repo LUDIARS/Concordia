@@ -271,6 +271,50 @@
 (`src/consultation/consult-codex-home.ts`、フック本体 `tools/consult-codex-hook.mjs`)。役職フォルダのスキルのつなぎ =
 consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = consultation (`src/consultation/consult-role.ts`)。判定 = consultation (`src/consultation/projectless-consult.ts`)。役職の指示を初回指示に載せるか・その組み立て = consultation (`src/consultation/role-guidance.ts`)、読み込み = `src/consultation/role-guidance-files.ts`。
 
+### 6.1 「終了」で相談を終える
+
+> 2026-10-03 neco 指示:「『終了』でセッション終了します」→ 補足「これは相談窓口で終了と言われたら終了するという意味です」。
+
+- 相談の部署 (`isProjectlessConsultDepartment`、本社・子会社とも) のセッションに限り、人の発言全体が
+  「終了」「終了です」「終了します」「終わり」「おわり」「終わりです」(末尾の「。.!！」可、空白は無視) なら終了の指示として扱う
+  (`detectsConsultEndWord`、`src/consultation/consult-end-word.ts`)。既存の「セッション終了」「session-end」等はそのまま。
+- 打ち消し (「終了しないで」) や文中の「終了」(「終了条件を教えて」「これで終わりですか」) は対象外。
+- 相談以外のセッションでは一言の「終了」を拾わない (誤って終わらせる損害の方が大きい)。
+- 相談では、終了の権限 (`session_end`) を持つ人に加えて、**その相談を起動した相談者本人** (session metadata の
+  `discord_requester_user_id`) も自分の相談を終えられる。相談者は一般の社員であることが多く、権限者だけに限ると
+  相談窓口で「終了」と言っても終わらないため (2026-10-03 実装時の判断。他人の相談は終えられない)。
+- 終了の流れは既存のまま (印 `session_end_requested_at` → 静かになってから `endSessionNow`、§7 の後始末・共有の確認)。
+  判定の配線は Discord の受付 (`src/discord/ingress.ts`、`isConsultSession` は Bot がセッションの部署から判定)。
+
+### 6.2 相談ログ
+
+**Requirement ID: `SPEC-CONSULT-LOG`**
+
+> 2026-10-03 neco 指示:「相談内容は Consult フォルダにすべてログとして保存するようにしてください」「時刻は JST」。
+
+- 場所: 相談のセッションごとに、相談者のデータフォルダの `logs/` に Markdown を 1 本書く。
+  `<役職フォルダ>/<Discord ID>/logs/<YYYY-MM-DD>_<session id>.md` (日付はセッション開始の JST)。Discord 以外の起動
+  (相談者の ID が無い) は `<役職フォルダ>/_unknown/logs/`。役職フォルダはセッションの作業フォルダで、相談の置き場所
+  (`CONCORDIA_CONSULT_WORKSPACE_ROOT`) の外にあるセッションには書かない (プロジェクトのリポへ書かない)。
+- 中身:
+  - 見出し: 開始時刻 (JST)・部署・役職 (役職フォルダ)・モデル・セッション id。
+  - 事前ヒアリング: 知りたいこと・技術レベル・役職・目的 (§3。受付チャンネルの最新の `consultation_intakes`。無ければ「記録なし」)。
+  - やり取り: 「相談者の発言」(Discord / Slack / Web から入った人の発言) と「最終回答 (FINAL ANSWER)」(最終回答・会話の要約) を
+    時刻 (JST) つきで時系列に追記する。同じ発言は 1 回だけ (編集で届き直しても書き足さない)。
+  - 終了: 終了時刻 (JST) と終了理由 (発言による終了の指示 / セッションの終了 / セッションの消失)。
+- 書かないもの: Cc の指令 (inject の転記: task / delegation / system)・途中の発言・思考・ツール出力・端末からの入力。
+  投稿と同じ範囲 (CC-CONSULT-INV-10)。
+- 書く時: 発言ごとに追記する (Cc が落ちても途中まで残る)。最初の 1 件の前に見出しと事前ヒアリングを書き、
+  `session.ended` / `session.lost` で終了を書く。セッションごとに順に書く。
+- 失敗: 書き込みの失敗は warn ログだけで相談は止めない。warn にログ本文は出さない。
+- 置き場所はデータフォルダの中なので、CC-CONSULT-INV-08 の `claudeMdExcludes` の対象で、相談セッションに指示として読まれない。
+  CC-CONSULT-INV-05 の「ログ」は Cc のサービスログ (連合・通知を含む) のことで、相談者のデータフォルダへの相談ログは
+  neco 指示による保存先として別に扱う。
+- 状態を持たない (書き済みの発言 id はメモリだけ)。問題が出たら `src/bootstrap/core.ts` の購読を外せば書かなくなる。
+
+状態所有者: 相談ログの場所と中身 = consultation (`src/consultation/consult-log-markdown.ts`)、追記と購読 =
+`src/consultation/consult-log-writer.ts` (配線 `src/bootstrap/core.ts`)。一言の「終了」の判定 = `src/consultation/consult-end-word.ts`。
+
 ## 7. 相談チャンネルの後始末
 
 **Requirement ID: `SPEC-CONSULT-CLOSURE`**
@@ -324,3 +368,4 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 | 4 | Cc | オープン化の提案と Tabula 投稿 | `spec/tasks/2026-09-30-consult-publish-tabula.md` |
 | 5 | Cc | 子会社の相談窓口 (プロジェクトを持たない相談) | `spec/tasks/2026-10-01-subsidiary-consult-desk.md` |
 | 6 | Cc | 相談課の後始末と出力の絞り込み | `spec/tasks/2026-10-02-consult-closure.md` |
+| 7 | Cc | 相談の「終了」と相談ログ | `spec/tasks/2026-10-03-consult-log-end.md` |

@@ -620,6 +620,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     const useCase = department.use_case_id ? useCasesRepo.find(department.use_case_id) : null;
     return isProjectlessConsultDepartment({ projects, useCase });
   };
+  /** プロジェクトを持たない相談部署に所属するセッションか。 部署が見つからない・壊れた設定は false。 */
+  const isProjectlessConsultSession = (sessionId: string): boolean => {
+    const departmentId = deps.sessionsRepo.findSession(sessionId)?.department_id;
+    const department = departmentId ? departmentsRepo.find(departmentId) : null;
+    return department ? isDepartmentProjectlessConsult(department) : false;
+  };
   /** 相談の権限者になりうる名簿の人 (管理職以上)。 部署ごとの最低役職はサービスがさらに絞る。 */
   const approverRosterIds = (): string[] => staffRepo.list({ platform: "discord" })
     .filter((member) => roleAtLeast(member.role, "manager"))
@@ -1702,6 +1708,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
+        // 相談の部署のセッションでは一言の「終了」も終了の指示 (tech-consultation.md §6.1)。
+        isConsultSession: isProjectlessConsultSession,
         conversationIngress,
         isPlanDecisionUserAllowed: deps.isLaunchUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,

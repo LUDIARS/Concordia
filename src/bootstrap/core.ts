@@ -18,7 +18,8 @@ import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
 import { readSessionUsage, setExtraClaudeProjectRoots, setExtraCodexSessionRoots } from "../cost/log-usage.js";
-import { consultClaudeConfigDir, consultCodexHome } from "../consultation/projectless-consult.js";
+import { consultClaudeConfigDir, consultCodexHome, isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
+import { ConsultLogWriter } from "../consultation/consult-log-writer.js";
 import { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
 import { readSessionUsageTimeline } from "../cost/usage-timeline.js";
 import { departmentCostMultiplier } from "../cost/budget-multiplier.js";
@@ -28,6 +29,7 @@ import { offerBudgetResumes } from "../cost/budget-resume.js";
 import { BUDGET_SUSPENSION_KEY } from "../cost/budget-suspension.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { appendFile, access, mkdir } from "node:fs/promises";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
 import { openDb, closeDb } from "../db/index.js";
@@ -765,6 +767,43 @@ export async function startBackend(): Promise<BackendHandle> {
     }),
     importPage: (connection, input) => importSharedPage(connection, input),
   });
+  // 相談ログ (tech-consultation.md §6.2): 相談者の発言と最終回答を相談者のデータフォルダの logs/ へ追記する。
+  const isConsultDepartmentId = (departmentId: string): boolean => {
+    const department = departmentsRepo.find(departmentId);
+    if (!department) return false;
+    try {
+      const projects = parseDepartmentSettings(department.settings_json).projects;
+      const useCase = department.use_case_id ? useCasesRepo.find(department.use_case_id) : null;
+      return isProjectlessConsultDepartment({ projects, useCase });
+    } catch {
+      return false;
+    }
+  };
+  const consultLogWriter = new ConsultLogWriter({
+    findSession: (id) => repo.findSession(id),
+    isConsultDepartment: isConsultDepartmentId,
+    departmentName: (id) => departmentsRepo.find(id)?.name ?? null,
+    // 事前ヒアリングは起動前に受付チャンネルで記録される (session id ではなくチャンネルで辿る)。
+    intake: (session) => {
+      let channelId: unknown = null;
+      try {
+        channelId = session.metadata ? (JSON.parse(session.metadata) as Record<string, unknown>).discord_source_channel_id : null;
+      } catch {
+        channelId = null;
+      }
+      if (typeof channelId !== "string" || !channelId) return null;
+      const row = consultationIntakesRepo.latestForChannel(channelId);
+      return row && row.department_id === session.department_id ? row : null;
+    },
+    workspaceRoot: consultWorkspaceRoot,
+    fileExists: (path) => access(path).then(() => true, () => false),
+    append: async (path, text) => {
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, text, "utf8");
+    },
+    log,
+  });
+  const stopConsultLog = eventBus.subscribe((event) => consultLogWriter.handleEvent(event));
   const departmentService = new DepartmentService({
     repo: departmentsRepo,
     useCases: {
@@ -2925,6 +2964,7 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   });
   resources.own("session message subscription", () => stopMessageService());
+  resources.own("consult log subscription", () => stopConsultLog());
   resources.own("worker lease watchers", () => {
     clearInterval(costWorkerWatch);
     clearInterval(chatWorkerWatch);

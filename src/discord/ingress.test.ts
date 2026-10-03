@@ -339,6 +339,54 @@ describe("discord ingress chat routing", () => {
     expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("終了権限") }));
   });
 
+  // 2026-10-03 neco 指示: 相談窓口で「終了」と言われたら相談のセッションを終える (tech-consultation.md §6.1)。
+  it("marks a one-word 終了 as a session-end request in a consult session, including from the requester", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.isConsultSession = () => true;
+    (deps.sessionsRepo.findSession as ReturnType<typeof vi.fn>).mockReturnValue({
+      id: "s1", provider: "claude-code", status: "active", repo_path: "/consult/engineer",
+      metadata: JSON.stringify({ discord_requester_user_id: "user1" }),
+    });
+
+    await handleMessage(deps, makeMessage({ content: "終了です。" }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(deps.sessionsRepo.mergeMetadata).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ session_end_requested_at: expect.any(Number) }),
+    );
+  });
+
+  it("does not treat a one-word 終了 as a session-end request outside consult sessions", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.isSessionEndUserAllowed = () => true;
+    deps.isConsultSession = () => false;
+
+    await handleMessage(deps, makeMessage({ content: "終了" }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(deps.sessionsRepo.mergeMetadata).not.toHaveBeenCalled();
+  });
+
+  it("rejects a consult 終了 from someone who is neither the requester nor authorized", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.isConsultSession = () => true;
+    (deps.sessionsRepo.findSession as ReturnType<typeof vi.fn>).mockReturnValue({
+      id: "s1", provider: "claude-code", status: "active", repo_path: "/consult/engineer",
+      metadata: JSON.stringify({ discord_requester_user_id: "someone-else" }),
+    });
+    const msg = makeMessage({ content: "おわり" });
+
+    await handleMessage(deps, msg);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deps.sessionsRepo.mergeMetadata).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("終了権限") }));
+  });
+
   it("fails closed for vibes acceptance when manager authorization is not wired", async () => {
     const fetchMock = stubSuccessfulFetch();
     const msg = makeMessage({ content: "[OK]" });

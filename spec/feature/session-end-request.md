@@ -27,7 +27,11 @@
   単なる言及は対象外にする。
 - 除外: 打ち消しを含む文 (`しないで` `せず` `不要` `やめて` `中止` `禁止`)。
   誤終了は取り返しがつかないので、拾い漏らす側に倒す。
-- Discord 発話は `/end-session` と同じ `session_end` capability を必須とし、未認可なら
+- **相談の部署のセッションだけ**、発話全体が一言の「終了」「終了です」「終了します」「終わり」「おわり」「終わりです」
+  (末尾の「。.!！」可) でも終了指示として扱う ([技術相談 §6.1](tech-consultation.md)、2026-10-03 neco 指示)。
+  相談以外のセッションでは一言の「終了」を拾わない (誤って終わらせる損害の方が大きい)。相談では起動した相談者本人も
+  自分の相談を終えられる。
+- Discord 発話は `/end-session` と同じ `session_end` capability を必須とし (上の相談者本人を除く)、未認可なら
   inject も終了要求の記録も行わない。
 - 認可済みの終了指示について、終了時期は要求時刻と `last_seen_at` だけで判定し、
   LLM の自己申告には依存しない。
@@ -36,5 +40,6 @@
 
 - `src/control/end-session-request.test.ts` — 検知 (肯定 / 打ち消し / 単なる言及) と、
   idle 経過・上限超過・要求なしの選別。
-- `src/discord/ingress.test.ts` — 発話終了の認可と、未認可時に inject しないこと。
+- `src/discord/ingress.test.ts` — 発話終了の認可と、未認可時に inject しないこと。相談だけ一言の「終了」を拾うこと。
+- `src/consultation/consult-end-word.test.ts` — 相談の一言の「終了」の検知 (肯定 / 打ち消し / 文中の言及)。
 - `src/control/end-session-command.test.ts` — HTTP / watcher 競合時の終了副作用の冪等性。

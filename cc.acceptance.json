@@ -4197,6 +4197,16 @@
 },
     {"source":"src/shared/session-inject-visibility.ts","tests":["src/shared/session-inject-visibility.test.ts"],"contracts":["SEI-VIS-01"]},
     {"source":"src/messages/project.ts","tests":["src/messages/project.test.ts","src/messages/service.test.ts"],"contracts":["SEI-VIS-01"]},
-    {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]}
+    {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]},
+    {"source":"src/consultation/consult-end-word.ts","tests":["src/consultation/consult-end-word.test.ts","src/discord/ingress.test.ts"],"contracts":["consult-log-C-1"]},
+    {"source":"src/consultation/consult-end-word.contract.ts","tests":["src/consultation/consult-end-word.test.ts"],"contracts":[]},
+    {"source":"src/consultation/consult-log-markdown.ts","tests":["src/consultation/consult-log-markdown.test.ts","src/consultation/consult-log-writer.test.ts"],"contracts":["consult-log-C-2","consult-log-C-3","consult-log-C-4"]},
+    {"source":"src/consultation/consult-log-markdown.contract.ts","tests":["src/consultation/consult-log-markdown.test.ts"],"contracts":[]},
+    {"source":"src/consultation/consult-log-classify.contract.ts","tests":["src/consultation/consult-log-markdown.test.ts"],"contracts":[]},
+    {"source":"src/consultation/consult-log-jst.contract.ts","tests":["src/consultation/consult-log-markdown.test.ts"],"contracts":[]},
+    {"source":"src/consultation/consult-log-writer.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":["consult-log-C-5"]},
+    {"source":"src/consultation/consult-log-writer.contract.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
+    {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
+    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts"],"contracts":[]}
   ]
 }

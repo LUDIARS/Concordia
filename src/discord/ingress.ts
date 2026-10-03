@@ -7,6 +7,7 @@ import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
 import { injectSession } from "../platform/session-inject.js";
 import { detectsEndSessionRequest, markEndSessionRequested } from "../shared/end-session-request.js";
+import { detectsConsultEndWord } from "../consultation/consult-end-word.js";
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
@@ -71,6 +72,11 @@ export interface IngressDeps {
   isWorkflowUserAllowed?: (userId: string) => boolean;
   /** セッション終了発話の認可。未注入は deny (slash command と同じ fail-closed)。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;
+  /**
+   * プロジェクトを持たない相談部署のセッションか (tech-consultation.md §6)。 相談では一言の「終了」も
+   * 終了の指示として読み、 相談者本人も自分の相談を終えられる。 未注入は相談として扱わない。
+   */
+  isConsultSession?: (sessionId: string) => boolean;
   /** Plan decisions and vibes acceptance unblock implementation/review, so require manager authority. */
   isPlanDecisionUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
@@ -333,8 +339,12 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       if (planReply.reply) await msg.reply({ content: planReply.reply, allowedMentions: { parse: [], repliedUser: false } });
       return;
     }
-    const isEndSessionRequest = detectsEndSessionRequest(text);
-    if (isEndSessionRequest && deps.isSessionEndUserAllowed?.(msg.author.id) !== true) {
+    // 一言の「終了」は相談のセッションだけで拾う (相談以外で拾うと誤って終わらせる損害の方が大きい)。
+    const consultSession = deps.isConsultSession?.(sessionRow.session_id) === true;
+    const isEndSessionRequest = detectsEndSessionRequest(text) || (consultSession && detectsConsultEndWord(text));
+    const mayEndSession = deps.isSessionEndUserAllowed?.(msg.author.id) === true
+      || (consultSession && isSessionRequester(deps.sessionsRepo, sessionRow.session_id, msg.author.id));
+    if (isEndSessionRequest && !mayEndSession) {
       deps.log.warn(
         `ingress: spoken session-end rejected unauthorized session=${sessionRow.session_id}`,
       );
@@ -503,6 +513,18 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     deps.log.info(`ingress: /v1/chat ok channel=${chatChannel} discord_channel=${msg.channelId} user=${msg.author.id}`);
   } catch (e) {
     deps.log.warn(`ingress: /v1/chat failed discord_channel=${msg.channelId}: ${(e as Error).message}`);
+  }
+}
+
+/** 起動を依頼した Discord ユーザ本人か (session metadata の discord_requester_user_id)。 */
+function isSessionRequester(sessions: SessionsRepo, sessionId: string, userId: string): boolean {
+  const metadata = sessions.findSession(sessionId)?.metadata;
+  if (!metadata) return false;
+  try {
+    const requester = (JSON.parse(metadata) as Record<string, unknown>).discord_requester_user_id;
+    return typeof requester === "string" && requester !== "" && requester === userId;
+  } catch {
+    return false;
   }
 }
 

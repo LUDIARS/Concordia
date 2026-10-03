@@ -41,4 +41,12 @@ describe("confinementArgsFor", () => {
     ]);
     expect(confinementArgsFor("gemini", [])).toBeNull();
   });
+
+  it("codex はフックが信頼済み (codexShell) のときだけシェルを残し、 ほかの閉じ込めは変えない", () => {
+    expect(confinementArgsFor("codex", [], { codexShell: true })).toEqual([
+      "-p", "consult", "-s", "read-only", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
+    ]);
+    expect(confinementArgsFor("codex", [], { codexShell: false })).toContain("shell_tool");
+    expect(confinementArgsFor("claude", ["--tools=WebSearch"], { codexShell: true })).toEqual(["--tools=WebSearch"]);
+  });
 });

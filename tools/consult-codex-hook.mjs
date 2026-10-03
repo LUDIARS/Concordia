@@ -2,15 +2,18 @@
  * Astra (codex) の相談の CODEX_HOME に Cc が書く hooks.json から呼ばれるフック
  * (spec/feature/tech-consultation.md §6、 spec/feature/usage-budgets.md §5.2)。
  *
- *   node tools/consult-codex-hook.mjs pre-tool       PreToolUse: Cc のハーネス判定 (POST /v1/harness/gate)。
+ *   node tools/consult-codex-hook.mjs pre-tool       PreToolUse: シェルは公開リンクの取得コマンドだけを通し (Cc に聞かずに判定)、
+ *                                                    続けて Cc のハーネス判定 (POST /v1/harness/gate)。
  *                                                    deny ならツールを止める (予算切れの usage-budget を含む)。
  *   node tools/consult-codex-hook.mjs session-start  SessionStart: transcript_path を Cc のセッションへ報告する。
  *
  * 相談は MCP を外しているので command 型で動く。 Cc のセッション id は起動 env の CONCORDIA_SESSION_ID。
  * Cc に届かない・判定に失敗したときはツールを止めない (Cc の不調で相談を止めない。 Claude のフックと同じ扱い)。
+ * ただしシェルの制限 (取得コマンド以外を止める) は Cc に頼らず、 届かなくても止める。
  */
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { FETCH_LINK_SCRIPT_ENV, isAllowedFetchLinkCommand } from "./consult-fetch-link-command.mjs";
 
 const DEFAULT_TIMEOUT_MS = 3000;
 
@@ -24,6 +27,23 @@ export function gateActionFrom(input) {
     tool: String(input?.tool_name ?? "unknown").slice(0, 64),
     ...(command ? { command: command.slice(0, 20000) } : {}),
     ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : {}),
+  };
+}
+
+const SHELL_LIKE_TOOLS = /^(bash|shell|local_shell|exec_command|unified_exec|container\.exec|apply_patch)$/i;
+
+/**
+ * 相談のシェルは公開リンクの取得コマンド 1 本だけ (CC-CONSULT-INV-07、 consult-fetch-link-command.mjs)。
+ * Cc に届かなくても止める (fail-closed)。 シェル以外のツールは null (Cc の判定に任せる)。
+ */
+export function localShellVerdict(input, env = process.env) {
+  const toolInput = input?.tool_input && typeof input.tool_input === "object" ? input.tool_input : {};
+  const shellLike = toolInput.command !== undefined || SHELL_LIKE_TOOLS.test(String(input?.tool_name ?? ""));
+  if (!shellLike) return null;
+  if (isAllowedFetchLinkCommand(toolInput.command, env[FETCH_LINK_SCRIPT_ENV])) return null;
+  return {
+    decision: "deny",
+    reason: "相談窓口で実行できるコマンドは公開リンクの取得だけです (consult-fetch-link スキルの形: node <取得スクリプト> '<URL>')。",
   };
 }
 
@@ -42,6 +62,14 @@ export function preToolOutput(verdict) {
 export async function runConsultCodexHook({
   event, input, env = process.env, fetchImpl = fetch, write = (text) => process.stdout.write(text),
 }) {
+  if (event === "pre-tool") {
+    // シェルの制限は Cc の判定より先に、 Cc が無くても効かせる。
+    const local = preToolOutput(localShellVerdict(input, env));
+    if (local) {
+      write(`${JSON.stringify(local)}\n`);
+      return;
+    }
+  }
   const sessionId = env.CONCORDIA_SESSION_ID?.trim();
   if (!sessionId || env.CONCORDIA_DISABLE === "1") return;
   const base = (env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");

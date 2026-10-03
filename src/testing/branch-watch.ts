@@ -7,6 +7,8 @@
  * inject する。 テスト claim を宣言済みのセッションには出さない (既に一報済み)。
  * 通知はセッションごとに NOTIFY_COOLDOWN_MS で間引く (branch を頻繁に行き来する
  * 作業でスパムしない)。
+ * 相談窓口のセッション (相談用ディレクトリで動き、 コードを書かない) には出さない (isExempt。 2026-10-03 neco 指示
+ * 「相談窓口へのブランチ切り替えは通知しないでください」)。
  */
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -24,6 +26,8 @@ export interface BranchWatchDeps {
   /** テスト差し替え用 (既定 injectTestingNotice)。 */
   notify?: (repo: SessionsRepo, sessionId: string, text: string) => void;
   intervalMs?: number;
+  /** 案内を出さないセッション (相談窓口など)。 既定は全セッションに出す。 */
+  isExempt?: (session: { id: string; repo_path: string }) => boolean;
 }
 
 export function guidanceText(prev: string, next: string, activeSummary: string): string {
@@ -60,6 +64,7 @@ export function startBranchWatch(deps: BranchWatchDeps): { stop(): void } {
       const prev = lastBranch.get(s.id);
       lastBranch.set(s.id, branch);
       if (prev === undefined || prev === branch || !branch) continue; // 初観測 / 変化なし
+      if (deps.isExempt?.(s)) continue; // 相談窓口などコードを書かないセッション
       if (deps.claims.hasActiveClaim(s.id, Math.floor(now / 1000))) continue; // 一報済み
       const last = lastNotifiedAt.get(s.id) ?? 0;
       if (now - last < NOTIFY_COOLDOWN_MS) continue;

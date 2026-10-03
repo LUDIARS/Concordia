@@ -51,10 +51,13 @@ describe("resolveProjectlessConsultLaunch", () => {
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: true,
       codexHomeReady: true,
+      // フックの信頼を確かめられない (port 無し) ので、 Astra にはシェルを許さない。
+      codexFetchLinkReady: false,
       env: {
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
         CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
         CODEX_HOME: join("/srv/cw", ".codex-home"),
+        CONCORDIA_CONSULT_FETCH_LINK_SCRIPT: "/srv/cw/_source/tools/fetch-link/fetch-link.mjs",
         CONCORDIA_CONSULT_DATA_DIR: dataDir,
       },
     });
@@ -79,13 +82,28 @@ describe("resolveProjectlessConsultLaunch", () => {
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: false,
       codexHomeReady: false,
+      codexFetchLinkReady: false,
       env: {
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
         CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
         CODEX_HOME: join("/srv/cw", ".codex-home"),
+        CONCORDIA_CONSULT_FETCH_LINK_SCRIPT: "/srv/cw/_source/tools/fetch-link/fetch-link.mjs",
       },
     });
     expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "engineer"), expect.objectContaining({ autoMemoryEnabled: false }), null);
+  });
+
+  it("Astra のフックが信頼済みでログイン済みのときだけ、 公開リンクの取得コマンドを許す", async () => {
+    const request = { subsidiaryId: "glab", department: department(), specifiedScope: [], roleTitle: "デザイナー" };
+    const trusted = vi.fn(async () => true);
+    const ready = await resolveProjectlessConsultLaunch(request, { ...ports(), codexPreToolHookTrusted: trusted });
+    expect(ready).toMatchObject({ kind: "consult-workspace", codexFetchLinkReady: true });
+    expect(trusted).toHaveBeenCalledWith(join("/srv/cw", ".codex-home"));
+    expect(await resolveProjectlessConsultLaunch(request, { ...ports(), codexPreToolHookTrusted: async () => false }))
+      .toMatchObject({ codexFetchLinkReady: false });
+    expect(await resolveProjectlessConsultLaunch(request, {
+      ...ports(), prepareCodexHome: vi.fn(async () => false), codexPreToolHookTrusted: trusted,
+    })).toMatchObject({ codexFetchLinkReady: false });
   });
 
   it("本社で作業領域を明示した起動はその指定に従う", async () => {

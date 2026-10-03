@@ -32,7 +32,7 @@
 | CC-CONSULT-INV-04 | Tabula への公開は相談者本人が承認した要約だけ。承認前の候補は外へ出さない | 公開ボタンの判定 |
 | CC-CONSULT-INV-05 | ヒアリング内容と依頼者メモはローカル DB だけに置き、連合・通知・ログへ出さない | 既存の依頼者メモの規則 (dialogue-context.md §7) を継承 |
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
-| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
+| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索・ToDo・スキルと、公開リンクの取得コマンド 1 本だけ (2026-10-03) | `resolveProjectlessConsultLaunch` + admin spawn、`consultClaudePermissions` (claude)、`isAllowedFetchLinkCommand` (codex のフック) |
 | CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない。Castra のメモリやワークフローを引き継がない) | 役職フォルダの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
 | CC-CONSULT-INV-11 | 相談セッションは provider に関わらず、役職フォルダの指示 (AGENTS.md とスキル。移行前は CLAUDE.md) を受け取る。載せるのは役職フォルダ自身のものだけ (上位のフォルダ・相談者のデータフォルダの中は読まない) | claude は自分で読む。codex は AGENTS.md を自分で読み、読めない分 (スキル本文・移行前の CLAUDE.md) は admin spawn が初回指示に載せる (`needsInlineRoleGuidance` / `buildRoleGuidanceBlock` (`src/consultation/role-guidance.ts`)、`loadInlineRoleGuidance` (`src/consultation/role-guidance-files.ts`)) |
 | CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
@@ -195,7 +195,10 @@
 - 閉じ込め (CC-CONSULT-INV-07、本社・子会社とも)。Castra のハーネスフックは Castra 配下の一部ツールにしか掛からないため、
   起動する claude 本体で閉じる:
   - cwd は役職フォルダ。
-  - claude の引数 `--tools=WebSearch,TodoWrite,Skill --strict-mcp-config`。Read・シェル・編集・利用者の MCP を持たない。
+  - claude の引数 `--tools=WebSearch,TodoWrite,Skill,Bash --strict-mcp-config`。Read・編集・利用者の MCP を持たない。
+    シェルは役職フォルダの `.claude/settings.local.json` の `permissions` (`defaultMode: "dontAsk"`、allow は WebSearch / TodoWrite /
+    Skill / `Bash(node <置き場所>/_source/tools/fetch-link/fetch-link.mjs:*)`) で公開リンクの取得コマンドだけを許し、ほかは聞かずに拒否する
+    (`consultClaudePermissions`、下記「公開リンクの取得」)。
   - claude は相談専用の設定フォルダ (`<置き場所>/.claude-config`) を `CLAUDE_CONFIG_DIR` にして起動する。利用者の ~/.claude
     (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読まず、スキルは役職フォルダ (`<役職>/.claude/skills`) のものだけを使う
     (2026-10-02 neco 選択「設定を分けて使えるようにする」)。役職フォルダの信頼はその設定フォルダの `.claude.json` に Cc が書く
@@ -204,7 +207,24 @@
     Lictor のフック (ハーネスのゲート) は `--settings` で渡るので、設定フォルダを分けても効く。
     transcript も設定フォルダの `projects` に書かれるので、Cc は起動時にそこを Claude Code のログ親として登録し
     (`setExtraClaudeProjectRoots`)、予算・コスト報告・ログ集計で相談の消費を数える (2026-10-03 修正、それまでは 0 だった)。
-  - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_root_markers=[] -c mcp_servers={}`。
+  - 公開リンクの取得 (2026-10-03 neco 指示「相談時にもらった Notion のオープンなリンク / Google Drive を取得できるようにする」、
+    方式は neco 選択「相談セッション側で実行 + Drive は公開リンクのみ」)。取得スクリプトの正本は相談フォルダのリポ
+    (`<置き場所>/_source/tools/fetch-link/fetch-link.mjs`、スキル `consult-fetch-link`)。公開 Notion は `www.notion.so/api/v3/loadPageChunk`
+    (届かないときだけ Canalis の notion-public を写した描画)、Google Drive は「リンクを知っている全員」のものを認証なしで読む。
+    https の決まったホスト以外 (ファイルのパス・社内のアドレス) は受けない。Cc は場所と許可だけを持つ (`src/consultation/consult-fetch-link.ts`):
+    - 起動 env `CONCORDIA_CONSULT_FETCH_LINK_SCRIPT` にスクリプトの絶対パスを渡す。
+    - codex (Astra) は相談の CODEX_HOME の config.toml に PreToolUse フックの信頼 (trusted_hash) が記録されているときだけ
+      `--disable shell_tool` を外す (`readConsultCodexPreToolHookTrusted`、`confinementArgsFor(..., { codexShell })`)。シェルの制限は
+      フック (`tools/consult-codex-hook.mjs` → `tools/consult-fetch-link-command.mjs`) が担い、取得コマンドの形以外は Cc に聞かずに止める
+      (Cc に届かなくても止める)。フックが未信頼ならシェルは外したまま。hooks.json の定義を変えると信頼がやり直しになるので、変えるときは
+      この判定も見直す。
+    - 未確認 (2026-10-03): codex の `-s read-only` の sandbox で取得スクリプトのネットワーク通信が通るか。通らなければ Astra の取得は
+      「取得中にエラー」になる (閉じ込めは変わらない)。
+  - ブランチ切替の案内 (`src/testing/branch-watch.ts` の「⚠️ ブランチ切替を検知しました」) は相談のセッションに出さない
+    (2026-10-03 neco 指示「相談窓口へのブランチ切り替えは通知しないでください」)。相談はコードを書かず、案内は相談者に届く。
+    判定は作業ディレクトリが置き場所の中か (`isInConsultWorkspace`、`startBranchWatch` の `isExempt`)。
+  - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_root_markers=[] -c mcp_servers={}`
+    (フックが信頼済みなら `--disable shell_tool` を外す。上記)。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
     プラグイン・MCP も読ませない。指示は役職フォルダ (cwd) の AGENTS.md だけを読ませる (上位フォルダは探さない。2026-10-03 に
     `project_doc_max_bytes=0` を外した)。画像を読む view_image はパスを指定すれば画像を読める余地が残る。

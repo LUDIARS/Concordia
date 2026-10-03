@@ -104,6 +104,28 @@ describe("startBranchWatch", () => {
     watcher.stop();
   });
 
+  it("相談窓口のセッション (isExempt) → 通知されない", () => {
+    const notifyCalls: Array<unknown> = [];
+    let branch = "main";
+    const sessions = fakeSessionsRepo(() => [
+      fakeSession({ id: "consult", branch, repo_path: "E:/Document/Consult/sound" }),
+      fakeSession({ id: "dev", branch, repo_path: "E:/Document/Ars/Concordia" }),
+    ]);
+    const watcher = startBranchWatch({
+      sessions,
+      claims: fakeClaimsRepo({ hasActiveClaim: false }),
+      notify: (_repo, sessionId) => notifyCalls.push(sessionId),
+      intervalMs: 1_000,
+      isExempt: (session) => session.repo_path.startsWith("E:/Document/Consult/"),
+    });
+    vi.advanceTimersByTime(1_000);
+    branch = "feat/new";
+    vi.advanceTimersByTime(1_000);
+    // 相談のセッションには出さず、 開発のセッションには出す。
+    expect(notifyCalls).toEqual(["dev"]);
+    watcher.stop();
+  });
+
   it("クールダウン内の再変化 → 通知されない", () => {
     const notifyCalls: Array<unknown> = [];
     let branch = "main";

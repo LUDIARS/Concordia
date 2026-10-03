@@ -18,6 +18,7 @@
  */
 
 import type { DepartmentRow } from "../db/departments-repo.js";
+import { CONSULT_FETCH_LINK_SCRIPT_ENV, consultFetchLinkScript } from "./consult-fetch-link.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import {
   CONSULT_SESSION_ENV,
@@ -62,6 +63,11 @@ export interface ProjectlessConsultLaunchPorts {
    * (未ログインでも claude の相談は起動できるので、 ここでは拒否しない)。
    */
   prepareCodexHome(codexHome: string): Promise<boolean>;
+  /**
+   * 相談の CODEX_HOME で PreToolUse フックが信頼済みか。 信頼済みのときだけ Astra (codex) に公開リンクの取得コマンドを許す
+   * (シェルの制限はフックが担う)。 省略時は false (シェルを外したまま)。
+   */
+  codexPreToolHookTrusted?(codexHome: string): Promise<boolean>;
 }
 
 export type ProjectlessConsultLaunch =
@@ -77,6 +83,8 @@ export type ProjectlessConsultLaunch =
     claudeConfigReady: boolean;
     /** 相談専用の CODEX_HOME にログイン済みか (codex で起動するときに必要)。 */
     codexHomeReady: boolean;
+    /** Astra (codex) に公開リンクの取得コマンドを許せるか (相談の CODEX_HOME で PreToolUse フックが信頼済み)。 */
+    codexFetchLinkReady: boolean;
     /** 相談者のデータフォルダ (Discord 以外からの起動は null)。 */
     dataDir: string | null;
     /** 起動 env (自動メモリを読まない・データフォルダの場所)。 */
@@ -113,14 +121,17 @@ export async function resolveProjectlessConsultLaunch(
   const claudeConfigReady = await ports.prepareClaudeConfig(configDir, cwd);
   const codexHome = consultCodexHome(ports.workspaceRoot);
   const codexHomeReady = await ports.prepareCodexHome(codexHome);
+  const codexFetchLinkReady = codexHomeReady && (await ports.codexPreToolHookTrusted?.(codexHome) ?? false);
   const env = {
     ...CONSULT_SESSION_ENV,
     CLAUDE_CONFIG_DIR: configDir,
     CODEX_HOME: codexHome,
+    // 公開リンクの取得コマンド。 codex のフックはこのパスのコマンドだけを通す (consult-fetch-link.ts)。
+    [CONSULT_FETCH_LINK_SCRIPT_ENV]: consultFetchLinkScript(ports.workspaceRoot),
     ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
   };
   return {
     kind: "consult-workspace", cwd, dataDir, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
-    restriction: projectlessConsultRestriction(), claudeConfigReady, codexHomeReady, env,
+    restriction: projectlessConsultRestriction(), claudeConfigReady, codexHomeReady, codexFetchLinkReady, env,
   };
 }

@@ -13,6 +13,7 @@
  */
 
 import { dirname, join } from "node:path";
+import { consultClaudePermissions } from "./consult-fetch-link.js";
 import { consultRoleFolder } from "./consult-role.js";
 
 export interface ProjectlessConsultInput {
@@ -32,14 +33,16 @@ export function isProjectlessConsultDepartment(input: ProjectlessConsultInput): 
 
 /**
  * プロジェクト無しの相談セッションに渡す claude の起動引数 (本社・子会社とも。 2026-10-02 neco 指示「本社の相談も同じで」)。
- * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキルだけにする (Read / シェル / 編集は存在しない)。
+ * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキル・シェルだけにする (Read / 編集は存在しない)。
+ *   シェルは公開リンクの取得コマンド 1 本だけを役職フォルダの permissions で許し、 ほかは聞かずに拒否する
+ *   (consult-fetch-link.ts、 2026-10-03 neco 指示「相談時にもらった Notion / Google Drive を取得できるように」)。
  *   ハーネスのフックは Castra 配下の一部ツールにしか掛からないため、 ここで閉じる。
  * - `--strict-mcp-config`: 利用者設定の MCP (Notion 等) を読み込まない。
  * スキルは役職フォルダのもの (Codex と共有の `<役職>/.agents/skills`) を使う。 利用者のスキル (~/.claude) は
  * 相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) で外す (consultClaudeConfigDir)。
  */
 export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze([
-  "--tools=WebSearch,TodoWrite,Skill",
+  "--tools=WebSearch,TodoWrite,Skill,Bash",
   "--strict-mcp-config",
 ]);
 
@@ -103,6 +106,7 @@ export function projectlessConsultRestriction(): string {
     "## 作業範囲の制限 (Concordia 相談窓口)",
     "このセッションはプロジェクトを持たない相談です。質問に回答だけを返します。",
     "- ローカルのファイル・リポジトリ・社内サービスは参照できません。必要なら Web 検索を使ってください。",
+    "- 相談者が送った公開の Notion / Google Drive のリンクは consult-fetch-link スキルの取得コマンドで読めます。ほかのコマンドは実行できません。",
     "- 社内固有の事情を推測で書かず、分からないことは分からないと答えてください。",
   ].join("\n");
 }
@@ -117,6 +121,7 @@ const INSTRUCTION_FILES = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude
  * ワークフローは引き継がない (CC-CONSULT-INV-08)。 役職フォルダ自身の CLAUDE.md とスキルは使い分けのために
  * 読ませ、 上位のフォルダと、 相談者ごとのデータフォルダの中の指示ファイルは読ませない。
  * 自動メモリは使わない (相談で使う環境のメモリは別途指定する)。
+ * ツールの許可は Web 検索・ToDo・スキルと公開リンクの取得コマンドだけ。 ほかは聞かずに拒否する (consultClaudePermissions)。
  */
 export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<string, unknown> {
   // 役職フォルダ自身の AGENTS.md は外さない (Claude Code は CLAUDE.md が無ければ AGENTS.md を指示として読む)。
@@ -132,7 +137,20 @@ export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<st
       ...INSTRUCTION_FILES.map((file) => `${slash(roleWorkspace)}/*/**/${file}`),
     ],
     autoMemoryEnabled: false,
+    permissions: consultClaudePermissions(dirname(roleWorkspace)),
   };
+}
+
+/**
+ * そのパスが相談用ディレクトリの中か (役職フォルダ・相談者のデータフォルダ)。 相談セッションの判定に使う
+ * (ブランチ切替の案内を出さない。 2026-10-03 neco 指示「相談窓口へのブランチ切り替えは通知しないで」)。
+ */
+export function isInConsultWorkspace(path: string | null | undefined, root: string | null | undefined): boolean {
+  if (!path || !root) return false;
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const target = norm(path);
+  const base = norm(root);
+  return target === base || target.startsWith(`${base}/`);
 }
 
 /** 相談セッションの起動 env (共通部分)。 自動メモリを読まない (設定ファイルと二重に止める)。 */

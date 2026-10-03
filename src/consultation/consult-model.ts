@@ -50,9 +50,22 @@ const CODEX_CONFINEMENT_ARGS: readonly string[] = Object.freeze([
 /**
  * 子会社の相談を閉じ込める起動引数。 閉じ込められない provider は null (起動しない)。
  * claude の引数は呼び出し側が渡す (projectless-consult.ts の PROJECTLESS_CONSULT_CLAUDE_ARGS)。
+ * codex は `codexShell` (相談の CODEX_HOME で PreToolUse フックが信頼済み) のときだけシェルを残す。 シェルで許すのは
+ * 公開リンクの取得コマンドだけで、 それ以外はフックが止める (tools/consult-codex-hook.mjs)。 フックが動かない
+ * (未信頼) ならシェルそのものを外したままにする (2026-10-03、 consult-fetch-link.ts)。
  */
-export function confinementArgsFor(provider: string, claudeArgs: readonly string[]): readonly string[] | null {
+export function confinementArgsFor(
+  provider: string,
+  claudeArgs: readonly string[],
+  options: { codexShell?: boolean } = {},
+): readonly string[] | null {
   if (provider === "claude") return claudeArgs;
-  if (provider === "codex") return CODEX_CONFINEMENT_ARGS;
+  if (provider === "codex") {
+    if (!options.codexShell) return CODEX_CONFINEMENT_ARGS;
+    const args = [...CODEX_CONFINEMENT_ARGS];
+    const at = args.indexOf("shell_tool");
+    args.splice(at - 1, 2);
+    return Object.freeze(args);
+  }
   return null;
 }

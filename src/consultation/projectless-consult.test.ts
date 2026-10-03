@@ -6,6 +6,7 @@ import {
   consultPersonalDataDir,
   consultRoleWorkspace,
   consultWorkspaceClaudeSettings,
+  isInConsultWorkspace,
   isProjectlessConsultDepartment,
   withConsultWorkspaceTrust,
 } from "./projectless-consult.js";
@@ -59,9 +60,30 @@ describe("consultWorkspaceClaudeSettings", () => {
 describe("PROJECTLESS_CONSULT_CLAUDE_ARGS", () => {
   it("組み込みツールを Web 検索・ToDo・スキルに絞り、 利用者の MCP を読ませない", () => {
     expect(PROJECTLESS_CONSULT_CLAUDE_ARGS).toEqual([
-      "--tools=WebSearch,TodoWrite,Skill",
+      "--tools=WebSearch,TodoWrite,Skill,Bash",
       "--strict-mcp-config",
     ]);
+  });
+});
+
+describe("consultWorkspaceClaudeSettings の permissions", () => {
+  it("Web 検索・ToDo・スキルと公開リンクの取得コマンドだけを許し、 ほかは聞かずに拒否する", () => {
+    const settings = consultWorkspaceClaudeSettings("E:/Document/Consult/sound") as { permissions: unknown };
+    expect(settings.permissions).toEqual({
+      defaultMode: "dontAsk",
+      allow: ["WebSearch", "TodoWrite", "Skill", "Bash(node E:/Document/Consult/_source/tools/fetch-link/fetch-link.mjs:*)"],
+    });
+  });
+});
+
+describe("isInConsultWorkspace", () => {
+  it("相談用ディレクトリの中 (役職フォルダ・データフォルダ) だけを相談セッションとみなす", () => {
+    expect(isInConsultWorkspace("E:\\Document\\Consult\\sound", "E:/Document/Consult")).toBe(true);
+    expect(isInConsultWorkspace("e:/document/consult/engineer/123456789012345678", "E:\\Document\\Consult\\")).toBe(true);
+    expect(isInConsultWorkspace("E:/Document/ConsultX/sound", "E:/Document/Consult")).toBe(false);
+    expect(isInConsultWorkspace("E:/Document/Ars/Concordia", "E:/Document/Consult")).toBe(false);
+    expect(isInConsultWorkspace(null, "E:/Document/Consult")).toBe(false);
+    expect(isInConsultWorkspace("E:/Document/Consult/sound", undefined)).toBe(false);
   });
 });
 

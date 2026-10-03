@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
-import { prepareConsultCodexHome } from "../consultation/consult-codex-home.js";
+import { prepareConsultCodexHome, readConsultCodexPreToolHookTrusted } from "../consultation/consult-codex-home.js";
 import { linkRoleSkills } from "../consultation/consult-role-skills.js";
 import { loadInlineRoleGuidance } from "../consultation/role-guidance-files.js";
 import {
@@ -1195,6 +1195,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         },
         // Astra (codex) の相談専用の CODEX_HOME (フックと設定を書く。 ログインは人が 1 回行う)。
         prepareCodexHome: (codexHome) => prepareConsultCodexHome(codexHome),
+        // フックが信頼済みなら Astra に公開リンクの取得コマンドを許す (シェルの制限はフックが担う。 consult-fetch-link.ts)。
+        codexPreToolHookTrusted: (codexHome) => readConsultCodexPreToolHookTrusted(codexHome),
       })
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
@@ -1209,7 +1211,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // 子会社の相談だけツールを制限する (claude は --tools、 codex はシェル等を外す。 consult-model.ts)。
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;
     const consultArgsFor = (provider: string): readonly string[] | null =>
-      consultConfined ? confinementArgsFor(provider, consultConfinement!.claudeArgs) : [];
+      consultConfined
+        ? confinementArgsFor(provider, consultConfinement!.claudeArgs, { codexShell: consultConfinement!.codexFetchLinkReady })
+        : [];
     // 相談は相談専用の設定フォルダ (claude は CLAUDE_CONFIG_DIR、 codex は CODEX_HOME) にログインしていないと起動できない。
     const consultLoginMissing = (provider: string): string | null => {
       if (consultConfinement === null) return null;

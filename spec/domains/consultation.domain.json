@@ -12,7 +12,8 @@
     { "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$" },
     { "pathPattern": "(^|/)tests/projectless-consult[^/]*\\.test\\.ts$" },
-    { "pathPattern": "(^|/)tools/consult-codex-hook(\\.test)?\\.mjs$" }
+    { "pathPattern": "(^|/)tools/consult-codex-hook(\\.test)?\\.mjs$" },
+    { "pathPattern": "(^|/)tools/consult-fetch-link-command(\\.test)?\\.mjs$" }
   ],
   "cardTemplate": "Summarise the consultation domain: private consultation channels (closed at creation, members, invites, lock on end), keeping private content off shared surfaces, and requester-approved publication of rewritten summaries to Tabula.",
   "specRefs": [

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { gateActionFrom, preToolOutput, runConsultCodexHook } from './consult-codex-hook.mjs';
+import { gateActionFrom, localShellVerdict, preToolOutput, runConsultCodexHook } from './consult-codex-hook.mjs';
 
 const env = { CONCORDIA_SESSION_ID: 'lictor-consult-1', CONCORDIA_URL: 'http://cc.test' };
 const ok = (body) => ({ ok: true, json: async () => body });
@@ -47,6 +47,35 @@ describe('consult codex hook', () => {
     const fetchImpl = vi.fn();
     await runConsultCodexHook({ event: 'pre-tool', env: {}, fetchImpl, input: {} });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('シェルは公開リンクの取得コマンドだけを通し、 ほかは Cc に聞かずに止める (Cc が無くても止める)', async () => {
+    const script = 'E:/Document/Consult/_source/tools/fetch-link/fetch-link.mjs';
+    const shellEnv = { ...env, CONCORDIA_CONSULT_FETCH_LINK_SCRIPT: script };
+    const fetchImpl = vi.fn(async () => ok({ decision: 'allow' }));
+    const write = vi.fn();
+    await runConsultCodexHook({
+      event: 'pre-tool', env: shellEnv, fetchImpl, write,
+      input: { tool_name: 'Bash', tool_input: { command: 'type E:\\Document\\Consult\\engineer\\AGENTS.md' } },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(JSON.parse(write.mock.calls[0][0]).hookSpecificOutput.permissionDecision).toBe('deny');
+
+    write.mockClear();
+    await runConsultCodexHook({
+      event: 'pre-tool', env: shellEnv, fetchImpl, write,
+      input: { tool_name: 'Bash', tool_input: { command: `node ${script} 'https://www.notion.so/Page-0123'` } },
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    // 起動 env に取得スクリプトが無い・セッション id が無いときも、 シェルは止める。
+    expect(localShellVerdict({ tool_name: 'Bash', tool_input: { command: `node ${script} 'https://www.notion.so/Page-0123'` } }, {}))
+      .toMatchObject({ decision: 'deny' });
+    write.mockClear();
+    await runConsultCodexHook({ event: 'pre-tool', env: {}, write, input: { tool_name: 'apply_patch', tool_input: { input: '*** Begin Patch' } } });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(localShellVerdict({ tool_name: 'web_search', tool_input: { query: 'x' } }, shellEnv)).toBeNull();
   });
 
   it('シェルの command 配列も 1 本の文字列にする', () => {

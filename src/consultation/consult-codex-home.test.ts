@@ -6,9 +6,38 @@ import {
   CONSULT_CODEX_HOOK_SCRIPT,
   consultCodexConfigToml,
   consultCodexHooks,
+  isConsultCodexPreToolHookTrusted,
   listUserCodexSkillFiles,
   prepareConsultCodexHome,
+  readConsultCodexPreToolHookTrusted,
 } from "./consult-codex-home.js";
+
+describe("isConsultCodexPreToolHookTrusted", () => {
+  const hash = `sha256:${"a".repeat(64)}`;
+  const hooksJson = "E:\\Document\\Consult\\.codex-home\\hooks.json";
+
+  it("この CODEX_HOME の hooks.json の PreToolUse に trusted_hash があれば true", () => {
+    const toml = [
+      "[hooks.state]", "",
+      `[hooks.state.'E:\\Document\\Consult\\.codex-home\\hooks.json:pre_tool_use:0:0']`, `trusted_hash = "${hash}"`, "",
+      `[hooks.state.'E:\\Document\\Consult\\.codex-home\\hooks.json:session_start:0:0']`, `trusted_hash = "${hash}"`,
+    ].join("\r\n");
+    expect(isConsultCodexPreToolHookTrusted(toml, hooksJson)).toBe(true);
+    expect(isConsultCodexPreToolHookTrusted(toml, "e:/document/consult/.codex-home/hooks.json")).toBe(true);
+  });
+
+  it("SessionStart だけ・別の hooks.json・記録無しは false", () => {
+    const sessionOnly = `[hooks.state.'E:\\Document\\Consult\\.codex-home\\hooks.json:session_start:0:0']\ntrusted_hash = "${hash}"`;
+    expect(isConsultCodexPreToolHookTrusted(sessionOnly, hooksJson)).toBe(false);
+    const other = `[hooks.state.'C:\\Users\\x\\.codex\\hooks.json:pre_tool_use:0:0']\ntrusted_hash = "${hash}"`;
+    expect(isConsultCodexPreToolHookTrusted(other, hooksJson)).toBe(false);
+    expect(isConsultCodexPreToolHookTrusted("", hooksJson)).toBe(false);
+  });
+
+  it("config.toml が無ければ false", async () => {
+    expect(await readConsultCodexPreToolHookTrusted(tempDir())).toBe(false);
+  });
+});
 
 const made: string[] = [];
 afterEach(() => { for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true }); });

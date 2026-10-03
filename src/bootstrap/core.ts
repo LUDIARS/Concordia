@@ -18,7 +18,7 @@ import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
 import { readSessionUsage, setExtraClaudeProjectRoots, setExtraCodexSessionRoots } from "../cost/log-usage.js";
-import { consultClaudeConfigDir, consultCodexHome, isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
+import { consultClaudeConfigDir, consultCodexHome, isInConsultWorkspace, isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
 import { ConsultLogWriter } from "../consultation/consult-log-writer.js";
 import { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
 import { readSessionUsageTimeline } from "../cost/usage-timeline.js";
@@ -2607,7 +2607,11 @@ export async function startBackend(): Promise<BackendHandle> {
     workflowBindings.register({
       key: "test",
       name: "testing-branch-watch",
-      start: () => startBranchWatch({ sessions: repo, claims: testingClaims, log }),
+      // 相談窓口のセッションにはブランチ切替の案内を出さない (tech-consultation.md §6)。
+      start: () => startBranchWatch({
+        sessions: repo, claims: testingClaims, log,
+        isExempt: (session) => isInConsultWorkspace(session.repo_path, consultWorkspaceRoot),
+      }),
     });
     // 朝タスクは cron スケジューラと寿命が違う (日次レビュー等は残したまま朝の
     // 自動起動だけ止めたい)。 daily と束ねず専用フラグで切り替える。

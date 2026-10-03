@@ -3987,6 +3987,30 @@
       "contracts": []
     },
     {
+      "source": "tools/consult-fetch-link-command.mjs",
+      "tests": [
+        "tools/consult-fetch-link-command.test.mjs",
+        "tools/consult-codex-hook.test.mjs",
+        "src/consultation/consult-fetch-link.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/testing/branch-watch.ts",
+      "tests": [
+        "src/testing/branch-watch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-fetch-link.ts",
+      "tests": [
+        "src/consultation/consult-fetch-link.test.ts",
+        "src/consultation/projectless-consult.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/cost/instruction-split.ts",
       "tests": [
         "src/cost/instruction-split.test.ts",

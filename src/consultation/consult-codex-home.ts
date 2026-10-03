@@ -15,7 +15,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +82,33 @@ export async function listUserCodexSkillFiles(home = homedir()): Promise<string[
   } catch {
     return [];
   }
+}
+
+/**
+ * codex の config.toml に、 hooks.json の PreToolUse フックの信頼 (`[hooks.state.'<hooks.json>:pre_tool_use:N:M']` の trusted_hash)
+ * が記録されているか。 codex は信頼されていないフックを実行しないので、 記録が無いときはシェルを開かない
+ * (シェルの制限をフックが担うため。 CC-CONSULT-INV-07)。 フックの定義を変えると信頼はやり直しになる点に注意。
+ */
+export function isConsultCodexPreToolHookTrusted(configToml: string, hooksJsonPath: string): boolean {
+  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const want = norm(hooksJsonPath);
+  let inTarget = false;
+  for (const raw of configToml.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("[")) {
+      const header = line.match(/^\[hooks\.state\.(['"])(.+):pre_tool_use:\d+:\d+\1\]$/);
+      inTarget = header !== null && norm(header[2]) === want;
+      continue;
+    }
+    if (inTarget && /^trusted_hash\s*=\s*"sha256:[0-9a-f]{64}"$/i.test(line)) return true;
+  }
+  return false;
+}
+
+/** 相談の CODEX_HOME で PreToolUse フックが信頼済みか (config.toml が読めなければ false)。 */
+export async function readConsultCodexPreToolHookTrusted(codexHome: string): Promise<boolean> {
+  const configToml = await readFile(join(codexHome, "config.toml"), "utf8").catch(() => "");
+  return isConsultCodexPreToolHookTrusted(configToml, join(codexHome, "hooks.json"));
 }
 
 /**

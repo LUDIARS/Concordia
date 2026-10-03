@@ -29,6 +29,17 @@ export function workflowStatus(status: ActioWorkflowTask["status"]): TaskStatus 
   return status === "open" ? "pending" : status === "done" || status === "cancelled" ? status : "delegated";
 }
 
+/**
+ * A team-less listing sends no team_id, so Actio also returns the project's team
+ * tasks. Those are outside the binding, not a scope violation: skip them instead
+ * of refusing the whole list. Only the team may differ; any other mismatch is refused by scoped().
+ */
+function isOtherTeamTaskOfTeamlessListing(binding: ActioBinding, task: ActioWorkflowTask): boolean {
+  return binding.teamId === null && task.teamId !== null && !taskTeamInScope(binding, task.teamId)
+    && task.projectId === binding.projectId && task.ownerId === binding.ownerId
+    && task.source === ACTIO_WORKFLOW_SOURCE && task.pluginId === ACTIO_WORKFLOW_SOURCE;
+}
+
 /** Maps Actio's task contract without weakening the configured ownership scope. */
 export class ActioWorkflowClient {
   private readonly metadataWrites = new Map<string, Promise<void>>();
@@ -39,7 +50,9 @@ export class ActioWorkflowClient {
     if (binding.teamId) query.set("team_id", binding.teamId);
     const result = z.object({ tasks: z.array(Task) }).safeParse(await this.transport.request(binding, "GET", `/api/tasks?${query}`));
     if (!result.success) throw new Error("Invalid Actio task list response");
-    return result.data.tasks.map((task) => this.scoped(binding, task));
+    return result.data.tasks
+      .filter((task) => !isOtherTeamTaskOfTeamlessListing(binding, task))
+      .map((task) => this.scoped(binding, task));
   }
 
   async get(binding: ActioBinding, id: string): Promise<ActioWorkflowTask> {

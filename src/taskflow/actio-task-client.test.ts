@@ -111,12 +111,34 @@ describe("ActioWorkflowClient", () => {
   /** Cc cannot protect direct Actio access, so a response outside the scope is refused. */
   it("rejects a task that belongs to another owner, project or workflow", async () => {
     for (const overrides of [
-      { ownerId: "owner-2" }, { projectId: "project-2" }, { teamId: "team-9" },
+      { ownerId: "owner-2" }, { projectId: "project-2" },
       { source: "other" }, { pluginId: "other" },
+      { teamId: "team-9", ownerId: "owner-2" },
     ] as Array<Partial<ActioWorkflowTask>>) {
       const { transport: t } = transport({ tasks: [task(overrides)] });
       await expect(new ActioWorkflowClient(t).list(BINDING)).rejects.toThrow("Actio task ownership mismatch");
     }
+  });
+
+  /** Without team_id Actio also returns the project's team tasks; they are not this binding's work. */
+  it("skips team tasks returned to a team-less listing instead of refusing the list", async () => {
+    const { transport: t } = transport({ tasks: [task(), task({ id: "team-task", teamId: "team-9" })] });
+
+    expect((await new ActioWorkflowClient(t).list(BINDING)).map((item) => item.id)).toEqual(["task-1"]);
+  });
+
+  it("keeps a registered candidate team's task on a team-less multi-team listing", async () => {
+    const multi = { ...BINDING, teamCandidates: ["team-1", "team-2"] };
+    const { transport: t } = transport({ tasks: [task({ teamId: "team-2" }), task({ id: "other", teamId: "team-9" })] });
+
+    expect((await new ActioWorkflowClient(t).list(multi)).map((item) => item.id)).toEqual(["task-1"]);
+  });
+
+  it("still refuses another team's task on a team-scoped listing", async () => {
+    const team = { ...BINDING, teamId: "team-1" };
+    const { transport: t } = transport({ tasks: [task({ teamId: "team-9" })] });
+
+    await expect(new ActioWorkflowClient(t).list(team)).rejects.toThrow("Actio task ownership mismatch");
   });
 
   it("refuses a response that does not match the task contract", async () => {

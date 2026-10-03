@@ -3403,6 +3403,15 @@
       ]
     },
     {
+      "source": "src/consultation/role-guidance-files.contract.ts",
+      "tests": [
+        "src/consultation/role-guidance-files.test.ts"
+      ],
+      "contracts": [
+        "CC-CONSULT-INV-11"
+      ]
+    },
+    {
       "source": "src/consultation/ontime-runtime.ts",
       "tests": [
         "src/consultation/role-guidance.test.ts"

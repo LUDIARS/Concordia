@@ -35,8 +35,8 @@ export function isProjectlessConsultDepartment(input: ProjectlessConsultInput): 
  * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキルだけにする (Read / シェル / 編集は存在しない)。
  *   ハーネスのフックは Castra 配下の一部ツールにしか掛からないため、 ここで閉じる。
  * - `--strict-mcp-config`: 利用者設定の MCP (Notion 等) を読み込まない。
- * スキルは役職フォルダのものを使う。 利用者のスキル (~/.claude) は相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) で外す
- * (consultClaudeConfigDir)。
+ * スキルは役職フォルダのもの (Codex と共有の `<役職>/.agents/skills`) を使う。 利用者のスキル (~/.claude) は
+ * 相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) で外す (consultClaudeConfigDir)。
  */
 export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze([
   "--tools=WebSearch,TodoWrite,Skill",

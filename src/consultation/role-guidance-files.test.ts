@@ -2,11 +2,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadInlineRoleGuidance, readRoleGuidanceFiles } from "./role-guidance-files.js";
+import {
+  loadInlineRoleGuidance,
+  readRoleGuidanceFiles,
+  ROLE_GUIDANCE_INSTRUCTION_FILES,
+  ROLE_GUIDANCE_SKILL_DIRS,
+} from "./role-guidance-files.js";
 
-function writeSkill(roleDir: string, name: string, body: string): void {
-  mkdirSync(join(roleDir, ".claude", "skills", name), { recursive: true });
-  writeFileSync(join(roleDir, ".claude", "skills", name, "SKILL.md"), `---\nname: ${name}\n---\n${body}`);
+function writeSkill(roleDir: string, name: string, body: string, skillDir = ".claude/skills"): void {
+  mkdirSync(join(roleDir, skillDir, name), { recursive: true });
+  writeFileSync(join(roleDir, skillDir, name, "SKILL.md"),`---\nname: ${name}\n---\n${body}`);
 }
 
 describe("role guidance files", () => {
@@ -70,5 +75,52 @@ describe("role guidance files", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toMatchObject({ unreadable: [".claude/skills/broken/SKILL.md"] });
     expect(JSON.stringify(warn.mock.calls)).not.toContain("役職の指示");
+  });
+
+  it("読み込み先は共有配置 (AGENTS.md / .agents/skills) が先、 旧配置 (CLAUDE.md / .claude/skills) が後", () => {
+    expect(ROLE_GUIDANCE_INSTRUCTION_FILES).toEqual(["AGENTS.md", "CLAUDE.md"]);
+    expect(ROLE_GUIDANCE_SKILL_DIRS).toEqual([".agents/skills", ".claude/skills"]);
+  });
+
+  it("共有配置 (AGENTS.md と .agents/skills) だけのとき、 その内容が初回指示のブロックに載る", async () => {
+    writeFileSync(join(roleDir, "AGENTS.md"), "共有の指示");
+    writeSkill(roleDir, "level-match", "共有のレベル合わせ", ".agents/skills");
+
+    const { source, unreadable } = await readRoleGuidanceFiles(roleDir);
+    expect(source.claudeMd).toBe("共有の指示");
+    expect(source.skills.map((skill) => skill.name)).toEqual(["level-match"]);
+    expect(unreadable).toEqual([]);
+
+    const text = await loadInlineRoleGuidance(roleDir, "codex", { warn: vi.fn() });
+    expect(text).toContain("共有の指示");
+    expect(text).toContain("共有のレベル合わせ");
+  });
+
+  it("旧配置 (CLAUDE.md と .claude/skills) だけのときも従来どおり載る", async () => {
+    writeFileSync(join(roleDir, "CLAUDE.md"), "旧の指示");
+    writeSkill(roleDir, "decline", "旧の断り方");
+
+    const text = await loadInlineRoleGuidance(roleDir, "codex", { warn: vi.fn() });
+    expect(text).toContain("旧の指示");
+    expect(text).toContain("旧の断り方");
+  });
+
+  it("両方あるときは共有配置だけを読み、 同じスキルを二重に載せない", async () => {
+    writeFileSync(join(roleDir, "AGENTS.md"), "共有の指示");
+    writeFileSync(join(roleDir, "CLAUDE.md"), "旧の指示");
+    writeSkill(roleDir, "level-match", "共有のレベル合わせ", ".agents/skills");
+    writeSkill(roleDir, "level-match", "旧のレベル合わせ");
+    writeSkill(roleDir, "legacy-only", "旧だけの手順");
+
+    const { source } = await readRoleGuidanceFiles(roleDir);
+    expect(source.claudeMd).toBe("共有の指示");
+    expect(source.skills.map((skill) => skill.name)).toEqual(["level-match"]);
+
+    const text = (await loadInlineRoleGuidance(roleDir, "codex", { warn: vi.fn() })) ?? "";
+    expect(text).toContain("共有の指示");
+    expect(text).not.toContain("旧の指示");
+    expect(text).not.toContain("旧のレベル合わせ");
+    expect(text).not.toContain("旧だけの手順");
+    expect(text.split("### 手順: level-match").length - 1).toBe(1);
   });
 });

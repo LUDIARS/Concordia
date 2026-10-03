@@ -34,7 +34,7 @@
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
 | CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索と ToDo だけ | `resolveProjectlessConsultLaunch` + admin spawn |
 | CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない。Castra のメモリやワークフローを引き継がない) | 役職フォルダの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
-| CC-CONSULT-INV-11 | 相談セッションは provider に関わらず、役職フォルダの指示 (CLAUDE.md とスキル) を受け取る。載せるのは役職フォルダ自身のものだけ (上位のフォルダ・相談者のデータフォルダの中は読まない) | claude は自分で読む。それ以外は admin spawn が初回指示に載せる (`needsInlineRoleGuidance` / `buildRoleGuidanceBlock` (`src/consultation/role-guidance.ts`)、`loadInlineRoleGuidance` (`src/consultation/role-guidance-files.ts`)) |
+| CC-CONSULT-INV-11 | 相談セッションは provider に関わらず、役職フォルダの指示 (AGENTS.md / CLAUDE.md とスキル) を受け取る。載せるのは役職フォルダ自身のものだけ (上位のフォルダ・相談者のデータフォルダの中は読まない) | claude は自分で読む。それ以外は admin spawn が初回指示に載せる (`needsInlineRoleGuidance` / `buildRoleGuidanceBlock` (`src/consultation/role-guidance.ts`)、`loadInlineRoleGuidance` と読み込み先の `ROLE_GUIDANCE_INSTRUCTION_FILES` / `ROLE_GUIDANCE_SKILL_DIRS` (`src/consultation/role-guidance-files.ts`)) |
 | CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
 | CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
 
@@ -159,7 +159,10 @@
     Castra (E:/Document/Ars) の外に置き、Castra の CLAUDE.md・スキル・hook を引き継がない。
   - 役職フォルダは事前ヒアリングの役職から `engineer` / `planner` / `designer` / `sound` / `general` (読めない・未記入) に
     読む (`src/consultation/consult-role.ts`)。モデル選び (下記) も同じ区分を使う。本社・子会社では分けない。
-  - 役職フォルダ自身の CLAUDE.md とスキル (`.claude/`) は役職ごとの使い分けのために読ませる。中身は人が置く。
+  - 役職フォルダ自身の指示ファイルとスキルは役職ごとの使い分けのために読ませる。中身は人が置く。置き場所は Codex と Claude Code の
+    共有配置 (2026-10-03 neco 指示「Codex と Claude Code が同じものを読む」): 指示は `<役職>/AGENTS.md` と `<役職>/CLAUDE.md`
+    (同じ内容。Codex は AGENTS.md、Claude Code は CLAUDE.md を読む)、スキルは `<役職>/.agents/skills/<名前>/SKILL.md`
+    (旧 `.claude/skills/` は廃止)。
     相談で使う環境のメモリは別途指定する (自動メモリは使わない)。
   - 相談者のデータは役職フォルダの下に Discord の個人 ID のフォルダ (`<役職>/<Discord ID>/`) を作って保存する。場所は起動 env
     `CONCORDIA_CONSULT_DATA_DIR` で渡す。Discord 以外からの起動 (ID が無い) では作らない。
@@ -182,7 +185,7 @@
   - cwd は役職フォルダ。
   - claude の引数 `--tools=WebSearch,TodoWrite,Skill --strict-mcp-config`。Read・シェル・編集・利用者の MCP を持たない。
   - claude は相談専用の設定フォルダ (`<置き場所>/.claude-config`) を `CLAUDE_CONFIG_DIR` にして起動する。利用者の ~/.claude
-    (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読まず、スキルは役職フォルダ (`<役職>/.claude/skills`) のものだけを使う
+    (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読まず、スキルは役職フォルダ (`<役職>/.agents/skills`) のものだけを使う
     (2026-10-02 neco 選択「設定を分けて使えるようにする」)。役職フォルダの信頼はその設定フォルダの `.claude.json` に Cc が書く
     (Lictor の事前焼き込みは ~/.claude.json にしか書かないため)。ログイン情報もその設定フォルダに持つ。未ログインなら claude の
     相談は 503 `projectless_consult_claude_login_required` (初回は人が `CLAUDE_CONFIG_DIR=<設定フォルダ> claude` でログインする)。
@@ -192,16 +195,19 @@
   - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_doc_max_bytes=0 -c mcp_servers={}`。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
     AGENTS.md・プラグイン・MCP も読ませない。画像を読む view_image はパスを指定すれば画像を読める余地が残る。
-  - 指示ファイルを読めない provider では、役職フォルダの CLAUDE.md とスキルを Cc が初回指示に載せる (CC-CONSULT-INV-11、
+  - 指示ファイルを読めない provider では、役職フォルダの指示ファイルとスキルを Cc が初回指示に載せる (CC-CONSULT-INV-11、
     2026-10-02 neco 指示「役職は spawn 前に決定するので読み分けで良い」)。上の引数のため Astra (codex) は役職フォルダの
     CLAUDE.md もスキルも読めず、デザイナー・サウンドの相談者だけ役職ごとの回答の作り方 (技術レベルに合わせる・非公開の内容を
     検索語に入れない・できない依頼の断り方など) が効かない回答を受け取っていた。
     - 対象は相談の作業ディレクトリで起動し、解決後の provider が claude 以外のとき (`needsInlineRoleGuidance`)。claude は自分で
       読むので載せない (二重になる)。テンプレート経路・provider 直指定の経路とも、provider の解決後に組む。
-    - 読むのは役職フォルダ直下の `CLAUDE.md` と `.claude/skills/<名前>/SKILL.md` だけ。相談者のデータフォルダや上位のフォルダは読まない
+    - 読むのは役職フォルダ直下の指示ファイル 1 つとスキルフォルダ 1 つの `<名前>/SKILL.md` だけ。読み込み先は共有配置
+      (`AGENTS.md`、`.agents/skills`) → 旧配置 (`CLAUDE.md`、`.claude/skills`) の順に、先に見つかったものだけを読む (両方あれば
+      共有配置だけ。同じ内容・同じスキルを二重に載せない。`ROLE_GUIDANCE_INSTRUCTION_FILES` / `ROLE_GUIDANCE_SKILL_DIRS`)。
+      相談者のデータフォルダや上位のフォルダは読まない
       (CC-CONSULT-INV-08 と同じ範囲)。無い・読めないファイルはその分を載せずに起動を続け、読めなかったものは warn ログに名前だけ出す。
     - 置き場所は「作業範囲の制限」の直後、対話の前提データの前。見出し `## 相談窓口の前提と手順` に続けて「このセッションではスキルを
-      呼び出せません。『〜を読んでください』とある手順は、下に全文を載せています」の 1 行、CLAUDE.md の本文、スキルごとの
+      呼び出せません。『〜を読んでください』とある手順は、下に全文を載せています」の 1 行、指示ファイルの本文、スキルごとの
       `### 手順: <スキル名>` と本文 (frontmatter を外す、名前順) を並べる。
     - 全体の上限は 40,000 文字。超えるときはスキル単位で後ろから載せるのをやめ、途中で切った本文は載せない。載せなかったスキル名は
       warn ログに出す (本文はログに出さない)。

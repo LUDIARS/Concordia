@@ -31,6 +31,21 @@ describe("usage budgets API", () => {
     expect(await (await app.request("/user/123456789", { method: "DELETE" })).json()).toEqual({ removed: true });
   });
 
+  it("lists this month's consumption per user, with or without a budget", async () => {
+    const { app } = setup();
+    const before = await (await app.request("/users")).json() as { month: string; users: unknown[] };
+    expect(before.month).toMatch(/^\d{4}-\d{2}$/);
+    expect(before.users).toEqual([{ user_id: "123456789", consumed_tokens: 1_000, team_tokens: 0, budget: null }]);
+    await app.request("/user/123456789", {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit_tokens: 2_000 }),
+    });
+    const after = await (await app.request("/users")).json() as { users: unknown[] };
+    expect(after.users).toEqual([{
+      user_id: "123456789", consumed_tokens: 1_000, team_tokens: 0,
+      budget: { limit_tokens: 2_000, consumed_tokens: 1_000, ratio: 0.5, exhausted: false },
+    }]);
+  });
+
   it("rejects an invalid scope or limit", async () => {
     const { app } = setup();
     expect((await app.request("/org/1", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit_tokens: 1 }) })).status).toBe(400);

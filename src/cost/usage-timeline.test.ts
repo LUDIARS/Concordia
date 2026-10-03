@@ -17,6 +17,23 @@ describe("claudeUsagePoints", () => {
       { atMs: Date.parse("2026-10-02T00:00:03.000Z"), tokens: 2 },
     ]);
   });
+
+  it("stop_reason が tool_use 以外の message を AI の最終回答 (区間の切れ目) にする", () => {
+    const line = (id: string, ts: string, stopReason: string | null, output: number) =>
+      JSON.stringify({ timestamp: ts, message: { id, stop_reason: stopReason, usage: { input_tokens: 1, output_tokens: output } } });
+    const points = claudeUsagePoints([
+      line("m1", "2026-10-02T00:00:01.000Z", "tool_use", 4),
+      line("m2", "2026-10-02T00:00:02.000Z", null, 9),
+      // 同じ message の後の行にだけ stop_reason が載っていても印を付ける。
+      line("m2", "2026-10-02T00:00:02.500Z", "end_turn", 9),
+      line("m3", "2026-10-02T00:00:03.000Z", null, 1),
+    ]);
+    expect(points).toEqual([
+      { atMs: Date.parse("2026-10-02T00:00:01.000Z"), tokens: 5 },
+      { atMs: Date.parse("2026-10-02T00:00:02.000Z"), tokens: 10, turnEnd: true },
+      { atMs: Date.parse("2026-10-02T00:00:03.000Z"), tokens: 2 },
+    ]);
+  });
 });
 
 describe("codexUsagePoints", () => {
@@ -31,6 +48,16 @@ describe("codexUsagePoints", () => {
     ])).toEqual([
       { atMs: Date.parse("2026-10-02T00:00:01.000Z"), tokens: 100 },
       { atMs: Date.parse("2026-10-02T00:00:03.000Z"), tokens: 150 },
+    ]);
+  });
+
+  it("task_complete を消費 0 の最終回答の印として取る", () => {
+    expect(codexUsagePoints([
+      JSON.stringify({ timestamp: "2026-10-02T00:00:01.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { total_tokens: 70 } } } }),
+      JSON.stringify({ timestamp: "2026-10-02T00:00:02.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "t1" } }),
+    ])).toEqual([
+      { atMs: Date.parse("2026-10-02T00:00:01.000Z"), tokens: 70 },
+      { atMs: Date.parse("2026-10-02T00:00:02.000Z"), tokens: 0, turnEnd: true },
     ]);
   });
 });

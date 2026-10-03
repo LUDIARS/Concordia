@@ -59,7 +59,7 @@ describe("UsageBudgetTracker", () => {
       sessionsInRange: () => [s1],
       readUsage: async () => ({ total: 999_999 }),
       readTimeline: async () => [
-        { atMs: (startSec + 1) * 1000, tokens: 400 },
+        { atMs: (startSec + 1) * 1000, tokens: 400, turnEnd: true },
         { atMs: (startSec + 60) * 1000, tokens: 800 },
       ],
       sessionEvents: () => [
@@ -91,6 +91,33 @@ describe("UsageBudgetTracker", () => {
     const totals = await tracker.monthlyConsumption();
     expect(totals.get("user:111111111")).toBe(50);
     expect(totals.get("user:333333333")).toBe(100);
+  });
+
+  it("shares one AI turn by instruction count, applies each person's multiplier and totals per person", async () => {
+    const s1 = session("s1", { team: "team_a", requester: "111111111" });
+    const startSec = Math.floor(NOW / 1000) - 100;
+    const inject = (id: number, offset: number, userId: string) => ({
+      id, session_id: "s1", ts: startSec + offset, kind: "inject", payload: JSON.stringify({ source: `discord:${userId}:1:${id}` }),
+    });
+    const tracker = new UsageBudgetTracker({
+      budgets: new UsageBudgetsRepo(makeTestDb()),
+      sessionsInRange: () => [s1],
+      readUsage: async () => ({ total: 999_999 }),
+      readTimeline: async () => [
+        { atMs: (startSec + 40) * 1000, tokens: 600 },
+        { atMs: (startSec + 50) * 1000, tokens: 300, turnEnd: true },
+      ],
+      // 同じ応答の区間に起動者が 2 回、 助けに入った人が 1 回指示した。
+      sessionEvents: () => [inject(1, 10, "111111111"), inject(2, 20, "222222222"), inject(3, 30, "111111111")],
+      roleMultiplier: (userId) => (userId === "222222222" ? 0.5 : 1),
+      now: () => NOW,
+    });
+    const snapshot = await tracker.monthlySnapshot();
+    // 900 を 2/3 (起動者 → チーム) と 1/3 (助けに入った人) に分け、 倍率は分けた額に人ごとに掛ける。
+    expect(snapshot.subjects.get("team:team_a")).toBe(600);
+    expect(snapshot.subjects.get("user:222222222")).toBe(150);
+    expect(snapshot.persons.get("111111111")).toEqual({ total: 600, team: 600 });
+    expect(snapshot.persons.get("222222222")).toEqual({ total: 150, team: 0 });
   });
 
   it("caches the monthly consumption for the gate and recounts after invalidate", async () => {

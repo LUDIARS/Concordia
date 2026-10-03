@@ -16,6 +16,7 @@ vi.mock("../api.js", () => ({
       has_executive: true,
     })),
     usageBudgets: vi.fn(async () => ({ budgets })),
+    usageBudgetUsers: vi.fn(async () => ({ month: "2026-10", users: [{ user_id: "111", consumed_tokens: 2_500, team_tokens: 1_500, budget: null }] })),
     teamCost: vi.fn(async () => ({ points: [] })),
     usageBudgetSet: vi.fn(),
     usageBudgetRemove: vi.fn(),
@@ -36,6 +37,9 @@ describe("月次予算の設定欄", () => {
     render(<Staff />);
     expect(await screen.findByText("月の予算 (トークン)")).toBeTruthy();
     expect(await screen.findByText("今月 1,000 (100%)")).toBeTruthy();
+    expect(await screen.findByText("今月の消費 (倍率込み)")).toBeTruthy();
+    expect(await screen.findByText("2,500")).toBeTruthy();
+    expect(await screen.findByText("うちチーム 1,500")).toBeTruthy();
   });
 
   it("チームのコスト画面にチームの予算を出す", async () => {

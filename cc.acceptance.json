@@ -3985,6 +3985,48 @@
         "tools/consult-codex-hook.test.mjs"
       ],
       "contracts": []
+    },
+    {
+      "source": "src/cost/instruction-split.ts",
+      "tests": [
+        "src/cost/instruction-split.test.ts",
+        "src/cost/usage-attribution.test.ts"
+      ],
+      "contracts": [
+        "budget-C-6"
+      ]
+    },
+    {
+      "source": "src/cost/instruction-split.contract.ts",
+      "tests": [
+        "src/cost/instruction-split.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/user-monthly-usage.ts",
+      "tests": [
+        "src/cost/user-monthly-usage.test.ts",
+        "src/api/usage-budgets.test.ts"
+      ],
+      "contracts": [
+        "budget-C-7"
+      ]
+    },
+    {
+      "source": "src/cost/user-monthly-usage.contract.ts",
+      "tests": [
+        "src/cost/user-monthly-usage.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/staff/UserMonthlyUsageCell.tsx",
+      "tests": [
+        "web/src/pages/staff/UserMonthlyUsageCell.test.tsx",
+        "web/src/pages/usage-budget-pages.test.tsx"
+      ],
+      "contracts": []
     }
   ,
 {

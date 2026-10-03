@@ -9,6 +9,8 @@
  * - checkLaunch: 起動の入口で、 消費する予算に残りがあるかを返す (予算が無ければ常に許可)。
  * - sweepNotices: 予算ごとに 80% / 100% に達したら、 その月に 1 回だけ本人へ知らせる。 配送に失敗したら記録を戻して次回やり直す。
  * - cachedMonthlyConsumption: ツール実行ごとの判定 (ハーネスの gate) 用。 集計は重いので数分キャッシュする。
+ * - monthlySnapshot: 帰属先ごとの合計に加え、 消費した人ごとの今月の消費 (倍率込み、 うちチーム予算ぶん) を返す
+ *   (各ユーザーの管理画面の表示。 予算の有無に関係なく数える)。
  *
  * @implements SPEC-USAGE-BUDGET-POLICY
  */
@@ -26,6 +28,7 @@ import {
 import { attributeTotal, attributeUsage, sessionAttribution, type SessionAttribution } from "./usage-attribution.js";
 import { chargedTokens, DEFAULT_COST_MULTIPLIER } from "./budget-multiplier.js";
 import type { UsagePoint } from "./usage-timeline.js";
+import type { PersonUsage } from "./user-monthly-usage.js";
 
 /** ツール実行ごとの判定で使う集計のキャッシュ期間 (既定 3 分)。 */
 export const DEFAULT_CONSUMPTION_CACHE_MS = 3 * 60 * 1000;
@@ -62,6 +65,19 @@ export interface BudgetNotice {
   evaluation: BudgetEvaluation;
 }
 
+/** 今月の集計。 subjects = 帰属先 ("scope:id") ごと、 persons = 消費した人 (Discord の利用者) ごと。 どちらも倍率込み。 */
+export interface MonthlyUsageSnapshot {
+  month: string;
+  subjects: Map<string, number>;
+  persons: Map<string, PersonUsage>;
+}
+
+interface SessionCharge {
+  subject: BudgetSubject;
+  personUserId: string | null;
+  amount: number;
+}
+
 export class UsageBudgetTracker {
   private readonly now: () => number;
   private cache: { month: string; computedAt: number; totals: Map<string, number> } | null = null;
@@ -77,16 +93,28 @@ export class UsageBudgetTracker {
 
   /** 今月の消費 (倍率込み) を帰属先 ("scope:id") ごとに合算する。 結果はキャッシュにも入れる。 */
   async monthlyConsumption(nowMs = this.now()): Promise<Map<string, number>> {
+    return (await this.monthlySnapshot(nowMs)).subjects;
+  }
+
+  /** 今月の消費を帰属先ごとと消費した人ごとに合算する。 帰属先ごとの合計はキャッシュにも入れる。 */
+  async monthlySnapshot(nowMs = this.now()): Promise<MonthlyUsageSnapshot> {
     const [start, end] = localMonthRange(nowMs);
-    const totals = new Map<string, number>();
+    const subjects = new Map<string, number>();
+    const persons = new Map<string, PersonUsage>();
     for (const session of this.deps.sessionsInRange(start, end)) {
       for (const charge of await this.sessionCharges(session)) {
         const key = subjectKey(charge.subject);
-        totals.set(key, (totals.get(key) ?? 0) + charge.amount);
+        subjects.set(key, (subjects.get(key) ?? 0) + charge.amount);
+        if (!charge.personUserId) continue;
+        const person = persons.get(charge.personUserId) ?? { total: 0, team: 0 };
+        person.total += charge.amount;
+        if (charge.subject.scope === "team") person.team += charge.amount;
+        persons.set(charge.personUserId, person);
       }
     }
-    this.cache = { month: localMonthKey(nowMs), computedAt: nowMs, totals };
-    return totals;
+    const month = localMonthKey(nowMs);
+    this.cache = { month, computedAt: nowMs, totals: subjects };
+    return { month, subjects, persons };
   }
 
   /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (ツール実行ごとの判定用)。 */
@@ -102,7 +130,7 @@ export class UsageBudgetTracker {
     this.cache = null;
   }
 
-  private async sessionCharges(session: SessionRow): Promise<Array<{ subject: BudgetSubject; amount: number }>> {
+  private async sessionCharges(session: SessionRow): Promise<SessionCharge[]> {
     const attribution = this.attributionFor(session);
     // 起動時の帰属先が無い = 起動者も分からないので、 助けに入った人も区別できない。 何も消費しない (読み出しを省く)。
     if (!attribution.defaultSubject) return [];
@@ -115,12 +143,16 @@ export class UsageBudgetTracker {
       charges = attributeTotal(attribution, usage?.total ?? 0);
     }
     const departmentMultiplier = this.deps.departmentMultiplier?.(session.department_id ?? null) ?? DEFAULT_COST_MULTIPLIER;
-    const out: Array<{ subject: BudgetSubject; amount: number }> = [];
+    const out: SessionCharge[] = [];
     for (const charge of charges) {
       // ロールの照会に失敗したら 1 に倒す (予算の数え方の不調で倍率を上げない)。
       const roleMultiplier = await Promise.resolve(this.deps.roleMultiplier?.(charge.personUserId) ?? DEFAULT_COST_MULTIPLIER)
         .catch(() => DEFAULT_COST_MULTIPLIER);
-      out.push({ subject: charge.subject, amount: chargedTokens(charge.tokens, departmentMultiplier, roleMultiplier) });
+      out.push({
+        subject: charge.subject,
+        personUserId: charge.personUserId,
+        amount: chargedTokens(charge.tokens, departmentMultiplier, roleMultiplier),
+      });
     }
     return out;
   }

@@ -717,6 +717,15 @@ export interface UsageBudget {
   updated_at: number;
 }
 
+/** ユーザーごとの今月の消費 (usage-budgets.md §6)。 倍率込み。 team_tokens = うちチーム予算から引いたぶん。 */
+export interface UserMonthlyUsage {
+  user_id: string;
+  consumed_tokens: number;
+  team_tokens: number;
+  /** ユーザー予算があるときだけ (consumed_tokens はユーザー予算から引いた額)。 */
+  budget: { limit_tokens: number; consumed_tokens: number; ratio: number; exhausted: boolean } | null;
+}
+
 /** 月次予算の役職ごとのコスト倍率 (usage-budgets.md §3.1)。 行が無い役職は 1。 */
 /** 月次予算の属性 (Discord のロール) ごとのコスト倍率 (spec/feature/usage-budgets.md §3.1)。 */
 export interface UsageBudgetRoleMultiplier {
@@ -1178,6 +1187,7 @@ export const api = {
 
   // ── 月次予算 (spec/feature/usage-budgets.md §6) ──
   usageBudgets: () => get<{ budgets: UsageBudget[] }>("/v1/usage-budgets"),
+  usageBudgetUsers: () => get<{ month: string; users: UserMonthlyUsage[] }>("/v1/usage-budgets/users"),
   usageBudgetSet: (scope: UsageBudgetScope, targetId: string, limitTokens: number) =>
     put<{ budget: UsageBudget }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`, { limit_tokens: limitTokens }),
   usageBudgetRemove: (scope: UsageBudgetScope, targetId: string) =>

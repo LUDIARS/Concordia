@@ -14,7 +14,7 @@ export default {
     if (!Array.isArray(charges) || !input) return false;
     const observed = (points as Array<{ tokens: number }>).reduce((sum, point) => sum + (point.tokens > 0 ? point.tokens : 0), 0);
     const charged = charges.reduce((sum, charge) => sum + charge.tokens, 0);
-    if (charged > observed + 1e-9) return false;
+    if (charged > observed + 1e-9 * Math.max(1, observed)) return false;
     return charges.every((charge) => {
       const sameAsDefault = input.defaultSubject !== null
         && charge.subject.scope === input.defaultSubject.scope && charge.subject.targetId === input.defaultSubject.targetId;

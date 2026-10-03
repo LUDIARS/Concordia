@@ -8,8 +8,10 @@ import {
   type StaffPlatform,
   type StaffRole,
   type UsageBudget,
+  type UserMonthlyUsage,
 } from "../api.js";
 import { UsageBudgetEditor } from "../components/UsageBudgetEditor.js";
+import { UserMonthlyUsageCell } from "./staff/UserMonthlyUsageCell.js";
 import { StaffAddForm } from "./staff/StaffAddForm.js";
 import { StaffRoleLegend } from "./staff/StaffRoleLegend.js";
 import { BudgetRoleMultipliers } from "./staff/BudgetRoleMultipliers.js";
@@ -45,11 +47,13 @@ function StaffRow({
   onNoteCommit,
   onRemove,
   budget,
+  usage,
   onBudgetChanged,
 }: {
   member: StaffMember;
   busy: boolean;
   budget: UsageBudget | null;
+  usage: UserMonthlyUsage | null;
   onBudgetChanged: () => void;
   onRoleChange: (role: StaffRole) => void;
   onNoteCommit: (note: string) => void;
@@ -105,6 +109,11 @@ function StaffRow({
           ? <UsageBudgetEditor scope="user" targetId={member.platform_user_id} budget={budget} onChanged={onBudgetChanged} />
           : <span className="text-[11px] text-subtle">-</span>}
       </td>
+      <td className="py-1.5 pr-2">
+        {member.platform === "discord"
+          ? <UserMonthlyUsageCell usage={usage} />
+          : <span className="text-[11px] text-subtle">-</span>}
+      </td>
       <td className="py-1.5 pr-2 text-[11px] text-subtle whitespace-nowrap">
         {fmtTs(member.last_seen_at)}
       </td>
@@ -129,11 +138,17 @@ export function Staff() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<StaffPlatform | "all">("all");
   const [budgets, setBudgets] = useState<UsageBudget[]>([]);
+  const [usages, setUsages] = useState<UserMonthlyUsage[]>([]);
 
   async function refresh() {
     try {
-      const [staff, usage] = await Promise.all([api.staffList(), api.usageBudgets().catch(() => ({ budgets: [] }))]);
+      const [staff, usage, users] = await Promise.all([
+        api.staffList(),
+        api.usageBudgets().catch(() => ({ budgets: [] })),
+        api.usageBudgetUsers().catch(() => ({ users: [] })),
+      ]);
       setBudgets(usage.budgets);
+      setUsages(users.users);
       setData(staff);
       setError(null);
     } catch (e) {
@@ -253,6 +268,7 @@ export function Staff() {
                 <th className="pb-1 font-normal">変更</th>
                 <th className="pb-1 font-normal">メモ</th>
                 <th className="pb-1 font-normal">月の予算 (トークン)</th>
+                <th className="pb-1 font-normal">今月の消費 (倍率込み)</th>
                 <th className="pb-1 font-normal">最終アクセス</th>
                 <th />
               </tr>
@@ -266,6 +282,7 @@ export function Staff() {
                     member={member}
                     busy={busyId === key}
                     budget={budgets.find((b) => b.scope === "user" && b.target_id === member.platform_user_id) ?? null}
+                    usage={usages.find((u) => u.user_id === member.platform_user_id) ?? null}
                     onBudgetChanged={() => void refresh()}
                     onRoleChange={(role) => void run(
                       key,

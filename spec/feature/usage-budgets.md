@@ -12,6 +12,11 @@
 > 2026-10-03 neco 指示:「これはロールで倍率変えられるようにしてほしい」→ 選択「Discord のロール」(複数ロールはいちばん低い
 > 倍率)、「特定のロールを持つ人 (新入部員、メンター) などに 0.5 などの倍率をかける」。属性の倍率を社員名簿の役職から
 > Discord のロールへ置き換えた。
+>
+> 同日の追加指示:「AIコストをどれくらい消費したかはCcの各ユーザの管理画面で見れる。複数人で共有をしているセッションは、
+> 発言を確認したユーザのその数ごとに消費額を計算する。本社も含む。」→ 選択「指示した人数で割る」、続けて「指示の回数で
+> 重みつけます」(同じ区間に A が 2 回・B が 1 回指示したら A に 2/3、B に 1/3)。区間の切り方を AI の応答 1 回ごとに変え、
+> 各ユーザーの今月の消費を社員名簿に出した (Actio `actio:6ad0d1fb-2b42-44ad-a074-3782d5574c2a`)。
 
 - 価値: [UX-CC-W4](../ux/product.md) (通知を見れば今必要な判断が分かる — 上限接近を知らせる) と、
   [UX-CC-W1](../ux/product.md) (権限外の操作が進まない — 予算外の起動・作業が進まない)。
@@ -38,7 +43,7 @@
 
 | ID | 条件 | 強制箇所 |
 |---|---|---|
-| CC-BUDGET-INV-01 | 消費の各区間はチーム・起動者・助けに入った人のどれか 1 つの予算だけを消費する (二重に数えない) | `attributeUsage` / `attributeTotal` |
+| CC-BUDGET-INV-01 | 消費は二重に数えない。区間の消費を指示の回数で按分した各人の額は合計が区間の消費に等しく、各人の額はチーム・起動者・その人のどれか 1 つの予算だけを消費する | `attributeUsage` / `splitByInstructionCount` / `attributeTotal` |
 | CC-BUDGET-INV-02 | 予算を使い切った帰属先の新しい起動は始めない。理由は本人にだけ返す | admin spawn (`budget_exhausted`、402)、`/consult` の受付前確認 |
 | CC-BUDGET-INV-03 | 予算の無い帰属先は今までどおり起動・作業できる (導入で既存の利用を止めない) | `checkLaunch` / `decideBudgetGate` |
 | CC-BUDGET-INV-04 | 80% / 100% の知らせは帰属先・月・閾値ごとに 1 回。配送に失敗したら記録を戻して出し直す | `usage_budget_notices` + `sweepNotices` |
@@ -72,7 +77,8 @@
     `DiscordRoleMultiplierResolver` (`src/cost/budget-role-multiplier.ts`) が人ごとに 5 分キャッシュする。
   - Bot が動いていない・取得に失敗したときは 1 に倒し、その結果はキャッシュしない (次の集計で引き直す)。倍率表が空なら
     Discord に問い合わせない。倍率を API で変えたらロールのキャッシュと集計のキャッシュを捨てる。
-- 消費する人: その区間の指示を出した人 (§3.2)。指示がまだ無い区間は起動者。チームの予算から引くときも、指示を出した人の
+- 消費する人: その区間に指示を出した人 (§3.2)。複数いれば按分した額ごとに、その人の属性の倍率を掛ける
+  (按分した額 × 部署の倍率 × その人のロールの倍率)。指示が無い区間は起動者。チームの予算から引くときも、指示を出した人の
   属性の倍率を使う。
 - 相談課 2 部署の 0.25 はデータ設定 (部署の PATCH) で入れる。
 
@@ -80,13 +86,28 @@
 
 - 消費は時刻つきで読む (Claude Code は transcript の assistant 行の `timestamp` と usage、Codex は `token_count` の
   累積の増分)。指示を出した人は session events の inject の `source` (`discord:<user id>:…`) と時刻から取る。
-- ある人が指示を出した時刻から、次に別の人が指示を出すまでの消費は、その指示を出した人に付ける。
-  - 起動者の指示の区間と、指示がまだ無い区間 → 起動時の帰属先 (チーム → 起動者)。
-  - 起動者以外の人 (助けに入った人) の指示の区間 → その人のユーザー予算。
+- **区間** = AI の応答 1 回。前の AI の最終回答の直後から、次の AI の最終回答まで (最終回答の消費を含む)。最後の最終回答
+  より後 (応答中) は開いた区間。最終回答の印は provider ログから取る (2026-10-03 に実データで確認):
+  - Claude Code: transcript の assistant 行の `message.stop_reason` が `tool_use` / `pause_turn` 以外 (`end_turn` 等)。
+    ツールを呼ぶ途中の応答は `tool_use`。1 つの message は content ごとに同じ `message.id` の複数行に分かれ、どの行に
+    `stop_reason` があっても印にする。`stop_reason` が無い (null) 行は印にしない。
+  - Codex: rollout の `event_msg` で `payload.type` が `task_complete` の行 (消費 0 の印。直前の `token_count` までが区間)。
+  - 印が 1 つも無いログ (古い transcript 等) はセッション全体が 1 つの区間になる。
+- **区間の指示** = その区間の時刻に入る人の指示 (inject の時刻 ≦ 区間の最終回答。最初の区間は最初の最終回答までのすべて)。
+- **配分**: 区間の消費を、その区間に各人が出した指示の回数で按分する。A が 2 回・B が 1 回なら A に 2/3、B に 1/3。
+  1 人なら全額。読んだだけ (指示を出していない) の人には付けない。按分した各人の額の行き先は:
+  - 起動者 → 起動時の帰属先 (チームで起動したならチーム、それ以外は起動者のユーザー予算)。
+  - 起動者以外の人 (助けに入った人) → その人のユーザー予算。
+  - 倍率は按分した額に人ごとに掛ける (§3.1)。
+- 指示が無い区間 (起動時の初回指示への応答、指示なしに続けた応答) → 起動時の帰属先 (チーム → 起動者)、倍率は起動者。
 - 次のときは区間を分けず、合計を起動時の帰属先へ付ける (従来の数え方に倒す):
   - 時刻つきの消費が読めない (codex-sdk、transcript が無い・信頼できる置き場所に無い)。
-  - 起動者が分からない (チームだけで起動した等)。助けに入った人を区別できないため。
+- 起動者が分からない (チームだけで起動した等) セッションは、助けに入った人を区別できないため、按分した額をすべて起動時の
+  帰属先に付ける (倍率だけ按分した各人のものを使う)。
 - Slack からの指示と Cc の制御 inject は「人の指示」として扱わない。
+- 作業中の判定 (§5.2) は区間の集計を待たず、その時点の直前に指示を出した人の帰属先で判定する (`responsibleAt`)。
+- 実装: 区間の切り方と按分 `src/cost/instruction-split.ts` (`turnSegments` / `splitByInstructionCount`)、帰属先への振り分け
+  `src/cost/usage-attribution.ts` (`attributeUsage`)、最終回答の印 `src/cost/usage-timeline.ts`。
 
 ## 4. データ
 
@@ -160,12 +181,31 @@
 | PUT | `/v1/usage-budgets/:scope/:targetId` | `{ limit_tokens, updated_by? }` 設定 |
 | DELETE | `/v1/usage-budgets/:scope/:targetId` | 外す (無制限) |
 | GET | `/v1/usage-budgets/check?team=&user=` | 起動前の確認 (`allowed`、使い切りなら `notice`) |
+| GET | `/v1/usage-budgets/users` | ユーザーごとの今月の消費 (`{ month, users: [{ user_id, consumed_tokens, team_tokens, budget }] }`、§6.1) |
 | GET | `/v1/usage-budgets/role-multipliers` | Discord のロールごとの倍率 (`role_id` / `guild_id` / `multiplier`) |
 | GET | `/v1/usage-budgets/discord-roles` | 倍率を設定できるロール (`guilds: [{ guild_id, guild_name, roles: [{ id, name }] }]`。@everyone と連携アプリのロールを除き上位から。Bot 停止中は空) |
 | PUT | `/v1/usage-budgets/role-multipliers/:roleId` | `{ guild_id, multiplier, updated_by? }` 設定 (0 < x ≤ 10。id は数字) |
 | DELETE | `/v1/usage-budgets/role-multipliers/:roleId` | 外す (1 に戻す) |
 | GET | `/v1/usage-budgets/suspensions` | 予算切れで中断したセッション (未再開) |
 | POST | `/v1/usage-budgets/suspensions/:sessionId/resume` | `{ actor_user_id }` 再開 (403 / 402 / 409 / 502) |
+
+### 6.1 各ユーザーの今月の消費
+
+- 「各ユーザーの管理画面」は社員名簿 (`web/src/pages/Staff.tsx`) の各人の行とする。Cc の WebUI で人ごとに予算・役職を
+  管理している唯一の場所で、本社・子会社どちらの Discord の人も LLM に触れた時点で自動で載る。
+- 社員名簿の Discord の人の行に「今月の消費 (倍率込み)」を出す (`web/src/pages/staff/UserMonthlyUsageCell.tsx`)。予算を
+  設定していない人・本社の人にも出す。今月まだ消費していない人は 0。
+- 消費 = その人が消費する人として付いた額の合計 (§3.2 で按分した額 × 部署の倍率 × その人のロールの倍率)。チームで起動した
+  セッションの起動者の指示ぶん (チーム予算から引いた額) も含め、その内訳を「うちチーム」として添える。
+- 予算があれば割合も出す。割合は隣の「月の予算」欄が、ユーザー予算から引いた額 (チームのぶんを含まない) で出す。
+- `GET /v1/usage-budgets/users` の行: `consumed_tokens` = 上の消費、`team_tokens` = うちチーム予算ぶん、`budget` =
+  ユーザー予算があるときだけ `{ limit_tokens, consumed_tokens, ratio, exhausted }` (consumed_tokens はユーザー予算から引いた額)。
+  今月消費した人は予算の有無に関係なく全員、ユーザー予算を持つ人は消費が 0 でも行を持つ。消費の多い順。
+- 起動者も指示を出した人も分からないセッション (端末から直接起動したもの等) の消費は、どの人にも付かない (§3)。
+- 実装: 集計 `UsageBudgetTracker.monthlySnapshot` (`src/cost/usage-budget-tracker.ts`)、行の組み立て
+  `src/cost/user-monthly-usage.ts` (`userMonthlyUsageRows`)、API `src/api/usage-budgets.ts`。
+
+### 6.2 予算の設定画面
 
 - WebUI: 社員名簿の各行 (Discord の人) とチームのコスト画面に「月の予算 (トークン)」を置く。空欄は無制限。
   社員名簿に「月の予算のコスト倍率 (Discord のロールごと)」を置く (`web/src/pages/staff/BudgetRoleMultipliers.tsx`)。
@@ -189,13 +229,18 @@
 - 子会社の日次予算 (`subsidiary/budget.ts`) は日の範囲をミリ秒で渡しているが、`sessions.started_at` は秒のため、
   当日のセッションを 1 本も数えていない (消費が常に 0 で予算が効かない)。直すと既存の子会社 (日次予算を設定済みのもの)
   が実際に止まり始めるため、人の判断を待つ。月次予算はこの換算を adapter で行っている。
+- 区間の指示は inject の時刻で決まる。AI の応答中に出した指示は、AI がそれを次の応答で処理しても、出した時刻の区間 (応答中の
+  区間) の指示として数える。次の応答の区間に指示が無ければ、その区間は起動時の帰属先に付く。
 
 ## 8. 検証
 
-- 純関数: 倍率の換算 (`chargedTokens`)、ロールの倍率 (`lowestRoleMultiplier`、Augur `budget-role-C-1`)、指示ごとの帰属 (`attributeUsage` / `responsibleAt`)、時刻つきの消費の読み出し、
+- 純関数: 倍率の換算 (`chargedTokens`)、ロールの倍率 (`lowestRoleMultiplier`、Augur `budget-role-C-1`)、指示ごとの帰属 (`attributeUsage` / `responsibleAt`)、区間の切り方と
+  指示の回数での按分 (`turnSegments` / `splitByInstructionCount`、Augur `budget-C-6`)、時刻つきの消費と最終回答の印の読み出し、
+  ユーザーごとの今月の消費の行 (`userMonthlyUsageRows`、Augur `budget-C-7`)、
   作業中の判定 (`decideBudgetGate`)、再開できる人・状態 (`canResumeSuspension` / `isResumable`)、再開の起動指示
-  (`planBudgetResumeLaunch`)。Augur の observe 契約 `budget-C-1`〜`budget-C-5`。
-- 集計: 指示ごとの分割と倍率、キャッシュと数え直し (`UsageBudgetTracker`)。
+  (`planBudgetResumeLaunch`)。Augur の observe 契約 `budget-C-1`〜`budget-C-7`。
+- 集計: 区間ごとの按分と人ごとの倍率、人ごとの今月の消費 (うちチーム)、キャッシュと数え直し (`UsageBudgetTracker`)。
+- WebUI: 社員名簿の今月の消費 (`UserMonthlyUsageCell`、client を使わない表示部品)。
 - 中断: gate の deny・中断の記録が 1 回だけ・助けに入った人の予算での判定 (`UsageBudgetGate`)、gate API の `usage-budget` hit。
 - 再開: 見回りが 1 回だけ出す、押せる人・予算・二度押し・起動失敗の戻し (`resumeSuspendedSession`)、Discord のボタン。
 - API: 倍率の編集と集計への反映 (ロールのキャッシュを捨てる)、ロール一覧、中断の一覧と再開の受け渡し。

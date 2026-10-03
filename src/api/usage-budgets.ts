@@ -5,6 +5,7 @@
  *   PUT    /v1/usage-budgets/:scope/:targetId         予算を設定する ({ limit_tokens, updated_by? })
  *   DELETE /v1/usage-budgets/:scope/:targetId         予算を外す (無制限に戻す)
  *   GET    /v1/usage-budgets/check?team=&user=        起動前に、 消費する予算に残りがあるか
+ *   GET    /v1/usage-budgets/users                    ユーザーごとの今月の消費 (倍率込み。 予算の有無に関係なく、 予算があれば割合も)
  *   GET    /v1/usage-budgets/role-multipliers           属性 (Discord のロール) ごとのコスト倍率
  *   GET    /v1/usage-budgets/discord-roles              倍率を設定できる Discord のロール (guild ごと、 名前つき)
  *   PUT    /v1/usage-budgets/role-multipliers/:roleId   倍率を設定する ({ guild_id, multiplier, updated_by? })
@@ -25,6 +26,7 @@ import { subjectKey, type UsageBudgetTracker } from "../cost/usage-budget-tracke
 import { MAX_COST_MULTIPLIER } from "../cost/budget-multiplier.js";
 import type { BudgetResumeResult } from "../cost/budget-resume.js";
 import { isSuspended, readSuspension } from "../cost/budget-suspension.js";
+import { userMonthlyUsageRows } from "../cost/user-monthly-usage.js";
 import type { SessionRow } from "../shared/types.js";
 
 const ScopeSchema = z.enum(["user", "team"]);
@@ -68,6 +70,14 @@ export function usageBudgetsRouter(deps: UsageBudgetsApiDeps): Hono {
         const consumed = consumption.get(subjectKey({ scope: budget.scope, targetId: budget.target_id })) ?? 0;
         return { ...budget, ...toEvaluationJson(evaluateBudget(consumed, budget.limit_tokens)) };
       }),
+    });
+  });
+
+  app.get("/users", async (c) => {
+    const snapshot = await deps.tracker.monthlySnapshot();
+    return c.json({
+      month: snapshot.month,
+      users: userMonthlyUsageRows(snapshot.persons, deps.budgets.list(), snapshot.subjects),
     });
   });
 

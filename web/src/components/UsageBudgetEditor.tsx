@@ -10,11 +10,14 @@ export function UsageBudgetEditor({
   targetId,
   budget,
   onChanged,
+  client = api,
 }: {
   scope: UsageBudgetScope;
   targetId: string;
   budget: UsageBudget | null;
   onChanged: () => void;
+  /** 保存の口。 テストは偽物を渡す (vitest のモジュール共有で vi.mock が他ファイルのモックに負けるため)。 */
+  client?: Pick<typeof api, "usageBudgetSet" | "usageBudgetRemove">;
 }) {
   const [value, setValue] = useState(budget ? String(budget.limit_tokens) : "");
   const [busy, setBusy] = useState(false);
@@ -31,8 +34,8 @@ export function UsageBudgetEditor({
     }
     setBusy(true);
     try {
-      if (trimmed) await api.usageBudgetSet(scope, targetId, limit);
-      else await api.usageBudgetRemove(scope, targetId);
+      if (trimmed) await client.usageBudgetSet(scope, targetId, limit);
+      else await client.usageBudgetRemove(scope, targetId);
       setError(null);
       onChanged();
     } catch (e) {

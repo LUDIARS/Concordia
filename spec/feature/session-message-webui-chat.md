@@ -256,3 +256,7 @@ CC-INV-02（権限境界）、CC-INV-04（根拠）。人間が Cc のセッシ�
   選択自体は RWF 実行やリアクション送信ではない。停止セッション・送信中は入力不可。
 - 検証契約は `chat-attachments.test.ts`、`Attachments.test.tsx`、`RwfEmojiPicker.test.tsx`。
   ファイル公開境界、UTF-8保持、HTML非実行、取得中止、絵文字の非自動送信を対象とする。
+
+### 内部終了injectの非表示 (2026-10-03)
+
+正規source `auto:session-end` のみcanonical projectionから除外する。WebUIの新規行・未読通知は増やさず、raw EventBus/WS配送/監査を変更しない。人間の手入力・引用・source不明は本文で推測せず保持する。過去の保存行を削除しない。詳細は [session-end-inject-visibility.md](session-end-inject-visibility.md)。

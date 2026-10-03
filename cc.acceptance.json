@@ -4194,6 +4194,9 @@
     "contracts":  [
 
                   ]
-}
-]
+},
+    {"source":"src/shared/session-inject-visibility.ts","tests":["src/shared/session-inject-visibility.test.ts"],"contracts":["SEI-VIS-01"]},
+    {"source":"src/messages/project.ts","tests":["src/messages/project.test.ts","src/messages/service.test.ts"],"contracts":["SEI-VIS-01"]},
+    {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]}
+  ]
 }

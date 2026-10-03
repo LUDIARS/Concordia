@@ -13,6 +13,20 @@ function frame(kind: string, payload: unknown, seq = 1): ConcordiaEvent {
 }
 
 describe("projectEvent / transcript.frame", () => {
+  it.each(["/session-end","$session-end","session-end してください"])("omits internal termination projection %s",text=>{
+    const inject={type:"session.inject",target_session_id:"s1",source:"auto:session-end",text,ts:1000} as const;
+    expect(projectEvent(inject,ctx)).toEqual([]);
+    for(const source of ["web:human","discord:human","unknown","auto:session-end:unknown"]){
+      expect(projectEvent({...inject,source},ctx)[0].content).toBe(text);
+    }
+    expect(projectEvent(frame("text",{role:"user",text}),ctx)[0].content).toBe(text);
+    expect(projectEvent(frame("text",{role:"assistant",text,phase:"final_answer"}),ctx)[0]).toMatchObject({content:text,metadata:{phase:"final_answer"}});
+  });
+  it("retains approval question, permission actions and termination quotations",()=>{
+    expect(projectEvent({type:"question.posted",target_session_id:"s1",question_id:7,question:"plan を承認しますか？",options:["承認","修正"],ts:1000},ctx)[0].author_type).toBe("question");
+    expect(projectEvent({type:"session.permission_request",target_session_id:"s1",request_id:"r",tool_name:"ExitPlanMode",tool_input:{},ts:1000},ctx)[0]).toMatchObject({author_type:"permission",components:[{kind:"permission_actions",request_id:"r"}]});
+    expect(projectEvent(frame("text",{role:"user",text:"引用: /session-end"}),ctx)[0].content).toBe("引用: /session-end");
+  });
   it("kind=text role=user → author_type=user", () => {
     const [msg] = projectEvent(frame("text", { role: "user", text: "hi" }), ctx);
     expect(msg.author_type).toBe("user");

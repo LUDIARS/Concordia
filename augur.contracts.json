@@ -52,6 +52,7 @@
     {"id":"SC-MODEL-04","criterion":"SC-MODEL-04: Official stable same-role candidates satisfy required capabilities","symbol":"decideRoleAdoption","file":"src/model-catalog/role-policy.ts","module":"src/model-catalog/role-policy.contract.ts","mode":"observe","sample":1},
     {"id":"SC-MODEL-05","criterion":"SC-MODEL-05: Adoption preserves explicit pins; transactional CAS covered by refresh tests","symbol":"decideRoleAdoption","file":"src/model-catalog/role-policy.ts","module":"src/model-catalog/role-policy.contract.ts","mode":"observe","sample":1},
     {"id":"SC-MODEL-06","criterion":"SC-MODEL-06: Cc provides injected structural port; Lapilli opt-in consumer evidence pending","symbol":"createHttpModelCatalogPort","file":"src/model-catalog/http-port.ts","module":"src/model-catalog/http-port.contract.ts","mode":"observe","sample":1},
-    {"id":"SC-MODEL-07","criterion":"SC-MODEL-07: Cc async resolver is additive; Lapilli synchronous compatibility evidence pending","symbol":"createHttpModelCatalogPort","file":"src/model-catalog/http-port.ts","module":"src/model-catalog/http-port.contract.ts","mode":"observe","sample":1}
+    {"id":"SC-MODEL-07","criterion":"SC-MODEL-07: Cc async resolver is additive; Lapilli synchronous compatibility evidence pending","symbol":"createHttpModelCatalogPort","file":"src/model-catalog/http-port.ts","module":"src/model-catalog/http-port.contract.ts","mode":"observe","sample":1},
+    {"id":"SEI-VIS-01","criterion":"Internal auto:session-end is hidden from user-facing inject projection; all other sources remain eligible","symbol":"shouldDisplaySessionInject","file":"src/shared/session-inject-visibility.ts","module":"src/shared/session-inject-visibility.contract.ts","mode":"observe","sample":1}
   ]
 }

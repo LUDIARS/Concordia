@@ -8,6 +8,15 @@ import {
 } from "./cc-inject-mirror.js";
 
 describe("ccInjectMirrorPost", () => {
+  it.each(["/session-end", "$session-end", "session-end してください"])("hides internal termination text %s",text=>{
+    expect(ccInjectMirrorPost({source:"auto:session-end",text})).toBeNull();
+    expect(ccInjectMirrorPost({source:undefined,text})?.content).toBe(text);
+    expect(ccInjectMirrorPost({source:"auto:session-end:unknown",text})?.content).toBe(text);
+  });
+  it("retains existing approval notice and a quoted termination command",()=>{
+    expect(ccInjectMirrorPost({source:"plan-approval",text:"plan を承認してください"})?.content).toBe("plan を承認してください");
+    expect(ccInjectMirrorPost({source:"unknown",text:"引用: /session-end"})?.content).toBe("引用: /session-end");
+  });
   it.each([
     "session-work-policy",
     "testing-traffic",

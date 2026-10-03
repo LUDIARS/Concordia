@@ -55,7 +55,7 @@ The sweeper purges `session_messages` by last edit/creation time with the same r
 
 One row is one rendered stream item. IDs are monotonically increasing SQLite row IDs and are the
 pagination/read cursors. `UNIQUE(session_id, dedupe_key)` makes deterministic projections idempotent;
-a null dedupe key always inserts. `session.inject` uses the null-key path because its source event has
+a null dedupe key always inserts. Display-eligible `session.inject` uses the null-key path because its source event has
 no stable unique ID; deriving identity from second-resolution time and text would incorrectly collapse
 legitimate repeated input.
 
@@ -172,3 +172,7 @@ Repository tests cover idempotent upsert, update collapse, pagination, context r
 monotonic read cursors, and safe JSON parsing. Service tests cover projection/emission, Task updates,
 question-state preservation, metadata minimization, and subscription cleanup. API tests cover valid
 listing, invalid/ambiguous cursors, client-ID validation, cursor bounding, and unread counts.
+
+### 内部終了injectの非表示 (2026-10-03)
+
+正規source `auto:session-end` のみcanonical projectionから除外する。WebUIの新規行・未読通知は増やさず、raw EventBus/WS配送/監査を変更しない。人間の手入力・引用・source不明は本文で推測せず保持する。過去の保存行を削除しない。詳細は [session-end-inject-visibility.md](session-end-inject-visibility.md)。

@@ -2,7 +2,7 @@
  * Cc 由来 inject の Discord 転記 — 転記可否と文面の組み立て (純関数、 I/O なし)。
  *
  * 背景: Cc が自分で入れる inject (作業ポリシー更新 / テスト交通整備 / 委託の状態通知 /
- * auto:inquiry / director / reaction workflow / session end の insurance など) は PTY に
+ * auto:inquiry / director / reaction workflow など) は PTY に
  * 入るだけで Discord にも transcript にも残らなかった。 遠隔から「Cc がセッションに何を
  * 伝えたか」を追えるよう、 session thread へ転記する。
  *
@@ -14,6 +14,7 @@
 
 import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
 import { parseInjectSource } from "../shared/inject-source.js";
+import { shouldDisplaySessionInject } from "../shared/session-inject-visibility.js";
 import { taskKindForInjectSource } from "./session-task-post.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:71e98731 */
 import augurContract_3fb7485d from './cc-inject-mirror.contract.js'; /* augur-inject:contract-predicate:34b1aaee */
@@ -84,6 +85,7 @@ export function ccInjectMirrorPost(input: {
   source: string | null | undefined;
   text: string;
 }): CcInjectMirrorPost | null {
+  if (!shouldDisplaySessionInject(input.source)) return null;
   const source = (input.source ?? "").trim();
   if (input.text === ENTER_KEY_TEXT) return null;
   const text = input.text.trim();

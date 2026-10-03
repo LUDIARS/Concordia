@@ -121,7 +121,7 @@ Discord は空 message を拒否するので投稿はしないが、`discord_sta
 
 Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 系 / テスト交通整備
 `testing-traffic` / 委託の状態通知 `delegation:<run>:status|continue|commit|watchdog` /
-`auto:inquiry` / director / reaction workflow / session end の insurance など) は PTY に
+`auto:inquiry` / director / reaction workflow など) は PTY に
 入るだけで Discord にも transcript にも残らない。すべて eventBus の `session.inject` を
 通るので、bot がそこで session thread へ 1 行の要旨を通知する (2026-09-30 neco 指示)。
 遠隔からでも Cc がセッションに何を伝えたか追え、停止と確認待ちを見分けて引き継げる
@@ -138,6 +138,7 @@ Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 
 | source が `slack:<user>` | ❌ ここでは扱わない (§3.2 の Slack 転記) |
 | source が委託タスク本文 (`taskKindForInjectSource` が非 null) | ❌ §3.2 のタスク本文投稿 |
 | source が `auto:stall-nudge` | ❌ 自動確認は本文を出さず事実だけ通知する (2026-08-25 neco 指示) |
+| source が正規 `auto:session-end` | ❌ 内部終了処理は実行し、利用者への転記だけ抑止 (2026-10-03) |
 | それ以外 | ✅ |
 
 - username は `⚙️ Cc inject / <source>` (source 空なら `unknown`)、80 文字で切る。
@@ -172,3 +173,6 @@ project rules は長く、通知として多すぎた (2026-09-30 neco 指示)�
 - `spec/feature/delegation-implementation-inject.md` — 実装委託の初回 inject 本文そのもの
   (旧 `delegation-staged-injection.md` は 2026-08-21 に廃止)
 - `src/discord/session-startup-context.ts` — 定型文側 (mention・委託元リンク・作業ポリシー)
+
+内部終了injectの表示判断は [session-end-inject-visibility.md](session-end-inject-visibility.md) を参照。
+本文一致で手入力・引用を消さず、既存plan承認/permissionの通知を変更しない。

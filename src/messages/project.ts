@@ -16,6 +16,7 @@ import type {
   SessionMessageAuthorType,
 } from "../shared/session-message-types.js";
 import { injectionAuthorLabel, injectionProvenanceMetadata } from "./injection-provenance.js";
+import { shouldDisplaySessionInject } from "../shared/session-inject-visibility.js";
 
 export type {
   Attachment,
@@ -113,7 +114,7 @@ export function projectEvent(ev: ConcordiaEvent, ctx: ProjectContext): Projected
     case "transcript.frame":
       return projectTranscriptFrame(ev, ctx);
     case "session.inject":
-      return [projectSessionInject(ev)];
+      return shouldDisplaySessionInject(ev.source) ? [projectSessionInject(ev)] : [];
     case "question.posted":
       return [projectQuestionPosted(ev)];
     case "question.answered":

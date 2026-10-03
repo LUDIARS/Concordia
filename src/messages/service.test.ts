@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import { SessionMessageService } from "./service.js";
-import type { ConcordiaEvent } from "../events.js";
+import { eventBus, type ConcordiaEvent } from "../events.js";
+import { emitAutoSessionEndInject } from "../control/auto-session-end-inject.js";
+import type { SessionRow } from "../shared/types.js";
 
 let db: ReturnType<typeof makeTestDb>;
 let repo: SessionMessagesRepo;
@@ -31,6 +33,24 @@ function dispatch(ev: ConcordiaEvent): void {
 }
 
 describe("SessionMessageService", () => {
+  it("keeps raw termination delivery observable without canonical rows or UI notifications",()=>{
+    const observed:ConcordiaEvent[]=[];
+    const unsubscribe=eventBus.subscribe(ev=>observed.push(ev));
+    const stop=new SessionMessageService({repo}).start();
+    try {
+      const session:SessionRow={id:"s1",provider:"codex-cli",status:"active",repo_path:"/test",
+        repo_origin:null,branch:null,host:"test",started_at:111,ended_at:null,last_seen_at:111,
+        current_task:null,transcript_path:null,metadata:null,ws_clients:1,target_project:null};
+      expect(emitAutoSessionEndInject(session)).toBe(true);
+      expect(observed).toContainEqual(expect.objectContaining({type:"session.inject",source:"auto:session-end",text:"$session-end"}));
+      expect(repo.list("s1")).toHaveLength(0);
+      expect(observed.some(ev=>ev.type==="session.message" || ev.type==="session.message.summary")).toBe(false);
+      eventBus.emit({type:"session.inject",target_session_id:"s1",source:"web:human",text:"$session-end",ts:111});
+      expect(repo.list("s1")).toHaveLength(1);
+      expect(repo.list("s1")[0].content).toBe("$session-end");
+      expect(observed.some(ev=>ev.type==="session.message")).toBe(true);
+    } finally {stop();unsubscribe();}
+  });
   it("persists a projected message and emits session.message with op=create", () => {
     dispatch({ type: "transcript.frame", target_session_id: "s1", seq: 1, kind: "text", payload: { role: "user", text: "hi" }, ts: 111 });
 

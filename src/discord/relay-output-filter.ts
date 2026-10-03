@@ -27,7 +27,7 @@ export interface RelayOutputPolicy {
 /** Cc が組み立ててセッションへ送った指令の転記。 */
 const INJECT_TRANSCRIPT_TYPES: ReadonlySet<SessionMessageAuthorType> = new Set(["task", "delegation", "system"]);
 
-/** 指示 1 回ごとの最後の発言 (Discord で FINAL ANSWER として飾るもの)。 */
+/** 指示 1 回ごとの最後の発言 (最終回答・会話の要約)。 */
 export function isFinalAnswerMessage(message: RelayableMessage): boolean {
   return message.author_type === "summary"
     || (message.author_type === "assistant" && message.metadata?.phase === "final_answer");

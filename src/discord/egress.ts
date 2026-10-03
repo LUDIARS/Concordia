@@ -269,12 +269,9 @@ async function handleSessionMessage(
   });
 }
 
-/** @implements SPEC-SESSION-CHAT-RESPONSE-WORK — Discord-only final report decoration */
+/** @implements SPEC-SESSION-CHAT-RESPONSE-WORK — preserve final report text without a Cc heading */
 function formatSessionMessageContent(message: SessionMessagePayload): string {
   const content = message.content || "(attachment)";
-  if (isFinalReportMessage(message)) {
-    return ` 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 \n\n${content}`;
-  }
   if (message.author_type === "thinking") return content.split("\n").map((line) => `> ${line}`).join("\n");
   if (message.author_type === "task") return `**Task**\n${content}`;
   if (message.author_type === "tool") return `${formatToolLabel(message.author_label)}: ${content}`;

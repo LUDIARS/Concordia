@@ -128,17 +128,60 @@ describe("handleEvent chat.posted relay", () => {
 
 describe("handleEvent session.message relay", () => {
   it.each([
-    { author_type: "assistant" as const, metadata: { phase: "final_answer" }, heading: true },
-    { author_type: "summary" as const, metadata: null, heading: true },
-    { author_type: "assistant" as const, metadata: { phase: "commentary" }, heading: false },
-  ])("formats final report heading only at a completion boundary: %j", async ({ heading, ...fields }) => {
+    { author_type: "assistant" as const, metadata: { phase: "final_answer" }, turnEnd: true },
+    { author_type: "summary" as const, metadata: null, turnEnd: true },
+    { author_type: "assistant" as const, metadata: { phase: "commentary" }, turnEnd: false },
+  ])("relays original text without a Cc heading and keeps turn completion: %j", async ({ turnEnd, ...fields }) => {
     const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    const posted = vi.fn();
+    deps.onSessionMessagePosted = posted;
     handleEvent(deps, sessionMessage(sessionId, "create", { ...fields, content: "result" }));
     await flushEgress();
     expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      content: heading ? " 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 \n\nresult" : "result",
+      content: "result",
       allowedMentions: { parse: [] },
     }));
+    expect(posted).toHaveBeenCalledOnce();
+    expect(posted).toHaveBeenCalledWith({ sessionId, completion: false, turnEnd });
+  });
+
+  it.each([
+    "FINAL ANSWER\nAI自身が書いた見出し",
+    " 𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹 \n\nAI自身の原文",
+    "\n本文のFINAL ANSWERと𝑭𝑰𝑵𝑨𝑳 𝑨𝑵𝑺𝑾𝑬𝑹\n",
+  ])("preserves identical wording and line breaks in the AI text: %j", async (content) => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    handleEvent(deps, sessionMessage(sessionId, "create", { content, metadata: { phase: "final_answer" } }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ content }));
+  });
+
+  it("keeps the attachment fallback and deduplicates final delivery and its callback", async () => {
+    const { deps, webhooks, deliveryRepo, sessionId } = makeSessionMessageDeps();
+    const posted = vi.fn();
+    deps.onSessionMessagePosted = posted;
+    const ev = sessionMessage(sessionId, "create", { id: 91, content: "", metadata: { phase: "final_answer" } });
+    handleEvent(deps, ev);
+    await flushEgress();
+    handleEvent(deps, ev);
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledOnce();
+    expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ content: "(attachment)", allowedMentions: { parse: [] } }));
+    expect(deliveryRepo.findExternalId(91, "discord")).toBe("discord-1");
+    expect(posted).toHaveBeenCalledOnce();
+    expect(posted).toHaveBeenCalledWith({ sessionId, completion: false, turnEnd: true });
+  });
+
+  it("edits a delivered final answer without a heading and keeps the turn-end callback", async () => {
+    const { deps, webhooks, deliveryRepo, sessionId } = makeSessionMessageDeps();
+    const posted = vi.fn();
+    deps.onSessionMessagePosted = posted;
+    deliveryRepo.put({ message_id: 92, platform: "discord", external_id: "prior-final", ts: 1 });
+    handleEvent(deps, sessionMessage(sessionId, "update", { id: 92, author_type: "summary", content: "FINAL ANSWER\n訂正" }));
+    await flushEgress();
+    expect(webhooks.editForSession).toHaveBeenCalledWith(sessionId, "prior-final", "FINAL ANSWER\n訂正");
+    expect(webhooks.send).not.toHaveBeenCalled();
+    expect(posted).toHaveBeenCalledWith({ sessionId, completion: false, turnEnd: true });
   });
   it("creates a Discord post and records its delivery id", async () => {
     const { deps, webhooks, deliveryRepo, sessionId } = makeSessionMessageDeps();

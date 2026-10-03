@@ -38,6 +38,8 @@ export function consultEffortOptions(provider: string): Record<string, string> {
 }
 
 const CODEX_CONFINEMENT_ARGS: readonly string[] = Object.freeze([
+  // Cc が書く相談の設定 (<CODEX_HOME>/consult.config.toml) を重ねる。 consult-codex-home.ts の CONSULT_CODEX_PROFILE。
+  "-p", "consult",
   "-s", "read-only",
   "--disable", "shell_tool",
   "--disable", "plugins",

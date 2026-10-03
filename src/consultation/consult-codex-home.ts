@@ -46,10 +46,17 @@ export function consultCodexHooks(hookScript: string): { hooks: Record<string, C
 // @ts-expect-error augur-inject
 consultCodexHooks = contract(consultCodexHooks, { ...augurContract_60647eba, contractId: 'consult-codex-C-2', mode: 'observe', sample: 1, where: 'src/consultation/consult-codex-home.ts:34', rule: 'contract-wrap', id: '60647eba' }); /* augur-inject:contract-wrap:60647eba */
 
-/** 相談の CODEX_HOME の config.toml。 userSkillFiles は無効にする利用者のスキルの SKILL.md。 */
+/**
+ * Cc が管理する相談の codex の設定を置くプロファイル名。 `<CODEX_HOME>/consult.config.toml` に書き、 codex を `-p consult` で起動して
+ * 基本の config.toml に重ねる。 config.toml は codex 自身が書く (フックの信頼 `[hooks.state]`・フォルダの信頼 `[projects]`) ので
+ * Cc は触らない。 2026-10-03 まで config.toml を起動ごとに書き直しており、 フックを信頼しても次の起動で記録が消えていた。
+ */
+export const CONSULT_CODEX_PROFILE = "consult";
+
+/** 相談の CODEX_HOME の consult.config.toml。 userSkillFiles は無効にする利用者のスキルの SKILL.md。 */
 export function consultCodexConfigToml(userSkillFiles: readonly string[]): string {
   const lines = [
-    "# Concordia が相談の起動ごとに書き直す (spec/feature/tech-consultation.md §6)。 手で編集しない。",
+    "# Concordia が相談の起動ごとに書き直す (spec/feature/tech-consultation.md §6)。 手で編集しない。 codex -p consult で重ねる。",
     "# 上位フォルダの AGENTS.md を探さず、 役職フォルダ (cwd) の AGENTS.md だけを読む。",
     "project_root_markers = []",
   ];
@@ -89,6 +96,7 @@ export async function prepareConsultCodexHome(
   const skills = options.userSkillFiles ?? await listUserCodexSkillFiles();
   await writeFile(join(codexHome, "hooks.json"),
     `${JSON.stringify(consultCodexHooks(options.hookScript ?? CONSULT_CODEX_HOOK_SCRIPT), null, 2)}\n`, "utf8");
-  await writeFile(join(codexHome, "config.toml"), consultCodexConfigToml(skills), "utf8");
+  // config.toml は codex が信頼の記録を書くので触らない。 Cc の設定はプロファイルに分ける。
+  await writeFile(join(codexHome, `${CONSULT_CODEX_PROFILE}.config.toml`), consultCodexConfigToml(skills), "utf8");
   return existsSync(join(codexHome, "auth.json"));
 }

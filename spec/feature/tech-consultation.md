@@ -210,12 +210,15 @@
     利用者の ~/.codex (AGENTS.md・スキル・フック・MCP・設定) を読ませない。`src/consultation/consult-codex-home.ts`。
     - ログイン情報 (`auth.json`) はその CODEX_HOME に持つ。未ログインなら codex の相談は 503
       `projectless_consult_codex_login_required` (claude の login_required と同じ扱い)。
-    - Cc は起動のたびに CODEX_HOME の `hooks.json` と `config.toml` を書き直す (ログイン前でも書く)。
+    - Cc は起動のたびに CODEX_HOME の `hooks.json` と `consult.config.toml` を書き直す (ログイン前でも書く)。codex は
+      `-p consult` で起動し、`consult.config.toml` を基本の `config.toml` に重ねる。`config.toml` は codex が書く (フックの信頼
+      `[hooks.state]`・フォルダの信頼 `[projects]`) ので Cc は触らない。2026-10-03 まで Cc が `config.toml` を起動ごとに
+      書き直しており、フックを信頼しても次の起動で記録が消えていた。
       - `hooks.json`: PreToolUse → Cc のハーネス判定 (`POST /v1/harness/gate`。予算切れの `usage-budget` を含む deny を
         `hookSpecificOutput.permissionDecision: "deny"` で返す)、SessionStart → transcript_path を Cc のセッションへ報告
         (`PATCH /v1/sessions/:id`)。相談は MCP を外すので、MCP を使わない command 型で `tools/consult-codex-hook.mjs` を呼ぶ。
         Cc のセッション id は起動 env の `CONCORDIA_SESSION_ID`。Cc に届かない・判定に失敗したときはツールを止めない。
-      - `config.toml`: `project_root_markers = []` と、利用者のスキル (`$HOME/.agents/skills/*/SKILL.md`。CODEX_HOME を分けても
+      - `consult.config.toml`: `project_root_markers = []` と、利用者のスキル (`$HOME/.agents/skills/*/SKILL.md`。CODEX_HOME を分けても
         codex が読む) をすべて `[[skills.config]] enabled = false` にする。
     - transcript は CODEX_HOME の `sessions` に書かれるので、Cc は起動時にそこを codex のログ親として登録し
       (`setExtraCodexSessionRoots`)、予算・コスト報告・ログ集計で数える。

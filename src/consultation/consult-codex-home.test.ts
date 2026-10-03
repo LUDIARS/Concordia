@@ -62,12 +62,17 @@ describe("listUserCodexSkillFiles", () => {
 });
 
 describe("prepareConsultCodexHome", () => {
-  it("hooks.json と config.toml を書き、 auth.json があるときだけログイン済みとする", async () => {
+  it("hooks.json と consult.config.toml を書き、 codex が書く config.toml (フックの信頼) は触らない。 auth.json があるときだけログイン済み", async () => {
     const codexHome = join(tempDir(), ".codex-home");
+    // codex がフックの信頼を記録した config.toml。 起動のたびに消えるとフックが動かない (2026-10-03)。
+    const trusted = "[hooks.state.'hooks.json:pre_tool_use:0:0']\ntrusted_hash = \"abc\"\n";
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(join(codexHome, "config.toml"), trusted);
     expect(await prepareConsultCodexHome(codexHome, { hookScript: "/cc/tools/hook.mjs", userSkillFiles: [] })).toBe(false);
     const hooks = JSON.parse(readFileSync(join(codexHome, "hooks.json"), "utf8"));
     expect(hooks.hooks.PreToolUse[0].hooks[0].command).toBe('node "/cc/tools/hook.mjs" pre-tool');
-    expect(readFileSync(join(codexHome, "config.toml"), "utf8")).toContain("project_root_markers = []");
+    expect(readFileSync(join(codexHome, "consult.config.toml"), "utf8")).toContain("project_root_markers = []");
+    expect(readFileSync(join(codexHome, "config.toml"), "utf8")).toBe(trusted);
     writeFileSync(join(codexHome, "auth.json"), "{}");
     expect(await prepareConsultCodexHome(codexHome, { hookScript: "/cc/tools/hook.mjs", userSkillFiles: [] })).toBe(true);
     expect(existsSync(join(codexHome, "auth.json"))).toBe(true);

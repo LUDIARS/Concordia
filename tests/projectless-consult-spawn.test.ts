@@ -177,7 +177,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     // ログインしていなくてもフックと設定は書いておく (人がログインしたらそのまま使える)。
     const written = JSON.parse(readFileSync(join(workspaceRoot, ".codex-home", "hooks.json"), "utf8"));
     expect(written.hooks.PreToolUse[0].hooks[0].command).toContain("consult-codex-hook.mjs");
-    expect(readFileSync(join(workspaceRoot, ".codex-home", "config.toml"), "utf8")).toContain("project_root_markers = []");
+    expect(readFileSync(join(workspaceRoot, ".codex-home", "consult.config.toml"), "utf8")).toContain("project_root_markers = []");
   });
 
   it("lets codex read the role folder's AGENTS.md itself and links .claude/skills to .agents/skills", async () => {

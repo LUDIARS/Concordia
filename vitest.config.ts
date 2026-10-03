@@ -8,6 +8,7 @@ export default defineConfig({
     },
     exclude: [
       ...configDefaults.exclude,
+      "lib/lapilli/**",
       "lib/aop-metrics/src/**/*.test.ts",
       "lib/blackbox/src/**/*.test.ts",
     ],

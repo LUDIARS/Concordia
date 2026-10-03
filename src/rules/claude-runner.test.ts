@@ -15,8 +15,9 @@ vi.mock("node:fs/promises", () => ({
   access: (path: string) => accessMock(path),
 }));
 
-vi.mock("node:child_process", () => ({
-  spawn: vi.fn(() => {
+vi.mock("@ludiars/one-shot", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@ludiars/one-shot")>(),
+  spawnOneShot: vi.fn(() => {
     const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
     const emitter = {
       kill: vi.fn(),
@@ -51,8 +52,21 @@ describe("resolveGitBashPath (via runClaude on win32)", () => {
     Object.defineProperty(process, "platform", { value: originalPlatform });
   });
 
+  it("records the same resolved model that is sent to the shared launcher", async () => {
+    const { spawnOneShot } = await import("@ludiars/one-shot");
+    const { recordLocalOneShot } = await import("../cost/one-shot-recorder.js");
+    vi.mocked(spawnOneShot).mockClear();
+    vi.mocked(recordLocalOneShot).mockClear();
+    const { runClaude } = await import("./claude-runner.js");
+    await runClaude("hello", { model: "sonnet", conversationOnly: true });
+    const args = vi.mocked(spawnOneShot).mock.calls[0]![1] as string[];
+    const model = args[args.indexOf("--model") + 1];
+    expect(model).toMatch(/^claude-/);
+    expect(recordLocalOneShot).toHaveBeenCalledWith(expect.objectContaining({ model, status: "ok" }));
+  });
+
   it("conversation-only calls use the native executable with tools/customizations disabled", async () => {
-    const { spawn } = await import("node:child_process");
+    const { spawnOneShot: spawn } = await import("@ludiars/one-shot");
     vi.mocked(spawn).mockClear();
     const { runClaude } = await import("./claude-runner.js");
     await runClaude("相談", { conversationOnly: true, dangerouslySkipPermissions: true });

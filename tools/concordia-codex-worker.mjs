@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn, execSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { spawnOneShot as spawn, resolveModel } from "@ludiars/one-shot";
+import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -35,21 +35,18 @@ const codexArgs = [
   "--sandbox", flags.sandbox ?? "workspace-write",
   "--cd", cwd,
 ];
-if (flags.model) codexArgs.push("--model", flags.model);
+const effectiveModel = resolveModel(flags.model, "codex");
+codexArgs.push("--model", effectiveModel);
 if (flags.reasoning) codexArgs.push("-c", `model_reasoning_effort="${flags.reasoning}"`);
 codexArgs.push("-");
 
-// Windows の npm グローバル codex は shim (codex/.cmd/.ps1) で native .exe を持たず、
-// `spawn("codex", {shell:false})` は解決できず ENOENT になる。 shim が起動する
-// codex.js を node で直接実行して回避する (shell を使わないので -c の quote も壊れない)。
-const codexLaunch = resolveCodexLaunch(codexBin);
-const child = spawn(codexLaunch.file, [...codexLaunch.prefix, ...codexArgs], {
+// Lapilli resolves native/npm CLI entry points without a shell.
+const child = spawn(codexBin, codexArgs, {
   cwd,
   stdio: ["pipe", "pipe", "pipe"],
   shell: false,
   env: {
     ...process.env,
-    CONCORDIA_PROVIDER: "codex-cli",
   },
 });
 
@@ -88,7 +85,7 @@ child.on("error", (err) => {
     service: "concordia",
     provider: "codex",
     command: [codexBin, ...codexArgs].join(" "),
-    model: flags.model ?? null,
+    model: effectiveModel,
     cwd,
     prompt,
     status: "error",
@@ -124,7 +121,7 @@ child.on("close", async (code) => {
       service: "concordia",
       provider: "codex",
       command: [codexBin, ...codexArgs].join(" "),
-      model: flags.model ?? null,
+      model: effectiveModel,
       cwd,
       prompt,
       status: code === 0 ? "ok" : "error",
@@ -163,7 +160,7 @@ async function handleJsonLine(line) {
         originator: meta.originator ?? "codex-exec",
         cli_version: meta.cli_version ?? null,
         model_provider: meta.model_provider ?? null,
-        model: flags.model ?? null,
+        model: effectiveModel,
         effort: flags.reasoning ?? null,
         fast_mode: false,
         // delegation spawn 由来なら run 識別子を載せる。Concordia が run↔子セッションを
@@ -287,26 +284,6 @@ function readPromptFile(path) {
   }
 }
 
-/**
- * codex 実行コマンドを解決する。 明示パス (拡張子付き / 別名) はそのまま。 既定 "codex" は
- * POSIX ではそのまま、 Windows では npm shim が起動する codex.js を `node` で直接実行する
- * (Windows の codex.cmd は shell 無し spawn で ENOENT になるため)。
- * 戻り値: { file, prefix } → spawn(file, [...prefix, ...codexArgs])。
- */
-function resolveCodexLaunch(codexBin) {
-  if (codexBin && codexBin !== "codex") return { file: codexBin, prefix: [] };
-  if (process.platform !== "win32") return { file: "codex", prefix: [] };
-  try {
-    const first = execSync("where codex", { encoding: "utf8" }).split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-    if (first) {
-      const js = join(dirname(first), "node_modules", "@openai", "codex", "bin", "codex.js");
-      if (existsSync(js)) return { file: process.execPath, prefix: [js] };
-    }
-  } catch {
-    // fall through to bare "codex"
-  }
-  return { file: "codex", prefix: [] };
-}
 
 /**
  * delegation spawn 由来の env から session 登録 metadata に載せる識別子を組む (pure)。

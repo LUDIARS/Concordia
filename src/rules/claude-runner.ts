@@ -7,7 +7,7 @@
  * - 失敗は warn ログ + null 返し (engine 側で skip 扱い)
  */
 
-import { spawn } from "node:child_process";
+import { spawnOneShot as spawn, resolveModel } from "@ludiars/one-shot";
 import { access } from "node:fs/promises";
 import { createChildLogger } from "../shared/logger.js";
 import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
@@ -60,7 +60,7 @@ export interface RunClaudeOptions {
   /** Conversation-only calls have no tools, MCP, skills, hooks or user/project customization. */
   conversationOnly?: boolean;
   signal?: AbortSignal;
-  /** `--model` に渡す値 (例 "haiku" / "sonnet" / "claude-opus-4-8")。 未指定で provider 既定。 */
+  /** `--model` に渡す値 (例 "haiku" / "sonnet" / "claude-opus-5-5")。 未指定で共有ライブラリの既定。 */
   model?: string;
   /** subprocess の working directory。 未指定で Concordia の cwd。 */
   cwd?: string;
@@ -113,23 +113,20 @@ export async function runClaude(
 
     const args = ["-p"];
     if (opts.conversationOnly) args.push("--tools=", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode");
-    if (opts.model) args.push("--model", opts.model);
+
     if (opts.dangerouslySkipPermissions && !opts.conversationOnly) args.push("--dangerously-skip-permissions");
 
-    // Windows は claude が .cmd なので cmd.exe を明示して経由する。 shell:true +
-    // args 配列は Node が非エスケープ連結する (DEP0190) ため
-    // 使わない — args に将来ユーザ由来値が混ざった時の injection 面にもなる。
-    const isWin = process.platform === "win32";
-    // Conversation calls require the native executable so cancellation owns the
-    // actual process, rather than leaving a cmd.exe child running after stop.
-    const file = isWin && !opts.conversationOnly ? env.ComSpec ?? "cmd.exe" : isWin ? "claude.exe" : "claude";
-    const cliArgs = isWin && !opts.conversationOnly ? ["/d", "/s", "/c", "claude", ...args] : args;
+    // Shared launch resolution avoids cmd.exe ownership and shell quoting.
+    const file = process.platform === "win32" ? "claude.exe" : "claude";
 
     let child;
     let abortListener: (() => void) | undefined;
     const detachAbort = () => { if (abortListener) opts.signal?.removeEventListener("abort", abortListener); };
     try {
-      child = spawn(file, cliArgs, {
+      opts = { ...opts, model: resolveModel(opts.model, "claude") };
+      args.push("--model", opts.model!);
+      child = spawn(file, args, {
+        shell: false,
         env,
         cwd: opts.cwd,
         windowsHide: true,

@@ -1,4 +1,5 @@
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
+import { spawnOneShot as spawn, resolveModel } from "@ludiars/one-shot";
 import { readFile, mkdir, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { CHORE_OUTPUT_BYTES, CHORE_TIMEOUT_MS, type Chore } from "./domain.js";
@@ -6,8 +7,8 @@ import { CHORE_OUTPUT_BYTES, CHORE_TIMEOUT_MS, type Chore } from "./domain.js";
 export function choreCommand(provider: Chore["provider"], outputPath: string, platform: NodeJS.Platform): { file: string; args: string[] } {
   const file = platform === "win32" ? `${provider}.exe` : provider;
   const args = provider === "claude"
-    ? ["-p", "--model", "claude-opus-5-5", "--effort", "medium"]
-    : ["exec", "--model", "gpt-6-luna", "-c", 'model_reasoning_effort="xhigh"',
+    ? ["-p", "--model", resolveModel("opus", "claude"), "--effort", "medium"]
+    : ["exec", "--model", resolveModel("luna", "codex"), "-c", 'model_reasoning_effort="xhigh"',
       "--skip-git-repo-check", "--output-last-message", outputPath, "-"];
   return { file, args };
 }

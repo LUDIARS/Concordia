@@ -11,5 +11,5 @@
     ,{ "pathPattern": "(^|/)src/rules/claude-runner(\\.test)?\\.ts$" }
   ],
   "cardTemplate": "Explain human response provenance, projection versions, unknown delivery reconciliation and conversation ownership.",
-  "specRefs": ["spec/feature/sprint-dialogues.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+  "specRefs": ["spec/feature/sprint-dialogues.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/shared-one-shot.md"]
 }

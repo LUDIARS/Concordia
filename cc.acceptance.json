@@ -3897,6 +3897,16 @@
         "src/cost/budget-resume.test.ts"
       ],
       "contracts": []
+    },
+    {
+      "source": "tools/concordia-codex-worker.mjs",
+      "tests": ["tools/concordia-codex-worker-events.test.mjs"],
+      "contracts": ["CC-INV-03", "CC-INV-04"]
+    },
+    {
+      "source": "vitest.config.ts",
+      "tests": ["src/chores/cli.test.ts", "src/rules/claude-runner.test.ts"],
+      "contracts": []
     }
   ]
 }

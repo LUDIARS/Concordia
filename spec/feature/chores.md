@@ -90,3 +90,7 @@ UX-CC-W4 / CC-INV-06: Discord雑務の依頼者が結果に気づけるよう、
 元の依頼が削除された場合は結果を通常投稿する（通知先は特定できない）。既存カードの更新、OK/Continue、削除済み結果カードの再作成では再通知しない。
 配達成功後にmessage IDとrevisionを保存し、失敗時は未配達のまま既存nonceで再試行する。Discordのnonce重複抑止には有効期間があり、厳密なexactly-onceは保証しない。
 復旧はこの変更の差戻しで返信通知だけを解除する。既存結果と配達記録は維持する。
+
+## 共有起動境界（2026-10-03）
+
+上記のモデル選択は Lapilli の opus / luna ロールを通して具体 ID を明示する。既定 ID は従来と同じで、LUDIARS_ONESHOT_MODEL_OPUS / LUDIARS_ONESHOT_MODEL_LUNA による共有上書きを受理する。effort、出力先、状態遷移は維持する。起動・認証環境の境界は [shared-one-shot](shared-one-shot.md) を参照。

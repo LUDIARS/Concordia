@@ -52,6 +52,15 @@ export function consultClaudeConfigDir(root: string): string {
   return join(root, ".claude-config");
 }
 
+/**
+ * Astra (codex) の相談専用の CODEX_HOME (`<root>/.codex-home`)。 利用者の ~/.codex (AGENTS.md・スキル・フック・MCP) を
+ * 読ませない。 ログイン情報 (auth.json) もここに持つ (初回は人が `CODEX_HOME=<このフォルダ> codex login` でログインする)。
+ * hooks.json と config.toml は Cc が起動ごとに書く (consult-codex-home.ts)。
+ */
+export function consultCodexHome(root: string): string {
+  return join(root, ".codex-home");
+}
+
 /** claude.json の projects のキー (前方スラッシュ。 Lictor の normalizeProjectKey と同じ流儀)。 */
 function claudeProjectKey(cwd: string): string {
   return cwd.replace(/\\/g, "/").replace(/\/$/, "");
@@ -110,6 +119,7 @@ const INSTRUCTION_FILES = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude
  * 自動メモリは使わない (相談で使う環境のメモリは別途指定する)。
  */
 export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<string, unknown> {
+  // 役職フォルダ自身の AGENTS.md は外さない (Claude Code は CLAUDE.md が無ければ AGENTS.md を指示として読む)。
   const ancestors: string[] = [];
   for (let dir = dirname(roleWorkspace); ; dir = dirname(dir)) {
     ancestors.push(dir);

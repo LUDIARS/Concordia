@@ -34,10 +34,10 @@ describe("consultTemplateFor / consultEffortOptions", () => {
 });
 
 describe("confinementArgsFor", () => {
-  it("claude は渡された引数、 codex はシェル・プラグイン・AGENTS.md・MCP を外す、 それ以外は起動しない", () => {
+  it("claude は渡された引数、 codex はシェル・プラグイン・MCP を外して上位の AGENTS.md を探さない、 それ以外は起動しない", () => {
     expect(confinementArgsFor("claude", ["--tools=WebSearch"])).toEqual(["--tools=WebSearch"]);
     expect(confinementArgsFor("codex", [])).toEqual([
-      "-s", "read-only", "--disable", "shell_tool", "--disable", "plugins", "-c", "project_doc_max_bytes=0", "-c", "mcp_servers={}",
+      "-s", "read-only", "--disable", "shell_tool", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
     ]);
     expect(confinementArgsFor("gemini", [])).toBeNull();
   });

@@ -17,11 +17,13 @@ import { parseDepartmentSettings } from "../departments/settings.js";
 import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
-import { readSessionUsage, setExtraClaudeProjectRoots } from "../cost/log-usage.js";
-import { consultClaudeConfigDir } from "../consultation/projectless-consult.js";
+import { readSessionUsage, setExtraClaudeProjectRoots, setExtraCodexSessionRoots } from "../cost/log-usage.js";
+import { consultClaudeConfigDir, consultCodexHome } from "../consultation/projectless-consult.js";
 import { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
 import { readSessionUsageTimeline } from "../cost/usage-timeline.js";
-import { DEFAULT_COST_MULTIPLIER, departmentCostMultiplier } from "../cost/budget-multiplier.js";
+import { departmentCostMultiplier } from "../cost/budget-multiplier.js";
+import { DiscordRoleMultiplierResolver } from "../cost/budget-role-multiplier.js";
+import { listGuildRoles, memberRoleIds, type RoleClientLike } from "../discord/member-roles.js";
 import { offerBudgetResumes } from "../cost/budget-resume.js";
 import { BUDGET_SUSPENSION_KEY } from "../cost/budget-suspension.js";
 import { randomUUID } from "node:crypto";
@@ -565,6 +567,14 @@ export async function startBackend(): Promise<BackendHandle> {
   // ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 消費はその月に始まったセッションの provider ログ累積。
   const usageBudgetsRepo = new UsageBudgetsRepo(db);
   const usageBudgetMultipliersRepo = new UsageBudgetMultipliersRepo(db);
+  // 属性の倍率は Discord のロールで決める (usage-budgets.md §3.1)。 人のロールは Bot (本社・子会社) の guild member から
+  // 引き、 5 分キャッシュする。 cost 層は Discord を import しないのでここで差し込む。 gateway pool はこの後で作るので
+  // 呼ばれた時点で引く。
+  const discordRoleClients = () => discordGatewayPool.readyClients() as unknown as RoleClientLike[];
+  const roleMultiplierResolver = new DiscordRoleMultiplierResolver({
+    memberRoleIds: (userId) => memberRoleIds(discordRoleClients(), userId),
+    multipliers: () => new Map(usageBudgetMultipliersRepo.list().map((row) => [row.role_id, row.multiplier])),
+  });
   const usageBudgetTracker = new UsageBudgetTracker({
     budgets: usageBudgetsRepo,
     // sessions.started_at は epoch 秒。
@@ -575,10 +585,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionEvents: (sessionId) => repo.eventsByKind(sessionId, "inject"),
     departmentMultiplier: (departmentId) =>
       departmentCostMultiplier(departmentId ? departmentsRepo.find(departmentId)?.settings_json ?? null : null),
-    roleMultiplier: (userId) => {
-      const role = userId ? staffRepo.roleOf("discord", userId) : null;
-      return role ? usageBudgetMultipliersRepo.find(role)?.multiplier ?? DEFAULT_COST_MULTIPLIER : DEFAULT_COST_MULTIPLIER;
-    },
+    roleMultiplier: (userId) => roleMultiplierResolver.multiplierFor(userId),
   });
   // 80% / 100% の知らせを 10 分ごとに見回る (月・閾値ごとに 1 回)。 配送は Bot が担う。
   const usageBudgetNoticeTimer = setInterval(() => {
@@ -699,6 +706,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const consultWorkspaceRoot = process.env.CONCORDIA_CONSULT_WORKSPACE_ROOT?.trim()
     || resolve(process.cwd(), "..", "..", "Consult");
   setExtraClaudeProjectRoots([join(consultClaudeConfigDir(consultWorkspaceRoot), "projects")]);
+  // Astra (codex) の相談は専用の CODEX_HOME で動き transcript をその sessions に書く (tech-consultation.md §6)。
+  setExtraCodexSessionRoots([join(consultCodexHome(consultWorkspaceRoot), "sessions")]);
   // 終了時の /session-end 自動指示と独白を部署の出力方針で止める (相談、 departments.md §9.4)。
   setSessionEndOutputResolver((sessionId) => isOutputEnabled(
     resolveSessionOutputMode({
@@ -1994,7 +2003,13 @@ export async function startBackend(): Promise<BackendHandle> {
     consultWorkspaceRoot,
     consultationPublications,
     publishedConsultations: consultationPublicationsRepo,
-    usageBudgets: { repo: usageBudgetsRepo, tracker: usageBudgetTracker, multipliers: usageBudgetMultipliersRepo },
+    usageBudgets: {
+      repo: usageBudgetsRepo,
+      tracker: usageBudgetTracker,
+      multipliers: usageBudgetMultipliersRepo,
+      invalidateRoleCache: () => roleMultiplierResolver.invalidate(),
+      discordRoles: () => listGuildRoles(discordRoleClients()),
+    },
     privateChannels: new PrivateChannelsRepo(db),
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,

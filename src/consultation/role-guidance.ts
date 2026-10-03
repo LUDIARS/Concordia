@@ -3,12 +3,12 @@ import augurContract_9a0c2082 from './role-guidance-provider.contract.js'; /* au
 import augurContract_2871634a from './role-guidance-block.contract.js'; /* augur-inject:contract-predicate:368ad07c */
 import augurContract_98a8198e from './role-guidance-frontmatter.contract.js'; /* augur-inject:contract-predicate:5dec70d3 */
 /**
- * 指示ファイルを自分で読めない provider の相談に、 役職フォルダの指示 (CLAUDE.md とスキル) を初回指示として載せる
+ * 指示ファイルを自分で読めない provider の相談に、 役職フォルダの指示のうち読めない分を初回指示として載せる
  * (spec/feature/tech-consultation.md §6、 2026-10-02 neco 指示「役職は spawn 前に決定するので読み分けで良い」)。
  *
- * claude は役職フォルダの CLAUDE.md と `.claude/skills` を自分で読む。 Astra (codex) は閉じ込めの引数
- * (`--disable shell_tool` / `-c project_doc_max_bytes=0` / `--disable plugins`) のためにどちらも読めないので、
- * Cc が読んだ本文をここでブロックにする。 ファイルを読むのは呼び出し側 (role-guidance-files.ts)。
+ * claude は役職フォルダの AGENTS.md (CLAUDE.md が無いとき) と `.claude/skills` を自分で読む。 Astra (codex) は
+ * AGENTS.md を自分で読むが、 閉じ込めの引数 (`--disable shell_tool`) のために SKILL.md を開けないので、 Cc が読んだ
+ * スキル本文 (と移行前の CLAUDE.md) をここでブロックにする。 何を読むかは呼び出し側 (role-guidance-files.ts)。
  *
  * - CC-CONSULT-INV-11: 相談セッションは provider に関わらず役職フォルダの指示を受け取る。
  *

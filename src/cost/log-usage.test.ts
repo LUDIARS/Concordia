@@ -4,10 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   CLAUDE_PROJECTS_ROOT,
+  CODEX_SESSIONS_ROOT,
   claudeProjectRoots,
+  codexSessionRoots,
   resolveSessionTranscript,
   resolveTrustedTranscriptPath,
   setExtraClaudeProjectRoots,
+  setExtraCodexSessionRoots,
 } from "./log-usage.js";
 import type { SessionRow } from "../shared/types.js";
 
@@ -95,6 +98,25 @@ describe("resolveSessionTranscript", () => {
       expect(await resolveSessionTranscript(s)).toBeTruthy();
     } finally {
       setExtraClaudeProjectRoots([]);
+    }
+  });
+
+  it("登録した CODEX_HOME (Astra の相談) の sessions の transcript も正本として読む", async () => {
+    const codexSessions = join(tmpdir(), `consult-codex-sessions-${Date.now()}`);
+    mkdirSync(join(codexSessions, "2026", "10", "03"), { recursive: true });
+    madeDirs.push(codexSessions);
+    const transcript = join(codexSessions, "2026", "10", "03", "rollout-consult.jsonl");
+    writeFileSync(transcript, "{}"+String.fromCharCode(10), "utf8");
+    const s = sess("66666666-2222-3333-4444-555555555555", "E:/Document/Consult/designer");
+    s.provider = "codex-cli";
+    s.transcript_path = transcript;
+    expect(await resolveSessionTranscript(s)).toBeNull();
+    setExtraCodexSessionRoots([codexSessions]);
+    try {
+      expect(codexSessionRoots()).toEqual([CODEX_SESSIONS_ROOT, codexSessions]);
+      expect(await resolveSessionTranscript(s)).toBeTruthy();
+    } finally {
+      setExtraCodexSessionRoots([]);
     }
   });
 

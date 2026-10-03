@@ -57,24 +57,35 @@ describe("usage budgets API — role multipliers and suspensions", () => {
       budgets,
       sessionsInRange: () => sessions,
       readUsage: async () => ({ total: 1_000 }),
-      roleMultiplier: () => multipliers.find("staff")?.multiplier ?? 1,
+      roleMultiplier: () => multipliers.find("10001")?.multiplier ?? 1,
       now: () => now,
     });
     return { app: usageBudgetsRouter({ budgets, tracker, multipliers, ...overrides }), multipliers };
   }
   const json = (body: unknown) => ({ headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  it("edits a role multiplier and counts consumption with it", async () => {
-    const { app } = setupWith();
+  it("edits a Discord role multiplier, counts consumption with it and drops the role cache", async () => {
+    const invalidateRoleCache = vi.fn();
+    const { app } = setupWith({ invalidateRoleCache });
     await app.request("/user/123456789", { method: "PUT", ...json({ limit_tokens: 4_000 }) });
-    const put = await app.request("/role-multipliers/staff", { method: "PUT", ...json({ multiplier: 2 }) });
+    const put = await app.request("/role-multipliers/10001", { method: "PUT", ...json({ guild_id: "900001", multiplier: 2 }) });
     expect(put.status).toBe(200);
-    expect(await (await app.request("/role-multipliers")).json()).toMatchObject({ multipliers: [{ role: "staff", multiplier: 2 }] });
+    expect(invalidateRoleCache).toHaveBeenCalledTimes(1);
+    expect(await (await app.request("/role-multipliers")).json())
+      .toMatchObject({ multipliers: [{ role_id: "10001", guild_id: "900001", multiplier: 2 }] });
     const listed = await (await app.request("/")).json() as { budgets: Array<Record<string, unknown>> };
     expect(listed.budgets[0]).toMatchObject({ consumed_tokens: 2_000 });
-    expect((await app.request("/role-multipliers/staff", { method: "PUT", ...json({ multiplier: 0 }) })).status).toBe(400);
-    expect((await app.request("/role-multipliers/boss", { method: "PUT", ...json({ multiplier: 1 }) })).status).toBe(400);
-    expect(await (await app.request("/role-multipliers/staff", { method: "DELETE" })).json()).toEqual({ removed: true });
+    expect((await app.request("/role-multipliers/10001", { method: "PUT", ...json({ guild_id: "900001", multiplier: 0 }) })).status).toBe(400);
+    expect((await app.request("/role-multipliers/staff", { method: "PUT", ...json({ guild_id: "900001", multiplier: 1 }) })).status).toBe(400);
+    expect((await app.request("/role-multipliers/10001", { method: "PUT", ...json({ multiplier: 1 }) })).status).toBe(400);
+    expect(await (await app.request("/role-multipliers/10001", { method: "DELETE" })).json()).toEqual({ removed: true });
+    expect(invalidateRoleCache).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists the Discord roles of each guild, or none while the bot is down", async () => {
+    const guilds = [{ guild_id: "900001", guild_name: "本社", roles: [{ id: "10001", name: "新入部員" }] }];
+    expect(await (await setupWith({ discordRoles: () => guilds }).app.request("/discord-roles")).json()).toEqual({ guilds });
+    expect(await (await setupWith().app.request("/discord-roles")).json()).toEqual({ guilds: [] });
   });
 
   it("lists suspended sessions and passes a resume with the pressing user", async () => {

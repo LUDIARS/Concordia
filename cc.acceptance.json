@@ -3907,6 +3907,79 @@
       "source": "vitest.config.ts",
       "tests": ["src/chores/cli.test.ts", "src/rules/claude-runner.test.ts"],
       "contracts": []
+    },
+    {
+      "source": "src/cost/budget-role-multiplier.ts",
+      "tests": [
+        "src/cost/budget-role-multiplier.test.ts",
+        "src/cost/usage-budget-tracker.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/budget-role-multiplier.contract.ts",
+      "tests": [
+        "src/cost/budget-role-multiplier.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/member-roles.ts",
+      "tests": [
+        "src/discord/member-roles.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/gateway-pool.ts",
+      "tests": [
+        "src/discord/gateway-pool.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-codex-home.ts",
+      "tests": [
+        "src/consultation/consult-codex-home.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-codex-hooks.contract.ts",
+      "tests": [
+        "src/consultation/consult-codex-home.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-codex-config.contract.ts",
+      "tests": [
+        "src/consultation/consult-codex-home.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-role-skills.ts",
+      "tests": [
+        "src/consultation/consult-role-skills.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-role-skills.contract.ts",
+      "tests": [
+        "src/consultation/consult-role-skills.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "tools/consult-codex-hook.mjs",
+      "tests": [
+        "tools/consult-codex-hook.test.mjs"
+      ],
+      "contracts": []
     }
   ]
 }

@@ -8,6 +8,10 @@
 > セッションを保存し作業再開できるようにする」(選択「全部保存・再開」= 全部署のセッション)、「いわゆる -resume です。
 > また他のユーザーが助けに入った場合はそのユーザーの予算を使います」、「相談はモデルが固定されているので、予算消費を
 > 本来のコストの1/4で考えてください。ユーザーの属性と部署それぞれにそのようなコスト倍率があります」。
+>
+> 2026-10-03 neco 指示:「これはロールで倍率変えられるようにしてほしい」→ 選択「Discord のロール」(複数ロールはいちばん低い
+> 倍率)、「特定のロールを持つ人 (新入部員、メンター) などに 0.5 などの倍率をかける」。属性の倍率を社員名簿の役職から
+> Discord のロールへ置き換えた。
 
 - 価値: [UX-CC-W4](../ux/product.md) (通知を見れば今必要な判断が分かる — 上限接近を知らせる) と、
   [UX-CC-W1](../ux/product.md) (権限外の操作が進まない — 予算外の起動・作業が進まない)。
@@ -15,7 +19,7 @@
   一部の人の使いすぎで全体の上限 (日次 budget) に達して他の人の仕事まで止まる。止まってから理由が分かる。
   予算を使い切った作業を止めたとき、その続きから再開できない。
 - 関連: [コスト観測](cost-observability.md) (全体の日次 budget)、[子会社の日次予算](subsidiary-delegation.md) §7、
-  [部署](departments.md) §9.7 (部署の倍率)、[社員名簿](staff-roster.md) (属性 = 役職)、
+  [部署](departments.md) §9.7 (部署の倍率)、[社員名簿](staff-roster.md) (再開を押せる管理者 = 執行役員)、
   [バグバウンティ](bug-bounty.md) (個人残高。本予算とは別の台帳で、報奨の付与先として将来つなぐ余地がある)。
 
 ## 1. 用語
@@ -27,7 +31,7 @@
 | 帰属先 | 消費を引き受ける予算。起動時はチームで起動したならチーム、それ以外は依頼者 (Discord ユーザー) |
 | 起動者 | セッションを起動した Discord ユーザー (`metadata.discord_requester_user_id`) |
 | 助けに入った人 | 起動者以外で、そのセッションに Discord から指示を出した人 |
-| 倍率 | 部署の倍率 (部署設定) と属性の倍率 (社員名簿の役職ごと)。どちらも既定 1 |
+| 倍率 | 部署の倍率 (部署設定) と属性の倍率 (Discord のロールごと)。どちらも既定 1 |
 | 中断 | 予算切れでツールを止め、会話を保存してセッションを終えた状態 (§5.2) |
 
 ## 2. 不変条件
@@ -41,6 +45,7 @@
 | CC-BUDGET-INV-05 | 予算から引く額 = 本来のトークン × 部署の倍率 × 消費する人の属性の倍率。部署ごとの値をコードに持たない | `chargedTokens` |
 | CC-BUDGET-INV-06 | 作業中でも、その時点の帰属先の予算が尽きたらツールを止め、中断を 1 回だけ記録してから終える | `UsageBudgetGate` |
 | CC-BUDGET-INV-07 | 再開は予算が戻ってから、起動者・助けに入った人・管理者だけが行える。同じ中断を二度起動しない | `resumeSuspendedSession` |
+| CC-BUDGET-INV-08 | 属性の倍率は、その人が持つロールのうち倍率を設定したロールのいちばん低い倍率。該当なし・ロールが引けないときは 1 (数え方の不調で倍率を上げない) | `lowestRoleMultiplier` / `DiscordRoleMultiplierResolver` |
 
 ## 3. 消費の数え方
 
@@ -58,8 +63,15 @@
   作業中の判定 (§5.2) はすべてこの額で行う。
 - 部署の倍率: 部署設定 `budget.cost_multiplier` (0 < x ≤ 10、既定 1。[部署](departments.md) §9.7)。セッションの
   `department_id` の部署を使う。部署が無い・設定が読めなければ 1。
-- 属性の倍率: 社員名簿の役職 (`staff` / `manager` / `executive`) ごとの倍率表 (`usage_budget_role_multipliers`)。
-  行が無い役職と、名簿に載っていない人は 1。
+- 属性の倍率: Discord のロール (guild ごとのロール id) ごとの倍率表 (`usage_budget_role_multipliers`)。指示を出した人が持つ
+  ロールのうち、倍率を設定したロールの**いちばん低い倍率**を使う (新入部員 0.5・メンター 0.8 の両方を持つ人は 0.5)。
+  倍率を設定したロールを 1 つも持たない人は 1。
+  - 人のロールは Discord Bot (本社・子会社。同じ token の Client は共有) が在籍する全 guild の member から引く
+    (`src/discord/member-roles.ts`)。@everyone は除く。在籍しない guild (Unknown Member) は飛ばす。
+  - cost 層は Discord を import しない。bootstrap が「Discord user id → ロール id の一覧」を返す関数を差し込み、
+    `DiscordRoleMultiplierResolver` (`src/cost/budget-role-multiplier.ts`) が人ごとに 5 分キャッシュする。
+  - Bot が動いていない・取得に失敗したときは 1 に倒し、その結果はキャッシュしない (次の集計で引き直す)。倍率表が空なら
+    Discord に問い合わせない。倍率を API で変えたらロールのキャッシュと集計のキャッシュを捨てる。
 - 消費する人: その区間の指示を出した人 (§3.2)。指示がまだ無い区間は起動者。チームの予算から引くときも、指示を出した人の
   属性の倍率を使う。
 - 相談課 2 部署の 0.25 はデータ設定 (部署の PATCH) で入れる。
@@ -84,12 +96,13 @@
 |---|---|
 | `usage_budgets` | 対象の種類 (user / team)・対象 id・月の上限トークン・更新者・時刻 (migration 123) |
 | `usage_budget_notices` | 対象・月 ("YYYY-MM")・閾値 (80 / 100)・通知時刻。同じ知らせを二度出さない |
-| `usage_budget_role_multipliers` | 役職・倍率 (0 < x ≤ 10)・更新者・時刻 (migration 124)。行が無い役職は 1 |
+| `usage_budget_role_multipliers` | Discord のロール id・その guild id・倍率 (0 < x ≤ 10)・更新者・時刻 (migration 125 で役職から置き換え。旧値は捨てた — 本番は未設定で 0 件)。行が無いロールは 1 |
 | 部署設定 `budget.cost_multiplier` | 部署の倍率 (departments.settings_json) |
 | `sessions.metadata.budget_suspension` | 中断の記録 (§5.2)。時刻・帰属先・会話 id・作業ディレクトリ・再開を押せる人・再開の記録 |
 
 状態所有者: 予算・通知・倍率表 = observability (`src/cost/usage-budget*.ts`、`src/cost/budget-*.ts`、
 `src/db/usage-budgets-repo.ts`、`src/db/usage-budget-multipliers-repo.ts`)。部署の倍率 = 部署 (governance)。
+人のロール・guild のロール一覧 = Discord (chat-platforms、`src/discord/member-roles.ts`。読むだけで保存しない)。
 中断の記録 = セッション (`sessions.metadata`、書くのは `UsageBudgetGate` と `resumeSuspendedSession` だけ)。
 
 ## 5. 止め方・知らせ・再開
@@ -147,20 +160,27 @@
 | PUT | `/v1/usage-budgets/:scope/:targetId` | `{ limit_tokens, updated_by? }` 設定 |
 | DELETE | `/v1/usage-budgets/:scope/:targetId` | 外す (無制限) |
 | GET | `/v1/usage-budgets/check?team=&user=` | 起動前の確認 (`allowed`、使い切りなら `notice`) |
-| GET | `/v1/usage-budgets/role-multipliers` | 役職ごとの倍率 |
-| PUT | `/v1/usage-budgets/role-multipliers/:role` | `{ multiplier, updated_by? }` 設定 (0 < x ≤ 10) |
-| DELETE | `/v1/usage-budgets/role-multipliers/:role` | 外す (1 に戻す) |
+| GET | `/v1/usage-budgets/role-multipliers` | Discord のロールごとの倍率 (`role_id` / `guild_id` / `multiplier`) |
+| GET | `/v1/usage-budgets/discord-roles` | 倍率を設定できるロール (`guilds: [{ guild_id, guild_name, roles: [{ id, name }] }]`。@everyone と連携アプリのロールを除き上位から。Bot 停止中は空) |
+| PUT | `/v1/usage-budgets/role-multipliers/:roleId` | `{ guild_id, multiplier, updated_by? }` 設定 (0 < x ≤ 10。id は数字) |
+| DELETE | `/v1/usage-budgets/role-multipliers/:roleId` | 外す (1 に戻す) |
 | GET | `/v1/usage-budgets/suspensions` | 予算切れで中断したセッション (未再開) |
 | POST | `/v1/usage-budgets/suspensions/:sessionId/resume` | `{ actor_user_id }` 再開 (403 / 402 / 409 / 502) |
 
 - WebUI: 社員名簿の各行 (Discord の人) とチームのコスト画面に「月の予算 (トークン)」を置く。空欄は無制限。
-  社員名簿に「月の予算のコスト倍率 (役職ごと)」を置く (`web/src/pages/staff/BudgetRoleMultipliers.tsx`)。空欄は 1。
+  社員名簿に「月の予算のコスト倍率 (Discord のロールごと)」を置く (`web/src/pages/staff/BudgetRoleMultipliers.tsx`)。
+  guild ごとにロールを名前つきで並べ、ロールごとに倍率を入力する。空欄は 1。倍率を設定したのに一覧に無いロール (消された
+  ロール・Bot 停止中) も「一覧に無いロール」として出し、外せるようにする。
   部署設定に部署の倍率を置く (`web/src/pages/departments/DepartmentEditor.tsx`)。
 
 ## 7. 制約と既知の問題 (本設計の外)
 
-- 作業中の判定 (§5.2) はハーネスのフックが掛かるセッションだけに効く。codex セッションにはツール実行前のフックが無い
-  ため、codex は起動時の判定 (§5.1) だけになる。フックが Cc に届かないとき (Cc 停止中のオフライン判定) も予算では止めない。
+- 作業中の判定 (§5.2) はハーネスのフックが掛かるセッションだけに効く。Astra (codex) の相談は専用の CODEX_HOME の
+  hooks.json の PreToolUse から同じ gate を呼ぶ ([技術相談](tech-consultation.md) §6)。ただし codex は新しいフックを人が
+  信頼するまで実行しないため、CODEX_HOME へのログイン時に `/hooks` で信頼しておく必要がある (未信頼の間は起動時の判定だけ)。
+  それ以外の codex セッションにはツール実行前のフックが無く、起動時の判定 (§5.1) だけになる。フックが Cc に届かないとき
+  (Cc 停止中のオフライン判定) も予算では止めない。
+- 属性の倍率は Bot が在籍する guild のロールで決まる。Bot が在籍しない guild だけに居る人のロールは数えない。
 - 再開できるのは Claude Code のセッションだけ (`claude --resume`)。codex / codex-sdk は中断の記録は残るが再開ボタンは
   会話 id が無いため出ない。
 - 相談専用の設定フォルダ (`CLAUDE_CONFIG_DIR`) で動く claude の transcript は `~/.claude/projects` の外にあるため、
@@ -172,10 +192,12 @@
 
 ## 8. 検証
 
-- 純関数: 倍率の換算 (`chargedTokens`)、指示ごとの帰属 (`attributeUsage` / `responsibleAt`)、時刻つきの消費の読み出し、
+- 純関数: 倍率の換算 (`chargedTokens`)、ロールの倍率 (`lowestRoleMultiplier`、Augur `budget-role-C-1`)、指示ごとの帰属 (`attributeUsage` / `responsibleAt`)、時刻つきの消費の読み出し、
   作業中の判定 (`decideBudgetGate`)、再開できる人・状態 (`canResumeSuspension` / `isResumable`)、再開の起動指示
   (`planBudgetResumeLaunch`)。Augur の observe 契約 `budget-C-1`〜`budget-C-5`。
 - 集計: 指示ごとの分割と倍率、キャッシュと数え直し (`UsageBudgetTracker`)。
 - 中断: gate の deny・中断の記録が 1 回だけ・助けに入った人の予算での判定 (`UsageBudgetGate`)、gate API の `usage-budget` hit。
 - 再開: 見回りが 1 回だけ出す、押せる人・予算・二度押し・起動失敗の戻し (`resumeSuspendedSession`)、Discord のボタン。
-- API: 倍率の編集と集計への反映、中断の一覧と再開の受け渡し。
+- API: 倍率の編集と集計への反映 (ロールのキャッシュを捨てる)、ロール一覧、中断の一覧と再開の受け渡し。
+- Discord: 人のロールの集め方 (@everyone・在籍しない guild を除く)、guild のロール一覧 (`member-roles.ts`)、
+  キャッシュと失敗時の 1 (`DiscordRoleMultiplierResolver`)。WebUI のロールごとの入力。

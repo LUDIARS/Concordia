@@ -1,10 +1,12 @@
 /**
- * 役職フォルダの指示ファイルとスキル (`<名前>/SKILL.md`) を読み、 指示ファイルを自分で読めない
- * provider の相談の初回指示に載せるブロックにする (spec/feature/tech-consultation.md §6、 CC-CONSULT-INV-11)。
+ * 役職フォルダの指示のうち、 指示ファイルを自分で読めない provider (Astra / codex) が読めない分を読み、 相談の初回指示に
+ * 載せるブロックにする (spec/feature/tech-consultation.md §6、 CC-CONSULT-INV-11)。
  *
- * 読み込み先は Codex と Claude Code の共有配置 (AGENTS.md と `.agents/skills`) を先に、 無いときだけ旧配置
- * (CLAUDE.md と `.claude/skills`) を読む (ROLE_GUIDANCE_INSTRUCTION_FILES / ROLE_GUIDANCE_SKILL_DIRS の順)。
- * 両方あるときは共有配置だけを読む (同じ内容を二重に載せない)。
+ * 役職フォルダの指示は AGENTS.md 1 本 (Claude も codex も自分で読む) で、 スキルの正本は `.agents/skills`
+ * (2026-10-03 neco 指示「いまは設定を共通化できるはず」)。 codex は AGENTS.md を自分で読むので載せない (二重に読ませない)。
+ * スキルは、 相談の codex がシェルを持たず SKILL.md を開けないため、 本文を載せる。
+ * 移行前の役職フォルダ (AGENTS.md が無く CLAUDE.md がある・スキルが `.claude/skills` にある) は、 codex が読めないので
+ * CLAUDE.md と `.claude/skills` を載せ、 AGENTS.md / `.agents/skills` へ移す案内を warn ログに出す。
  *
  * 読むのは役職フォルダ直下だけ。 相談者のデータフォルダ (`<役職>/<Discord ID>/`) や上位のフォルダは読まない
  * (CC-CONSULT-INV-08 と同じ範囲)。 読めないファイルはその分を載せずに起動を続ける (起動できないほうが困る)。
@@ -12,10 +14,8 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { contract } from "./ontime-runtime.js";
-import readRoleGuidanceFilesContract from "./role-guidance-files.contract.js";
 import {
   buildRoleGuidanceBlock,
   needsInlineRoleGuidance,
@@ -31,63 +31,54 @@ export interface RoleGuidanceFilesResult {
   source: RoleGuidanceSource;
   /** 読めなかったファイル (役職フォルダからの相対パス)。 */
   unreadable: string[];
+  /** 移行前の置き方で読んだもの (AGENTS.md / .agents/skills へ移す案内に使う)。 */
+  legacy: string[];
 }
-
-/** 役職フォルダの指示ファイル。 先に見つかった 1 つだけを読む (共有配置 → 旧配置)。 */
-export const ROLE_GUIDANCE_INSTRUCTION_FILES: readonly string[] = Object.freeze(["AGENTS.md", "CLAUDE.md"]);
-
-/** 役職フォルダのスキルの置き場所。 先に見つかったフォルダだけを読む (共有配置 → 旧配置)。 */
-export const ROLE_GUIDANCE_SKILL_DIRS: readonly string[] = Object.freeze([".agents/skills", ".claude/skills"]);
 
 const isMissing = (error: unknown): boolean => (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 
-/** 役職フォルダの指示ファイルとスキルを読む。 無いファイルは黙って飛ばし、 読めないファイルは unreadable に返す。 */
+const isDirectory = (path: string): Promise<boolean> => stat(path).then((s) => s.isDirectory(), () => false);
+
+/**
+ * 役職フォルダの指示のうち codex が自分で読めない分 (移行前の CLAUDE.md とスキル) を読む。
+ * 無いファイルは黙って飛ばし、 読めないファイルは unreadable に返す。
+ */
 export async function readRoleGuidanceFiles(roleDir: string): Promise<RoleGuidanceFilesResult> {
   const unreadable: string[] = [];
-  // 無ければ undefined (次の読み込み先へ進む)、 読めなければ null (unreadable に記録する)。
-  const read = async (relative: string): Promise<string | null | undefined> => {
+  const legacy: string[] = [];
+  const read = async (relative: string): Promise<string | null> => {
     try {
       return await readFile(join(roleDir, relative), "utf8");
     } catch (error) {
-      if (isMissing(error)) return undefined;
-      unreadable.push(relative);
+      if (!isMissing(error)) unreadable.push(relative);
       return null;
     }
   };
-
+  // AGENTS.md は codex が自分で読む。 無いときだけ移行前の CLAUDE.md を載せる。
   let claudeMd: string | null = null;
-  for (const file of ROLE_GUIDANCE_INSTRUCTION_FILES) {
-    const text = await read(file);
-    if (text === undefined) continue;
-    claudeMd = text;
-    break;
+  if ((await read("AGENTS.md")) === null) {
+    claudeMd = await read("CLAUDE.md");
+    if (claudeMd !== null) legacy.push("CLAUDE.md");
   }
-
-  let skillDir: string | null = null;
+  const skillsDir = (await isDirectory(join(roleDir, ".agents", "skills"))) ? ".agents/skills" : ".claude/skills";
   let skillNames: string[] = [];
-  for (const dir of ROLE_GUIDANCE_SKILL_DIRS) {
-    try {
-      const entries = await readdir(join(roleDir, dir), { withFileTypes: true });
-      skillDir = dir;
-      skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-    } catch (error) {
-      if (isMissing(error)) continue;
-      unreadable.push(dir);
-    }
-    break;
+  try {
+    const entries = await readdir(join(roleDir, ...skillsDir.split("/")), { withFileTypes: true });
+    skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch (error) {
+    if (!isMissing(error)) unreadable.push(skillsDir);
   }
   const skills: RoleGuidanceSkill[] = [];
-  for (const name of skillDir ? skillNames : []) {
-    const text = await read(`${skillDir}/${name}/SKILL.md`);
-    if (typeof text === "string") skills.push({ name, text });
+  for (const name of skillNames) {
+    const text = await read(`${skillsDir}/${name}/SKILL.md`);
+    if (text !== null) skills.push({ name, text });
   }
-  return { source: { claudeMd, skills }, unreadable };
+  if (skillsDir === ".claude/skills" && skills.length > 0) legacy.push(".claude/skills");
+  return { source: { claudeMd, skills }, unreadable, legacy };
 }
-// @ts-expect-error contract wrap (observe only)
-readRoleGuidanceFiles = contract(readRoleGuidanceFiles, { ...readRoleGuidanceFilesContract, contractId: "consult-guide-C-4", mode: "observe", sample: 1, where: "src/consultation/role-guidance-files.ts", rule: "contract-wrap", id: "consult-guide-C-4" });
 
 /**
- * provider が指示ファイルを自分で読めなければ、 役職フォルダの指示を初回指示のブロックにして返す。
+ * provider が指示ファイルを自分で読めなければ、 読めない分を初回指示のブロックにして返す。
  * claude・載せるものが無いときは null。 本文はログに出さない。
  */
 export async function loadInlineRoleGuidance(
@@ -96,9 +87,12 @@ export async function loadInlineRoleGuidance(
   log: RoleGuidanceWarnLog,
 ): Promise<string | null> {
   if (!needsInlineRoleGuidance(provider)) return null;
-  const { source, unreadable } = await readRoleGuidanceFiles(roleDir);
+  const { source, unreadable, legacy } = await readRoleGuidanceFiles(roleDir);
   if (unreadable.length > 0) {
     log.warn({ roleDir, unreadable }, "consult role guidance: some files could not be read; launching without them");
+  }
+  if (legacy.length > 0) {
+    log.warn({ roleDir, legacy }, "consult role folder uses the pre-AGENTS.md layout; move CLAUDE.md to AGENTS.md and .claude/skills to .agents/skills");
   }
   const block = buildRoleGuidanceBlock(source);
   if (block && block.omittedSkills.length > 0) {

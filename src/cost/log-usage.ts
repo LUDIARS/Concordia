@@ -50,6 +50,22 @@ export function claudeProjectRoots(): readonly string[] {
   return [CLAUDE_PROJECTS_ROOT, ...extraClaudeProjectRoots];
 }
 
+/**
+ * ~/.codex 以外の CODEX_HOME で動く codex セッションのログ親。 Astra (codex) の相談は専用の CODEX_HOME
+ * (`<相談の置き場所>/.codex-home`) で動き、 transcript もその下の sessions に書く (spec/feature/tech-consultation.md §6)。
+ */
+let extraCodexSessionRoots: readonly string[] = [];
+
+/** 起動時に、 ~/.codex 以外の codex のログ親を登録する。 */
+export function setExtraCodexSessionRoots(roots: readonly string[]): void {
+  extraCodexSessionRoots = [...roots];
+}
+
+/** codex のログ親すべて (~/.codex/sessions と、 登録した CODEX_HOME の sessions)。 */
+export function codexSessionRoots(): readonly string[] {
+  return [CODEX_SESSIONS_ROOT, ...extraCodexSessionRoots];
+}
+
 /** head 読み (limit 付き readLines) で読む先頭チャンクのバイト数。 */
 const HEAD_CHUNK_BYTES = 256 * 1024;
 
@@ -158,10 +174,12 @@ export async function enumerateRecentLogTotals(maxAgeMs: number, now: number): P
       if (t) out.push({ path: p, total: t.total });
     });
   }
-  await collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, async (p) => {
-    const t = await readCodexUsage(p);
-    if (t) out.push({ path: p, total: t.total });
-  });
+  for (const root of codexSessionRoots()) {
+    await collectRecent(root, 5, cutoff, async (p) => {
+      const t = await readCodexUsage(p);
+      if (t) out.push({ path: p, total: t.total });
+    });
+  }
   return out;
 }
 
@@ -224,7 +242,11 @@ export async function resolveSessionTranscript(s: SessionRow): Promise<string | 
     return null;
   }
   if (s.provider === "codex-cli") {
-    return resolveTrustedTranscriptPath(s.transcript_path, CODEX_SESSIONS_ROOT);
+    for (const root of codexSessionRoots()) {
+      const resolved = await resolveTrustedTranscriptPath(s.transcript_path, root);
+      if (resolved) return resolved;
+    }
+    return null;
   }
   return null;
 }

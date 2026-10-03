@@ -7,7 +7,8 @@
  * - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければ相談用ディレクトリで起動する。
  *   指定があればその指定に従う (対象外)。
  * - 子会社: 作業領域の指定は拒否する。
- * - どちらも claude のツール制限を付け、 相談専用の Claude 設定フォルダで起動する (2026-10-02 neco 指示「本社の相談も同じで」)。
+ * - どちらも claude のツール制限を付け、 相談専用の Claude 設定フォルダ・codex 用の CODEX_HOME で起動する
+ *   (2026-10-02 neco 指示「本社の相談も同じで」、 2026-10-03「codex のも作ってほしい」)。
  * 対象でなければ何もしない (プロジェクトを持つ部署・部署なしの起動は従来どおり)。
  *
  * - CC-CONSULT-INV-06: プロジェクト無しで相談用ディレクトリに入るのは、 読み取り専用で担当プロジェクトを持たない部署だけ。
@@ -22,6 +23,7 @@ import {
   CONSULT_SESSION_ENV,
   PROJECTLESS_CONSULT_CLAUDE_ARGS,
   consultClaudeConfigDir,
+  consultCodexHome,
   consultPersonalDataDir,
   consultRoleWorkspace,
   consultWorkspaceClaudeSettings,
@@ -55,6 +57,11 @@ export interface ProjectlessConsultLaunchPorts {
    * (未ログインでも Astra (codex) の相談は起動できるので、 ここでは拒否しない)。
    */
   prepareClaudeConfig(configDir: string, roleWorkspace: string): Promise<boolean>;
+  /**
+   * Astra (codex) の相談専用の CODEX_HOME を用意し、 フック (hooks.json) と設定 (config.toml) を書く。 ログイン済みなら true
+   * (未ログインでも claude の相談は起動できるので、 ここでは拒否しない)。
+   */
+  prepareCodexHome(codexHome: string): Promise<boolean>;
 }
 
 export type ProjectlessConsultLaunch =
@@ -68,6 +75,8 @@ export type ProjectlessConsultLaunch =
     restriction: string | null;
     /** 相談専用の Claude 設定フォルダにログイン済みか (claude で起動するときに必要)。 */
     claudeConfigReady: boolean;
+    /** 相談専用の CODEX_HOME にログイン済みか (codex で起動するときに必要)。 */
+    codexHomeReady: boolean;
     /** 相談者のデータフォルダ (Discord 以外からの起動は null)。 */
     dataDir: string | null;
     /** 起動 env (自動メモリを読まない・データフォルダの場所)。 */
@@ -102,13 +111,16 @@ export async function resolveProjectlessConsultLaunch(
   await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings(cwd), dataDir);
   const configDir = consultClaudeConfigDir(ports.workspaceRoot);
   const claudeConfigReady = await ports.prepareClaudeConfig(configDir, cwd);
+  const codexHome = consultCodexHome(ports.workspaceRoot);
+  const codexHomeReady = await ports.prepareCodexHome(codexHome);
   const env = {
     ...CONSULT_SESSION_ENV,
     CLAUDE_CONFIG_DIR: configDir,
+    CODEX_HOME: codexHome,
     ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
   };
   return {
     kind: "consult-workspace", cwd, dataDir, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
-    restriction: projectlessConsultRestriction(), claudeConfigReady, env,
+    restriction: projectlessConsultRestriction(), claudeConfigReady, codexHomeReady, env,
   };
 }

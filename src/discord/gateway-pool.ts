@@ -86,4 +86,12 @@ export class DiscordGatewayPool {
   connectionCount(): number {
     return this.entries.size;
   }
+
+  /**
+   * ログイン済みの物理 Client (本社・子会社の Bot)。 guild の読み取り (予算の倍率のロール照会など) にだけ使い、
+   * listener は載せない。 token は外へ出さない。
+   */
+  readyClients(): Client[] {
+    return [...this.entries.values()].map((entry) => entry.client).filter((client) => client.isReady());
+  }
 }

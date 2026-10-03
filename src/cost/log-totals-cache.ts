@@ -18,7 +18,7 @@
 import { stat } from "node:fs/promises";
 import {
   claudeProjectRoots,
-  CODEX_SESSIONS_ROOT,
+  codexSessionRoots,
   collectRecent,
   nn,
 } from "./log-usage.js";
@@ -132,7 +132,9 @@ const defaultIo: LogTotalsCacheIo = {
     for (const root of claudeProjectRoots()) {
       await collectRecent(root, 3, cutoff, (p) => { out.push({ path: p, kind: "claude" }); });
     }
-    await collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, (p) => { out.push({ path: p, kind: "codex" }); });
+    for (const root of codexSessionRoots()) {
+      await collectRecent(root, 5, cutoff, (p) => { out.push({ path: p, kind: "codex" }); });
+    }
     return out;
   },
 };

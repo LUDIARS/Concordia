@@ -37,4 +37,14 @@ describe("DiscordGatewayPool", () => {
     expect(pool.acquire("token-a").client).not.toBe(pool.acquire("token-b").client);
     expect(pool.connectionCount()).toBe(2);
   });
+
+  it("lists only logged-in clients for guild reads", () => {
+    const ready = { ...fakeClient(), isReady: () => true } as unknown as Client;
+    const starting = { ...fakeClient(), isReady: () => false } as unknown as Client;
+    const clients = [ready, starting];
+    const pool = new DiscordGatewayPool(() => clients.shift()!);
+    pool.acquire("token-a");
+    pool.acquire("token-b");
+    expect(pool.readyClients()).toEqual([ready]);
+  });
 });

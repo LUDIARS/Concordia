@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 124;
+export const SCHEMA_VERSION = 125;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3140,6 +3140,26 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec(`
       CREATE TABLE IF NOT EXISTS usage_budget_role_multipliers (
         role       TEXT PRIMARY KEY CHECK(role IN ('staff', 'manager', 'executive')),
+        multiplier REAL NOT NULL CHECK(multiplier > 0 AND multiplier <= 10),
+        updated_by TEXT,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+  },
+},
+{
+  version: 125,
+  name: "usage-budget-discord-role-multipliers",
+  source: "usage_budget_role_multipliers keyed by Discord role id (spec/feature/usage-budgets.md §4)",
+  up(db) {
+    // 属性の倍率を社員名簿の役職から Discord のロール (guild ごとのロール id) へ置き換える
+    // (2026-10-03 neco 選択「Discord のロール」)。 役職の値はロールへ読み替えられないので捨てる
+    // (本番は未設定で行 0 件)。 行が無いロールは倍率 1。
+    db.exec(`
+      DROP TABLE IF EXISTS usage_budget_role_multipliers;
+      CREATE TABLE usage_budget_role_multipliers (
+        role_id    TEXT PRIMARY KEY CHECK(length(role_id) BETWEEN 5 AND 32 AND role_id NOT GLOB '*[^0-9]*'),
+        guild_id   TEXT NOT NULL CHECK(length(guild_id) BETWEEN 5 AND 32 AND guild_id NOT GLOB '*[^0-9]*'),
         multiplier REAL NOT NULL CHECK(multiplier > 0 AND multiplier <= 10),
         updated_by TEXT,
         updated_at INTEGER NOT NULL

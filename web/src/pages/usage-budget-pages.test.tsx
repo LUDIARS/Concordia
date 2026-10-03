@@ -20,6 +20,7 @@ vi.mock("../api.js", () => ({
     usageBudgetSet: vi.fn(),
     usageBudgetRemove: vi.fn(),
     usageBudgetRoleMultipliers: vi.fn(async () => ({ multipliers: [] })),
+    usageBudgetDiscordRoles: vi.fn(async () => ({ guilds: [] })),
   },
 }));
 vi.mock("./staff/StaffAddForm.js", () => ({ StaffAddForm: () => null }));

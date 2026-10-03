@@ -4,9 +4,10 @@
  * 「エンジニアと企画の相談は Opus、 デザイナーとサウンドの相談は Astra で起動。 モデルとエフォートは自動 (medium)」
  * 「GLab も Astra」。 事前ヒアリングの役職から読み、 読めなければ Opus。 起動時にモデルを聞き返さない。
  *
- * 子会社の相談は claude なら --tools、 codex (Astra) ならシェル・プラグイン・AGENTS.md・MCP を外して閉じ込める
+ * 子会社の相談は claude なら --tools、 codex (Astra) ならシェル・プラグイン・MCP を外して閉じ込める
  * (CC-CONSULT-INV-07)。 codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めないため、
- * 読む手段 (shell_tool) そのものを外す。
+ * 読む手段 (shell_tool) そのものを外す。 指示は役職フォルダの AGENTS.md だけを読ませる (上位フォルダは探さない)。
+ * 利用者の ~/.codex は専用の CODEX_HOME (consult-codex-home.ts) で外す。
  *
  * @implements SPEC-CONSULT-PROJECTLESS
  */
@@ -40,7 +41,7 @@ const CODEX_CONFINEMENT_ARGS: readonly string[] = Object.freeze([
   "-s", "read-only",
   "--disable", "shell_tool",
   "--disable", "plugins",
-  "-c", "project_doc_max_bytes=0",
+  "-c", "project_root_markers=[]",
   "-c", "mcp_servers={}",
 ]);
 

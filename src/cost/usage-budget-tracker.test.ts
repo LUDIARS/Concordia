@@ -75,6 +75,24 @@ describe("UsageBudgetTracker", () => {
     expect(totals.get("user:222222222")).toBe(400);
   });
 
+  it("awaits an async (Discord role) multiplier and falls back to 1 when it fails", async () => {
+    const budgets = new UsageBudgetsRepo(makeTestDb());
+    const sessions = [session("s1", { requester: "111111111" }), session("s2", { requester: "333333333" })];
+    const tracker = new UsageBudgetTracker({
+      budgets,
+      sessionsInRange: () => sessions,
+      readUsage: async () => ({ total: 100 }),
+      roleMultiplier: async (userId) => {
+        if (userId === "333333333") throw new Error("discord unavailable");
+        return 0.5;
+      },
+      now: () => NOW,
+    });
+    const totals = await tracker.monthlyConsumption();
+    expect(totals.get("user:111111111")).toBe(50);
+    expect(totals.get("user:333333333")).toBe(100);
+  });
+
   it("caches the monthly consumption for the gate and recounts after invalidate", async () => {
     const budgets = new UsageBudgetsRepo(makeTestDb());
     const readUsage = vi.fn(async () => ({ total: 10 }));

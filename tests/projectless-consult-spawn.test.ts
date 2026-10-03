@@ -37,6 +37,9 @@ describe("projectless consultation spawn in a subsidiary", () => {
     mkdirSync(join(workspaceRoot, ".claude-config"), { recursive: true });
     writeFileSync(join(workspaceRoot, ".claude-config", ".credentials.json"), "{}");
     writeFileSync(join(workspaceRoot, ".claude-config", ".claude.json"), JSON.stringify({ projects: {} }));
+    // 相談専用の CODEX_HOME にログイン済みの状態 (Astra (codex) の相談の前提)。
+    mkdirSync(join(workspaceRoot, ".codex-home"), { recursive: true });
+    writeFileSync(join(workspaceRoot, ".codex-home", "auth.json"), "{}");
     env = makeTestApp({
       consultWorkspaceRoot: workspaceRoot,
       sessionSpawn: (request) => {
@@ -95,8 +98,10 @@ describe("projectless consultation spawn in a subsidiary", () => {
     });
     expect(sound.status).toBe(200);
     expect(spawnCalls[0]?.provider).toBe("codex");
-    // GLab でも Astra。 シェル・プラグイン・AGENTS.md・MCP を外して閉じ込める (2026-10-02 neco 指示「GLab も Astra」)。
-    expect(spawnCalls[0]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "project_doc_max_bytes=0"]));
+    // GLab でも Astra。 シェル・プラグイン・MCP を外し、 上位の AGENTS.md を探さない (2026-10-02 neco 指示「GLab も Astra」)。
+    expect(spawnCalls[0]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "project_root_markers=[]"]));
+    // 利用者の ~/.codex を読ませない専用の CODEX_HOME で起動する (2026-10-03 neco 指示「codex のも作ってほしい」)。
+    expect(spawnCalls[0]?.env).toMatchObject({ CODEX_HOME: join(workspaceRoot, ".codex-home") });
     expect(spawnCalls[0]?.args?.join(" ")).toContain("medium");
 
     const engineer = await spawnSession(env, {
@@ -159,6 +164,36 @@ describe("projectless consultation spawn in a subsidiary", () => {
     });
     expect(other.status).toBe(200);
     expect(startupOf(spawnCalls[3])).not.toContain("## 相談窓口の前提と手順");
+  });
+
+  it("writes the consult CODEX_HOME hooks and refuses an Astra consultation until someone logs in there", async () => {
+    rmSync(join(workspaceRoot, ".codex-home", "auth.json"));
+    const response = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "codex", prompt: "Q",
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "projectless_consult_codex_login_required" });
+    expect(spawnCalls).toHaveLength(0);
+    // ログインしていなくてもフックと設定は書いておく (人がログインしたらそのまま使える)。
+    const written = JSON.parse(readFileSync(join(workspaceRoot, ".codex-home", "hooks.json"), "utf8"));
+    expect(written.hooks.PreToolUse[0].hooks[0].command).toContain("consult-codex-hook.mjs");
+    expect(readFileSync(join(workspaceRoot, ".codex-home", "config.toml"), "utf8")).toContain("project_root_markers = []");
+  });
+
+  it("lets codex read the role folder's AGENTS.md itself and links .claude/skills to .agents/skills", async () => {
+    // 2026-10-03: 役職フォルダの指示は AGENTS.md 1 本、 スキルの正本は .agents/skills (Claude と codex で共通)。
+    mkdirSync(join(workspaceRoot, "sound", ".agents", "skills", "level-match"), { recursive: true });
+    writeFileSync(join(workspaceRoot, "sound", "AGENTS.md"), "sound の前提 (AGENTS)");
+    writeFileSync(join(workspaceRoot, "sound", ".agents", "skills", "level-match", "SKILL.md"), "---\nname: level-match\n---\nレベルに合わせる手順");
+    const response = await spawnSession(env, {
+      department: consultDepartmentId, subsidiary_id: subsidiaryId, provider: "codex", prompt: "Q",
+      consultation_intake: { topic: "音", skill_level: "初級", role_title: "サウンドクリエイター", purpose: "", source: "modal" },
+    });
+    expect(response.status).toBe(200);
+    const startup = readFileSync(spawnCalls[0]!.env!.CONCORDIA_DELEGATION_PROMPT_FILE!, "utf8");
+    expect(startup).toContain("レベルに合わせる手順");
+    expect(startup).not.toContain("sound の前提 (AGENTS)");
+    expect(readFileSync(join(workspaceRoot, "sound", ".claude", "skills", "level-match", "SKILL.md"), "utf8")).toContain("レベルに合わせる手順");
   });
 
   it("starts an Astra consultation without the block when the role folder has no CLAUDE.md or skills", async () => {

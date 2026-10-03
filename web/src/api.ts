@@ -718,11 +718,20 @@ export interface UsageBudget {
 }
 
 /** 月次予算の役職ごとのコスト倍率 (usage-budgets.md §3.1)。 行が無い役職は 1。 */
+/** 月次予算の属性 (Discord のロール) ごとのコスト倍率 (spec/feature/usage-budgets.md §3.1)。 */
 export interface UsageBudgetRoleMultiplier {
-  role: StaffRole;
+  role_id: string;
+  guild_id: string;
   multiplier: number;
   updated_by: string | null;
   updated_at: number;
+}
+
+/** 倍率を設定できる Discord のロール (Bot が在籍する guild ごと)。 */
+export interface UsageBudgetDiscordRoleGuild {
+  guild_id: string;
+  guild_name: string;
+  roles: Array<{ id: string; name: string }>;
 }
 
 export const api = {
@@ -1174,10 +1183,11 @@ export const api = {
   usageBudgetRemove: (scope: UsageBudgetScope, targetId: string) =>
     del<{ removed: boolean }>(`/v1/usage-budgets/${scope}/${encodeURIComponent(targetId)}`),
   usageBudgetRoleMultipliers: () => get<{ multipliers: UsageBudgetRoleMultiplier[] }>("/v1/usage-budgets/role-multipliers"),
-  usageBudgetRoleMultiplierSet: (role: StaffRole, multiplier: number) =>
-    put<{ multiplier: UsageBudgetRoleMultiplier }>(`/v1/usage-budgets/role-multipliers/${role}`, { multiplier }),
-  usageBudgetRoleMultiplierRemove: (role: StaffRole) =>
-    del<{ removed: boolean }>(`/v1/usage-budgets/role-multipliers/${role}`),
+  usageBudgetDiscordRoles: () => get<{ guilds: UsageBudgetDiscordRoleGuild[] }>("/v1/usage-budgets/discord-roles"),
+  usageBudgetRoleMultiplierSet: (roleId: string, guildId: string, multiplier: number) =>
+    put<{ multiplier: UsageBudgetRoleMultiplier }>(`/v1/usage-budgets/role-multipliers/${encodeURIComponent(roleId)}`, { guild_id: guildId, multiplier }),
+  usageBudgetRoleMultiplierRemove: (roleId: string) =>
+    del<{ removed: boolean }>(`/v1/usage-budgets/role-multipliers/${encodeURIComponent(roleId)}`),
 
   // ── 社員名簿 (役職権限登録リスト) ──
   staffList: () => get<StaffListResult>("/v1/staff"),

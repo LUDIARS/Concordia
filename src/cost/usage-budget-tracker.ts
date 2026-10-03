@@ -42,8 +42,8 @@ export interface UsageBudgetTrackerDeps {
   sessionEvents?(sessionId: string): SessionEventRow[];
   /** 部署の倍率。 未注入・部署なしは 1。 */
   departmentMultiplier?(departmentId: string | null): number;
-  /** 消費する人 (Discord の利用者) の属性の倍率。 未注入・不明は 1。 */
-  roleMultiplier?(userId: string | null): number;
+  /** 消費する人 (Discord の利用者) の属性 (Discord のロール) の倍率。 未注入・不明は 1。 */
+  roleMultiplier?(userId: string | null): number | Promise<number>;
   now?: () => number;
   /** cachedMonthlyConsumption のキャッシュ期間 (ms)。 */
   cacheTtlMs?: number;
@@ -115,14 +115,14 @@ export class UsageBudgetTracker {
       charges = attributeTotal(attribution, usage?.total ?? 0);
     }
     const departmentMultiplier = this.deps.departmentMultiplier?.(session.department_id ?? null) ?? DEFAULT_COST_MULTIPLIER;
-    return charges.map((charge) => ({
-      subject: charge.subject,
-      amount: chargedTokens(
-        charge.tokens,
-        departmentMultiplier,
-        this.deps.roleMultiplier?.(charge.personUserId) ?? DEFAULT_COST_MULTIPLIER,
-      ),
-    }));
+    const out: Array<{ subject: BudgetSubject; amount: number }> = [];
+    for (const charge of charges) {
+      // ロールの照会に失敗したら 1 に倒す (予算の数え方の不調で倍率を上げない)。
+      const roleMultiplier = await Promise.resolve(this.deps.roleMultiplier?.(charge.personUserId) ?? DEFAULT_COST_MULTIPLIER)
+        .catch(() => DEFAULT_COST_MULTIPLIER);
+      out.push({ subject: charge.subject, amount: chargedTokens(charge.tokens, departmentMultiplier, roleMultiplier) });
+    }
+    return out;
   }
 
   /** 1 件の予算の今月の状況。 予算が無ければ null。 */

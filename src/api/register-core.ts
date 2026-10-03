@@ -13,6 +13,8 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
+import { prepareConsultCodexHome } from "../consultation/consult-codex-home.js";
+import { linkRoleSkills } from "../consultation/consult-role-skills.js";
 import { loadInlineRoleGuidance } from "../consultation/role-guidance-files.js";
 import {
   duplicateShortcutBlock,
@@ -127,6 +129,7 @@ import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
 import { consultationsRouter } from "./consultations.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
+import type { GuildRoleList } from "../discord/member-roles.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
@@ -291,7 +294,15 @@ export interface CoreDelegationDeps {
    */
   consultWorkspaceRoot?: string;
   /** ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 未注入なら API も起動時の判定も無い。 */
-  usageBudgets?: { repo: UsageBudgetsRepo; tracker: UsageBudgetTracker; multipliers?: UsageBudgetMultipliersRepo };
+  usageBudgets?: {
+    repo: UsageBudgetsRepo;
+    tracker: UsageBudgetTracker;
+    multipliers?: UsageBudgetMultipliersRepo;
+    /** 倍率を変えたときに捨てる、 人の Discord のロールのキャッシュ。 */
+    invalidateRoleCache?: () => void;
+    /** 倍率を設定できる Discord のロール (Bot が在籍する guild ごと)。 */
+    discordRoles?: () => GuildRoleList[];
+  };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
@@ -808,6 +819,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       budgets: usageBudgets.repo,
       tracker: usageBudgets.tracker,
       ...(usageBudgets.multipliers ? { multipliers: usageBudgets.multipliers } : {}),
+      ...(usageBudgets.invalidateRoleCache ? { invalidateRoleCache: usageBudgets.invalidateRoleCache } : {}),
+      ...(usageBudgets.discordRoles ? { discordRoles: usageBudgets.discordRoles } : {}),
       listSuspended: () => deps.repo.listWithMetadataKey(BUDGET_SUSPENSION_KEY),
       // 中断したセッションを `claude --resume` で起動し直す (usage-budgets.md §5.3)。 管理者 = 執行役員。
       resume: (sessionId, actorUserId) => resumeSuspendedSession({
@@ -1157,6 +1170,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           if (dataDir) await mkdir(dataDir, { recursive: true });
           await writeFile(join(path, ".claude", "settings.local.json"), `${JSON.stringify(claudeSettings, null, 2)}
 `, "utf8");
+          // スキルの正本は役職フォルダの .agents/skills。 Claude が読む .claude/skills をそこへつなぐ (tech-consultation.md §6)。
+          await linkRoleSkills(path);
         },
         prepareClaudeConfig: async (configDir, roleWorkspace) => {
           await mkdir(configDir, { recursive: true });
@@ -1167,6 +1182,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
 `, "utf8");
           return existsSync(join(configDir, ".credentials.json"));
         },
+        // Astra (codex) の相談専用の CODEX_HOME (フックと設定を書く。 ログインは人が 1 回行う)。
+        prepareCodexHome: (codexHome) => prepareConsultCodexHome(codexHome),
       })
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);
@@ -1182,9 +1199,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;
     const consultArgsFor = (provider: string): readonly string[] | null =>
       consultConfined ? confinementArgsFor(provider, consultConfinement!.claudeArgs) : [];
-    // claude の相談は相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) にログインしていないと起動できない。
-    const consultLoginMissing = (provider: string): boolean =>
-      consultConfinement !== null && provider === "claude" && !consultConfinement.claudeConfigReady;
+    // 相談は相談専用の設定フォルダ (claude は CLAUDE_CONFIG_DIR、 codex は CODEX_HOME) にログインしていないと起動できない。
+    const consultLoginMissing = (provider: string): string | null => {
+      if (consultConfinement === null) return null;
+      if (provider === "claude" && !consultConfinement.claudeConfigReady) return "projectless_consult_claude_login_required";
+      if (provider === "codex" && !consultConfinement.codexHomeReady) return "projectless_consult_codex_login_required";
+      return null;
+    };
     // 相談部署は相談者の職種でモデルを決め、 effort は medium (エンジニア・企画は Opus、 デザイナー・サウンドは Astra。
     // tech-consultation.md §6)。 起動要求がモデルを明示していればそれに従う。
     const consultModelChosen = consultConfinement !== null
@@ -1351,7 +1372,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       // 閉じ込められない provider では子会社の相談を起動しない。
       const consultArgs = consultArgsFor(spawn.provider);
       if (consultArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
-      if (consultLoginMissing(spawn.provider)) return c.json({ error: "projectless_consult_claude_login_required" }, 503);
+      const spawnLoginMissing = consultLoginMissing(spawn.provider);
+      if (spawnLoginMissing) return c.json({ error: spawnLoginMissing }, 503);
       const spawnArgs = [...spawn.args, ...runtimeArgs, ...consultArgs];
       const startupText = [userPrompt ? await restrictionWithRoleGuidance(spawn.provider) : "", taskPrompt, userPrompt]
         .filter(Boolean)
@@ -1441,7 +1463,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveDirectOptions);
     const consultDirectArgs = consultArgsFor(resolved.provider);
     if (consultDirectArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
-    if (consultLoginMissing(resolved.provider)) return c.json({ error: "projectless_consult_claude_login_required" }, 503);
+    const directLoginMissing = consultLoginMissing(resolved.provider);
+    if (directLoginMissing) return c.json({ error: directLoginMissing }, 503);
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];

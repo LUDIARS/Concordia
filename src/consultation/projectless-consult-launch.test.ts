@@ -30,6 +30,7 @@ function ports(workMode = "read-only") {
     workspaceRoot: "/srv/cw",
     prepareWorkspace: vi.fn(async () => undefined),
     prepareClaudeConfig: vi.fn(async () => true),
+    prepareCodexHome: vi.fn(async () => true),
   };
 }
 
@@ -49,12 +50,16 @@ describe("resolveProjectlessConsultLaunch", () => {
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: true,
+      codexHomeReady: true,
       env: {
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
         CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
+        CODEX_HOME: join("/srv/cw", ".codex-home"),
         CONCORDIA_CONSULT_DATA_DIR: dataDir,
       },
     });
+    // Astra (codex) の相談専用の CODEX_HOME を用意する (利用者の ~/.codex を読ませない)。
+    expect(p.prepareCodexHome).toHaveBeenCalledWith(join("/srv/cw", ".codex-home"));
     // 相談専用の設定フォルダを用意し、 役職フォルダの信頼を書く (利用者の ~/.claude を読ませない)。
     expect(p.prepareClaudeConfig).toHaveBeenCalledWith(join("/srv/cw", ".claude-config"), cwd);
     // 上位の CLAUDE.md と自動メモリを読ませない設定を書く (CC-CONSULT-INV-08)。
@@ -66,14 +71,19 @@ describe("resolveProjectlessConsultLaunch", () => {
 
   it("本社の相談部署も子会社と同じく閉じ込めて起動する。 Discord 以外の起動はデータフォルダを作らない", async () => {
     // 2026-10-02 neco 指示「本社の相談も同じで」。
-    const p = { ...ports(), prepareClaudeConfig: vi.fn(async () => false) };
+    const p = { ...ports(), prepareClaudeConfig: vi.fn(async () => false), prepareCodexHome: vi.fn(async () => false) };
     expect(await resolveProjectlessConsultLaunch(
       { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [], roleTitle: "エンジニア" }, p,
     )).toEqual({
       kind: "consult-workspace", cwd: join("/srv/cw", "engineer"), dataDir: null,
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: false,
-      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config") },
+      codexHomeReady: false,
+      env: {
+        CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+        CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
+        CODEX_HOME: join("/srv/cw", ".codex-home"),
+      },
     });
     expect(p.prepareWorkspace).toHaveBeenCalledWith(join("/srv/cw", "engineer"), expect.objectContaining({ autoMemoryEnabled: false }), null);
   });

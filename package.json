@@ -8,6 +8,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "migration:preflight": "node --import tsx tools/migration-preflight.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
     "build": "npm run sync:skill && npm run check:src-emitted && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
     "build:spec-index": "node tools/build-spec-index.mjs",

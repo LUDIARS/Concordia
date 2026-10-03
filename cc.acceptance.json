@@ -1,6 +1,13 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/developer-tools/migration-preflight/cli.ts", "tests": ["src/developer-tools/migration-preflight/cli.test.ts"], "contracts": ["CC-MP-02"] },
+    { "source": "src/developer-tools/migration-preflight/compare.ts", "tests": ["src/developer-tools/migration-preflight/compare.test.ts"], "contracts": ["C-13"] },
+    { "source": "src/developer-tools/migration-preflight/git.ts", "tests": ["src/developer-tools/migration-preflight/git.test.ts"], "contracts": ["CC-MP-01"] },
+    { "source": "src/developer-tools/migration-preflight/parse.ts", "tests": ["src/developer-tools/migration-preflight/parse.test.ts"], "contracts": ["CC-MP-02"] },
+    { "source": "src/developer-tools/migration-preflight/preflight.ts", "tests": ["src/developer-tools/migration-preflight/preflight.test.ts"], "contracts": ["CC-MP-02"] },
+    { "source": "src/developer-tools/migration-preflight/ontime-runtime.ts", "tests": ["src/developer-tools/migration-preflight/ontime-runtime.test.ts"], "contracts": ["C-13"] },
+    { "source": "tools/migration-preflight.mjs", "tests": ["src/developer-tools/migration-preflight/entrypoint.test.ts"], "contracts": ["CC-MP-02"] },
     {
       "source": "src/dialogue/planning-adjustment.ts",
       "tests": ["src/dialogue/planning-adjustment.test.ts"],

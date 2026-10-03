@@ -3,6 +3,7 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "C-13", "criterion": "C-13 compareMigrations(left, right, ancestor): 同番号で定義が異なり少なくとも片側が祖先にない定義の場合だけ衝突を返す", "symbol": "compareMigrations", "file": "src/developer-tools/migration-preflight/compare.ts", "module": "src/developer-tools/migration-preflight/compare.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "HR-sampling-budget", "criterion": "HR-sampling-budget: cap and time-slot exclusion hold for observed sampling decisions", "symbol": "sampleDecision", "file": "src/harness/reliability/guidance.ts", "module": "src/harness/reliability/contracts/sampling.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "HR-workflow-source", "criterion": "HR-workflow-source: automatic control packets never create workflow requests", "symbol": "workflowGuidance", "file": "src/harness/reliability/workflow-guidance.ts", "module": "src/harness/reliability/contracts/workflow.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-1", "criterion": "C-1 handleServiceDeployment(event): (code,currentHash) が既処理なら配送しない", "symbol": "handleServiceDeployment", "file": "src/deploy/service-deployed.ts", "module": "src/deploy/service-deployed.contract.js", "mode": "observe", "sample": 1 },

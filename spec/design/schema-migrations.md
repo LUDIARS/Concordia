@@ -1,5 +1,9 @@
 # スキーマ migration の規律
 
+並行 local branch の番号衝突は任意コマンド `npm run migration:preflight -- [ref]` で
+コミット済み schema を読み取り専用比較できる。対象・制限・終了コードは
+[migration preflight](../feature/migration-preflight.md) を参照。既存の凍結検証を置き換えない。
+
 ## 規則
 
 適用済みの migration は編集しない。 新しいテーブル・列・index は、 既存 migration を

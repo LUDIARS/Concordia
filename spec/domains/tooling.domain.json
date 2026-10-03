@@ -5,6 +5,12 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/developer-tools/migration-preflight/[^/]+\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/migration-preflight\\.mjs$"
+    },
+    {
       "pathPattern": "(^|/)vitest\\.harness\\.config\\.ts$"
     },
     {
@@ -55,6 +61,7 @@
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "specRefs": [
+    "spec/feature/migration-preflight.md",
     "spec/feature/domain-taxonomy.concordia.md#tooling",
     "spec/feature/harness-reliability.md",
     "spec/feature/task-branch-harness.md",

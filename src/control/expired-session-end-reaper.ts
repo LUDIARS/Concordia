@@ -13,11 +13,11 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import {
   SESSION_END_PENDING_AT_KEY,
-  isSessionEndPendingOlderThan,
   stopCompletedSessionProcesses,
   type CompletedSessionStopDeps,
   type CompletedSessionStopResult,
 } from "./session-end-process.js";
+import { hasSessionEndRecoveryExpired, isSameSessionEndRecoveryRequest } from "./session-end-recovery-policy.js";
 
 /** この回収が必要とする repo 操作だけを表す構造的境界 (テスト差し替え用)。 */
 export type ExpiredSessionEndRepo = Pick<
@@ -61,19 +61,26 @@ export async function reapExpiredSessionEnds(
   if (!Number.isFinite(opts.nowSec) || !Number.isFinite(opts.graceSec) || opts.graceSec < 0) return result;
   const cutoff = opts.nowSec - opts.graceSec;
   for (const row of deps.repo.findEndedWithPendingMarkerOlderThan(cutoff, SESSION_END_PENDING_AT_KEY)) {
+    if (!hasSessionEndRecoveryExpired(row, opts.nowSec, opts.graceSec)) continue;
     result.candidates.push(row.id);
     if (opts.dryRun) continue;
-    // kill 直前に再取得し、active 復帰・WS 再接続・マーカー解消/更新を見送る。
+    // A connected wrapper is entitled to a longer save window, not an infinite exemption.
     const current = deps.repo.findSession(row.id);
     if (
       !current
-      || current.status !== "ended"
-      || current.ws_clients > 0
-      || !isSessionEndPendingOlderThan(current.metadata, cutoff)
+      || !isSameSessionEndRecoveryRequest(row, current)
+      || !hasSessionEndRecoveryExpired(current, opts.nowSec, opts.graceSec)
     ) continue;
-    const stop = await stopCompletedSessionProcesses(current.metadata, deps.stopDeps);
+    const isStillOwned = (): boolean => {
+      const latest = deps.repo.findSession(row.id);
+      return isSameSessionEndRecoveryRequest(current, latest)
+        && latest !== null && hasSessionEndRecoveryExpired(latest, opts.nowSec, opts.graceSec)
+        && (deps.stopDeps?.isStillOwned?.() ?? true);
+    };
+    const stop = await stopCompletedSessionProcesses(current.metadata, { ...deps.stopDeps, isStillOwned });
     if (stop.ok) {
-      deps.repo.mergeMetadata(row.id, { [SESSION_END_PENDING_AT_KEY]: null });
+      // Another request may have been issued while the OS stop was awaiting its response.
+      if (isStillOwned()) deps.repo.mergeMetadata(row.id, { [SESSION_END_PENDING_AT_KEY]: null });
       result.stopped.push({ sessionId: row.id, stop });
     } else {
       result.failed.push({ sessionId: row.id, stop });

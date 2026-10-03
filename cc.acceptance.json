@@ -9,6 +9,31 @@
     { "source": "src/developer-tools/migration-preflight/ontime-runtime.ts", "tests": ["src/developer-tools/migration-preflight/ontime-runtime.test.ts"], "contracts": ["C-13"] },
     { "source": "tools/migration-preflight.mjs", "tests": ["src/developer-tools/migration-preflight/entrypoint.test.ts"], "contracts": ["CC-MP-02"] },
     {
+      "source": "src/control/session-end-request-state.ts",
+      "tests": ["tests/session-end-process.test.ts", "src/control/session-end-recovery-policy.test.ts"],
+      "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
+    },
+    {
+      "source": "src/db/sessions-repo.ts",
+      "tests": ["tests/sessions-repo.test.ts"],
+      "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
+    },
+    {
+      "source": "src/control/session-end-recovery-policy.ts",
+      "tests": ["src/control/session-end-recovery-policy.test.ts"],
+      "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
+    },
+    {
+      "source": "src/control/expired-session-end-reaper.ts",
+      "tests": ["src/control/expired-session-end-reaper.test.ts"],
+      "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
+    },
+    {
+      "source": "src/control/session-end-process.ts",
+      "tests": ["tests/session-end-process.test.ts", "src/control/expired-session-end-reaper.test.ts"],
+      "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
+    },
+    {
       "source": "src/dialogue/planning-adjustment.ts",
       "tests": ["src/dialogue/planning-adjustment.test.ts"],
       "contracts": ["CC-PLAN-01", "CC-PLAN-02", "CC-PLAN-03", "CC-PLAN-04"]

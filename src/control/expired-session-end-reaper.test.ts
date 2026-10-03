@@ -14,7 +14,7 @@ interface FakeRow {
 }
 
 /**
- * `findEndedWithPendingMarkerOlderThan` の契約 (ended / ws_clients=0 / マーカー経過超過) だけを
+ * `findEndedWithPendingMarkerOlderThan` の契約 (ended / マーカー経過超過) だけを
  * 再現する repo スタブ。last_seen_at を条件に含めないことが本修正の要点なので、
  * ここでも last_seen_at は一切参照しない。
  */
@@ -25,16 +25,19 @@ function fakeRepo(rows: FakeRow[]) {
     rows,
     findEndedWithPendingMarkerOlderThan(cutoff: number, key: string) {
       return rows.filter((r) => {
-        if (r.status !== "ended" || r.ws_clients > 0 || !r.metadata) return false;
+        if (r.status !== "ended" || !r.metadata) return false;
         const marker = (JSON.parse(r.metadata) as Record<string, unknown>)[key];
         return typeof marker === "number" && marker < cutoff;
-      });
+      }).map((row) => ({ ...row }));
     },
     findSession(id: string) {
-      return rows.find((r) => r.id === id);
+      const row = rows.find((r) => r.id === id);
+      return row ? { ...row } : null;
     },
     mergeMetadata(id: string, patch: Record<string, unknown>) {
       merged.push({ id, patch });
+      const row = rows.find((r) => r.id === id);
+      if (row) row.metadata = JSON.stringify({ ...JSON.parse(row.metadata ?? "{}"), ...patch });
     },
   };
 }
@@ -54,8 +57,12 @@ function meta(markerAgeSec: number, pid = 4242): string {
 }
 
 function stopDeps(overrides: Partial<{ alive: boolean; stopOk: boolean }> = {}) {
-  const { alive = true, stopOk = true } = overrides;
-  const stopProcess = vi.fn(async () => (stopOk ? { ok: true as const, method: "taskkill" as const } : { ok: false as const, error: "boom" }));
+  const { stopOk = true } = overrides;
+  let alive = overrides.alive ?? true;
+  const stopProcess = vi.fn(async () => {
+    if (stopOk) alive = false;
+    return stopOk ? { ok: true as const, method: "taskkill" as const } : { ok: false as const, error: "boom" };
+  });
   return {
     deps: {
       isAlive: () => alive,
@@ -71,6 +78,58 @@ function stopDeps(overrides: Partial<{ alive: boolean; stopOk: boolean }> = {}) 
 }
 
 describe("reapExpiredSessionEnds", () => {
+  it("reclaims connected leftovers after the bounded save window, including after reconstruction", async () => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 1, metadata: meta(1801) }]);
+    const { deps, stopProcess } = stopDeps();
+    const result = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+    expect(result.stopped).toHaveLength(1);
+    expect(stopProcess).toHaveBeenCalledTimes(1);
+    // A restarted caller reads durable state; it does not reissue a completed stop.
+    expect((await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE })).candidates).toEqual([]);
+  });
+
+  it.each(["active", "renewed", "owner"])("rechecks %s changes occurring during the asynchronous process scan", async (change) => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 1, metadata: meta(1801) }]);
+    const { deps, stopProcess } = stopDeps();
+    const scan = deps.scanProcesses;
+    deps.scanProcesses = async () => {
+      if (change === "active") repo.rows[0]!.status = "active";
+      else if (change === "renewed") repo.rows[0]!.metadata = meta(20);
+      else repo.rows[0]!.metadata = JSON.stringify({ ...JSON.parse(meta(1801)), concordia_spawn_id: "another-owner-instance" });
+      return scan();
+    };
+    const result = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+    expect(stopProcess).not.toHaveBeenCalled();
+    expect(result.failed).toHaveLength(1);
+    expect(repo.merged).toEqual([]);
+  });
+
+  it("retains a renewed marker while a stop response is outstanding", async () => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 1, metadata: meta(1801) }]);
+    const { deps } = stopDeps();
+    const stop = deps.stopProcess;
+    deps.stopProcess = vi.fn(async () => {
+      const result = await stop();
+      repo.rows[0]!.metadata = meta(1);
+      return result;
+    });
+    await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+    expect(repo.merged).toEqual([]);
+  });
+
+  it("reconciles a lost stop response on the next cycle using OS disappearance", async () => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 1, metadata: meta(1801) }]);
+    const { deps } = stopDeps({ stopOk: false });
+    const first = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+    expect(first.failed).toHaveLength(1);
+    expect(repo.merged).toEqual([]);
+    const recovered = stopDeps({ alive: false });
+    const second = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: recovered.deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+    expect(second.stopped[0]?.stop.alreadyStopped).toEqual([4242]);
+    expect(recovered.stopProcess).not.toHaveBeenCalled();
+    expect(repo.merged).toHaveLength(1);
+  });
+
   it("reclaims an ended session whose completion notice never arrived", async () => {
     const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 0, metadata: meta(GRACE + 60) }]);
     const { deps, stopProcess } = stopDeps();

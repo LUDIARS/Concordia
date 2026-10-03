@@ -85,7 +85,7 @@ describe("endSessionNow", () => {
     expect(repo.mergeMetadata).not.toHaveBeenCalled();
   });
 
-  it("部署の出力方針で止めたセッション (相談) には /session-end を自動で送らない", async () => {
+  it("runs lifecycle injection even when consultation reports are hidden", async () => {
     const run = async (enabled: boolean) => {
       const session = { id: "s-consult", status: "active", provider: "claude", metadata: null, started_at: 0 } as unknown as SessionRow;
       const repo = {
@@ -104,7 +104,7 @@ describe("endSessionNow", () => {
       }
       return repo.appendEvent.mock.calls.map(([event]) => (event as { kind: string }).kind);
     };
-    expect(await run(false)).toEqual(["end"]);
+    expect(await run(false)).toEqual(["inject", "end"]);
     expect(await run(true)).toEqual(["inject", "end"]);
   });
 });

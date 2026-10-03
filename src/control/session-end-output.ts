@@ -1,5 +1,5 @@
 /**
- * セッション終了時の出力 (`/session-end` の自動指示と、 #報告 への独白) を出すかの判定口。
+ * セッション終了時の報告・独白を公開するかの判定口。停止制御は抑止しない。
  *
  * 2026-10-02 neco 指示 (技術相談課): 相談はクローズしないので /session-end 的なものは投稿しない。
  * 「相談は FINAL ANSWER 以外を投稿しない」。 独白は #報告 に出るので、 非公開の相談の中身が漏れる経路でもある。
@@ -19,7 +19,7 @@ export function setSessionEndOutputResolver(next: SessionEndOutputResolver | nul
   resolver = next;
 }
 
-/** 終了時の自動指示と独白を出すか。 未設定・判定失敗は従来どおり出す。 */
+/** 終了時の報告と独白を出すか。 未設定・判定失敗は従来どおり出す。 */
 export function sessionEndOutputEnabled(sessionId: string): boolean {
   if (!resolver) return true;
   try {

@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)tests/session-end-process\\.test\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/control/repo-search-[^/]+(\\.test)?\\.ts$"
     },
     {
@@ -40,6 +43,7 @@
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
   "specRefs": [
+    "spec/feature/session-end-bounded-recovery.md",
     "spec/feature/sidecar-lifecycle-model-refresh.md",
     "spec/feature/major-inject-editor.md",
     "spec/feature/task-linked-followup.md",

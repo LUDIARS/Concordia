@@ -28,6 +28,7 @@
     "transcript-path-authority-intake"
   ],
   "specRefs": [
+    "spec/feature/session-end-bounded-recovery.md",
     "spec/feature/major-inject-editor.md",
     "spec/feature/session-work-phases.md",
     "spec/feature/session-shutdown.md",

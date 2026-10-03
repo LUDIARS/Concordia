@@ -388,7 +388,6 @@ export class SessionsRepo {
       .prepare(
         `SELECT * FROM sessions
          WHERE status = 'ended'
-           AND ws_clients = 0
            AND json_valid(metadata)
            AND json_extract(metadata, ?) IS NOT NULL
            AND json_extract(metadata, ?) < ?`,

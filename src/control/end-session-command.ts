@@ -21,7 +21,6 @@ import {
   pickSessionEndInjectText,
 } from "./auto-session-end-inject.js";
 import { runSessionEndFlow } from "./end-session-flow.js";
-import { sessionEndOutputEnabled } from "./session-end-output.js";
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "./session-end-process.js";
 
 export interface EndSessionCommandDeps {
@@ -61,10 +60,19 @@ export async function endSessionNow(
     return { session, report: deps.repo.findReport(session.id) };
   }
   const now = nowSec();
+  // Persist the request before the best-effort delivery. A restart can recover it
+  // even when the agent never receives or acknowledges the instruction.
+  // Lost sessions also need this marker: ending them removes them from the lost
+  // process reaper's scope, transferring recovery to the pending-end reaper.
+  const alreadyPending = isSessionEndPending(session.metadata);
+  if (!alreadyPending) {
+    deps.repo.mergeMetadata(session.id, { [SESSION_END_PENDING_AT_KEY]: now });
+  }
   // fire-and-forget: Lictor WS が無い / failure でも report 生成は続行。
-  // 部署の出力方針で止めたセッション (相談) には /session-end を送らない (session-end-output.ts)。
+  // Report visibility cannot suppress lifecycle execution. Internal inject visibility
+  // and public reporting are independently filtered by their presentation boundaries.
   try {
-    const injected = sessionEndOutputEnabled(session.id) && emitAutoSessionEndInject(session);
+    const injected = emitAutoSessionEndInject(session);
     if (injected) {
       deps.repo.appendEvent({
         session_id: session.id,
@@ -78,13 +86,6 @@ export async function endSessionNow(
       });
     }
   } catch { /* swallow — best effort */ }
-  // ended 以外の状態には必ずマーカーを立てる。特に lost は ended 化後に
-  // lost-session-process-reaper (status==="lost" 限定) の対象外になるため、
-  // expired-session-end-reaper (マーカー必須) へ引き継がないとプロセスツリーが残留する。
-  const alreadyPending = isSessionEndPending(session.metadata);
-  if (!alreadyPending) {
-    deps.repo.mergeMetadata(session.id, { [SESSION_END_PENDING_AT_KEY]: now });
-  }
   deps.repo.setStatus(session.id, "ended", now, now);
   deps.repo.appendEvent({
     session_id: session.id,

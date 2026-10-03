@@ -12,6 +12,16 @@ describe("SessionsRepo", () => {
   let repo: SessionsRepo;
   beforeEach(() => { repo = fresh(); });
 
+  it("lists connected ended pending requests independently of heartbeat for deadline recovery", () => {
+    repo.insertSession({ id: "connected-end", provider: "claude-code", repo_path: "/tmp/foo",
+      repo_origin: null, branch: "main", host: "h1", started_at: 100, last_seen_at: 99999,
+      transcript_path: null, metadata: JSON.stringify({ session_end_pending_at: 100 }), });
+    repo.setStatus("connected-end", "ended", 200, 200);
+    repo.incrementWsClients("connected-end");
+    expect(repo.findEndedWithPendingMarkerOlderThan(200, "session_end_pending_at").map((row) => row.id)).toEqual(["connected-end"]);
+    expect(repo.findEndedWithPendingMarkerOlderThan(99, "session_end_pending_at")).toEqual([]);
+  });
+
   it("inserts and finds a session", () => {
     repo.insertSession({
       id: "s1", provider: "claude-code", repo_path: "/tmp/foo",

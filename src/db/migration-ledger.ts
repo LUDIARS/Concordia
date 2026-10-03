@@ -490,4 +490,9 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     name: "subsidiary-session-cap",
     checksum: "5c24f3e5e21ffcbe76acdb1849622547765f6f8eda1ac9bd31112375b80519a7",
   },
+  {
+    version: 128,
+    name: "delegation-sol-6-1",
+    checksum: "2a4732a404e3a012ecf57a280f32e8fa481d3e982b04e3f380810552b7881b9a",
+  },
 ];

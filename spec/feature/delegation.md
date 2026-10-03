@@ -252,17 +252,21 @@ Sol / Luna は GPT-6、Opus は 5.5 を使用する。2026-09-27 necoの回答�
 実行済み・実行中 run の effective_model は実行事実なので書き換えない。
 初期定義の差戻しは対象コミットを戻し、稼働DBのモデル設定は公開APIから明示的に戻す。
 
+2026-10-03 neco 指示「Delegation の Sol を 6.1 に」「Astra の xhigh を消して」: seed の Sol テンプレートはモデル一覧の Sol
+(`src/model-catalog/role-policy.ts` の `INITIAL_ROLE_MODELS.sol` = gpt-6.1-sol) を参照し、直書きしない。既存 DB の gpt-6-sol は
+migration 128 `delegation-sol-6-1` で gpt-6.1-sol にそろえる (seed に無いテンプレートも含む)。`astra-xhigh` は廃止し、
+`LEGACY_DELEGATION_CALL_NAMES` で起動時に定義行を消す (run の履歴は残る)。Astra は `astra-mid` / `astra-with-sidecar` の 2 本。
+
 
 | call_name | target | model | 用途 |
 |-----------|--------|-------|------|
-| `impl-from-design` | codex-sdk | gpt-5.6-sol | 設計書 path を渡して実装させる |
-| `fix-bug` | codex-sdk | gpt-5.6-sol | バグ説明 + 任意の再現手順から修正 PR を作らせる |
-| `refactor` | codex-sdk | gpt-5.6-sol | 範囲指定リファクタ (behavior 維持) |
+| `impl-from-design` | codex | gpt-6.1-sol | 設計書 path を渡して実装させる |
+| `fix-bug` | codex | gpt-6.1-sol | バグ説明 + 任意の再現手順から修正 PR を作らせる |
+| `refactor` | codex | gpt-6.1-sol | 範囲指定リファクタ (behavior 維持) |
 | `fable-mid` | claude | claude-fable-5-1 | Fable / mid で実装委託 |
 | `astra-mid` | codex | gpt-6-astra | Astra / mid で実装委託 |
-| `astra-xhigh` | codex | gpt-6-astra | Astra / xhigh で高難度実装委託 |
-| `sol-mid` | codex-sdk | gpt-5.6-sol | Sol / mid で実装委託 |
-| `sol-xhigh` | codex-sdk | gpt-5.6-sol | Sol / xhigh で高難度実装委託 |
+| `sol-mid` | codex | gpt-6.1-sol | Sol / mid で実装委託 |
+| `sol-xhigh` | codex | gpt-6.1-sol | Sol / xhigh で高難度実装委託 |
 | `opus-xhigh` | claude | claude-opus-5-5 | Opus / xhigh で実装委託 |
 | `opus-mid` | claude | claude-opus-5-5 | Opus / mid で実装委託 |
 | `fable-xhigh` | claude | claude-fable-5-1 | Fable / xhigh で実装委託 |

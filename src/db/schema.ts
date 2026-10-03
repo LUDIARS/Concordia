@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 127;
+export const SCHEMA_VERSION = 128;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3218,6 +3218,16 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "max_sessions")) {
       db.exec("ALTER TABLE subsidiaries ADD COLUMN max_sessions INTEGER NOT NULL DEFAULT 0");
     }
+  },
+},
+{
+  version: 128,
+  name: "delegation-sol-6-1",
+  source: "delegation_templates model gpt-6-sol -> gpt-6.1-sol (seed は role-policy の Sol を参照) v1",
+  up(db) {
+    // 2026-10-03 neco 指示「Delegation の Sol を 6.1 に」。 seed に無い (GUI で作った) テンプレートも含めてそろえる。
+    // 値の更新だけで列・表は変えない。 戻すときは逆の UPDATE を次の migration で行う。
+    db.exec(`UPDATE delegation_templates SET model='gpt-6.1-sol' WHERE model='gpt-6-sol';`);
   },
 },
 ];

@@ -9,7 +9,7 @@ const EXPECTED_SEED_CALLS = [
   "astra-mid",
   // Astra With Sidecar (2026-09-29、spec/feature/astra-with-sidecar.md)
   "astra-with-sidecar",
-  "astra-xhigh",
+  // astra-xhigh は 2026-10-03 に廃止 (neco 指示「Astra の xhigh を消して」)。
   "sol-mid",
   "sol-xhigh",
   "opus-5-5-movable",
@@ -81,7 +81,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 12, 13, 14, 20, 25, 30, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 12, 13, 20, 25, 30, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");

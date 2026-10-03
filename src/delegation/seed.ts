@@ -40,6 +40,9 @@ import {
   WEEKLY_REVIEW_PROMPT,
 } from "./parttimer-prompts.js";
 
+/** 委託テンプレートの Sol の既定モデル。 モデル一覧の Sol (role-policy の INITIAL_ROLE_MODELS) と揃える (2026-10-03 neco 指示「Delegation の Sol を 6.1 に」)。 */
+const SOL_MODEL = initialRoleModel("sol");
+
 /**
  * Anatomia plan→verify を委託プロンプトの必須手順にする (2026-08-19 neco 指示:
  * 「指示内容からまずドメインを確認して設計する / どのドメインにどう紐づけるかを一緒に考えて貼る」。
@@ -90,6 +93,8 @@ const LEGACY_DELEGATION_CALL_NAMES = [
   "opus-xhigh",
   "fable-mid",
   "fable-xhigh",
+  // 2026-10-03: neco 指示「Astra の xhigh を消して」。 Astra は astra-mid / astra-with-sidecar の 2 本にする。
+  "astra-xhigh",
 ] as const;
 
 /**
@@ -315,7 +320,7 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
     // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     runtime_options: { model_reasoning_effort: "high" },
     prompt_template: FORUM_SESSION_PROMPT,
     input_schema: [],
@@ -413,7 +418,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR) を守らせる。",
     // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     call_only: true,
     category: "freelancer",
     sort_order: 100,
@@ -449,7 +454,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
     // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     call_only: true,
     category: "freelancer",
     sort_order: 110,
@@ -482,7 +487,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
     // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
     target_provider: "codex",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     call_only: true,
     category: "freelancer",
     sort_order: 120,
@@ -576,16 +581,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
     runtimeOptions: { model_reasoning_effort: "medium" },
   }),
-  implementationTemplate({
-    callName: "astra-xhigh",
-    label: "Astra / xhigh",
-    note: "GPT-6。最上位の推論が必要な設計判断や難所の実装向き。",
-    model: "gpt-6-astra",
-    provider: "codex",
-    emoji: "🌟",
-    sortOrder: 14,
-    runtimeOptions: { model_reasoning_effort: "xhigh" },
-  }),
+  // astra-xhigh は 2026-10-03 neco 指示「Astra の xhigh を消して」で廃止 (LEGACY_DELEGATION_CALL_NAMES で定義行を消す)。
   ASTRA_WITH_SIDECAR_TEMPLATE,
   implementationTemplate({
     callName: "opus-5-5-movable",
@@ -692,7 +688,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "LUDIARS ダッシュボード日報 (毎日)",
     description: "LUDIARS の公開サービスダッシュボードを日報として毎日更新し、専用 worktree から Revisor local PR を提出する。Timer Delegation が毎日 3:00 JST に invoke する。プロンプト正本は LUDIARS/docs/DAILY-REPORT-PROMPT.md。",
     target_provider: "codex-sdk",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     runtime_options: { model_reasoning_effort: "medium" },
     category: "parttimer",
     emoji: "📊",
@@ -1008,7 +1004,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     // 起動モデルは Issue 本文の指定 / 週間残量で上書きされる (github/issue-model-selection.ts)。
     // ここは決められなかったときの床 — null のままだと run に effective_model が載らず
     // 状態カードの Model が `-` になる。
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     category: "parttimer",
     emoji: "🛠️",
     prompt_template: GITHUB_ISSUE_FIX_PROMPT,
@@ -1048,7 +1044,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "毎日レビューちょいつよ版",
     description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-6 Sol Ultra のオーケストレータ版。cron の既定は単一オーケストレータ版 (ludiars-review-weekly、毎週月曜 4:40 JST) なので、こちらは手動起動用。",
     target_provider: "codex-sdk",
-    model: "gpt-6-sol",
+    model: SOL_MODEL,
     runtime_options: { model_reasoning_effort: "ultra" },
     category: "parttimer",
     emoji: "⚖️",
@@ -1138,7 +1134,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5-5`",
-      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model gpt-6-sol, effort `${sol_effort:xhigh}`",
+      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model " + SOL_MODEL + ", effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",

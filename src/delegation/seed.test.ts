@@ -15,6 +15,14 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     expect(repo.findTemplate(old.id)?.model).toBe("gpt-6-sol");
   });
+  it("removes the retired astra-xhigh definition on seed (2026-10-03)", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    repo.createTemplate({ call_name: "astra-xhigh", title: "Astra / xhigh", target_provider: "codex", model: "gpt-6-astra", prompt_template: "x" });
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
+    expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({ model: "gpt-6-astra" });
+  });
+
   it("preserves an explicitly selected Sol model and edited prompt", () => {
     const repo = new DelegationRepo(makeTestDb());
     const old = repo.createTemplate({ call_name: "sol-mid", title: "Sol", target_provider: "codex", model: "gpt-5.6-sol", prompt_template: "original" });
@@ -22,7 +30,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     seedDelegationTemplates(repo);
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({ id: old.id, model: "gpt-5.6-sol", prompt_template: "operator instructions" });
-    expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("gpt-6-sol");
+    expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("gpt-6.1-sol");
   });
 
   it("keeps an administrator-edited prompt through a later seed", () => {
@@ -62,7 +70,7 @@ describe("seedDelegationTemplates", () => {
 
     expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
       target_provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       is_active: 1,
     });
   });
@@ -166,7 +174,7 @@ describe("seedDelegationTemplates", () => {
       call_only: 1,
       category: "parttimer",
       target_provider: "codex-sdk",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       default_cwd: "E:\\Document\\Ars\\LUDIARS",
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
@@ -186,7 +194,6 @@ describe("seedDelegationTemplates", () => {
 
     const implementationTemplates = [
       "astra-mid",
-      "astra-xhigh",
       "sol-mid",
       "sol-xhigh",
       "terra-xhigh",
@@ -359,7 +366,7 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
     expect(tpl?.target_provider).toBe("codex-sdk");
-    expect(tpl?.model).toBe("gpt-6-sol");
+    expect(tpl?.model).toBe("gpt-6.1-sol");
     expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
@@ -431,12 +438,8 @@ describe("seedDelegationTemplates", () => {
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
     expect(JSON.parse(repo.findTemplateByCallName("astra-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
-    expect(repo.findTemplateByCallName("astra-xhigh")).toMatchObject({
-      is_active: 1,
-      target_provider: "codex",
-      model: "gpt-6-astra",
-    });
-    expect(JSON.parse(repo.findTemplateByCallName("astra-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
+    // astra-xhigh は 2026-10-03 に廃止 (neco 指示)。 seed は作らず、 既存の定義行は起動時に消す。
+    expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
     // Astra With Sidecar: 親は Astra medium。 起動側 (sidecar/profile.ts) と同じ値でなければならない。
     const sidecarParent = repo.findTemplateByCallName("astra-with-sidecar");
     expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
@@ -509,7 +512,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.is_active).toBe(1);
     expect(duo?.prompt_template).toContain("claude-opus-5-5");
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
-    expect(duo?.prompt_template).toContain("gpt-6-sol");
+    expect(duo?.prompt_template).toContain("gpt-6.1-sol");
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("sol-xhigh");
     expect(duo?.prompt_template).toContain("Windows native");

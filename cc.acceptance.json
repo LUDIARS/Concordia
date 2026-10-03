@@ -447,7 +447,8 @@
         "src/db/domain-review-repo.test.ts",
         "tests/harness-reliability/conflux.test.ts",
         "src/db/taskflow-v3-instructions.test.ts",
-        "src/db/major-inject-history-repo.test.ts"
+        "src/db/major-inject-history-repo.test.ts",
+        "src/db/delegation-sol-migration.test.ts"
       ],
       "contracts": []
     },

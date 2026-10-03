@@ -76,7 +76,6 @@ import {
 } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
-import type { SpawnApprovalStore } from "./command-port.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
@@ -95,24 +94,15 @@ import {
   executeForumSpawn,
   handleForumSpawnThread,
   forumModelChoices,
-  matchesApprovedForumContent,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
   type ForumSpawnDepartment,
-  type ApprovedForumSpawnContent,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
-import {
-  requestForumSpawnApproval,
-  type ForumSpawnApprovalCardSnapshot,
-  type ForumSpawnApprovalStore,
-} from "./forum-spawn-approval.js";
 import { suggestForumModelFromUsage } from "./forum-model-suggest-usage.js";
-import { hasConcordiaManagedForumTag, type ForumTagState } from "./forum-system-tag.js";
 import {
   handleForumSpawnIntakeReply,
   requestForumSpawnIntake,
-  supplementForumSpawnBody,
   type ForumSpawnIntakeStore,
 } from "./forum-spawn-intake.js";
 import type { AnyThreadChannel } from "discord.js";
@@ -328,14 +318,12 @@ export interface DiscordBotDeps {
    * 誰でも押せるので、 発火可否ではなく「指示の内容が実行できるか」を見る。
    */
   hasStaffCapability?: (userId: string, capability: import("../staff/roles.js").StaffCapability) => boolean;
-  /** セッションの spawn / delegation 起動 (管理職以上)。 */
+  /** セッションの spawn / delegation 起動 (ヒラ社員から可。 承認なし)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** セッションの end-session (管理職以上)。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;
   /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
   isKillSwitchUserAllowed?: (userId: string) => boolean;
-  /** `/spawn` 一回許可の通知先。社員名簿の Discord 執行役員を live 解決する。 */
-  listExecutiveDiscordUserIds?: () => string[];
   /** 兄弟サービスの設定・接続診断。 */
   checkDependencies?: DiscordCommandDeps["checkDependencies"];
   /**
@@ -445,6 +433,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 子会社 scope: config / session-channels の namespacing と subsidiary-only 可視に使う。
   const scope = deps.subsidiary ? `sub:${deps.subsidiary.id}` : "";
   const subsidiaryId = deps.subsidiary?.id ?? null;
+  // 起動以外のセッション運用操作 (session_control, 管理職以上)。 起動 (session_spawn) は
+  // ヒラ社員に開いたので、 運用操作をそれに相乗りさせない。 未注入は deny (fail-closed)。
+  const isSessionControlUserAllowed = deps.hasStaffCapability
+    ? (userId: string) => deps.hasStaffCapability!(userId, "session_control")
+    : undefined;
   // 本社/子会社の logical runtime は同一 token の物理 Client を共有し、 **全 guild** の
   // gateway イベントを受ける。 そのまま処理すると interaction の二重 ack
   // (Unknown interaction / already acknowledged) や、 子会社 guild の /spawn を本社
@@ -528,11 +521,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     bridge: deps.pushWarningBridge,
     owns: ownsSession, isAllowed: (userId) => deps.isKillSwitchUserAllowed?.(userId) === true,
     warn: (message) => log.warn(message) }) : null;
-  const spawnApprovals: SpawnApprovalStore = new Map();
-  const forumSpawnApprovals: ForumSpawnApprovalStore = new Map();
   // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。
   const forumSpawnIntakes: ForumSpawnIntakeStore = new Map();
-  // spawn 再入 (質問回答/承認) のたびに同じガード所見を繰り返さない。
+  // spawn 再入 (質問回答) のたびに同じガード所見を繰り返さない。
   const guardAdvisoryPostClaims = createGuardAdvisoryPostClaims();
 
   const resolveReactionSafetyValve =
@@ -1128,13 +1119,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!subsidiaryId) {
         sprintDialoguesDiscord?.stop();
         sprintDialoguesDiscord = startSprintDialogues({ guild, db: deps.db, parentId: layout.metaCategoryId,
-          workspaceRoot: workspaceRoots[0] ?? process.cwd(), allowed: deps.isLaunchUserAllowed, reply: deps.runHeadless, log });
+          workspaceRoot: workspaceRoots[0] ?? process.cwd(), allowed: isSessionControlUserAllowed, reply: deps.runHeadless, log });
         choresDiscord?.stopChores();
         choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
-          baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
+          baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
         managementDiscord?.stop();
         managementDiscord = await startManagementDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
-          baseUrl: deps.concordiaUrl, allowed: deps.isLaunchUserAllowed, log });
+          baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
       const teams = teamsRepo.listForSubsidiary(subsidiaryId);
@@ -1711,7 +1702,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // 相談の部署のセッションでは一言の「終了」も終了の指示 (tech-consultation.md §6.1)。
         isConsultSession: isProjectlessConsultSession,
         conversationIngress,
-        isPlanDecisionUserAllowed: deps.isLaunchUserAllowed,
+        isPlanDecisionUserAllowed: isSessionControlUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,
         resolveReactionMappings: deps.resolveReactionMappings,
         // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
@@ -1775,7 +1766,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             .filter((decision) => decision.plan_version != null)
             .at(-1);
           if (!plan?.plan_version) return { handled: false };
-          if (deps.isLaunchUserAllowed?.(authorId) !== true) {
+          if (isSessionControlUserAllowed?.(authorId) !== true) {
             return {
               handled: true,
               reply: "このユーザーにはプラン判断権限がありません (管理職以上が必要)。",
@@ -1827,7 +1818,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       },
     };
   };
-  // ThreadCreate と承認ボタンの spawn 続行 (executeApprovedForumSpawn) が共有する deps。
+  // ThreadCreate と不足情報の回答からの spawn 続行が共有する deps。
   // forumId 無指定は Session フォーラム。 部署フォーラム (departments.md §9.3) なら、 自社所有で
   // 既定でない部署のフォーラムだけを受け付け、 その部署の文脈とフォーラムの webhook を使う。
   const forumSpawnDepsNow = (forumId?: string | null): ForumSpawnDeps | null => {
@@ -1860,17 +1851,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 帰属させる (ownsSession の subsidiary-only 可視判定を壊さないため)。
       subsidiaryId,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
-      // 権限なし投稿者には平文 deny でなく、管理職以上が押すと起動する承認カードを出す。
-      requestApproval: async (t, approvedContent) => {
-        await requestForumSpawnApproval({
-          store: forumSpawnApprovals,
-          postCard: async (threadId, content, components) => {
-            const ch = await client.channels.fetch(threadId);
-            if (!ch?.isThread()) throw new Error("approval thread unavailable");
-            await ch.send({ content, components, allowedMentions: { parse: [] } });
-          },
-        }, { id: t.id, guildId: t.guildId, ownerId: t.ownerId ?? "", approvedContent });
-      },
       // 起動に要る情報 (関係プロジェクト / タスク内容 / 起動テンプレ) が投稿から取れない
       // ときは、平文の拒否で終わらせずスレッド内で聞き返す (2026-09-01 neco 指示 3、
       // テンプレ (モデル) の質問は 2026-09-02 neco 指示)。
@@ -1968,69 +1948,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         if (!sent) throw new Error("Session forum webhook post failed");
       },
       log,
-    };
-  };
-  // 承認ボタン (管理職以上) からの spawn 続行。 thread を再取得し、権限確認より後の
-  // 実行部 (executeForumSpawn) へ再入する。 冪等性は triggered_by の重複 run 判定が守る。
-  const executeApprovedForumSpawn = async (
-    threadId: string,
-    approvedContent: ApprovedForumSpawnContent,
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const ch = await client.channels.fetch(threadId).catch(() => null);
-    if (!ch?.isThread()) return { ok: false, error: "thread not found" };
-    const forumDeps = forumSpawnDepsNow(ch.parentId);
-    if (!forumDeps) return { ok: false, error: "forum layout not ready" };
-    const thread = toForumSpawnThread(ch);
-    const starter = await thread.fetchStarterMessage().catch(() => null);
-    if (!starter || !matchesApprovedForumContent(
-      thread.name,
-      starter.content,
-      thread.appliedTags,
-      approvedContent,
-    )) {
-      return { ok: false, error: "forum content changed after approval was requested" };
-    }
-    return executeForumSpawn(forumDeps, thread, { ...approvedContent, approved: true });
-  };
-  /**
-   * Cc 再起動で in-memory の承認 pending が消えた承認カードの押下から、カード作成時と
-   * 内容指紋が一致するスレッドを復元する (2026-09-02 neco 報告: 承認ボタンが「失効」)。
-   * 対象は Session forum のスレッドのみ。Cc 管理タグ付き (起動済み等) は復元しない。
-   */
-  const recoverForumSpawnApproval = async (
-    threadId: string,
-    snapshot: ForumSpawnApprovalCardSnapshot | null,
-  ): Promise<{ requesterUserId: string; approvedContent: ApprovedForumSpawnContent } | null> => {
-    const ch = await client.channels.fetch(threadId).catch(() => null);
-    if (!ch?.isThread()) return null;
-    const forumDeps = forumSpawnDepsNow(ch.parentId);
-    if (!forumDeps || ch.parentId !== forumDeps.sessionForumId) return null;
-    const thread = toForumSpawnThread(ch);
-    if (!thread.ownerId || thread.ownerId === forumDeps.botUserId) return null;
-    let tagState: ForumTagState;
-    try {
-      tagState = await thread.fetchTagState();
-    } catch {
-      return null;
-    }
-    if (hasConcordiaManagedForumTag(tagState)) return null;
-    const starter = await thread.fetchStarterMessage().catch(() => null);
-    if (!starter) return null;
-    // カード末尾のスナップショット (関係プロジェクト / モデル / effort / 追記本文) を合わせて
-    // 承認対象を組み直す。 指紋が一致しなければ dispatch 側で失効扱いになる。
-    const starterBody = starter.content.trim();
-    return {
-      requesterUserId: thread.ownerId,
-      approvedContent: {
-        title: thread.name,
-        body: supplementForumSpawnBody(starterBody, snapshot?.additions ? [snapshot.additions] : []),
-        starterBody,
-        tagState,
-        ...(snapshot?.project ? { project: snapshot.project } : {}),
-        ...(snapshot?.model ? { model: snapshot.model } : {}),
-        ...(snapshot?.effort ? { effort: snapshot.effort } : {}),
-        ...(snapshot?.template ? { template: snapshot.template } : {}),
-      },
     };
   };
   /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
@@ -2173,23 +2090,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       layout,
       log,
       permissionActions,
-      spawnApprovals,
-      // Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。
-      forumSpawnApprovals,
-      forumSpawnApprovalCardAuthorId: client.user?.id,
-      executeApprovedForumSpawn,
-      // 明示 call にして recovery 境界の到達性を静的解析でも追跡可能にする。
-      recoverForumSpawnApproval: (threadId, snapshot) => recoverForumSpawnApproval(threadId, snapshot),
       // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の質問と回答。
       forumSpawnIntakes,
       resumeForumSpawnIntake,
       replyToForumThread,
-      listExecutiveDiscordUserIds: deps.listExecutiveDiscordUserIds,
       checkDependencies: deps.checkDependencies,
       subsidiaryId,
       // 子会社の `/spawn` は担当プロジェクトへ閉じる (subsidiary-delegation §3.4)。
       resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
+      isSessionControlUserAllowed,
       // プライベート相談。 子会社 Bot は自社のプロジェクトを持たない相談部署だけを扱う (tech-consultation.md §6)。
       consult: consultDeps,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,

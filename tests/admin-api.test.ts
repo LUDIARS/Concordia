@@ -224,7 +224,7 @@ describe("admin API", () => {
   it("POST /v1/admin/spawn-session can launch a template in a branch worktree", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "admin-wt-repo-"));
     const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-feat-admin-wt`);
-    rmSync(worktreeRoot, { recursive: true, force: true });
+    rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     initGitRepo(repoRoot);
     const spawnCalls: Array<{ provider: string; cwd?: string }> = [];
     env = makeTestApp({
@@ -261,8 +261,9 @@ describe("admin API", () => {
       expect(body.worktree_created).toBe(true);
       expect(spawnCalls).toEqual([{ provider: "claude", cwd: worktreeRoot }]);
     } finally {
-      rmSync(worktreeRoot, { recursive: true, force: true });
-      rmSync(repoRoot, { recursive: true, force: true });
+      // Windows では git の子プロセスが掴んだファイルが少し残り、 すぐ消すと EPERM になる (#2370 の審査で落ちた)。 再試行して待つ。
+      rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      rmSync(repoRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   // The fixture setup launches five Git commands before the handler's own bounded
   // command sequence, so leave enough headroom for process startup under suite load.

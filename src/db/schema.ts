@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 126;
+export const SCHEMA_VERSION = 127;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3206,6 +3206,18 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         SELECT id,'sol' FROM delegation_templates WHERE call_name IN ('sol-mid','sol-xhigh')
         AND target_provider='codex' AND model IN ('gpt-6-sol','gpt-6.1-sol');
     `);
+  },
+},
+{
+  version: 127,
+  name: "subsidiary-session-cap",
+  source: "subsidiaries.max_sessions (spec/feature/usage-budgets.md §9)",
+  up(db) {
+    // 子会社ごとの同時セッション上限。 0 は上限なし (既定)。 本社の上限は admin 設定に置く。
+    const columns = db.prepare("PRAGMA table_info(subsidiaries)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "max_sessions")) {
+      db.exec("ALTER TABLE subsidiaries ADD COLUMN max_sessions INTEGER NOT NULL DEFAULT 0");
+    }
   },
 },
 ];

@@ -10,6 +10,7 @@ import type { CostBudgetStatus } from "../cost/usage-tracker.js";
 import { costFeedRouter } from "./cost-feed.js";
 import { costRouter } from "./cost.js";
 import { workflowGate } from "../workflow/api-gate.js";
+import { createCompanySessionCaps } from "../cost/company-session-cap-service.js";
 
 export interface CostDeps {
   repo: SessionsRepo;
@@ -31,6 +32,11 @@ export function registerCostRoutes(app: Hono, deps: CostDeps): void {
     app.use(`${prefix}/*`, gate);
   }
   app.route("/v1/cost-feed", costFeedRouter());
+  const sessionCaps = createCompanySessionCaps({
+    sessions: deps.repo,
+    headOfficeMax: () => deps.adminState.getHeadOfficeMaxSessions(),
+    subsidiaries: deps.subsidiary,
+  });
   app.route(
     "/v1/cost",
     costRouter({
@@ -46,6 +52,7 @@ export function registerCostRoutes(app: Hono, deps: CostDeps): void {
               .list()
               .map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget }))
           : [],
+      listSessionCaps: () => sessionCaps.report(),
     }),
   );
 

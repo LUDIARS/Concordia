@@ -113,7 +113,7 @@ describe("staff roster API", () => {
     const response = await env.app.request("/v1/staff/discord/u1", { method: "DELETE" });
     expect(response.status).toBe(200);
     expect(env.staff.roleOf("discord", "u1")).toBeNull();
-    expect(capabilityAllowed(null, "session_spawn")).toBe(false);
+    expect(capabilityAllowed(null, "merge_pr")).toBe(false);
     expect(capabilityAllowed(null, "converse")).toBe(true);
   });
 
@@ -123,7 +123,7 @@ describe("staff roster API", () => {
     env.staff.upsertManual({ platform: "discord", platformUserId: "exec", role: "executive" });
     env.staff.upsertManual({ platform: "slack", platformUserId: "s-mgr", role: "manager" });
 
-    expect(env.staff.countByCapability("discord", "session_spawn")).toBe(2);
+    expect(env.staff.countByCapability("discord", "merge_pr")).toBe(2);
     expect(env.staff.countByCapability("discord", "kill_switch")).toBe(1);
     expect(env.staff.countByCapability("slack", "kill_switch")).toBe(0);
   });

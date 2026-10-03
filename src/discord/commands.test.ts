@@ -128,11 +128,13 @@ describe("Discord command registration", () => {
       ...slash("project-code", "discord-denied", denied),
       options: { getSubcommand: () => "add" },
     } as never, {
-      isLaunchUserAllowed: () => false,
+      // 起動はヒラ社員にも開いているが、 登録は起動とは別の運用権限 (session_control)。
+      isLaunchUserAllowed: () => true,
+      isSessionControlUserAllowed: () => false,
       log: { info: vi.fn(), warn: vi.fn() },
     } as never);
     expect(denied).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining("起動権限がありません"),
+      content: expect.stringContaining("プロジェクトコードの登録権限がありません"),
       ephemeral: true,
     }));
 
@@ -287,26 +289,17 @@ describe("Discord command registration", () => {
     }));
   });
 
-  it("denies spawn approval decisions when executive authorization is not wired", async () => {
+  // 起動を承認なしでヒラ社員に開いても (2026-10-03)、 effort の変更は起動とは別の運用権限
+  // (session_control, 管理職以上) のまま。 起動の許可だけでは通さない。
+  it("denies /co-effort to a user who may only spawn", async () => {
     const reply = vi.fn(async () => undefined);
-    const interaction = {
-      type: 3,
-      customId: "spawn-approval:allow:token",
-      user: { id: "discord-user" },
-      isAutocomplete: () => false,
-      isRepliable: () => true,
-      isChatInputCommand: () => false,
-      isButton: () => true,
-      isModalSubmit: () => false,
-      isStringSelectMenu: () => false,
-      reply,
-    };
-    await dispatchInteraction(interaction as never, {
+    await dispatchInteraction(slash("co-effort", "discord-staff", reply) as never, {
+      isLaunchUserAllowed: () => true,
+      isSessionControlUserAllowed: () => false,
       log: { info: vi.fn(), warn: vi.fn() },
     } as never);
-
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining("執行役員のみ"),
+      content: expect.stringContaining("effort の変更権限がありません"),
       ephemeral: true,
     }));
   });

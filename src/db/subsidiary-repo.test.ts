@@ -67,3 +67,18 @@ describe("SubsidiaryRepo 関係プロジェクト", () => {
     db.close();
   });
 });
+
+describe("SubsidiaryRepo 同時セッション上限 (usage-budgets.md §9)", () => {
+  it("既定は 0 (上限なし)、 更新した上限を保持し、 負や小数は寄せる", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new SubsidiaryRepo(db);
+    const sub = repo.create({ name: "captest", display_name: "CapTest" });
+    expect(sub.max_sessions).toBe(0);
+    expect(repo.update(sub.id, { max_sessions: 5.8 })?.max_sessions).toBe(5);
+    expect(repo.update(sub.id, { display_name: "Renamed" })?.max_sessions).toBe(5);
+    expect(repo.update(sub.id, { max_sessions: -1 })?.max_sessions).toBe(0);
+    expect(repo.create({ name: "captest2", max_sessions: 3 }).max_sessions).toBe(3);
+    db.close();
+  });
+});

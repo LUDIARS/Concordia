@@ -5,12 +5,14 @@ import {
 } from "../harness/main-push-allowlist.js";
 import { DEFAULT_UNSTARTED_SEC } from "../delegation/unstarted-run.js";
 import { DEFAULT_ZOMBIE_GRACE_MS } from "../delegation/zombie-run-detect.js";
+import { DEFAULT_HEAD_OFFICE_MAX_SESSIONS } from "../cost/company-session-cap.js";
 import type { SettingsStore } from "./settings-store.js";
 
 const KEYS = {
   chatMuted: "admin.chat_muted", rulesEnabled: "admin.rules_enabled",
   lictorMode: "admin.lictor_mode", lictorDev: "admin.lictor_dev_path", lictorProd: "admin.lictor_prod_exe",
   dailyBudget: "admin.daily_token_budget", delegationMax: "admin.delegation_max_concurrency",
+  headOfficeMaxSessions: "admin.head_office_max_sessions",
   strongModels: "harness.strong_impl_models", mentionUser: "admin.mention_user_id",
   mainPushAllowlist: "harness.main_push_allowlist",
   cronJobOverrides: "admin.cron_job_overrides",
@@ -54,6 +56,9 @@ export class RuntimeSettingsStore {
   setLictorProdExe(value: string): void { this.store.set(KEYS.lictorProd, value.trim()); }
   getDailyTokenBudget(): number { return positiveOrZero(this.store.get(KEYS.dailyBudget), 0); }
   setDailyTokenBudget(value: number): void { this.store.set(KEYS.dailyBudget, String(requireNonNegative(value, "daily_token_budget"))); }
+  /** 本社の同時セッション上限 (既定 30、 0 = 上限なし)。 spec/feature/usage-budgets.md §9。 */
+  getHeadOfficeMaxSessions(): number { return positiveOrZero(this.store.get(KEYS.headOfficeMaxSessions), DEFAULT_HEAD_OFFICE_MAX_SESSIONS); }
+  setHeadOfficeMaxSessions(value: number): void { this.store.set(KEYS.headOfficeMaxSessions, String(requireNonNegative(value, "head_office_max_sessions"))); }
   /**
    * 取引先ごとに違う識別子。 このリポジトリは public なので既定は空で、
    * 実際の値は各インストールの DB にだけ置く

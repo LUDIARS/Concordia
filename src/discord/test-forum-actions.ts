@@ -16,7 +16,10 @@ export interface TestForumActionDeps {
   workspaceRoots?: readonly string[];
   surfaces: DiscordTestSurfacesRepo;
   revisor: RevisorLocalPrReader & RevisorLocalPrMerger;
+  /** テスト開始 = セッション起動 (session_spawn、 ヒラ社員から可)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** 実行設定 (provider / effort) の変更 (session_control、 管理職以上)。 */
+  isSessionControlUserAllowed?: (userId: string) => boolean;
   isMergeUserAllowed?: (userId: string) => boolean;
   /** マージ結果のスレッド通知と操作面の更新。 省略時は interaction の guild から組み立てる。 */
   surfaceUi?: TestForumSurfaceUi;
@@ -69,9 +72,9 @@ async function updateConfig(
     await interaction.reply({ content: "テスト開始後は実行設定を変更できません。", ephemeral: true });
     return;
   }
-  // 実行設定はそのまま特権 spawn の引数になる。 起動と同じ capability で守り、
+  // 実行設定はそのまま spawn の引数 (費用) になる。 起動とは別の運用権限 (session_control) で守り、
   // 権限 check が未配線なら fail-closed にする (spec/feature/test-forum-controls.md §5)。
-  if (deps.isLaunchUserAllowed?.(interaction.user.id) !== true) {
+  if (deps.isSessionControlUserAllowed?.(interaction.user.id) !== true) {
     await interaction.reply({ content: "実行設定の変更は社員名簿の管理職以上だけが行えます。", ephemeral: true });
     return;
   }
@@ -175,7 +178,7 @@ async function startTest(
     return;
   }
   if (deps.isLaunchUserAllowed?.(interaction.user.id) !== true) {
-    await interaction.reply({ content: "テスト開始は社員名簿の管理職以上だけが実行できます。", ephemeral: true });
+    await interaction.reply({ content: "このユーザーにはテスト開始 (セッション起動) の権限がありません。", ephemeral: true });
     return;
   }
   if (!surface.repo_root_path || !surface.head_branch) {

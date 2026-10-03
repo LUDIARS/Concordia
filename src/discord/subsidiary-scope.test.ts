@@ -61,7 +61,6 @@ describe("子会社 guild で使える操作面", () => {
     ["perm:allow:tok", "セッションの許可要求"],
     ["context:compact:s1", "context 圧縮"],
     ["dirplan:approve:1", "プラン判断"],
-    ["forum-spawn-approval:allow:tok", "Session forum の起動承認"],
     ["forum-spawn-intake:project:thread-1", "不足情報の回答"],
   ])("セッション面 %s は許す (%s)", (customId) => {
     expect(isSubsidiarySessionSurface(surface(customId))).toBe(true);
@@ -71,7 +70,6 @@ describe("子会社 guild で使える操作面", () => {
   it.each([
     ["ctrl:spawn:codex", "コントロールパネル"],
     ["ctrl:end-session", "コントロールパネル"],
-    ["spawn-approval:allow:tok", "執行役員への一回許可 (本社のみ)"],
     ["pr:submit:s1", "PR 操作パネル"],
     ["team-admin:suspend:t1", "チーム管理"],
     ["test:start:surface-1", "Test forum の操作"],

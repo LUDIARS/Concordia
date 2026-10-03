@@ -6,7 +6,6 @@ import {
   executeForumSpawn,
   handleForumSpawnThread,
   isConcordiaSessionStarter,
-  matchesApprovedForumContent,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
   type ForumSpawnThread,
@@ -445,166 +444,35 @@ describe("forum spawn", () => {
     expect(thread.fetchStarterMessage).not.toHaveBeenCalled();
   });
 
-  it("承認済みの不完全な内容は回答で拡張せず再申請を求める", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const requestIntake = vi.fn(async () => true);
-    const postToThread = vi.fn(async () => undefined);
-    const thread = makeThread();
-
-    await executeForumSpawn(
-      makeDeps({ resolveProjectTarget: () => null, requestIntake, postToThread }),
-      thread,
-      {
-        title: thread.name,
-        body: "",
-        tagState: { appliedTags: [], availableTags: [MANAGED_TAG] },
-        approved: true,
-      },
-    );
-
-    expect(requestIntake).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(postToThread).toHaveBeenCalledWith(
-      "thread-1",
-      expect.stringContaining("新しいスレッドで依頼してください"),
-    );
-  });
 });
 
-describe("forum spawn: 承認は情報充足後 (2026-09-03 neco 指示)", () => {
+describe("forum spawn: 起動の承認なし (2026-10-03 neco 指示)", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("権限なし投稿者でも、関係プロジェクトが取れなければ承認より先に質問する", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const requestApproval = vi.fn(async () => undefined);
-    const requestIntake = vi.fn(async () => true);
-    const deps = makeDeps({
-      isLaunchUserAllowed: () => false,
-      resolveProjectTarget: () => null,
-      requestApproval,
-      requestIntake,
-    });
-
-    await handleForumSpawnThread(deps, makeThread({ ownerId: "human-denied" }));
-
-    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({
-      requesterUserId: "human-denied",
-      missing: ["project"],
-    }));
-    expect(requestApproval).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(deps.postToThread).not.toHaveBeenCalled();
-  });
-
-  it("権限なし投稿者はモデルも先に聞き、承認カードはまだ出さない", async () => {
-    const requestApproval = vi.fn(async () => undefined);
-    const requestIntake = vi.fn(async () => true);
-    const deps = makeDeps({ isLaunchUserAllowed: () => false, requestApproval, requestIntake });
-
-    await handleForumSpawnThread(deps, makeThread({ ownerId: "human-denied" }));
-
-    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["template"] }));
-    expect(requestApproval).not.toHaveBeenCalled();
-  });
-
-  it("情報が揃った時点で確定内容のスナップショットを承認に回し、spawn はしない", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const requestApproval = vi.fn(async () => undefined);
-    const thread = makeThread({ ownerId: "human-denied" });
-    const deps = makeDeps({
-      isLaunchUserAllowed: () => false,
-      resolveProjectTarget: () => null,
-      requestApproval,
-      requestIntake: vi.fn(async () => true),
-    });
-
-    const result = await executeForumSpawn(deps, thread, {
-      title: thread.name,
-      body: "Build spawn-by-post\n\n関係プロジェクト: Concordia",
-      project: "Concordia",
-      template: "forum-codex-session",
-    });
-
-    expect(result).toEqual({ ok: false, error: "approval requested" });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(requestApproval).toHaveBeenCalledWith(thread, expect.objectContaining({
-      title: thread.name,
-      body: "Build spawn-by-post\n\n関係プロジェクト: Concordia",
-      starterBody: "Build spawn-by-post",
-      project: "Concordia",
-      template: "forum-codex-session",
-      tagState: { appliedTags: [], availableTags: [MANAGED_TAG] },
-    }));
-  });
-
-  it("モデル/effort の回答も承認スナップショットへ固定する", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const requestApproval = vi.fn(async () => undefined);
-    const fable = { ...template("fable-mid"), target_provider: "claude" as const, model: "claude-fable-5-1" };
-    const thread = makeThread({ ownerId: "human-denied" });
-    const deps = makeDeps({
-      isLaunchUserAllowed: () => false,
-      requestApproval,
-      templates: vi.fn(async () => [fable]),
-    });
-
-    await executeForumSpawn(deps, thread, {
-      title: thread.name,
-      body: "Build spawn-by-post",
-      model: "fable",
-      effort: "xhigh",
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(requestApproval).toHaveBeenCalledWith(thread, expect.objectContaining({
-      project: "Concordia",
-      model: "fable",
-      effort: "xhigh",
-    }));
-  });
-
-  it("承認ボタンからの再入 (approved) は権限確認を通らず、固定内容で起動する", async () => {
+  it("名簿の判定で起動できる投稿者は承認を待たずにそのまま起動する", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 12 }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const requestApproval = vi.fn(async () => undefined);
-    const thread = makeThread({ ownerId: "human-denied" });
-    const deps = makeDeps({
-      isLaunchUserAllowed: () => false,
-      resolveProjectTarget: () => null,
-      requestApproval,
-    });
+    // session_spawn はヒラ社員から通る (roles.ts)。 未登録の投稿者も判定器は true を返す。
+    const deps = makeDeps({ isLaunchUserAllowed: () => true });
 
-    const result = await executeForumSpawn(deps, thread, {
-      title: thread.name,
-      body: "Build spawn-by-post\n\n関係プロジェクト: Concordia",
-      starterBody: "Build spawn-by-post",
-      tagState: { appliedTags: [], availableTags: [MANAGED_TAG] },
-      project: "Concordia",
-      template: "forum-codex-session",
-      approved: true,
-    });
+    await handleForumSpawnThread(deps, makeThread({ ownerId: "unregistered-staff" }));
 
-    expect(result).toEqual({ ok: true });
-    expect(requestApproval).not.toHaveBeenCalled();
-    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
-    expect(body).toMatchObject({ template: "forum-codex-session", project: "Concordia" });
-    expect(body.prompt).toContain("関係プロジェクト: Concordia");
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain("/v1/admin/spawn-session");
+    expect(deps.postToThread).not.toHaveBeenCalledWith("thread-1", expect.stringContaining("承認"));
   });
 
-  it("承認後の改変検知は starter 本文と突き合わせる (補完済み本文とは比較しない)", () => {
-    const approved = {
-      title: "t",
-      body: "starter\n\n関係プロジェクト: Concordia",
-      starterBody: "starter",
-      tagState: { appliedTags: [], availableTags: [] },
-      project: "Concordia",
-    };
-    expect(matchesApprovedForumContent("t", "starter", [], approved)).toBe(true);
-    expect(matchesApprovedForumContent("t", "starter edited", [], approved)).toBe(false);
+  it("会社のセッション上限で断られたら、その理由をスレッドへ返す", async () => {
+    const reason = "本社のセッション上限 (30) に達しています。動いているセッションが終わってから起動してください。";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: `session_cap_reached: ${reason}` }),
+      { status: 429 },
+    )));
+    const deps = makeDeps({ isLaunchUserAllowed: () => true });
+
+    const result = await executeForumSpawn(deps, makeThread());
+
+    expect(result).toEqual({ ok: false, error: "session cap reached" });
+    expect(deps.postToThread).toHaveBeenCalledWith("thread-1", reason);
   });
 });
 

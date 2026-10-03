@@ -117,6 +117,7 @@ function deps(surface: DiscordTestSurfaceRow, overrides: Partial<TestForumAction
       surfaces,
       revisor,
       isLaunchUserAllowed: () => true,
+      isSessionControlUserAllowed: () => true,
       isMergeUserAllowed: () => true,
       surfaceUi: ui,
       log,
@@ -310,9 +311,25 @@ describe("handleTestForumControl merge", () => {
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
   });
 
-  it("refuses to change the run configuration without the spawn capability", async () => {
-    // 実行設定はそのまま特権 spawn の引数になる。 未配線なら fail-closed。
-    const h = deps(row({ run_state: "candidate" }), { isLaunchUserAllowed: undefined });
+  it("refuses to change the run configuration without the session-control capability", async () => {
+    // 実行設定はそのまま spawn の引数 (費用) になる。 起動はヒラ社員に開いたが、 設定の変更は
+    // 運用権限 (session_control) のまま。 起動の許可だけでは通さない。
+    const h = deps(row({ run_state: "candidate" }), {
+      isLaunchUserAllowed: () => true,
+      isSessionControlUserAllowed: () => false,
+    });
+    const interaction = select("claude:opus");
+    await handleTestForumControl(
+      interaction as unknown as StringSelectMenuInteraction,
+      { action: "provider", surfaceId: 7 },
+      h.deps,
+    );
+    expect(h.surfaces.updateRunConfig).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+  });
+
+  it("refuses to change the run configuration when the capability cannot be checked", async () => {
+    const h = deps(row({ run_state: "candidate" }), { isSessionControlUserAllowed: undefined });
     const interaction = select("claude:opus");
     await handleTestForumControl(
       interaction as unknown as StringSelectMenuInteraction,

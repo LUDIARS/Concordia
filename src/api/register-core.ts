@@ -134,6 +134,8 @@ import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";
 import { UsageBudgetGate } from "../cost/usage-budget-gate.js";
+import { createCompanySessionCaps } from "../cost/company-session-cap-service.js";
+import { SESSION_CAP_ERROR_PREFIX } from "../cost/company-session-cap.js";
 import { readConversationLaunch } from "../cost/conversation-launch.js";
 import type { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
 import { resumeSuspendedSession } from "../cost/budget-resume.js";
@@ -455,6 +457,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       memoria: deps.memoria,
     },
   };
+  // 会社 (本社 / 子会社) ごとの同時セッション上限 (usage-budgets.md §9)。 起動の入口で断る。
+  const sessionCaps = createCompanySessionCaps({
+    sessions: deps.repo,
+    headOfficeMax: () => deps.adminState.getHeadOfficeMaxSessions(),
+    subsidiaries: deps.subsidiary,
+  });
   // 月次予算を使い切ったら作業の途中でもツールを止め、 中断を記録して終了する (usage-budgets.md §5.2)。
   const usageBudgetGate = deps.usageBudgets
     ? new UsageBudgetGate({
@@ -699,6 +707,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       // (実行時解決) を採用する。 設定 GUI での workspace root 変更が即反映される。
       resolveDefaultCwd: () => deps.adminState.getWorkspaceRoot(),
       isCostBlocked: () => deps.costStatus?.().blocked ?? false,
+      checkSessionCap: () => sessionCaps.check(null),
       teams: deps.teams,
     }),
   );
@@ -726,6 +735,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }));
   }
   app.route("/v1/delegation", delegationRouter({
+    checkSessionCap: (subsidiaryId) => sessionCaps.check(subsidiaryId),
     residents:deps.residentSidecars,
     sidecar: sidecarRecords
       ? {
@@ -1207,6 +1217,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         return c.json({ error: `budget_exhausted: ${budgetNoticeText(budget.subject, budget.evaluation)}` }, 402);
       }
     }
+    // 会社ごとの同時セッション上限 (usage-budgets.md §9): その会社で動いている数が上限以上なら起動しない。
+    const sessionCap = sessionCaps.check(subsidiaryId);
+    if (!sessionCap.allowed) return c.json({ error: `${SESSION_CAP_ERROR_PREFIX}${sessionCap.reason}` }, 429);
     const consultConfinement = projectlessConsult.kind === "consult-workspace" ? projectlessConsult : null;
     // 子会社の相談だけツールを制限する (claude は --tools、 codex はシェル等を外す。 consult-model.ts)。
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;

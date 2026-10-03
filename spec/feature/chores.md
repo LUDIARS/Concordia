@@ -20,7 +20,8 @@ UX-CC-W2/W4/W5、UX-CC-S2/S3/S5。失うと困る状態は元の依頼、作業�
 
 ## 契約 CC-CHORES-01
 
-- 本社Discordの「雑務」で人間の投稿を受付。既存のsession起動権限を毎回確認する。
+- 本社Discordの「雑務」で人間の投稿を受付。社員名簿の `session_control` (管理職以上) を毎回確認する
+  (起動権限 `session_spawn` は 2026-10-03 からヒラ社員に開いたため、雑務はそれに相乗りしない)。
   bot/webhook/別guild/子会社の投稿は処理しない。既定Claude、先頭 `[codex]` でCodexを選べる。
 - `/chores` に投稿フォーム、実行一覧、結果、OK/Continue、継続起動IDを表示する。
   HTTPは既存Ccの信頼済み管理面の境界を継承する。

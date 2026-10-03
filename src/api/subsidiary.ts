@@ -41,6 +41,8 @@ const CreateSchema = z.object({
   guard_model: z.string().max(64).optional(),
   guard_scope: z.string().max(8000).optional(),
   daily_token_budget: z.number().int().min(0).max(1_000_000_000).optional(),
+  // 同時セッション上限 (0 = 上限なし)。 spec/feature/usage-budgets.md §9。
+  max_sessions: z.number().int().min(0).max(10_000).optional(),
   default_team_id: z.string().trim().min(1).max(120).nullable().optional(),
   // 関係 project (project_codes.project と同じ表記)。 Test forum の掲載と run 起動範囲を決める。
   // 省略 = 据え置き / [] = 未設定 (1 件も載せず、起動もしない)。 spec §3.4。

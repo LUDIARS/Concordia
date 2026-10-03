@@ -51,16 +51,6 @@ import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow
 import type { WorkflowKey } from "../workflow/keys.js";
 import { handlePlanButton, handlePlanModal, PLAN_PREFIX } from "./plan-card.js";
 import {
-  consumeApprovedSpawn,
-  dispatchSpawnApprovalInteraction,
-  isSpawnApprovalInteraction,
-  requestSpawnApproval,
-} from "./spawn-approval.js";
-import {
-  dispatchForumSpawnApprovalInteraction,
-  isForumSpawnApprovalInteraction,
-} from "./forum-spawn-approval.js";
-import {
   dispatchForumSpawnIntakeInteraction,
   isForumSpawnIntakeInteraction,
 } from "./forum-spawn-intake.js";
@@ -139,19 +129,8 @@ export async function clearGuildCommands(token: string, applicationId: string, g
 }
 
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
-  // Session forum 起動の承認ボタン / 不足情報の回答は本社・子会社の両方で有効。
-  // 子会社の許可判定より前に取り次ぐ (どちらも起動待ちのスレッド 1 本に閉じた操作)。
-  if (isForumSpawnApprovalInteraction(interaction)) {
-    await dispatchForumSpawnApprovalInteraction(interaction, {
-      store: deps.forumSpawnApprovals,
-      isApproverAllowed: deps.isLaunchUserAllowed,
-      executeSpawn: deps.executeApprovedForumSpawn,
-      approvalCardAuthorId: deps.forumSpawnApprovalCardAuthorId,
-      recoverApproval: deps.recoverForumSpawnApproval,
-      log: deps.log,
-    });
-    return;
-  }
+  // Session forum 起動の不足情報の回答は本社・子会社の両方で有効。
+  // 子会社の許可判定より前に取り次ぐ (起動待ちのスレッド 1 本に閉じた操作)。
   if (isForumSpawnIntakeInteraction(interaction)) {
     if (!deps.forumSpawnIntakes || !deps.resumeForumSpawnIntake || !deps.replyToForumThread) {
       deps.log.warn("forum-spawn intake interaction unwired; ignoring");
@@ -191,41 +170,25 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   if (await handleBacklogCommand(interaction, deps.backlogAdmission)) return;
   const privileged = classifyPrivilegedInteraction(interaction);
+  // 起動 (/spawn) は役職の承認を待たない (staff-roster.md §3)。 session_spawn はヒラ社員から
+  // 通るので、 ここで弾かれるのは名簿の判定器が未配線 (fail-closed) か、 他の権限が要る操作だけ。
   if (privileged && !isPrivilegedActorAllowed(interaction, deps, privileged)) {
-    let approvedSpawn = false;
-    // 執行役員への一回許可は本社 guild 限定。 子会社 guild で出すと本社役員の user id を
-    // 出張先へ列挙することになり、 押せないボタンにもなる (役員が出張先に居るとは限らない)。
-    // 子会社では役職判定の結果をそのまま返す。
-    if (
-      !deps.subsidiaryId
-      && interaction.isChatInputCommand()
-      && interaction.commandName === "spawn"
-    ) {
-      approvedSpawn = consumeApprovedSpawn(interaction, deps.spawnApprovals);
-      if (!approvedSpawn) {
-        deps.log.warn(`discord session_spawn requesting executive approval user=${interaction.user.id || "-"}`);
-        await requestSpawnApproval(interaction, deps);
-        return;
-      }
+    const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
+    deps.log.warn(
+      `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
+      `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
+    );
+    if (interaction.isAutocomplete()) {
+      // Autocomplete can contain private task/team labels, so reject it through
+      // its own acknowledgement API instead of letting it reach the command.
+      await interaction.respond([]).catch(() => { /* interaction may have expired; best-effort */ });
+    } else if (interaction.isRepliable()) {
+      await interaction.reply({
+        content: privileged.denyMessage,
+        ephemeral: true,
+      }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
     }
-    if (!approvedSpawn) {
-      const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
-      deps.log.warn(
-        `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
-        `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
-      );
-      if (interaction.isAutocomplete()) {
-        // Autocomplete can contain private task/team labels, so reject it through
-        // its own acknowledgement API instead of letting it reach the command.
-        await interaction.respond([]).catch(() => { /* interaction may have expired; best-effort */ });
-      } else if (interaction.isRepliable()) {
-        await interaction.reply({
-          content: privileged.denyMessage,
-          ephemeral: true,
-        }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
-      }
-      return;
-    }
+    return;
   }
   if (interaction.isChatInputCommand()) {
     const age = interactionAgeMs(interaction);
@@ -276,10 +239,6 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   if (isPermissionInteraction(interaction)) {
     await dispatchPermissionInteraction(interaction, deps);
-    return;
-  }
-  if (isSpawnApprovalInteraction(interaction)) {
-    await dispatchSpawnApprovalInteraction(interaction, deps);
     return;
   }
   if (
@@ -365,8 +324,9 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
         surfaces: deps.testSurfacesRepo,
         revisor: deps.revisor,
         isLaunchUserAllowed: deps.isLaunchUserAllowed,
-        // マージは `merge_pr` capability で判定する。 現状 spawn と同じ最低役職だが、
-        // 表 (CAPABILITY_MIN_ROLE) が動いたときに片方だけずれるのを避ける。
+        // 実行設定 (provider / effort) は起動とは別の運用権限 (session_control)。
+        isSessionControlUserAllowed: deps.isSessionControlUserAllowed,
+        // マージは `merge_pr` capability で判定する。
         isMergeUserAllowed: deps.isMergeUserAllowed,
         log: deps.log,
       });
@@ -392,7 +352,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
  * ここに載らない操作 (会話 / 状況確認など) はヒラ社員でも通す。
  */
 interface PrivilegedInteraction {
-  capability: "session_spawn" | "session_end" | "session_succession" | "kill_switch";
+  capability: "session_spawn" | "session_control" | "session_end" | "session_succession" | "kill_switch";
   /** 拒否時に本人へ返す ephemeral メッセージ。 */
   denyMessage: string;
   check: (deps: DiscordCommandDeps) => ((userId: string) => boolean) | undefined;
@@ -400,7 +360,7 @@ interface PrivilegedInteraction {
 
 const PRIVILEGED_SESSION_SPAWN: PrivilegedInteraction = {
   capability: "session_spawn",
-  denyMessage: "このユーザーにはセッション起動権限がありません (管理職以上が必要)。",
+  denyMessage: "このユーザーにはセッション起動権限がありません。",
   check: (deps) => deps.isLaunchUserAllowed,
 };
 const PRIVILEGED_SESSION_END: PrivilegedInteraction = {
@@ -423,20 +383,20 @@ const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
   denyMessage: "このユーザーにはサービス操作権限がありません (執行役員のみ)。",
   check: (deps) => deps.isKillSwitchUserAllowed,
 };
-const PRIVILEGED_SPAWN_APPROVAL: PrivilegedInteraction = {
-  capability: "kill_switch",
-  denyMessage: "Spawn の一回許可は執行役員のみ回答できます。",
-  check: (deps) => deps.isKillSwitchUserAllowed,
-};
 const PRIVILEGED_EFFORT_CHANGE: PrivilegedInteraction = {
-  capability: "session_spawn",
+  capability: "session_control",
   denyMessage: "このユーザーには effort の変更権限がありません (管理職以上が必要)。",
-  check: (deps) => deps.isLaunchUserAllowed,
+  check: (deps) => deps.isSessionControlUserAllowed,
 };
 const PRIVILEGED_PLAN_DECISION: PrivilegedInteraction = {
-  capability: "session_spawn",
+  capability: "session_control",
   denyMessage: "このユーザーにはプラン承認・受け入れ権限がありません (管理職以上が必要)。",
-  check: (deps) => deps.isLaunchUserAllowed,
+  check: (deps) => deps.isSessionControlUserAllowed,
+};
+const PRIVILEGED_PROJECT_BINDING: PrivilegedInteraction = {
+  capability: "session_control",
+  denyMessage: "このユーザーにはプロジェクトコードの登録権限がありません (管理職以上が必要)。",
+  check: (deps) => deps.isSessionControlUserAllowed,
 };
 
 /** キルスイッチ相当 = Excubitor 経由でサービスを起動 / 再起動するコマンド。 */
@@ -464,21 +424,20 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
-    // effort は費用に直結するので起動と同じ権限を要求する。
+    // effort は費用に直結するので、 起動とは別に管理職以上の運用権限を要求する。
     if (interaction.commandName === "co-effort") return PRIVILEGED_EFFORT_CHANGE;
     // `/project-code add` は repository binding の正本を書き換え、以後の spawn 先を
     // 決めてしまう。読み取り専用の list は `/projects` と同じ一般参照面のままにする。
     if (
       interaction.commandName === "project-code"
       && interaction.options.getSubcommand(false) === "add"
-    ) return PRIVILEGED_SESSION_SPAWN;
+    ) return PRIVILEGED_PROJECT_BINDING;
     if (SESSION_SUCCESSION_COMMANDS.has(interaction.commandName)) return PRIVILEGED_SESSION_SUCCESSION;
     if (KILL_SWITCH_COMMANDS.has(interaction.commandName)) return PRIVILEGED_KILL_SWITCH;
     return null;
   }
   if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
     const id = interaction.customId;
-    if (id.startsWith("spawn-approval:")) return PRIVILEGED_SPAWN_APPROVAL;
     if (id.startsWith(PLAN_PREFIX)) return PRIVILEGED_PLAN_DECISION;
     if (id.startsWith("ctrl:spawn:") || id.startsWith("ctrl:spawn-modal:")) {
       return PRIVILEGED_SESSION_SPAWN;

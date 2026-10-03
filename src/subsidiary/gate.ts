@@ -86,7 +86,7 @@ export type GateEvaluation =
  *
  * `advisoryGuard`: Sonnet ガードの有効な deny を停止でなく所見 (advisory) として扱う。
  * セッション起動の判断は権限を持つ人間が行う (2026-09-02 neco 指示) — forum spawn は
- * session_spawn 権限 (管理職以上) か管理職承認を通過した後にここへ来るため、
+ * 社員名簿の session_spawn (ヒラ社員から可、 起動の承認は廃止) を通った依頼者の起動で、
  * ガード所見で人間の判断を上書きしない。ガード実行・解釈失敗は所見ではないため、
  * ロック済みユーザと予算超過と同様に fail-closed で停止する。
  */

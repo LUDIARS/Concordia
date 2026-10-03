@@ -123,13 +123,12 @@ merging ──[Revisor が実行していない根拠のある失敗]──> can
 
 ## 5. 権限
 
-テスト開始とマージはいずれもホスト側に副作用を起こすため、社員名簿
-(`spec/feature/staff-roster.md`) の **管理職以上**に限定する。判定は操作ごとに別の
-capabilityで引く — テスト開始は `session_spawn`、マージは `merge_pr`。最低役職は現状
-どちらも管理職だが、`CAPABILITY_MIN_ROLE` を動かしたときに片方だけずれないようにする。
+判定は社員名簿 (`spec/feature/staff-roster.md`) の capability を操作ごとに別に引く —
+テスト開始は `session_spawn`、実行設定 (provider/effort セレクト) は `session_control`、マージは `merge_pr`。
+テスト開始はセッションの起動なので、2026-10-03 から承認なしでヒラ社員も行える (費用は月次予算と
+会社ごとのセッション上限で抑える)。実行設定はそのまま spawn の引数 (費用) になり、マージはホスト側を
+書き換えるため、どちらも管理職以上のまま。権限の無いメンバがマージ直前の実行設定を差し替えられない。
 権限checkが未配線ならfail-closedとし、セレクト変更だけではsessionを起動しない。
-provider/effortセレクトの変更もそのまま特権spawnの引数になるため、テスト開始と同じ
-`session_spawn` で守る。権限の無いメンバがマージ直前の実行設定を差し替えられないようにする。
 
 ## 6. 確認対象の解決境界
 

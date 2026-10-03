@@ -75,6 +75,8 @@ export class AdminState {
   setLictorProdExe(value: string): void { this.runtime.setLictorProdExe(value); }
   getDailyTokenBudget(): number { return this.runtime.getDailyTokenBudget(); }
   setDailyTokenBudget(value: number): void { this.runtime.setDailyTokenBudget(value); }
+  getHeadOfficeMaxSessions(): number { return this.runtime.getHeadOfficeMaxSessions(); }
+  setHeadOfficeMaxSessions(value: number): void { this.runtime.setHeadOfficeMaxSessions(value); }
   getDelegationIdentifiers(): { invoiceSkillCommand: string; partnerDisplayName: string } {
     return this.runtime.getDelegationIdentifiers();
   }

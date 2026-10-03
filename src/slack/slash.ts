@@ -9,13 +9,13 @@ import type { DelegationTemplateLite } from "./delegation-modal.js";
 export interface SlashDeps {
   concordiaUrl: string;
   actorUserId?: string;
-  /** 社員名簿の役職に基づく spawn 権限判定 (管理職以上)。 未注入は deny (fail-closed)。 */
+  /** 社員名簿の役職に基づく spawn 権限判定 (ヒラ社員から可)。 未注入は deny (fail-closed)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** 同じく end-session 権限 (管理職以上)。 未注入は deny (fail-closed)。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;
 }
 
-const LAUNCH_DENIED = "このユーザーにはセッション起動権限がありません (管理職以上が必要)。";
+const LAUNCH_DENIED = "このユーザーにはセッション起動権限がありません。";
 const SESSION_END_DENIED = "このユーザーにはセッション終了権限がありません (管理職以上が必要)。";
 
 export function isSlackLaunchAuthorized(deps: SlashDeps): boolean {

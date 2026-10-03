@@ -32,6 +32,7 @@ const EMPTY_FORM: SubsidiaryInput = {
   guard_model: "sonnet",
   guard_scope: "",
   daily_token_budget: 0,
+  max_sessions: 0,
   default_team_id: null,
   projects: [],
 };
@@ -78,6 +79,7 @@ export function SubsidiariesSection() {
       guard_model: r.subsidiary.guard_model,
       guard_scope: r.subsidiary.guard_scope,
       daily_token_budget: r.subsidiary.daily_token_budget ?? 0,
+      max_sessions: r.subsidiary.max_sessions ?? 0,
       default_team_id: r.subsidiary.default_team_id ?? null,
       projects: r.subsidiary.projects ?? [],
     });
@@ -293,6 +295,17 @@ export function SubsidiariesSection() {
               step={10000}
               value={form.daily_token_budget ?? 0}
               onChange={(e) => setForm({ ...form, daily_token_budget: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+            />
+          </label>
+          <label className="flex flex-col">
+            <span className="text-[10px] text-subtle">同時セッション上限 (0 = 上限なし)</span>
+            <input
+              className="foundation-form"
+              type="number"
+              min={0}
+              step={1}
+              value={form.max_sessions ?? 0}
+              onChange={(e) => setForm({ ...form, max_sessions: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
             />
           </label>
         </div>

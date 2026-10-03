@@ -20,6 +20,7 @@ export {
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { isProjectNameInScope } from "../subsidiary/project-scope.js";
 import { budgetRefusalText } from "./usage-budget-notice.js";
+import { sessionCapRefusalText } from "../cost/company-session-cap.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
 import { callConcordia } from "./commands/_util.js";
 import type { ForumDelegationSelectionInput, ForumDelegationSelection } from "./forum-delegation-selector.js";
@@ -56,29 +57,8 @@ export interface ForumSpawnThread {
 }
 
 /**
- * 権限の無い投稿者の起動を管理職が承認するときの、確定済みスナップショット。
- * 承認カードは起動に要る情報 (関係プロジェクト / タスク内容 / モデル) が揃ってから出す
- * (2026-09-03 neco 指示) ので、不足情報の回答で補完した本文と選択結果をここに固定する。
- */
-export interface ApprovedForumSpawnContent {
-  readonly title: string;
-  /** 起動に使う本文 (不足情報の回答で補完済みのことがある)。 */
-  readonly body: string;
-  /** カード作成時のスレッド本文 (starter)。 承認後の改変検知はこれと突き合わせる。 省略時は body。 */
-  readonly starterBody?: string;
-  readonly tagState: ForumTagState;
-  /** 確定した関係プロジェクト (registry 名)。 */
-  readonly project?: string;
-  /** 確定した起動モデル nickname / effort、または旧テンプレ選択。 */
-  readonly model?: string;
-  readonly effort?: string;
-  readonly template?: string;
-}
-
-/**
- * spawn 実行部へ渡す投稿内容の差し替え。 承認経路はタグ状態まで固定するが、
- * 不足情報の回答経路は本文だけを補完し、タグは実行時に取り直す (回答の間に
- * 付け替えられたタグを取りこぼさないため)。
+ * spawn 実行部へ渡す投稿内容の差し替え。 不足情報の回答経路は本文だけを補完し、
+ * タグは実行時に取り直す (回答の間に付け替えられたタグを取りこぼさないため)。
  */
 export type ForumSpawnResult =
   | { ok: true }
@@ -118,23 +98,6 @@ export interface SuppliedForumSpawnContent {
   readonly model?: string;
   /** モデル質問カードで選んだ effort。 未指定は provider 既定 (claude=high / codex=xhigh)。 */
   readonly effort?: string;
-  /** カード作成時の starter 本文 (承認スナップショット由来のときだけ)。 */
-  readonly starterBody?: string;
-  /** 管理職の承認を経た再入 (forum-spawn-approval.ts)。 権限確認を再び行わず、内容も接ぎ足さない。 */
-  readonly approved?: boolean;
-}
-
-export function matchesApprovedForumContent(
-  title: string,
-  starterContent: string,
-  appliedTags: readonly string[],
-  approved: ApprovedForumSpawnContent,
-): boolean {
-  const approvedTags = approved.tagState.appliedTags;
-  return title === approved.title
-    && starterContent.trim() === (approved.starterBody ?? approved.body)
-    && appliedTags.length === approvedTags.length
-    && appliedTags.every((tag) => approvedTags.includes(tag));
 }
 
 /**
@@ -185,16 +148,11 @@ export interface ForumSpawnDeps {
    * 対象プロジェクトがこの集合の外なら起動しない。 本社 Bot は指定しない (= 制限なし)。
    */
   resolveSubsidiaryProjects?: () => readonly string[];
-  /** Exact Discord user ID authorization for the thread owner. */
-  isLaunchUserAllowed?: (userId: string) => boolean;
   /**
-   * 権限の無い投稿者のスレッドに「管理職以上が押すと起動する」承認カードを出す
-   * (forum-spawn-approval.ts)。 未配線なら従来どおり平文 deny。
+   * Exact Discord user ID authorization for the thread owner. 起動の役職承認は廃止済みで
+   * (staff-roster.md §3)、社員名簿の session_spawn はヒラ社員から通る。 未配線は fail-closed。
    */
-  requestApproval?: (
-    thread: ForumSpawnThread,
-    content: ApprovedForumSpawnContent,
-  ) => Promise<void>;
+  isLaunchUserAllowed?: (userId: string) => boolean;
   /**
    * 子会社 Bot のみ: spawn 前に依頼本文を Sonnet ガード (subsidiary/gate.ts) へ通す。
    * 受付チャンネルと同じく「出張先からの人間の作業指示は必ずガードを通す」
@@ -208,7 +166,7 @@ export interface ForumSpawnDeps {
     => Promise<{ ok: boolean; replyText: string; advisoryText?: string }>;
   /**
    * ガード所見の投稿枠をこのスレッド用に確保する (true = 確保成功)。
-   * 未配線なら毎回投稿 (従来どおり)。 spawn 再入 (質問回答/承認) のたびに同じ注記を
+   * 未配線なら毎回投稿 (従来どおり)。 spawn 再入 (質問回答) のたびに同じ注記を
    * 繰り返さず、並行した再入でも二重投稿しないための claim。
    */
   guardAdvisoryPostClaims?: GuardAdvisoryPostClaims;
@@ -248,25 +206,16 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   if (!thread.ownerId || thread.ownerId === deps.botUserId) return;
   if (deps.isLaunchUserAllowed?.(thread.ownerId) !== true) {
     deps.log.warn(`forum-spawn unauthorized owner=${thread.ownerId} thread=${thread.id}`);
-    if (!deps.requestApproval) {
-      await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
-      return;
-    }
-    // 承認カードは起動に要る情報が揃ってから出す (2026-09-03 neco 指示)。 不足情報の
-    // 聞き返しとモデル選択は権限者と同じ経路で進め、確定した内容を executeForumSpawn の
-    // 末尾 (spawn 直前) で承認に回す。
+    await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
+    return;
   }
   await executeForumSpawn(deps, thread);
 }
 
 /**
- * spawn 続行部。 再入口は 2 つ:
- *  - 承認ボタン (forum-spawn-approval.ts): 承認時点の確定内容 (本文 + タグ状態 + 関係
- *    プロジェクト / モデル / effort) を固定して渡す (`approved: true`)。
- *  - 不足情報の回答 (forum-spawn-intake.ts): 補完した本文と選択回答の override を渡し、
- *    タグ状態は取り直す。
- * 権限の無い投稿者の場合は、情報が揃った時点 (spawn 直前) で承認カードを出して止まる。
- * どちらも重複 run 判定 (triggered_by) が冪等性を守る。
+ * spawn 続行部。 再入口は不足情報の回答 (forum-spawn-intake.ts): 補完した本文と
+ * 選択回答の override を渡し、タグ状態は取り直す。 重複 run 判定 (triggered_by) が
+ * 冪等性を守る。 起動の役職承認は廃止済み (staff-roster.md §3)。
  */
 export async function executeForumSpawn(
   deps: ForumSpawnDeps,
@@ -348,17 +297,6 @@ export async function executeForumSpawn(
   // 終わらせず、 同じスレッドで聞き返す (2026-09-01 neco 指示 3)。
   const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null || !projectRequired });
   if (missing.length > 0 || (!project && projectRequired)) {
-    // 権限の無い投稿者の起動承認は、カード作成時の exact content に対するもの。
-    // 承認後に依頼者の回答を追記すると、未承認の作業内容で起動できてしまう。
-    // 承認スナップショットが不完全な場合は内容の接ぎ足しを禁止し、完全な
-    // 新規スレッドを改めて承認してもらう (情報充足後に承認する運用では通常起きない)。
-    if (suppliedContent?.approved) {
-      deps.log.warn(`forum-spawn approved content incomplete thread=${thread.id} fields=${missing.join(",")}`);
-      await reply(deps, thread, forumSpawnIntakeGiveUpMessage(
-        missing.length > 0 ? missing : (["project"] as const),
-      ));
-      return { ok: false, error: "approved content incomplete" };
-    }
     await askForMissingForumSpawnInfo(deps, thread, { title, body, missing });
     return { ok: false, error: "missing information requested" };
   }
@@ -394,7 +332,7 @@ export async function executeForumSpawn(
     }
   }
   // 技術相談の事前ヒアリング (tech-consultation.md §3)。 回答の前提が揃うまで起動しない。
-  // 承認カードより前に聞く — 承認は揃った内容に対して出す (承認後の追記で内容を変えない)。
+  // 起動の直前ではなく、ここで揃うまで聞き返す。
   let consultationIntake: ConsultIntake | null = null;
   if (deps.department?.intake) {
     const resolved = resolveConsultIntake({
@@ -403,11 +341,6 @@ export async function executeForumSpawn(
       defaults: thread.ownerId ? deps.consultIntakeDefaults?.(thread.ownerId) ?? null : null,
     });
     if (resolved.missing.length > 0) {
-      if (suppliedContent?.approved) {
-        deps.log.warn(`forum-spawn approved content lacks consultation intake thread=${thread.id}`);
-        await reply(deps, thread, forumSpawnIntakeGiveUpMessage(["consultation"]));
-        return { ok: false, error: "approved content incomplete" };
-      }
       await askForMissingForumSpawnInfo(deps, thread, {
         title,
         body,
@@ -516,39 +449,6 @@ export async function executeForumSpawn(
   }
   const activeRuntimeRules = activeRuntimeRuleNames(freshTagState);
 
-  // 権限の無い投稿者は、ここまでで確定した内容 (関係プロジェクト / モデル / effort / 補完済み
-  // 本文 / タグ) をスナップショットにして管理職の承認へ回す (2026-09-03 neco 指示: 承認は
-  // 必要な情報を揃えた後)。 承認ボタンからの再入 (`approved`) はこの分岐を通らない。
-  if (!suppliedContent?.approved && deps.isLaunchUserAllowed?.(thread.ownerId ?? "") !== true) {
-    if (!deps.requestApproval) {
-      await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
-      return { ok: false, error: "launch user not allowed" };
-    }
-    // 承認後の改変検知は starter 本文と突き合わせるので、補完済み本文とは別に固定する。
-    const starterBody = suppliedContent?.starterBody
-      ?? (await fetchStarterWithRetry(thread, deps.wait))?.content.trim();
-    if (starterBody === undefined) {
-      await reply(deps, thread, "最初の投稿を取得できなかったため、承認を依頼できませんでした。");
-      return { ok: false, error: "starter message unavailable" };
-    }
-    const approvalContent: ApprovedForumSpawnContent = {
-      title,
-      body,
-      starterBody,
-      tagState: freshTagState,
-      ...(project ? { project: project.project } : {}),
-      ...(modelTarget
-        ? { model: modelTarget.nick, effort: modelTarget.effort }
-        : {}),
-      ...(template ? { template: template.call_name } : {}),
-    };
-    deps.log.info(
-      `forum-spawn approval requested thread=${thread.id} owner=${thread.ownerId ?? "-"} `
-      + `project=${project?.project ?? "-"} target=${modelTarget?.model ?? template?.call_name ?? "-"}`,
-    );
-    await deps.requestApproval(thread, approvalContent);
-    return { ok: false, error: "approval requested" };
-  }
 
   // delegation invoke (「実装タスク」ラッパー + 完了駆動 run) ではなく /spawn と同じ
   // 素のセッション起動 + startup inject を使う (2026-09-02 neco 指示: Inject は spawn の
@@ -611,9 +511,14 @@ export async function executeForumSpawn(
       `forum-spawn failed thread=${thread.id} target=${spawnLabel}: ${JSON.stringify(error)}`,
     );
     // 月次予算を使い切っていたら、 その理由だけは本人に返す (数値だけで内部情報を含まない、 usage-budgets.md §5)。
+    // 会社のセッション上限に達していたときも同じく理由を返す (usage-budgets.md §9)。
     const budgetRefusal = budgetRefusalText(String(error));
-    await reply(deps, thread, budgetRefusal ?? "セッション起動に失敗しました。Bot のログを確認してください。");
-    return { ok: false, error: budgetRefusal ? "budget exhausted" : "session spawn failed" };
+    const capRefusal = budgetRefusal ? null : sessionCapRefusalText(String(error));
+    await reply(deps, thread, budgetRefusal ?? capRefusal ?? "セッション起動に失敗しました。Bot のログを確認してください。");
+    return {
+      ok: false,
+      error: budgetRefusal ? "budget exhausted" : capRefusal ? "session cap reached" : "session spawn failed",
+    };
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} target=${spawnLabel} ` +

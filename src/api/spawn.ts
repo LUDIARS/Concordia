@@ -35,6 +35,7 @@ import {
   recordPendingDelegationSpawn,
 } from "../control/pending-delegation-spawns.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
+import { SESSION_CAP_ERROR_PREFIX, type CompanySessionCapDecision } from "../cost/company-session-cap.js";
 
 const log = createChildLogger("api/spawn");
 
@@ -52,6 +53,11 @@ export interface SpawnApiDeps {
    * 拒否する (Concordia 発の新規セッション起動を止める)。 未指定なら無効。
    */
   isCostBlocked?: () => boolean;
+  /**
+   * 本社の同時セッション上限 (spec/feature/usage-budgets.md §9)。 この token 経路は本社の
+   * セッションだけを起動するので本社の枠を見る。 上限以上なら 429。 未注入なら判定しない。
+   */
+  checkSessionCap?: () => CompanySessionCapDecision;
   teams?: TeamsRepo;
 }
 
@@ -91,6 +97,8 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
         429,
       );
     }
+    const cap = deps.checkSessionCap?.();
+    if (cap && !cap.allowed) return c.json({ error: `${SESSION_CAP_ERROR_PREFIX}${cap.reason}` }, 429);
     let body: Record<string, unknown>;
     try {
       body = await c.req.json<Record<string, unknown>>();

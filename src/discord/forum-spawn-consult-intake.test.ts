@@ -108,14 +108,4 @@ describe("forum spawn consultation intake", () => {
     expect(await executeForumSpawn(d, thread())).toEqual({ ok: true });
     expect(spawnBody(fetchMock)).not.toHaveProperty("consultation_intake");
   });
-
-  it("gives up instead of appending answers to already-approved content", async () => {
-    vi.stubGlobal("fetch", vi.fn());
-    const d = deps();
-
-    expect(await executeForumSpawn(d, thread(), { title: "DDD って何が良いの", body: "利点は?", approved: true }))
-      .toEqual({ ok: false, error: "approved content incomplete" });
-    expect(d.requestIntake).not.toHaveBeenCalled();
-    expect(d.postToThread).toHaveBeenCalledWith("123456789012345678", expect.stringContaining("相談の前提"));
-  });
 });

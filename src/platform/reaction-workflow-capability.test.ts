@@ -30,8 +30,9 @@ describe("reaction workflow capabilities", () => {
   // カスタムワークフローは対応表を通らずに走るので、 登録を開けると任意プロンプトを
   // 絵文字に束ねて権限判定を迂回できてしまう。 登録側で閉じる。
   it("closes the custom-workflow escape hatch by gating registration", () => {
-    expect(workflowActionCapability("add-as-workflow")).toBe("session_spawn");
-    expect(capabilityAllowed("staff", "session_spawn")).toBe(false);
+    // 起動 (session_spawn) はヒラ社員に開いたので、 塞ぎたい対象のマージ権限で閉じる。
+    expect(workflowActionCapability("add-as-workflow")).toBe("merge_pr");
+    expect(capabilityAllowed("staff", "merge_pr")).toBe(false);
   });
 
   // AI への作業指示は追加権限を要らない (それが「指示の簡略化」の意味)。
@@ -71,11 +72,10 @@ describe("reaction workflow capabilities", () => {
     }
   });
 
-  it("keeps merge at 管理職 and never below session spawn", () => {
+  it("keeps merge at 管理職 while spawning is open to everyone", () => {
     expect(CAPABILITY_MIN_ROLE.merge_pr).toBe("manager");
-    // readiness の人数は代表として session_spawn を数える。 両者の最低役職がずれると
-    // 「押せるが merge できない」状態を見落とすので、 ここで固定しておく。
-    expect(CAPABILITY_MIN_ROLE.session_spawn).toBe(CAPABILITY_MIN_ROLE.merge_pr);
+    // 起動は承認なしでヒラ社員から行える (2026-10-03)。 readiness の人数は merge_pr で数える。
+    expect(CAPABILITY_MIN_ROLE.session_spawn).toBe("staff");
     expect(capabilityAllowed("staff", "merge_pr")).toBe(false);
     expect(capabilityAllowed("manager", "merge_pr")).toBe(true);
   });

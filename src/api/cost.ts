@@ -6,6 +6,7 @@
  *   GET /v1/cost/overview     本社/子会社別 (日次・週間) + チャンネル別 (現在の context/cost)
  *                             = Discord の「Concordia Monitor」「コスト」チャンネルと同じ内容
  *   GET /v1/cost/timeseries   10 分毎サンプルを時刻バケットに畳んだ折れ線グラフ用系列
+ *   GET /v1/cost/session-caps 会社 (本社 / 子会社) ごとの稼働セッション数と同時セッション上限
  *
  * SRP: HTTP routing のみ。 集計は cost/org-cost・channel-cost・usage-timeseries。
  */
@@ -24,6 +25,7 @@ import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
 import { aggregateLimitTimeseries, collectLimitSamples } from "../cost/limit-sampler.js";
 import { collectSampledCostOverview } from "../cost/sample-overview.js";
 import { createChildLogger } from "../shared/logger.js";
+import type { CompanySessionCapRow } from "../cost/company-session-cap.js";
 
 const log = createChildLogger("cost-api");
 
@@ -36,6 +38,8 @@ export interface CostApiDeps {
   overviewSource?: "live" | "samples";
   /** 本社モニターと同じ子会社一覧 (本社=未タグは内部で算出)。 */
   listSubsidiaries: () => OrgCostSubsidiary[];
+  /** 会社ごとの稼働セッション数と上限 (spec/feature/usage-budgets.md §9)。 未注入なら空。 */
+  listSessionCaps?: () => CompanySessionCapRow[];
 }
 
 export function costRouter(deps: CostApiDeps): Hono {
@@ -96,6 +100,8 @@ export function costRouter(deps: CostApiDeps): Hono {
     });
     return c.json(body);
   });
+
+  app.get("/session-caps", (c) => c.json({ companies: deps.listSessionCaps?.() ?? [] }));
 
   app.get("/timeseries", (c) => {
     const started = Date.now();

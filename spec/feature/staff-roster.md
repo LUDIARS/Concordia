@@ -58,8 +58,8 @@ reaction_added) を通ったユーザを `staff_members` へ upsert する。
 
 | 役職 | 値 | できること |
 | --- | --- | --- |
-| ヒラ社員 | `staff` | 会話 (chat 投稿 / inject) と**リアクションでの指示**。 **登録なし / 権限なしのユーザもこれと同じ扱い** |
-| 管理職 | `manager` | 上記 + セッションの spawn / end-session / **PR のマージ** |
+| ヒラ社員 | `staff` | 会話 (chat 投稿 / inject)・**リアクションでの指示**・**セッションの spawn** (承認なし、2026-10-03)。 **登録なし / 権限なしのユーザもこれと同じ扱い** |
+| 管理職 | `manager` | 上記 + セッションの運用操作 (`session_control`) / end-session / **PR のマージ** |
 | 執行役員 | `executive` | 上記 + キルスイッチ (Excubitor 経由のサービス起動・再起動) |
 
 操作 → 必要役職の対応は `src/staff/roles.ts` の `CAPABILITY_MIN_ROLE` が唯一の正本
@@ -69,7 +69,8 @@ reaction_added) を通ったユーザを `staff_members` へ upsert する。
 | --- | --- | --- |
 | `converse` | staff | ゲートなし (未登録でも通す) |
 | `reaction_workflow` | **staff** | 発火自体は誰でも可 (下記) |
-| `session_spawn` | manager | `/spawn`・`ctrl:spawn*`・forum spawn・Slack `/concordia spawn` / delegation invoke・🤝 `delegate-task`・🛠️ `add-as-workflow` (§8) |
+| `session_spawn` | **staff** | `/spawn`・`ctrl:spawn*`・forum spawn・相談・Test forum のテスト開始・Slack `/concordia spawn` / delegation invoke・🤝 `delegate-task` (§8) |
+| `session_control` | manager | `/co-effort`・プラン判断 (`dirplan:*`・`[A]/[B]/[C]`・`[OK]`)・`/correct`・`/project-code add`・Test forum の実行設定・ドメインレビュー回答の記録・管理面 (スプリント対話 / 雑務 / 経営) |
 | `session_end` | manager | `/end-session`・`ctrl:end-session*`・Slack `/concordia end` |
 | `merge_pr` | manager | 🔀 🚀 `merge-pr`・🔄 `sync-project-main-after-merge` (runner の `handle()` 入口) |
 | `kill_switch` | executive | `/ex-run`・`/ex-reboot` |
@@ -77,10 +78,17 @@ reaction_added) を通ったユーザを `staff_members` へ upsert する。
 判定関数が未注入の場合は **deny** (fail-closed)。 名簿が配線されていない環境で権限操作を
 通してはならない。
 
-`/spawn` だけは、管理職権限がない利用者から実行された場合に Discord の執行役員へ
-一回許可を申請できる。許可は申請者・guild・channel・コマンド引数の完全一致に束縛し、
-15 分以内の再実行で一度だけ消費する。許可・拒否ボタンを操作できるのは執行役員だけで、
-執行役員が未登録なら従来どおり fail-closed で拒否する。永続的な役職変更は行わない。
+**起動の承認は廃止 (2026-10-03 neco 指示: 「AI 予算の実装に伴い、spawn の権限承認を不要 (ヒラ社員でも
+実行できる) にします」)。** 以前は管理職権限の無い利用者の `/spawn` に執行役員への一回許可
+(`src/discord/spawn-approval.ts`)、Session forum の投稿に管理職が押す承認カード
+(`src/discord/forum-spawn-approval.ts`) を出していたが、どちらも削除した。`session_spawn` の最低役職はヒラ社員で、起動を待たせる・役職で弾く
+経路は無い (判定器が未配線なら fail-closed で断るのは他の capability と同じ)。
+費用は月次予算 ([usage-budgets.md §5](usage-budgets.md)) と会社ごとの同時セッション上限
+([usage-budgets.md §9](usage-budgets.md)) で抑える。
+
+起動以外のセッション運用操作 (effort の変更・プラン判断・訂正・`/project-code add`・Test forum の
+実行設定・ドメインレビュー回答・管理面) は、以前は `session_spawn` に相乗りしていた。起動を開いたときに
+これらまで開かないよう `session_control` (管理職以上) に分けた。
 
 ## 4. allowlist の廃止
 
@@ -138,17 +146,18 @@ select・メモ・最終アクセス・削除)、 platform フィルタ、 役�
 
 | アクション | 追加で要求する権限 |
 | --- | --- |
-| 🤝 `delegate-task` (別セッションを起動する) | `session_spawn` |
+| 🤝 `delegate-task` (別セッションを起動する) | `session_spawn` (ヒラ社員から可) |
 | 🔀 🚀 `merge-pr` (PR を着地させる) | `merge_pr` |
 | 🔄 `sync-project-main-after-merge` (main を書き換える) | `merge_pr` |
-| 🛠️ `add-as-workflow` (任意プロンプトを絵文字に束ねて保存する) | `session_spawn` |
+| 🛠️ `add-as-workflow` (任意プロンプトを絵文字に束ねて保存する) | `merge_pr` |
 | 上記以外 (洗い出し・記録・状況報告など AI への作業指示) | 不要 |
 
 🛠️ だけは「指示」ではなく**設定の永続化**なので閉じてある。 カスタムワークフローは
 組み込み写像に該当しない絵文字だけを拾う分岐 (`handle()` の写像照合が空振りした側) で
 走り、 この権限判定を通らない。 登録を開けると「マージせよ」というプロンプトを登録して
 押す、という迂回路になるため、 登録側を管理職以上に閉じてこの経路を塞ぐ
-(登録済みワークフローの発火自体は誰でも可)。
+(登録済みワークフローの発火自体は誰でも可)。 起動 (`session_spawn`) をヒラ社員に開いた
+2026-10-03 以降は、 塞ぎたい対象であるマージの権限 (`merge_pr`) で閉じる。
 
 対応表は `src/platform/reaction-workflow-capability.ts` が正本。 判定は runner の
 `handle()` 入口で行い、
@@ -162,7 +171,8 @@ select・メモ・最終アクセス・削除)、 platform フィルタ、 役�
 
 これに伴い readiness (`no_authorized_users`) の意味も変わった。 発火できる人数ではなく
 **権限を要する指示を実行できる社員 (管理職以上) の人数**を数える。 0 人ならワークフローを
-ON にしても「押せるが spawn も merge も起きない」状態になるため、 警告する価値がある。
+ON にしても「押せるが merge が起きない」状態になるため、 警告する価値がある。 数えるのは
+`merge_pr` の人数 (起動はヒラ社員から可能になったので数え方に使わない)。
 
 ## 9. 会社の所属とメンション (neco 決定 2026-10-02)
 
@@ -175,4 +185,4 @@ ON にしても「押せるが spawn も merge も起きない」状態になる
 - 名簿から選んだ人 (役職で決まる権限者・執行役員) へメンションや閲覧権限を付けるときは、その guild に在籍する人だけにする
   (`src/discord/guild-member-ids.ts`)。在籍しない (Unknown Member) 人は外し、在籍の確認に失敗したときは
   確かめないまま送らず、操作を断る。
-- 対象: プライベート相談の閲覧者 (本社・子会社とも、[技術相談 §4/§6](tech-consultation.md))、`/spawn` の一回許可の申請 (§3)。
+- 対象: プライベート相談の閲覧者 (本社・子会社とも、[技術相談 §4/§6](tech-consultation.md))。 (`/spawn` の一回許可の申請は 2026-10-03 に廃止。 §3)

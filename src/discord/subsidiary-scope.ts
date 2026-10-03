@@ -9,9 +9,9 @@
  *  - `/spawn` は**出さない** (2026-09-02 neco 指示: 子会社では Session forum の
  *    spawn-by-post が窓口で、コマンドは意味が薄い)。起動は Session forum スレッド経由。
  *  - セッションを動かす面 (質問への回答 / 許可要求 / context 圧縮 / プラン判断 /
- *    Session forum の起動承認・不足情報の回答) は使える。
- *  - 会社運営の面 (コントロールパネル / PR キュー / Test forum の操作 / チーム管理 /
- *    執行役員への spawn 一回許可) は出さない。本社の事情が出張先へ漏れるため。
+ *    Session forum の不足情報の回答) は使える。 起動の役職承認は廃止済み (staff-roster.md §3)。
+ *  - 会社運営の面 (コントロールパネル / PR キュー / Test forum の操作 / チーム管理) は
+ *    出さない。本社の事情が出張先へ漏れるため。
  *  - `/consult` (プライベート相談) は出す (2026-10-01 neco 指示: 子会社の相談窓口)。 受けるのは
  *    その子会社のプロジェクトを持たない相談部署だけ (tech-consultation.md §6)。 公開候補 (Tabula へ
  *    出す wrap とそのカード) は本社の知見共有の面なので出さない。
@@ -24,7 +24,6 @@ import { CONTEXT_COMPACT_PREFIX } from "./commands/context.js";
 import { PLAN_PREFIX } from "./plan-card.js";
 import { isQuestionInteraction } from "./question.js";
 import { isPermissionInteraction } from "./permission.js";
-import { isForumSpawnApprovalInteraction } from "./forum-spawn-approval.js";
 import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
 import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
 import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
@@ -53,12 +52,11 @@ export function isSubsidiaryAllowedInteraction(interaction: Interaction): boolea
 
 /**
  * セッションを動かす操作面か。 コントロールパネル (`ctrl:`) / PR パネル / Test forum /
- * チーム管理 / 執行役員承認は **含めない** — いずれも本社運営の面。
+ * チーム管理は **含めない** — いずれも本社運営の面。
  */
 export function isSubsidiarySessionSurface(interaction: Interaction): boolean {
   if (isQuestionInteraction(interaction)) return true;
   if (isPermissionInteraction(interaction)) return true;
-  if (isForumSpawnApprovalInteraction(interaction)) return true;
   if (isForumSpawnIntakeInteraction(interaction)) return true;
   if (!("customId" in interaction) || typeof interaction.customId !== "string") return false;
   return interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)

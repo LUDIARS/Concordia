@@ -29,7 +29,7 @@ const correctCommand: DiscordCommandSpec = {
       o.setName("question").setDescription("何についての訂正か (任意)").setMaxLength(1000),
     ),
   async execute(interaction, deps) {
-    if (deps.isLaunchUserAllowed?.(interaction.user.id) !== true) {
+    if (deps.isSessionControlUserAllowed?.(interaction.user.id) !== true) {
       await interaction.reply({ content: "訂正を登録する権限がありません。", ephemeral: true });
       return;
     }

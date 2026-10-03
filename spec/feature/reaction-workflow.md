@@ -252,8 +252,9 @@ dedup + fire-and-forget で記録経路を壊さない。
   `GET/PUT /v1/admin/reaction-workflow` / 設定ページ「リアクションWF」。 env はあくまで初期既定。
 - **リアクションは「指示の簡略化」であって権限ではない (neco 2026-08-01)。 絵文字は誰でも押せる**
   (`reaction_workflow` capability = ヒラ社員)。 ただし**指示の中身が実行できるとは限らない** —
-  🤝 `delegate-task` と 🛠️ `add-as-workflow` は `session_spawn`、 🔀 🚀 `merge-pr` と
-  🔄 `sync-project-main-after-merge` は `merge_pr` (いずれも管理職以上) を要求する。 対応表の正本は
+  🤝 `delegate-task` は `session_spawn` (2026-10-03 からヒラ社員も可)、 🛠️ `add-as-workflow`・🔀 🚀 `merge-pr`・
+  🔄 `sync-project-main-after-merge` は `merge_pr` (管理職以上) を要求する。 設定画面の権限の表示名は
+  `web/src/pages/settings/sections/ReactionWorkflowSection.tsx` が持つ。 対応表の正本は
   `src/platform/reaction-workflow-capability.ts`、 役職→権限は `spec/feature/staff-roster.md`。
   判定は runner の `handle()` 入口で dedup より先に行い (拒否で cooldown を消費させない)、
   拒否は黙殺せず押した本人へ不足権限を返す (連打での chat 埋めを防ぐため通知だけは別枠の

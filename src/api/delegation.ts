@@ -36,6 +36,7 @@ import { parsePortable, templateToPortable } from "../delegation/portable.js";
 import { delegationOptionSuggestions } from "../control/provider-preset.js";
 import { eventBus } from "../events.js";
 import { invalidateDelegationTemplateCache } from "../discord/delegation-template-cache.js";
+import { SESSION_CAP_ERROR_PREFIX, type CompanySessionCapDecision } from "../cost/company-session-cap.js";
 import { validateForumTemplateTags, type ForumTemplateTagSource } from "../discord/forum-template-tags.js";
 import {
   buildDelegationInjectText,
@@ -270,6 +271,11 @@ const RunCommitSchema = z.object({
 });
 
 export interface DelegationApiDeps {
+  /**
+   * 会社ごとの同時セッション上限 (spec/feature/usage-budgets.md §9)。 spawn する invoke だけを
+   * 判定し、 上限以上なら 429 で断る。 未注入なら判定しない。
+   */
+  checkSessionCap?: (subsidiaryId: string | null) => CompanySessionCapDecision;
   residents?: ResidentSidecarPorts;
   answeredQuestions?: Pick<DiscordPendingQuestionsRepo, "listAnsweredBySession">;
   repo: DelegationRepo;
@@ -716,6 +722,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       reconcileResidentSidecars(deps.residents);
       const previous = deps.residents.residents.receipt(residentParent.id,sidecarRequestKey(packet.packet));
       if (previous) return c.json({ ok:true,resident:true,receipt:previous,run:deps.repo.findRun(previous.run_id) },202);
+    }
+    if (parsed.data.spawn === true && deps.checkSessionCap) {
+      // 会社は明示の subsidiary_id、 無ければ親セッションの会社 (委託の子も同じ会社で数える)。
+      const company = parsed.data.subsidiary_id ?? (residentParent ? readSubsidiaryId(residentParent.metadata) : null);
+      const cap = deps.checkSessionCap(company);
+      if (!cap.allowed) return c.json({ error: `${SESSION_CAP_ERROR_PREFIX}${cap.reason}` }, 429);
     }
     if (deps.sidecar) {
       // Astra With Sidecar の親は、親の contract (model/effort/branch) を子へ持ち込まず、

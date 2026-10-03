@@ -5,9 +5,10 @@
  * 権限が付く。 リアクションワークフロー側に allowlist を置くのをやめ、 ここを唯一の
  * 判定源にする (spec/feature/staff-roster.md)。
  *
- *   ヒラ社員 (staff)     : 未登録 / 権限なし。 会話 (chat / inject) とリアクション
- *                          ワークフローの発火ができる。
- *   管理職   (manager)   : セッションの spawn / end-session と PR のマージができる。
+ *   ヒラ社員 (staff)     : 未登録 / 権限なし。 会話 (chat / inject)・リアクション
+ *                          ワークフローの発火・セッションの spawn ができる。
+ *   管理職   (manager)   : セッションの運用操作 (effort 変更・プラン判断など)・end-session と
+ *                          PR のマージができる。
  *   執行役員 (executive) : Cc の管理権限 = キルスイッチ (サービス起動/再起動) ができる。
  *
  * リアクションワークフローは**指示の簡略化**であって権限ではない (neco 2026-08-01)。
@@ -47,8 +48,14 @@ export type StaffCapability =
    * (neco 2026-08-01)。 誰が押してもよく、 指示の中身が要求する権限は別途課される。
    */
   | "reaction_workflow"
-  /** セッションの spawn (/spawn・コントロールパネル・🤝 delegate-task)。 */
+  /** セッションの spawn (/spawn・Session forum・相談・コントロールパネル・🤝 delegate-task)。 */
   | "session_spawn"
+  /**
+   * 起動以外のセッション運用操作。 effort の変更・プランの判断・訂正の登録・Test forum の実行設定・
+   * `/project-code add`・ドメインレビュー回答の記録・管理面 (スプリント対話 / 雑務 / 経営)。
+   * 起動を承認なしにしたとき (2026-10-03) に、 これらを session_spawn から切り離して管理職に残した。
+   */
+  | "session_control"
   /** セッションの end-session (/end-session・コントロールパネル)。 */
   | "session_end"
   /** PR のマージ (🔀 🚀 merge-pr・🔄 sync-project-main-after-merge)。 */
@@ -60,6 +67,7 @@ export const STAFF_CAPABILITIES: readonly StaffCapability[] = [
   "converse",
   "reaction_workflow",
   "session_spawn",
+  "session_control",
   "session_end",
   "merge_pr",
   "kill_switch",
@@ -72,9 +80,13 @@ export const CAPABILITY_MIN_ROLE: Record<StaffCapability, StaffRole> = {
   // 誰が絵文字を押してもよく、 その指示が実際に実行できるかは中身が要求する権限で決まる。
   // 例: 🔀 (merge-pr) は merge_pr、 🤝 (delegate-task) は session_spawn を別途要求する。
   reaction_workflow: "staff",
-  session_spawn: "manager",
+  // 起動は承認なしでヒラ社員から行える (2026-10-03 neco 指示: AI 予算の導入に伴い spawn の
+  // 権限承認を不要にする)。 費用は月次予算 (usage-budgets.md) と会社ごとのセッション上限
+  // (company-session-cap.ts) で抑える。
+  session_spawn: "staff",
+  session_control: "manager",
   session_end: "manager",
-  // マージは着地させる破壊的操作なので spawn / end と同じ管理職以上に置く。
+  // マージは着地させる破壊的操作なので end と同じ管理職以上に置く。
   merge_pr: "manager",
   kill_switch: "executive",
 };
@@ -84,6 +96,7 @@ export const CAPABILITY_LABEL: Record<StaffCapability, string> = {
   converse: "会話 (chat / inject)",
   reaction_workflow: "リアクションワークフローの発火 (指示の簡略化)",
   session_spawn: "セッションの起動 (spawn)",
+  session_control: "セッションの運用操作 (effort 変更・プラン判断・訂正・実行設定・管理面)",
   session_end: "セッションの終了 (end-session)",
   merge_pr: "PR のマージ",
   kill_switch: "キルスイッチ (サービス起動・再起動)",

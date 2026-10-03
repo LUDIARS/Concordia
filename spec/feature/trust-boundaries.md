@@ -23,9 +23,11 @@ Discord and Slack launch authorization happens at their authenticated platform
 adapters. Gateway / Socket Mode supplies the triggering platform user ID.
 Spawn and delegation require that user ID to hold the `session_spawn`
 capability in the staff roster (`staff_members`, see
-[staff-roster.md](staff-roster.md)) — i.e. a role of 管理職 or above. A missing
-ID, an unregistered user, a lower role, or an uninjected permission checker
-denies the launch (fail-closed). The reaction workflow switch does not bypass
+[staff-roster.md](staff-roster.md)). Since 2026-10-03 its minimum role is
+ヒラ社員, so any identified user may launch without approval; spending is bounded
+by the monthly budgets and the per-company concurrent-session cap
+([usage-budgets.md](usage-budgets.md) §5 / §9). A missing ID or an uninjected
+permission checker still denies the launch (fail-closed). The reaction workflow switch does not bypass
 or disable this launch check.
 
 Internal callers such as the delegation MCP server and chat worker use the

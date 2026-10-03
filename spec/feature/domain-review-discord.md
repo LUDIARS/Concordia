@@ -110,7 +110,7 @@ API は上記いずれでも `200 { "posted": false, "reason": … }` を返す�
   `domain_review_posts` に残す (件数は §8 の一覧が返す)。 その message への返信を
   `POST /v1/domain-review/replies` で回答として取り込む。 取り込んだ返信は
   セッションへ inject しない (レビュー回答であって作業指示ではない)。
-- plan / 台帳を書き換える回答は社員名簿の `session_spawn` capability (管理職以上) を
+- plan / 台帳を書き換える回答は社員名簿の `session_control` capability (管理職以上) を
   必須とし、未配線・権限不足は fail-closed で拒否する。
 - 回答は `domain_review_answers` に必ず残す。 plan 起点の投稿への返信は
   `.anatomia/plan/<hash>.json` の `reviewAnswers[]` にも追記する

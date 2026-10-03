@@ -3,6 +3,7 @@
  *
  * 上段: Discord の「Concordia Monitor」「コスト」チャンネルと同じ内容を WebUI でも詳細表示。
  *   - 本社/子会社別 (本日・週間) トークン
+ *   - 本社/子会社別の同時セッション数 / 上限 (spec/feature/usage-budgets.md §9)
  *   - チャンネル (セッション) 別の現在の 🧠 コンテキスト占有 / 💰 累積コスト
  *   - 10 分毎サンプルの時系列グラフ (使用量 / コンテキスト / セッション数)
  * 下段: 他サービス (Discutere 等) が POST /v1/cost-feed で push した横断コスト。
@@ -17,7 +18,9 @@ import {
   type UsageTimeseries,
   type LimitTimeseries,
   type OrgCostReport,
+  type CompanySessionCapRow,
 } from "../api.js";
+import { SessionCapBlock } from "./cost/SessionCapBlock.js";
 import { TimeSeriesChart } from "../components/TimeSeriesChart.js";
 import { useTeamFilter } from "../lib/TeamFilterContext.js";
 import { filterChannelsByTeam } from "./teams/model.js";
@@ -83,6 +86,7 @@ export function CostFeed() {
   const [series, setSeries] = useState<UsageTimeseries | null>(null);
   const [limits, setLimits] = useState<LimitTimeseries | null>(null);
   const [feed, setFeed] = useState<CostFeedReport | null>(null);
+  const [sessionCaps, setSessionCaps] = useState<CompanySessionCapRow[] | null>(null);
   const [teamSessionIds, setTeamSessionIds] = useState<string[] | null>(null);
   const [teamSeries, setTeamSeries] = useState<TeamCostSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,11 +101,12 @@ export function CostFeed() {
     setTeamSeries(null);
     const started = performance.now();
     try {
-      const [ov, ts, lim, fd, teamSessions, teamCost] = await Promise.all([
+      const [ov, ts, lim, fd, caps, teamSessions, teamCost] = await Promise.all([
         timed("overview", () => api.costOverview()),
         timed("timeseries", () => api.costTimeseries({ bucketSec: 600 })),
         timed("limit-timeseries", () => api.costLimitTimeseries()),
         timed("cost-feed", () => api.costFeed().catch(() => null)),
+        timed("session-caps", () => api.costSessionCaps().then((r) => r.companies).catch(() => [])),
         teamId ? timed("team-sessions", () => api.sessions({ teamId })) : Promise.resolve(null),
         teamId ? timed("team-cost", () => api.teamCost(teamId, { bucketSec: 3600 })) : Promise.resolve(null),
       ]);
@@ -110,6 +115,7 @@ export function CostFeed() {
       setSeries(ts);
       setLimits(lim);
       setFeed(fd);
+      setSessionCaps(caps);
       setTeamSessionIds(teamSessions ? teamSessions.sessions.map((s) => s.id) : null);
       setTeamSeries(teamCost);
       console.info(`[CostFeed] total loaded in ${Math.round(performance.now() - started)}ms`);
@@ -217,6 +223,17 @@ export function CostFeed() {
             <OrgBlock report={overview.windows.daily} heading="本日" />
             <OrgBlock report={overview.windows.weekly} heading="週間" />
           </div>
+        </section>
+      )}
+
+      {/* 本社/子会社別の同時セッション数 / 上限 */}
+      {sessionCaps && (
+        <section className="bg-surface border border-border rounded p-4 space-y-2">
+          <h2 className="text-sm font-semibold text-text">本社 / 子会社別 同時セッション (稼働数 / 上限)</h2>
+          <SessionCapBlock companies={sessionCaps} />
+          <p className="text-[10px] text-subtle">
+            上限に達した会社では新しいセッションを起動しません。 本社の上限は設定 (runtime)、 子会社の上限は子会社の設定で変えられます。
+          </p>
         </section>
       )}
 

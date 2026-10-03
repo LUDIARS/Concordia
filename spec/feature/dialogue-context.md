@@ -141,7 +141,7 @@ CREATE TABLE requester_profiles (
 **Requirement ID: `SPEC-DLG-CORRECTIONS`**
 
 - Discord (本社 guild): 部署セッションのスレッドで `/co-correct correction:<正しい内容> question:<任意>`。
-  起動権限を持つ人だけが登録できる (以後の回答を左右するため)。子会社 guild に出すコマンドは
+  社員名簿の `session_control` (管理職以上) を持つ人だけが登録できる (以後の回答を左右するため)。子会社 guild に出すコマンドは
   subsidiary-scope の許可リストで絞っているため、子会社の訂正は WebUI から登録する。
   セッションの部署のユースケースへ、会社・部署・セッションを添えて登録する。ユースケースを
   持たない部署・未配属のスレッドでは「このスレッドには訂正先のユースケースがありません」と返す。

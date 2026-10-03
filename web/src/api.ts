@@ -519,6 +519,16 @@ export interface ChannelCostRow {
   contextTokens: number | null;
   costTokens: number;
 }
+/** 1 会社の稼働セッション数と同時セッション上限 (spec/feature/usage-budgets.md §9)。 */
+export interface CompanySessionCapRow {
+  /** 子会社 id。 本社は null。 */
+  subsidiary_id: string | null;
+  name: string;
+  active: number;
+  /** 0 は上限なし。 */
+  max: number;
+  reached: boolean;
+}
 export interface CostOverview {
   windows: { daily: OrgCostReport; weekly: OrgCostReport };
   channels: ChannelCostRow[];
@@ -749,6 +759,7 @@ export const api = {
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
   costFeed: () => get<CostFeedReport>("/v1/cost-feed"),
   costOverview: () => get<CostOverview>("/v1/cost/overview"),
+  costSessionCaps: () => get<{ companies: CompanySessionCapRow[] }>("/v1/cost/session-caps"),
   costTimeseries: (opts?: { sinceSec?: number; bucketSec?: number }) => {
     const q = new URLSearchParams();
     if (opts?.sinceSec !== undefined) q.set("since", String(opts.sinceSec));
@@ -1312,6 +1323,7 @@ export type StaffCapability =
   | "converse"
   | "reaction_workflow"
   | "session_spawn"
+  | "session_control"
   | "session_end"
   | "merge_pr"
   | "kill_switch";
@@ -1760,6 +1772,8 @@ export interface SubsidiarySummary {
   guard_scope: string;
   home_cwd: string | null;
   daily_token_budget: number;
+  /** 同時セッション上限 (0 = 上限なし)。 */
+  max_sessions: number;
   /** 子会社ごとのデプロイ反映通知先 (GET /v1/subsidiaries/:id が同梱、一覧では省略されることがある)。 */
   deploy_notify?: Array<{ kind: "discord" | "slack" | "subsidiary-channel"; target: string; enabled: boolean }>;
   /** 通知対象 project (デプロイ / リリース通知の配送判定にだけ使う。関係 project とは別)。 */
@@ -1792,6 +1806,7 @@ export interface SubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  max_sessions?: number;
   default_team_id?: string | null;
   /** 丸ごと置換。 省略 = 据え置き、 [] = 未設定 (掲載なし) に戻す。 */
   projects?: string[];

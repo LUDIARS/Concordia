@@ -112,7 +112,7 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
 - Discord 本社 guild の `CDGD管理` チャンネル: 人間が見るべき状態 (waiting_human / launch_failed /
   execution_finished / outcome_recorded / 効果確認待ちの accepted) になった依頼をカードで出す。
   以後の状態変化は同じカードを編集する。ボタンは状態で許される操作だけを有効にし、操作者は
-  `discord:<user id>` で記録する。押せるのはセッション起動権限を持つ人だけ (雑務と同じ判定)。
+  `discord:<user id>` で記録する。押せるのは社員名簿の `session_control` (管理職以上) を持つ人だけ (雑務と同じ判定)。
 - 配達は依頼の revision ごとに記録する (`delivered_revision` / `discord_message_id`)。保存してから配達し、
   配達失敗は依頼の状態を変えず次の周期で再送する (CC-INV-06)。
 - これらの経路は `/v1/admin/management/*` を使い、dots のトークンでは呼べない (CC-MGMT-INV-01)。

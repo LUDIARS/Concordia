@@ -13,10 +13,12 @@ import type { StaffCapability } from "./roles.js";
 describe("staff roles", () => {
   // 未登録でも「会話」と「リアクションでの指示」はできる。 リアクションは指示の簡略化で
   // あって権限ではない (neco 2026-08-01) — 実行できるかは中身が要求する権限で決まる。
+  // セッションの起動も承認なしでヒラ社員から行える (2026-10-03 neco 指示: AI 予算の導入に伴い
+  // spawn の権限承認を不要にする)。 費用は月次予算と会社ごとのセッション上限で抑える。
   // StaffCapability で型付けしておく (綴り違いをコンパイル時に落とすため)。
-  const OPEN_TO_EVERYONE: readonly StaffCapability[] = ["converse", "reaction_workflow"];
+  const OPEN_TO_EVERYONE: readonly StaffCapability[] = ["converse", "reaction_workflow", "session_spawn"];
 
-  it("lets unregistered users converse and fire reactions, nothing more", () => {
+  it("lets unregistered users converse, fire reactions and spawn sessions, nothing more", () => {
     for (const capability of OPEN_TO_EVERYONE) {
       expect(capabilityAllowed(null, capability)).toBe(true);
       expect(capabilityAllowed(undefined, capability)).toBe(true);
@@ -25,6 +27,12 @@ describe("staff roles", () => {
       if (OPEN_TO_EVERYONE.includes(capability)) continue;
       expect(capabilityAllowed(null, capability)).toBe(false);
     }
+  });
+
+  it("keeps the non-launch session operations at 管理職 even though spawning is open", () => {
+    expect(CAPABILITY_MIN_ROLE.session_spawn).toBe("staff");
+    expect(capabilityAllowed("staff", "session_control")).toBe(false);
+    expect(capabilityAllowed("manager", "session_control")).toBe(true);
   });
 
   it("lets 管理職 spawn and end sessions but not flip the kill switch", () => {

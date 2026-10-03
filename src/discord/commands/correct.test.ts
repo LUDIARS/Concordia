@@ -26,7 +26,9 @@ function makeDeps(allowed: boolean | undefined): DiscordCommandDeps {
     guild: {} as DiscordCommandDeps["guild"],
     layout: {} as DiscordCommandDeps["layout"],
     log: { info: vi.fn(), warn: vi.fn() },
-    ...(allowed === undefined ? {} : { isLaunchUserAllowed: () => allowed }),
+    // 訂正の登録は起動とは別の運用権限 (session_control)。 起動の許可は常に与えて混同しないことを見る。
+    isLaunchUserAllowed: () => true,
+    ...(allowed === undefined ? {} : { isSessionControlUserAllowed: () => allowed }),
   };
 }
 
@@ -48,7 +50,7 @@ describe("/co-correct", () => {
     expect(interaction.editReply).toHaveBeenCalledWith({ content: expect.stringContaining("訂正を登録しました") });
   });
 
-  it("refuses users without launch permission, including when permission cannot be checked", async () => {
+  it("refuses users without session-control permission, including when permission cannot be checked", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     for (const allowed of [false, undefined]) {

@@ -13,17 +13,6 @@ import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 
-export interface SpawnApprovalAction {
-  requesterUserId: string;
-  guildId: string;
-  channelId: string;
-  commandSignature: string;
-  status: "pending" | "approved";
-  createdAt: number;
-}
-
-export type SpawnApprovalStore = Map<string, SpawnApprovalAction>;
-
 export interface DiscordCommandDeps {
   backlogAdmission?: (guildId: string, channelId: string) => Promise<boolean>;
   concordiaUrl: string;
@@ -42,24 +31,6 @@ export interface DiscordCommandDeps {
   log: { info: (message: string) => void; warn: (message: string) => void };
   logsDir?: string;
   permissionActions?: PermissionActionStore;
-  /** `/spawn` 権限不足時の執行役員向け一回許可。Bot process 内で期限付き保持する。 */
-  spawnApprovals?: SpawnApprovalStore;
-  /** Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。 */
-  forumSpawnApprovals?: import("./forum-spawn-approval.js").ForumSpawnApprovalStore;
-  /** 承認カード投稿者として許可する、この logical Bot 自身。 */
-  forumSpawnApprovalCardAuthorId?: string;
-  /** 承認された forum スレッドで spawn を続行する (bot.ts が thread 再取得を配線)。 */
-  /** 再起動で pending が消えた承認カード押下から、内容指紋が一致する承認対象を復元する。 */
-  recoverForumSpawnApproval?: (
-    threadId: string,
-    snapshot: import("./forum-spawn-approval.js").ForumSpawnApprovalCardSnapshot | null,
-  ) => Promise<
-    { requesterUserId: string; approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent } | null
-  >;
-  executeApprovedForumSpawn?: (
-    threadId: string,
-    approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent,
-  ) => Promise<{ ok: boolean; error?: string }>;
   /** Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。 */
   forumSpawnIntakes?: import("./forum-spawn-intake.js").ForumSpawnIntakeStore;
   /** 回答で補完した内容から spawn を再開する (bot.ts が thread 再取得を配線)。 */
@@ -69,8 +40,6 @@ export interface DiscordCommandDeps {
   ) => Promise<void>;
   /** Session forum スレッドへの通常返信 (webhook 経由)。 */
   replyToForumThread?: (threadId: string, content: string) => Promise<void>;
-  /** Discord 社員名簿から執行役員だけを live 解決する。 */
-  listExecutiveDiscordUserIds?: () => string[];
   /** Cc が利用する兄弟サービスの catalog / liveness /資格情報を一括診断する。 */
   checkDependencies?: () => Promise<DependencyReadinessReport>;
   resolveWorkspaceRoots?: () => string[];
@@ -84,8 +53,13 @@ export interface DiscordCommandDeps {
    * 社員名簿 (staff_members) の役職に基づく権限判定。 いずれも未注入なら deny 側に倒す
    * (fail-closed) — 名簿が配線されていない環境で権限操作を通すべきではない。
    */
-  /** セッションの spawn (管理職以上)。 */
+  /** セッションの spawn (ヒラ社員から可。 起動の承認は廃止、 staff-roster.md §3)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /**
+   * 起動以外のセッション運用操作 (`session_control`, 管理職以上): effort の変更・プラン判断・
+   * 訂正の登録・Test forum の実行設定・`/project-code add`。 未注入は deny (fail-closed)。
+   */
+  isSessionControlUserAllowed?: (userId: string) => boolean;
   /** プライベート相談 (spec/feature/tech-consultation.md §4)。 本社 Bot だけに配線する。 */
   consult?: ConsultCommandDeps;
   /** セッションの end-session (管理職以上)。 */

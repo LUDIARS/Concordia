@@ -4273,6 +4273,195 @@
     {"source":"src/consultation/consult-log-writer.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":["consult-log-C-5"]},
     {"source":"src/consultation/consult-log-writer.contract.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
     {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
-    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts"],"contracts":[]}
+    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts"],"contracts":[]},
+    {
+      "source": "src/discord/guild-member-ids.ts",
+      "tests": [
+        "src/discord/guild-member-ids.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/cost/company-session-cap.ts",
+      "tests": [
+        "src/cost/company-session-cap.test.ts",
+        "src/cost/company-session-cap-service.test.ts"
+      ],
+      "contracts": [
+        "cap-C-1",
+        "cap-C-2",
+        "cap-C-3"
+      ]
+    },
+    {
+      "source": "src/cost/company-session-cap-service.ts",
+      "tests": [
+        "src/cost/company-session-cap-service.test.ts"
+      ],
+      "contracts": [
+        "cap-C-1",
+        "cap-C-2"
+      ]
+    },
+    {
+      "source": "src/cost/company-session-cap-decision.contract.ts",
+      "tests": [
+        "src/cost/company-session-cap.test.ts"
+      ],
+      "contracts": [
+        "cap-C-1"
+      ]
+    },
+    {
+      "source": "src/cost/company-session-count.contract.ts",
+      "tests": [
+        "src/cost/company-session-cap.test.ts"
+      ],
+      "contracts": [
+        "cap-C-2"
+      ]
+    },
+    {
+      "source": "src/cost/company-session-refusal.contract.ts",
+      "tests": [
+        "src/cost/company-session-cap.test.ts"
+      ],
+      "contracts": [
+        "cap-C-3"
+      ]
+    },
+    {
+      "source": "src/api/cost.ts",
+      "tests": [
+        "src/api/cost-session-caps.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/register-cost.ts",
+      "tests": [
+        "src/api/cost-session-caps.test.ts",
+        "src/cost/company-session-cap-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/spawn.ts",
+      "tests": [
+        "src/api/session-cap-launch.test.ts"
+      ],
+      "contracts": [
+        "cap-C-1"
+      ]
+    },
+    {
+      "source": "src/api/delegation.ts",
+      "tests": [
+        "src/api/session-cap-launch.test.ts"
+      ],
+      "contracts": [
+        "cap-C-1"
+      ]
+    },
+    {
+      "source": "src/api/subsidiary.ts",
+      "tests": [
+        "tests/subsidiary-delegation.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/subsidiary-repo.ts",
+      "tests": [
+        "src/db/subsidiary-repo.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/cost/SessionCapBlock.tsx",
+      "tests": [
+        "web/src/pages/cost/SessionCapBlock.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/CostFeed.tsx",
+      "tests": [
+        "web/src/pages/cost/SessionCapBlock.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/subsidiaries/SubsidiariesSection.tsx",
+      "tests": [
+        "web/src/pages/subsidiaries/SubsidiariesSection.test.tsx"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/staff/roles.ts",
+      "tests": [
+        "src/staff/roles.test.ts",
+        "tests/staff-api.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/platform/reaction-workflow-capability.ts",
+      "tests": [
+        "src/platform/reaction-workflow-capability.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/shared/reaction-workflow-readiness.ts",
+      "tests": [
+        "src/shared/reaction-workflow-readiness.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/test-forum-actions.ts",
+      "tests": [
+        "src/discord/test-forum-actions.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/test-forum-message.ts",
+      "tests": [
+        "src/discord/test-forum-message.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/slack/slash.ts",
+      "tests": [
+        "src/slack/slash.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/slack/bot.ts",
+      "tests": [
+        "src/slack/bot-session-channels.test.ts",
+        "src/slack/slash.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/subsidiary/gate.ts",
+      "tests": [
+        "src/subsidiary/gate.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "web/src/pages/settings/sections/ReactionWorkflowSection.tsx",
+      "tests": [
+        "src/config/settings/single-edit-path.test.ts"
+      ],
+      "contracts": []
+    }
   ]
 }

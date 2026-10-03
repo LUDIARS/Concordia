@@ -4,7 +4,6 @@ import {
   createGuardAdvisoryPostClaims,
   executeForumSpawn,
   handleForumSpawnThread,
-  matchesApprovedForumContent,
   type ForumSpawnDeps,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
@@ -58,25 +57,9 @@ function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
   };
 }
 
-describe("forum spawn approval + guard wiring", () => {
-  it("requests an approval card instead of a flat deny when wired", async () => {
-    const requestApproval = vi.fn(async () => undefined);
-    const deps = makeDeps({ isLaunchUserAllowed: () => false, requestApproval });
-    const thread = makeThread();
-    await handleForumSpawnThread(deps, thread);
-    expect(requestApproval).toHaveBeenCalledWith(thread, {
-      title: "[Cc] Implement Phase 2",
-      body: "Build spawn-by-post",
-      starterBody: "Build spawn-by-post",
-      tagState: { appliedTags: [], availableTags: [] },
-      project: "Cc",
-      template: "forum-codex-session",
-    });
-    expect(deps.postToThread).not.toHaveBeenCalled();
-    expect(deps.templates).toHaveBeenCalledOnce();
-  });
-
-  it("falls back to the flat deny reply when approval is unwired", async () => {
+describe("forum spawn launch gate + guard wiring", () => {
+  // 起動の承認カードは廃止した (2026-10-03)。 名簿の判定器が拒否・未配線なら平文で断る (fail-closed)。
+  it("replies with a flat deny when the roster check refuses the owner", async () => {
     const deps = makeDeps({ isLaunchUserAllowed: () => false });
     await handleForumSpawnThread(deps, makeThread());
     expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("起動権限"));
@@ -355,15 +338,4 @@ describe("forum spawn approval + guard wiring", () => {
     }
   });
 
-  it("rejects approval content after the title or starter body changes", () => {
-    const approved = {
-      title: "[Cc] Implement Phase 2",
-      body: "Build spawn-by-post",
-      tagState: { appliedTags: ["rule-1"], availableTags: [] },
-    };
-    expect(matchesApprovedForumContent(approved.title, approved.body, ["rule-1"], approved)).toBe(true);
-    expect(matchesApprovedForumContent("[Cc] Different project", approved.body, ["rule-1"], approved)).toBe(false);
-    expect(matchesApprovedForumContent(approved.title, "Run a different task", ["rule-1"], approved)).toBe(false);
-    expect(matchesApprovedForumContent(approved.title, approved.body, ["rule-2"], approved)).toBe(false);
-  });
 });

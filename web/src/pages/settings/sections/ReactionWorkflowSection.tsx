@@ -267,7 +267,7 @@ interface ActionPolicyRow {
 
 const CAPABILITY_JA: Record<string, string> = {
   none: "不要",
-  session_spawn: "セッション起動 (管理職)",
+  session_spawn: "セッション起動 (ヒラ社員から可)",
   merge_pr: "マージ (管理職)",
   kill_switch: "キルスイッチ (役員)",
   session_end: "セッション終了 (管理職)",

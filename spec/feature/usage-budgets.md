@@ -246,3 +246,28 @@
 - API: 倍率の編集と集計への反映 (ロールのキャッシュを捨てる)、ロール一覧、中断の一覧と再開の受け渡し。
 - Discord: 人のロールの集め方 (@everyone・在籍しない guild を除く)、guild のロール一覧 (`member-roles.ts`)、
   キャッシュと失敗時の 1 (`DiscordRoleMultiplierResolver`)。WebUI のロールごとの入力。
+
+## 9. 会社ごとの同時セッション上限
+
+月次予算はお金の上限、 ここは「同時に動かすセッションの数」の上限。 会社 = 本社 (subsidiary_id なし) と各子会社
+(2026-10-03 neco 指示: 「各拠点でセッションの上限を設定するようにし、 本社は 30 で止める。 これはコストにも出す」、
+拠点 = 会社)。
+
+- **数え方**: `sessions.status = 'active'` の行を、 `metadata.subsidiary_id` の会社ごとに数える (無い・壊れたものは本社)。
+  委託 (delegation) で起動した子セッションも、 人が起動したものと同じ 1 本として数える。 起動直後でまだ
+  `session.started` が届いていないセッションは数えない (登録されるまでの短い間だけ上限を超えうる)。
+- **上限の置き場**: 本社は admin 設定 `admin.head_office_max_sessions` (設定 runtime の「本社の同時セッション上限」、 既定 30)。
+  子会社は `subsidiaries.max_sessions` (migration 127、 既定 0)。 どちらも 0 は上限なし。 子会社の値は子会社の設定画面で決める。
+- **判定する入口**: 新しいセッションを起動する入口すべて。 `POST /v1/admin/spawn-session` (WebUI・`/spawn`・Session forum・
+  相談・コントロールパネル・Slack の spawn)、 `POST /v1/delegation/invoke` の `spawn: true` (会社は `subsidiary_id`、
+  無ければ親セッションの会社)、 token 経路の `POST /v1/spawn` (本社のみ)。 その会社の稼働数が上限以上なら起動せず、
+  HTTP 429 と `session_cap_reached: <会社>のセッション上限 (<上限>) に達しています。…` を返す。 チャット側は
+  この文面を起動した人へそのまま返す (Session forum はこの理由だけを返し、 他の失敗は従来どおり定型文)。
+  月次予算の判定 (§5.1) は残し、 予算で断るときは予算の理由を優先する。
+- **表示**: `GET /v1/cost/session-caps` が `{ companies: [{ subsidiary_id, name, active, max, reached }] }` (本社が先頭) を返し、
+  WebUI の Cost 画面 (`web/src/pages/CostFeed.tsx`) に「本社 / 子会社別 同時セッション (稼働数 / 上限)」として出す
+  (`web/src/pages/cost/SessionCapBlock.tsx`)。 上限 0 は「上限なし」と表示する。 子会社の上限は子会社の設定フォーム
+  (`web/src/pages/subsidiaries/SubsidiariesSection.tsx`) で入力する。
+- **実装**: 判定は `src/cost/company-session-cap.ts` (純関数、 契約 cap-C-1〜C-3)、 実データからの組み立ては
+  `src/cost/company-session-cap-service.ts`。
+

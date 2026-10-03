@@ -297,6 +297,17 @@ export const FEDERATION_SETTINGS: readonly SettingDefinition[] = [
 
 export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
   {
+    key: "runtime.codex_model_catalog_executable",
+    section: "runtime",
+    label: "codex のモデル一覧を取る実行ファイル",
+    description: "日次のモデル一覧の更新で codex のモデル一覧を読むときに使う実行ファイルのパス。 未設定なら自動で探す。",
+    kind: "string",
+    envName: "CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
+  {
     key: "runtime.chat_muted",
     section: "runtime",
     label: "チャット投稿をミュート",
@@ -361,6 +372,18 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     envName: null,
     dbKey: "admin.daily_token_budget",
     defaultValue: 0,
+    editable: true,
+    minValue: 0,
+  },
+  {
+    key: "runtime.head_office_max_sessions",
+    section: "runtime",
+    label: "本社の同時セッション上限",
+    description: "本社で同時に動かせるセッション数。 上限以上なら新しい起動を断る。 0 で上限なし。 子会社の上限は子会社の設定で決める。",
+    kind: "integer",
+    envName: null,
+    dbKey: "admin.head_office_max_sessions",
+    defaultValue: 30,
     editable: true,
     minValue: 0,
   },

@@ -135,7 +135,7 @@ export interface SlackBotDeps {
    * 誰でも押せるので、 発火可否ではなく「指示の内容が実行できるか」を見る。
    */
   hasStaffCapability?: (userId: string, capability: import("../staff/roles.js").StaffCapability) => boolean;
-  /** 社員名簿 (staff_members) の役職に基づく spawn 権限判定 (管理職以上)。 */
+  /** 社員名簿 (staff_members) の役職に基づく spawn 権限判定 (ヒラ社員から可、 未注入は deny)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** 同じく end-session 権限判定 (管理職以上)。 Discord `/end-session` と同じ capability。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;

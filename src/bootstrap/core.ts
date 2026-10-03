@@ -848,7 +848,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     isReplyAuthorAllowed: (platform, authorId) =>
       (platform === "discord" || platform === "slack")
-      && authorizeStaffCapability(staffRepo, platform, authorId, "session_spawn").allowed,
+      && authorizeStaffCapability(staffRepo, platform, authorId, "session_control").allowed,
   });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
@@ -935,8 +935,8 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
-    discordAuthorizedCount: staffRepo.countByCapability("discord", "session_spawn"),
-    slackAuthorizedCount: staffRepo.countByCapability("slack", "session_spawn"),
+    discordAuthorizedCount: staffRepo.countByCapability("discord", "merge_pr"),
+    slackAuthorizedCount: staffRepo.countByCapability("slack", "merge_pr"),
   });
   if (reactionWorkflowReadiness.issues.length > 0) {
     log.warn(
@@ -1832,9 +1832,6 @@ export async function startBackend(): Promise<BackendHandle> {
       authorizeStaffCapability(staffRepo, "discord", userId, "session_end").allowed,
     isKillSwitchUserAllowed: (userId) =>
       authorizeStaffCapability(staffRepo, "discord", userId, "kill_switch").allowed,
-    listExecutiveDiscordUserIds: () => staffRepo.list({ platform: "discord" })
-      .filter((member) => member.role === "executive")
-      .map((member) => member.platform_user_id),
     checkDependencies,
     // LLM に触れた Discord ユーザを名簿へ記録する (サーバーでのプロファイル名も取る)。
     recordStaffAccess: (input) => {

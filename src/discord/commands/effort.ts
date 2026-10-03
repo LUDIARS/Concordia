@@ -5,7 +5,8 @@ import { callConcordia, requireSessionChannel } from "./_util.js";
 /**
  * /co-effort — このセッションの effort を途中で変える (spec/feature/effort-movable.md)。
  * 変更に成功するとセッションのスレッドへ Cc が通知を投稿する (本人への返答は ephemeral)。
- * 費用に直結するため起動権限 (管理職以上) と同じ扱いにする (commands.ts の権限分類)。
+ * 費用に直結するため、 起動 (ヒラ社員から可) とは別の運用権限 session_control (管理職以上) を
+ * 要求する (commands.ts の権限分類)。
  */
 const effortCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder()

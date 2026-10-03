@@ -55,6 +55,7 @@
     { "glob": "web/src/hooks/*", "layer": "presentation" },
     { "glob": "web/src/lib/*", "layer": "presentation" },
     { "glob": "web/src/pages/*", "layer": "presentation" },
+    { "glob": "web/src/pages/cost/*", "layer": "presentation" },
     { "glob": "web/src/pages/delegation/*", "layer": "presentation" },
     { "glob": "web/src/pages/manuals/*", "layer": "presentation" },
     { "glob": "web/src/pages/monitor/*", "layer": "presentation" },

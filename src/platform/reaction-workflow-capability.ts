@@ -28,7 +28,8 @@ const ACTION_CAPABILITY: Partial<Record<WorkflowAction, StaffCapability>> = {
   // カスタムワークフローは handle() の写像照合が空振りした側の分岐で走る = ここの権限判定を
   // 通らないので、 登録を開けると「マージせよ」というプロンプトを登録して押す、という抜け道になる。
   // 登録側を管理職以上に閉じてこの経路を塞ぐ (発火そのものは従来どおり誰でも可)。
-  "add-as-workflow": "session_spawn",
+  // 起動 (session_spawn) はヒラ社員に開いたので、 塞ぎたい対象であるマージの権限で閉じる。
+  "add-as-workflow": "merge_pr",
 };
 
 /**

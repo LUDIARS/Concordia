@@ -62,6 +62,11 @@ export function registerMessagesRoutes(app: Hono, deps: SessionsApiDeps): void {
     const query = ListQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: query.error.message }, 400);
     const messages = deps.sessionMessages.list(id, query.data);
+    // Current state must survive pagination/history growth and a browser reconnect.
+    if (query.data.before === undefined && query.data.after === undefined) {
+      const turn = deps.sessionMessages.currentTurn(id);
+      if (turn && !messages.some((message) => message.id === turn.id)) messages.push(turn);
+    }
     return c.json({ messages });
   });
 

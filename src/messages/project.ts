@@ -363,12 +363,14 @@ function projectQuestionPosted(
     op: "create",
     dedupe_key: `question:${ev.question_id}`,
     author_type: "question",
-    author_label: "Question",
+    author_label: ev.kind === "plan_approval" ? "Plan approval" : "Question",
     author_platform: ev.requester_platform ?? null,
     content: ev.question,
     components: [{ kind: "question_options", options, multi_select: ev.multi_select ?? false }],
     metadata: {
       question_id: ev.question_id,
+      ...(ev.kind ? { kind: ev.kind } : {}),
+      ...(ev.provider_request_id ? { provider_request_id: ev.provider_request_id } : {}),
     },
   };
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // 月次予算の Discord のロールごとのコスト倍率の編集 (spec/feature/usage-budgets.md §3.1 §6)。
 // API は vi.mock ではなく client で渡す (vitest のモジュール共有で、 他ファイルの api.js のモックに負けるため)。
@@ -26,16 +27,18 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("BudgetRoleMultipliers", () => {
   it("guild のロールごとに倍率を出し、 入力を保存・空欄で外す", async () => {
+    const user = userEvent.setup({ document });
     render(<BudgetRoleMultipliers client={client} />);
     const mentor = await screen.findByLabelText("本社 / メンターの予算のコスト倍率") as HTMLInputElement;
     expect(mentor.value).toBe("0.5");
     const newcomer = screen.getByLabelText("本社 / 新入部員の予算のコスト倍率") as HTMLInputElement;
     expect(newcomer.value).toBe("");
-    fireEvent.change(newcomer, { target: { value: "0.5" } });
-    fireEvent.blur(newcomer);
+    await user.type(newcomer, "0.5");
+    expect(newcomer.value).toBe("0.5");
+    await user.tab();
     await waitFor(() => expect(set).toHaveBeenCalledWith("10001", "900001", 0.5));
-    fireEvent.change(mentor, { target: { value: "" } });
-    fireEvent.blur(mentor);
+    await user.clear(mentor);
+    await user.tab();
     await waitFor(() => expect(remove).toHaveBeenCalledWith("10002"));
   });
 
@@ -45,11 +48,13 @@ describe("BudgetRoleMultipliers", () => {
     expect(unlisted.value).toBe("0.8");
   });
 
-  it("範囲外の倍率は保存しない", async () => {
+  it.each(["0", "-0.1", "10.1", "abc"])("範囲外の倍率 %s は保存しない", async (value) => {
+    const user = userEvent.setup({ document });
     render(<BudgetRoleMultipliers client={client} />);
-    const newcomer = await screen.findByLabelText("本社 / 新入部員の予算のコスト倍率");
-    fireEvent.change(newcomer, { target: { value: "0" } });
-    fireEvent.blur(newcomer);
+    const newcomer = await screen.findByLabelText("本社 / 新入部員の予算のコスト倍率") as HTMLInputElement;
+    await user.type(newcomer, value);
+    expect(newcomer.value).toBe(value);
+    await user.tab();
     expect(await screen.findByText("0 より大きく 10 以下")).toBeTruthy();
     expect(set).not.toHaveBeenCalled();
   });

@@ -16,6 +16,7 @@ const WORK_TYPES = new Set(["assistant", "thinking", "tool", "task", "delegation
 
 /** Keep human input and actionable cards outside work details; never discard original messages. */
 export function responseBlocks(messages: SessionMessage[]): ResponseBlock[] {
+  messages = messages.filter((message) => message.metadata?.response_turn !== true);
   const blocks: ResponseBlock[] = [];
   const completedWork = new Set<number>();
   let hasFinal = false;
@@ -50,9 +51,18 @@ export function isResponseWorking(
   messages: SessionMessage[], status: SessionRow["status"] | undefined, pendingAfter: number | null = null,
 ): boolean {
   if (status !== "active") return false;
+  const turn = messages.find((message) => message.metadata?.response_turn === true);
   const latest = [...messages].reverse().find((message) =>
     isFinalReport(message) || WORK_TYPES.has(message.author_type)
     || ["user", "question", "permission"].includes(message.author_type));
+  if (turn) {
+    if (turn.metadata?.turn_status !== "started") return false;
+    if (latest && latest.ts >= Number(turn.metadata.started_at)) {
+      if (latest.author_type === "question") return latest.metadata?.answered === true;
+      if (latest.author_type === "permission") return false;
+    }
+    return true;
+  }
   if (pendingAfter !== null && (!latest || latest.id <= pendingAfter)) return true;
   if (!latest || isFinalReport(latest)) return false;
   if (latest.author_type === "question") return latest.metadata?.answered === true;

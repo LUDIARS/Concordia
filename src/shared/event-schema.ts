@@ -290,6 +290,8 @@ const eventSchemas = {
   }).passthrough(),
   "question.posted": z.object({
     type: z.literal("question.posted"),
+    kind: z.enum(["question", "plan_approval"]).optional(),
+    provider_request_id: z.string().optional(),
     target_session_id: z.string(),
     question_id: z.number(),
     question: z.string(),

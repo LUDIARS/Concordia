@@ -19,6 +19,14 @@ function makeEnv() {
 }
 
 describe("session messages API", () => {
+  it("returns durable turn state even when it is older than the initial history page", async () => {
+    const env = makeEnv();
+    const status = env.sessionMessages.upsert({session_id:"message-session",ts:1,author_type:"system",author_label:"Status",content:"working",dedupe_key:"response-turn:current",metadata:{response_turn:true,turn_status:"started",started_at:1}}).row;
+    env.sessionMessages.upsert({session_id:"message-session",ts:2,author_type:"user",author_label:"User",content:"newer"});
+    const res = await env.app.request("/v1/sessions/message-session/messages?limit=1");
+    const body = await res.json();
+    expect(body.messages).toContainEqual(expect.objectContaining({id:status.id,metadata:expect.objectContaining({turn_status:"started"})}));
+  });
   it("lists messages with validated cursor pagination", async () => {
     const env = makeEnv();
     const first = env.sessionMessages.upsert({

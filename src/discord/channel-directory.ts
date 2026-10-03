@@ -24,6 +24,8 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
     if (!row) return null;
     return {
       id: row.id,
+      kind: row.kind ?? "question",
+      provider_request_id: row.provider_request_id ?? null,
       session_id: row.session_id,
       question: row.question,
       options: parsePendingQuestionOptions(row.options_json),
@@ -70,6 +72,9 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
     },
     findById(id) {
       return toQuestion(deps.pendingQuestions.findById(id));
+    },
+    findByProviderRequest(sessionId, requestId) {
+      return toQuestion(deps.pendingQuestions.findByProviderRequest(sessionId, requestId));
     },
     findUnansweredByQuestion(sessionId, question) {
       return toQuestion(deps.pendingQuestions.findUnansweredByQuestion(sessionId, question));

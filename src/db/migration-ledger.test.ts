@@ -36,6 +36,33 @@ describe("migration ledger", () => {
     expect(SCHEMA_VERSION).toBe(Math.max(...MIGRATIONS.map((migration) => migration.version)));
   });
 
+  it("adds plan request identity without changing shipped migrations or historic questions", () => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 128), 128);
+      db.prepare("INSERT INTO discord_pending_questions(session_id,question,options_json,ts) VALUES (?,?,?,?)")
+        .run("legacy-session", "historic question", '["yes","no"]', 1);
+      const frozenBefore = db.prepare("SELECT version,name,checksum FROM schema_migrations ORDER BY version").all();
+
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+
+      expect(db.prepare("SELECT version,name,checksum FROM schema_migrations WHERE version <= 128 ORDER BY version").all())
+        .toEqual(frozenBefore);
+      expect(db.prepare("SELECT question,kind,provider_request_id FROM discord_pending_questions WHERE session_id=?").get("legacy-session"))
+        .toEqual({ question: "historic question", kind: "question", provider_request_id: null });
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version=?").get(131))
+        .toEqual({ name: "provider-plan-approval-identity" });
+      const insert = db.prepare("INSERT INTO discord_pending_questions(session_id,question,options_json,ts,kind,provider_request_id) VALUES (?,?,?,?,?,?)");
+      insert.run("plan-a", "approve", "[]", 2, "plan_approval", "request-1");
+      expect(() => insert.run("plan-a", "approve", "[]", 3, "plan_approval", "request-1"))
+        .toThrow(/UNIQUE constraint failed/);
+      expect(() => insert.run("plan-b", "approve", "[]", 3, "plan_approval", "request-1"))
+        .not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps the checksum of every applied migration", () => {
     for (const migration of MIGRATIONS) {
       const entry = frozen.get(migration.version);

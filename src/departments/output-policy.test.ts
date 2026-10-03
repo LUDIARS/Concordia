@@ -21,6 +21,18 @@ describe("isOutputEnabled", () => {
 });
 
 describe("resolveSessionOutputMode", () => {
+  it("uses subsidiary general defaults while retaining HQ and explicit overrides", () => {
+    const p = ports("{}");
+    p.departmentIdentity = () => ({subsidiary_id:"sub",slug:"general-affairs"});
+    expect(resolveSessionOutputMode(p,"s","intermediate")).toBe("off");
+    p.departmentIdentity = () => ({subsidiary_id:null,slug:"general-affairs"});
+    expect(resolveSessionOutputMode(p,"s","intermediate")).toBe("inherit");
+    p.departmentIdentity = () => ({subsidiary_id:"sub",slug:"other"});
+    expect(resolveSessionOutputMode(p,"s","intermediate")).toBe("inherit");
+    const explicit = ports(JSON.stringify({output:{intermediate:"on"}}));
+    explicit.departmentIdentity = () => ({subsidiary_id:"sub",slug:"general"});
+    expect(resolveSessionOutputMode(explicit,"s","intermediate")).toBe("on");
+  });
   it("reads the department policy for the item", () => {
     const json = JSON.stringify({ output: { thinking: "off", status_card: "on" } });
     expect(resolveSessionOutputMode(ports(json), "s", "thinking")).toBe("off");

@@ -127,6 +127,27 @@ describe("handleEvent chat.posted relay", () => {
 });
 
 describe("handleEvent session.message relay", () => {
+  it("clears an existing working post after session loss without posting new late output", async () => {
+    const {deps,webhooks,deliveryRepo,sessionId} = makeSessionMessageDeps();
+    deps.readModel = {getSessionRelayState:()=>({sessionId,provider:"claude-code",status:"lost"})} as never;
+    deliveryRepo.put({message_id:78,platform:"discord",external_id:"status-post",ts:1});
+    const fields = {author_type:"system" as const,metadata:{response_turn:true,turn_status:"interrupted"},content:"interrupted"};
+    handleEvent(deps,sessionMessage(sessionId,"update",{...fields,id:78}));
+    handleEvent(deps,sessionMessage(sessionId,"update",{...fields,id:79}));
+    await flushEgress();
+    expect(webhooks.editForSession).toHaveBeenCalledWith(sessionId,"status-post","interrupted");
+    expect(webhooks.send).not.toHaveBeenCalled();
+  });
+  it("serializes fast start/end updates into one Discord status post", async () => {
+    const {deps,webhooks,sessionId} = makeSessionMessageDeps();
+    deps.relayOutputPolicy = () => ({intermediate:false,injectTranscript:false});
+    const fields = {id:77,author_type:"system" as const,metadata:{response_turn:true}};
+    handleEvent(deps,sessionMessage(sessionId,"create",{...fields,content:"working"}));
+    handleEvent(deps,sessionMessage(sessionId,"update",{...fields,content:"completed"}));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(webhooks.editForSession).toHaveBeenCalledWith(sessionId,expect.any(String),"completed");
+  });
   it.each([
     { author_type: "assistant" as const, metadata: { phase: "final_answer" }, turnEnd: true },
     { author_type: "summary" as const, metadata: null, turnEnd: true },

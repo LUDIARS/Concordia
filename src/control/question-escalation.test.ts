@@ -67,6 +67,13 @@ function captureQuestionPosted(run: () => void): unknown[] {
 }
 
 describe("escalateQuestionToHuman", () => {
+  it("preserves typed plan request identity when escalating to a human", () => {
+    const {deps} = makeDeps();
+    const posted = captureQuestionPosted(() => {
+      escalateQuestionToHuman(deps,{...ROW,kind:"plan_approval",provider_request_id:"plan-1"},null);
+    });
+    expect(posted[0]).toMatchObject({kind:"plan_approval",provider_request_id:"plan-1",question_id:ROW.id});
+  });
   it("元の question 行のまま人間へ配信する", () => {
     // 親に ask マーカーで聞き直させると、子の質問と人間の回答が別 id になり結び付かない。
     const { deps, events } = makeDeps();

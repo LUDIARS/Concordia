@@ -392,6 +392,8 @@ export function makeChatMessageReactionsRepo(db: Database): ChatMessageReactions
 }
 
 export interface DiscordPendingQuestionRow {
+  kind?: "question" | "plan_approval";
+  provider_request_id?: string | null;
   /** Closed without a human answer. Missing only in older adapter fixtures. */
   closed_at?: number | null;
   close_after?: number | null;
@@ -430,7 +432,10 @@ export interface PendingQuestionOption {
 }
 
 export interface DiscordPendingQuestionsRepo {
+  findByProviderRequest(sessionId: string, requestId: string): DiscordPendingQuestionRow | null;
   insert(input: {
+    kind?: "question" | "plan_approval";
+    providerRequestId?: string | null;
     session_id: string;
     question: string;
     options: Array<PendingQuestionOption | string>;
@@ -525,6 +530,10 @@ export function parsePendingQuestionOptions(optionsJson: string): PendingQuestio
 
 export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQuestionsRepo {
   return {
+    findByProviderRequest(sessionId, requestId) {
+      return db.prepare("SELECT * FROM discord_pending_questions WHERE session_id = ? AND provider_request_id = ?")
+        .get(sessionId, requestId) as DiscordPendingQuestionRow | undefined ?? null;
+    },
     insert(input) {
       const ts = nowSec();
       // 旧形式 string も新形式 {label, description?} も受け入れ、 保存時に正規化する.
@@ -533,8 +542,8 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         .filter((o) => typeof o.label === "string" && o.label.trim().length > 0);
       const info = db.prepare(
         `INSERT INTO discord_pending_questions
-           (session_id, question, options_json, multi_select, parent_session_id, ts)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (session_id, question, options_json, multi_select, parent_session_id, ts, kind, provider_request_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         input.session_id,
         input.question,
@@ -542,6 +551,8 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         input.multiSelect ? 1 : 0,
         input.parentSessionId ?? null,
         ts,
+        input.kind ?? "question",
+        input.providerRequestId ?? null,
       );
       return this.findById(Number(info.lastInsertRowid))!;
     },

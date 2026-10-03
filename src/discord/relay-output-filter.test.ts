@@ -5,6 +5,12 @@ const all = { intermediate: true, injectTranscript: true };
 const consult = { intermediate: false, injectTranscript: false };
 
 describe("shouldRelaySessionMessage", () => {
+  it("allows content-free turn status only for final-only departments", () => {
+    const status = {author_type:"system" as const,metadata:{response_turn:true}};
+    expect(shouldRelaySessionMessage(status,consult)).toBe(true);
+    expect(shouldRelaySessionMessage(status,all)).toBe(false);
+    expect(shouldRelaySessionMessage({author_type:"system"},consult)).toBe(false);
+  });
   it("全部出す方針では従来どおり何も落とさない", () => {
     for (const author_type of ["assistant", "tool", "task", "system", "delegation", "summary"] as const) {
       expect(shouldRelaySessionMessage({ author_type }, all)).toBe(true);

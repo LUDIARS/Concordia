@@ -7,6 +7,8 @@ import { responseBlocks, type ResponseBlock } from "./response-turns.js";
 /** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
 export function MessageList({ messages, onAnswer, onPermission, attachmentMessages = [], sessionId = "", working = false }: { messages: SessionMessage[]; attachmentMessages?: AttachmentMessage[]; sessionId?: string; working?: boolean; onAnswer: (message: SessionMessage, value: number | number[]) => Promise<void>; onPermission: (message: SessionMessage, allow: boolean) => Promise<void> }) {
   const bottom = useRef<HTMLDivElement>(null);
+  const turn = messages.find((message) => message.metadata?.response_turn === true);
+  const startedAt = typeof turn?.metadata?.started_at === "number" ? turn.metadata.started_at : null;
   // ブラウザ固有の戻り値を React が cleanup として扱わないよう、明示的に何も返さない。
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -27,7 +29,7 @@ export function MessageList({ messages, onAnswer, onPermission, attachmentMessag
   return (
     <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
       {items.map((item) => <div key={item.key}>{item.node}</div>)}
-      {working && <div role="status" aria-live="polite" className="flex items-center gap-2 px-2 py-2 text-sm text-subtle"><span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />作業中...</div>}
+      {working && <div role="status" aria-live="polite" className="flex items-center gap-2 px-2 py-2 text-sm text-subtle"><span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />作業中...{startedAt !== null && <time dateTime={new Date(startedAt * 1000).toISOString()}>開始 {new Date(startedAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>}</div>}
       <div ref={bottom} />
     </div>
   );

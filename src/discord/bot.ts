@@ -756,6 +756,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 部署の出力方針 (departments.md §9.4)。 全体設定は既定で出す項目なので true を渡す。
   const sessionOutputEnabled = (sessionId: string, item: DepartmentOutputItem): boolean => isOutputEnabled(
     resolveSessionOutputMode({
+      departmentIdentity: (id) => departmentsRepo.find(id),
       sessionDepartmentId: (id) => deps.sessionsRepo.findSession(id)?.department_id ?? null,
       departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
       onBrokenSettings: (id) => log.warn(`department output policy unreadable department=${id}`),

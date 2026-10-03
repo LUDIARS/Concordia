@@ -16,7 +16,19 @@ export function isOutputEnabled(mode: DepartmentOutputMode, globalEnabled: boole
   return globalEnabled;
 }
 
+export interface DepartmentOutputIdentity { subsidiary_id: string | null; slug: string }
+
+/**
+ * Company defaults share the resolution boundary used by workplace UI (#2329).
+ * @implements SPEC-CONSULTATION-TURN-STATUS
+ */
+export function departmentOutputMode(mode: DepartmentOutputMode, item: DepartmentOutputItem, identity?: DepartmentOutputIdentity | null): DepartmentOutputMode {
+  if (mode !== "inherit" || !identity?.subsidiary_id || !["general", "general-affairs"].includes(identity.slug)) return mode;
+  return (["thinking", "intermediate", "inject_transcript", "context_usage"] as string[]).includes(item) ? "off" : mode;
+}
+
 export interface SessionOutputPorts {
+  departmentIdentity?(departmentId: string): DepartmentOutputIdentity | null;
   /** セッションの所属部署。 セッションが無い・未配属は null。 */
   sessionDepartmentId(sessionId: string): string | null;
   /** 部署の settings_json。 部署が無ければ null。 */
@@ -35,7 +47,7 @@ export function resolveSessionOutputMode(
   const settingsJson = ports.departmentSettingsJson(departmentId);
   if (settingsJson === null) return "inherit";
   try {
-    return parseDepartmentSettings(settingsJson).output[item];
+    return departmentOutputMode(parseDepartmentSettings(settingsJson).output[item], item, ports.departmentIdentity?.(departmentId));
   } catch {
     // 出力方針は表示の出し分けだけで、 起動や権限には効かない。 壊れた行で中継を
     // 止めるより全体設定に従わせ、 その事実を通知側で記録する。

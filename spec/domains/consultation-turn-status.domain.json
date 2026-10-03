@@ -1,0 +1,18 @@
+{
+  "id": "consultation-turn-status",
+  "name": "consultation-turn-status",
+  "membership": [
+    {"pathPattern":"(^|/)src/departments/output-policy(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/discord/bot\\.ts$"},
+    {"pathPattern":"(^|/)tests/session-messages-api\\.test\\.ts$"},
+    {"pathPattern":"(^|/)src/messages/turn-status(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/messages/service(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/db/session-messages-repo(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/api/sessions/messages\\.ts$"},
+    {"pathPattern":"(^|/)src/bootstrap/core\\.ts$"},
+    {"pathPattern":"(^|/)src/discord/(relay-output-filter|egress)(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)web/src/pages/session-chat/(response-turns|MessageList|SessionChat)(\\.test)?\\.tsx?$"}
+  ],
+  "specRefs": ["spec/feature/consultation-turn-status.md"],
+  "rationale": "Supporting projection boundary: persistent turn state and presentation; provider execution and authorization stay outside."
+}

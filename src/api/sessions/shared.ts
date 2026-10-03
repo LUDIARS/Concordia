@@ -170,6 +170,10 @@ export const PendingQuestionSchema = z.object({
   question: z.string().min(1).max(2000),
   options: z.array(PendingQuestionOptionSchema).min(1).max(25),
   multi_select: z.boolean().optional(),
+  kind: z.enum(["question", "plan_approval"]).optional(),
+  provider_request_id: z.string().trim().min(1).max(200).optional(),
+}).refine((body) => body.kind !== "plan_approval" || !!body.provider_request_id, {
+  message: "plan_approval requires provider_request_id",
 });
 // 回答は 3 形態のいずれか: 単一 (answer_index) / 複数 (answer_indices) / 自由文 (other_text)。
 /**

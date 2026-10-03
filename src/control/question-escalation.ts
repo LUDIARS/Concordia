@@ -123,6 +123,8 @@ export interface QuestionEscalationWiring {
       session_id: string;
       question: string;
       options_json: string;
+      kind?: "question" | "plan_approval";
+      provider_request_id?: string | null;
       parent_session_id: string | null;
       multi_select: number;
     }>;
@@ -155,6 +157,8 @@ export function makeQuestionEscalationDeps(
         session_id: row.session_id,
         question: row.question,
         options: wiring.parseOptions(row.options_json),
+        kind: row.kind,
+        provider_request_id: row.provider_request_id,
         parent_session_id: row.parent_session_id,
         multi_select: row.multi_select === 1,
       })),
@@ -178,6 +182,8 @@ export interface EscalateDeps {
 
 /** 人間へ配信し直す質問行の必要最小形。 */
 export interface EscalatableQuestionRow {
+  kind?: "question" | "plan_approval";
+  provider_request_id?: string | null;
   id: number;
   session_id: string;
   question: string;
@@ -221,6 +227,8 @@ export function escalateQuestionToHuman(
   const question = note?.trim() ? `${row.question}\n\n(委託元より) ${note.trim()}` : row.question;
   eventBus.emit({
     type: "question.posted",
+    kind: row.kind,
+    provider_request_id: row.provider_request_id ?? undefined,
     target_session_id: row.session_id,
     question_id: row.id,
     question,

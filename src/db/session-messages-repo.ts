@@ -73,6 +73,11 @@ interface RawRow {
 export class SessionMessagesRepo {
   constructor(private readonly db: Database.Database) {}
 
+  currentTurn(sessionId: string): SessionMessageRow | null {
+    const id = this.findIdByDedupeKey(sessionId, "response-turn:current");
+    return id === null ? null : this.getById(id);
+  }
+
   upsert(input: UpsertSessionMessageInput): UpsertSessionMessageResult {
     const dedupeKey = input.dedupe_key ?? null;
     const existing = dedupeKey

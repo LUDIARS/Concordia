@@ -20,6 +20,7 @@ import {
 
 const BASE64_BYTES_PER_QUARTET = 3;
 const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
+const messageDeliveries = new WeakMap<EgressDeps, Map<number, Promise<void>>>();
 
 export function getEgressDedupStats(): { skipped_chat_posted: number; skipped_transcript_frame: number; total: number } {
   // D6 以降、transcript.frame と chat.posted を内容で突き合わせる時間窓 dedupe は不要。
@@ -66,9 +67,14 @@ export function handleEvent(deps: EgressDeps, ev: ConcordiaEvent): void {
     return;
   }
   if (ev.type === "session.message") {
-    void handleSessionMessage(deps, ev).catch((err) => {
+    let deliveries = messageDeliveries.get(deps);
+    if (!deliveries) { deliveries = new Map(); messageDeliveries.set(deps, deliveries); }
+    const queue = deliveries;
+    const pending = (queue.get(ev.message.id) ?? Promise.resolve()).then(() => handleSessionMessage(deps, ev)).catch((err) => {
       deps.log.warn(`egress: session.message dispatch failed session=${ev.target_session_id} message=${ev.message.id}: ${(err as Error).message}`);
     });
+    queue.set(ev.message.id, pending);
+    void pending.finally(() => { if (queue.get(ev.message.id) === pending) queue.delete(ev.message.id); });
   }
 }
 
@@ -186,7 +192,12 @@ async function handleSessionMessage(
 ): Promise<void> {
   const session = deps.readModel.getSessionRelayState(ev.target_session_id);
   const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-  if (!isActiveRelayTarget(session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) return;
+  const terminalTurn = ev.message.metadata?.response_turn === true
+    && ["completed", "interrupted", "failed"].includes(String(ev.message.metadata.turn_status));
+  // A lost/ended session must still clear a status post it already delivered.
+  // This exception edits an existing post only; it cannot create late output.
+  const terminalDelivery = terminalTurn && deps.deliveryRepo.findExternalId(ev.message.id, "discord");
+  if (!isActiveRelayTarget(session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null) && !terminalDelivery) return;
   if (!session) {
     deps.log.warn(`egress: session.message active check inconsistent session=${ev.target_session_id} message=${ev.message.id}`);
     return;
@@ -211,7 +222,7 @@ async function handleSessionMessage(
   // full record; only an ingress Discord has not already seen is relayed.
   if (ev.message.author_type === "user" && !isRelayableUserOrigin(ev.message.author_platform)) return;
   const outputPolicy = deps.relayOutputPolicy?.(ev.target_session_id);
-  if (outputPolicy && !shouldRelaySessionMessage(ev.message, outputPolicy)) return;
+  if (outputPolicy && !shouldRelaySessionMessage(ev.message, outputPolicy) && !terminalDelivery) return;
 
   const content = formatSessionMessageContent(ev.message);
   const existingDiscordId = deps.deliveryRepo.findExternalId(ev.message.id, "discord");

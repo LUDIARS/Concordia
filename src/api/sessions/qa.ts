@@ -66,10 +66,13 @@ app.post("/:id/pending-question", async (c) => {
     //   - 最近回答済行: 早期投稿→回答後に transcript-tail が遅れて再 POST してくる
     //     ケースを弾く。 これが無いと「回答したのに未回答カードが新規に生える」事故になる
     //     (回答は既に確定しているのに重複カードのせいで未送信に見える)。
-    const existing =
-      deps.channelDirectory.findUnansweredByQuestion(id, parsed.data.question) ??
-      deps.channelDirectory.findRecentlyAnsweredByQuestion(id, parsed.data.question, ts - 600);
+    const existing = parsed.data.provider_request_id
+      ? deps.channelDirectory.findByProviderRequest(id, parsed.data.provider_request_id)
+      : deps.channelDirectory.findUnansweredByQuestion(id, parsed.data.question) ??
+        deps.channelDirectory.findRecentlyAnsweredByQuestion(id, parsed.data.question, ts - 600);
     if (existing) {
+      if (parsed.data.provider_request_id && (existing.kind !== (parsed.data.kind ?? "question")
+        || existing.question !== parsed.data.question)) return c.json({ error: "provider_request_conflict" }, 409);
       return c.json({ ok: true, question_id: existing.id, ts: existing.ts, deduped: true });
     }
     // 委託子セッションなら親 (委託元) を解決する。 親がいる質問は **一次受けが親**で、
@@ -81,6 +84,8 @@ app.post("/:id/pending-question", async (c) => {
     const parentSessionId = run?.parent_session_id ?? undefined;
     const row = deps.channelDirectory.insert({
       session_id: id,
+      kind: parsed.data.kind,
+      providerRequestId: parsed.data.provider_request_id,
       question: parsed.data.question,
       options: parsed.data.options,
       multiSelect: parsed.data.multi_select === true,
@@ -92,6 +97,8 @@ app.post("/:id/pending-question", async (c) => {
       kind: "pending_question",
       payload: {
         question_id: row.id,
+        kind: row.kind,
+        provider_request_id: row.provider_request_id,
         question: row.question,
         options: parsed.data.options,
         multi_select: parsed.data.multi_select === true,
@@ -109,6 +116,8 @@ app.post("/:id/pending-question", async (c) => {
     if (!parentSessionId) {
       eventBus.emit({
         type: "question.posted",
+        kind: parsed.data.kind,
+        provider_request_id: parsed.data.provider_request_id,
         target_session_id: id,
         question_id: row.id,
         question: row.question,

@@ -208,6 +208,8 @@ type ConcordiaEventPayload =
     }
   | {
       type: "question.posted";
+      kind?: "question" | "plan_approval";
+      provider_request_id?: string;
       target_session_id: string;
       question_id: number;
       question: string;

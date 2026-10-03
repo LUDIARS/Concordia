@@ -6,6 +6,7 @@
 import { eventBus, eventSessionId, type ConcordiaEvent, type SessionMessagePayload } from "../events.js";
 import type { SessionMessagesRepo, SessionMessageRow } from "../db/session-messages-repo.js";
 import { projectEvent, ToolUseDedupeContext, type ProjectContext, type ProjectedMessage } from "./project.js";
+import { projectTurnStatus } from "./turn-status.js";
 
 /** ProjectContext 起動時復元 (tool-use dedupe_key) で遡る最大件数。 project.ts の LRU 上限と揃える。 */
 const TOOL_USE_CONTEXT_RESTORE_LIMIT = 200;
@@ -19,6 +20,7 @@ export interface SessionMessageServiceDeps {
    * セッションごとに部署の出力方針で上書きできる (spec/feature/departments.md §9.4)。
    */
   isThinkingEnabled?: (sessionId: string) => boolean;
+  isFinalOnly?: (sessionId: string) => boolean;
   /** テスト差し替え用。 既定は eventBus.subscribe。 */
   subscribe?: (listener: (ev: ConcordiaEvent) => void) => () => void;
   /** テスト差し替え用。 既定は eventBus.emit。 */
@@ -38,6 +40,10 @@ export class SessionMessageService {
   project(ev: ConcordiaEvent): void {
     const sessionId = eventSessionId(ev);
     if (!sessionId) return;
+    if ((ev.type === "transcript.frame" && ev.kind === "turn") || ev.type === "session.ended" || ev.type === "session.lost") {
+      const turn = projectTurnStatus(ev, this.deps.repo.currentTurn(sessionId), this.deps.isFinalOnly?.(sessionId) === true);
+      if (turn) this.persistAndEmit(sessionId, ev.ts, turn);
+    }
     // thinking は既定で記録しない (記録しなければ WebUI / Discord / Slack の全面から消える)。
     if (ev.type === "transcript.frame" && ev.kind === "thinking" && !this.deps.isThinkingEnabled?.(sessionId)) {
       return;

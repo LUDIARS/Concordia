@@ -32,6 +32,8 @@ export interface ChannelDirectoryQuestionOption {
 }
 
 export interface ChannelDirectoryQuestionRow {
+  kind?: "question" | "plan_approval";
+  provider_request_id?: string | null;
   closed_at?: number | null;
   id: number;
   session_id: string;
@@ -55,6 +57,8 @@ export interface ChannelDirectory {
   findSessionChannel(sessionId: string): ChannelDirectorySessionChannel | null;
   listMetaChannels(): Record<ChannelDirectoryMetaKind, string | null>;
   insert(input: {
+    kind?: "question" | "plan_approval";
+    providerRequestId?: string;
     session_id: string;
     question: string;
     options: Array<ChannelDirectoryQuestionOption | string>;
@@ -67,6 +71,7 @@ export interface ChannelDirectory {
   /** 親へ預けたまま放置されている質問 (未回答 / 未エスカレーション)。 */
   listStaleParentRelayed(olderThanTs: number, limit: number): ChannelDirectoryQuestionRow[];
   findById(id: number): ChannelDirectoryQuestionRow | null;
+  findByProviderRequest(sessionId: string, requestId: string): ChannelDirectoryQuestionRow | null;
   findUnansweredByQuestion(sessionId: string, question: string): ChannelDirectoryQuestionRow | null;
   findRecentlyAnsweredByQuestion(sessionId: string, question: string, sinceTs: number): ChannelDirectoryQuestionRow | null;
   markAnswered(id: number, answerIndex: number, answerText: string): void;

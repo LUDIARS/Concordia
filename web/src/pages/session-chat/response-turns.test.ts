@@ -9,6 +9,14 @@ function message(id: number, author_type: SessionMessage["author_type"], phase?:
 }
 
 describe("response presentation", () => {
+  it("uses persistent turn state after reconnect and hides state rows from conversation", () => {
+    const state = {...message(1,"system"),metadata:{response_turn:true,turn_status:"started",started_at:100}};
+    expect(isResponseWorking([state],"active")).toBe(true);
+    expect(isResponseWorking([state,{...message(2,"question"),ts:101}],"active")).toBe(false);
+    expect(responseBlocks([state])).toEqual([]);
+    expect(isResponseWorking([{...state,metadata:{...state.metadata,turn_status:"completed"}}],"active")).toBe(false);
+    expect(isResponseWorking([state],"ended")).toBe(false);
+  });
   it("folds completed work while preserving input, questions, attachments and the next response", () => {
     const messages = [message(1, "user"), message(2, "assistant", "commentary"), message(3, "question"),
       { ...message(4, "assistant"), attachments: [{ kind: "image" }] }, message(5, "tool"),

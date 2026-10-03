@@ -654,10 +654,16 @@ export async function startBackend(): Promise<BackendHandle> {
   // 完了し、 イベントが流れ始めるのは adminState 初期化後なので TDZ にはならない)。
   const messageService = new SessionMessageService({
     repo: sessionMessages,
+    isFinalOnly: (sessionId) => !isOutputEnabled(resolveSessionOutputMode({
+      departmentIdentity: (id) => departmentsRepo.find(id),
+      sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
+      departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
+    }, sessionId, "intermediate"), true),
     // 部署の出力方針で全体設定を上書きする (spec/feature/departments.md §9.4)。 departmentsRepo も
     // adminState と同じく後方で作るが、 イベントが流れ始めるのは初期化後なので TDZ にはならない。
     isThinkingEnabled: (sessionId) => isOutputEnabled(
       resolveSessionOutputMode({
+        departmentIdentity: (id) => departmentsRepo.find(id),
         sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
         departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
       }, sessionId, "thinking"),
@@ -725,6 +731,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // 終了時の /session-end 自動指示と独白を部署の出力方針で止める (相談、 departments.md §9.4)。
   setSessionEndOutputResolver((sessionId) => isOutputEnabled(
     resolveSessionOutputMode({
+      departmentIdentity: (id) => departmentsRepo.find(id),
       sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
       departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
     }, sessionId, "session_end_report"),

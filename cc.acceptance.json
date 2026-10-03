@@ -4495,6 +4495,28 @@
         "src/config/settings/single-edit-path.test.ts"
       ],
       "contracts": []
-    }
+    },
+    {"source":"src/messages/turn-status.ts","tests":["src/messages/turn-status.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/messages/service.ts","tests":["src/messages/turn-status.test.ts","src/messages/service.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/db/session-messages-repo.ts","tests":["src/messages/turn-status.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/api/sessions/messages.ts","tests":["tests/session-messages-api.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/bootstrap/core.ts","tests":["src/departments/output-policy.test.ts","src/messages/turn-status.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/departments/output-policy.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/discord/bot.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/discord/egress.ts","tests":["src/discord/egress.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/discord/relay-output-filter.ts","tests":["src/discord/relay-output-filter.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"web/src/pages/session-chat/MessageList.tsx","tests":["web/src/pages/session-chat/response-turns.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"web/src/pages/session-chat/response-turns.ts","tests":["web/src/pages/session-chat/response-turns.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/api/sessions/qa.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/api/sessions/shared.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/api/sessions/deps.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/discord/channel-directory.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/db/discord-repo.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/db/schema.ts","tests":["tests/plan-approval-notification.test.ts","src/db/migration-ledger.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/messages/project.ts","tests":["src/messages/project.test.ts","tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/control/question-escalation.ts","tests":["src/control/question-escalation.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/events.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/shared/event-schema.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts","tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]}
   ]
 }

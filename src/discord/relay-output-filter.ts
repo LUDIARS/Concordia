@@ -14,7 +14,7 @@ import type { SessionMessageAuthorType } from "../shared/session-message-types.j
 
 export interface RelayableMessage {
   author_type: SessionMessageAuthorType;
-  metadata?: { phase?: unknown } | null;
+  metadata?: { phase?: unknown; response_turn?: unknown } | null;
 }
 
 export interface RelayOutputPolicy {
@@ -38,6 +38,7 @@ export function isInjectTranscriptMessage(message: RelayableMessage): boolean {
 }
 
 export function shouldRelaySessionMessage(message: RelayableMessage, policy: RelayOutputPolicy): boolean {
+  if (message.metadata?.response_turn === true) return !policy.intermediate;
   if (!policy.injectTranscript && isInjectTranscriptMessage(message)) return false;
   if (!policy.intermediate && !isFinalAnswerMessage(message)) return false;
   return true;

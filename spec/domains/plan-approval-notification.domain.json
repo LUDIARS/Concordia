@@ -1,0 +1,15 @@
+{
+  "id":"plan-approval-notification", "name":"plan-approval-notification",
+  "membership":[
+    {"pathPattern":"(^|/)src/api/sessions/deps\\.ts$"},
+    {"pathPattern":"(^|/)src/discord/channel-directory(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/control/question-escalation(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/api/sessions/(qa|shared)(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/db/(discord-repo|schema|migration-ledger)(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/messages/project(\\.test)?\\.ts$"},
+    {"pathPattern":"(^|/)src/(events|shared/event-schema)\\.ts$"},
+    {"pathPattern":"(^|/)tests/plan-approval-notification\\.test\\.ts$"}
+  ],
+  "specRefs":["spec/feature/plan-approval-notification.md"],
+  "rationale":"Supporting provider notification boundary; pending question persistence and existing response authorization are retained."
+}

@@ -134,11 +134,11 @@ export function consultIntakeReplyBlock(reply: string): string {
  * 技術レベル → 役職 → 目的 の順に 1 行ずつ割り当てる (1 項目だけ欠けていれば返信全体をその項目に)。
  */
 function applyReply(intake: ConsultIntake, reply: string): void {
-  const labeled = readLabeledFields(reply);
+  const labeled = readLabeledFields(reply, true);
   for (const field of CONSULT_INTAKE_FIELDS) {
     if (labeled[field]) intake[field] = labeled[field];
   }
-  const rest = stripLabeledLines(reply).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const rest = stripLabeledLines(reply, true).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (rest.length === 0) return;
   const open = (["skill_level", "role_title", "purpose"] as const).filter((field) => !intake[field]);
   if (open.length === 0) return;
@@ -152,32 +152,45 @@ function applyReply(intake: ConsultIntake, reply: string): void {
   });
 }
 
-function readLabeledFields(text: string): Partial<ConsultIntake> {
+function readLabeledFields(text: string, particle = false): Partial<ConsultIntake> {
   const found: Partial<ConsultIntake> = {};
   for (const line of text.split(/\r?\n/)) {
-    const match = matchLabel(line);
-    if (match && match.value) found[match.field] = clip(match.value);
+    for (const match of matchLabels(line, particle)) {
+      if (match.value) found[match.field] = clip(match.value);
+    }
   }
   return found;
 }
 
-function stripLabeledLines(text: string): string {
-  return text.split(/\r?\n/).filter((line) => !matchLabel(line)).join("\n");
+function stripLabeledLines(text: string, particle = false): string {
+  return text.split(/\r?\n/).filter((line) => matchLabels(line, particle).length === 0).join("\n");
 }
 
-function matchLabel(line: string): { field: ConsultIntakeField; value: string } | null {
+const ALIAS_TO_FIELD = new Map<string, ConsultIntakeField>(
+  CONSULT_INTAKE_FIELDS.flatMap((field) => LABEL_ALIASES[field].map((alias) => [alias, field] as const)),
+);
+// 長い名前を先に試す (「技術レベル」を「レベル」より先に)。
+const ALIAS_PATTERN = [...ALIAS_TO_FIELD.keys()].sort((a, b) => b.length - a.length)
+  .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+/**
+ * 項目名の後ろに「:」「：」が続く形を項目の指定として読む。 聞き返しへの返信 (particle) では助詞の「は」も読む
+ * (投稿の本文の「今のレベルは低い」のような文を項目と取り違えないよう、 本文では読まない)。 行頭か区切り (空白・読点) の直後だけを見る。
+ * 2026-10-03: 「技術レベルは初級 役職はデザイナー」の返信が読めず、 役職がプロフィールのエンジニアのまま起動した。
+ */
+const LABEL_PATTERN = new RegExp(`(?:^|[\\s\\u3000、,，])(${ALIAS_PATTERN})\\s*[:：]`, "g");
+const LABEL_OR_PARTICLE_PATTERN = new RegExp(`(?:^|[\\s\\u3000、,，])(${ALIAS_PATTERN})\\s*(?:[:：]|は)`, "g");
+
+/** 1 行の中の項目の指定をすべて読む (「役職: …」「技術レベルは初級 役職はデザイナー」のように 1 行に複数あってもよい)。 */
+function matchLabels(line: string, particle = false): Array<{ field: ConsultIntakeField; value: string }> {
   const trimmed = line.trim().replace(/^[-*・]\s*/, "");
-  for (const field of CONSULT_INTAKE_FIELDS) {
-    for (const alias of LABEL_ALIASES[field]) {
-      if (!trimmed.startsWith(alias)) continue;
-      const rest = trimmed.slice(alias.length).trimStart();
-      if (!/^[:：]/.test(rest)) continue;
-      // 聞き返し文の「(例: …)」をそのまま返されたときは空とみなす。
-      const value = rest.slice(1).trim().replace(/^\((例|例:)[^)]*\)$/, "").trim();
-      return { field, value };
-    }
-  }
-  return null;
+  const hits = [...trimmed.matchAll(particle ? LABEL_OR_PARTICLE_PATTERN : LABEL_PATTERN)];
+  return hits.map((hit, index) => {
+    const start = (hit.index ?? 0) + hit[0].length;
+    const end = index + 1 < hits.length ? hits[index + 1]!.index ?? trimmed.length : trimmed.length;
+    // 聞き返し文の「(例: …)」をそのまま返されたときは空とみなす。
+    const value = trimmed.slice(start, end).trim().replace(/[、,，。]+$/, "").replace(/^\((例|例:)[^)]*\)$/, "").trim();
+    return { field: ALIAS_TO_FIELD.get(hit[1]!)!, value };
+  });
 }
 
 function firstParagraph(text: string): string {

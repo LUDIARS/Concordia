@@ -75,6 +75,27 @@ describe("resolveConsultIntake", () => {
     expect(resolved.fromDefaults).toEqual(["role_title"]);
   });
 
+  it("reads 「〜は」 labels in a one-line reply and lets them correct the profile role", () => {
+    // 2026-10-03: 「技術レベルは初級 役職はデザイナー」が読めず、 役職がプロフィールのエンジニアのまま起動した。
+    const body = `デザイン相談\n${consultIntakeReplyBlock("技術レベルは初級 役職はデザイナー")}`;
+    const resolved = resolveConsultIntake({ title: "デザイン相談", body, defaults: { role_title: "エンジニア" } });
+    expect(resolved.intake.skill_level).toBe("初級");
+    expect(resolved.intake.role_title).toBe("デザイナー");
+    expect(resolved.intake.purpose).toBe("");
+    expect(resolved.fromDefaults).toEqual([]);
+  });
+
+  it("reads several 「項目: 値」 pairs on one line, separated by spaces or commas", () => {
+    const body = `x\n${consultIntakeReplyBlock("技術レベル: 中級、役職: サウンド 目的: 実装の判断")}`;
+    const resolved = resolveConsultIntake({ title: "t", body });
+    expect(resolved.intake).toMatchObject({ skill_level: "中級", role_title: "サウンド", purpose: "実装の判断" });
+  });
+
+  it("does not read 「〜は」 in the original post as a label", () => {
+    const resolved = resolveConsultIntake({ title: "t", body: "今のレベルは低いけど相談したい" });
+    expect(resolved.intake.skill_level).toBe("");
+  });
+
   it("does not ask for the purpose again once a reply has been received", () => {
     const body = `x\n${consultIntakeReplyBlock("技術レベル: 初級\n役職: 学生")}`;
     const resolved = resolveConsultIntake({ title: "t", body });

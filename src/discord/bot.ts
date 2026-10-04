@@ -2022,6 +2022,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
     if (gatewayClosed || stopping || !newlyCreated) return;
     if (!inScope(thread.guildId)) return;
+    if (choresDiscord?.handlesThread(thread)) {
+      void choresDiscord.thread(thread).catch(error => log.warn(`chores forum intake failed thread=${thread.id}: ${String(error)}`));
+      return;
+    }
     const forumDeps = forumSpawnDepsNow(thread.parentId);
     if (!forumDeps) return;
     void handleForumSpawnThread(forumDeps, toForumSpawnThread(thread)).catch((error) => {

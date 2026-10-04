@@ -1,0 +1,54 @@
+---
+title: 雑務窓口と雑務課フォーラム
+id: CC-CHORES-FORUM
+status: draft
+---
+
+# 雑務窓口と雑務課フォーラム
+
+2026-10-04 neco 指示と訂正を適用する。既存の単一テキストチャンネルを「雑務窓口」として残し、軽い依頼と応答を維持する。別の「雑務課」フォーラムには依頼単位の作業内容を投稿する。フォーラムからも起動できる。サービス事務課と同じ運用にする初期案は撤回された。
+
+## 価値と境界
+
+UX-CC-W2/W4/W5、CC-INV-02/03/04/06/07/08。既存の `chores` はワンショット依頼と成果の所有者であり、agent-delegation の下位責務である。起動権限・受付同一性・実行・結果保存・OK/Continue は既存の use case を利用する。Discord adapter は受付元とフォーラムの投稿先の対応を所有する。部署名は DepartmentService が所有し、直接 DB を変更しない。新規ドメインは追加しない。
+
+## 設計
+
+- 既存 `chores_channel_id` のテキストチャンネルを改名し、ID・履歴を維持する。フォーラムは別 ID を保存する。テキストチャンネルを削除したりフォーラムへの変換を試みたりしない。
+- 窓口の人間の依頼と雑務課フォーラムの依頼投稿を、同じ既存受付 API に渡す。毎回同じ社員権限を確認し、別 guild・別フォーラム・bot・webhook は受け付けない。フォーラムへの bot の転記は再起動を発生させない。
+- 受付キーは引き続き `discord:<guild>:<message>`。フォーラムへの転記は新規依頼ではなく既存 run の表示である。フォーラムからの依頼は元のスレッドへ作業内容と結果を記録する。
+- 受付元チャンネル、依頼メッセージ、run、作業スレッド、結果メッセージの対応を永続化する。再接続後にチャンネルを推測して配達しない。既存の配達先が未記録の過去 run は、従来の窓口配達として扱う。
+- フォーラム作成前に依頼同一性を記録し、重複イベントを直列化する。外部投稿の結果不明は未確定のまま保持し、照合できない場合は新規投稿を繰り返さない。ワンショットの再実行はしない。
+- カードの更新と OK/Continue は保存した run と投稿先を照合する。別スレッドにコピーされたボタンでは操作できない。成果は Discord 配達より先に既存の chores 台帳へ保存される。
+- 停止時は新規受付と配達を停止し、確定済みの外部投稿先を保全する。未確定の外部操作を自動でやり直さない。フォーラム配達が止まっても保存した成果は WebUI から参照できる。
+- Discord の対応記録は既存の scoped DiscordConfigRepo を adapter 専用キーで利用する。run の業務状態を書き換えない。作成・投稿・更新は CAS と結果不明マーカーで所有し、確認済み revision より古い結果を上書きしない。MessageCreate と ThreadCreate が重複しても受付キー・作業スレッド・受付返信は共有する。
+
+## 受入と復旧
+
+AT-01: 窓口からの依頼を一度だけ受付し、作業内容をフォーラムへ投稿する。
+
+AT-02: フォーラムからの依頼を同じ認可と受付同一性で起動し、元の作業スレッドへ結果を配達する。
+
+AT-03: bot の転記、別会社・別 guild・無権限の入力で起動しない。コピーされた操作ボタンを拒否する。
+
+AT-04: 再接続・重複イベント・外部投稿失敗・結果不明・停止で二重起動や別スレッドへの配達を起こさない。過去 run の窓口配達と OK/Continue を維持する。
+
+AT-05: 本社の総務部署を AI総合、CDGD 部署を AIゲーム開発課に更新する。部署 ID・slug・会社・既定設定は維持する。管理カード用の cdgd管理チャンネルと部署を混同しない。
+
+復旧は新しい Discord adapter の変更を差し戻す。既存チャンネル、フォーラム、依頼台帳、対応記録、作業ディレクトリを削除しない。投稿結果不明の対応は照合してから復旧する。
+
+## 確認記録
+
+Actio task: `2547246c-36bc-48a1-9d71-e3b1c0e3a7f7`。
+
+Anatomia registered project `concordia` の `plan --no-llm` は hash `a3cc40fc1d371e46`。候補は chat-platforms/dialogue-context/director-inquiry だが、現行 membership の `src/chores` と `src/discord/chores.ts` は既存 chores 境界に所属する。An の cache persistence は EPERM、既存の consultation-turn-status と plan-approval-notification の宣言は invalid として除外された。この作業でその別件を修正したとは扱わない。
+
+Pf project `01M1XZZMEXWTFCN4HKW8K7TJKM` (Concordia) の仕様一覧は取得できたが、取得した一覧に chores/部署の該当仕様は見つからない。Pf 承認済みとせず repo の UX・feature・domain 文書を正本とする。
+
+部署名は正規 `/v1/departments/:id` API で更新し、保存名を読み戻した。対象は `dept_7bd8f081c1504079b1e336dfb4c00db8` と `dept_ca2c4b5eac274721a1d6f10bb9bcef95`。Discord の実表示は未確認。
+
+実装: `src/chores/discord-intake.ts` が両入口の受付規則、`src/discord/chores-forum.ts` が Discord 投稿先の永続化・照合・作業記録、既存 `src/discord/chores.ts` が認可と受付 API・カード操作・配達を組み立てる。`bot.ts` から ThreadCreate と MessageCreate を同じ受付へ接続する。フォーラムの新規作業投稿が起動入口であり、スレッドの議論投稿から追加起動はしない。
+
+backend の型確認は成功。全体テスト型確認は既存の startup-policy-check/usage-budget-spawn の ProviderName と consult-fetch-link の宣言不足の3件で失敗した。今回の変更ファイルに型エラーは報告されなかった。ローカルテスト、サービス起動・再起動、Discord の実機評価は未実施。
+
+初回 Revisor 審査の chores / chat-platforms は、同じ既存配達テストの「2回送る」という旧期待値で失敗した（run `r-20261004022644247-630e59d6` / `r-20261004022644249-6397a779`）。受付確認 API の失敗後も通知は1回、保存済みカードの編集は1回であることと編集内容を確認する期待値へ修正した。修正後の実行結果は再審査待ち。

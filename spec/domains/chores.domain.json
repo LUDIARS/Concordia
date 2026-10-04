@@ -6,9 +6,9 @@
   "membership": [
     { "pathPattern": "(^|/)src/chores/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/chores(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/discord/chores(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/chores(-forum)?(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Chores(\\.test)?\\.tsx$" },
     { "pathPattern": "(^|/)tests/chores-wiring\\.test\\.ts$" }
   ],
-  "specRefs": ["spec/feature/chores.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/shared-one-shot.md"]
+  "specRefs": ["spec/feature/chores.md", "spec/feature/chores-forum-window.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/shared-one-shot.md"]
 }

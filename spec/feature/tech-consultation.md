@@ -335,6 +335,21 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 状態所有者: 相談ログの場所と中身 = consultation (`src/consultation/consult-log-markdown.ts`)、追記と購読 =
 `src/consultation/consult-log-writer.ts` (配線 `src/bootstrap/core.ts`)。一言の「終了」の判定 = `src/consultation/consult-end-word.ts`。
 
+### 6.3 相談用 Claude のログイン切れの検出
+
+2026-10-03〜04、相談専用の Claude 設定フォルダ (`<置き場所>/.claude-config`) の認証が通っておらず (OAuth Error 400)、相談の claude は
+起動直後のログイン画面で止まった。Cc 上はセッションが active のまま transcript が作られず、相談者には何も返らなかった。
+それまでの起動前の判定は `.credentials.json` の有無だけだった (neco 指示「再発防止入れて」)。
+
+- 起動前 (`consultClaudeLoginState`、`src/consultation/consult-claude-login.ts`): `.credentials.json` が無い・壊れている・更新用トークンが
+  無い・更新用トークンの期限 (`refreshTokenExpiresAt`) 切れなら、従来どおり 503 `projectless_consult_claude_login_required`。
+  アクセストークンの期限切れは claude が更新するので止めない。トークンの値は読まず、有無と期限だけを見る。
+- 起動後 (`startConsultStartupWatch`、`src/consultation/consult-startup-watch.ts`、配線 `src/bootstrap/core.ts` の key `test`):
+  更新用トークンが無効にされた場合はファイルからは分からないので、相談用ディレクトリで起動した claude が起動から
+  `CONSULT_STARTUP_GRACE_SEC` (180 秒) たっても transcript を持たなければ、Cc の system チャンネルへ 1 度だけ知らせる。
+  本文はセッション id と場所、再ログインのコマンド (`consultClaudeReloginCommand`) だけで、相談の内容は含めない。
+  codex (Astra) は transcript を SessionStart フックで報告する別経路なので対象外。
+
 ## 7. 相談チャンネルの後始末
 
 **Requirement ID: `SPEC-CONSULT-CLOSURE`**

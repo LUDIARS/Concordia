@@ -9,10 +9,10 @@ import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
-import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
+import { consultClaudeLoginState } from "../consultation/consult-claude-login.js";
 import { prepareConsultCodexHome, readConsultCodexPreToolHookTrusted } from "../consultation/consult-codex-home.js";
 import { linkRoleSkills } from "../consultation/consult-role-skills.js";
 import { loadInlineRoleGuidance } from "../consultation/role-guidance-files.js";
@@ -1214,7 +1214,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const next = withConsultWorkspaceTrust(current, roleWorkspace);
           if (next) await writeFile(claudeJsonPath, `${JSON.stringify(next, null, 2)}
 `, "utf8");
-          return existsSync(join(configDir, ".credentials.json"));
+          // ファイルの有無だけでなく、 更新用トークンの有無と期限も見る (tech-consultation.md §6.3、 consult-claude-login.ts)。
+          const credentials = await readFile(join(configDir, ".credentials.json"), "utf8").catch(() => null);
+          return consultClaudeLoginState(credentials, Date.now()).ready;
         },
         // Astra (codex) の相談専用の CODEX_HOME (フックと設定を書く。 ログインは人が 1 回行う)。
         prepareCodexHome: (codexHome) => prepareConsultCodexHome(codexHome),

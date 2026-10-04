@@ -35,7 +35,8 @@ describe("projectless consultation spawn in a subsidiary", () => {
     workspaceRoot = makeTestDir("concordia-consult-ws-");
     // 相談専用の Claude 設定フォルダにログイン済みの状態 (claude の相談の前提)。
     mkdirSync(join(workspaceRoot, ".claude-config"), { recursive: true });
-    writeFileSync(join(workspaceRoot, ".claude-config", ".credentials.json"), "{}");
+    // 起動前の確認は更新用トークンの有無を見る (consult-claude-login.ts)。 値は使わないので仮の文字列。
+    writeFileSync(join(workspaceRoot, ".claude-config", ".credentials.json"), JSON.stringify({ claudeAiOauth: { refreshToken: "test-refresh" } }));
     writeFileSync(join(workspaceRoot, ".claude-config", ".claude.json"), JSON.stringify({ projects: {} }));
     // 相談専用の CODEX_HOME にログイン済みの状態 (Astra (codex) の相談の前提)。
     mkdirSync(join(workspaceRoot, ".codex-home"), { recursive: true });

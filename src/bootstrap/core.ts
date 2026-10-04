@@ -117,6 +117,8 @@ import { ProcessManager } from "../processes/manager.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
+import { startConsultStartupWatch } from "../consultation/consult-startup-watch.js";
+import { consultClaudeReloginCommand } from "../consultation/consult-claude-login.js";
 import { startEndSessionRequestWatch } from "../control/end-session-request.js";
 import { endSessionNow } from "../control/end-session-command.js";
 import { startContractLifecycle } from "../contract/lifecycle.js";
@@ -2681,6 +2683,23 @@ export async function startBackend(): Promise<BackendHandle> {
       start: () => startBranchWatch({
         sessions: repo, claims: testingClaims, log,
         isExempt: (session) => isInConsultWorkspace(session.repo_path, consultWorkspaceRoot),
+      }),
+    });
+    // 相談の claude が起動後に会話を始めない (ログイン切れでログイン画面に止まる) ことの見張り (tech-consultation.md §6.3)。
+    workflowBindings.register({
+      key: "test",
+      name: "consult-startup-watch",
+      start: () => startConsultStartupWatch({
+        sessions: repo,
+        consultRoot: consultWorkspaceRoot,
+        reloginCommand: consultClaudeReloginCommand(consultClaudeConfigDir(consultWorkspaceRoot)),
+        log,
+        post: (text) => {
+          // insert だけでは live な購読者に届かないので chat.posted も出す (inbox-notifier と同じ)。
+          const msg = chat.insert({ channel: "system", session_id: null, author_label: "Concordia consult", text, in_reply_to: null, is_actionable: false });
+          if (!msg) return;
+          eventBus.emit({ type: "chat.posted", message_id: msg.id, channel: msg.channel, author_label: msg.author_label, session_id: msg.session_id, ts: msg.ts, is_actionable: false });
+        },
       }),
     });
     // 朝タスクは cron スケジューラと寿命が違う (日次レビュー等は残したまま朝の

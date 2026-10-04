@@ -3080,6 +3080,21 @@
       "contracts": []
     },
     {
+      "source": "src/consultation/consult-claude-login.ts",
+      "tests": [
+        "src/consultation/consult-claude-login.test.ts",
+        "tests/projectless-consult-spawn.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/consultation/consult-startup-watch.ts",
+      "tests": [
+        "src/consultation/consult-startup-watch.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/consultation/role-guidance.ts",
       "tests": [
         "src/consultation/role-guidance.test.ts",

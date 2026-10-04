@@ -28,6 +28,10 @@ import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { SubsidiaryRepo } from "./db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "./db/harness-rules-repo.js";
 import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
+import { createPersonalBudget } from "./personal-budget/composition.js";
+import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
+import { CostUsageTracker } from "./cost/usage-tracker.js";
+import { readCostMode } from "./bootstrap/cost.js";
 import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { AdminState } from "./admin/state.js";
 import { SqliteSettingsStore } from "./admin/settings-store.js";
@@ -264,6 +268,24 @@ async function main(): Promise<void> {
     },
   });
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: sessions });
+  // 個人の AI 予算の払い出し判定 (spec/feature/personal-ai-budget.md §3)。 全体の日次 budget は
+  // cost sampler が DB へ積んだ当日累積を読むだけで、 ここからは書かない。 消費の計上は Cc 本体が回す。
+  const globalCostStatus = new CostUsageTracker({
+    repo: new CostBudgetRepo(db),
+    getBudget: () => adminState.getDailyTokenBudget(),
+  });
+  const personalBudget = createPersonalBudget({
+    db,
+    subsidiaryMonthlyDefault: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.personal_monthly_token_budget ?? null,
+    isGlobalOver: () => (readCostMode() === "off" ? false : globalCostStatus.isBlocked()),
+    readSetting: (key) => {
+      try {
+        return adminState.store.get(key);
+      } catch {
+        return null;
+      }
+    },
+  });
   const readModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: sessions,
@@ -372,6 +394,7 @@ async function main(): Promise<void> {
     headOfficeDiscord: () => resolveDiscordConfig(discordConfig, secretBox),
     runClaude,
     budgetTracker: subsidiaryBudget,
+    personalBudget: personalBudget.dispatch,
     baseDiscordDeps: () => {
       const { resolveConfig: _config, subsidiary: _subsidiary, onRuntimeState: _state, ...base } = discordDeps;
       return base;

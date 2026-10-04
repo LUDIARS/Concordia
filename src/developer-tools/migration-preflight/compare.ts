@@ -1,5 +1,5 @@
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:b4b224fa */
-import augurContract_5d3e07d4 from './compare.contract.ts'; /* augur-inject:contract-predicate:25268b58 */
+import augurContract_5d3e07d4 from './compare.contract.js'; /* augur-inject:contract-predicate:25268b58 */
 /** A statically read migration definition; no database or schema module is loaded. */
 export interface MigrationDefinition {
   readonly version: number;

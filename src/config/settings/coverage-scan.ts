@@ -70,12 +70,14 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
   PATH: "実行ファイルの探索パス (OS 提供)。 repo 検索のツール検出で読むだけで、 Concordia の設定ではない",
   EXCUBITOR_SERVICE_VERSION: "Excubitor が稼働プロセスへ注入する配備バージョン。 Concordia の設定ではない",
+  VESTIGIUM_LOGS_DIR: "Vestigium が所有する共有ログ出力先。独立した migration-preflight CLI の観測先として読む外部サービスの設定",
   CONCORDIA_MANAGEMENT_TOKEN: "dots 側 PC で動く管理用 MCP クライアント (src/mcp/management-server.ts) が読む任務トークン。 Concordia 本体の設定ではない",
   CONCORDIA_MANAGEMENT_CF_CLIENT_ID: "dots 側の管理用 MCP クライアントが送る Cloudflare Access サービストークン。 Concordia 本体の設定ではない",
   CONCORDIA_MANAGEMENT_CF_CLIENT_SECRET: "dots 側の管理用 MCP クライアントが送る Cloudflare Access サービストークン。 Concordia 本体の設定ではない",
 
   // 子プロセスへ**書き出す**変数。 Concordia が読む設定ではない。
   CONCORDIA_SESSION_ID: "spawn する子へ注入する識別子 (書き出し専用)",
+  CONCORDIA_TEAM_ID: "spawn・予算再開で対象チームを子へ注入する識別子 (書き出し専用)。 Concordia が読む設定ではない",
   CONCORDIA_HOOK: "hook プロセスへ注入する識別子 (書き出し専用)",
   CLAUDE_SESSION_ID: "エージェント側が持つ識別子 (書き出し専用)",
   CODEX_SESSION_ID: "エージェント側が持つ識別子 (書き出し専用)",

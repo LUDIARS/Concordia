@@ -27,6 +27,22 @@ function reader(values: {
 
 const NO_ENV = {} as NodeJS.ProcessEnv;
 
+describe("相談と公式モデル一覧のenv専用設定", () => {
+  it.each([
+    ["llm.codex_model_catalog_executable", "CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE", null],
+    ["llm.consult_astra_template", "CONCORDIA_CONSULT_ASTRA_TEMPLATE", "astra-mid"],
+    ["llm.consult_opus_template", "CONCORDIA_CONSULT_OPUS_TEMPLATE", "opus-5-5-movable"],
+  ] as const)("%s keeps its default and reads env without DB overrides", (key, name, defaultValue) => {
+    const defaults = getSetting(key, reader(), NO_ENV);
+    expect(defaults).toMatchObject({ section: "llm", envName: name, dbKey: null, defaultValue, value: defaultValue, editable: false });
+    expect(getSetting(key, reader({ meta: { [key]: "ignored-db" } }), env({ [name]: "explicit-env" })))
+      .toMatchObject({ value: "explicit-env", source: "env", editable: false });
+    const writer = recordingWriter();
+    expect(applySettingUpdate(key, "changed", writer)).toMatchObject({ ok: false, error: { code: "not_editable", key } });
+    expect(writer.calls).toEqual([]);
+  });
+});
+
 function env(values: Record<string, string>): NodeJS.ProcessEnv {
   return values as NodeJS.ProcessEnv;
 }

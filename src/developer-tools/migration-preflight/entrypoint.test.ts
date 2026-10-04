@@ -15,5 +15,5 @@ describe("migration preflight executable", () => {
     expect(result.status).toBe(status);
     expect(result[channel]).toContain("Usage:");
     expect(result[channel === "stdout" ? "stderr" : "stdout"]).toBe("");
-  });
+  }, 20_000); // The child has a 15-second deadline; let its result reach the assertions.
 });

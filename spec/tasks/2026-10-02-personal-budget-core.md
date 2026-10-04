@@ -45,3 +45,13 @@ memory_links: []
 - `src/cost/` と budget を参照する chat / delegation の経路 (port を通す箇所だけ)、子会社の設定 API と画面 (月間分の既定値)
 - `web/src/pages/PersonalBudget*.tsx`、`web/src/api.ts`、WebUI のルーティングとナビゲーション、設定定義
 - `tests/`、`cc.acceptance.json`、`spec/feature/personal-ai-budget.md`、`spec/feature/cost-observability.md`
+
+## 2026-10-03 統合検証引継ぎ
+
+同じ元Actioとhuman:2026-10-03:merge-cc-ready-prsに基づく継続。
+現在の人間指示はlocal main起点・マージまで・単体登録回帰/memory migration/型許可で、
+当初の未実行/PR終了指定を上書き。親がclaim/再審査/merge/反映を担当する。
+main75f952daを統合、PB migrationを127へ。旧123〜126本文/凍結値と双方台帳を保持。
+backend35files394件・web2files7件合格 (重複再実行を除く)。最初の失敗と原因、追補taskの区別、
+復旧/未決政策/未実施は personal-ai-budget.md §14を参照。
+画面スクリーンショット・実DB/Discord通知は未確認。設定値の人間承認や未回答仕様判断を捏造しない。

@@ -19,6 +19,7 @@ import {
 } from "./gate.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryBudgetTracker } from "./budget.js";
+import type { PersonalBudgetDispatchPort } from "../personal-budget/dispatch-service.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("subsidiary/manager");
@@ -82,6 +83,8 @@ export interface SubsidiaryManagerDeps {
   runClaude: RunClaudeFn;
   /** 子会社の日次トークン予算トラッカー (ゲートが受付前に超過判定する)。 */
   budgetTracker: SubsidiaryBudgetTracker;
+  /** 個人の AI 予算の払い出し判定 (spec/feature/personal-ai-budget.md §3)。 未注入なら従来どおり。 */
+  personalBudget?: PersonalBudgetDispatchPort;
   /** 子会社 Discord bot のベース deps を live 解決する (本社 bot と同じ共有 repo 群)。 */
   baseDiscordDeps: () => BaseDiscordDeps;
   /** Bot starter port. Composition roots provide the concrete chat adapter. */
@@ -132,6 +135,7 @@ export class SubsidiaryBotManager {
       delegationService: this.deps.delegationService,
       runClaude: this.deps.runClaude,
       budget: this.deps.budgetTracker,
+      personalBudget: this.deps.personalBudget,
       log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
     };
   }

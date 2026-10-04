@@ -1158,6 +1158,23 @@ export const api = {
   requesterProfileSave: (body: RequesterProfileWrite) => put<{ profile: RequesterProfile }>("/v1/requester-profiles", body),
   requesterProfileDelete: (id: string) => del<{ ok: boolean }>(`/v1/requester-profiles/${encodeURIComponent(id)}`),
 
+  // ── 個人の AI 予算 (月間分と報酬分) ──
+  personalBudgetPeople: (query: { subsidiaryId?: string | null; limit: number; offset: number }) =>
+    get<PersonalBudgetPeoplePage>(
+      `/v1/personal-budget/people?limit=${query.limit}&offset=${query.offset}`
+        + (query.subsidiaryId ? `&subsidiary_id=${encodeURIComponent(query.subsidiaryId)}` : ""),
+    ),
+  personalBudgetLedger: (personId: string, query: { limit: number; offset: number }) =>
+    get<PersonalBudgetLedgerPage>(
+      `/v1/personal-budget/people/${encodeURIComponent(personId)}/ledger?limit=${query.limit}&offset=${query.offset}`,
+    ),
+  personalBudgetSetMonthlyLimit: (personId: string, monthlyTokenLimit: number | null) =>
+    put<{ person: { id: string } }>(
+      `/v1/personal-budget/people/${encodeURIComponent(personId)}/monthly-limit`,
+      { monthly_token_limit: monthlyTokenLimit },
+    ),
+  personalBudgetAdjust: (body: PersonalBudgetAdjustment) => postPersonalBudgetAdjustment(body),
+
   // ── チーム (可視化 + ルールスコープ) ──
   teamsList: (subsidiaryId?: string) => get<{ teams: Team[] }>(
     `/v1/teams${subsidiaryId ? `?subsidiary_id=${encodeURIComponent(subsidiaryId)}` : ""}`,
@@ -1623,6 +1640,77 @@ export interface RequesterProfileWrite {
   notes?: string;
 }
 
+/** 個人の AI 予算の 1 人ぶん (spec/feature/personal-ai-budget.md §7)。 */
+export interface PersonalBudgetPerson {
+  id: string;
+  subsidiary_id: string;
+  platform: "discord" | "slack";
+  platform_user_id: string;
+  display_name: string;
+  /** 月間分の上限の上書き。 null = 子会社の既定値。 */
+  monthly_token_limit_override: number | null;
+  period: string;
+  /** 効いている月間分の上限。 0 = 上限なし。 */
+  monthly_limit: number;
+  monthly_used: number;
+  monthly_remaining: number | null;
+  reward_balance: number;
+}
+
+export interface PersonalBudgetPeoplePage {
+  people: PersonalBudgetPerson[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PersonalBudgetLedgerEntry {
+  id: string;
+  entry_type: "grant" | "debit" | "revoke" | "manual";
+  /** 報酬分の増減 (符号付き)。 */
+  tokens: number;
+  reward_kind: "bounty" | "tabula" | "manual" | null;
+  source_ref: string | null;
+  session_id: string | null;
+  period: string | null;
+  actor: string | null;
+  reason: string | null;
+  notify_state: "none" | "pending" | "delivered" | "failed";
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PersonalBudgetLedgerPage {
+  entries: PersonalBudgetLedgerEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PersonalBudgetAdjustment {
+  person_id?: string;
+  subsidiary_id?: string;
+  platform?: "discord" | "slack";
+  platform_user_id?: string;
+  tokens: number;
+  reason: string;
+}
+
+/** 調整は断られた理由 (理由なし・減額できない等) を人へ見せるので、 応答の message を拾う。 */
+async function postPersonalBudgetAdjustment(body: PersonalBudgetAdjustment): Promise<{ person_id: string; reward_balance: number }> {
+  const r = await fetch(`${BASE}/v1/personal-budget/adjustments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await r.json().catch(() => null) as { message?: unknown; error?: unknown; person_id?: string; reward_balance?: number } | null;
+  if (!r.ok) {
+    const detail = typeof json?.message === "string" ? json.message : typeof json?.error === "string" ? json.error : "";
+    throw new Error(detail || `${r.status} /v1/personal-budget/adjustments`);
+  }
+  return { person_id: json?.person_id ?? "", reward_balance: json?.reward_balance ?? 0 };
+}
+
 export interface Team {
   id: string;
   subsidiary_id: string | null;
@@ -1772,6 +1860,8 @@ export interface SubsidiarySummary {
   guard_scope: string;
   home_cwd: string | null;
   daily_token_budget: number;
+  /** 個人の月間分の既定値 (0 = 上限なし)。 */
+  personal_monthly_token_budget?: number;
   /** 同時セッション上限 (0 = 上限なし)。 */
   max_sessions: number;
   /** 子会社ごとのデプロイ反映通知先 (GET /v1/subsidiaries/:id が同梱、一覧では省略されることがある)。 */
@@ -1806,6 +1896,7 @@ export interface SubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  personal_monthly_token_budget?: number;
   max_sessions?: number;
   default_team_id?: string | null;
   /** 丸ごと置換。 省略 = 据え置き、 [] = 未設定 (掲載なし) に戻す。 */

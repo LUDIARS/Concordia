@@ -15,6 +15,8 @@
  *  - `/consult` (プライベート相談) は出す (2026-10-01 neco 指示: 子会社の相談窓口)。 受けるのは
  *    その子会社のプロジェクトを持たない相談部署だけ (tech-consultation.md §6)。 公開候補 (Tabula へ
  *    出す wrap とそのカード) は本社の知見共有の面なので出さない。
+ *  - `/budget` (個人の AI 予算) は出す。 個人の予算の対象は子会社の個人で、 応答は本人にだけ返る
+ *    (personal-ai-budget.md §7)。 `/reward` (本社の調整) は出さない。
  *
  * @implements spec/feature/subsidiary-delegation.md §3.1
  */
@@ -32,7 +34,7 @@ import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
  * 子会社 guild へ登録する slash command。
  * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult"]);
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "budget"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);

@@ -66,6 +66,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/personal-ai-budget.md",
     "spec/tasks/2026-10-03-final-answer-decoration.md",
     "spec/feature/session-end-inject-visibility.md",
     "spec/feature/developer-toolset.md#cc-rwf-data-01-ローカルデータによる拡張",

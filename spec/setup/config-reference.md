@@ -125,6 +125,12 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
 | `CONCORDIA_REPORT_MODEL` | `claude-haiku-4-5` | `config.ts:73` | 終了レポート等の LLM モデル名。 |
 | `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で緊急 OFF) | `config/claude-availability.ts` (消費: `report/generator.ts` / `report/summary-flags.ts` / `daily/generator.ts` / `api/library.ts`) | **緊急 hard-OFF**。 `1` で report / 日報 / summary flags / library 解析の claude CLI 呼び出しを止める。 通常の ON/OFF は下記の runtime スイッチで行い、 この env は `rules_enabled=true` でも勝つ。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | `rules/claude-runner.ts:15` | rule 用 claude CLI subprocess の timeout (ms)。 |
+| `CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE` | 未指定 | `bootstrap/core.ts` → `delegation/sidecar/codex-cli-entry.ts` | 公式モデル一覧取得に使うCodex実行ファイル。未指定なら既存解決器で探索。設定UIでは読取専用、DB上書きなし。 |
+| `CONCORDIA_CONSULT_ASTRA_TEMPLATE` | `astra-mid` | `consultation/consult-model.ts` | Astra相談の起動call_name。設定UIでは読取専用、DB上書きなし。 |
+| `CONCORDIA_CONSULT_OPUS_TEMPLATE` | `opus-5-5-movable` | `consultation/consult-model.ts` | Opus相談の起動call_name。設定UIでは読取専用、DB上書きなし。 |
+
+`CONCORDIA_TEAM_ID` はCc自身が読む設定ではなく、spawn/予算再開で子プロセスへ渡す対象チーム識別子。
+設定として登録せず、coverageの既存書き出し専用識別子群で扱う。
 
 > **runtime スイッチ (env ではない)**: chat 投稿 / rule engine の通常 ON/OFF は env ではなく
 > `schema_meta` 永続のスイッチで制御する (再起動不要、 Web UI 設定ページ / admin API)。 **既定は OFF 寄り**。

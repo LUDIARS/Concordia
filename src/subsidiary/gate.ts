@@ -19,6 +19,7 @@ import { runGuard, type GuardVerdict } from "./guard.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { buildSubsidiaryIntentInjection } from "./intent-inject.js";
 import { isProjectNameInScope } from "./project-scope.js";
+import { renderDispatchStop, type PersonalBudgetDispatchPort } from "../personal-budget/dispatch-service.js";
 
 export interface SubsidiaryGateDeps {
   subsidiaryRepo: SubsidiaryRepo;
@@ -28,6 +29,11 @@ export interface SubsidiaryGateDeps {
   runClaude: RunClaudeFn;
   /** 子会社の日次トークン予算判定 (省略時は予算チェックを行わない = 無制限)。 */
   budget?: { status: (sub: { id: string; daily_token_budget: number }) => Promise<SubsidiaryBudgetStatus> };
+  /**
+   * 個人の AI 予算の払い出し判定 (spec/feature/personal-ai-budget.md §3)。 省略時は従来どおり
+   * 子会社の日次 budget だけで決める。 個人の予算が効いていない人も従来どおりになる。
+   */
+  personalBudget?: PersonalBudgetDispatchPort;
   log?: { info: (m: string) => void; warn: (m: string) => void };
 }
 
@@ -116,7 +122,35 @@ export async function evaluateSubsidiaryRequest(
   //      ガード (= Sonnet 呼び出しで更にトークンを使う) より前で止める。 ユーザの責ではない
   //      のでロックはしない。 予算未設定 (0) や budget 未注入なら素通り。
   const budgetStatus = await deps.budget?.status(sub);
-  if (budgetStatus?.blocked) {
+  // 1.6) 個人の AI 予算 (月間分 → 報酬分)。 本社内 desk の依頼者は本社メンバーなので対象外
+  //      (CC-PBUDGET-INV-07)。 個人の予算が効いていない人の判定は下の従来の分岐がそのまま行う。
+  const personal = deps.personalBudget?.admit({
+    subsidiaryId: sub.mode === "desk" ? null : sub.id,
+    platform,
+    userId,
+    userLabel,
+    subsidiaryOver: budgetStatus?.blocked === true,
+  }) ?? null;
+  if (personal && !personal.allow && personal.inEffect) {
+    deps.subsidiaryRepo.recordRequest({
+      subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
+      instruction, decision: "deny",
+      // 残高は監査記録にもログにも載せない (CC-PBUDGET-INV-08)。 理由だけを残す。
+      reason: `personal budget: ${personal.reason}`,
+      violations: ["budget_exceeded"], locked: false, guard_model: sub.guard_model,
+    });
+    log?.info(`subsidiary gate: personal budget stop sub=${sub.name} reason=${personal.reason}`);
+    return {
+      ok: false,
+      result: {
+        outcome: "budget_exceeded",
+        reason: `personal budget: ${personal.reason}`,
+        replyText: renderDispatchStop(personal.reason),
+      },
+    };
+  }
+  // 子会社が上限でも、 報酬分が残っている個人は通す (その間の消費は報酬分から引く)。
+  if (budgetStatus?.blocked && !personal?.allow) {
     deps.subsidiaryRepo.recordRequest({
       subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
       instruction, decision: "deny",

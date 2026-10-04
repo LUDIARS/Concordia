@@ -3231,6 +3231,65 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   },
 },
 {
+  version: 129,
+  name: "personal-ai-budget",
+  source: "personal_budget_people / personal_budget_monthly_usage / personal_budget_session_seen / personal_budget_ledger / subsidiaries.personal_monthly_token_budget (spec/feature/personal-ai-budget.md §8)",
+  up(db) {
+    // 個人の AI 予算: 月間分 (月ごとの累積) と報酬分 (台帳の合計)。 tokens は報酬分の増減を符号付きで持つ。
+    // 同じ根拠の報奨は 1 回 (CC-PBUDGET-INV-04)、 debit は (session, 月) で 1 行 (CC-PBUDGET-INV-05)。
+    db.exec(`
+      CREATE TABLE personal_budget_people (
+        id                  TEXT PRIMARY KEY,
+        subsidiary_id       TEXT NOT NULL,
+        platform            TEXT NOT NULL CHECK(platform IN ('discord', 'slack')),
+        platform_user_id    TEXT NOT NULL,
+        display_name        TEXT NOT NULL DEFAULT '',
+        monthly_token_limit INTEGER CHECK(monthly_token_limit IS NULL OR monthly_token_limit >= 0),
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        UNIQUE(subsidiary_id, platform, platform_user_id)
+      );
+      CREATE TABLE personal_budget_monthly_usage (
+        person_id   TEXT NOT NULL,
+        period      TEXT NOT NULL,
+        used_tokens INTEGER NOT NULL DEFAULT 0 CHECK(used_tokens >= 0),
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY(person_id, period)
+      );
+      CREATE TABLE personal_budget_session_seen (
+        session_id TEXT PRIMARY KEY,
+        person_id  TEXT NOT NULL,
+        last_total INTEGER NOT NULL CHECK(last_total >= 0),
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE personal_budget_ledger (
+        id              TEXT PRIMARY KEY,
+        person_id       TEXT NOT NULL,
+        entry_type      TEXT NOT NULL CHECK(entry_type IN ('grant', 'debit', 'revoke', 'manual')),
+        tokens          INTEGER NOT NULL,
+        reward_kind     TEXT CHECK(reward_kind IS NULL OR reward_kind IN ('bounty', 'tabula', 'manual')),
+        source_ref      TEXT,
+        session_id      TEXT,
+        period          TEXT,
+        actor           TEXT,
+        reason          TEXT,
+        notify_state    TEXT NOT NULL DEFAULT 'none'
+          CHECK(notify_state IN ('none', 'pending', 'delivered', 'failed')),
+        notify_attempts INTEGER NOT NULL DEFAULT 0,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_personal_budget_ledger_source
+        ON personal_budget_ledger(entry_type, reward_kind, source_ref) WHERE source_ref IS NOT NULL;
+      CREATE UNIQUE INDEX idx_personal_budget_ledger_debit
+        ON personal_budget_ledger(session_id, period, entry_type) WHERE session_id IS NOT NULL;
+      CREATE INDEX idx_personal_budget_ledger_person ON personal_budget_ledger(person_id, created_at);
+      CREATE INDEX idx_personal_budget_ledger_notify ON personal_budget_ledger(notify_state, created_at);
+      ALTER TABLE subsidiaries ADD COLUMN personal_monthly_token_budget INTEGER NOT NULL DEFAULT 0;
+    `);
+  },
+},
+{
   version: 131,
   name: "provider-plan-approval-identity",
   source: "discord_pending_questions kind/provider_request_id v1 (SPEC-PLAN-APPROVAL-NOTIFICATION)",

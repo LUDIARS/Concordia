@@ -24,6 +24,7 @@
     }
   ],
   "specRefs": [
+    "spec/feature/personal-ai-budget.md#14-main-統合と検証-2026-10-03",
     "spec/setup/config-reference.md",
     "spec/feature/settings-mcp.md",
     "spec/architecture/ddd.md"

@@ -65,5 +65,11 @@
     { "id":"cap-C-1", "criterion":"C-1 decideCompanySessionCap(row): 会社の上限 (0 以外) 以上のセッションが動いていれば上限値を含む理由つきで起動を断り、上限 0 の会社は断らない", "symbol":"decideCompanySessionCap", "file":"src/cost/company-session-cap.ts", "module":"src/cost/company-session-cap-decision.contract.ts", "mode":"observe", "sample":1 },
     { "id":"cap-C-2", "criterion":"C-2 countActiveSessionsByCompany(sessions): active セッションを子会社 id (無ければ本社) ごとに 1 回ずつ数え、合計が入力件数と一致する", "symbol":"countActiveSessionsByCompany", "file":"src/cost/company-session-cap.ts", "module":"src/cost/company-session-count.contract.ts", "mode":"observe", "sample":1 },
     { "id":"cap-C-3", "criterion":"C-3 sessionCapRefusalText(error): 上限で断った API エラーからだけ本人向けの文面を取り出し、他のエラーは null を返す", "symbol":"sessionCapRefusalText", "file":"src/cost/company-session-cap.ts", "module":"src/cost/company-session-refusal.contract.ts", "mode":"observe", "sample":1 }
+  ,
+    {"id":"pbudget-C-1","criterion":"C-1 allocateConsumption(input): 消費は月間分から先に引き、足りないぶんだけ報酬分から引く。報酬分は残高を超えて引かない","symbol":"allocateConsumption","file":"src/personal-budget/allocation.ts","module":"src/personal-budget/allocation.contract.ts","mode":"observe","sample":1},
+    {"id":"pbudget-C-2","criterion":"C-2 consumptionDelta(lastTotal, total): 累積が増えていなければ 0 を返し、負の差分を数えない","symbol":"consumptionDelta","file":"src/personal-budget/allocation.ts","module":"src/personal-budget/consumption-delta.contract.ts","mode":"observe","sample":1},
+    {"id":"pbudget-C-3","criterion":"C-3 decideDispatch(input): 個人の予算が効いていない人は子会社の日次 budget だけで決まり、効いている人は全体超過か残り無しなら止まる","symbol":"decideDispatch","file":"src/personal-budget/dispatch-policy.ts","module":"src/personal-budget/dispatch-policy.contract.ts","mode":"observe","sample":1},
+    {"id":"pbudget-C-4","criterion":"C-4 decideReward(input): 同じ根拠では 2 回付けず、本社所属・個人を特定できない受取人には付けない","symbol":"decideReward","file":"src/personal-budget/reward-policy.ts","module":"src/personal-budget/reward-policy.contract.ts","mode":"observe","sample":1},
+    {"id":"pbudget-C-5","criterion":"C-5 decideAdjustment(input): 権限の無い操作者と理由の無い調整は受けず、減額は残高 0 までにする","symbol":"decideAdjustment","file":"src/personal-budget/adjustment-policy.ts","module":"src/personal-budget/adjustment-policy.contract.ts","mode":"observe","sample":1}
   ]
 }

@@ -136,6 +136,20 @@ admin path は app の admin auth middleware 配下にある。
 budget 超過時の dispatch 停止は runtime の `costStatus.blocked` を各 chat/delegation 経路が参照して
 実施する。本 API は状態の設定・表示面であり、個々の kill-switch 判定を再実装しない。
 
+### 個人の AI 予算との関係
+
+全体と子会社の日次 budget は本機能 (observability) が所有する。個人の月間分と報酬分は
+[個人の AI 予算](./personal-ai-budget.md) が所有し、本機能の table を書かない。
+
+- 子会社の受付 (`src/subsidiary/gate.ts`) は、子会社の日次 budget の超過と依頼者を個人の予算の port へ渡し、
+  「通してよいか・どこから引くか」を受け取る。個人の予算が効いていない依頼者 (月間分の上限が 0 かつ報酬分が 0、
+  本社、依頼者なし) は、従来どおり子会社の日次 budget だけで決まる。
+- 子会社が超過中でも、報酬分が残っている個人は通す。その間の消費は報酬分から引く。
+- 全体の日次 budget (`costStatus.blocked`) は port へ「超過中か」だけを渡す。個人の予算が効いている依頼者は
+  全体が超過中なら通さない。
+- 個人の消費の計上は、本機能と同じ provider ログの累積 (`readSessionUsage`) を読み、baseline は
+  個人の予算の側 (`personal_budget_session_seen`) が持つ。
+
 ## 永続データ
 
 実装上の主な table は `cost_daily_usage`、`cost_log_seen`、`cost_usage_samples`、

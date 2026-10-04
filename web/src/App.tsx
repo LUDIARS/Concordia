@@ -29,6 +29,7 @@ import { RuntimeVersion } from "./components/RuntimeVersion.js";
 import { Teams } from "./pages/Teams.js";
 import { Departments } from "./pages/Departments.js";
 import { RequesterProfiles } from "./pages/RequesterProfiles.js";
+import { PersonalBudget } from "./pages/PersonalBudget.js";
 import { ProjectCodes } from "./pages/ProjectCodes.js";
 import { DeveloperTools } from "./pages/DeveloperTools.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { to: "/subsidiaries", label: "子会社", section: "チーム" },
   { to: "/departments", label: "部署", section: "チーム" },
   { to: "/requester-profiles", label: "依頼者メモ", section: "チーム" },
+  { to: "/personal-budget", label: "個人の AI 予算", section: "チーム" },
   { to: "/prs", label: "PRs", section: "レビュー・PR" },
   { to: "/reports", label: "Reports", section: "レビュー・PR" },
   { to: "/delegation", label: "Delegation", section: "レビュー・PR" },
@@ -84,6 +86,7 @@ export function App() {
           <Route path="/teams" element={<Teams />} />
           <Route path="/departments" element={<Departments />} />
           <Route path="/requester-profiles" element={<RequesterProfiles />} />
+          <Route path="/personal-budget" element={<PersonalBudget />} />
           <Route path="/work" element={<Work />} />
           <Route path="/chores" element={<Chores />} />
           <Route path="/management" element={<Management />} />

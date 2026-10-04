@@ -8,6 +8,7 @@
     { "pathPattern": "(^|/)src/db/personal-budget-[^/]+-repo(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/personal-budget[^/]*\\.ts$" },
     { "pathPattern": "(^|/)src/discord/commands/(reward|budget)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/personal-budget-[^/]+\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/PersonalBudget[^/]*\\.tsx?$" },
     { "pathPattern": "(^|/)tests/personal-budget[^/]*\\.test\\.ts$" }
   ],

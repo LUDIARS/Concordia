@@ -86,6 +86,29 @@ describe("migration ledger", () => {
     }
   });
 
+  it("adds personal budget at 129 without changing an applied 128 ledger or usage budget", () => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter((entry) => entry.version <= 128), 128);
+      db.prepare("INSERT INTO usage_budgets(scope,target_id,limit_tokens,updated_at) VALUES ('user','prior-user',123,1)").run();
+      const before = db.prepare("SELECT version,name,checksum FROM schema_migrations ORDER BY version").all();
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT value FROM schema_meta WHERE key='version'").get()).toEqual({ value: String(SCHEMA_VERSION) });
+      expect(db.prepare("SELECT version,name,checksum FROM schema_migrations WHERE version <= 128 ORDER BY version").all()).toEqual(before);
+      expect(db.prepare("SELECT limit_tokens FROM usage_budgets WHERE target_id='prior-user'").get()).toEqual({ limit_tokens: 123 });
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version=129").get()).toEqual({ name: "personal-ai-budget" });
+      for (const name of ["personal_budget_people", "personal_budget_monthly_usage", "personal_budget_session_seen", "personal_budget_ledger"]) {
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toEqual({ name });
+      }
+      const columns = db.prepare("PRAGMA table_info(subsidiaries)").all() as Array<{ name: string; dflt_value: string | null }>;
+      expect(columns.find((column) => column.name === "personal_monthly_token_budget")?.dflt_value).toBe("0");
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version=129").get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("writes exactly the frozen checksums into a fresh ledger", () => {
     // 凍結値が「実装から再計算した値」ではなく「DB に実際に載る値」であることを、
     // migrator を通して確かめる。 ここが一致していれば、 本番 DB の schema_migrations と

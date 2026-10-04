@@ -21,6 +21,8 @@ import { BUDGET_RESUME_PREFIX, handleBudgetResumeButton } from "./budget-resume.
 import goalCommand from "./commands/goal.js";
 import correctCommand from "./commands/correct.js";
 import consultCommand from "./commands/consult.js";
+import budgetCommand from "./commands/budget.js";
+import rewardCommand from "./commands/reward.js";
 import { handleConsultApproval, handleConsultModalSubmit } from "./consult-flow.js";
 import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
 import {
@@ -86,6 +88,8 @@ const COMMANDS: DiscordCommandSpec[] = [
   goalCommand,
   correctCommand,
   consultCommand,
+  budgetCommand,
+  rewardCommand,
   effortCommand,
   relictorCommand,
   handoverCommand,

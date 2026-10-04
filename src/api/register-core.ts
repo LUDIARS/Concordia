@@ -121,6 +121,7 @@ import { buildLaunchContext } from "../dialogue/launch-context.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import { useCasesRouter, sessionCorrectionsRouter } from "./use-cases.js";
 import { requesterProfilesRouter } from "./requester-profiles.js";
+import { personalBudgetRouter, type PersonalBudgetApiDeps } from "./personal-budget.js";
 import type { UseCasesRepo } from "../db/use-cases-repo.js";
 import type { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
 import type { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
@@ -291,6 +292,8 @@ export interface CoreDelegationDeps {
   useCaseService?: UseCaseService;
   useCaseCorrections?: UseCaseCorrectionsRepo;
   requesterProfiles?: RequesterProfilesRepo;
+  /** 個人の AI 予算 (spec/feature/personal-ai-budget.md §7)。 未注入なら API は生えない。 */
+  personalBudget?: PersonalBudgetApiDeps;
   /** 事前ヒアリングの記録 (spec/feature/tech-consultation.md §3)。 未注入なら記録だけを省く。 */
   consultationIntakes?: ConsultationIntakesRepo;
   /**
@@ -813,6 +816,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   if (deps.requesterProfiles) {
     app.route("/v1/requester-profiles", requesterProfilesRouter({ repo: deps.requesterProfiles }));
+  }
+  if (deps.personalBudget) {
+    app.route("/v1/personal-budget", personalBudgetRouter(deps.personalBudget));
   }
   if (deps.privateChannels) {
     const privateChannels = deps.privateChannels;

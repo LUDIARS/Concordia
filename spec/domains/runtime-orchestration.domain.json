@@ -37,6 +37,7 @@
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
   "specRefs": [
+    "spec/feature/personal-ai-budget.md",
     "spec/feature/sidecar-lifecycle-model-refresh.md",
     "spec/feature/approval-inbox.md",
     "spec/feature/implementation-worktree.md",

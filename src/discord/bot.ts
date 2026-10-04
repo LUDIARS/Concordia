@@ -151,6 +151,8 @@ import { roleAtLeast } from "../staff/roles.js";
 import { PrivateConsultationService } from "../consultation/private-consultation-service.js";
 import { isProjectlessConsultDepartment } from "../consultation/projectless-consult.js";
 import { guildMemberIds } from "./guild-member-ids.js";
+import { createPersonalBudgetDiscord } from "./personal-budget-discord.js";
+import { startPeriodic, type PeriodicHandle } from "../personal-budget/periodic.js";
 import { createConsultationClosure } from "./consult-closure-wiring.js";
 import { dailySweepDay } from "../consultation/closure-policy.js";
 import { deliverUsageBudgetNotice } from "./usage-budget-notice.js";
@@ -193,6 +195,8 @@ const discordLog = createChildLogger("discord");
 // Discord autocomplete must acknowledge within three seconds. Leave time for
 // formatting and the gateway response even when the local Memoria service stalls.
 const AUTOCOMPLETE_MEMORIA_TIMEOUT_MS = 2_000;
+/** 個人の AI 予算の通知 (DM) を配達する周期。 */
+const PERSONAL_BUDGET_NOTICE_INTERVAL_MS = 60_000;
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
 // (cost channel unavailable 等の非失敗 warn はノイズになるので looksLikeFailure で除外)
 const log = {
@@ -714,6 +718,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ...headOfficePublication,
     log,
   };
+  // 個人の AI 予算 (personal-ai-budget.md §6 / §7)。 調整できるのは社員名簿の管理職以上。
+  const personalBudgetDiscord = createPersonalBudgetDiscord({
+    db: deps.db,
+    client,
+    runtimeSubsidiaryId: subsidiaryId ?? null,
+    isApprover: (userId) => roleAtLeast(staffRepo.roleOf("discord", userId), "manager"),
+    log,
+  });
   /** セッションの終了・消失で相談を閉じる (チャンネルの lock は session-channel.ts が行う)。 */
   const closePrivateConsultationOf = (sessionId: string): void => {
     const consultation = privateConsultationsRepo.findBySession(sessionId);
@@ -936,6 +948,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
   let consultClosureTimer: ReturnType<typeof setInterval> | null = null;
+  let personalBudgetNoticeLoop: PeriodicHandle | null = null;
   let commandRegistrationWatch: CommandRegistrationWatchHandle | null = null;
   let reactionListenerTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
@@ -1082,6 +1095,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
     if (consultClosureTimer) { clearInterval(consultClosureTimer); consultClosureTimer = null; }
+    personalBudgetNoticeLoop?.stop();
+    personalBudgetNoticeLoop = null;
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
     if (reactionListenerTimer) { clearInterval(reactionListenerTimer); reactionListenerTimer = null; }
     if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
@@ -1574,6 +1589,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           .catch((e) => log.warn(`consultation closure sweep failed: ${(e as Error).message}`));
       }, 60 * 60 * 1000);
       consultClosureTimer.unref?.();
+      // 個人の AI 予算の付与・調整を本人へ DM で知らせる (personal-ai-budget.md §4)。 配達は本社の
+      // runtime 1 つだけが回す (子会社の runtime と重ねて同じ行を二重に送らない)。
+      if (!subsidiaryId && !personalBudgetNoticeLoop) {
+        personalBudgetNoticeLoop = startPeriodic({
+          name: "personal budget notices",
+          intervalMs: PERSONAL_BUDGET_NOTICE_INTERVAL_MS,
+          run: () => personalBudgetDiscord.notifications.deliverPending(),
+          log,
+        });
+      }
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
       } else {
@@ -2103,6 +2128,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       isSessionControlUserAllowed,
       // プライベート相談。 子会社 Bot は自社のプロジェクトを持たない相談部署だけを扱う (tech-consultation.md §6)。
       consult: consultDeps,
+      personalBudget: personalBudgetDiscord.commands,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
       // guild 側に残った登録から実行されうるので dispatch でも同じ判定を通す。

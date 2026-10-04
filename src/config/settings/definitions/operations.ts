@@ -7,6 +7,32 @@
  */
 
 import type { SettingDefinition } from "../types.js";
+import { REWARD_SETTINGS, type RewardTier } from "../../../personal-budget/reward-settings.js";
+
+const REWARD_TIER_LABEL: Record<RewardTier, string> = {
+  "bounty.s1": "バグ報告の報奨 (s1)",
+  "bounty.s2": "バグ報告の報奨 (s2)",
+  "bounty.s3": "バグ報告の報奨 (s3)",
+  "bounty.s4": "バグ報告の報奨 (s4)",
+  tabula: "Tabula 公開の報奨",
+};
+
+/** 個人の AI 予算の報奨の加算量。 キーと既定値の正本は personal-budget/reward-settings.ts。 */
+function personalBudgetRewardSettings(): SettingDefinition[] {
+  return (Object.keys(REWARD_SETTINGS) as RewardTier[]).map((tier) => ({
+    key: REWARD_SETTINGS[tier].key,
+    section: "runtime",
+    label: `個人の AI 予算: ${REWARD_TIER_LABEL[tier]}`,
+    description: "報酬分へ加算するトークン数。 0 でこの報奨を付けない。 付与済みのぶんは変わらない。",
+    kind: "integer",
+    envName: null,
+    dbKey: REWARD_SETTINGS[tier].key,
+    defaultValue: REWARD_SETTINGS[tier].defaultTokens,
+    editable: true,
+    minValue: 0,
+    maxValue: 1_000_000_000,
+  }));
+}
 
 function envBoolean(
   key: string,
@@ -375,6 +401,9 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
     minValue: 0,
   },
+  // 個人の AI 予算の報奨の加算量 (spec/feature/personal-ai-budget.md §5)。 既定は提案値。
+  // 変更は以後の付与にだけ効き、 付与済みのぶんは遡って変えない。
+  ...personalBudgetRewardSettings(),
   {
     key: "runtime.head_office_max_sessions",
     section: "runtime",

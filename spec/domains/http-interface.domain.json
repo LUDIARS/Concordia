@@ -49,6 +49,7 @@
   ],
   "cardTemplate": "Summarise the \"http-interface\" domain: External access surfaces: the HTTP/Hono REST API that hooks report to, the MCP server, and the web monitoring frontend.",
   "specRefs": [
+    "spec/feature/personal-ai-budget.md",
     "spec/feature/sidecar-lifecycle-model-refresh.md",
     "spec/interface/model-catalog-port.md",
     "spec/feature/planning-adjustment.md",

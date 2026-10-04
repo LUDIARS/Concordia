@@ -97,6 +97,10 @@ import { pushWarningText } from "../control/push-warning.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
+import { createPersonalBudget } from "../personal-budget/composition.js";
+import { PersonalBudgetConsumption } from "../personal-budget/consumption-service.js";
+import { consumptionSessionOf } from "../personal-budget/session-facts.js";
+import { startPeriodic } from "../personal-budget/periodic.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { repinSession } from "../control/repin-session.js";
 import { AdminState } from "../admin/state.js";
@@ -326,6 +330,10 @@ import { InboxItemStateRepo } from "../db/inbox-item-state-repo.js";
  * それより古い分は zip アーカイブ側へ寄せて concordia.db の肥大を抑える。
  */
 const LOG_RETENTION_DAYS_DEFAULT = 7;
+
+/** 個人の AI 予算の消費を数える周期と、 対象にする「最近動いたセッション」の窓。 */
+const PERSONAL_BUDGET_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
+const PERSONAL_BUDGET_SESSION_WINDOW_SEC = 2 * 24 * 60 * 60;
 
 const log = createChildLogger("server");
 
@@ -1542,6 +1550,40 @@ export async function startBackend(): Promise<BackendHandle> {
   const costOneShotsRepo = costRuntime.oneShotsRepo;
   const isCostBlocked = () => (costMode === "off" ? false : costRuntime.tracker.isBlocked());
 
+  // 個人の AI 予算 (spec/feature/personal-ai-budget.md)。 全体・子会社の日次 budget は observability が
+  // 持ち、 ここへは「超過中か」だけを渡す。 消費の計上は Cc 本体だけが周期で回す (baseline は DB)。
+  const personalBudget = createPersonalBudget({
+    db,
+    subsidiaryMonthlyDefault: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.personal_monthly_token_budget ?? null,
+    isGlobalOver: isCostBlocked,
+    readSetting: readMetaSetting,
+    log,
+  });
+  const personalBudgetConsumption = new PersonalBudgetConsumption({
+    sessions: () => repo
+      .listSessionsSeenSince(Math.floor(Date.now() / 1000) - PERSONAL_BUDGET_SESSION_WINDOW_SEC)
+      .map(consumptionSessionOf),
+    readTotal: async (sessionId) => {
+      const session = repo.findSession(sessionId);
+      if (!session) return null;
+      return (await readSessionUsage(session, transcriptLogs))?.total ?? null;
+    },
+    people: personalBudget.people,
+    usage: personalBudget.usage,
+    monthlyLimit: personalBudget.monthlyLimit,
+    isSubsidiaryOver: async (subsidiaryId) => {
+      const subsidiary = subsidiaryRepo.find(subsidiaryId);
+      return subsidiary ? subsidiaryBudget.isOverBudget(subsidiary) : false;
+    },
+    log,
+  });
+  const personalBudgetConsumptionLoop = startPeriodic({
+    name: "personal budget consumption",
+    intervalMs: PERSONAL_BUDGET_SAMPLE_INTERVAL_MS,
+    run: () => personalBudgetConsumption.sampleOnce(),
+    log,
+  });
+
   // コストサンプリングは workflow.cost に属する。 無効な間は起動しない。
   workflowBindings.register({
     key: "cost",
@@ -1926,6 +1968,7 @@ export async function startBackend(): Promise<BackendHandle> {
     headOfficeDiscord: () => resolveDiscordConfig(discordConfig, secretBox),
     runClaude,
     budgetTracker: subsidiaryBudget,
+    personalBudget: personalBudget.dispatch,
     baseDiscordDeps: () => {
       // resolveConfig / subsidiary は manager が差し替える。本社の runtime state と再訪通知
       // callback は子会社へ渡さない (別 guild の投稿で本社向け通知を発火させないため)。
@@ -2068,6 +2111,13 @@ export async function startBackend(): Promise<BackendHandle> {
     useCaseService,
     useCaseCorrections: useCaseCorrectionsRepo,
     requesterProfiles: requesterProfilesRepo,
+    personalBudget: {
+      people: personalBudget.people,
+      ledger: personalBudget.ledger,
+      view: personalBudget.view,
+      adjustments: personalBudget.adjustments,
+      subsidiaryExists: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.mode === "subsidiary",
+    },
     consultationIntakes: consultationIntakesRepo,
     // プロジェクトを持たない相談部署の作業ディレクトリ (tech-consultation.md §6)。 役職ごとのフォルダを置く場所で、
     // 既定は Castra (E:/Document/Ars) の外の E:/Document/Consult。 Castra のメモリやワークフローを引き継がない
@@ -2979,6 +3029,7 @@ export async function startBackend(): Promise<BackendHandle> {
     clearInterval(workflowWorkerWatch);
   });
   resources.own("cost runtime", () => costRuntime.stop());
+  resources.own("personal budget consumption", () => personalBudgetConsumptionLoop.stop());
   resources.own("discord restart timer", () => clearDiscordBotAutoRestart());
   resources.own("post-listen startup", () => postListenStartup.catch(() => {}));
   resources.own("discord bot", () => stopDiscordBotManaged());

@@ -177,33 +177,7 @@
         "CC-DISCORD-PHASE-TITLE-01"
       ]
     },
-    {
-      "source": "src/discord/bot.ts",
-      "tests": [
-        "src/discord/forum-phase-sync.test.ts",
-        "src/discord/session-channel.test.ts",
-        "src/discord/chores.test.ts",
-        "tests/chores-wiring.test.ts",
-        "src/discord/sprint-dialogues.test.ts",
-        "src/discord/sprint-dialogues-input.test.ts",
-        "src/discord/taskworkflow-orphan-policy.test.ts",
-        "src/discord/taskworkflow-orphan-reconcile.test.ts",
-        "src/discord/actio-backlog-command.test.ts",
-        "src/platform/actio-chat-admission.test.ts"
-      ],
-      "contracts": [
-        "CC-DISCORD-PHASE-TITLE-01",
-        "CC-CHORES-01",
-        "CC-SD-01",
-        "CC-SD-02",
-        "CC-SD-03",
-        "CC-SD-04",
-        "CC-SD-05",
-        "CC-SD-06",
-        "CC-DISCORD-TASK-ORPHAN-01",
-        "CC-ACTIO-CHAT-COMMAND-01"
-      ]
-    },
+    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts","src/discord/forum-phase-sync.test.ts","src/discord/session-channel.test.ts","src/discord/chores.test.ts","tests/chores-wiring.test.ts","src/discord/sprint-dialogues.test.ts","src/discord/sprint-dialogues-input.test.ts","src/discord/taskworkflow-orphan-policy.test.ts","src/discord/taskworkflow-orphan-reconcile.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts"],"contracts":["CC-DISCORD-PHASE-TITLE-01","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-DISCORD-TASK-ORPHAN-01","CC-ACTIO-CHAT-COMMAND-01"]},
     {
       "source": "src/harness/reliability/guidance.ts",
       "tests": [
@@ -239,27 +213,8 @@
       "tests": ["src/control/startup-policy.test.ts"],
       "contracts": []
     },
-    {
-      "source": "src/api/harness-session.ts",
-      "tests": [
-        "src/api/harness-session.test.ts",
-        "src/api/harness-session-project-policy.test.ts",
-        "tests/harness-reliability/task-branch.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-    "source":  "src/api/delegation.ts",
-    "tests":  [
-                  "tests/blocks/agent-delegation/delegation-template.block.test.ts",
-                  "src/api/internal-agent-selection.test.ts",
-                  "src/api/delegation-partial.test.ts",
-                  "src/delegation/sidecar/lifecycle.test.ts"
-              ],
-    "contracts":  [
-                      "CC-TF-SESSION-01"
-                  ]
-},
+    {"source":"src/api/harness-session.ts","tests":["src/api/harness-session-budget.test.ts","src/api/harness-session.test.ts","src/api/harness-session-project-policy.test.ts","tests/harness-reliability/task-branch.test.ts","src/api/harness-session-departments.test.ts"],"contracts":[]},
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {
       "source": "src/api/chat.ts",
       "tests": [
@@ -359,70 +314,8 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/api/register-core.ts",
-      "tests": [
-        "tests/harness-reliability/task-branch.test.ts",
-        "tests/harness-reliability/conflux.test.ts",
-        "src/api/chores.test.ts",
-        "tests/chores-wiring.test.ts",
-        "src/api/sprint-dialogues.test.ts",
-        "src/api/developer-tools.test.ts",
-        "src/platform/actio-chat-policy.test.ts",
-        "src/api/sessions/startup-policy-check.test.ts",
-        "src/api/developer-tools-catalog.test.ts"
-      ],
-      "contracts": [
-        "CC-CHORES-01",
-        "CC-SD-01",
-        "CC-SD-02",
-        "CC-SD-03",
-        "CC-SD-04",
-        "CC-SD-05",
-        "CC-SD-06",
-        "CC-TOOLS-01",
-        "CC-TOOLS-02",
-        "CC-TOOLS-03",
-        "CC-ACTIO-CHAT-01",
-        "CC-COMMAND-CATALOG-01"
-      ]
-    },
-    {
-      "source": "src/bootstrap/core.ts",
-      "tests": [
-        "tests/harness-reliability/task-branch.test.ts",
-        "src/chores/runtime.test.ts",
-        "tests/chores-wiring.test.ts",
-        "src/taskflow/actio-project-binding.test.ts",
-        "src/implementation-tools/worktree.test.ts",
-        "src/inbox/pending-plans.test.ts",
-        "src/api/sprint-dialogues.test.ts",
-        "src/discord/sprint-dialogues.test.ts",
-        "src/api/developer-tools.test.ts",
-        "src/developer-tools/service.test.ts",
-        "src/platform/actio-chat-policy.test.ts",
-        "src/platform/actio-chat-config.test.ts",
-        "src/platform/actio-chat-destination.test.ts",
-        "src/discord/actio-backlog-command.test.ts",
-        "src/platform/actio-chat-admission.test.ts"
-      ],
-      "contracts": [
-        "CC-CHORES-01",
-        "CC-AT-DISCOVERY-01",
-        "CC-INBOX-PLAN-01",
-        "CC-SD-01",
-        "CC-SD-02",
-        "CC-SD-03",
-        "CC-SD-04",
-        "CC-SD-05",
-        "CC-SD-06",
-        "CC-TOOLS-01",
-        "CC-TOOLS-02",
-        "CC-TOOLS-03",
-        "CC-ACTIO-CHAT-01",
-        "CC-ACTIO-CHAT-COMMAND-01"
-      ]
-    },
+    {"source":"src/api/register-core.ts","tests":["tests/projectless-consult-spawn.test.ts","tests/harness-reliability/task-branch.test.ts","tests/harness-reliability/conflux.test.ts","src/api/chores.test.ts","tests/chores-wiring.test.ts","src/api/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/platform/actio-chat-policy.test.ts","src/api/sessions/startup-policy-check.test.ts","src/api/developer-tools-catalog.test.ts","src/api/inject-sources.test.ts","tests/departments-spawn.test.ts","tests/dialogue-context-spawn.test.ts"],"contracts":["CC-CONSULT-INV-11","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-COMMAND-CATALOG-01"]},
+    {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts","tests/harness-reliability/task-branch.test.ts","src/chores/runtime.test.ts","tests/chores-wiring.test.ts","src/taskflow/actio-project-binding.test.ts","src/implementation-tools/worktree.test.ts","src/inbox/pending-plans.test.ts","src/api/sprint-dialogues.test.ts","src/discord/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/developer-tools/service.test.ts","src/platform/actio-chat-policy.test.ts","src/platform/actio-chat-config.test.ts","src/platform/actio-chat-destination.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts","src/api/inject-sources.test.ts","src/control/startup-policy.test.ts"],"contracts":["CC-CHORES-01","CC-AT-DISCOVERY-01","CC-INBOX-PLAN-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-ACTIO-CHAT-COMMAND-01"]},
     {
       "source": "src/harness/reliability/hook-service.ts",
       "tests": [
@@ -726,15 +619,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/delegation/actio-task.ts",
-      "tests": [
-        "src/delegation/actio-task.test.ts"
-      ],
-      "contracts": [
-        "CC-TF-SESSION-01"
-      ]
-    },
+    {"source":"src/delegation/actio-task.ts","tests":["src/delegation/actio-task.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-SESSION-01"]},
     {
       "source": "src/delegation/implementation-inject.ts",
       "tests": [
@@ -764,14 +649,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/delegation/service.ts",
-      "tests": [
-        "src/delegation/service.test.ts",
-        "src/api/delegation-partial.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/delegation/service.ts","tests":["src/delegation/service.test.ts","src/api/delegation-invoke-team.test.ts","src/api/delegation-partial.test.ts","tests/departments-spawn.test.ts"],"contracts":["CC-AT-TEAM-02"]},
     {
       "source": "src/director/walk-materials.ts",
       "tests": [
@@ -815,47 +693,9 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/taskflow/actio-binding.ts",
-      "tests": [
-        "src/taskflow/actio-binding.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-LOCAL-01",
-        "CC-AT-CONFIG-01",
-        "CC-AT-DISCOVERY-01",
-        "CC-AT-TEAM-01"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-store.ts",
-      "tests": [
-        "src/taskflow/actio-store.test.ts",
-        "src/taskflow/actio-project-binding.test.ts",
-        "src/taskflow/task-session-flow.test.ts",
-        "src/api/taskflow-project-scope.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-DISCOVERY-01",
-        "CC-TF-SESSION-01",
-        "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02",
-        "CC-AT-SCOPE-01"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-task-client.ts",
-      "tests": [
-        "src/taskflow/actio-task-client.test.ts",
-        "src/taskflow/task-session-flow.test.ts"
-      ],
-      "contracts": [
-        "CC-TF-SESSION-01",
-        "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02",
-        "CC-AT-TEAM-01"
-      ]
-    },
+    {"source":"src/taskflow/actio-binding.ts","tests":["src/taskflow/actio-project-binding.test.ts","src/taskflow/actio-binding.test.ts"],"contracts":["CC-AT-TEAM-02","CC-AT-LOCAL-01","CC-AT-CONFIG-01","CC-AT-DISCOVERY-01","CC-AT-TEAM-01"]},
+    {"source":"src/taskflow/actio-store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/actio-project-binding.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-task-client.test.ts","src/taskflow/task-session-flow.test.ts","src/taskflow/actio-team-selection.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-TEAM-01","CC-AT-TEAM-02"]},
     {
       "source": "src/taskflow/actio-transport.ts",
       "tests": [
@@ -919,21 +759,7 @@
         "CC-ACTIO-PR-GOAL-02"
       ]
     },
-    {
-      "source": "src/taskflow/failure.ts",
-      "tests": [
-        "src/taskflow/failure.test.ts",
-        "src/api/taskflow-failure.test.ts",
-        "src/taskflow/task-session-flow.test.ts",
-        "src/api/taskflow-project-scope.test.ts"
-      ],
-      "contracts": [
-        "CC-TF-DIAG-01",
-        "CC-AT-DISCOVERY-01",
-        "CC-TF-SESSION-01",
-        "CC-AT-SCOPE-01"
-      ]
-    },
+    {"source":"src/taskflow/failure.ts","tests":["src/delegation/seal-failure.test.ts","src/taskflow/failure.test.ts","src/api/taskflow-failure.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-DIAG-01","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-AT-SCOPE-01"]},
     {
       "source": "src/taskflow/goal-machine.ts",
       "tests": [
@@ -956,20 +782,7 @@
         "CC-TF-SESSION-01"
       ]
     },
-    {
-      "source": "src/taskflow/store.ts",
-      "tests": [
-        "src/taskflow/actio-store.test.ts",
-        "src/taskflow/task-session-flow.test.ts",
-        "src/api/taskflow-project-scope.test.ts"
-      ],
-      "contracts": [
-        "CC-TF-SESSION-01",
-        "CC-ACTIO-PR-GOAL-01",
-        "CC-ACTIO-PR-GOAL-02",
-        "CC-AT-SCOPE-01"
-      ]
-    },
+    {"source":"src/taskflow/store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
     {
       "source": "src/taskflow/task-instructions.ts",
       "tests": [
@@ -1175,18 +988,7 @@
         "CC-CHORES-01"
       ]
     },
-    {
-      "source": "src/taskflow/actio-project-binding.ts",
-      "tests": [
-        "src/taskflow/actio-project-binding.test.ts",
-        "src/api/taskflow-project-scope.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-DISCOVERY-01",
-        "CC-AT-TEAM-01",
-        "CC-AT-SCOPE-01"
-      ]
-    },
+    {"source":"src/taskflow/actio-project-binding.ts","tests":["src/taskflow/actio-project-binding.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-AT-TEAM-02","actio-team-C-5","CC-AT-DISCOVERY-01","CC-AT-TEAM-01","CC-AT-SCOPE-01"]},
     {
       "source": "src/taskflow/actio-projects.ts",
       "tests": [
@@ -1989,11 +1791,7 @@
       "tests": ["src/control/workflow-inject-defaults.test.ts"],
       "contracts": []
     },
-    {
-      "source": "src/bootstrap/core.ts",
-      "tests": ["src/api/inject-sources.test.ts", "src/control/startup-policy.test.ts"],
-      "contracts": []
-    },
+    {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts","tests/harness-reliability/task-branch.test.ts","src/chores/runtime.test.ts","tests/chores-wiring.test.ts","src/taskflow/actio-project-binding.test.ts","src/implementation-tools/worktree.test.ts","src/inbox/pending-plans.test.ts","src/api/sprint-dialogues.test.ts","src/discord/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/developer-tools/service.test.ts","src/platform/actio-chat-policy.test.ts","src/platform/actio-chat-config.test.ts","src/platform/actio-chat-destination.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts","src/api/inject-sources.test.ts","src/control/startup-policy.test.ts"],"contracts":["CC-CHORES-01","CC-AT-DISCOVERY-01","CC-INBOX-PLAN-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-ACTIO-CHAT-COMMAND-01"]},
     {
       "source": "src/chat-worker.ts",
       "tests": ["src/delegation/service.test.ts"],
@@ -2009,11 +1807,7 @@
       "tests": ["src/delegation/seed.test.ts", "src/db/delegation-repo.test.ts"],
       "contracts": []
     },
-    {
-      "source": "src/api/register-core.ts",
-      "tests": ["src/api/inject-sources.test.ts"],
-      "contracts": []
-    },
+    {"source":"src/api/register-core.ts","tests":["tests/projectless-consult-spawn.test.ts","tests/harness-reliability/task-branch.test.ts","tests/harness-reliability/conflux.test.ts","src/api/chores.test.ts","tests/chores-wiring.test.ts","src/api/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/platform/actio-chat-policy.test.ts","src/api/sessions/startup-policy-check.test.ts","src/api/developer-tools-catalog.test.ts","src/api/inject-sources.test.ts","tests/departments-spawn.test.ts","tests/dialogue-context-spawn.test.ts"],"contracts":["CC-CONSULT-INV-11","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-COMMAND-CATALOG-01"]},
     {
       "source": "src/api/inject-sources.ts",
       "tests": ["src/api/inject-sources.test.ts"],
@@ -2047,11 +1841,7 @@
       "tests": ["src/api/sessions/human-wait.test.ts"],
       "contracts": []
     },
-    {
-      "source": "src/work/session-task-links.ts",
-      "tests": ["src/work/session-task-links.test.ts"],
-      "contracts": []
-    },
+    {"source":"src/work/session-task-links.ts","tests":["src/work/session-task-links.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP"]},
     {
       "source": "src/api/sessions/task-links.ts",
       "tests": ["src/api/sessions/task-links.test.ts"],
@@ -2072,11 +1862,7 @@
       "tests": ["src/api/sessions/routes.test.ts"],
       "contracts": []
     },
-    {
-      "source": "src/discord/cc-inject-mirror.ts",
-      "tests": ["src/discord/cc-inject-mirror.test.ts"],
-      "contracts": []
-    },
+    {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]},
     {
       "source": "src/discord/cc-inject-mirror.contract.ts",
       "tests": ["src/discord/cc-inject-mirror.test.ts"],
@@ -2440,17 +2226,7 @@
         "CC-ASTRA-WITH-SIDECAR"
       ]
     },
-    {
-      "source": "src/delegation/contracts.ts",
-      "tests": [
-        "src/delegation/service.test.ts",
-        "src/delegation/sidecar/invoke-guard.test.ts",
-        "src/control/conversation/cc-ports.test.ts"
-      ],
-      "contracts": [
-        "CC-ASTRA-WITH-SIDECAR"
-      ]
-    },
+    {"source":"src/delegation/contracts.ts","tests":["src/delegation/actio-task.test.ts","src/api/delegation-invoke-team.test.ts","src/delegation/service.test.ts","src/delegation/sidecar/invoke-guard.test.ts","src/control/conversation/cc-ports.test.ts"],"contracts":["CC-AT-TEAM-02","CC-ASTRA-WITH-SIDECAR"]},
     {
       "source": "src/discord/ingress.ts",
       "tests": [
@@ -2561,28 +2337,9 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/api/harness-session.ts",
-      "tests": [
-        "src/api/harness-session-departments.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "src/api/register-core.ts",
-      "tests": [
-        "tests/departments-spawn.test.ts",
-        "tests/dialogue-context-spawn.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "src/delegation/service.ts",
-      "tests": [
-        "tests/departments-spawn.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/api/harness-session.ts","tests":["src/api/harness-session-budget.test.ts","src/api/harness-session.test.ts","src/api/harness-session-project-policy.test.ts","tests/harness-reliability/task-branch.test.ts","src/api/harness-session-departments.test.ts"],"contracts":[]},
+    {"source":"src/api/register-core.ts","tests":["tests/projectless-consult-spawn.test.ts","tests/harness-reliability/task-branch.test.ts","tests/harness-reliability/conflux.test.ts","src/api/chores.test.ts","tests/chores-wiring.test.ts","src/api/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/platform/actio-chat-policy.test.ts","src/api/sessions/startup-policy-check.test.ts","src/api/developer-tools-catalog.test.ts","src/api/inject-sources.test.ts","tests/departments-spawn.test.ts","tests/dialogue-context-spawn.test.ts"],"contracts":["CC-CONSULT-INV-11","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-COMMAND-CATALOG-01"]},
+    {"source":"src/delegation/service.ts","tests":["src/delegation/service.test.ts","src/api/delegation-invoke-team.test.ts","src/api/delegation-partial.test.ts","tests/departments-spawn.test.ts"],"contracts":["CC-AT-TEAM-02"]},
     {
       "source": "src/dialogue/formats.ts",
       "tests": [
@@ -2715,13 +2472,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/db/sessions-repo.ts",
-      "tests": [
-        "tests/departments-spawn.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/db/sessions-repo.ts","tests":["src/cost/budget-resume.test.ts","tests/departments-spawn.test.ts"],"contracts":[]},
     {
       "source": "src/db/teams-repo.ts",
       "tests": [
@@ -2802,13 +2553,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "web/src/pages/departments/DepartmentEditor.tsx",
-      "tests": [
-        "web/src/pages/Departments.test.tsx"
-      ],
-      "contracts": []
-    },
+    {"source":"web/src/pages/departments/DepartmentEditor.tsx","tests":["web/src/pages/departments/DepartmentEditor.budget.test.tsx","web/src/pages/Departments.test.tsx"],"contracts":[]},
     {
       "source": "web/src/pages/RequesterProfiles.tsx",
       "tests": [
@@ -3170,45 +2915,10 @@
         "actio-team-C-1"
       ]
     },
-    {
-      "source": "src/delegation/service.ts",
-      "tests": [
-        "src/delegation/service.test.ts",
-        "src/api/delegation-invoke-team.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/delegation/actio-task.ts",
-      "tests": [
-        "src/delegation/actio-task.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/delegation/contracts.ts",
-      "tests": [
-        "src/delegation/actio-task.test.ts",
-        "src/api/delegation-invoke-team.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-    "source":  "src/api/delegation.ts",
-    "tests":  [
-                  "src/api/delegation-invoke-team.test.ts",
-                  "src/delegation/sidecar/lifecycle.test.ts"
-              ],
-    "contracts":  [
-                      "CC-AT-TEAM-02"
-                  ]
-},
+    {"source":"src/delegation/service.ts","tests":["src/delegation/service.test.ts","src/api/delegation-invoke-team.test.ts","src/api/delegation-partial.test.ts","tests/departments-spawn.test.ts"],"contracts":["CC-AT-TEAM-02"]},
+    {"source":"src/delegation/actio-task.ts","tests":["src/delegation/actio-task.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-SESSION-01"]},
+    {"source":"src/delegation/contracts.ts","tests":["src/delegation/actio-task.test.ts","src/api/delegation-invoke-team.test.ts","src/delegation/service.test.ts","src/delegation/sidecar/invoke-guard.test.ts","src/control/conversation/cc-ports.test.ts"],"contracts":["CC-AT-TEAM-02","CC-ASTRA-WITH-SIDECAR"]},
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {
       "source": "src/mcp/delegation-server.ts",
       "tests": [
@@ -3218,62 +2928,12 @@
         "CC-AT-TEAM-02"
       ]
     },
-    {
-      "source": "src/taskflow/actio-project-binding.ts",
-      "tests": [
-        "src/taskflow/actio-project-binding.test.ts",
-        "src/api/taskflow-project-scope.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02",
-        "actio-team-C-5"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-store.ts",
-      "tests": [
-        "src/taskflow/actio-store.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-task-client.ts",
-      "tests": [
-        "src/taskflow/actio-team-selection.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-binding.ts",
-      "tests": [
-        "src/taskflow/actio-project-binding.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/taskflow/store.ts",
-      "tests": [
-        "src/taskflow/actio-store.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
-    {
-      "source": "src/taskflow/failure.ts",
-      "tests": [
-        "src/delegation/seal-failure.test.ts"
-      ],
-      "contracts": [
-        "CC-AT-TEAM-02"
-      ]
-    },
+    {"source":"src/taskflow/actio-project-binding.ts","tests":["src/taskflow/actio-project-binding.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-AT-TEAM-02","actio-team-C-5","CC-AT-DISCOVERY-01","CC-AT-TEAM-01","CC-AT-SCOPE-01"]},
+    {"source":"src/taskflow/actio-store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/actio-project-binding.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-task-client.test.ts","src/taskflow/task-session-flow.test.ts","src/taskflow/actio-team-selection.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-TEAM-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/actio-binding.ts","tests":["src/taskflow/actio-project-binding.test.ts","src/taskflow/actio-binding.test.ts"],"contracts":["CC-AT-TEAM-02","CC-AT-LOCAL-01","CC-AT-CONFIG-01","CC-AT-DISCOVERY-01","CC-AT-TEAM-01"]},
+    {"source":"src/taskflow/store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/failure.ts","tests":["src/delegation/seal-failure.test.ts","src/taskflow/failure.test.ts","src/api/taskflow-failure.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-DIAG-01","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-AT-SCOPE-01"]},
     {
       "source": "src/delegation/ontime-runtime.ts",
       "tests": [
@@ -3458,15 +3118,7 @@
         "CC-CONSULT-INV-11"
       ]
     },
-    {
-      "source": "src/api/register-core.ts",
-      "tests": [
-        "tests/projectless-consult-spawn.test.ts"
-      ],
-      "contracts": [
-        "CC-CONSULT-INV-11"
-      ]
-    },
+    {"source":"src/api/register-core.ts","tests":["tests/projectless-consult-spawn.test.ts","tests/harness-reliability/task-branch.test.ts","tests/harness-reliability/conflux.test.ts","src/api/chores.test.ts","tests/chores-wiring.test.ts","src/api/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/platform/actio-chat-policy.test.ts","src/api/sessions/startup-policy-check.test.ts","src/api/developer-tools-catalog.test.ts","src/api/inject-sources.test.ts","tests/departments-spawn.test.ts","tests/dialogue-context-spawn.test.ts"],"contracts":["CC-CONSULT-INV-11","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-COMMAND-CATALOG-01"]},
     {
       "source": "src/discord/guild-member-ids.ts",
       "tests": [
@@ -3605,33 +3257,9 @@
         "CC-TASK-LINKED-FOLLOWUP"
       ]
     },
-    {
-      "source": "src/taskflow/actio-task-client.ts",
-      "tests": [
-        "src/taskflow/actio-reference-read.test.ts"
-      ],
-      "contracts": [
-        "CC-TASK-LINKED-FOLLOWUP"
-      ]
-    },
-    {
-      "source": "src/taskflow/actio-store.ts",
-      "tests": [
-        "src/taskflow/actio-reference-read.test.ts"
-      ],
-      "contracts": [
-        "CC-TASK-LINKED-FOLLOWUP"
-      ]
-    },
-    {
-      "source": "src/taskflow/store.ts",
-      "tests": [
-        "src/taskflow/actio-reference-read.test.ts"
-      ],
-      "contracts": [
-        "CC-TASK-LINKED-FOLLOWUP"
-      ]
-    },
+    {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-task-client.test.ts","src/taskflow/task-session-flow.test.ts","src/taskflow/actio-team-selection.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-TEAM-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/actio-store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/actio-project-binding.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
+    {"source":"src/taskflow/store.ts","tests":["src/taskflow/actio-reference-read.test.ts","src/taskflow/actio-store.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP","CC-TF-SESSION-01","CC-ACTIO-PR-GOAL-01","CC-ACTIO-PR-GOAL-02","CC-AT-SCOPE-01","CC-AT-TEAM-02"]},
     {
       "source": "src/work/session-task-links.ts",
       "tests": [
@@ -3698,13 +3326,7 @@
         "CC-RV-LIST-SCOPE-01"
       ]
     },
-    {
-      "source": "src/api/prs.ts",
-      "tests": [
-        "tests/blocks/revisor-local-pr/direct-submission.block.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/api/prs.ts","tests":["tests/blocks/revisor-local-pr/direct-submission.block.test.ts","src/api/prs.test.ts"],"contracts":["CC-RV-LIST-SCOPE-01"]},
     {
       "source": "src/cost/usage-budget.ts",
       "tests": [
@@ -3915,27 +3537,9 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/api/harness-session.ts",
-      "tests": [
-        "src/api/harness-session-budget.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "web/src/pages/departments/DepartmentEditor.tsx",
-      "tests": [
-        "web/src/pages/departments/DepartmentEditor.budget.test.tsx"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "src/db/sessions-repo.ts",
-      "tests": [
-        "src/cost/budget-resume.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/api/harness-session.ts","tests":["src/api/harness-session-budget.test.ts","src/api/harness-session.test.ts","src/api/harness-session-project-policy.test.ts","tests/harness-reliability/task-branch.test.ts","src/api/harness-session-departments.test.ts"],"contracts":[]},
+    {"source":"web/src/pages/departments/DepartmentEditor.tsx","tests":["web/src/pages/departments/DepartmentEditor.budget.test.tsx","web/src/pages/Departments.test.tsx"],"contracts":[]},
+    {"source":"src/db/sessions-repo.ts","tests":["src/cost/budget-resume.test.ts","tests/departments-spawn.test.ts"],"contracts":[]},
     {
       "source": "tools/concordia-codex-worker.mjs",
       "tests": ["tools/concordia-codex-worker-events.test.mjs"],
@@ -4305,15 +3909,9 @@
     {"source":"src/consultation/consult-log-jst.contract.ts","tests":["src/consultation/consult-log-markdown.test.ts"],"contracts":[]},
     {"source":"src/consultation/consult-log-writer.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":["consult-log-C-5"]},
     {"source":"src/consultation/consult-log-writer.contract.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
-    {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts"],"contracts":[]},
-    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts"],"contracts":[]},
-    {
-      "source": "src/discord/guild-member-ids.ts",
-      "tests": [
-        "src/discord/guild-member-ids.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts","tests/harness-reliability/task-branch.test.ts","src/chores/runtime.test.ts","tests/chores-wiring.test.ts","src/taskflow/actio-project-binding.test.ts","src/implementation-tools/worktree.test.ts","src/inbox/pending-plans.test.ts","src/api/sprint-dialogues.test.ts","src/discord/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/developer-tools/service.test.ts","src/platform/actio-chat-policy.test.ts","src/platform/actio-chat-config.test.ts","src/platform/actio-chat-destination.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts","src/api/inject-sources.test.ts","src/control/startup-policy.test.ts"],"contracts":["CC-CHORES-01","CC-AT-DISCOVERY-01","CC-INBOX-PLAN-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-ACTIO-CHAT-COMMAND-01"]},
+    {"source":"src/discord/bot.ts","tests":["src/discord/ingress.test.ts","src/discord/forum-phase-sync.test.ts","src/discord/session-channel.test.ts","src/discord/chores.test.ts","tests/chores-wiring.test.ts","src/discord/sprint-dialogues.test.ts","src/discord/sprint-dialogues-input.test.ts","src/discord/taskworkflow-orphan-policy.test.ts","src/discord/taskworkflow-orphan-reconcile.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts"],"contracts":["CC-DISCORD-PHASE-TITLE-01","CC-CHORES-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-DISCORD-TASK-ORPHAN-01","CC-ACTIO-CHAT-COMMAND-01"]},
+    {"source":"src/discord/guild-member-ids.ts","tests":["src/discord/guild-member-ids.test.ts","src/discord/spawn-approval.test.ts"],"contracts":[]},
     {
       "source": "src/cost/company-session-cap.ts",
       "tests": [
@@ -4387,29 +3985,9 @@
         "cap-C-1"
       ]
     },
-    {
-      "source": "src/api/delegation.ts",
-      "tests": [
-        "src/api/session-cap-launch.test.ts"
-      ],
-      "contracts": [
-        "cap-C-1"
-      ]
-    },
-    {
-      "source": "src/api/subsidiary.ts",
-      "tests": [
-        "tests/subsidiary-delegation.test.ts"
-      ],
-      "contracts": []
-    },
-    {
-      "source": "src/db/subsidiary-repo.ts",
-      "tests": [
-        "src/db/subsidiary-repo.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
+    {"source":"src/api/subsidiary.ts","tests":["tests/subsidiary-delegation.test.ts","tests/personal-budget-subsidiary-api.test.ts"],"contracts":[]},
+    {"source":"src/db/subsidiary-repo.ts","tests":["src/db/subsidiary-repo.test.ts","src/db/personal-budget-people-repo.test.ts"],"contracts":[]},
     {
       "source": "web/src/pages/cost/SessionCapBlock.tsx",
       "tests": [
@@ -4424,13 +4002,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "web/src/pages/subsidiaries/SubsidiariesSection.tsx",
-      "tests": [
-        "web/src/pages/subsidiaries/SubsidiariesSection.test.tsx"
-      ],
-      "contracts": []
-    },
+    {"source":"web/src/pages/subsidiaries/SubsidiariesSection.tsx","tests":["web/src/pages/subsidiaries/SubsidiariesSection.test.tsx","web/src/pages/PersonalBudgetSubsidiaryDefault.test.tsx"],"contracts":[]},
     {
       "source": "src/staff/roles.ts",
       "tests": [
@@ -4482,20 +4054,43 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/subsidiary/gate.ts",
-      "tests": [
-        "src/subsidiary/gate.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/subsidiary/gate.ts","tests":["src/subsidiary/gate.test.ts","src/subsidiary/gate-forum.test.ts","tests/personal-budget-gate.test.ts"],"contracts":[]},
     {
       "source": "web/src/pages/settings/sections/ReactionWorkflowSection.tsx",
       "tests": [
         "src/config/settings/single-edit-path.test.ts"
       ],
       "contracts": []
-    },
+    }
+  ,
+    {"source":"src/personal-budget/types.ts","tests":["src/personal-budget/allocation.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/allocation.ts","tests":["src/personal-budget/allocation.test.ts","src/personal-budget/consumption-service.test.ts"],"contracts":["pbudget-C-1","pbudget-C-2"]},
+    {"source":"src/personal-budget/dispatch-policy.ts","tests":["src/personal-budget/dispatch-policy.test.ts","tests/personal-budget-gate.test.ts"],"contracts":["pbudget-C-3"]},
+    {"source":"src/personal-budget/person-resolution.ts","tests":["src/personal-budget/person-resolution.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/session-facts.ts","tests":["src/personal-budget/person-resolution.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/reward-settings.ts","tests":["src/personal-budget/reward-policy.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/reward-policy.ts","tests":["src/personal-budget/reward-policy.test.ts","src/personal-budget/reward-service.test.ts"],"contracts":["pbudget-C-4"]},
+    {"source":"src/personal-budget/adjustment-policy.ts","tests":["src/personal-budget/adjustment-policy.test.ts","src/personal-budget/adjustment-service.test.ts"],"contracts":["pbudget-C-5"]},
+    {"source":"src/personal-budget/ports.ts","tests":["src/personal-budget/view-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/consumption-service.ts","tests":["src/personal-budget/consumption-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/dispatch-service.ts","tests":["src/personal-budget/dispatch-service.test.ts","tests/personal-budget-gate.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/reward-service.ts","tests":["src/personal-budget/reward-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/adjustment-service.ts","tests":["src/personal-budget/adjustment-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/view-service.ts","tests":["src/personal-budget/view-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/format.ts","tests":["src/personal-budget/view-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/notification-service.ts","tests":["src/personal-budget/notification-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/periodic.ts","tests":["src/personal-budget/notification-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/composition.ts","tests":["src/personal-budget/dispatch-service.test.ts","src/personal-budget/reward-service.test.ts"],"contracts":[]},
+    {"source":"src/personal-budget/ontime-runtime.ts","tests":["src/personal-budget/allocation.test.ts"],"contracts":[]},
+    {"source":"src/db/personal-budget-people-repo.ts","tests":["src/db/personal-budget-people-repo.test.ts"],"contracts":[]},
+    {"source":"src/db/personal-budget-ledger-repo.ts","tests":["src/db/personal-budget-ledger-repo.test.ts"],"contracts":[]},
+    {"source":"src/db/personal-budget-usage-repo.ts","tests":["src/db/personal-budget-usage-repo.test.ts"],"contracts":[]},
+    {"source":"src/api/personal-budget.ts","tests":["src/api/personal-budget.test.ts"],"contracts":[]},
+    {"source":"src/discord/commands/budget.ts","tests":["src/discord/commands/budget.test.ts"],"contracts":[]},
+    {"source":"src/discord/commands/reward.ts","tests":["src/discord/commands/reward.test.ts"],"contracts":[]},
+    {"source":"src/discord/personal-budget-discord.ts","tests":["src/discord/personal-budget-discord.test.ts"],"contracts":[]},
+    {"source":"web/src/pages/PersonalBudget.tsx","tests":["web/src/pages/PersonalBudget.test.tsx"],"contracts":[]},
+    {"source":"src/subsidiary/manager.ts","tests":["src/subsidiary/manager.test.ts","tests/personal-budget-subsidiary-api.test.ts"],"contracts":[]},
     {"source":"src/messages/turn-status.ts","tests":["src/messages/turn-status.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/messages/service.ts","tests":["src/messages/turn-status.test.ts","src/messages/service.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/db/session-messages-repo.ts","tests":["src/messages/turn-status.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},

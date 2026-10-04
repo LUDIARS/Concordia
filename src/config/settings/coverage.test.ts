@@ -21,6 +21,16 @@ const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 describe("設定レジストリのカバレッジ", () => {
   const scanned = scanSourceSettingKeys(SRC_ROOT);
 
+  it("TEAM_ID is only child launch context; real model settings are registered", () => {
+    expect(scanned.envNames.has("CONCORDIA_TEAM_ID")).toBe(true);
+    expect(ENV_COVERAGE_EXCLUSIONS.CONCORDIA_TEAM_ID).toContain("書き出し専用");
+    expect(registeredEnvNames().has("CONCORDIA_TEAM_ID")).toBe(false);
+    for (const name of ["CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE", "CONCORDIA_CONSULT_ASTRA_TEMPLATE", "CONCORDIA_CONSULT_OPUS_TEMPLATE"]) {
+      expect(registeredEnvNames().has(name)).toBe(true);
+      expect(name in ENV_COVERAGE_EXCLUSIONS).toBe(false);
+    }
+  });
+
   it("ソースが読む env は全てレジストリに登録されている", () => {
     const registered = registeredEnvNames();
     const missing = [...scanned.envNames]
@@ -33,6 +43,12 @@ describe("設定レジストリのカバレッジ", () => {
       `レジストリ未登録の env があります。 src/config/settings/definitions/ に定義を足してください` +
         ` (Concordia の設定でないものだけ ENV_COVERAGE_EXCLUSIONS に理由付きで追加): ${missing.join(", ")}`,
     ).toEqual([]);
+  });
+
+  it("migration preflight uses the Vestigium-owned evidence directory", () => {
+    expect(scanned.envNames.has("VESTIGIUM_LOGS_DIR")).toBe(true);
+    expect(ENV_COVERAGE_EXCLUSIONS.VESTIGIUM_LOGS_DIR).toContain("Vestigium が所有");
+    expect(registeredEnvNames().has("VESTIGIUM_LOGS_DIR")).toBe(false);
   });
 
   it("ソースが使う DB 設定キーは全てレジストリに登録されている", () => {

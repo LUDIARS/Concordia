@@ -39,6 +39,8 @@ export interface SubsidiaryRow {
   home_cwd: string | null;
   /** 日次トークン予算 (0 = 無制限)。 当日の子会社消費がこれ以上なら受付を止める。 */
   daily_token_budget: number;
+  /** 個人の月間分の既定値 (0 = 上限なし)。 spec/feature/personal-ai-budget.md §3。 */
+  personal_monthly_token_budget: number;
   /** 同時セッション上限 (0 = 上限なし)。 稼働中がこれ以上なら新しい起動を断る (usage-budgets.md §9)。 */
   max_sessions: number;
   /** 子会社が起動する delegation の既定チーム。NULL はチーム未指定。 */
@@ -130,6 +132,7 @@ export interface CreateSubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  personal_monthly_token_budget?: number;
   max_sessions?: number;
   default_team_id?: string | null;
 }
@@ -149,6 +152,7 @@ export interface UpdateSubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  personal_monthly_token_budget?: number;
   max_sessions?: number;
   default_team_id?: string | null;
 }
@@ -178,8 +182,9 @@ export class SubsidiaryRepo {
       INSERT INTO subsidiaries(
         id, name, display_name, description, platform, mode, enabled,
         guild_id, application_id, channel_id, bot_token_enc, app_token_enc,
-        guard_model, guard_scope, daily_token_budget, max_sessions, default_team_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        guard_model, guard_scope, daily_token_budget, personal_monthly_token_budget, max_sessions, default_team_id,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
@@ -196,6 +201,7 @@ export class SubsidiaryRepo {
       input.guard_model?.trim() || "sonnet",
       input.guard_scope ?? "",
       sanitizeBudget(input.daily_token_budget),
+      sanitizeBudget(input.personal_monthly_token_budget),
       sanitizeBudget(input.max_sessions),
       input.default_team_id ?? null,
       now,
@@ -222,6 +228,7 @@ export class SubsidiaryRepo {
         guard_model    = ?,
         guard_scope    = ?,
         daily_token_budget = ?,
+        personal_monthly_token_budget = ?,
         max_sessions   = ?,
         default_team_id = ?,
         updated_at     = ?
@@ -240,6 +247,9 @@ export class SubsidiaryRepo {
       patch.guard_model?.trim() || cur.guard_model,
       patch.guard_scope ?? cur.guard_scope,
       patch.daily_token_budget !== undefined ? sanitizeBudget(patch.daily_token_budget) : cur.daily_token_budget,
+      patch.personal_monthly_token_budget !== undefined
+        ? sanitizeBudget(patch.personal_monthly_token_budget)
+        : cur.personal_monthly_token_budget,
       patch.max_sessions !== undefined ? sanitizeBudget(patch.max_sessions) : cur.max_sessions,
       patch.default_team_id !== undefined ? patch.default_team_id : cur.default_team_id,
       Date.now(),

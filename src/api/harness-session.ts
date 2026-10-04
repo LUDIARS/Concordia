@@ -124,6 +124,7 @@ interface HarnessSessionContext {
 }
 
 export interface HarnessSessionApiDeps {
+  consultationSafety?: Pick<import("../consultation/safety-service.js").ConsultationSafetyService, "check">;
   taskBranches?: TaskBranchService;
   audit: HarnessAuditRepo;
   /** 自然文ハーネスルール (Sonnet guard と共有)。 context 供給で列挙する。 */
@@ -216,6 +217,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const parsed = GateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { action, session_id, hook } = parsed.data;
+    if (session_id && deps.consultationSafety) {
+      const safety = await deps.consultationSafety.check({ sessionId: session_id, phase: "tool", tool: action.tool,
+        text: action.command ?? action.filePath ?? "" });
+      if (safety.blocked) return c.json({ decision: "deny", blocked: true, reason: "相談の情報保護境界でブロックしました。",
+        hits: [{ rule: `consultation-${safety.reason}`, decision: "deny", reason: "相談の情報保護境界でブロックしました。" }] });
+    }
 
     // editedRepos はサーバ側で蓄積する (監査ログ = 状態源)。 hook は per-action の cwd/branch を
     // 送るだけの薄い腕に保ち、 セッション横断の集合管理は Concordia が持つ。 過去の編集ツール

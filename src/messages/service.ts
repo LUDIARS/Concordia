@@ -6,6 +6,7 @@
 import { eventBus, eventSessionId, type ConcordiaEvent, type SessionMessagePayload } from "../events.js";
 import type { SessionMessagesRepo, SessionMessageRow } from "../db/session-messages-repo.js";
 import { projectEvent, ToolUseDedupeContext, type ProjectContext, type ProjectedMessage } from "./project.js";
+import { InjectEchoLedger } from "./inject-echo.js";
 import { projectTurnStatus } from "./turn-status.js";
 
 /** ProjectContext 起動時復元 (tool-use dedupe_key) で遡る最大件数。 project.ts の LRU 上限と揃える。 */
@@ -29,6 +30,7 @@ export interface SessionMessageServiceDeps {
 
 export class SessionMessageService {
   private readonly contexts = new Map<string, ProjectContext>();
+  private readonly echoes = new Map<string, InjectEchoLedger>();
 
   constructor(private readonly deps: SessionMessageServiceDeps) {}
 
@@ -50,8 +52,19 @@ export class SessionMessageService {
     }
     const ctx = this.contextFor(sessionId);
     for (const msg of projectEvent(ev, ctx)) {
-      this.persistAndEmit(sessionId, ev.ts, msg);
+      let ledger = this.echoes.get(sessionId);
+      if (!ledger) { ledger = new InjectEchoLedger(); this.echoes.set(sessionId, ledger); }
+      if (ev.type === "transcript.frame" && msg.author_type === "user" && msg.op === "create") {
+        const priorId = msg.dedupe_key ? this.deps.repo.findIdByDedupeKey(sessionId, msg.dedupe_key) : null;
+        const prior = priorId ? this.deps.repo.getById(priorId) : null;
+        const echo = prior?.metadata?.echo_identity_verified === true
+          ? prior.metadata.echo_of_message_id : ledger.consume(msg.content, ev.ts);
+        if (typeof echo === "number") msg.metadata = { ...msg.metadata, echo_of_message_id: echo };
+      }
+      const row = this.persistAndEmit(sessionId, ev.ts, msg);
+      if (ev.type === "session.inject") ledger.remember(row.id, row.content, ev.ts);
     }
+    if (ev.type === "session.ended" || ev.type === "session.lost") this.echoes.delete(sessionId);
   }
 
   private contextFor(sessionId: string): ProjectContext {
@@ -80,7 +93,7 @@ export class SessionMessageService {
     }
   }
 
-  private persistAndEmit(sessionId: string, ts: number, msg: ProjectedMessage): void {
+  private persistAndEmit(sessionId: string, ts: number, msg: ProjectedMessage): SessionMessageRow {
     const existingId = msg.op === "update" && msg.dedupe_key !== null
       ? this.deps.repo.findIdByDedupeKey(sessionId, msg.dedupe_key)
       : null;
@@ -123,6 +136,7 @@ export class SessionMessageService {
       latest_id: row.id,
       ts: emittedTs,
     });
+    return row;
   }
 }
 

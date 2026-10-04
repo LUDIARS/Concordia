@@ -5,6 +5,7 @@ describe("sessionsRouter route table", () => {
   it("keeps the public sessions routes stable", () => {
     const app = sessionsRouter({} as never);
     const routes = ((app as any).routes as Array<{ method: string; path: string }>)
+      .filter((route) => route.method !== "ALL")
       .map((r) => `${r.method} ${r.path}`)
       .sort();
 
@@ -67,6 +68,15 @@ describe("sessionsRouter route table", () => {
       "POST /:id/title-suggestion",
       "POST /:id/transcript-frame",
       "PUT /:id/work-phase",
+    ].sort());
+  });
+  it("keeps consultation protection middleware on each structured QA ingress", () => {
+    const app = sessionsRouter({} as never);
+    const middleware = ((app as any).routes as Array<{ method: string; path: string }>)
+      .filter((route) => route.method === "ALL")
+      .map((route) => route.path).sort();
+    expect(middleware).toEqual([
+      "/:id/answer-question", "/:id/escalate-question", "/:id/pending-question", "/:id/permission-request",
     ].sort());
   });
 });

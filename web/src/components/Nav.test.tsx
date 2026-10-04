@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Nav, type NavItem } from "./Nav.js";
 
 const ITEMS: NavItem[] = [
+  { to: "/workplace", label: "職場", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
   { to: "/settings", label: "設定", section: "設定" },
@@ -32,6 +33,10 @@ afterEach(() => {
 });
 
 describe("Nav デスクトップ", () => {
+  it("職場のチャットを開いている間も職場メニューを選択表示する", () => {
+    renderNav("/workplace/session-1");
+    expect(screen.getByRole("link", { name: "職場" }).getAttribute("aria-current")).toBe("page");
+  });
   it("サイドバーが常駐し、全リンクがラベル表示される", () => {
     renderNav();
     const desktopNav = screen.getByRole("navigation", { name: "メインメニュー" });

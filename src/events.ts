@@ -14,6 +14,7 @@ export type { SessionMessagePayload } from "./shared/session-message-types.js";
  * (events.ts は db/ 層に依存できないため独立定義 — 循環 import 回避)。
  */
 type ConcordiaEventPayload =
+  | { type: "consultation.safety_blocked"; audit_id: string; ts: number }
   | { type: "session.started";  session_id: string; provider: string; repo_path: string; branch: string | null; ts: number }
   | { type: "session.lost";     session_id: string; ts: number }
   | { type: "session.ended";    session_id: string; ts: number }
@@ -253,6 +254,7 @@ type ConcordiaEventPayload =
   | { type: "ping";             ts: number };
 
 type ChatEventType =
+  | "consultation.safety_blocked"
   | "chat.posted"
   | "operational.claim.opened"
   | "operational.claim.released"

@@ -60,6 +60,10 @@ export interface ListHarnessAuditFilter {
 export class HarnessAuditRepo {
   constructor(private readonly db: Database.Database) {}
 
+  setNotification(id: string, state: "sent" | "failed"): void {
+    this.db.prepare("UPDATE harness_session_audit SET detail_json = json_set(detail_json, '$.notification', ?) WHERE id = ? AND hook LIKE 'consultation:%'").run(state, id);
+  }
+
   /**
    * 1 件記録する。 SQLite 書き込みが失敗したら例外を投げる (握りつぶさない)。
    * 監査が落ちることは強制の保証が崩れることなので、 呼び出し側が必ず気づくべき。

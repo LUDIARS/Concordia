@@ -40,7 +40,8 @@
     "spec/feature/session-message-webui-chat.md#11-ルーティング-確定",
     "spec/feature/session-message-webui-chat.md#12-チャット画面-discord-型",
     "spec/feature/session-message-webui-chat.md#13-ログ確認画面",
-    "spec/feature/session-message-webui-chat.md#14-通知-web-push確定"
+    "spec/feature/session-message-webui-chat.md#14-通知-web-push確定",
+    "spec/feature/workplace-chat.md"
   ],
   "rationale": "The chat screen, the log screen, the session list and Web Push all read the same canonical session_messages stream and change together whenever its presentation changes. They are separated from session-message-layer because that domain owns projection and storage, while this one owns how a human sees and is notified about the stream."
 }

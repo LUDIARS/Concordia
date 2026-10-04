@@ -214,6 +214,7 @@
       "contracts": []
     },
     {"source":"src/api/harness-session.ts","tests":["src/api/harness-session-budget.test.ts","src/api/harness-session.test.ts","src/api/harness-session-project-policy.test.ts","tests/harness-reliability/task-branch.test.ts","src/api/harness-session-departments.test.ts"],"contracts":[]},
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {
       "source": "src/api/chat.ts",
@@ -391,18 +392,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "web/src/api.ts",
-      "tests": [
-        "src/dialogue/planning-adjustment.test.ts",
-        "tests/harness-reliability/conflux.test.ts",
-        "web/src/pages/Inbox.test.tsx",
-        "web/src/pages/manuals/MajorInjectPanel.test.tsx"
-      ],
-      "contracts": [
-        "CC-INBOX-PLAN-01"
-      ]
-    },
+    {"source":"web/src/api.ts","tests":["src/dialogue/planning-adjustment.test.ts","tests/harness-reliability/conflux.test.ts","web/src/pages/Inbox.test.tsx","web/src/pages/manuals/MajorInjectPanel.test.tsx","web/src/pages/session-chat/SessionList.test.tsx"],"contracts":["CC-INBOX-PLAN-01"]},
     {
       "source": "web/src/pages/ProjectCodes.tsx",
       "tests": [
@@ -525,13 +515,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/api/sessions/relay.ts",
-      "tests": [
-        "src/control/lictor-proxy.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/api/sessions/relay.ts","tests":["src/control/lictor-proxy.test.ts","src/api/sessions/relay-safety.test.ts","tests/sessions-transcript-api.test.ts"],"contracts":[]},
     {
       "source": "src/api/sessions/runtime.ts",
       "tests": [
@@ -978,6 +962,7 @@
         "CC-CHORES-01"
       ]
     },
+    {"source":"web/src/App.tsx","tests":["web/src/pages/Chores.test.tsx","tests/chores-wiring.test.ts","web/src/pages/session-chat/SessionChat.test.tsx","web/src/components/Nav.test.tsx"],"contracts":["CC-CHORES-01","SPEC-CC-WORKPLACE"]},
     {
       "source": "web/src/App.tsx",
       "tests": [
@@ -2309,13 +2294,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "src/departments/output-policy.ts",
-      "tests": [
-        "src/departments/output-policy.test.ts"
-      ],
-      "contracts": []
-    },
+    {"source":"src/departments/output-policy.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
     {
       "source": "src/db/departments-repo.ts",
       "tests": [
@@ -2532,13 +2511,7 @@
       ],
       "contracts": []
     },
-    {
-      "source": "web/src/components/DelegationSpawnForm.tsx",
-      "tests": [
-        "web/src/components/DelegationSpawnForm.test.tsx"
-      ],
-      "contracts": []
-    },
+    {"source":"web/src/components/DelegationSpawnForm.tsx","tests":["web/src/components/DelegationSpawnForm.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
     {
       "source": "web/src/pages/monitor/OrganizationsSection.tsx",
       "tests": [
@@ -2918,6 +2891,7 @@
     {"source":"src/delegation/service.ts","tests":["src/delegation/service.test.ts","src/api/delegation-invoke-team.test.ts","src/api/delegation-partial.test.ts","tests/departments-spawn.test.ts"],"contracts":["CC-AT-TEAM-02"]},
     {"source":"src/delegation/actio-task.ts","tests":["src/delegation/actio-task.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-SESSION-01"]},
     {"source":"src/delegation/contracts.ts","tests":["src/delegation/actio-task.test.ts","src/api/delegation-invoke-team.test.ts","src/delegation/service.test.ts","src/delegation/sidecar/invoke-guard.test.ts","src/control/conversation/cc-ports.test.ts"],"contracts":["CC-AT-TEAM-02","CC-ASTRA-WITH-SIDECAR"]},
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {
       "source": "src/mcp/delegation-server.ts",
@@ -4136,7 +4110,7 @@
                   ]
 },
     {"source":"src/shared/session-inject-visibility.ts","tests":["src/shared/session-inject-visibility.test.ts"],"contracts":["SEI-VIS-01"]},
-    {"source":"src/messages/project.ts","tests":["src/messages/project.test.ts","src/messages/service.test.ts"],"contracts":["SEI-VIS-01"]},
+    {"source":"src/messages/project.ts","tests":["src/messages/project.test.ts","src/messages/service.test.ts"],"contracts":["SEI-VIS-01","SPEC-CC-WORKPLACE"]},
     {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]},
     {"source":"src/consultation/consult-end-word.ts","tests":["src/consultation/consult-end-word.test.ts","src/discord/ingress.test.ts"],"contracts":["consult-log-C-1"]},
     {"source":"src/consultation/consult-end-word.contract.ts","tests":["src/consultation/consult-end-word.test.ts"],"contracts":[]},
@@ -4222,6 +4196,21 @@
         "cap-C-1"
       ]
     },
+    {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
+    {
+      "source": "src/api/subsidiary.ts",
+      "tests": [
+        "tests/subsidiary-delegation.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/subsidiary-repo.ts",
+      "tests": [
+        "src/db/subsidiary-repo.test.ts"
+      ],
+      "contracts": []
+    },
     {"source":"src/api/delegation.ts","tests":["src/api/session-cap-launch.test.ts","tests/blocks/agent-delegation/delegation-template.block.test.ts","src/api/internal-agent-selection.test.ts","src/api/delegation-partial.test.ts","src/delegation/sidecar/lifecycle.test.ts","src/api/delegation-invoke-team.test.ts"],"contracts":["cap-C-1","CC-TF-SESSION-01","CC-AT-TEAM-02"]},
     {"source":"src/api/subsidiary.ts","tests":["tests/subsidiary-delegation.test.ts","tests/personal-budget-subsidiary-api.test.ts"],"contracts":[]},
     {"source":"src/db/subsidiary-repo.ts","tests":["src/db/subsidiary-repo.test.ts","src/db/personal-budget-people-repo.test.ts"],"contracts":[]},
@@ -4300,6 +4289,36 @@
       "contracts": []
     }
   ,
+    {"source":"src/messages/cc-inject.ts","tests":["src/messages/cc-inject.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/messages/inject-echo.ts","tests":["src/messages/inject-echo.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/api/sessions/category.ts","tests":["src/api/sessions/category.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/work/instruction-fragments.ts","tests":["src/work/instruction-fragments.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/consultation/safety-service.ts","tests":["src/consultation/safety-service.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/consultation/safety-policy.ts","tests":["src/consultation/safety-service.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"tools/consultation-harness.mjs","tests":["tools/consultation-harness.test.mjs"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/components/Nav.tsx","tests":["web/src/components/Nav.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/SessionChat.tsx","tests":["web/src/pages/session-chat/SessionChat.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/SessionList.tsx","tests":["web/src/pages/session-chat/SessionList.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/session-categories.ts","tests":["web/src/pages/session-chat/SessionList.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/SessionSpawnDialog.tsx","tests":["web/src/pages/session-chat/SessionSpawnDialog.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/MessageItem.tsx","tests":["web/src/pages/session-chat/MessageItem.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/ConversationMessage.tsx","tests":["web/src/pages/session-chat/MessageItem.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/MessageList.tsx","tests":["web/src/pages/session-chat/MessageList.test.tsx","web/src/pages/session-chat/SessionChat.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/ChatMarkdown.tsx","tests":["web/src/pages/session-chat/ChatMarkdown.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/chat-markdown.css","tests":["web/src/pages/session-chat/ChatMarkdown.test.tsx"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/message-presentation.ts","tests":["web/src/pages/session-chat/message-presentation.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/cc-injection.ts","tests":["web/src/pages/session-chat/message-presentation.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/message-echo.ts","tests":["web/src/pages/session-chat/message-presentation.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/pages/session-chat/response-turns.ts","tests":["web/src/pages/session-chat/response-turns.test.ts","web/src/pages/session-chat/message-presentation.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/api/sessions/qa.ts","tests":["src/api/sessions/qa-safety.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/messages/inject-echo.contract.ts","tests":["src/messages/inject-echo.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/work/instruction-privacy.contract.ts","tests":["src/work/instruction-fragments.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/work/instruction-items.contract.ts","tests":["src/work/instruction-fragments.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/consultation/safety-decision.contract.ts","tests":["src/consultation/safety-service.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/api/consultation-safety.ts","tests":["src/api/consultation-safety.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/consultation/safety-runtime.ts","tests":["src/consultation/safety-runtime.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/db/harness-audit-repo.ts","tests":["src/db/harness-audit-repo.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/work/instruction-fragments-client.ts","tests":["src/work/instruction-fragments-client.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
     {"source":"src/personal-budget/types.ts","tests":["src/personal-budget/allocation.test.ts"],"contracts":[]},
     {"source":"src/personal-budget/allocation.ts","tests":["src/personal-budget/allocation.test.ts","src/personal-budget/consumption-service.test.ts"],"contracts":["pbudget-C-1","pbudget-C-2"]},
     {"source":"src/personal-budget/dispatch-policy.ts","tests":["src/personal-budget/dispatch-policy.test.ts","tests/personal-budget-gate.test.ts"],"contracts":["pbudget-C-3"]},

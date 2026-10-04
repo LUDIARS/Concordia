@@ -76,6 +76,7 @@ export interface SessionWorkPhase {
 }
 
 export interface SessionRow {
+  category?: "taskflow" | "conversation";
   id: string;
   provider: string;
   repo_path: string;
@@ -1530,12 +1531,14 @@ export interface TeamMetrics {
 }
 
 export type DepartmentOutputMode = "inherit" | "on" | "off";
-export type DepartmentOutputItem = "thinking" | "status_card" | "session_info_card" | "cost_report";
+export type DepartmentOutputItem = "thinking" | "status_card" | "session_info_card" | "cost_report"
+  | "intermediate" | "inject_transcript" | "context_usage" | "session_end_report";
 
 export interface DepartmentSettings {
   launch: { template?: string; provider?: string; model?: string; reasoning_effort?: string; project?: string };
   projects: string[];
-  output: Record<DepartmentOutputItem, DepartmentOutputMode>;
+  output: Record<"thinking" | "status_card" | "session_info_card" | "cost_report", DepartmentOutputMode>
+    & Partial<Record<DepartmentOutputItem, DepartmentOutputMode>>;
   /** プライベート相談 (tech-consultation.md §4)。 古い保存値には無い。 */
   private?: { enabled: boolean; approver_min_role: "manager" | "executive" };
   /** 月次予算の数え方 (usage-budgets.md §3.1)。 消費 × cost_multiplier を予算から引く。 古い保存値には無い。 */
@@ -1550,6 +1553,7 @@ export interface Department {
   description: string;
   settings: DepartmentSettings | null;
   settings_error: string | null;
+  effective_output?: Record<DepartmentOutputItem, boolean> | null;
   rules_text: string;
   sort_order: number;
   use_case_id: string | null;

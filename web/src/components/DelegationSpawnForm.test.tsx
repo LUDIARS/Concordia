@@ -4,8 +4,10 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Department } from "../api.js";
 import { DelegationSpawnForm } from "./DelegationSpawnForm.js";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const department: Department = {
   id: "dept-ops", subsidiary_id: null, name: "運用部", slug: "ops", description: "",
@@ -39,5 +41,32 @@ describe("DelegationSpawnForm with a department", () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+});
+
+describe("spawn completion and location", () => {
+  it("sends a custom working directory and calls onSpawned only after success", async () => {
+    const user = userEvent.setup();
+    const bodies: unknown[] = [];
+    const onSpawned = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => {
+      if (options?.method === "POST") bodies.push(JSON.parse(String(options.body)));
+      return new Response(JSON.stringify({ ok: true, pid: 1 }));
+    }));
+    render(<DelegationSpawnForm subsidiaryId="sub" templates={[]} projects={[]} onSpawned={onSpawned} />);
+    await user.type(screen.getByLabelText("起動場所（作業フォルダ）"), "E:/projects/demo");
+    await user.click(screen.getByRole("button", { name: "Spawn" }));
+    expect(bodies[0]).toMatchObject({ subsidiary_id: "sub", cwd: "E:/projects/demo" });
+    expect(onSpawned).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the form open and reports failure when spawn is rejected", async () => {
+    const user = userEvent.setup();
+    const onSpawned = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "spawn denied" }))));
+    render(<DelegationSpawnForm templates={[]} projects={[]} onSpawned={onSpawned} />);
+    await user.click(screen.getByRole("button", { name: "Spawn" }));
+    expect(onSpawned).not.toHaveBeenCalled();
+    expect(screen.getByText("spawn denied")).toBeTruthy();
   });
 });

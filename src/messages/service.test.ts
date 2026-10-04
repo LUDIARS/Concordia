@@ -33,6 +33,18 @@ function dispatch(ev: ConcordiaEvent): void {
 }
 
 describe("SessionMessageService", () => {
+  it("does not hide a same-text transcript following an injection without delivery identity", () => {
+    dispatch({ type: "session.inject", target_session_id: "s1", text: "same", source: "discord:u", ts: 100 });
+    const frame: ConcordiaEvent = { type: "transcript.frame", target_session_id: "s1", seq: 1,
+      kind: "text", payload: { role: "user", text: "same" }, ts: 101 };
+    dispatch(frame);
+    dispatch(frame);
+    const rows = repo.list("s1");
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row => row.metadata?.echo_of_message_id === undefined)).toBe(true);
+    new SessionMessageService({ repo, emit: () => {} }).project(frame);
+    expect(repo.list("s1")).toHaveLength(2);
+  });
   it("keeps raw termination delivery observable without canonical rows or UI notifications",()=>{
     const observed:ConcordiaEvent[]=[];
     const unsubscribe=eventBus.subscribe(ev=>observed.push(ev));

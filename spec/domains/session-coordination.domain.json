@@ -39,6 +39,9 @@
     },
     {
       "pathPattern": "(^|/)tests/blocks/session-coordination/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/work/instruction-fragments(-client)?(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
@@ -57,6 +60,7 @@
     "spec/feature/inject-context-gating.md",
     "spec/feature/astra-with-sidecar.md",
     "spec/feature/project-rules-inject.md",
-    "spec/feature/session-language-guard.md"
+    "spec/feature/session-language-guard.md",
+    "spec/feature/workplace-chat.md"
   ]
 }

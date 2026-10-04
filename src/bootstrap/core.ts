@@ -237,6 +237,7 @@ import { DeveloperToolsService } from "../developer-tools/service.js";
 import { ResearchTools } from "../developer-tools/research.js";
 import { ToolServiceHttp } from "../developer-tools/service-http.js";
 import { createContextLinkResolver } from "../control/inject-context-links.js";
+import { createInstructionFragmentSync } from "../work/instruction-fragments-client.js";
 import { allowDelegationDomainPreamble } from "../control/delegation-context-eligibility.js";
 import { requestStartupPolicyRefresh } from "../api/sessions/startup-policy-check.js";
 import { AugurTools } from "../developer-tools/augur.js";
@@ -2207,6 +2208,8 @@ export async function startBackend(): Promise<BackendHandle> {
     injectManuals: injectManualsRepo,
     majorInjectEditor,
     resolveContextLinks: contextLinks,
+    syncInstructionFragments: createInstructionFragmentSync(excubitorClient),
+    isPrivateConsultation: (id) => new PrivateConsultationsRepo(db).findBySession(id) !== null,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
     harnessBlackbox,

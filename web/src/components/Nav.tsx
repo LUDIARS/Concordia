@@ -42,11 +42,12 @@ export function Nav({ items }: { items: readonly NavItem[] }) {
           {!isCollapsed && <h2 className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-subtle">{section}</h2>}
           <ul className="space-y-0.5">
             {items.filter((item) => item.section === section).map((item) => {
-              const active = location.pathname === item.to;
+              const active = location.pathname === item.to || (item.to === "/workplace" && location.pathname.startsWith("/workplace/"));
               return (
                 <li key={item.to}>
                   <Link
                     to={item.to}
+                    aria-current={active ? "page" : undefined}
                     title={isCollapsed ? item.label : undefined}
                     className={`block rounded px-3 py-2 text-sm ${active ? "bg-muted text-accent" : "text-subtle hover:bg-muted hover:text-text"}`}
                   >

@@ -234,6 +234,9 @@ import { workflowGate } from "../workflow/api-gate.js";
 import { isContractComplete, parseContractMetadata } from "../contract/schema.js";
 import { inquirySubjectFromTriggeredBy } from "../harness/inquiry-readonly.js";
 import { concordiaBaseUrl } from "../config/service-urls.js";
+import { fileURLToPath } from "node:url";
+import { createConsultationSafety } from "../consultation/safety-runtime.js";
+import { consultationSafetyRouter } from "./consultation-safety.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
@@ -363,6 +366,8 @@ export interface CoreDelegationDeps {
   injectManuals?: InjectManualsRepo;
   majorInjectEditor?: MajorInjectEditor;
   resolveContextLinks?: PolicyDeps["resolveContextLinks"];
+  isPrivateConsultation?: (sessionId: string) => boolean;
+  syncInstructionFragments?: import("./sessions/deps.js").SessionsApiDeps["syncInstructionFragments"];
   harnessAudit?: HarnessAuditRepo;
   harnessRunClaude?: RunClaudeFn;
   harnessBlackbox?: HarnessBlackboxService;
@@ -486,6 +491,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     : null;
   // 未回答の質問は blocker: 回答が来るまで自動 inject を出さない。
   const hasPendingQuestion = pendingQuestionProbe(deps.pendingQuestions);
+  const consultationSafety = deps.harnessAudit ? createConsultationSafety({
+    sessions: deps.repo, departments: deps.departments, useCases: deps.useCases, audit: deps.harnessAudit,
+    roots: () => deps.adminState.getWorkspaceRoots(),
+  }) : null;
+  if (consultationSafety) app.route("/v1/consultation-safety", consultationSafetyRouter(consultationSafety,
+    id => deps.repo.findSession(id)?.status === "active"));
   // ワークフローに属する API は、 設定で無効なら 404 ではなく 409 + 理由を返す。
   // 判定はリクエストごとの都度解決なので、 設定変更が再起動なしで次から効く。
   const gate = (key: Parameters<typeof workflowGate>[0]) =>
@@ -521,6 +532,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       controlJobs: deps.controlJobs,
       tasks: deps.tasks,
       taskStore: () => deps.taskStore,
+      consultationSafety: consultationSafety ?? undefined,
+      syncInstructionFragments: deps.syncInstructionFragments,
+      isPrivateConsultation: deps.isPrivateConsultation,
       escalations: deps.escalations,
       chat: deps.chat,
       config: deps.config,
@@ -538,6 +552,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         resolveSessionOutputMode({
           sessionDepartmentId: (id) => deps.repo.findSession(id)?.department_id ?? null,
           departmentSettingsJson: (id) => deps.departments?.find(id)?.settings_json ?? null,
+          departmentIdentity: (id) => deps.departments?.find(id) ?? null,
         }, sessionId, "thinking"),
         deps.adminState.getThinkingMessagesEnabled(),
       ),
@@ -894,6 +909,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       repo: deps.departments,
       service: deps.departmentService,
       isKnownProvider: (provider) => isSpawnProvider(provider),
+      globalOutput: () => ({ thinking: deps.adminState.getThinkingMessagesEnabled() }),
       isActiveTemplate: (callName) => Boolean(deps.delegation.findTemplateByCallName(callName)?.is_active),
     }));
   }
@@ -928,6 +944,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1, testsRequired: row?.tests_required === 1, ontimeTestsRequired: row?.ontime_tests_required === 1 };
         },
         audit: deps.harnessAudit,
+        consultationSafety: consultationSafety ?? undefined,
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,
         blackbox: deps.harnessBlackbox,
@@ -1157,6 +1174,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         }
       }
     }
+    if (requestedDepartmentId && consultationSafety) {
+      const safety = await consultationSafety.check({ sessionId: `department:${requestedDepartmentId}`, phase: "prompt",
+        text: JSON.stringify({ instruction: body.initial_instruction ?? body.prompt ?? "", intake: readConsultIntakeRequest(body) }) });
+      if (safety.blocked) return c.json({ error: "consultation_policy_blocked", reason: safety.reason }, 403);
+    }
     const projectName = typeof body.project === "string" ? body.project.trim() : "";
     const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
     const requestedWorktree = body.worktree;
@@ -1200,6 +1222,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         useCase: (id) => deps.useCases?.find(id) ?? null,
         workspaceRoot: deps.consultWorkspaceRoot,
         prepareWorkspace: async (path, claudeSettings, dataDir) => {
+          const hookPath = fileURLToPath(new URL("../../tools/consultation-harness.mjs", import.meta.url));
+          const hook = { hooks: [{ type: "command", command: `node "${hookPath}"`, timeout: 40 }] };
+          claudeSettings = { ...claudeSettings, hooks: { UserPromptSubmit: [hook], PreToolUse: [{ ...hook, matcher: "*" }] } };
           await mkdir(join(path, ".claude"), { recursive: true });
           if (dataDir) await mkdir(dataDir, { recursive: true });
           await writeFile(join(path, ".claude", "settings.local.json"), `${JSON.stringify(claudeSettings, null, 2)}
@@ -1462,7 +1487,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: {
           ...(spawn.env ?? {}),
-          ...(consultConfinement?.env ?? {}),
+          ...(consultConfinement ? { ...consultConfinement.env, CONCORDIA_URL: concordiaBaseUrl() } : {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
           ...interactiveSpawnEnvironment(spawn.provider, startupPromptPath),
@@ -1520,7 +1545,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       : adHocPrompt;
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
-      ...(consultConfinement?.env ?? {}),
+      ...(consultConfinement ? { ...consultConfinement.env, CONCORDIA_URL: concordiaBaseUrl() } : {}),
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
       ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
       ...interactiveSpawnEnvironment(

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { SessionMessage } from "../../api.js";
 import { MessageItem } from "./MessageItem.js";
@@ -81,5 +81,27 @@ describe("失敗したツール呼び出しの表示", () => {
 
     expect(screen.queryByText(/内容を見る/)).toBeNull();
     expect(screen.getByText("成功")).toBeTruthy();
+  });
+});
+
+describe("会話ブロック", () => {
+  it("人間と AI の発言に異なる役割ラベルと色を付ける", () => {
+    const base = toolMessage(null);
+    const view = renderItem({ ...base, author_type: "user", content: "依頼" });
+    const human = screen.getByRole("article", { name: "プレイヤーのメッセージ" });
+    expect(human.className).toContain("emerald");
+    view.unmount();
+    renderItem({ ...base, author_type: "assistant", content: "回答", metadata: { phase: "final_answer" } });
+    expect(screen.getByRole("article", { name: "AIのメッセージ" }).className).toContain("violet");
+  });
+
+  it("Cc の注入は閉じたトグルにし、原文を開ける", () => {
+    renderItem({ ...toolMessage({ inject_is_cc: true }), author_type: "system", content: "[Cc policy update]\n更新内容" });
+    const summary = screen.getByText("Cc 注入").closest("summary");
+    const details = summary?.closest("details");
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain("更新内容");
+    if (summary) fireEvent.click(summary);
+    expect(details?.open).toBe(true);
   });
 });

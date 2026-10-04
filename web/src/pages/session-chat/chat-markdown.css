@@ -1,0 +1,28 @@
+.chat-markdown { min-width: 0; overflow-wrap: anywhere; line-height: 1.8; }
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p, .chat-markdown ul, .chat-markdown ol, .chat-markdown blockquote,
+.chat-markdown pre, .chat-markdown-table { margin: 0.8em 0; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3,
+.chat-markdown h4, .chat-markdown h5, .chat-markdown h6 { margin: 1.2em 0 0.5em; font-weight: 650; }
+.chat-markdown h1 { font-size: 1.4em; }
+.chat-markdown h2 { font-size: 1.2em; }
+.chat-markdown h3 { font-size: 1.08em; }
+.chat-markdown ul { list-style: disc; padding-left: 1.5em; }
+.chat-markdown ol { list-style: decimal; padding-left: 1.5em; }
+.chat-markdown li > ul, .chat-markdown li > ol { margin: 0.25em 0; }
+.chat-markdown li + li { margin-top: 0.25em; }
+.chat-markdown input[type="checkbox"] { margin-right: 0.5em; }
+.chat-markdown blockquote { border-left: 3px solid var(--c-border); padding-left: 1em; color: var(--c-subtle); }
+.chat-markdown code { border-radius: 4px; background: var(--c-muted); padding: 0.15em 0.35em; font-size: 0.88em; }
+.chat-markdown pre { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-bg); padding: 1em; white-space: pre; overflow-wrap: normal; }
+.chat-markdown pre code { background: transparent; padding: 0; }
+.chat-markdown-table { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--c-border); border-radius: 8px; }
+.chat-markdown table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.chat-markdown th, .chat-markdown td { padding: 0.65em 1em; border-bottom: 1px solid var(--c-border); border-right: 1px solid var(--c-border); text-align: left; }
+.chat-markdown th { background: var(--c-muted); font-weight: 600; }
+.chat-markdown tr:last-child td { border-bottom: 0; }
+.chat-markdown th:last-child, .chat-markdown td:last-child { border-right: 0; }
+.chat-markdown img { max-width: 100%; height: auto; border-radius: 8px; }
+.chat-markdown hr { margin: 1.25em 0; border-color: var(--c-border); }
+.chat-markdown a { text-decoration: underline; text-underline-offset: 3px; }

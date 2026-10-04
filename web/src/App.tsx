@@ -35,6 +35,7 @@ import { DeveloperTools } from "./pages/DeveloperTools.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
+  { to: "/workplace", label: "職場", section: "チーム" },
   { to: "/inbox", label: "未回答", section: "チーム" },
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
@@ -66,9 +67,11 @@ const NAV: NavItem[] = [
 
 export function App() {
   const isChat = useMatch("/sessions/:id") !== null;
+  const isWorkplace = useMatch("/workplace/*") !== null;
+  const isConversation = isChat || isWorkplace;
   return (
     <TeamFilterProvider>
-    <div className={`flex flex-col ${isChat ? "h-dvh overflow-hidden" : "min-h-full"}`}>
+    <div className={`flex flex-col ${isConversation ? "h-dvh overflow-hidden" : "min-h-full"}`}>
       <header className="shrink-0 border-b border-border bg-surface px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-lg font-semibold whitespace-nowrap">
           <span className="text-accent">●</span> Concordia
@@ -79,7 +82,7 @@ export function App() {
       </header>
       <div className="flex min-h-0 flex-1">
         <Nav items={NAV} />
-      <main className={`min-h-0 min-w-0 flex-1 ${isChat ? "flex overflow-hidden" : "px-3 sm:px-6 py-4"}`}>
+      <main className={`min-h-0 min-w-0 flex-1 ${isConversation ? "flex overflow-hidden" : "px-3 sm:px-6 py-4"}`}>
         <Routes>
           <Route path="/" element={<Monitor />} />
           <Route path="/inbox" element={<Inbox />} />
@@ -94,6 +97,8 @@ export function App() {
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions" element={<Sessions />} />
+          <Route path="/workplace" element={<SessionChat />} />
+          <Route path="/workplace/:id" element={<SessionChat />} />
           <Route path="/sessions/:id/logs" element={<SessionLogDetail />} />
           <Route path="/sessions/:id" element={<SessionChat />} />
           <Route path="/reports" element={<Reports />} />

@@ -8,6 +8,20 @@ import { buildDelegationQuestionRelayText } from "../../delegation/coordination.
 import { escalateQuestionToHuman } from "../../control/question-escalation.js";
 
 export function registerQaRoutes(app: Hono, deps: SessionsApiDeps): void {
+  // Inspect structured questions/permissions before their contents reach DB or another session.
+  for (const route of ["permission-request", "pending-question", "answer-question", "escalate-question"]) {
+    app.use(`/:id/${route}`, async (c, next) => {
+      if (c.req.method !== "POST" || !deps.consultationSafety) return next();
+      const id = c.req.param("id");
+      if (!id || !deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+      const body: unknown = await c.req.json().catch(() => null);
+      const decision = await deps.consultationSafety.check({ sessionId: id,
+        phase: route === "answer-question" ? "prompt" : "output", text: JSON.stringify(body) });
+      if (decision.blocked) return c.json({ error: "consultation_policy_blocked",
+        message: "相談の情報保護のため、この操作をブロックしました。", reason: decision.reason }, 403);
+      await next();
+    });
+  }
   app.post("/:id/permission-request", async (c) => {
     const id = c.req.param("id");
     if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);

@@ -4,7 +4,9 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/shared/session-inject-visibility(?:\\.contract|\\.test)?\\.ts$" },
+    {
+      "pathPattern": "(^|/)src/shared/session-inject-visibility(?:\\.contract|\\.test)?\\.ts$"
+    },
     {
       "pathPattern": "(^|/)src/messages/(project|service|tool-failure|injection-provenance)(\\.test)?\\.ts$"
     },
@@ -34,6 +36,12 @@
     },
     {
       "pathPattern": "(^|/)tests/helpers/test-app\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/messages/inject-echo\\.contract\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/messages/(cc-inject|inject-echo)(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the session-message-layer domain: deterministic event projection, canonical message persistence, read cursors, REST/wire contracts, retention, and subscription ownership.",
@@ -50,7 +58,8 @@
     "spec/feature/session-message-layer.md#3-storage-contract",
     "spec/feature/session-message-layer.md#41-tool-failure-detail-2026-09-01-neco-指示",
     "spec/feature/session-message-layer.md#5-rest-api",
-    "spec/feature/session-message-layer.md#6-event-contract"
+    "spec/feature/session-message-layer.md#6-event-contract",
+    "spec/feature/workplace-chat.md"
   ],
   "rationale": "Projection, canonical-row update semantics, read cursors, and message event delivery change together as one user-visible session stream. Exact integration-file membership attributes this feature's bootstrap, schema, and API wiring without claiming unrelated directories."
 }

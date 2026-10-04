@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { sessionCategory } from "./category.js";
 import { existsSync } from "node:fs";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { DelegationRunRow } from "../../db/delegation-repo.js";
@@ -390,9 +391,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       offset,
     });
     const full = (q.metadata ?? "").trim() === "full";
-    const sessions = full
-      ? list.map(serializeSession)
-      : list.map((s) => withSlimMetadata(serializeSession(s)));
+    const sessions = list.map((s) => ({
+      ...(full ? serializeSession(s) : withSlimMetadata(serializeSession(s))),
+      category: sessionCategory(s.metadata, (id) => deps.delegation?.findRun(id) ?? null),
+    }));
     return c.json({ sessions, limit, offset });
   });
 

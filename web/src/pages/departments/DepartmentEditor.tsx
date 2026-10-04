@@ -19,6 +19,10 @@ const OUTPUT_ITEMS: Array<{ key: DepartmentOutputItem; label: string }> = [
   { key: "status_card", label: "状態カード" },
   { key: "session_info_card", label: "セッション情報表示" },
   { key: "cost_report", label: "コスト報告" },
+  { key: "intermediate", label: "AI の途中発言（出さない＝最終回答のみ）" },
+  { key: "inject_transcript", label: "Cc の指令（inject）" },
+  { key: "context_usage", label: "コンテキスト使用量" },
+  { key: "session_end_report", label: "セッション終了報告" },
 ];
 
 const OUTPUT_MODES: Array<{ value: DepartmentOutputMode; label: string }> = [
@@ -177,12 +181,17 @@ export function DepartmentEditor({
 
       <fieldset className="border border-border rounded p-2">
         <legend className="text-xs text-subtle px-1">出力方針</legend>
+        <p className="text-xs text-subtle mb-2">この会社のこの部署にだけ適用します。子会社の総務は既定で最終回答のみ、本社は全表示です。</p>
+        <div className="flex gap-2 mb-2">
+          <button type="button" className="text-xs text-accent" onClick={() => setOutput({ ...output, thinking: "off", intermediate: "off", inject_transcript: "off", context_usage: "off" })}>最終回答のみ</button>
+          <button type="button" className="text-xs text-accent" onClick={() => setOutput({ ...output, thinking: "on", intermediate: "on", inject_transcript: "on", context_usage: "on" })}>すべて表示</button>
+        </div>
         <div className="grid gap-2 md:grid-cols-4">
           {OUTPUT_ITEMS.map((item) => (
             <Labeled key={item.key} label={item.label}>
               <select
                 className="foundation-form w-full"
-                value={output[item.key]}
+                value={output[item.key] ?? "inherit"}
                 onChange={(e) => setOutput({ ...output, [item.key]: e.target.value as DepartmentOutputMode })}
               >
                 {OUTPUT_MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}

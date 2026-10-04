@@ -4,20 +4,50 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/consultation/[^/]+$" },
-    { "pathPattern": "(^|/)src/db/private-consultations-repo(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/db/consultation-publications-repo(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/api/consultations(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/discord/consult-[^/]+$" },
-    { "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$" },
-    { "pathPattern": "(^|/)tests/projectless-consult[^/]*\\.test\\.ts$" },
-    { "pathPattern": "(^|/)tools/consult-codex-hook(\\.test)?\\.mjs$" },
-    { "pathPattern": "(^|/)tools/consult-fetch-link-command(\\.test)?\\.mjs$" }
+    {
+      "pathPattern": "(^|/)src/consultation/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/private-consultations-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/consultation-publications-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/consultations(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/consult-[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/projectless-consult[^/]*\\.test\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/consult-codex-hook(\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)tools/consult-fetch-link-command(\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/sessions/(qa|relay)(-safety\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/consultation-safety(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/consultation-harness(\\.test)?\\.mjs$"
+    }
   ],
   "cardTemplate": "Summarise the consultation domain: private consultation channels (closed at creation, members, invites, lock on end), keeping private content off shared surfaces, and requester-approved publication of rewritten summaries to Tabula.",
   "specRefs": [
-    "spec/feature/tech-consultation.md"
+    "spec/feature/tech-consultation.md",
+    "spec/feature/workplace-chat.md"
   ],
   "rationale": "プライベート相談は Discord の権限・チャンネル寿命・公開承認という、部署 (governance) や対話の前提データ (dialogue-context) とは別の理由で変わる。Discord 固有の面 (src/discord/consult-*) もここに寄せ、相談の状態遷移と権限判定は src/consultation/ に閉じる。"
 }

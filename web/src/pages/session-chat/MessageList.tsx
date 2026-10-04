@@ -27,10 +27,12 @@ export function MessageList({ messages, onAnswer, onPermission, attachmentMessag
     ...attachmentMessages.map((message) => ({ ts: message.ts, id: message.id, key: `attachment:${message.id}`, node: <AttachmentMessageItem sessionId={sessionId} message={message} /> })),
   ].sort((a, b) => a.ts - b.ts || a.id - b.id);
   return (
-    <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
+      <div className="mx-auto max-w-4xl space-y-4">
       {items.map((item) => <div key={item.key}>{item.node}</div>)}
       {working && <div role="status" aria-live="polite" className="flex items-center gap-2 px-2 py-2 text-sm text-subtle"><span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />作業中...{startedAt !== null && <time dateTime={new Date(startedAt * 1000).toISOString()}>開始 {new Date(startedAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>}</div>}
       <div ref={bottom} />
+      </div>
     </div>
   );
 }

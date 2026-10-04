@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api, type SessionMessage } from "../../api.js";
-import { useWsEvent } from "../../hooks/useWsEvent.js";
+import { useLiveQuery, useWsEvent } from "../../hooks/useWsEvent.js";
+import { useTeamFilter } from "../../lib/TeamFilterContext.js";
 import { ChatInput } from "./ChatInput.js";
 import { parseChatCommand } from "./commands.js";
 import { MessageList } from "./MessageList.js";
@@ -11,14 +12,24 @@ import { StatusOverlay } from "./StatusOverlay.js";
 import { loadAttachmentMessages, type AttachmentMessage } from "./Attachments.js";
 import { isResponseWorking } from "./response-turns.js";
 import { SessionWorkPanel } from "./SessionWorkPanel.js";
+import { visibleChatMessages } from "./message-presentation.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 chat, unread, and push UI */
 
 // @spec セッションの設計・開始確認・実装・調整
 export function SessionChat() {
   const { id } = useParams<{ id: string }>();
-  const [sessions, setSessions] = useState<Awaited<ReturnType<typeof api.sessions>>["sessions"]>([]);
-  const menuSessions = useMemo(() => sessions.filter((item) => item.status !== "ended"), [sessions]);
+  const location = useLocation();
+  const { teamId } = useTeamFilter();
+  const list = useLiveQuery(() => api.sessions({ teamId: teamId ?? undefined }),
+    ["hello", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], teamId);
+  const organizations = useLiveQuery(async () => {
+    const [departments, companies] = await Promise.all([
+      api.departmentsList({ allOrganizations: true, includeArchived: true }), api.subsidiariesList(),
+    ]);
+    return { departments: departments.departments, companies: companies.subsidiaries };
+  }, ["hello"]);
+  const menuSessions = useMemo(() => (list.data?.sessions ?? []).filter((item) => item.status !== "ended" || item.id === id), [list.data, id]);
   const [session, setSession] = useState<Awaited<ReturnType<typeof api.session>>["session"] | null>(null);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [attachmentMessages, setAttachmentMessages] = useState<AttachmentMessage[]>([]);
@@ -40,9 +51,8 @@ export function SessionChat() {
     const requestedId = id;
     const request = ++refreshRequestRef.current;
     try {
-      const [sessionData, list, messageData, attachments] = await Promise.all([
+      const [sessionData, messageData, attachments] = await Promise.all([
         api.session(requestedId),
-        api.sessions(),
         api.sessionMessages(requestedId),
         loadAttachmentMessages(requestedId).then(
           (value) => ({ value, error: null }),
@@ -51,7 +61,6 @@ export function SessionChat() {
       ]);
       if (request !== refreshRequestRef.current || selectedSessionRef.current !== requestedId) return;
       setSession(sessionData.session);
-      setSessions(list.sessions);
       setMessages(messageData.messages);
       if (attachments.value) setAttachmentMessages(attachments.value);
       setAttachmentError(attachments.error);
@@ -120,15 +129,24 @@ export function SessionChat() {
     if ((event.type === "session.ended" || event.type === "session.lost" || event.type === "session.event" || event.type === "session.task_changed") && event.session_id === id) {
       void refresh();
     }
-    if (event.type === "session.started" || event.type === "session.ended" || event.type === "session.lost" || event.type === "session.task_changed"
-      || (event.type === "session.event" && event.kind === "work_phase_changed")) {
-      void api.sessions()
-        .then((result) => setSessions(result.sessions))
-        .catch((cause) => setPageError((cause as Error).message));
-    }
   });
 
-  if (!id) return <div className="text-danger">session id missing</div>;
+  const sidebar = <SessionList sessions={menuSessions} activeId={id} unread={unread}
+    departments={organizations.data?.departments} companies={organizations.data?.companies}
+    basePath={location.pathname.startsWith("/workplace") ? "/workplace" : "/sessions"} />;
+  const listError = list.error ?? organizations.error;
+  const listFeedback = <>
+    {listError && <div role="alert" className="px-4 py-2 text-xs text-danger">一覧の取得に失敗: {listError.message} <button type="button" onClick={() => { list.refetch(); organizations.refetch(); }}>再試行</button></div>}
+    {!list.data && !list.error && <p role="status" className="px-4 py-2 text-xs text-subtle">チャットを読み込み中…</p>}
+  </>;
+  if (!id) return (
+    <div className="flex min-h-0 min-w-0 flex-1 bg-bg">
+      <aside className="min-h-0 w-full shrink-0 overflow-y-auto border-r border-border bg-surface/40 md:w-80">{listFeedback}{sidebar}</aside>
+      <section className="hidden flex-1 items-center justify-center px-8 md:flex">
+        <div className="max-w-sm text-center"><div className="mb-4 text-3xl text-accent" aria-hidden="true">◈</div><h1 className="text-xl font-semibold">会話から、仕事を進める</h1><p className="mt-3 text-sm text-subtle">チャットを選ぶと、プレイヤーと AI の回答をここで確認できます。</p><p className="mt-2 text-xs text-subtle">新しい仕事は「新規セッション」から始められます。</p></div>
+      </section>
+    </div>
+  );
 
   const submit = async (raw: string): Promise<string | null> => {
     const command = parseChatCommand(raw);
@@ -169,22 +187,24 @@ export function SessionChat() {
     await api.permissionRespond(id, { request_id: requestId, decision: allow ? "allow" : "deny" });
     if (selectedSessionRef.current === id) setPendingInput({ sessionId: id, after: messages[messages.length - 1]?.id ?? 0 });
   };
-  const sidebar = <SessionList sessions={menuSessions} activeId={id} unread={unread} />;
+  const department = organizations.data?.departments.find((item) => item.id === session?.department_id);
+  const displayMessages = visibleChatMessages(messages, department?.effective_output ?? {});
+  const displayReady = !session?.department_id || !!organizations.data;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-bg" style={{ touchAction: "manipulation" }}>
-      <aside className="hidden min-h-0 w-72 shrink-0 overflow-y-auto overscroll-contain border-r border-border md:block">{sidebar}</aside>
+      <aside className="hidden min-h-0 w-80 shrink-0 overflow-y-auto overscroll-contain border-r border-border bg-surface/40 md:block">{listFeedback}{sidebar}</aside>
       {drawer && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-72 overflow-y-auto overscroll-contain bg-surface" onClick={(event) => event.stopPropagation()}>
-            {sidebar}
+            {listFeedback}{sidebar}
           </aside>
         </div>
       )}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface p-3">
+        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface p-3 sm:px-5">
           <button type="button" className="md:hidden" onClick={() => setDrawer(true)} aria-label="セッション一覧を開く">☰</button>
-          <div className="min-w-0 flex-1 truncate font-semibold">{session?.current_task || id}</div>
+          <div className="min-w-0 flex-1"><div className="truncate font-semibold">{session?.current_task || id}</div><div className="mt-0.5 text-xs text-subtle">{department?.name ?? "チャット"} · <span className="text-emerald-300">プレイヤー</span><span className="mx-1">/</span><span className="text-violet-300">AI</span></div></div>
           <Link to={`/sessions/${encodeURIComponent(id)}/logs`} className="text-sm text-accent">ログ</Link>
           <button type="button" disabled={!session} aria-expanded={workOpen} aria-controls="session-work-panel" onClick={() => setWorkOpen((open) => !open)} className="shrink-0 rounded border border-border px-2 py-1 text-xs text-accent">タスク・テスト/PR</button>
           <button type="button" onClick={() => setStatusOpen(true)} title="状態">ⓘ</button>
@@ -197,10 +217,14 @@ export function SessionChat() {
           </button>
         </header>
         {pageError && <div className="px-3 py-1 text-xs text-danger">更新エラー: {pageError}</div>}
+        {organizations.error && <div role="alert" className="px-3 py-1 text-xs text-danger">部署の表示設定を取得できません: {organizations.error.message} <button type="button" onClick={organizations.refetch}>再試行</button></div>}
+        {department?.settings_error && <div role="alert" className="px-3 py-1 text-xs text-danger">部署の表示設定を読み込めません: {department.settings_error}</div>}
+        {department?.effective_output?.intermediate === false && <div className="border-b border-border px-4 py-2 text-xs text-subtle">部署の設定により、途中経過を省略して回答を表示しています。</div>}
         {attachmentError && <div role="alert" className="px-3 py-1 text-xs text-danger">{attachmentError} <button type="button" onClick={() => void refresh()}>再試行</button></div>}
         {pushError && <div className="px-3 text-xs text-danger">{pushError}</div>}
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
-          <MessageList messages={messages} attachmentMessages={attachmentMessages} sessionId={id} working={isResponseWorking(messages, session?.status, pendingInput?.sessionId === id ? pendingInput.after : null)} onAnswer={answer} onPermission={permission} />
+          {displayReady ? <MessageList messages={displayMessages} attachmentMessages={attachmentMessages} sessionId={id} working={isResponseWorking(messages, session?.status, pendingInput?.sessionId === id ? pendingInput.after : null)} onAnswer={answer} onPermission={permission} />
+            : <p role="status" className="p-5 text-sm text-subtle">部署の表示設定を読み込み中…</p>}
           {workOpen && session && <SessionWorkPanel key={id} session={session} onClose={() => setWorkOpen(false)} />}
         </div>
         <ChatInput onSubmit={submit} disabled={session?.status !== "active"} />

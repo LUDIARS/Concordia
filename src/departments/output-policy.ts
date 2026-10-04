@@ -8,7 +8,13 @@
  * @implements SPEC-DEPT-OUTPUT
  */
 
-import { parseDepartmentSettings, type DepartmentOutputItem, type DepartmentOutputMode } from "./settings.js";
+import { parseDepartmentSettings, type DepartmentOutputItem, type DepartmentOutputMode, type DepartmentOutputPolicy } from "./settings.js";
+
+export function effectiveDepartmentOutput(output: DepartmentOutputPolicy, identity: DepartmentOutputIdentity,
+  global: Partial<Record<DepartmentOutputItem, boolean>> = { thinking: false }): Record<DepartmentOutputItem, boolean> {
+  return Object.fromEntries(Object.entries(output).map(([key, mode]) =>
+    [key, isOutputEnabled(departmentOutputMode(mode, key as DepartmentOutputItem, identity), global[key as DepartmentOutputItem] ?? true)])) as Record<DepartmentOutputItem, boolean>;
+}
 
 export function isOutputEnabled(mode: DepartmentOutputMode, globalEnabled: boolean): boolean {
   if (mode === "on") return true;
@@ -28,11 +34,11 @@ export function departmentOutputMode(mode: DepartmentOutputMode, item: Departmen
 }
 
 export interface SessionOutputPorts {
-  departmentIdentity?(departmentId: string): DepartmentOutputIdentity | null;
   /** セッションの所属部署。 セッションが無い・未配属は null。 */
   sessionDepartmentId(sessionId: string): string | null;
   /** 部署の settings_json。 部署が無ければ null。 */
   departmentSettingsJson(departmentId: string): string | null;
+  departmentIdentity?(departmentId: string): DepartmentOutputIdentity | null;
   /** 保存済み設定が壊れていたときの通知 (全体設定へ倒したことを観測可能にする)。 */
   onBrokenSettings?(departmentId: string): void;
 }

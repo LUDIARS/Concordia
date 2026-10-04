@@ -15,6 +15,8 @@ export function DelegationSpawnForm({
   templates,
   projects,
   showTitle = false,
+  onSpawned,
+  onSubmittingChange,
 }: {
   subsidiaryId?: string | null;
   /** 部署として起動する (spec/feature/departments.md §5)。 部署の起動既定値を初期値にする。 */
@@ -23,6 +25,8 @@ export function DelegationSpawnForm({
   templates?: DelegationTemplateLite[];
   projects?: string[];
   showTitle?: boolean;
+  onSpawned?: () => void;
+  onSubmittingChange?: (submitting: boolean) => void;
 }) {
   const projectListId = useId();
   const [localTemplates, setLocalTemplates] = useState<DelegationTemplateLite[]>([]);
@@ -36,6 +40,7 @@ export function DelegationSpawnForm({
   const [mode, setMode] = useState<WindowMode>("tab");
   const [project, setProject] = useState(departmentLaunch.project ?? "");
   const [branch, setBranch] = useState("");
+  const [cwd, setCwd] = useState("");
   const [useWorktree, setUseWorktree] = useState(true);
   const [injectPrompt, setInjectPrompt] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -102,6 +107,7 @@ export function DelegationSpawnForm({
     if (sending) return;
     if (launchKind === "template" && !selected) return;
     setSending(true);
+    onSubmittingChange?.(true);
     setResult(null);
     try {
       const body: Parameters<typeof api.adminSpawn>[0] = { mode };
@@ -111,6 +117,7 @@ export function DelegationSpawnForm({
       if (subsidiaryId) body.subsidiary_id = subsidiaryId;
       if (department) body.department = department.id;
       if (projectName) body.project = projectName;
+      if (!projectName && cwd.trim()) body.cwd = cwd.trim();
       if (branchName) {
         body.branch = branchName;
         body.worktree = useWorktree;
@@ -137,11 +144,15 @@ export function DelegationSpawnForm({
           ? `spawned${projectName ? ` ${projectName}` : ""}${r.branch ? ` @${r.branch}` : ""} (pid ${r.pid ?? "?"}${r.injected_prompt ? ", prompt" : ""})`
           : (r.error ?? "spawn failed"),
       });
-      if (r.ok) setPrompt("");
+      if (r.ok) {
+        setPrompt("");
+        onSpawned?.();
+      }
     } catch (err) {
       setResult({ ok: false, text: (err as Error).message });
     } finally {
       setSending(false);
+      onSubmittingChange?.(false);
     }
   };
 
@@ -233,6 +244,14 @@ export function DelegationSpawnForm({
           </select>
         </div>
       </div>
+
+      <label className="block space-y-1 text-xs text-subtle">
+        <span>起動場所（作業フォルダ）</span>
+        <input className="foundation-form w-full text-xs" value={cwd}
+          onChange={(event) => setCwd(event.target.value)} disabled={sending || !!project.trim()}
+          placeholder="未指定なら起動先の既定フォルダ" />
+        {project.trim() && <span className="block">プロジェクトのフォルダで起動します。</span>}
+      </label>
 
       {selectedTemplate && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">

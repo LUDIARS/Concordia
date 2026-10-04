@@ -146,7 +146,8 @@ describe("projectEvent / other event types", () => {
     expect(msg.author_platform).toBe("discord");
     expect(msg.content).toBe("続けて");
     expect(msg.dedupe_key).toBeNull();
-    expect(msg.metadata).toBeUndefined();
+    expect(msg.metadata).toEqual({ inject_source: "discord:12345", inject_is_cc: false });
+    expect(msg.metadata).not.toHaveProperty("injection");
   });
 
   it("does not classify platform control injections as human ingress", () => {

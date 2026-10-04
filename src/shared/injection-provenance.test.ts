@@ -51,6 +51,8 @@ describe("注入の出所", () => {
     const [message] = projectEvent(injectEvent(PROVENANCE), CTX);
 
     expect(message.metadata).toMatchObject({
+      inject_source: "reaction-workflow",
+      inject_is_cc: true,
       injection: {
         kind: "reaction-workflow",
         action: "handoff-document",
@@ -74,7 +76,8 @@ describe("注入の出所", () => {
     if (message.op !== "create") return;
     expect(message.author_type).toBe("user");
     expect(message.author_label).toBe("User");
-    expect(message.metadata).toBeUndefined();
+    expect(message.metadata).toEqual({ inject_source: "reaction-workflow", inject_is_cc: false });
+    expect(message.metadata).not.toHaveProperty("injection");
   });
 
   it("Slack から来ても同じ形で残る", () => {
@@ -101,6 +104,8 @@ describe("注入の出所", () => {
     const [message] = projectEvent(injectEvent(minimal), CTX);
     expect(message.metadata).toEqual({
       injection: { kind: "reaction-workflow", action: "context-report", platform: "discord" },
+      inject_source: "reaction-workflow",
+      inject_is_cc: true,
     });
   });
 });

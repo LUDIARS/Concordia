@@ -16,6 +16,15 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     const body = await c.req.json().catch(() => null);
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const content = parsed.data.payload as { role?: unknown; text?: unknown } | null;
+    if (!(parsed.data.kind === "text" && content?.role === "user") && deps.consultationSafety) {
+      const safety = await deps.consultationSafety.check({ sessionId: id, phase: "output", text: JSON.stringify(parsed.data.payload) });
+      if (safety.blocked) {
+        // Replace before every persistence/projection/relay path, so refusal is visible without copying content.
+        parsed.data.kind = "text";
+        parsed.data.payload = { role: "assistant", text: "相談の情報保護のため、この出力を表示できません。管理者が監査記録を確認できます。", phase: "final_answer" };
+      }
+    }
     // thinking は既定で Concordia の DB / WebUI / 中継へ載せない。保持先は provider
     // 自身のローカル transcript に限り、設定を明示的に有効化したときだけ流通させる。
     const relayThinking = parsed.data.kind !== "thinking" || deps.isThinkingEnabled?.(id) === true;
@@ -163,6 +172,10 @@ app.post("/:id/inject", async (c) => {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
     const src = parsed.data.source ?? null;
+    if (deps.consultationSafety) {
+      const safety = await deps.consultationSafety.check({ sessionId: id, phase: "prompt", text: parsed.data.text });
+      if (safety.blocked) return c.json({ error: "consultation_policy_blocked", reason: safety.reason }, 403);
+    }
     // 人間メッセージ (source="discord:<uid>:…" / "slack:<uid>:…") なら入力者を
     // participants レジストリに登録し、発言者名を session.inject に載せて
     // 相手プラットフォームのミラーで「誰の発言か」を出せるようにする。

@@ -2,10 +2,16 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, type SessionMessage } from "../../api.js";
 import { InlineAttachments } from "./Attachments.js";
+import { ConversationMessage } from "./ConversationMessage.js";
+import { isCcInjection } from "./message-presentation.js";
+import { ChatMarkdown } from "./ChatMarkdown.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 author-type rendering */
 
 export function MessageItem(props: Parameters<typeof MessageBody>[0]) {
+  if (["user", "assistant", "summary", "system"].includes(props.message.author_type) || isCcInjection(props.message)) {
+    return <ConversationMessage message={props.message} />;
+  }
   return <div><MessageBody {...props} /><InlineAttachments attachments={props.message.attachments} /></div>;
 }
 
@@ -84,7 +90,7 @@ function ThinkingMessage({ message }: { message: SessionMessage }) {
   return (
     <details className="rounded border border-border p-2 text-xs" open={expanded} onToggle={(event) => setExpanded((event.target as HTMLDetailsElement).open)}>
       <summary>▶ 思考 …</summary>
-      <pre className="mt-2 whitespace-pre-wrap font-sans">{message.content}</pre>
+      <div className="mt-2"><ChatMarkdown content={message.content} /></div>
     </details>
   );
 }
@@ -98,7 +104,7 @@ function TaskMessage({ message }: { message: SessionMessage }) {
         {status === "running" && <span aria-label="実行中">⏳</span>}
         <span>Task {taskStatusLabel(status)}</span>
       </div>
-      <div className="mt-1 whitespace-pre-wrap">{message.content}</div>
+      <div className="mt-1"><ChatMarkdown content={message.content} /></div>
     </article>
   );
 }
@@ -150,7 +156,7 @@ function QuestionMessage({ message, onAnswer }: {
 
   return (
     <article className="rounded border border-warn/50 p-3">
-      <div>{message.content}</div>
+      <ChatMarkdown content={message.content} />
       {answerText !== null && <div className="mt-2 text-sm text-ok">回答: {answerText}</div>}
       {!isClosed && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -217,7 +223,7 @@ function PermissionMessage({ message, onPermission }: {
 
   return (
     <article className="rounded border border-danger/50 p-3">
-      <div>{message.content}</div>
+      <ChatMarkdown content={message.content} />
       {!handled && (
         <div className="mt-2 flex gap-2">
           <button type="button" disabled={busy} onClick={() => void respond(true)} className="rounded bg-accent px-2 py-1 text-sm text-white disabled:opacity-50">許可</button>

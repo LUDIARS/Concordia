@@ -7,6 +7,7 @@ import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
+import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { filterByProjectScope } from "../subsidiary/project-scope.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
@@ -2225,6 +2226,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (gatewayClosed || stopping) return;
+    if (ev.type === "consultation.safety_blocked") {
+      // HQ administrator DM only: no consultation text or personal data enters a shared channel.
+      if (subsidiaryId !== null) return;
+      void (async () => {
+        const admin = deps.resolveMentionUserId?.();
+        if (!admin) throw new Error("consultation_security_admin_not_configured");
+        const user = await client.users.fetch(admin);
+        await user.send({ content: `Cc 相談ハーネスが操作をブロックしました。監査 ID: ${ev.audit_id}\n減点対象の判定・配信状況はハーネス監査記録を確認してください。`, allowedMentions: { parse: [] } });
+        new HarnessAuditRepo(deps.db).setNotification(ev.audit_id, "sent");
+      })().catch(() => {
+        new HarnessAuditRepo(deps.db).setNotification(ev.audit_id, "failed");
+        log.error(`consultation safety administrator notification failed audit=${ev.audit_id}`);
+      });
+      return;
+    }
     if (ev.type === "delegation.templates_changed") {
       log.info(
         `delegation template cache invalidated action=${ev.action} ` +

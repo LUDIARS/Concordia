@@ -1,4 +1,6 @@
 import type { SessionMessage, SessionRow } from "../../api.js";
+import { isCcInjection } from "./cc-injection.js";
+import { isTranscriptEcho } from "./message-echo.js";
 
 /** @implements spec/feature/session-message-webui-chat.md §1.2.1 — evidence-based response presentation */
 export function isFinalReport(message: SessionMessage): boolean {
@@ -22,7 +24,7 @@ export function responseBlocks(messages: SessionMessage[]): ResponseBlock[] {
   let hasFinal = false;
   for (const message of [...messages].reverse()) {
     if (isFinalReport(message)) hasFinal = true;
-    else if (message.author_type === "user") hasFinal = false;
+    else if (message.author_type === "user" && !isCcInjection(message) && !isTranscriptEcho(message)) hasFinal = false;
     else if (hasFinal) completedWork.add(message.id);
   }
   let work: SessionMessage[] = [];
@@ -53,8 +55,8 @@ export function isResponseWorking(
   if (status !== "active") return false;
   const turn = messages.find((message) => message.metadata?.response_turn === true);
   const latest = [...messages].reverse().find((message) =>
-    isFinalReport(message) || WORK_TYPES.has(message.author_type)
-    || ["user", "question", "permission"].includes(message.author_type));
+    !isCcInjection(message) && !isTranscriptEcho(message) && (isFinalReport(message) || WORK_TYPES.has(message.author_type)
+    || ["user", "question", "permission"].includes(message.author_type)));
   if (turn) {
     if (turn.metadata?.turn_status !== "started") return false;
     if (latest && latest.ts >= Number(turn.metadata.started_at)) {

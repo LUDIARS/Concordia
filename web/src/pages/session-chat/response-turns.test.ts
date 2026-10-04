@@ -9,6 +9,15 @@ function message(id: number, author_type: SessionMessage["author_type"], phase?:
 }
 
 describe("response presentation", () => {
+  it("retains persisted human wait through injected context and transcript echoes", () => {
+    const state = {...message(1,"system"),metadata:{response_turn:true,turn_status:"started",started_at:100}};
+    const question = {...message(2,"question"),ts:101};
+    const injection = {...message(3,"user"),ts:102,metadata:{inject_is_cc:true}};
+    const echo = {...message(4,"user"),ts:103,metadata:{echo_of_message_id:2,echo_identity_verified:true}};
+    expect(isResponseWorking([state,question,injection,echo],"active")).toBe(false);
+    expect(isResponseWorking([state,{...question,metadata:{answered:true}},injection,echo],"active")).toBe(true);
+    expect(isResponseWorking([{...state,metadata:{...state.metadata,turn_status:"completed"}},injection,echo],"active")).toBe(false);
+  });
   it("uses persistent turn state after reconnect and hides state rows from conversation", () => {
     const state = {...message(1,"system"),metadata:{response_turn:true,turn_status:"started",started_at:100}};
     expect(isResponseWorking([state],"active")).toBe(true);

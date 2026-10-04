@@ -81,6 +81,9 @@ export interface ChannelDirectory {
 }
 
 export interface SessionsApiDeps {
+  consultationSafety?: Pick<import("../../consultation/safety-service.js").ConsultationSafetyService, "check">;
+  isPrivateConsultation?: (sessionId: string) => boolean;
+  syncInstructionFragments?: (input: Parameters<typeof import("../../work/instruction-fragments.js").syncInstructionFragments>[1]) => Promise<import("../../work/instruction-fragments.js").FragmentSyncResult>;
   resolveContextLinks?: (repoPath: string, repoOrigin: string | null) => Promise<ContextLinks>;
   taskStore?: () => TaskStore;
   majorInject?: MajorInjectResolver;

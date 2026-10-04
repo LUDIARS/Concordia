@@ -4,7 +4,9 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/control/push-warning-dispatch(?:\\.test)?\\.ts$" },
+    {
+      "pathPattern": "(^|/)src/control/push-warning-dispatch(?:\\.test)?\\.ts$"
+    },
     {
       "pathPattern": "(^|/)src/control/push-warning(?:-dialog)?(?:\\.test)?\\.ts$"
     },
@@ -70,6 +72,7 @@
     "spec/feature/danger-command-approval.md",
     "spec/feature/question-session-retention.md",
     "spec/feature/departments.md",
-    "spec/feature/tech-consultation.md#4-プライベート相談"
+    "spec/feature/tech-consultation.md#4-プライベート相談",
+    "spec/feature/workplace-chat.md"
   ]
 }

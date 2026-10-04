@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { isOutputEnabled, resolveSessionOutputMode, type SessionOutputPorts } from "./output-policy.js";
+import { effectiveDepartmentOutput } from "./output-policy.js";
+import { DEFAULT_OUTPUT_POLICY } from "./settings.js";
+
+it("keeps HQ and subsidiary defaults separate and preserves explicit settings", () => {
+  const hq = { subsidiary_id: null, slug: "general" };
+  const child = { subsidiary_id: "child", slug: "general" };
+  expect(effectiveDepartmentOutput(DEFAULT_OUTPUT_POLICY, hq).intermediate).toBe(true);
+  expect(effectiveDepartmentOutput(DEFAULT_OUTPUT_POLICY, child).intermediate).toBe(false);
+  expect(effectiveDepartmentOutput({ ...DEFAULT_OUTPUT_POLICY, intermediate: "on" }, child).intermediate).toBe(true);
+  expect(effectiveDepartmentOutput(DEFAULT_OUTPUT_POLICY, { ...child, slug: "engineering" }).intermediate).toBe(true);
+  expect(resolveSessionOutputMode({ ...ports("{}"), departmentIdentity: () => child }, "s", "intermediate")).toBe("off");
+});
+it("uses the actual global thinking setting for inherited presentation", () => {
+  const hq = { subsidiary_id: null, slug: "general" };
+  expect(effectiveDepartmentOutput(DEFAULT_OUTPUT_POLICY, hq).thinking).toBe(false);
+  expect(effectiveDepartmentOutput(DEFAULT_OUTPUT_POLICY, hq, { thinking: true }).thinking).toBe(true);
+  expect(effectiveDepartmentOutput({ ...DEFAULT_OUTPUT_POLICY, thinking: "off" }, hq, { thinking: true }).thinking).toBe(false);
+});
 
 function ports(settingsJson: string | null, departmentId: string | null = "dept-qa"): SessionOutputPorts & { broken: string[] } {
   const broken: string[] = [];

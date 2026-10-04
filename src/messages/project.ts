@@ -16,6 +16,7 @@ import type {
   SessionMessageAuthorType,
 } from "../shared/session-message-types.js";
 import { injectionAuthorLabel, injectionProvenanceMetadata } from "./injection-provenance.js";
+import { isCcInjectSource } from "./cc-inject.js";
 import { shouldDisplaySessionInject } from "../shared/session-inject-visibility.js";
 
 export type {
@@ -343,11 +344,11 @@ function projectSessionInject(
     dedupe_key: null,
     // 出所のある注入は user と分ける。 モデルへ渡す入力で「本人が書いた文」と
     // 「絵文字 1 つから機械的に展開されたテンプレート」を同じ重みで読ませない。
-    author_type: ev.provenance ? "system" : "user",
+    author_type: ev.provenance || isCcInjectSource(ev.source) ? "system" : "user",
     author_label: ev.author_label ?? (ev.provenance ? injectionAuthorLabel(ev.provenance) : "User"),
     author_platform: ev.provenance?.platform ?? derivePlatformFromSource(ev.source),
     content: ev.text,
-    ...(metadata ? { metadata } : {}),
+    metadata: { ...metadata, inject_source: ev.source, inject_is_cc: !!ev.provenance || isCcInjectSource(ev.source) },
   };
 }
 

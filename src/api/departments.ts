@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { DepartmentRow, DepartmentsRepo } from "../db/departments-repo.js";
 import type { DepartmentService, DepartmentServiceResult } from "../departments/service.js";
 import { DepartmentSettingsSchema, parseDepartmentSettings, type DepartmentSettings } from "../departments/settings.js";
+import { effectiveDepartmentOutput } from "../departments/output-policy.js";
 
 const SlugSchema = z.string().min(1).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
@@ -50,6 +51,7 @@ export interface DepartmentsApiDeps {
   isKnownProvider: (provider: string) => boolean;
   /** 委託テンプレートが存在して有効か。 */
   isActiveTemplate: (callName: string) => boolean;
+  globalOutput?: () => Parameters<typeof effectiveDepartmentOutput>[2];
 }
 
 export function departmentsRouter(deps: DepartmentsApiDeps): Hono {
@@ -62,13 +64,13 @@ export function departmentsRouter(deps: DepartmentsApiDeps): Hono {
     const rows = c.req.query("all_organizations") === "1"
       ? deps.repo.listAll({ includeArchived })
       : deps.repo.listForOrganization(c.req.query("subsidiary_id")?.trim() || null, { includeArchived });
-    return c.json({ departments: rows.map(serializeDepartment) });
+    return c.json({ departments: rows.map(row => serializeDepartment(row, deps.globalOutput?.())) });
   });
 
   app.get("/:id", (c) => {
     const row = deps.repo.find(c.req.param("id"));
     if (!row) return c.json({ error: "department_not_found" }, 404);
-    return c.json({ department: serializeDepartment(row) });
+    return c.json({ department: serializeDepartment(row, deps.globalOutput?.()) });
   });
 
   app.post("/", async (c) => {
@@ -100,9 +102,10 @@ type DepartmentResponse = Omit<DepartmentRow, "is_default"> & {
   settings_error: string | null;
   archived: boolean;
   is_default: boolean;
+  effective_output: ReturnType<typeof effectiveDepartmentOutput> | null;
 };
 
-export function serializeDepartment(row: DepartmentRow): DepartmentResponse {
+export function serializeDepartment(row: DepartmentRow, global?: Parameters<typeof effectiveDepartmentOutput>[2]): DepartmentResponse {
   let settings: DepartmentSettings | null = null;
   let settingsError: string | null = null;
   try {
@@ -115,6 +118,7 @@ export function serializeDepartment(row: DepartmentRow): DepartmentResponse {
     ...row,
     settings,
     settings_error: settingsError,
+    effective_output: settings ? effectiveDepartmentOutput(settings.output, row, global) : null,
     archived: row.archived_at !== null,
     is_default: row.is_default === 1,
   };

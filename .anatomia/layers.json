@@ -159,7 +159,9 @@
     { "glob": "src/session-logs/*", "layer": "infrastructure" },
 
     { "glob": "tests/*", "layer": "shared" },
-    { "glob": "tests/helpers/*", "layer": "shared" }
+    { "glob": "tests/helpers/*", "layer": "shared" },
+    { "glob": "src/consultation/title-summary.ts", "layer": "domain-logic" },
+    { "glob": "src/consultation/title-summary.test.ts", "layer": "shared" }
   ],
 
   "mergeCouplingThreshold": 1

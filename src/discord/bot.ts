@@ -160,6 +160,8 @@ import { deliverBudgetResumable } from "./budget-resume.js";
 import { join } from "node:path";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
+import { createBountyFlowDeps } from "./bounty-wiring.js";
+import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
 import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { createPrivateChannelProvisioner, type PrivateChannelProvisioner } from "./private-channel-provisioner.js";
@@ -718,6 +720,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ...headOfficePublication,
     log,
   };
+  // バグバウンティの報告 (bug-bounty.md §3)。 受付は Cc の API (台帳へ書いてから応答) を通す。
+  // 子会社 Bot は自社を操作者の所属として渡し、 補完もその会社の関係プロジェクトに絞る。
+  const bountyReportersRepo = new BountyReportersRepo(deps.db);
+  const bountyDeps = createBountyFlowDeps({
+    runtimeSubsidiaryId: subsidiaryId ?? null,
+    callConcordia: (method, path, body) => callConcordia(deps.concordiaUrl, method, path, body),
+    registeredProjects: () => projectCodesRepo.list().map((row) => ({ code: row.code, project: row.project })),
+    companyProjects: () => (deps.subsidiary ? deps.subsidiary.resolveProjects() : null),
+    publicNameOf: (userId) => bountyReportersRepo.findByKey({
+      subsidiary_id: subsidiaryId ?? null, platform: "discord", platform_user_id: userId,
+    })?.public_name ?? null,
+    log,
+  });
   // 個人の AI 予算 (personal-ai-budget.md §6 / §7)。 調整できるのは社員名簿の管理職以上。
   const personalBudgetDiscord = createPersonalBudgetDiscord({
     db: deps.db,
@@ -2128,6 +2143,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       isSessionControlUserAllowed,
       // プライベート相談。 子会社 Bot は自社のプロジェクトを持たない相談部署だけを扱う (tech-consultation.md §6)。
       consult: consultDeps,
+      // バグバウンティの報告。 本社・子会社の両方で受ける (bug-bounty.md §3)。
+      bounty: bountyDeps,
       personalBudget: personalBudgetDiscord.commands,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,

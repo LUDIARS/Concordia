@@ -1,5 +1,11 @@
 # バグバウンティ — 報告の受付・AI の仕分け・hotfix・反映通知・個人への AI 予算
 
+> 2026-10-04 neco 訂正:「バグバウンティはイベント、報告は常時できます」。
+> 報告受付は企画の有無で閉じない。以下の旧記述にある「開催中の企画が無ければ受付を拒否する」条件と、
+> 報告に企画の所属を必須にする条件は取り消す。開催期間・対象プロジェクトはイベント参加と報奨の条件であり、
+> 常時の不具合報告の受付条件にはしない。#2265 の受付台帳・Discord `/bug`・報告 API は常時の受付を維持する。
+> 企画への参加・報奨との対応は後続の企画実装で整理し、受付だけの実装を企画実装済みとは扱わない。
+
 > 2026-10-02 neco 指示:「LUDIARS の仕組みについてバグバウンティを行いたい」「Cocoiru または Cc (Discord) から
 > 気軽にできるものとする」「(仕分けは) AI で判断」「その場で修正するものも含む (いわゆる hotfix)」
 > 「(結果は) プロジェクトデプロイ通知で通知される」「報酬として AI 予算をあげる」「(付与先は) 個人」
@@ -20,7 +26,10 @@
   [対話の前提データ](dialogue-context.md) (依頼者メモ)、[子会社委任](subsidiary-delegation.md)、
   [local PR](revisor-local-pr-submission.md)
 
-本書は設計であり、実装・テスト・人間による UX 評価は未実施。報奨の台帳と加算量は [個人の AI 予算](personal-ai-budget.md) が持つ。
+本書は設計であり、人間による UX 評価は未実施。報奨の台帳と加算量は [個人の AI 予算](personal-ai-budget.md) が持つ。
+
+実装の状況: 分割 (§15) の 1 (報告台帳と受付、クラシファイアと起動案内) を実装した。確定した強制箇所と
+設計からの補足は §16。テストは同じ変更で書いたが、このセッションでは実行していない。2〜6 は未実装。
 
 ## 0. バグバウンティ企画と通常のバグ報告
 
@@ -68,14 +77,14 @@
 | ID | 条件 | 強制箇所 (実装時に確定) |
 |---|---|---|
 | CC-BOUNTY-INV-01 | 報告の本文は資料であり、仕分け・修正の AI への指示にしない。仕分けは読み取り専用で動く | 仕分けの依頼文の組み立て、起動引数 |
-| CC-BOUNTY-INV-02 | 同じ報告 (冪等キー) を二重に受理しない。再送は同じ報告を返す | 受付 use case + 台帳の一意制約 |
-| CC-BOUNTY-INV-03 | 受付は外部 (Actio・Revisor・AI) の成否より先に永続化する。外部の失敗で報告を失わない | 受付 use case の順序 |
+| CC-BOUNTY-INV-02 | 同じ報告 (冪等キー) を二重に受理しない。再送は同じ報告を返す | `BountyIntakeService.submit` (書く前に冪等キーで照会) + `bounty_reports.intake_key` の UNIQUE (`BountyReportsRepo.create` が同じ transaction で検査して書く) |
+| CC-BOUNTY-INV-03 | 受付は外部 (Actio・Revisor・AI) の成否より先に永続化する。外部の失敗で報告を失わない | `BountyIntakeService.submit` は外部を呼ばない。台帳へ書いた結果だけを応答する。仕分けの起動は後続 (§5) が `received` の行から行う |
 | CC-BOUNTY-INV-04 | 報奨は 1 報告につき 1 回、反映確認の証拠と結び付けて付ける。重複と判定された報告には付けない | 残高台帳の一意制約 `(report_id, kind=grant)` |
-| CC-BOUNTY-INV-05 | 本社所属・受取人不明の報告は報奨なし。記録と通知は同じに扱う | 報奨の判定 (純関数) |
+| CC-BOUNTY-INV-05 | 本社所属・受取人不明の報告は報奨なし。記録と通知は同じに扱う | 報奨の判定 (純関数、§7 で実装。付与は [個人の AI 予算](personal-ai-budget.md) が持つ)。受取人の決定は `resolveSessionRecipient` (特定できなければ `recipient_reporter_id` が NULL) |
 | CC-BOUNTY-INV-06 | (欠番。個人の予算の上限は [個人の AI 予算](personal-ai-budget.md) の CC-PBUDGET-INV-02 / 03 が持つ) | — |
 | CC-BOUNTY-INV-07 | 公開面に出すのは、公開プロジェクトの・採用済みの・AI が書き直した要約と公開名だけ。原文、非公開プロジェクト、機微な報告 (反映前) は出さない。判定できなければ出さない | 公開読み出しの判定 (純関数) |
 | CC-BOUNTY-INV-08 | AI の判定は権限者が覆せる。判定の変更は誰がいつ何から何へ変えたかを履歴に残す | 再審 use case + 判定履歴 |
-| CC-BOUNTY-INV-09 | PR の提出・審査通過・マージを反映確認に置き換えない (CC-INV-04) | 状態遷移 (純関数) |
+| CC-BOUNTY-INV-09 | PR の提出・審査通過・マージを反映確認に置き換えない (CC-INV-04) | `decideBountyTransition` (`deployed` は反映の証拠が無ければ拒否)。台帳は `BountyReportsRepo.transition` の CAS |
 | CC-BOUNTY-INV-10 | 人の名前で報告・取り下げ・公開名の変更ができるのは Bot と Cocoiru だけ。セッションは自分の session id の報告しか出せない | 操作者の経路の内部トークン (2/5 で実装) |
 | CC-BOUNTY-INV-11 | 報告は開催中の企画の対象プロジェクトにだけ受け付け、1 つの企画に属する。通常のバグ報告をバウンティの報告へ自動で振り替えない (逆も同じ) | 受付 use case の企画判定 (純関数) + `bounty_reports.event_id` の NOT NULL |
 
@@ -396,3 +405,126 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 対象プロジェクトのバックログへ直接登録し、本書の受付を使わない。本書の分割には含めない。
 
 依存: 2 → 1、3 → 2、4 → 1 (Cc 側) と 2 (公開用の要約)、5 → 1〜3。1 から順に進める。
+
+## 16. 実装で確定したこと (1/5 受付)
+
+**Requirement ID: `SPEC-BOUNTY-INTAKE` / `SPEC-BOUNTY-REPORTER` / `SPEC-BOUNTY-GUIDANCE`**
+
+2026-10-02、`spec/tasks/2026-10-02-bounty-intake.md` の実装で確定した点。設計 (§3・§4・§8.1・§9・§10) を変えるものではなく、
+設計が決めていなかった細部と強制箇所を記録する。
+
+### 16.1 配置
+
+| ファイル | 責務 |
+|---|---|
+| `src/bounty/report-state.ts` | 状態と遷移の可否 (`decideBountyTransition`)。純関数 |
+| `src/bounty/intake.ts` | 入力の整形、冪等キー (`bountyIntakeKey`)、受付時の状態 (`initialBountyStatus`)。純関数 |
+| `src/bounty/project-scope.ts` | 対象プロジェクトと会社の範囲の確認 (`checkBountyReportProject`)。純関数 |
+| `src/bounty/reporter.ts` | 受取人 (`resolveSessionRecipient`)、公開名 (`normalizePublicName` / `displayPublicName`)、取り下げの可否 (`decideBountyWithdrawal`)。純関数 |
+| `src/bounty/intake-service.ts` | 受付・取り下げ・追記・公開名の use case (`BountyIntakeService`) |
+| `src/bounty/session-view.ts` | セッションの行から「有効か・所属会社・依頼者」を読む adapter |
+| `src/bounty/ontime-runtime.ts` と `src/bounty/*.contract.ts` | Augur の observe 契約 (実行時の事後条件の観測) |
+| `src/db/bounty-reports-repo.ts` / `src/db/bounty-reporters-repo.ts` | 台帳の保存・状態の CAS・照会 |
+| `src/api/bounty.ts` | HTTP 境界 (入力の形の検証、操作者の読み取り) |
+| `src/discord/commands/bug.ts` / `src/discord/bounty-modal.ts` / `src/discord/bounty-flow.ts` / `src/discord/bounty-wiring.ts` | `/bug` コマンド、モーダル、応答と告知、Cc の API への取り次ぎ |
+| `src/harness/reliability/workflow-guidance.ts` / `src/control/shared-startup-context.ts` | クラシファイアの種別 `bug-bounty`、起動時の共通案内の 1 行 |
+
+データは migration 123 (`bug-bounty-ledger`) の `bounty_reports` / `bounty_report_events` / `bounty_reporters`。
+報奨の台帳は [個人の AI 予算](personal-ai-budget.md) が持つ (本書の表は作らない)。`project_codes.bounty_public` は §8 の実装で足す。
+
+### 16.2 受付 API
+
+| API | 内容 |
+|---|---|
+| `POST /v1/bounty/reports` | 報告を受け付ける。新規は 201、同じ冪等キーの再送は 200 で同じ `report_id` を返す |
+| `POST /v1/bounty/reports/:id/withdraw` | 採用前の報告を本人が取り下げる |
+| `POST /v1/bounty/reports/:id/amend` | 情報不足 (`needs_info`) の報告へ本人が追記し、`received` へ戻す |
+| `POST /v1/bounty/reporters/public-name` | 公開名を変える (`null` / 空で匿名へ戻す) |
+
+- 報告を出す主体は 2 通り。セッションは `session_id` (終了・消失していないこと)。Bot / Cocoiru は `platform` (`discord` / `cocoiru`) と
+  `actor: { user_id, subsidiary_id }`。両方ある・どちらも無い入力は 400。Discord の `user_id` は snowflake に限る。
+- 操作者の本人確認は、Discord の操作者を Bot が渡す形で、相談の API (`/v1/consultations`) と同じ loopback の信頼境界に乗る。
+  API 自体は呼び出し元が Bot かどうかを検証しない。Cocoiru を外から到達させるときは、Cocoiru のサーバが利用者を確かめてから
+  loopback で呼ぶ (Cocoiru 側の実装は §14 のとおり未確認)。
+- 入力: `project` (コード、分からなければ `null`)、`what_happened`、`repro_steps`、`public_name`、`client_key`、
+  `reply_to` (`guild_id` / `channel_id` / `notify_ref`)。本文は 4000 文字まで (Discord のモーダルの上限に合わせた)。
+- 応答: `report_id`・`status`・`project`・`missing`・`reporter` (公開名の表示)・`has_recipient`・`created`・`message`。原文は返さない。
+- 拒否: 未知のプロジェクトコードは 400 `unknown_project` (理由付き)、会社の関係プロジェクト外は 403
+  `project_outside_company_scope`、無効なセッションは 403 `invalid_session`、Discord / Cocoiru で冪等キーが無ければ 400
+  `client_key_required`。
+- 冪等キー: Discord は `discord:<interaction id>`、Cocoiru は `cocoiru:<Cocoiru の報告 id>`、セッションは
+  `session:<session id>:key:<client_key>`、`client_key` が無ければ `session:<session id>:body:<本文の SHA-256>`。
+  鍵に本文を平文で入れない。再送では台帳も公開名も変えない。
+- プロジェクトコードは大文字小文字を区別する (`LD` と `Ld` は別)。完全一致が無いときだけ、大文字小文字を畳んで 1 件に決まる
+  コードを採る。子会社の範囲は関係プロジェクト (`subsidiary_projects`) の名前またはコードで照合する。
+  `project: null` は会社を問わず受け付ける。仕分けが推定したプロジェクトの範囲の確認は §5 の実装が行う。
+  所属会社が登録から消えたセッションは本社扱いにせず、範囲を空として扱う (コードを指定した報告は拒否する)。
+- 「何が起きたか」が空の報告は受け付けて `needs_info` にし、応答の `missing` と `message` で 1 回聞き返す。
+  追記は `amend` で受け、原文の後ろへ足す (元の報告を消さない)。Discord のモーダルは「何が起きたか」を必須にしているので、
+  受付時の `needs_info` はセッションと Cocoiru の報告だけに起きる。`/bug` からの追記の面は §5 の聞き返しと合わせて作る。
+
+### 16.3 報告者・受取人・公開名
+
+- 人の報告: `bounty_reporters` の行 (会社・プラットフォーム・ユーザー id で一意。本社は会社が NULL なので式 index で一意にする) が
+  報告者であり受取人。
+- セッションの報告: 報告者は session id。受取人は session metadata の `discord_requester_user_id` と `subsidiary_id` から決め、
+  特定できなければ NULL。セッションが `public_name` を渡しても無視する (公開名を変えられるのは本人だけ)。
+- 公開名は 32 文字まで。`@`・`<`・`>`・バッククォート・バックスラッシュ、リンク、改行を含む名前は受けない
+  (公開面と通知で mention やリンクにならないように)。
+- 取り下げと追記は、報告者本人 (人は同じ会社・プラットフォーム・ユーザー id、セッションは同じ session id) だけ。
+  同じユーザー id でも会社が違えば別人として扱う。
+
+### 16.4 状態遷移の表
+
+`decideBountyTransition` が許可する遷移。これ以外は拒否する。`deployed` への遷移は、デプロイの code / hash、
+または権限者の根拠と操作者がそろっているときだけ許可する。
+
+| 現在 | 遷移先 |
+|---|---|
+| `received` | `needs_info` / `rejected` / `duplicate` / `accepted` / `withdrawn` |
+| `needs_info` | `received` (追記) / `rejected` / `duplicate` / `accepted` / `withdrawn` |
+| `rejected` | `accepted` (再審・権限者の変更) |
+| `duplicate` | `accepted` / `rejected` (権限者の変更) |
+| `accepted` | `fix_pending` / `rejected` / `duplicate` (判定が覆った) |
+| `fix_pending` | `fixing` / `fix_submitted` / `deployed` / `rejected` / `duplicate` |
+| `fixing` | `fix_pending` (失敗・停止) / `fix_submitted` / `deployed` / `rejected` / `duplicate` |
+| `fix_submitted` | `fix_pending` / `deployed` / `rejected` / `duplicate` |
+| `deployed` / `withdrawn` | なし (終端) |
+
+- 取り下げ (`withdrawn`) は `received` / `needs_info` からだけ。対象外・重複と判定された報告は取り下げの対象にしない
+  (判定は履歴として残す)。
+- `accepted` から直接 `deployed` へは進めない。Actio のタスクが作れず `accepted` のまま修正が反映された場合の閉じ方は、
+  §6・§7 の実装で決める (設計の変更が要るなら、そのときに本表を改める)。
+- 台帳は `BountyReportsRepo.transition` が「現在の状態が期待どおりのときだけ」書き、同じ transaction で
+  `bounty_report_events` に 1 行残す。書けなかった遷移は `state_changed` (409) として返し、上書きしない。
+- 履歴の種別: `received` / `amended` / `withdrawn` (受付側)、`triage_result` / `verdict_changed` / `appeal` / `task_created` /
+  `hotfix_started` / `pr_recorded` / `deployed` / `reward` / `notified` (後続)。種別は DB の CHECK では縛らず、型で持つ。
+- `bounty_reports` には §10 の列に加えて、判定の根拠 `verdict_reason` を持つ (§5 の `reason`)。`sensitive` の既定は 1
+  (仕分けが決めるまで機微として扱う)。
+
+### 16.5 Discord
+
+- コマンドは `/bug report [project]`・`/bug name [name]`・`/bug withdraw id`。Discord はサブコマンドを持つコマンドを
+  単独では実行できないので、モーダルを開くのは `/bug report`。`project` は project registry からの補完 (子会社は関係プロジェクトだけ)。
+- モーダルは 4 項目 (対象プロジェクト・何が起きたか・再現手順・公開名)。公開名の欄は本人が設定済みの公開名だけを既定値にし、
+  空で送れば設定を変えない (匿名へ戻すのは `/bug name`)。
+- 応答はどれも本人にだけ返す。受付の告知はコマンドを打ったチャンネルへ「報告 id と対象プロジェクト」だけを出し、mention を許可しない。
+  告知の失敗は受付を取り消さない (CC-INV-06)。再送では告知を重ねない。
+- 受付が拒否されたとき (未知のコードなど) は、入力した内容を本人にだけ返す (モーダルを閉じると入力が消えるため)。
+- 本社 guild と子会社 guild の両方に登録する (`subsidiary-scope.ts` の許可コマンドとモーダルに追加)。Bot は台帳を直接書かず、
+  Cc の API を通す。
+
+### 16.6 案内
+
+- クラシファイアの種別 `bug-bounty`: 次のどれかに当たる人の入力に、経路 (`bug-bounty-report`、Discord は `/bug`) と節度を案内する。
+  - 不具合の語 (バグ / 不具合 / 壊れて / 動かない / 単語としての bug) があり、報告先を尋ねる・報告を望む形
+    (「どこに報告」「報告したい」「報告できる」、where … report、how to report など) を含む。
+  - 不具合の語があり、発見を述べる (見つけ / 発見 / found)。ただし修正や実装の依頼 (直して / 修正して / 実装して / fix / implement) を含む入力には出さない。
+  - バウンティを名指しする (バウンティ / bounty / `bug-bounty-report` / `/bug`)。同じく修正や実装の依頼を含む入力には出さない。
+- 「報告 / report」だけでは合図にしない。「このバグを直して、終わったら報告して」「不具合を修正して結果を報告」は作業報告の依頼で、
+  不具合の報告ではない。英語の bug は単語境界で取り、debug / debugging には当てない (2026-10-02 委託元レビューで判定を絞った)。
+- 「報告しない / 報告は不要 / 報告はしなくて」を含む入力、`[自動確認]`・`[Cc Session policy]`・`[Cc policy update]` で始まる入力、
+  コードブロック内の文には出さない。
+- 起動時の共通案内 (`session.shared_startup_context` の資料一覧の末尾) に 1 行足した。Castra root を解決できず共通案内自体を
+  出せない場合は、この 1 行も出ない。
+- スキル `bug-bounty-report` 本体は Castra 側 (分割 6)。未配置の間、案内はスキル名と `/bug` を示すだけになる。

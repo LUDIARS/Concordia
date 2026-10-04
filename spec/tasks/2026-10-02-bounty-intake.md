@@ -7,6 +7,10 @@ memory_links: []
 ---
 # バグバウンティ 1/5 — 企画と報告台帳と受付、クラシファイアの案内
 
+2026-10-04 neco 訂正「バグバウンティはイベント、報告は常時できます」に従う。
+報告台帳と `/bug` / 報告 API の受付は常時開く。以下の旧完了条件のうち「企画が無い・期間外なら報告受付を拒否する」
+条件と `bounty_reports.event_id` 必須条件は取り消す。企画の管理・イベント参加・報奨の実装完了はこの受付 PR で主張しない。
+
 設計正本: `spec/feature/bug-bounty.md` §0・§3・§4・§8.1・§9・§10・§11 (`SPEC-BOUNTY-EVENT` / `SPEC-BOUNTY-INTAKE` /
 `SPEC-BOUNTY-REPORTER` / `SPEC-BOUNTY-GUIDANCE`)。価値 UX-CC-W7 / シナリオ UX-CC-S8。ドメイン `bug-bounty` (支援)。
 2026-10-02 neco 指示「バグバウンティはあらゆるセッションから有効」「Cocoiru または Cc (Discord) から気軽に」「実装 Opus」。

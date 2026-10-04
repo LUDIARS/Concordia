@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -38,6 +39,10 @@ describe("task branch adapters", () => {
     const git = (args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8", windowsHide: true });
     try {
       git(["init", "-b", "main"]);
+      // Disposable repositories must not invoke the user's global Git hooks.
+      const hooks = join(dir, ".git", "fixture-hooks");
+      mkdirSync(hooks);
+      git(["config", "--local", "core.hooksPath", hooks]);
       git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "initial"]);
       git(["switch", "-c", "feature/actual", "main"]);
       git(["worktree", "add", "-b", "feature/linked", linked, "main"]);
@@ -47,8 +52,11 @@ describe("task branch adapters", () => {
       expect(secondary).toMatchObject({ repo: resolve(linked), branch: "feature/linked", commonDir: primary.commonDir });
       expect(primary.checkouts?.map(checkout => checkout.branch).sort()).toEqual(["feature/actual", "feature/linked"]);
     } finally {
-      rmSync(linked, { recursive: true, force: true });
-      rmSync(dir, { recursive: true, force: true });
+      try {
+        await rm(linked, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } finally {
+        await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      }
     }
     // Several real Git processes need startup headroom under parallel review (same as conflux.test.ts).
   }, 60_000);

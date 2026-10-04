@@ -41,6 +41,12 @@ describe("子会社 guild で使えるコマンド", () => {
     expect(isSubsidiarySessionSurface(surface("consult:pubedit:pub_1", { button: false }))).toBe(false);
   });
 
+  it("バグ報告 /bug とその受付モーダルは出す (2026-10-02、 bug-bounty.md §3)", () => {
+    expect(isSubsidiaryAllowedCommand("bug")).toBe(true);
+    expect(isSubsidiaryAllowedInteraction({ commandName: "bug" } as never)).toBe(true);
+    expect(isSubsidiarySessionSurface(surface("bounty:modal:report", { button: false }))).toBe(true);
+  });
+
   it("予算切れで中断したセッションの「再開」ボタンは通す", () => {
     expect(isSubsidiarySessionSurface(surface("budget:resume:lictor-1"))).toBe(true);
   });

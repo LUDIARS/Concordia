@@ -18,6 +18,12 @@ interface SharedStartupContextInput {
   majorInject?: MajorInjectResolver;
 }
 
+/**
+ * バグバウンティの案内 (spec/feature/bug-bounty.md §8.1)。 経路と節度を示すだけで、 報告を自動で出さず、
+ * 権限も作業対象も変えない。
+ */
+export const BUG_BOUNTY_STARTUP_LINE = "- 作業の範囲外で仕組みの不具合を見つけたら `bug-bounty-report` スキルで報告できます (Discord は `/bug`)。自分の作業で直すものは報告せず、同じ不具合を繰り返し報告せず、報告のために調査範囲を広げないでください。";
+
 /** Only known resource names are considered; never enumerate or copy private memories. */
 export async function buildSharedStartupContext(input: SharedStartupContextInput): Promise<string> {
   const roots = [...new Set(input.workspaceRoots.filter(isAbsolute).map((root) => resolve(root)))];
@@ -60,6 +66,7 @@ export async function buildSharedStartupContext(input: SharedStartupContextInput
     lines.push(found ? `- ${resource.label}: ${JSON.stringify(found)}` : `- ${resource.label}: 見つかりません。必要時に場所を確認してください（未読）。`);
   }
   lines.push("- 読み取り拒否・ファイル消失時は不足した資料名を報告し、読了したと扱わないでください。sandbox の範囲はこの案内では変更されません。");
+  lines.push(BUG_BOUNTY_STARTUP_LINE);
   return resolveMajorInjectText("session.shared_startup_context", input.majorInject, {
     castra_root: JSON.stringify(root), resources: lines.join("\n"),
     selection_rule: `資料選択ルール: ${JSON.stringify(fileURLToPath(new URL("../../rule/shared-context.md", import.meta.url)))}`,

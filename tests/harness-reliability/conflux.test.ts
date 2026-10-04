@@ -86,12 +86,22 @@ describe("Conflux work isolation", () => {
     git(["config", "--local", "core.hooksPath", makeTestDir("conflux-hooks-")]);
     git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "initial"]);
     git(["branch", selection.baseBranch]); const wt = join(dir, "work"); git(["worktree", "add", "-b", "feature/old", wt, "main"]);
-    expect((await inspectConfluxGit(dir, selection)).dedicated).toBe(false);
-    expect((await inspectConfluxGit(wt, selection)).dedicated).toBe(true);
+    const inspect = async (cwd: string) => {
+      try {
+        return await inspectConfluxGit(cwd, selection);
+      } catch (cause) {
+        const error = cause as Error & { code?: string | number; signal?: string; killed?: boolean; stderr?: string };
+        throw new Error(`Conflux fixture inspection failed: ${JSON.stringify({
+          cwd, code: error.code, signal: error.signal, killed: error.killed, stderr: error.stderr,
+        })}`, { cause });
+      }
+    };
+    expect((await inspect(dir)).dedicated).toBe(false);
+    expect((await inspect(wt)).dedicated).toBe(true);
     await switchConfluxGit(wt, selection, false);
-    expect(await inspectConfluxGit(wt, selection)).toMatchObject({ branch: selection.workBranch, descends: true, dirty: false });
+    expect(await inspect(wt)).toMatchObject({ branch: selection.workBranch, descends: true, dirty: false });
     writeFileSync(join(wt, "pending.txt"), "preserve");
-    expect((await inspectConfluxGit(wt, selection)).dirty).toBe(true);
+    expect((await inspect(wt)).dirty).toBe(true);
     // Multiple real Git inspections need process-startup headroom under parallel review.
   }, 60_000);
 });

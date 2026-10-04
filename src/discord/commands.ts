@@ -21,6 +21,9 @@ import { BUDGET_RESUME_PREFIX, handleBudgetResumeButton } from "./budget-resume.
 import goalCommand from "./commands/goal.js";
 import correctCommand from "./commands/correct.js";
 import consultCommand from "./commands/consult.js";
+import bugCommand from "./commands/bug.js";
+import { handleBountyModalSubmit } from "./bounty-flow.js";
+import { BOUNTY_CUSTOM_ID_PREFIX } from "./bounty-modal.js";
 import budgetCommand from "./commands/budget.js";
 import rewardCommand from "./commands/reward.js";
 import { handleConsultApproval, handleConsultModalSubmit } from "./consult-flow.js";
@@ -88,6 +91,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   goalCommand,
   correctCommand,
   consultCommand,
+  bugCommand,
   budgetCommand,
   rewardCommand,
   effortCommand,
@@ -276,6 +280,15 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     }
     if (interaction.isModalSubmit()) await handleConsultModalSubmit(interaction, deps.consult);
     else await handleConsultApproval(interaction, deps.consult);
+    return;
+  }
+  // バグ報告のモーダル送信 (bug-bounty.md §3)。 本社・子会社の両方で受ける。
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(BOUNTY_CUSTOM_ID_PREFIX)) {
+    if (!deps.bounty) {
+      await interaction.reply({ content: "バグ報告はこの Bot で使えません。", ephemeral: true }).catch(() => { /* best-effort */ });
+      return;
+    }
+    await handleBountyModalSubmit(interaction, deps.bounty);
     return;
   }
   // 公開候補カードのボタン / 直して公開のモーダル (tech-consultation.md §5)。

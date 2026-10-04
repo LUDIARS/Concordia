@@ -3201,6 +3201,228 @@
       "contracts": []
     },
     {
+      "source": "src/bounty/report-state.ts",
+      "tests": [
+        "src/bounty/report-state.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-09"
+      ]
+    },
+    {
+      "source": "src/bounty/intake.ts",
+      "tests": [
+        "src/bounty/intake.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-02"
+      ]
+    },
+    {
+      "source": "src/bounty/project-scope.ts",
+      "tests": [
+        "src/bounty/project-scope.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": [
+        "CC-INV-02"
+      ]
+    },
+    {
+      "source": "src/bounty/reporter.ts",
+      "tests": [
+        "src/bounty/reporter.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-05"
+      ]
+    },
+    {
+      "source": "src/bounty/session-view.ts",
+      "tests": [
+        "src/bounty/session-view.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/intake-service.ts",
+      "tests": [
+        "src/bounty/intake-service.test.ts",
+        "src/api/bounty.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-02",
+        "CC-BOUNTY-INV-03",
+        "CC-BOUNTY-INV-05",
+        "CC-INV-02"
+      ]
+    },
+    {
+      "source": "src/bounty/ontime-runtime.ts",
+      "tests": [
+        "src/bounty/report-state.test.ts",
+        "src/bounty/intake.test.ts",
+        "src/bounty/project-scope.test.ts",
+        "src/bounty/reporter.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/report-state.contract.ts",
+      "tests": [
+        "src/bounty/report-state.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/intake-key.contract.ts",
+      "tests": [
+        "src/bounty/intake.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/intake-status.contract.ts",
+      "tests": [
+        "src/bounty/intake.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/project-scope.contract.ts",
+      "tests": [
+        "src/bounty/project-scope.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/reporter-recipient.contract.ts",
+      "tests": [
+        "src/bounty/reporter.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/reporter-withdrawal.contract.ts",
+      "tests": [
+        "src/bounty/reporter.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/bounty/reporter-public-name.contract.ts",
+      "tests": [
+        "src/bounty/reporter.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/contracts/workflow-bug-bounty.contract.ts",
+      "tests": [
+        "tests/bounty-guidance.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/bounty-reports-repo.ts",
+      "tests": [
+        "src/db/bounty-reports-repo.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-02"
+      ]
+    },
+    {
+      "source": "src/db/bounty-reporters-repo.ts",
+      "tests": [
+        "src/db/bounty-reporters-repo.test.ts",
+        "src/bounty/intake-service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/api/bounty.ts",
+      "tests": [
+        "src/api/bounty.test.ts"
+      ],
+      "contracts": [
+        "CC-BOUNTY-INV-02",
+        "CC-INV-02"
+      ]
+    },
+    {
+      "source": "src/discord/bounty-modal.ts",
+      "tests": [
+        "src/discord/bounty-modal.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/bounty-flow.ts",
+      "tests": [
+        "src/discord/bounty-flow.test.ts",
+        "src/discord/commands.test.ts"
+      ],
+      "contracts": [
+        "CC-INV-06"
+      ]
+    },
+    {
+      "source": "src/discord/bounty-wiring.ts",
+      "tests": [
+        "src/discord/bounty-wiring.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/commands/bug.ts",
+      "tests": [
+        "src/discord/commands/bug.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/db/schema.ts",
+      "tests": [
+        "src/db/bounty-reports-repo.test.ts",
+        "src/db/bounty-reporters-repo.test.ts",
+        "src/db/migration-ledger.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/harness/reliability/workflow-guidance.ts",
+      "tests": [
+        "tests/bounty-guidance.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/shared-startup-context.ts",
+      "tests": [
+        "tests/bounty-guidance.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/commands.ts",
+      "tests": [
+        "src/discord/commands.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/subsidiary-scope.ts",
+      "tests": [
+        "src/discord/subsidiary-scope.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/management/cf-access.ts",
       "tests": [
         "src/management/cf-access.test.ts"

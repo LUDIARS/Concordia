@@ -64,7 +64,6 @@ export function scanSourceSettingKeys(srcRoot: string): SourceScanResult {
 export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   // 実行環境そのものが与える変数 (設定ではない)。
   NODE_ENV: "Node 実行モード。 Concordia の設定ではない",
-  CONCORDIA_TEAM_ID: "Cc が起動するセッションに渡すチーム id (起動 env)。 Concordia 自身の設定ではない",
   VITEST: "vitest が立てるフラグ。 テスト時のみ",
   COMSPEC: "Windows のシェルパス (OS 提供)",
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeTestApp } from "./helpers/test-app.js";
@@ -224,7 +225,7 @@ describe("admin API", () => {
   it("POST /v1/admin/spawn-session can launch a template in a branch worktree", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "admin-wt-repo-"));
     const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-feat-admin-wt`);
-    rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    await rm(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     initGitRepo(repoRoot);
     const spawnCalls: Array<{ provider: string; cwd?: string }> = [];
     env = makeTestApp({
@@ -261,9 +262,12 @@ describe("admin API", () => {
       expect(body.worktree_created).toBe(true);
       expect(spawnCalls).toEqual([{ provider: "claude", cwd: worktreeRoot }]);
     } finally {
-      // Windows では git の子プロセスが掴んだファイルが少し残り、 すぐ消すと EPERM になる (#2370 の審査で落ちた)。 再試行して待つ。
-      rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-      rmSync(repoRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      // Yield while Windows releases child-process handles; keep cleanup failures visible.
+      try {
+        await rm(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } finally {
+        await rm(repoRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      }
     }
   // The fixture setup launches five Git commands before the handler's own bounded
   // command sequence, so leave enough headroom for process startup under suite load.
@@ -575,6 +579,9 @@ async function seedSession(
 
 function initGitRepo(repoRoot: string): void {
   git(repoRoot, ["init", "-b", "main"]);
+  const hooks = join(repoRoot, ".git", "fixture-hooks");
+  mkdirSync(hooks);
+  git(repoRoot, ["config", "--local", "core.hooksPath", hooks]);
   git(repoRoot, ["config", "user.email", "concordia-test@example.invalid"]);
   git(repoRoot, ["config", "user.name", "Concordia Test"]);
   writeFileSync(join(repoRoot, "README.md"), "test\n", "utf8");

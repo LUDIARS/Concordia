@@ -14,8 +14,9 @@ describe("Discord command registration", () => {
   it("registers only safe session commands for subsidiary guilds", () => {
     // /spawn は子会社では出さない (2026-09-02 neco 指示: 起動は Session forum 一本)。
     // /consult は子会社の相談窓口として出す (2026-10-01、 tech-consultation.md §6)。
-    // /budget は本人にだけ返る個人の AI 予算 (personal-ai-budget.md §7)。 /reward (本社の調整) は出さない。
-    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "budget", "ch_name", "consult", "バックログに追加"]);
+    // /bug は本社・子会社の両方に出す (2026-10-02、 bug-bounty.md §3)。
+    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "budget", "bug", "ch_name", "consult", "バックログに追加"]);
+    expect(commandNamesForRegistration()).toContain("bug");
     expect(isSubsidiaryAllowedCommand("reward")).toBe(false);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
     expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);
@@ -87,6 +88,52 @@ describe("Discord command registration", () => {
       content: expect.stringContaining("起動権限がありません"),
       ephemeral: true,
     }));
+  });
+
+  const bountyModal = (overrides: Record<string, unknown> = {}) => ({
+    type: 5,
+    id: "1422334455",
+    customId: "bounty:modal:report",
+    guildId: "77777",
+    channelId: "88888",
+    user: { id: "905235114026467350" },
+    fields: { getTextInputValue: (id: string) => (id === "what_happened" ? "壊れている" : "") },
+    channel: { send: vi.fn(async () => undefined) },
+    isAutocomplete: () => false,
+    isRepliable: () => true,
+    isChatInputCommand: () => false,
+    isButton: () => false,
+    isModalSubmit: () => true,
+    isStringSelectMenu: () => false,
+    reply: vi.fn(async () => undefined),
+    deferReply: vi.fn(async () => undefined),
+    editReply: vi.fn(async () => undefined),
+    ...overrides,
+  });
+
+  it.each([null, "sub-1"])("routes the bug report modal to the intake for company %s", async (subsidiaryId) => {
+    const submit = vi.fn(async () => ({
+      ok: true as const,
+      created: true,
+      receipt: { report_id: "br_abc", status: "received", project: null, missing: [], reporter: "匿名", has_recipient: true },
+    }));
+    const interaction = bountyModal();
+    await dispatchInteraction(interaction as never, {
+      subsidiaryId,
+      bounty: { submit, log: { info: vi.fn(), warn: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ clientKey: "1422334455", userId: "905235114026467350" }));
+    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.channel.send).toHaveBeenCalledWith({
+      content: "バグ報告 `br_abc` を受け付けました (対象: 未特定)。", allowedMentions: { parse: [] },
+    });
+  });
+
+  it("answers the bug report modal when the Bot is not wired for bug reports", async () => {
+    const interaction = bountyModal();
+    await dispatchInteraction(interaction as never, { log: { info: vi.fn(), warn: vi.fn() } } as never);
+    expect(interaction.reply).toHaveBeenCalledWith({ content: "バグ報告はこの Bot で使えません。", ephemeral: true });
   });
 
   it("does not expose /spawn autocomplete choices to an unauthorized user", async () => {

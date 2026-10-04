@@ -15,6 +15,8 @@
  *  - `/consult` (プライベート相談) は出す (2026-10-01 neco 指示: 子会社の相談窓口)。 受けるのは
  *    その子会社のプロジェクトを持たない相談部署だけ (tech-consultation.md §6)。 公開候補 (Tabula へ
  *    出す wrap とそのカード) は本社の知見共有の面なので出さない。
+ *  - `/bug` (バグバウンティの報告) は出す (2026-10-02 neco 指示: Cc (Discord) から気軽に)。 対象にできるのは
+ *    その子会社の関係プロジェクトだけで、 範囲は受付 use case が確かめる (bug-bounty.md §3)。
  *  - `/budget` (個人の AI 予算) は出す。 個人の予算の対象は子会社の個人で、 応答は本人にだけ返る
  *    (personal-ai-budget.md §7)。 `/reward` (本社の調整) は出さない。
  *
@@ -28,13 +30,14 @@ import { isQuestionInteraction } from "./question.js";
 import { isPermissionInteraction } from "./permission.js";
 import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
 import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
+import { BOUNTY_CUSTOM_ID_PREFIX } from "./bounty-modal.js";
 import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
 
 /**
  * 子会社 guild へ登録する slash command。
  * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "budget"]);
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "bug", "budget"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
@@ -66,6 +69,8 @@ export function isSubsidiarySessionSurface(interaction: Interaction): boolean {
     // プライベート相談の受付モーダルと承認ボタン。 公開候補 (consult:pub*) は含めない。
     || interaction.customId.startsWith(CONSULT_MODAL_PREFIX)
     || interaction.customId.startsWith(CONSULT_APPROVE_PREFIX)
+    // バグ報告の受付モーダル (bug-bounty.md §3)。
+    || interaction.customId.startsWith(BOUNTY_CUSTOM_ID_PREFIX)
     // 予算切れで中断したセッションの「再開」 (usage-budgets.md §5.3)。 子会社のセッションも再開できる。
     || interaction.customId.startsWith(BUDGET_RESUME_PREFIX);
 }

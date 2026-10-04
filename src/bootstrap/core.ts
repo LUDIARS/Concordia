@@ -134,6 +134,10 @@ import { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
 import { ConsultationPublicationsRepo } from "../db/consultation-publications-repo.js";
 import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
+import { BountyReportsRepo } from "../db/bounty-reports-repo.js";
+import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
+import { BountyIntakeService } from "../bounty/intake-service.js";
+import { bountySessionView } from "../bounty/session-view.js";
 import { PublicationService } from "../consultation/publication-service.js";
 import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
@@ -844,6 +848,17 @@ export async function startBackend(): Promise<BackendHandle> {
   const discordGatewayPool = new DiscordGatewayPool();
   const teamMetricsRepo = new TeamMetricsRepo(db);
   const projectCodesRepo = new ProjectCodesRepo(db);
+  // バグ報告の受付 (bug-bounty.md §3)。 台帳へ書いてから応答し、 受付では外部を呼ばない。
+  const bountyIntake = new BountyIntakeService({
+    reports: new BountyReportsRepo(db),
+    reporters: new BountyReportersRepo(db),
+    projects: () => projectCodesRepo.list().map((row) => ({ code: row.code, project: row.project })),
+    companyProjects: (companyId) => (subsidiaryRepo.find(companyId) ? subsidiaryRepo.listProjects(companyId) : null),
+    session: (sessionId) => {
+      const session = repo.findSession(sessionId);
+      return session ? bountySessionView(session) : null;
+    },
+  });
   const domainReviewRepo = new DomainReviewRepo(db);
   // 投稿口は guild ハンドルを持つ Discord Bot が ready 後に登録する (federation egress と同型)。
   // chat を worker で動かす構成では登録されないままで、 その場合は理由付きで見送る。
@@ -2133,6 +2148,7 @@ export async function startBackend(): Promise<BackendHandle> {
       discordRoles: () => listGuildRoles(discordRoleClients()),
     },
     privateChannels: new PrivateChannelsRepo(db),
+    bountyIntake,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },

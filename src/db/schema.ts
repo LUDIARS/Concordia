@@ -3290,6 +3290,84 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   },
 },
 {
+  version: 130,
+  name: "bug-bounty-ledger",
+  source: "bounty_reporters + bounty_reports + bounty_report_events (spec/feature/bug-bounty.md §9 §10)",
+  up(db) {
+    // バグ報告の台帳。 報告 1 件 = bounty_reports 1 行、 遷移と判断の履歴は bounty_report_events に 1 行ずつ残す。
+    // 冪等キー (intake_key) は UNIQUE で、 同じ報告を二重に受理しない (CC-BOUNTY-INV-02)。
+    // 原文 (what_happened / repro_steps) はこの表にだけ置く。 機微かどうかは仕分けが決めるまで 1 (機微) として扱う。
+    // 人 (報告者・受取人) は会社・プラットフォーム・ユーザー id の組で 1 行。 本社は subsidiary_id が NULL なので
+    // 一意性は COALESCE した式 index で持つ。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bounty_reporters (
+        id               TEXT PRIMARY KEY,
+        subsidiary_id    TEXT,
+        platform         TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        public_name      TEXT,
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bounty_reporters_identity
+        ON bounty_reporters(COALESCE(subsidiary_id, ''), platform, platform_user_id);
+      CREATE TABLE IF NOT EXISTS bounty_reports (
+        id                    TEXT PRIMARY KEY,
+        subsidiary_id         TEXT,
+        project_code          TEXT,
+        reporter_kind         TEXT NOT NULL CHECK(reporter_kind IN ('person', 'session')),
+        reporter_id           TEXT,
+        reporter_session_id   TEXT,
+        recipient_reporter_id TEXT,
+        what_happened         TEXT NOT NULL,
+        repro_steps           TEXT NOT NULL DEFAULT '',
+        intake_platform       TEXT NOT NULL CHECK(intake_platform IN ('discord', 'session', 'cocoiru')),
+        intake_key            TEXT NOT NULL UNIQUE,
+        intake_ref_json       TEXT NOT NULL DEFAULT '{}',
+        status                TEXT NOT NULL CHECK(status IN ('received', 'needs_info', 'rejected', 'duplicate',
+          'accepted', 'fix_pending', 'fixing', 'fix_submitted', 'deployed', 'withdrawn')),
+        verdict               TEXT CHECK(verdict IS NULL OR verdict IN ('accepted', 'duplicate', 'rejected', 'needs_info')),
+        verdict_reason        TEXT,
+        severity              TEXT CHECK(severity IS NULL OR severity IN ('s1', 's2', 's3', 's4')),
+        sensitive             INTEGER NOT NULL DEFAULT 1,
+        self_inflicted        INTEGER,
+        hotfix_eligible       INTEGER,
+        duplicate_of          TEXT,
+        public_title          TEXT,
+        public_summary        TEXT,
+        actio_task_ref        TEXT,
+        actio_task_error      TEXT,
+        fix_pr                TEXT,
+        deploy_code           TEXT,
+        deploy_hash           TEXT,
+        close_evidence        TEXT,
+        closed_by             TEXT,
+        received_at           INTEGER NOT NULL,
+        triaged_at            INTEGER,
+        deployed_at           INTEGER,
+        withdrawn_at          INTEGER,
+        updated_at            INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_status ON bounty_reports(status, received_at);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_project ON bounty_reports(project_code, status);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_reporter ON bounty_reports(reporter_id, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_session ON bounty_reports(reporter_session_id, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_recipient ON bounty_reports(recipient_reporter_id);
+      CREATE TABLE IF NOT EXISTS bounty_report_events (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id  TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        from_value TEXT,
+        to_value   TEXT,
+        actor_kind TEXT NOT NULL CHECK(actor_kind IN ('ai', 'human', 'system')),
+        actor_id   TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_bounty_report_events_report ON bounty_report_events(report_id, id);
+    `);
+  },
+},
+{
   version: 131,
   name: "provider-plan-approval-identity",
   source: "discord_pending_questions kind/provider_request_id v1 (SPEC-PLAN-APPROVAL-NOTIFICATION)",

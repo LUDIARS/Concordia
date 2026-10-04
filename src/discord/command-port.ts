@@ -12,6 +12,7 @@ import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-c
 import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
+import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
 
 export interface DiscordCommandDeps {
@@ -63,6 +64,8 @@ export interface DiscordCommandDeps {
   isSessionControlUserAllowed?: (userId: string) => boolean;
   /** プライベート相談 (spec/feature/tech-consultation.md §4)。 本社 Bot だけに配線する。 */
   consult?: ConsultCommandDeps;
+  /** バグバウンティの報告 (spec/feature/bug-bounty.md §3)。 本社・子会社の Bot に配線する。 */
+  bounty?: BountyFlowDeps;
   /** 個人の AI 予算の `/budget`・`/reward` (spec/feature/personal-ai-budget.md §6 / §7)。 */
   personalBudget?: PersonalBudgetCommandDeps;
   /** セッションの end-session (管理職以上)。 */

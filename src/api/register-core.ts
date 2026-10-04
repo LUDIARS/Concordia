@@ -129,6 +129,8 @@ import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js
 import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
 import { consultationsRouter } from "./consultations.js";
+import type { BountyIntakeService } from "../bounty/intake-service.js";
+import { bountyRouter } from "./bounty.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
 import type { GuildRoleList } from "../discord/member-roles.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
@@ -313,6 +315,8 @@ export interface CoreDelegationDeps {
   };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
+  /** バグ報告の受付 (spec/feature/bug-bounty.md §3)。 未注入なら /v1/bounty は生えない。 */
+  bountyIntake?: BountyIntakeService;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
   publishedConsultations?: { listPublished(limit: number): PublishedConsultation[] };
   /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
@@ -881,6 +885,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       publications: deps.consultationPublications,
       emit: (event) => eventBus.emit(event),
     }));
+  }
+  if (deps.bountyIntake) {
+    app.route("/v1/bounty", bountyRouter({ intake: deps.bountyIntake }));
   }
   if (deps.departments && deps.departmentService) {
     app.route("/v1/departments", departmentsRouter({

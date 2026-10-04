@@ -2654,7 +2654,7 @@ export async function startBackend(): Promise<BackendHandle> {
       }),
     );
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
-    trackPostListenHandle(startRepoChangeWatcher({ sessions: repo, tasks }));
+    trackPostListenHandle(startRepoChangeWatcher({ sessions: repo }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
   }
 

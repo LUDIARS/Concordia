@@ -11,7 +11,7 @@ import type { CreateModelInput, ModelCatalogRepo } from "../db/model-catalog-rep
 const SEED_MODELS: CreateModelInput[] = [
   // ── Claude (Claude Code) ─────────────────────────────────
   { provider: "claude", model_id: "claude-opus-5-5", label: "Opus 5.5", sort_order: 10 },
-  { provider: "claude", model_id: "claude-sonnet-5", label: "Sonnet 5", sort_order: 20 },
+  { provider: "claude", model_id: "claude-sonnet-5-5", label: "Sonnet 5.5", sort_order: 20 },
   { provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 22 },
   { provider: "claude", model_id: "claude-fable-5-1", label: "Fable 5.1", sort_order: 24 },
   { provider: "claude", model_id: "claude-fable-5", label: "Fable 5", sort_order: 25 },
@@ -30,7 +30,7 @@ const SEED_MODELS: CreateModelInput[] = [
 
 const ROLLING_SEED_MODELS: CreateModelInput[] = [
   { provider: "claude", model_id: "claude-opus-5-5", label: "Opus 5.5", sort_order: 10 },
-  { provider: "claude", model_id: "claude-sonnet-5", label: "Sonnet 5", sort_order: 20 },
+  { provider: "claude", model_id: "claude-sonnet-5-5", label: "Sonnet 5.5", sort_order: 20 },
   { provider: "claude", model_id: "claude-fable-5-1", label: "Fable 5.1", sort_order: 24 },
   { provider: "codex", model_id: "gpt-6-astra", label: "GPT-6 Astra", sort_order: 5 },
   { provider: "codex", model_id: "gpt-6.1-sol", label: "GPT-6.1 Sol", sort_order: 10 },

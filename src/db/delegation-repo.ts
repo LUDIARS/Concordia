@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { applyDelegationProviderPolicy } from "../delegation/provider-policy.js";
 import { endDiscordSessionChannels } from "./discord-repo.js";
+import { canonicalTemplateCallName } from "../delegation/template-call-names.js";
 
 // 論理 provider プリセット。 claude/codex/gemini は同名 CLI に 1:1。
 // gemma4-12 は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
@@ -449,7 +450,24 @@ export class DelegationRepo {
     const row = this.db
       .prepare(`SELECT * FROM delegation_templates WHERE call_name = ?`)
       .get(call_name) as DelegationTemplateRow | undefined;
-    return row ?? null;
+    if (row) return row;
+    const canonical = canonicalTemplateCallName(call_name);
+    if (canonical === call_name) return null;
+    const aliased = this.db.prepare("SELECT * FROM delegation_templates WHERE call_name = ?")
+      .get(canonical) as DelegationTemplateRow | undefined;
+    return aliased ?? null;
+  }
+
+  /** Rename in place: prompt edit provenance, model pins and run identities remain attached. */
+  renameTemplateCallName(previous: string, next: string): void {
+    const row = this.db.prepare("SELECT id FROM delegation_templates WHERE call_name = ?")
+      .get(previous) as {id: string} | undefined;
+    if (!row) return;
+    if (this.db.prepare("SELECT id FROM delegation_templates WHERE call_name = ?").get(next)) {
+      throw new Error(`delegation_template_name_collision:${previous}:${next}`);
+    }
+    this.db.prepare("UPDATE delegation_templates SET call_name = ?, updated_at = ? WHERE id = ?")
+      .run(next, Date.now(), row.id);
   }
 
   isTemplatePromptEdited(templateId: string): boolean {

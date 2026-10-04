@@ -4350,6 +4350,13 @@
     {"source":"src/events.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
     {"source":"src/shared/event-schema.ts","tests":["tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
     {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts","tests/plan-approval-notification.test.ts"],"contracts":["SPEC-PLAN-APPROVAL-NOTIFICATION"]},
+    {"source":"src/delegation/template-call-names.ts","tests":["src/delegation/template-call-names.test.ts","src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/db/delegation-repo.ts","tests":["src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/delegation/seed.ts","tests":["src/delegation/seed.test.ts","src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/model-catalog/seed.ts","tests":["src/model-catalog/seed.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/delegation/parttimer-prompts.ts","tests":["src/delegation/seed.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/delegation/sidecar/profile.ts","tests":["src/delegation/sidecar/profile.test.ts","src/delegation/sidecar/invoke-guard.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
+    {"source":"src/delegation/sidecar/gate.ts","tests":["src/delegation/sidecar/gate.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
     {"source":"src/stat/repo-change-watcher.ts","tests":["tests/repo-change-watcher.test.ts"],"contracts":["CC-AUTO-TITLE-TASK-STOP"]}
   ]
 }

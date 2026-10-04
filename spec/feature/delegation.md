@@ -16,8 +16,16 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-09-05
+updated: 2026-10-04
 ---
+
+2026-10-04 neco 指示: Sol の標準プロファイルは `sol-6-1` / gpt-6.1-sol / 初期 medium
+に統合し `sol-xhigh` を廃止する。Sonnet は `sonnet-5-5` / claude-sonnet-5-5 にする。
+effort は基本可変で、`movable` を名前・表示から外す。Opus / Fable は `opus-5-5` /
+`fable-5-1` に改名し、初期 medium と実行中変更入口を維持する。
+旧 `sol-mid` / `sonnet-mid` / `*-movable` は呼び出し互換として解決するが選択肢には重複表示しない。
+ID・prompt 編集履歴・モデル pin・run 履歴を保ち、名前衝突は上書きせず停止する。
+以下の旧プロファイル記載よりこの更新を優先する。価値 UX-CC-AD-W1。
 
 
 # Delegation Templates — 設計

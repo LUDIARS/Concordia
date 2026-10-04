@@ -7,6 +7,7 @@
 import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 import { initialRoleModel } from "../model-catalog/role-policy.js";
+import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -58,7 +59,7 @@ const ANATOMIA_SUPPLY_VERIFY_STEPS = [
 ];
 export const LEGACY_ANATOMIA_SEED_BLOCK = `\n${ANATOMIA_SUPPLY_VERIFY_STEPS.join("\n")}`;
 export const LEGACY_ANATOMIA_SEED_CALL_NAMES = new Set([
-  "sol-mid", "sol-xhigh", "terra-xhigh", "luna",
+  "sol-mid", "sol-6-1", "sol-xhigh", "terra-xhigh", "luna",
   "fable-mid", "astra-mid", "astra-xhigh", "opus-xhigh", "opus-mid", "fable-xhigh", "sonnet-mid", "haiku",
   "impl-from-design", "fix-bug", "gemma4-12-impl",
 ]);
@@ -95,6 +96,7 @@ const LEGACY_DELEGATION_CALL_NAMES = [
   "fable-xhigh",
   // 2026-10-03: neco 指示「Astra の xhigh を消して」。 Astra は astra-mid / astra-with-sidecar の 2 本にする。
   "astra-xhigh",
+  "sol-xhigh",
 ] as const;
 
 /**
@@ -147,6 +149,7 @@ function codexTemplate(opts: {
       IMPLEMENTATION_COMPLETION_INSTRUCTION,
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
       "",
+      ...adjustableEffortInstructions(),
       "Report the PR URL when done.",
     ].join("\n"),
     input_schema: [
@@ -161,8 +164,7 @@ function codexTemplate(opts: {
 
 const CODEX_TEMPLATES: CreateTemplateInput[] = [
   // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
-  codexTemplate({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
-  codexTemplate({ callName: "sol-xhigh", modelName: "sol", label: "Sol / xhigh（高難度）", emoji: "☀️", sort_order: 25, reasoning: "xhigh" }),
+  codexTemplate({ callName: "sol-6-1", modelName: "sol", label: "Sol 6.1", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
   codexTemplate({ callName: "terra-xhigh", modelName: "luna", label: "Luna / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
   codexTemplate({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "xhigh" }),
 ];
@@ -182,8 +184,6 @@ function implementationTemplate(opts: {
   /** 省略時は claude。 Codex 系プロファイルは "codex" を渡す。 */
   provider?: DelegationProvider;
   runtimeOptions?: Record<string, unknown>;
-  /** true = effort を起動時に固定しない (movable)。 実行中に自分で変える手順を本文へ足す。 */
-  movable?: boolean;
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
@@ -208,7 +208,7 @@ function implementationTemplate(opts: {
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
       IMPLEMENTATION_COMPLETION_INSTRUCTION,
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
-      ...(opts.movable ? MOVABLE_EFFORT_INSTRUCTIONS : []),
+      ...adjustableEffortInstructions(),
       "",
       "Report the PR URL when done.",
     ].join("\n"),
@@ -227,11 +227,11 @@ function implementationTemplate(opts: {
  * 起動時の effort は medium から始め、難所だけ上げ・定型作業では下げる。 変更は Cc の
  * POST /v1/sessions/:id/effort を通し、Cc が Discord スレッドへ通知する (spec/feature/effort-movable.md)。
  */
-const MOVABLE_EFFORT_INSTRUCTIONS = [
-  "- Effort is movable: you start at medium. Raise it only for genuinely hard reasoning (design trade-offs, subtle bugs) and lower it again for routine edits.",
+function adjustableEffortInstructions(): string[] { return [
+  "- Effort can change during work. Start with the profile default, raise it for difficult reasoning and lower it for routine edits.",
   "  To change it, POST /v1/sessions/<your Concordia session id>/effort with {\"effort\": \"low|medium|high|xhigh|max\", \"actor\": \"session\", \"reason\": \"<why>\"}.",
   "  Concordia applies it and posts the change to your Discord thread. Changing effort may rebuild the conversation cache, so do not flip it back and forth.",
-];
+]; }
 
 /**
  * Astra With Sidecar (spec/feature/astra-with-sidecar.md)。 親 Astra が判断し、範囲の定まった
@@ -305,7 +305,7 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     title: "Claude起動",
     description: "Discord Session フォーラムの投稿から Claude セッションを起動する既定テンプレート。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     prompt_template: FORUM_SESSION_PROMPT,
     input_schema: [],
     is_active: true,
@@ -352,7 +352,7 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
     title: "Genius 日次 ingest (Tier 1)",
     description: "Genius (判断カード DB) の Tier 1 日次 ingest を実行し、run を polling して結果を報告する。completed / completed-with-errors を完了条件とし、失敗時は --retry-failed 1 回か人間へのエスカレーションを LLM が判断する。Timer Delegation が毎朝 4:10 JST に invoke する。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🧠",
     prompt_template: GENIUS_INGEST_DAILY_PROMPT,
@@ -367,7 +367,7 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
     title: "Genius 夜間 ingest (Tier 2 全量)",
     description: "Genius の Tier 2 (Claude / Codex 生 JSONL) を budget 無制限で ingest する夜間ジョブ。日次 Tier 1 とは別枠で、初回全量は非常に長時間かかりうる。Timer Delegation が毎朝 3:10 JST に invoke する。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🌙",
     prompt_template: GENIUS_INGEST_TIER2_NIGHTLY_PROMPT,
@@ -387,7 +387,7 @@ const VULTUS_CATALOG_TEMPLATES: CreateTemplateInput[] = [{
   title: "Vultus 女優カタログ日次更新",
   description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。2026-08-20 neco指示でパートタイマーからHaikuを除外 (auto-mode不可・処理能力不足) しSonnet 5へ変更。",
   target_provider: "claude",
-  model: "claude-sonnet-5",
+  model: "claude-sonnet-5-5",
   category: "parttimer",
   emoji: "🖼️",
   prompt_template: VULTUS_CATALOG_REFRESH_DAILY_PROMPT,
@@ -517,7 +517,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "設計相談 (Director 問診)",
     description: "Director が検出した停滞・失敗について、読み取り専用で Decision Request を組み立てる。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     call_only: true,
     category: "freelancer",
     sort_order: 45,
@@ -537,7 +537,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "散歩セッション (curiosity walk)",
     description: "関連の薄い 2 素材を並べ、片方の制約をもう片方に当てたらどうなるかを 1 問だけ「ぼやき」へつぶやく読み取り専用セッション。決定を求めない (spec/feature/curiosity-walk.md)。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     call_only: true,
     // スケジューラ (curiosity-walk runtime) が時限起動するのでパートタイマー。
     // 完了時の退勤 (Lictor shutdown) は本テンプレの手順に含める。
@@ -560,14 +560,13 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   // Opus / Fable は effort を作業中に変えられるので、 mid / xhigh の固定プロファイルを
   // movable 1 本に統合した (2026-09-29 neco 指示)。 call_name にはモデルの版を含める。
   implementationTemplate({
-    callName: "fable-5-1-movable",
-    label: "Fable 5.1 / movable",
+    callName: "fable-5-1",
+    label: "Fable 5.1",
     note: "高速。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-fable-5-1",
     emoji: "🦸",
     sortOrder: 10,
     runtimeOptions: { effort: "medium", thinking: false },
-    movable: true,
   }),
   // GPT-6 Astra (2026-09 追加)。 Codex 側の最上位プロファイル。
   implementationTemplate({
@@ -584,20 +583,19 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   // astra-xhigh は 2026-10-03 neco 指示「Astra の xhigh を消して」で廃止 (LEGACY_DELEGATION_CALL_NAMES で定義行を消す)。
   ASTRA_WITH_SIDECAR_TEMPLATE,
   implementationTemplate({
-    callName: "opus-5-5-movable",
-    label: "Opus 5.5 / movable",
+    callName: "opus-5-5",
+    label: "Opus 5.5",
     note: "設計判断や難所の実装向き。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-opus-5-5",
     emoji: "🧙‍♂️",
     sortOrder: 30,
     runtimeOptions: { effort: "medium", thinking: false },
-    movable: true,
   }),
   implementationTemplate({
-    callName: "sonnet-mid",
-    label: "Sonnet / mid",
+    callName: "sonnet-5-5",
+    label: "Sonnet 5.5",
     note: "中位。一般的な実装の主力。",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     emoji: "🧑‍💼",
     sortOrder: 50,
   }),
@@ -615,7 +613,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "タスク処理",
     description: "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせる。delegate-task リアクションワークフロー (🤝) のデフォルトテンプレート。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "employee",
     sort_order: 130,
     emoji: "🤝",
@@ -638,7 +636,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "毎朝タスク処理 (Claude)",
     description: "Memoriaの今日期限タスクを「確認系(人間がやる)」と「実装系(AIがやれる)」に仕分け、確認系は整理して提示し、実装系は1件ずつ着手して、詰まったらask・分割・委譲で止める朝ルーティン。MorningSchedulerが毎朝8時にinvokeする。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     sort_order: 140,
     emoji: "🌅",
@@ -707,7 +705,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "週次レビュー",
     description: "Tier 1 リポの週次レビュー。単一オーケストレータ (Claude) が AIFormat に沿ってレビューし、Review/<repo>/<date>/ に保存する。ludiars-review-daily-dual (ちょいつよ版、Sol Ultra 突合) は手動起動用に残る。2026-08-08 neco 指示で毎日 → 週次 (毎週月曜) へ変更。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "📋",
     prompt_template: WEEKLY_REVIEW_PROMPT,
@@ -722,7 +720,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "脆弱性対応 (毎朝)",
     description: "Tier 1 リポを AIFormat REVIEW_VULNERABILITY.md の観点だけで毎朝スキャンし、安全カテゴリの指摘は Codex に自動修正委託して Revisor のマージ完了まで継続、Critical/High は自動修正せず管理者へメンションして報告する。2026-08-08 neco 指示で新設 (デイリーレビュー廃止で空いた 5:10 枠を引き継ぐ)。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🛡️",
     // レビュー専用 (コードを書かない) 宣言。 完了証跡ガードは feature branch を要求しない。
@@ -755,7 +753,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "チーム朝礼 (毎朝)",
     description: "チームごとの稼働状況と対応状況をまとめ、チームの 目標 面へカードとして投稿する。証跡で裏付けられる完了だけを Memoria タスク / director case step へ毎日反映する (2026-08-20 neco 裁定)。2026-08-17 neco 指示で新設。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🌅",
     prompt_template: TEAM_STANDUP_DAILY_PROMPT,
@@ -773,7 +771,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "チーム定例 (週2回・人間同席)",
     description: "チームのタスクを棚卸しする定例。議題を提示して neco の返信を待ち、Memoria タスクと director case step へ反映するまでを 1 回とする。火・金 13:00。2026-08-17 neco 指示で新設。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🗓️",
     prompt_template: TEAM_REVIEW_REGULAR_PROMPT,
@@ -792,7 +790,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "関連未完了タスク取得 (Memoria)",
     description: "Memoria から topic (プロジェクトコード/カテゴリ/キーワード) に関連する未完了タスクを引き、正規化した一覧を報告する読み取り専用の部品。タスク整理 (director-task-organize) が同じ手順定義を使う。2026-08-20 neco 指示で新設。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "📋",
     prompt_template: DIRECTOR_TASK_PULL_PROMPT,
@@ -808,7 +806,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "ディレクター タスク整理 (チーム毎日 10:00)",
     description: "チームの関連未完了タスクを Memoria から引き、実行可能なものを director case の step へ落とし、証跡ある完了を反映し、判断待ち・浮いているタスクを人間へ提示する。毎日 10:00 にチームごとへ fanout。2026-08-20 neco 指示で新設。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🗂️",
     prompt_template: DIRECTOR_TASK_ORGANIZE_PROMPT,
@@ -827,7 +825,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "ディレクター 課題スカウト (チーム週次)",
     description: "チームの blocked step・停滞 case・レビュー成果物・人間の判断前例から、根拠を持つ課題仮説だけを最大5件、タスクボードへ進言する。case / step は作成も更新もしない。毎週月曜11:00にチームへfanout。2026-08-25 neco 指示で新設。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🔭",
     prompt_template: DIRECTOR_ISSUE_SCOUT_PROMPT,
@@ -877,7 +875,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "Steam 横断レビュアー収集 (毎朝)",
     description: "Discutere の steam-persona パイプライン (新作レビュー定期取得 → 横断投稿者検出 → 集中収集、spec/feature/crawler/STEAM-PERSONA.md) を日次で 1 周回す。Timer Delegation が毎朝 7:40 JST に invoke する。2026-08-13 neco 指示で新設。2026-08-20 neco 指示でパートタイマーから Haiku を除外 (auto-mode 不可・処理能力不足) し Sonnet 5 へ変更。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🎮",
     prompt_template: STEAM_PERSONA_DAILY_PROMPT,
@@ -892,7 +890,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "日次依存関係点検",
     description: "LUDIARS の依存関係を日次で点検し、更新が必要なものを報告する。Timer Delegation が毎朝 7:10 JST に invoke する。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🔍",
     prompt_template: DEPS_SWEEP_DAILY_PROMPT,
@@ -909,7 +907,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "AIノート記事 隔週レビュー",
     description: `${resolvePartnerDisplayName(identifiers.partnerDisplayName)}「AIノート」配下の記事を隔週でレビューし、執筆時期と現行実装・現行仕様の乖離を内容・文体・構成を変えずに現行化する (neco 発案 2026-07-22)。evergreen はスキップ、mutable かつ 14 日以上前のものを対象にする。手順とキャッシュの正本は E:\\\\Document\\\\Ars\\\\fable\\\\ai-note-review。`,
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "📝",
     prompt_template: buildAiNoteBiweeklyReviewPrompt({ partner: identifiers.partnerDisplayName }),
@@ -927,7 +925,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "月末に当月分の請求書を作成し、Quaestor へ登録して確認を仰ぐ。Timer Delegation が毎月末日 18:10 JST に invoke する。" +
       "Quaestor が停止していても発火するため、必要なら Excubitor 経由で起動してから進める。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🧾",
     prompt_template: buildQuaestorInvoiceMonthlyPrompt({ skillCommand: identifiers.invoiceSkillCommand }),
@@ -945,7 +943,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "Quaestor の受信メール取り込みを朝・昼・夕に 1 回ずつ実行し、分類と取り込み結果だけを報告する。" +
       "メール本文・添付・PDF は parttimer に渡さない。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "📬",
     prompt_template: QUAESTOR_MAIL_SWEEP_PROMPT,
@@ -961,7 +959,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "Gmail watch 登録更新",
     description: "Gmail users.watch の有効期限が切れる前に、Quaestor の watch 登録を毎日更新する。Timer Delegation が毎朝 4:20 JST に invoke する。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "🔄",
     prompt_template: QUAESTOR_MAIL_WATCH_RENEW_PROMPT,
@@ -1027,7 +1025,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "Dependabot alert を起点に 1 リポジトリだけ依存を見る。 宣言レンジ内の更新だけを当て、 major はレンジを広げず報告に回す。" +
       "全リポを点検するだけの deps-sweep-daily とは対象も踏み込み方も別枠。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "parttimer",
     emoji: "📦",
     prompt_template: DEPS_SWEEP_REPO_PROMPT,
@@ -1120,7 +1118,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "レビュー (Opus × Sol xhigh 突合)",
     description: "対象を Claude Opus 5.5 と Codex GPT-6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
     target_provider: "claude",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     category: "freelancer",
     emoji: "⚖️",
     sort_order: 105,
@@ -1134,7 +1132,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5-5`",
-      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model " + SOL_MODEL + ", effort `${sol_effort:xhigh}`",
+      "- Reviewer B: Cc の `sol-6-1` Delegation (`codex` / Windows native ターミナル) — model " + SOL_MODEL + ", effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",
@@ -1166,7 +1164,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     title: "テスト・QA (Test Forum 候補の検証)",
     description: "Revisor で Open / Test OK になったテスト候補の内容を確認・調整する。Test Forum の投稿検知で Cc が自動起動する。",
     target_provider: "claude" as const,
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     emoji: "🧪",
     category: "test-qa" as const,
     sort_order: 160,
@@ -1231,13 +1229,14 @@ export function seedDelegationTemplates(
   repo: DelegationRepo,
   identifiers: SeedIdentifiers = {},
 ): void {
+  for (const [previous, next] of TEMPLATE_CALL_NAME_RENAMES) repo.renameTemplateCallName(previous, next);
   for (const tpl of withParttimerCallOnly(seedTemplates(identifiers))) {
     const existing = repo.findTemplateByCallName(tpl.call_name);
     // Preserve explicit pins; only the old standard Sol default is migrated.
-    const model = (tpl.call_name === "sol-mid" || tpl.call_name === "sol-xhigh")
+    const model = tpl.call_name === "sol-6-1"
       && existing?.model && (existing.model !== "gpt-6-sol" || !repo.isModelFollowing(existing.id)) ? existing.model : tpl.model;
     const saved = repo.upsertTemplate({ ...tpl, model });
-    if (!existing && (tpl.call_name === "sol-mid" || tpl.call_name === "sol-xhigh")) repo.trackTemplateModel(saved.id);
+    if (!existing && tpl.call_name === "sol-6-1") repo.trackTemplateModel(saved.id);
   }
   // 既定2件 (forum-claude-session / forum-codex-session) は forum_tag を常に維持し、
   // 必ず forum spawn の入口を用意する。 カスタム forum template が存在しても既定を

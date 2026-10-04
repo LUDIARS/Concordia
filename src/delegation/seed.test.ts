@@ -45,7 +45,7 @@ describe("seedDelegationTemplates", () => {
     const repo = new DelegationRepo(makeTestDb());
     const old = repo.createTemplate({
       call_name: "kaizen-daily", title: "Kaizen", target_provider: "claude",
-      model: "claude-sonnet-5", prompt_template: "old", runtime_options: { effort: "high" },
+      model: "claude-sonnet-5-5", prompt_template: "old", runtime_options: { effort: "high" },
     });
     seedDelegationTemplates(repo);
     const template = repo.findTemplateByCallName("kaizen-daily");
@@ -90,7 +90,7 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("claude-sonnet-4-6-impl")).toBeNull();
     const sonnet5 = repo.findTemplateByCallName("sonnet-mid");
     expect(sonnet5?.is_active).toBe(1);
-    expect(sonnet5?.model).toBe("claude-sonnet-5");
+    expect(sonnet5?.model).toBe("claude-sonnet-5-5");
   }, 15_000);
 
   it("seeds the Director inquiry template as a non-implementation, read-only prompt", () => {
@@ -101,7 +101,7 @@ describe("seedDelegationTemplates", () => {
     expect(inquiry).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       call_only: 1,
       category: "freelancer",
       prompt_template: "${task}",
@@ -124,7 +124,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("claude-opus-4-8-impl")).toBeNull();
-    const opus5 = repo.findTemplateByCallName("opus-5-5-movable");
+    const opus5 = repo.findTemplateByCallName("opus-5-5");
     expect(opus5?.is_active).toBe(1);
     expect(opus5?.model).toBe("claude-opus-5-5");
   });
@@ -133,7 +133,7 @@ describe("seedDelegationTemplates", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    for (const callName of ["opus-5-5-movable"]) {
+    for (const callName of ["opus-5-5"]) {
       expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5-5");
     }
     expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5-5");
@@ -200,9 +200,9 @@ describe("seedDelegationTemplates", () => {
       "luna",
       "impl-from-design",
       "fix-bug",
-      "opus-5-5-movable",
+      "opus-5-5",
       "sonnet-mid",
-      "fable-5-1-movable",
+      "fable-5-1",
       "haiku",
       "gemma4-12-impl",
     ];
@@ -298,7 +298,7 @@ describe("seedDelegationTemplates", () => {
     const prompt = template?.prompt_template ?? "";
     expect(template).toMatchObject({
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       category: "parttimer",
       call_only: 1,
       is_active: 1,
@@ -423,12 +423,12 @@ describe("seedDelegationTemplates", () => {
     }
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("fable-5-1-movable")).toMatchObject({
+    expect(repo.findTemplateByCallName("fable-5-1")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
       model: "claude-fable-5-1",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("fable-5-1-movable")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("fable-5-1")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     // Astra は claude 既定の implementationTemplate を codex provider で使う。
     // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
@@ -453,28 +453,23 @@ describe("seedDelegationTemplates", () => {
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
-    expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
-      is_active: 1,
-      target_provider: "codex",
-      model: "gpt-6.1-sol",
-    });
-    expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
-    expect(repo.findTemplateByCallName("opus-5-5-movable")).toMatchObject({
+    expect(repo.findTemplateByCallName("sol-xhigh")).toBeNull();
+    expect(repo.findTemplateByCallName("opus-5-5")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
       model: "claude-opus-5-5",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("opus-5-5-movable")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("opus-5-5")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     // effort 固定の旧プロファイルは movable へ統合した (2026-09-29 neco 指示)。
     for (const legacy of ["opus-mid", "opus-xhigh", "fable-mid", "fable-xhigh"]) {
       expect(repo.findTemplateByCallName(legacy)).toBeNull();
     }
-    for (const callName of ["opus-5-5-movable", "fable-5-1-movable"]) {
+    for (const callName of ["opus-5-5", "fable-5-1"]) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
-      expect(prompt).toContain("Effort is movable");
+      expect(prompt).toContain("Effort can change during work");
       expect(prompt).toContain("/v1/sessions/<your Concordia session id>/effort");
     }
-    expect(repo.findTemplateByCallName("sonnet-mid")?.prompt_template).not.toContain("Effort is movable");
+    expect(repo.findTemplateByCallName("sonnet-mid")?.prompt_template).toContain("Effort can change during work");
     expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");
     expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-6-luna");
     expect(JSON.parse(repo.findTemplateByCallName("luna")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
@@ -514,7 +509,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
     expect(duo?.prompt_template).toContain("gpt-6.1-sol");
     expect(duo?.prompt_template).toContain("xhigh");
-    expect(duo?.prompt_template).toContain("sol-xhigh");
+    expect(duo?.prompt_template).toContain("sol-6-1");
     expect(duo?.prompt_template).toContain("Windows native");
     expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
@@ -532,7 +527,7 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.target_provider).toBe("claude");
     expect(claude?.title).toBe("週次レビュー");
     expect(claude?.is_active).toBe(1);
-    expect(claude?.model).toBe("claude-sonnet-5");
+    expect(claude?.model).toBe("claude-sonnet-5-5");
     expect(claude?.prompt_template).toContain("service-map.json");
     expect(claude?.prompt_template).toContain("daily_review: true");
     expect(claude?.prompt_template).toContain("別 AI は起動しません");
@@ -570,7 +565,7 @@ describe("seedDelegationTemplates", () => {
       // 時限起動なので parttimer (spec/feature/delegation.md の category 表)。
       expect(tpl?.category).toBe("parttimer");
       expect(tpl?.target_provider).toBe("claude");
-      expect(tpl?.model).toBe("claude-sonnet-5");
+      expect(tpl?.model).toBe("claude-sonnet-5-5");
       expect(tpl?.default_cwd).toBe("E:\\Document\\Ars\\Genius");
       expect(JSON.parse(tpl?.input_schema ?? "null")).toEqual([
         { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
@@ -602,7 +597,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
@@ -622,7 +617,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -697,7 +692,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -725,7 +720,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
@@ -746,7 +741,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars\\Discutere",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -774,7 +769,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     for (const callName of ["steam-persona-daily", "vultus-catalog-refresh-daily"]) {
-      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-sonnet-5");
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-sonnet-5-5");
     }
   });
 
@@ -787,7 +782,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       default_cwd: "E:\\Document\\Ars\\Vultus",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -962,7 +957,7 @@ describe("seedDelegationTemplates", () => {
     const template = repo.findTemplateByCallName("deps-sweep-repo");
     expect(template).toMatchObject({
       target_provider: "claude",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       category: "parttimer",
       call_only: 1,
       default_cwd: "${target_repo}",

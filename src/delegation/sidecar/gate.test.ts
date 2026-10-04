@@ -45,6 +45,12 @@ describe("decideSidecarInvoke", () => {
     expect(decideSidecarInvoke(input())).toEqual({ allow: true, requestKey: "actio:task-1#v2", attempt: 1 });
   });
 
+  it("accepts the versioned Sol profile and its historic medium alias", () => {
+    expect(decideSidecarInvoke(input({ requestedCallName: "sol-6-1" })).allow).toBe(true);
+    expect(decideSidecarInvoke(input({ requestedCallName: "sol-mid" })).allow).toBe(true);
+    expect(decideSidecarInvoke(input({ requestedCallName: "sol-xhigh" })).allow).toBe(false);
+  });
+
   it("delegates only to the profile child template", () => {
     const decision = decideSidecarInvoke(input({ requestedCallName: "opus-mid" }));
     expect(decision).toMatchObject({ allow: false, code: "sidecar_child_template_mismatch" });

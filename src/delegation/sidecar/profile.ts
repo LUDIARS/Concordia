@@ -21,7 +21,7 @@ export interface SidecarModelSpec {
 
 export const ASTRA_WITH_SIDECAR_PROFILE = {
   parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: "gpt-6-astra", effort: "medium" },
-  child: { call_name: "sol-mid", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
+  child: { call_name: "sol-6-1", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
   /** 初期同時実行数。親子の同じファイルへの同時編集を避けるため 1 から始める。 */
   maxConcurrentChildren: 1,
   /** 同じ依頼 (task_reference + request_version) を子へ出し直せる回数の上限。 */

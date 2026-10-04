@@ -17,7 +17,7 @@ const matching = {
 describe("Astra With Sidecar profile", () => {
   it("pins the parent to Astra medium and the child to Sol medium with one concurrent child", () => {
     expect(ASTRA_WITH_SIDECAR_PROFILE.parent).toMatchObject({ provider: "codex", model: "gpt-6-astra", effort: "medium" });
-    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-mid", model: "gpt-6.1-sol", effort: "medium" });
+    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-6-1", model: "gpt-6.1-sol", effort: "medium" });
     expect(ASTRA_WITH_SIDECAR_PROFILE.maxConcurrentChildren).toBe(1);
   });
 

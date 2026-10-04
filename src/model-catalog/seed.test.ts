@@ -24,7 +24,7 @@ describe("seedModelCatalog", () => {
     seedModelCatalog(repo);
     const ids = repo.list().map((m) => m.model_id);
     expect(ids).toContain("claude-opus-5-5");
-    expect(ids).toContain("claude-sonnet-5");
+    expect(ids).toContain("claude-sonnet-5-5");
     expect(ids).toContain("claude-fable-5-1");
   });
 
@@ -37,7 +37,7 @@ describe("seedModelCatalog", () => {
     const ids = repo.list({ includeInactive: true }).map((m) => m.model_id);
     expect(ids).toContain("custom-model");
     expect(ids).toContain("claude-opus-5-5");
-    expect(ids).toContain("claude-sonnet-5");
+    expect(ids).toContain("claude-sonnet-5-5");
     expect(ids).toContain("claude-fable-5-1");
     // 新規公開モデルは既存 catalog (= 稼働中の DB) にも届く必要がある。
     expect(ids).toContain("gpt-6-astra");
@@ -74,7 +74,7 @@ describe("seedModelCatalog", () => {
     seedModelCatalog(repo);
 
     const rows = repo.list({ includeInactive: true });
-    expect(rows.find((m) => m.model_id === "claude-sonnet-5")?.sort_order).toBe(20);
+    expect(rows.find((m) => m.model_id === "claude-sonnet-5-5")?.sort_order).toBe(20);
     expect(rows.find((m) => m.model_id === "claude-sonnet-4-6")?.sort_order).toBe(22);
     expect(rows.map((m) => m.model_id)).not.toContain("claude-opus-4-8");
   });

@@ -61,7 +61,7 @@ describe("guardSidecarInvoke", () => {
     expect(result.kind).toBe("allow");
     if (result.kind !== "allow") return;
     expect(result.input).toMatchObject({
-      call_name: "sol-mid",
+      call_name: "sol-6-1",
       cwd: packet.repo_path,
       branch: "sidecar/a",
       worktree: true,

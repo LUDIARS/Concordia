@@ -10,6 +10,7 @@
  *
  * @implements spec/feature/astra-with-sidecar.md §モデル選択と委任契約 / §不変条件と復旧
  */
+import { canonicalTemplateCallName } from "../template-call-names.js";
 
 import { ASTRA_WITH_SIDECAR_PROFILE, checkTemplateMatchesSpec, type ProfileMismatchCode, type SidecarTemplateFacts } from "./profile.js";
 import { sidecarRequestKey, type SidecarPacket } from "./packet.js";
@@ -51,7 +52,7 @@ export type SidecarGateDecision =
 
 export function decideSidecarInvoke(input: SidecarGateInput): SidecarGateDecision {
   const profile = { ...ASTRA_WITH_SIDECAR_PROFILE, child: input.childSpec ?? ASTRA_WITH_SIDECAR_PROFILE.child };
-  if (input.requestedCallName !== profile.child.call_name) {
+  if (canonicalTemplateCallName(input.requestedCallName) !== canonicalTemplateCallName(profile.child.call_name)) {
     return {
       allow: false,
       code: "sidecar_child_template_mismatch",

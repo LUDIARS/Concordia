@@ -49,6 +49,7 @@
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",
   "specRefs": [
+    "spec/feature/delegation-profile-defaults.md",
     "spec/feature/sidecar-lifecycle-model-refresh.md",
     "spec/feature/major-inject-editor.md",
     "spec/feature/task-workflow-v3.md",

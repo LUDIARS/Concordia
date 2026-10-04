@@ -65,7 +65,7 @@ describe("Fable delegation reasoning effort", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { templates: TemplateDto[] };
 
-    for (const callName of ["fable-5-1-movable", "design-hard-fable5"]) {
+    for (const callName of ["fable-5-1", "design-hard-fable5"]) {
       const template = body.templates.find((item) => item.call_name === callName);
       expect(template?.model).toBe("claude-fable-5-1");
       const effort = template?.runtime_options.find((option) => option.key === "effort");

@@ -5,7 +5,7 @@ import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-r
 import type { SessionMessagePayload } from "../shared/session-message-types.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import type { DiscordConfigSnapshot } from "./config.js";
-import { handleEvent, isActiveRelayTarget, isChatRelayTarget, isTurnEndMessage, trustedDiscordChannelId, type EgressDeps } from "./egress.js";
+import { handleEvent, isActiveRelayTarget, isCcInjectEcho, isChatRelayTarget, isTurnEndMessage, trustedDiscordChannelId, type EgressDeps } from "./egress.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 describe("trustedDiscordChannelId", () => {
@@ -281,6 +281,40 @@ describe("handleEvent session.message relay", () => {
     expect(webhooks.send).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
       content: "Tool: 失敗",
     }));
+  });
+
+  it("drops Cc-originated inject echoes ([自動確認] / [Cc policy update]) but keeps provenance injects", async () => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 21,
+      author_type: "system",
+      author_label: "User",
+      author_platform: null,
+      content: "[自動確認] Cc の作業状態に応じた確認です。\nworkflow=unknown; state=unknown",
+      metadata: { inject_source: "auto:stall-nudge", inject_is_cc: true },
+    }));
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 22,
+      author_type: "system",
+      author_label: "User",
+      author_platform: null,
+      content: "[Cc policy update]\nbranch: main\nworkPolicy: ...",
+      metadata: { inject_source: "cc-session-work-policy", inject_is_cc: true },
+    }));
+    await flushEgress();
+    expect(webhooks.send).not.toHaveBeenCalled();
+
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 23,
+      author_type: "system",
+      author_label: "Reaction",
+      author_platform: "discord-reaction",
+      content: "絵文字から展開した依頼",
+      metadata: { inject_source: "discord-reaction:wf", inject_is_cc: true, injection: { kind: "reaction" } },
+    }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(isCcInjectEcho({ author_type: "assistant", metadata: { inject_is_cc: true } })).toBe(false);
   });
 
   it("drops terminal and injected user messages while relaying web and Slack ingress", async () => {

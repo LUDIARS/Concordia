@@ -221,6 +221,9 @@ async function handleSessionMessage(
   // these echoes raw command input back into the thread. The WebUI keeps the
   // full record; only an ingress Discord has not already seen is relayed.
   if (ev.message.author_type === "user" && !isRelayableUserOrigin(ev.message.author_platform)) return;
+  // Cc 自身の inject ([自動確認] / [Cc policy update] など) は cc-inject-mirror が 1 行だけ
+  // 通知する。 author_type が system に変わっても本文はスレッドへ出さない (2026-10-05 neco 指示)。
+  if (isCcInjectEcho(ev.message)) return;
   const outputPolicy = deps.relayOutputPolicy?.(ev.target_session_id);
   if (outputPolicy && !shouldRelaySessionMessage(ev.message, outputPolicy) && !terminalDelivery) return;
 
@@ -296,6 +299,16 @@ function formatSessionMessageContent(message: SessionMessagePayload): string {
  */
 function isRelayableUserOrigin(platform: string | null): boolean {
   return platform === "web" || platform === "slack";
+}
+
+/**
+ * 出所 (人の操作) を持たない Cc 由来 inject の写し。 人の絵文字操作から展開した注入は
+ * metadata.injection を持ち、 従来どおり転記する。
+ */
+export function isCcInjectEcho(message: Pick<SessionMessagePayload, "author_type" | "metadata">): boolean {
+  return message.author_type === "system"
+    && message.metadata?.inject_is_cc === true
+    && !message.metadata?.injection;
 }
 
 function formatToolLabel(label: string): string {

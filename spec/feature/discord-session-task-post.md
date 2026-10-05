@@ -149,6 +149,13 @@ Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 
 project rules は長く、通知として多すぎた (2026-09-30 neco 指示)。何が起きたかだけ分かれば足りる
 ので 1 行に絞る。全文は PTY に届いている。
 
+canonical 経路の抑止 (`src/discord/egress.ts` の `isCcInjectEcho`): `session.inject` は message
+projection でも session message になる。出所 (人の操作) を持たない Cc 由来 inject は `author_type:
+system` + `metadata.inject_is_cc: true` で投影されるため、egress ではこれをスレッドへ出さない。
+f372bf4c で投影が `user` から `system` に変わり、`user` 向けの抑止をすり抜けて `[自動確認]` /
+`[Cc policy update]` の全文が転記されるデグレが起きた (2026-10-05 neco 指示で修正)。人の絵文字操作
+などから展開した注入 (`metadata.injection` あり) は従来どおり転記する。
+
 #### 1 行化の規則 (`summarizeCcInject`)
 
 1. 本文を行分割し、trim して空行を除く。

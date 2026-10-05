@@ -80,7 +80,7 @@ describe("federation forum site tag candidates", () => {
     expect(await runtime.listForumSiteTagNames()).toEqual([]);
   });
 
-  it("Villa 停止時はタグ候補が空になり、ルーティングは guild 側だけで動く", async () => {
+  it("Villa 停止時は有効な拠点名 (無ければ site_id) をタグ候補にし、例外を出さない", async () => {
     const sites = makeFederationSitesRepo(db, secretBox);
     sites.create({ siteId: "site-a" });
     sites.setVillaPcId("site-a", "pc-haster");
@@ -96,8 +96,9 @@ describe("federation forum site tag candidates", () => {
       }),
     });
 
-    // 例外を投げず空で degrade すること (Concordia 本体を巻き込まない)。
-    await expect(runtime.listForumSiteTagNames()).resolves.toEqual([]);
+    // 例外を投げず拠点名タグへ degrade すること (Concordia 本体を巻き込まない、 federation-link.md
+    // §本社からのセッション起動)。 名前の無い拠点は site_id がタグになる。
+    await expect(runtime.listForumSiteTagNames()).resolves.toEqual(["site-a"]);
     // 拠点タグが解決できなくても ingress の判定自体は例外にならない。
     expect(() => runtime.routeIngress({
       guild_id: "guild-a",

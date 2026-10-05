@@ -170,6 +170,8 @@ import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startHumanWait } from "../control/human-wait.js";
 import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
+import { startRemoteSessionSite } from "../federation/remote-session-wiring.js";
+import { buildForumSpawnPrompt } from "../discord/forum-spawn.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
 import { SidecarRecordsRepo } from "../delegation/sidecar/records-repo.js";
@@ -1861,6 +1863,7 @@ export async function startBackend(): Promise<BackendHandle> {
       applied_tag_names: input.appliedTagNames,
     }),
     resolveForumSiteTags: () => federation.listForumSiteTagNames(),
+    routeRemoteSpawn: (input) => federation.routeForumSpawn(input),
     setFederationEgressExecutor: federation.setEgressExecutor,
     setDomainReviewPoster: (poster) => { domainReviewPoster = poster; },
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
@@ -2519,6 +2522,15 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(startHumanResponseConfirmation(repo));
     trackPostListenHandle(startHumanWait(repo));
     trackPostListenHandle(startAutoConfirmStrikeReset(repo));
+    // 拠点ロール: 本社 forum の拠点タグ付き投稿からセッションを起動し、発言を本社スレッドへ返す。
+    trackPostListenHandle(startRemoteSessionSite({
+      federation,
+      sessions: repo,
+      settings: new SqliteSettingsStore(db),
+      concordiaUrl: publicUrl,
+      buildPrompt: (title, body, rules) => buildForumSpawnPrompt(title, body, rules),
+      log: createChildLogger("federation/remote-session"),
+    }));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

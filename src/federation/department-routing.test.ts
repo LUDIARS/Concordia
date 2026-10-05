@@ -1,9 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { reportError } from "../errors.js";
+import { describe, expect, it } from "vitest";
+import { eventBus } from "../events.js";
 import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
 import type { FederationSitesRepo } from "../db/federation-sites-repo.js";
-
-vi.mock("../errors.js", () => ({ reportError: vi.fn() }));
 
 function sites(rows: Array<{ site_id: string; status?: "active" | "revoked"; departments: string[] }>): FederationSitesRepo {
   return {
@@ -50,9 +48,17 @@ describe("egress authorization", () => {
       { site_id: "site-a", departments: ["g1"] },
       { site_id: "site-b", departments: ["g2"] },
     ]);
-    const decision = authorizeEgressRequest(repo, "site-b", request);
-    expect(decision.ok).toBe(false);
-    expect(reportError).toHaveBeenCalled();
+    // vitest は isolate: false でモジュールを共有するため、 errors.js の vi.mock は先に本物を
+    // 読んだ別ファイルがあると効かない。 reportError が流す error.reported を直接見る。
+    const reported: string[] = [];
+    const unsubscribe = eventBus.subscribe((event) => { if (event.type === "error.reported") reported.push(event.source); });
+    try {
+      const decision = authorizeEgressRequest(repo, "site-b", request);
+      expect(decision.ok).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+    expect(reported).toContain("federation");
   });
 
   it("denies a destination no site is assigned to (HQ-owned department)", () => {

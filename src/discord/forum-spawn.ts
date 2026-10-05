@@ -186,6 +186,20 @@ export interface ForumSpawnDeps {
   }) => Promise<boolean>;
   hasExistingRun: (triggeredBy: string) => boolean;
   /**
+   * 本社のみ: 拠点タグ付きの新規投稿を、その拠点での起動指示として連合リンクへ渡す
+   * (spec/feature/federation-link.md §本社からのセッション起動)。 渡せたら拠点名、
+   * 拠点指定が無ければ null (本社で起動する)。
+   */
+  routeRemoteSpawn?: (input: {
+    guildId: string;
+    channelId: string;
+    authorId: string | null;
+    title: string;
+    body: string;
+    runtimeRules: readonly string[];
+    appliedTagNames: readonly string[];
+  }) => { siteName: string } | null;
+  /**
    * 起動モデル確定時にスレッド名へモデル絵文字を付けるための rename 口 (best-effort)。
    * 未配線ならリネームしない。 2026-09-02 neco 指示。
    */
@@ -245,6 +259,24 @@ export async function executeForumSpawn(
     if (isConcordiaSessionStarter(body)) {
       deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
       return { ok: false, error: "Concordia-managed starter" };
+    }
+  }
+  if (deps.routeRemoteSpawn) {
+    // 拠点タグ付きの投稿は本社では起動せず、拠点の Cc に起動させる。 投稿・返信は本社が代行する。
+    const tagNames = appliedTagNames(thread);
+    const remote = deps.routeRemoteSpawn({
+      guildId: thread.guildId,
+      channelId: thread.id,
+      authorId: thread.ownerId,
+      title,
+      body,
+      runtimeRules: activeRuntimeRuleNames(thread),
+      appliedTagNames: tagNames,
+    });
+    if (remote) {
+      deps.log.info(`forum-spawn routed to site thread=${thread.id} site=${remote.siteName}`);
+      await reply(deps, thread, `拠点「${remote.siteName}」の Cc にセッションの起動を依頼しました。起動結果はこのスレッドに届きます。`);
+      return { ok: true };
     }
   }
   if (deps.guardInstruction) {
@@ -745,6 +777,11 @@ async function fetchStarterWithRetry(
     if (attempt < 2) await sleep(200 * (attempt + 1));
   }
   return null;
+}
+
+function appliedTagNames(state: ForumTagState): string[] {
+  const selected = new Set(state.appliedTags);
+  return state.availableTags.filter((tag) => selected.has(tag.id)).map((tag) => tag.name);
 }
 
 function activeRuntimeRuleNames(state: ForumTagState): string[] {

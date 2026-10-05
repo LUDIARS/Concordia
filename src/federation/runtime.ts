@@ -33,7 +33,10 @@ import { createFederationConfigSnapshot } from "./config-snapshot.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
 import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
-import { resolveSiteFromForumTags } from "./forum-site-routing.js";
+import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, siteNameTagsOf } from "./forum-site-routing.js";
+import { buildRemoteSpawnPayload } from "./remote-session-payload.js";
+import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
+import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressRequestFrame } from "./protocol.js";
 
@@ -84,8 +87,25 @@ export interface FederationRuntime {
   startRoles(): Promise<void>;
   /** Discord ingress が担当拠点へ渡せた場合だけ true。 */
   routeIngress(input: FederationIngressInput): boolean;
-  /** Discord のタグ同期用。Villa 停止時は空配列で既存タグだけを維持する。 */
+  /**
+   * Session forum の拠点タグ付き新規投稿を、その拠点での起動指示として渡す (Phase 4)。
+   * 渡せたら拠点情報、拠点指定が無い・listener 停止中は null (本社で起動する)。
+   */
+  routeForumSpawn(input: {
+    guildId: string;
+    channelId: string;
+    authorId: string | null;
+    title: string;
+    body: string;
+    runtimeRules: readonly string[];
+    appliedTagNames: readonly string[];
+  }): { siteId: string; siteName: string } | null;
+  /** Discord のタグ同期用。Villa から PC が取れなければ有効な拠点名を返す。 */
   listForumSiteTagNames(): Promise<string[]>;
+  /** 拠点ロール: 本社から届いた event payload の受け手。 */
+  setSiteEventHandler(handler: ((payload: unknown) => void) | null): void;
+  /** 拠点ロール: 本社の Discord へ代行投稿を依頼する。 */
+  requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
   /** Discord 実体を bootstrap から渡す egress ポート。 */
   setEgressExecutor(executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null): void;
   stop(): void;
@@ -150,6 +170,9 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   }
   let siteClient: FederationSiteClientHandle | null = null;
   let egressExecutor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null = null;
+  let siteEventHandler: ((payload: unknown) => void) | null = null;
+  /** 本社: 拠点へ起動を渡したスレッド。 settings 未注入 (テスト) ではプロセス内だけで持つ。 */
+  const hqThreads = createRemoteThreadRegistry(opts.settings ?? memorySettings(), "federation.hq.remote_threads");
   const villa = opts.villaClient ?? new VillaClient();
   let villaPcs: VillaPc[] = [];
   let villaFetchedAt = 0;
@@ -178,6 +201,23 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     return villaInflight;
   }
 
+  /**
+   * forum の拠点タグから実行先を決める。 判定は同期に返す必要があるのでキャッシュだけを見て、
+   * TTL 切れなら裏で取り直す。 Villa から PC が取れていなければ拠点名タグで解決する。
+   */
+  function resolveForumRoute(channelId: string, appliedTagNames: readonly string[]): DepartmentRoute | null {
+    if (appliedTagNames.length === 0) return null;
+    void refreshVillaPcs();
+    const resolution = villaPcs.length > 0
+      ? resolveSiteFromForumTags(sites.list(), villaPcs, appliedTagNames)
+      : resolveSiteFromSiteNameTags(sites.list(), appliedTagNames);
+    for (const warning of resolution.warnings) {
+      log.warn(warning);
+      reportIngressWarningOnce(channelId, warning);
+    }
+    return resolution.route;
+  }
+
   async function startListener(host: string, port: number): Promise<void> {
     try {
       const started = await startFederationListener({
@@ -196,7 +236,11 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           );
         },
         handleEgressRequest: async (siteId, request) => {
-          const authorized = authorizeEgressRequest(sites, siteId, request);
+          // その拠点へ起動を渡したスレッド宛ては担当サーバ設定に関係なく通す (Phase 4)。
+          const thread = hqThreads.find(request.channel_id);
+          const authorized = thread?.siteId === siteId && thread.guildId === request.guild_id
+            ? { ok: true as const }
+            : authorizeEgressRequest(sites, siteId, request);
           if (!authorized.ok) {
             log.warn(`federation egress denied site=${siteId} guild=${request.guild_id}`);
             return authorized;
@@ -271,6 +315,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         token: binding.token,
         siteVersion: opts.version,
         platform: process.platform === "win32" || process.platform === "darwin" ? process.platform : undefined,
+        // 本社からの spawn / ingress (Phase 4)。 受け手未登録なら読み捨てる (ack は返す)。
+        onEvent: (payload) => siteEventHandler?.(payload),
       });
       siteBinding = binding;
       // query/path に資格情報相当が含まれていてもログへ出さない。
@@ -398,25 +444,24 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       }
     },
     routeIngress(input) {
-      const appliedTagNames = input.applied_tag_names ?? [];
-      let forumRoute: ReturnType<typeof resolveSiteFromForumTags> = { route: null, warnings: [] };
-      if (appliedTagNames.length > 0) {
-        // 判定は同期に返す必要があるのでキャッシュだけを見る。次メッセージ以降のために
-        // TTL 切れなら裏で取り直す (レイアウト同期が無効な構成でも PC 追加へ追随する)。
-        void refreshVillaPcs();
-        forumRoute = resolveSiteFromForumTags(sites.list(), villaPcs, appliedTagNames);
-      }
-      for (const warning of forumRoute.warnings) {
-        log.warn(warning);
-        reportIngressWarningOnce(input.channel_id, warning);
-      }
-      const route = forumRoute.route ?? resolveDepartmentRoute(sites, input.guild_id);
+      const forumRoute = resolveForumRoute(input.channel_id, input.applied_tag_names ?? []);
+      const route = forumRoute ?? resolveDepartmentRoute(sites, input.guild_id);
       if (route.kind !== "site" || !listener) return false;
       listener.enqueue(route.siteId, { type: "ingress", ...input });
       return true;
     },
+    routeForumSpawn(input) {
+      const route = resolveForumRoute(input.channelId, input.appliedTagNames);
+      if (route?.kind !== "site" || !listener) return null;
+      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now() });
+      listener.enqueue(route.siteId, buildRemoteSpawnPayload({ ...input, ts: Math.floor(Date.now() / 1000) }));
+      const site = sites.find(route.siteId);
+      return { siteId: route.siteId, siteName: site?.name ?? route.siteId };
+    },
     async listForumSiteTagNames() {
       const pcs = await refreshVillaPcs();
+      // Villa から PC が取れない構成では拠点名をそのままタグにする。
+      if (pcs.length === 0) return siteNameTagsOf(sites.list());
       const activePcIds = new Set(sites.list()
         .filter((site) => site.status === "active" && site.villa_pc_id)
         .map((site) => site.villa_pc_id));
@@ -425,6 +470,14 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     setEgressExecutor(executor) {
       egressExecutor = executor;
     },
+    setSiteEventHandler(handler) {
+      siteEventHandler = handler;
+    },
+    async requestEgress(input) {
+      if (!siteClient) return { ok: false, error: "federation site link is not configured" };
+      const result = await siteClient.requestEgress(input);
+      return result.ok ? { ok: true } : { ok: false, error: result.error ?? "egress rejected" };
+    },
     stop() {
       stopped = true;
       if (listenerPoll) { clearInterval(listenerPoll); listenerPoll = null; }
@@ -432,4 +485,10 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       stopListener();
     },
   };
+}
+
+/** settings 未注入時 (テスト・env のみの構成) の台帳置き場。 */
+function memorySettings(): { get(key: string): string | null; set(key: string, value: string): void } {
+  const values = new Map<string, string>();
+  return { get: (key) => values.get(key) ?? null, set: (key, value) => { values.set(key, value); } };
 }

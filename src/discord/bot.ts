@@ -283,6 +283,8 @@ export interface DiscordBotDeps {
   listSubsidiaries?: () => Array<{ id: string; name: string; daily_token_budget: number }>;
   concordiaUrl: string;
   routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[] }) => boolean;
+  /** Session forum の拠点タグ付き投稿を拠点での起動へ渡す (federation-link.md §本社からのセッション起動)。 */
+  routeRemoteSpawn?: import("./forum-spawn.js").ForumSpawnDeps["routeRemoteSpawn"];
   resolveForumSiteTags?: () => Promise<readonly string[]>;
   setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
   /**
@@ -2030,6 +2032,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         if (!ch?.isThread()) throw new Error("thread unavailable");
         await ch.setName(name);
       },
+      // 拠点での起動は本社 runtime だけが渡す (子会社 Bot は連合 listener を持たない)。
+      ...(!subsidiaryId && deps.routeRemoteSpawn ? { routeRemoteSpawn: deps.routeRemoteSpawn } : {}),
       hasExistingRun: (triggeredBy) => {
         if (delegationRepo.findRunByTriggeredBy(triggeredBy) !== null) return true;
         const parsed = parseForumSpawnTrigger(triggeredBy);

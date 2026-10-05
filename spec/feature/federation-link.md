@@ -154,11 +154,54 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 - 拠点タグは 1 個だけ有効で、複数なら曖昧として本社へ退避しエラーを記録する。
 - 有効な拠点タグは担当サーバ (guild) ルーティングより優先する。タグがなければ従来どおり担当サーバで決める。
 - 失効済み・対応づけのないPC名は拠点指定なしとして扱い、理由を warn する。
-- Villa が停止・取得不能なら拠点タグ候補は空にし、既存の guild ルーティングを継続する。
+- Villa が停止・取得不能なら、有効な拠点の表示名 (無ければ site_id) を拠点タグ候補にする
+  (§本社からのセッション起動)。例外は出さず、タグが無ければ既存の guild ルーティングを継続する。
 - Discord の20文字・20個のタグ上限や既存タグとの衝突ではタグを作らず warn する。拠点タグは
   「あれば良い」扱いで、上限に当たっても作業種別等の必須タグ同期は止めない。
 - 同一内容の warn は反復抑止する (レイアウト同期は定期実行、ingress は 1 メッセージごとに
   評価されるため、素通しだと errors チャンネルが同じ警告で埋まる)。
+
+## 本社からのセッション起動 (Phase 4 の spawn 指示)
+
+2026-10-06 neco 指示「本社から他拠点の Cc でセッションを開きたい」。本社の Session forum に
+拠点タグを付けて投稿すると、本社では起動せず、その拠点の Cc がセッションを起動する。
+拠点は Bot トークンを持たないので、スレッドへの投稿はすべて本社が egress で代行する。
+
+| 責務 | 実装 |
+|---|---|
+| 本社 → 拠点の event payload (`spawn` / `ingress`) の型と検証 | `src/federation/remote-session-payload.ts` |
+| スレッド台帳 (本社: スレッド → 拠点 / 拠点: スレッド → guild) | `src/federation/remote-thread-registry.ts` |
+| 拠点側の処理 (起動・返信の注入・発言の中継) | `src/federation/remote-session-site.ts` |
+| 拠点側の配線 (spawn API・sessions・eventBus) | `src/federation/remote-session-wiring.ts` |
+| 本社側の振り分け (`routeForumSpawn`) と egress 許可 | `src/federation/runtime.ts` |
+| forum 起動の差し込み口 (`routeRemoteSpawn`) | `src/discord/forum-spawn.ts` |
+
+流れ:
+
+1. 本社: forum 起動 (`executeForumSpawn`) は題名・本文を読んだ直後、拠点タグを `routeForumSpawn` に
+   渡す。拠点に解決できて listener が動いていれば、スレッド台帳 (`federation.hq.remote_threads`) に
+   スレッド → 拠点を記録し、`spawn` payload (題名・本文・ランタイムルールタグ・依頼者) を outbox へ
+   積んで、スレッドに「拠点に依頼した」と返す。本社では起動しない。拠点指定が無い・listener 停止中は
+   従来どおり本社で起動する。子会社 Bot は振り分けない。
+2. 拠点: 連合クライアントの `onEvent` が payload を受ける。`spawn` はスレッド台帳
+   (`federation.site.remote_threads`) に記録できたときだけ、forum 起動と同じ依頼文で自分の
+   `/v1/admin/spawn-session` を呼ぶ (再送は冪等)。結果 (起動した / 失敗した) をスレッドへ返す。
+3. 本社: スレッドへの人の返信は既存の ingress 転送 (拠点タグで拠点へ) で `ingress` payload になる。
+   拠点は台帳にあるスレッドだけを扱い、forum の最初の投稿 (message id = thread id) は spawn 本文と
+   重複するので捨てる。起動元スレッド (`discord_source_channel_id`) が一致する稼働中セッションへ
+   `discord:<user>:<message>` の source で注入する (人の入力として扱われる)。セッションが無ければ
+   「準備中か終了」とスレッドへ返す。
+4. 拠点: canonical `session.message` (create・assistant) のうち、起動元スレッドが台帳にあるものを
+   1800 文字ごとに egress 要求で本社スレッドへ返す。
+5. 本社: egress 要求は、台帳でそのスレッドをその拠点へ渡していれば担当サーバ設定に関係なく通す。
+   それ以外は従来どおり担当サーバで検証する。
+
+拠点タグの候補: Villa から PC が取れれば従来どおり PC 名。取れない (Villa 停止・API 不一致) ときは
+有効な拠点の表示名 (無ければ site_id、20 文字で切る) をタグにし、同じ名前で解決する
+(`siteNameTagsOf` / `resolveSiteFromSiteNameTags`)。曖昧なら本社へ退避して warn する。
+
+運用の前提 (人の設定): 本社の listener 有効化 (ポート・待ち受けアドレス)、各拠点 Cc の本社 URL・
+拠点 ID・トークン。拠点側に別の Discord Bot を同じ guild へ繋いでいる構成は想定しない (二重投稿になる)。
 
 ## API (loopback /v1 面のみ)
 

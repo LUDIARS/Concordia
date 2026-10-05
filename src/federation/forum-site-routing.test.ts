@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSiteFromForumTags } from "./forum-site-routing.js";
+import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, siteNameTagsOf } from "./forum-site-routing.js";
 import type { FederationSiteRow } from "../db/federation-sites-repo.js";
 
 const pcs = [{ id: "pc-a", name: "HASTER" }, { id: "pc-b", name: "YIDHRA" }];
@@ -30,5 +30,24 @@ describe("forum site routing", () => {
   it("makes the site tag route available to override department routing", () => {
     expect(resolveSiteFromForumTags([site("site-a", "pc-a", "active", ["guild-a"]), site("site-b", "pc-b")], pcs, ["YIDHRA"]).route)
       .toEqual({ kind: "site", siteId: "site-b" });
+  });
+});
+
+describe("forum site routing without Villa (site name tags)", () => {
+  const named = (siteId: string, name: string | null, status: "active" | "revoked" = "active"): FederationSiteRow =>
+    ({ ...site(siteId, null, status), name });
+  it("offers active site names (site_id when unnamed) as tags", () => {
+    expect(siteNameTagsOf([named("haster", "HASTER"), named("old", "OLD", "revoked"), named("yidhra", null)])).toEqual(["HASTER", "yidhra"]);
+  });
+  it("routes one site name tag and ignores work tags", () => {
+    expect(resolveSiteFromSiteNameTags([named("haster", "HASTER")], ["実装", "HASTER"]).route).toEqual({ kind: "site", siteId: "haster" });
+    expect(resolveSiteFromSiteNameTags([named("haster", "HASTER")], ["実装"]).route).toBeNull();
+  });
+  it("falls back to HQ for two site tags or duplicated names", () => {
+    expect(resolveSiteFromSiteNameTags([named("a", "HASTER"), named("b", "YIDHRA")], ["HASTER", "YIDHRA"]).route).toEqual({ kind: "hq" });
+    expect(resolveSiteFromSiteNameTags([named("a", "HASTER"), named("b", "HASTER")], ["HASTER"]).route).toEqual({ kind: "hq" });
+  });
+  it("does not route to a revoked site", () => {
+    expect(resolveSiteFromSiteNameTags([named("a", "HASTER", "revoked")], ["HASTER"]).route).toBeNull();
   });
 });

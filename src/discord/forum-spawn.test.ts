@@ -82,6 +82,32 @@ describe("forum spawn", () => {
     expect(isConcordiaSessionStarter("Please fix **Repo** handling")).toBe(false);
   });
 
+  it("hands a site-tagged post to the site instead of spawning on HQ", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const routeRemoteSpawn = vi.fn(() => ({ siteName: "HASTER" }));
+    const selectTemplate = vi.fn();
+    const deps = makeDeps({ routeRemoteSpawn, selectTemplate });
+    const thread = makeThread({ appliedTags: ["site-tag"], availableTags: [MANAGED_TAG, { id: "site-tag", name: "HASTER" }] });
+    await expect(executeForumSpawn(deps, thread)).resolves.toEqual({ ok: true });
+    expect(routeRemoteSpawn).toHaveBeenCalledWith(expect.objectContaining({
+      guildId: "guild-1", channelId: "thread-1", authorId: "123456789",
+      title: "[Cc] Implement Phase 2", body: "Build spawn-by-post", appliedTagNames: ["HASTER"],
+    }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(selectTemplate).not.toHaveBeenCalled();
+    expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("HASTER"));
+  });
+
+  it("spawns on HQ as before when no site is selected", async () => {
+    const routeRemoteSpawn = vi.fn(() => null);
+    const deps = makeDeps({ routeRemoteSpawn });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 })));
+    await executeForumSpawn(deps, makeThread());
+    expect(routeRemoteSpawn).toHaveBeenCalledTimes(1);
+    expect(deps.postToThread).not.toHaveBeenCalledWith("thread-1", expect.stringContaining("拠点"));
+  });
+
   it("ignores a Cc-managed thread before authorization, starter fetch, selector, or invoke", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

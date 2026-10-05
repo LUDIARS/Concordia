@@ -66,6 +66,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/human-request-channel.md",
     "spec/feature/personal-ai-budget.md",
     "spec/tasks/2026-10-03-final-answer-decoration.md",
     "spec/feature/session-end-inject-visibility.md",

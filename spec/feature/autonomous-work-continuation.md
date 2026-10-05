@@ -85,6 +85,17 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 抑止する。後続の assistant 応答や tool activity は transcript 側の未応答判定を解除しても、
 人間応答の永続 gate を解除しない。
 
+### 3 アウト (`src/control/auto-confirm-strikes.ts`)
+自動確認はセッションが返答するたびに再開できるため、通知待ちのセッションと「確認 → 返答 → 確認」を
+繰り返してしまう (2026-10-05 neco 指示「確認処理がループする。人間の反応が無ければ待機すること」)。
+人間の反応が無いまま連続 3 回自動確認を送ったら、以後はセッションが返答していても送らない。
+
+- 回数はセッション metadata `cc_auto_confirm_strikes` に置き、Cc 再起動をまたいで保持する。
+- 3 回目の本文に「これ以降、人間の入力があるまで自動確認を送りません」と停止予告を添える。
+- 回数を 0 に戻すのは来歴の確かな人間の入力だけ (`question.answered`、依頼者付きの `session.inject`)。
+  判定は [人間応答待ちの確認制御](human-response-confirmation.md) の `humanResponseSession` と共通。
+  自動確認や AI 自身の返答・審査や委託の進行では戻さない。
+
 ### nudge 本文
 全 provider 共通の自然言語: ①未完があれば範囲を小さくして再実装 ②判断が要れば ask で
 停止 ③これは終了指示ではなく、残作業が無い場合も自発的に `/session-end` せず、人間へ

@@ -169,6 +169,7 @@ import { selectProjectStartupWorkflow } from "../control/project-startup-workflo
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startHumanWait } from "../control/human-wait.js";
+import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
 import { SidecarRecordsRepo } from "../delegation/sidecar/records-repo.js";
@@ -2517,6 +2518,7 @@ export async function startBackend(): Promise<BackendHandle> {
     }));
     trackPostListenHandle(startHumanResponseConfirmation(repo));
     trackPostListenHandle(startHumanWait(repo));
+    trackPostListenHandle(startAutoConfirmStrikeReset(repo));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

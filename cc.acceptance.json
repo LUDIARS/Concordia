@@ -1915,7 +1915,12 @@
     },
     {
       "source": "src/control/stalled-session-nudge.ts",
-      "tests": ["src/control/stalled-session-nudge.test.ts"],
+      "tests": ["src/control/stalled-session-nudge.test.ts", "src/control/auto-confirm-strikes.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/auto-confirm-strikes.ts",
+      "tests": ["src/control/auto-confirm-strikes.test.ts"],
       "contracts": []
     },
     {
@@ -4374,6 +4379,10 @@
     {"source":"src/discord/chores-forum.ts","tests":["src/discord/chores-forum.test.ts"],"contracts":["CC-CHORES-FORUM"]},
     {"source":"src/discord/chores.ts","tests":["src/discord/chores.test.ts","src/discord/chores-forum.test.ts"],"contracts":["CC-CHORES-FORUM"]},
     {"source":"src/discord/bot.ts","tests":["src/discord/chores.test.ts","tests/chores-wiring.test.ts"],"contracts":["CC-CHORES-FORUM"]},
+    {"source":"src/discord/human-command-marker.ts","tests":["src/discord/human-request.test.ts"],"contracts":["CC-HUMAN-REQUEST"]},
+    {"source":"src/discord/human-request.ts","tests":["src/discord/human-request.test.ts"],"contracts":["CC-HUMAN-REQUEST"]},
+    {"source":"src/discord/config.ts","tests":["src/discord/human-request.test.ts"],"contracts":["CC-HUMAN-REQUEST"]},
+    {"source":"src/discord/bot.ts","tests":["src/discord/human-request.test.ts"],"contracts":["CC-HUMAN-REQUEST"]},
     {"source":"src/delegation/template-call-names.ts","tests":["src/delegation/template-call-names.test.ts","src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
     {"source":"src/db/delegation-repo.ts","tests":["src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
     {"source":"src/delegation/seed.ts","tests":["src/delegation/seed.test.ts","src/delegation/template-profile-upgrade.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},

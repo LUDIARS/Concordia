@@ -6,6 +6,7 @@
   "membership": [
     { "pathPattern": "(^|/)src/control/automatic-continuation-policy(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/nudge-delivery(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/auto-confirm-strikes(\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/stalled-session-nudge(\\.test)?\\.ts$"
     },

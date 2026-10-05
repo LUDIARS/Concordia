@@ -1,0 +1,52 @@
+---
+title: 人間依頼チャンネル
+id: CC-HUMAN-REQUEST
+status: draft
+---
+
+# 人間依頼チャンネル
+
+2026-10-05 neco 指示「Discord はコピーがしづらい UI。分類器に止められて打たないといけないコマンドを
+別のチャンネルに投稿して欲しい。説明と関連セッション投稿後、コマンドだけ投稿 (! は不要)、OK ボタンを
+その後投稿し、OK 押したら処理したコマンドを消す。人間依頼チャンネルを各子会社に作る」を適用する。
+
+## 1. チャンネル
+
+- 本社・子会社とも、各 Bot runtime が自 guild の「状態」カテゴリに「人間依頼」テキストチャンネルを
+  1 本持つ (`ensureHumanRequestChannel`、config key `human_request_channel_id`、冪等)。
+- 作れなかった場合は警告を残して人間依頼だけを無効にし、Bot の起動は止めない。
+
+## 2. セッションからの依頼 (`src/discord/human-command-marker.ts`)
+
+分類器に止められて人間が打つしかないコマンドは、セッションが次のマーカーを発言に含める。
+
+```text
+```human-command
+{"description":"なぜ必要か・実行後に何が起きるか","command":"gh auth login"}
+```
+```
+
+- `command` は必須。先頭の `!` (Claude Code の手動実行表記) は外して扱う。1900 文字を超えるものは無視する。
+- `description` は任意で 1500 文字に切り詰める。
+- JSON として読めないブロックは無視する (誤検知で投稿しない)。
+
+## 3. 投稿と OK (`src/discord/human-request.ts`)
+
+自 guild で中継中のセッションの AI 発言 (`session.message`, author `assistant`) にマーカーがあれば、
+1 依頼ごとに次の 3 投稿を出す。メンションは展開しない。
+
+1. 説明と関連セッション投稿 (セッションのスレッド / チャンネル) へのリンク
+2. コマンドだけ
+3. OK ボタン
+
+- 同じ session message の update 再配送では二重投稿しない (message id で記憶)。
+- OK はセッション操作権限のある人だけが押せる。押すと 2 のコマンド投稿を消し、3 を「処理済み」に
+  してボタンを外す。コマンド投稿が既に消えていても処理済みにする。
+- 子会社 Bot は本社と token を共有するため、guild・チャンネル・Bot 自身の投稿であることを照合してから処理する。
+
+## 4. 受入
+
+| 要件 | テスト |
+|---|---|
+| マーカーの解釈 (`!` 除去・壊れたブロック無視・CRLF・複数) | `src/discord/human-request.test.ts` |
+| 3 投稿の順序・二重投稿防止・OK の権限とコマンド削除 | `src/discord/human-request.test.ts` |

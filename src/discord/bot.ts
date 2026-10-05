@@ -1,6 +1,7 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
+import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import type { Database } from "better-sqlite3";
@@ -958,6 +959,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
   let choresDiscord: ChoresDiscord | null = null;
+  let humanRequestDiscord: HumanRequestDiscord | null = null;
   let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
@@ -1145,6 +1147,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     consultationTitles.stop();
     choresDiscord?.stopChores();
     choresDiscord = null;
+    humanRequestDiscord?.stop();
+    humanRequestDiscord = null;
     managementDiscord?.stop();
     managementDiscord = null;
     sprintDialoguesDiscord?.stop();
@@ -1188,6 +1192,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      // 人間依頼チャンネルは本社・子会社とも自 guild に持つ。作れなくても Bot 起動は止めない。
+      humanRequestDiscord?.stop();
+      humanRequestDiscord = await startHumanRequestDiscord({ guild, config: configRepo, parentId: layout.statusCategoryId,
+        sessionUrl: (sessionId) => {
+          const row = sessionChannelsRepo.findBySessionId(sessionId);
+          return row ? `https://discord.com/channels/${guild.id}/${row.channel_id}` : null;
+        },
+        allowed: isSessionControlUserAllowed, log,
+      }).catch((error) => { log.warn(`human request channel unavailable: ${String(error)}`); return null; });
       if (!subsidiaryId) {
         privateChannelProvisioner = createPrivateChannelProvisioner({
           guild, repo: privateChannelsRepo, categoryStore: privateCategoryStore, log,
@@ -2152,6 +2165,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void managementDiscord.interaction(interaction).catch((error) => log.warn(`management interaction failed: ${String(error)}`));
       return;
     }
+    if (humanRequestDiscord?.handlesInteraction(interaction)) {
+      void humanRequestDiscord.interaction(interaction).catch((error) => log.warn(`human request interaction failed: ${String(error)}`));
+      return;
+    }
     if (choresDiscord?.handlesInteraction(interaction)) {
       void choresDiscord.interaction(interaction).catch((error) => log.warn(`chores interaction failed: ${String(error)}`));
       return;
@@ -2865,6 +2882,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 通知した後だけ行う。chat.posted は出力の別経路なので作業開始シグナルにしない。
       if (ev.type === "session.message" && isActiveDiscordSession(ev.target_session_id)) {
         channelWorkState?.noteProgress(ev.target_session_id);
+        // 分類器に止められたコマンドを人間依頼チャンネルへ (自 guild のセッションだけ)。
+        void humanRequestDiscord?.onSessionMessage({
+          sessionId: ev.target_session_id,
+          messageId: ev.message.id,
+          authorType: ev.message.author_type,
+          content: ev.message.content,
+        }).catch((error) => log.warn(`human request post failed: ${String(error)}`));
       }
       // 指示 (Discord inject) → canonical message が動いた最初のタイミングで ✅ を付ける。
       // takeInjectAck は delete-on-read なので、 後続メッセージや codex prompt 経路と

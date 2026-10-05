@@ -24,6 +24,8 @@
  *     「未応答の自動確認」 のままかどうかで同じ抑止を効かせる。
  *   - nudge 配達は独立した永続記録で抑止する。AI活動または子/審査の進行で再評価する。
  *     真正の人間回答待ちは human-wait / 質問 / 対人確認の状態所有者で保護する。
+ *   - **3 アウト** (2026-10-05 neco 指示): 人間の反応が無いまま連続 3 回確認したら、
+ *     セッションが返答していても以後は送らず人間の入力を待つ (auto-confirm-strikes.ts)。
  *
  * 意図的に人間判断を仰いで止まっているセッションは除外する — そこへ「続行しろ」 と
  * 被せると人間の判断停止を踏み潰すため。待ちの signal は 2 系統あり、 どちらでも除外する:
@@ -47,6 +49,7 @@ import { isWaitingForHumanResponse } from "./human-response-confirmation.js";
 import { claimNudgeDelivery,readNudgeProgress } from "./nudge-delivery.js";
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { isHumanWaitActive } from "./human-wait.js";
+import { isAutoConfirmStruckOut, recordAutoConfirmStrike, renderStrikeOutNotice } from "./auto-confirm-strikes.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import {
@@ -326,6 +329,7 @@ export function startStalledSessionNudge(
     for (const s of active) {
       if (readResidentMarker(s.metadata)) continue; // Resident work is watched by its current run; idle is intentional.
       if (opts.isAutoCheckDisabled?.(s)) continue;
+      if (isAutoConfirmStruckOut(s.metadata)) continue;
       const mtime = await mtimeOf(s);
       if (mtime == null) continue; // transcript 不明 (idle 計測不能) はスキップ。
       const progressMs = readNudgeProgress(s.metadata);
@@ -375,14 +379,16 @@ export function startStalledSessionNudge(
         || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
+      if (isAutoConfirmStruckOut(latest.metadata)) continue;
       if (!claimNudgeDelivery(opts.repo,s.id,mtime,nowMs)) continue;
       lastNudge.set(s.id, nowMs);
+      const strikes = recordAutoConfirmStrike(opts.repo, s.id);
       eventBus.emit({
         type: "session.inject",
         target_session_id: s.id,
         // Read the local phase even when external review state is unavailable;
         // the guidance then requests an assessment without assuming review is idle.
-        text: buildNudgeText(s.provider, workState),
+        text: [buildNudgeText(s.provider, workState), ...renderStrikeOutNotice(strikes)].join("\n"),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });

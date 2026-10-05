@@ -1,0 +1,94 @@
+import { describe, it, expect } from "vitest";
+import { eventBus } from "../events.js";
+import type { SessionRow } from "../shared/types.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
+import {
+  AUTO_CONFIRM_STRIKE_LIMIT,
+  readAutoConfirmStrikes,
+  recordAutoConfirmStrike,
+  renderStrikeOutNotice,
+  startAutoConfirmStrikeReset,
+} from "./auto-confirm-strikes.js";
+import { startStalledSessionNudge } from "./stalled-session-nudge.js";
+
+function fakeSession(id: string): SessionRow {
+  return {
+    id, provider: "claude-code", repo_path: "/r", repo_origin: null, branch: null, host: "h",
+    started_at: 0, ended_at: null, status: "active", last_seen_at: 0, current_task: null,
+    transcript_path: null, metadata: null, ws_clients: 0,
+  } as SessionRow;
+}
+
+function fakeRepo(active: SessionRow[]): SessionsRepo {
+  const update = (id: string, fn: (current: Record<string, unknown>) => Record<string, unknown>) => {
+    const row = active.find((item) => item.id === id);
+    if (row) row.metadata = JSON.stringify(fn(JSON.parse(row.metadata ?? "{}")));
+  };
+  return {
+    findAllActive: () => active,
+    findSession: (id: string) => active.find((row) => row.id === id) ?? null,
+    updateMetadata: update,
+    mergeMetadata: (id: string, patch: Record<string, unknown>) => update(id, (current) => ({ ...current, ...patch })),
+  } as unknown as SessionsRepo;
+}
+
+describe("auto-confirm strikes (3 アウト)", () => {
+  it("回数を数え、壊れた値は 0 とみなす", () => {
+    const row = fakeSession("s");
+    const repo = fakeRepo([row]);
+    expect(readAutoConfirmStrikes("not json")).toBe(0);
+    expect(readAutoConfirmStrikes(JSON.stringify({ cc_auto_confirm_strikes: -2 }))).toBe(0);
+    expect(recordAutoConfirmStrike(repo, "s")).toBe(1);
+    expect(recordAutoConfirmStrike(repo, "s")).toBe(2);
+    expect(readAutoConfirmStrikes(row.metadata)).toBe(2);
+  });
+
+  it("3 回目の本文にだけ停止予告を添える", () => {
+    expect(renderStrikeOutNotice(AUTO_CONFIRM_STRIKE_LIMIT - 1)).toEqual([]);
+    expect(renderStrikeOutNotice(AUTO_CONFIRM_STRIKE_LIMIT).join("\n")).toContain("自動確認を送りません");
+  });
+
+  it("来歴付きの人間入力で 0 に戻し、自動注入では戻さない", () => {
+    const row = fakeSession("s");
+    row.metadata = JSON.stringify({ cc_auto_confirm_strikes: 3 });
+    const watch = startAutoConfirmStrikeReset(fakeRepo([row]));
+    try {
+      eventBus.emit({ type: "session.inject", target_session_id: "s", text: "x", source: "auto:stall-nudge", ts: 1 });
+      expect(readAutoConfirmStrikes(row.metadata)).toBe(3);
+      eventBus.emit({ type: "question.answered", target_session_id: "s", question_id: 1, answer_index: 0, answer_text: "OK", ts: 2 });
+      expect(readAutoConfirmStrikes(row.metadata)).toBe(0);
+    } finally {
+      watch.stop();
+    }
+  });
+
+  it("セッションが返答し続けても、人間の反応が無ければ 3 回で止まる", async () => {
+    let clock = 10_000_000;
+    let mtime = 0;
+    const injected: string[] = [];
+    const off = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.target_session_id === "loop") injected.push(event.text);
+    });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([fakeSession("loop")]),
+      now: () => clock,
+      transcriptMtimeMs: async () => mtime,
+      readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "通知を待っています。" }),
+      idleSec: 600,
+      cooldownSec: 600,
+      intervalMs: 1_000_000,
+    });
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        await h.runOnce();
+        mtime = clock + 60_000; // セッションは毎回返答する
+        clock += 3_600_000;
+      }
+      expect(injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
+      expect(injected[AUTO_CONFIRM_STRIKE_LIMIT - 1]).toContain("自動確認を送りません");
+    } finally {
+      h.stop();
+      off();
+    }
+  });
+});

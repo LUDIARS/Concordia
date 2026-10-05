@@ -400,6 +400,18 @@ export async function ensureIntakeChannel(
 }
 
 /**
+ * 「人間依頼」チャンネルを確保する (無ければ作る・冪等)。 分類器に止められて人間が打つしかない
+ * コマンドの受け渡し面で、 本社・子会社とも各 guild に 1 本持つ (spec/feature/human-request-channel.md)。
+ */
+export async function ensureHumanRequestChannel(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  parentId: string,
+): Promise<string> {
+  return ensureTextChannel(guild, repo, "human_request_channel_id", "人間依頼", parentId);
+}
+
+/**
  * 本社サーバ内の軽量窓口 (desk) の依頼チャンネルを確保する (無ければ作る・冪等)。
  * 子会社の受付チャンネルと違い本社 guild 内に作るので、 窓口ごとに config key と
  * チャンネル名を分ける (既定名「タスク依頼」)。 spec/feature/subsidiary-delegation.md §9。

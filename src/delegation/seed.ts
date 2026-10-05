@@ -295,7 +295,8 @@ const ASTRA_WITH_SIDECAR_TEMPLATE: CreateTemplateInput = {
 const FORUM_SESSION_PROMPT = [
   "Discord Session フォーラムの投稿から起動されたセッションです。",
   "追加の初回指示に含まれる Title と本文を依頼の正本として扱ってください。",
-  "対象プロジェクトと作業範囲を最初に確認し、不明な場合は実装前にユーザーへ確認してください。",
+  "依頼が曖昧でも最初に質問せず、リポジトリの状態と直近のコミットから意図を推定して着手してください。",
+  "ユーザーへ確認するのは取り消しにくい操作の前だけにしてください。",
 ].join("\n");
 
 /** Forum 投稿本文は extra_prompt で渡るため、引数なしで安全に invoke できる既定テンプレ。 */

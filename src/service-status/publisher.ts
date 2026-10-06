@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { StatusProjection, StatusService } from "./policy.js";
-import { statusChanges, statusServiceKey } from "./policy.js";
-import { renderChanges, statusPages } from "./render.js";
+import type { StatusProjection } from "./policy.js";
+import { statusPages } from "./render.js";
 
 export interface StatusChannelPort {
   send(content: string, nonce: string): Promise<string>;
@@ -38,7 +37,7 @@ type Pending = z.infer<typeof PendingSchema>;
 const KEY = "service_status_ledger";
 const PENDING = "service_status_pending";
 
-/** @implements CC-SS-05 CC-SS-06 — keep uncertain writes pending, reconcile by nonce, never resend. */
+/** @implements CC-SS-05 CC-SS-06 CC-SS-09 — summary only; reconcile uncertain legacy writes before deletion. */
 export class StatusPublisher {
   private busy = false;
   constructor(private readonly store: StatusStore, private readonly channel: StatusChannelPort) {}
@@ -62,13 +61,11 @@ export class StatusPublisher {
     if (pending.previous) ledger.previous = pending.previous;
     this.save(ledger); this.store.set(PENDING, "");
   }
-  private async send(ledger: Ledger, content: string, kind: Pending["kind"], index: number, previous?: StatusService[]) {
+  private async send(ledger: Ledger, content: string, index: number) {
     const nonce = randomUUID().replace(/-/g, "").slice(0, 24);
-    this.store.set(PENDING, JSON.stringify({ nonce, kind, index, previous } satisfies Pending));
+    this.store.set(PENDING, JSON.stringify({ nonce, kind: "page", index } satisfies Pending));
     const id = await this.channel.send(content, nonce);
-    if (kind === "page") ledger.pages[index] = id;
-    else ledger.history.push(id);
-    if (previous) ledger.previous = previous;
+    ledger.pages[index] = id;
     this.save(ledger); this.store.set(PENDING, "");
   }
   async refresh(projection: StatusProjection | null, scope: string, stopped: () => boolean = () => false): Promise<void> {
@@ -79,6 +76,13 @@ export class StatusPublisher {
       if (stopped()) return;
       await this.settle(ledger);
       if (stopped()) return;
+      // Remove old history, including reconciled sends, even during an observation outage.
+      while (ledger.history.length) {
+        if (stopped()) return;
+        await this.channel.remove(ledger.history[0]!);
+        ledger.history.shift(); this.save(ledger);
+      }
+      ledger.previous = null; this.save(ledger);
       if (scope !== ledger.scope) {
         // Revoke every owned old post before publishing a new scope; failures block disclosure.
         for (const id of [...ledger.pages, ...ledger.history]) { if (stopped()) return; await this.channel.remove(id); }
@@ -90,28 +94,12 @@ export class StatusPublisher {
         const id = ledger.pages[index];
         if (id) {
           const present = await this.channel.edit(id, pages[index]!);
-          if (present === false) await this.send(ledger, pages[index]!, "page", index);
+          if (present === false) await this.send(ledger, pages[index]!, index);
         }
-        else await this.send(ledger, pages[index]!, "page", index);
+        else await this.send(ledger, pages[index]!, index);
       }
       for (const id of ledger.pages.slice(pages.length)) { if (stopped()) return; await this.channel.remove(id); }
       ledger.pages = ledger.pages.slice(0, pages.length); this.save(ledger);
-      if (!projection) { ledger.previous = null; this.save(ledger); return; }
-      const changes = statusChanges(ledger.previous, projection.services);
-      const lines = renderChanges(changes, projection);
-      // Each record is short; retain at most 50 owned history posts, removing older Discord copies too.
-      for (let index = 0; index < lines.length; index++) {
-        if (stopped()) return;
-        while (ledger.history.length >= 50) {
-          await this.channel.remove(ledger.history[0]!); ledger.history.shift(); this.save(ledger);
-        }
-        const change = changes[index]!;
-        const changeKey = statusServiceKey(change.siteId, change.code);
-        const previous = (ledger.previous ?? []).map((service) => statusServiceKey(service.siteId, service.code) === changeKey
-          ? projection.services.find((next) => statusServiceKey(next.siteId, next.code) === changeKey)! : service);
-        await this.send(ledger, lines[index]!, "history", ledger.history.length, previous);
-      }
-      ledger.previous = projection.services; this.save(ledger);
     } finally { this.busy = false; }
   }
 }

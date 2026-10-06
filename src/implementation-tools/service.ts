@@ -1,4 +1,5 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import { eventBus } from "../events.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { ExcubitorClient, ServiceAction } from "../excubitor/client.js";
@@ -104,6 +105,21 @@ export class ImplementationToolsService {
       payload: { project_code: projectCode, task: claimedTask, branch: context.branch },
     });
     this.deps.onContextBindingChanged?.(session.id);
+    // PATCH /v1/sessions/:id と同じく task 変更を通知する。 セッション契約 (contract/lifecycle.ts) は
+    // session.started / session.task_changed にしか反応しないので、 ここで出さないと Castra 等で起動して
+    // implement begin で契約対象プロジェクトへ入ったセッションに契約が作られず、 編集ゲートの
+    // contract-incomplete が全編集を拒否し続ける (2026-10-06)。 作業場所だけ変わった場合も契約対象が
+    // 変わりうるので通知する。
+    const bindingMoved = context.repoPath !== session.repo_path || (context.repoOrigin ?? null) !== (session.repo_origin ?? null);
+    if (claimedTask !== session.current_task || bindingMoved) {
+      eventBus.emit({
+        type: "session.task_changed",
+        session_id: session.id,
+        previous_task: session.current_task ?? null,
+        current_task: claimedTask,
+        ts: nowSec(),
+      });
+    }
     return { ok: true, project_code: projectCode, task: claimedTask, branch: context.branch };
   }
 

@@ -74,6 +74,11 @@ updated: 2026-08-13
 - **spawn 時** と **初回指示投稿後** (delegation spawn は invoke prompt が初回指示に相当)。
 - **task-change 時** (既存 model-review trigger を踏襲) — 契約の**更新**として同じ三段を回す。
   vibes→plan 昇格 (plan-gate §5)、 effort 変更などはすべて契約更新イベントになる。
+  task-change は `PATCH /v1/sessions/:id` (`lictor cli task set`) と
+  `POST /v1/implementation-tools/bind` (`lictor cli implement begin`) の両方が `session.task_changed`
+  を出す。 bind は task が変わったとき、 または作業場所 (repo_path / repo_origin) が変わったときに出す
+  (Castra で起動して implement begin で契約対象プロジェクトへ入ったセッションにも契約を作るため。
+  出さないと契約が作られず contract-incomplete が全編集を拒否し続けた、 2026-10-06)。
 - 人間はいつでも上書きできる: 状態カード / WebUI / `PATCH /v1/sessions/:id/contract`。
 
 ## 3. 三段判定

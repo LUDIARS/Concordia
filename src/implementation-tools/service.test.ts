@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
+import { eventBus } from "../events.js";
 import { ImplementationToolsService } from "./service.js";
 
 const { inspectImplementationRepo, isWithinWorkspace, mainRepositoryKey } = vi.hoisted(() => ({
@@ -93,5 +94,44 @@ describe("ImplementationToolsService project-code binding", () => {
     });
     await expect(service.bind({ sessionId: "session-1", cwd: "E:/Document/Ars/renamed-checkout", task: "next" }))
       .resolves.toMatchObject({ project_code: "Cc", branch: "feat/new" });
+  });
+
+  // 契約 (contract/lifecycle.ts) は session.task_changed でしか作られない。 bind が出さないと
+  // Castra で起動して implement begin で Cc に入ったセッションは契約が作られず編集が全て拒否された。
+  it("emits session.task_changed so the session contract is seeded after an implement begin", async () => {
+    const session = { id: "session-1", status: "active", repo_path: "E:/Document/Ars", repo_origin: "https://github.com/LUDIARS/Castra.git", branch: "main", active_repos: "[]", current_task: "castra work" };
+    const events: unknown[] = [];
+    const unsubscribe = eventBus.subscribe((event) => { if (event.type === "session.task_changed") events.push(event); });
+    try {
+      const service = new ImplementationToolsService({
+        sessions: { findSession: () => session, patchSession: vi.fn(), mergeMetadata: vi.fn(), appendEvent: vi.fn() } as never,
+        claims: {} as never,
+        excubitor: {} as never,
+        submitLocalPr: vi.fn(),
+        projectCodes: { list: () => [row] } as never,
+        work: {} as never,
+        resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      });
+      await service.bind({ sessionId: "session-1", cwd: row.repo_path, task: "federation" });
+      expect(events).toEqual([expect.objectContaining({
+        type: "session.task_changed",
+        session_id: "session-1",
+        previous_task: "castra work",
+        current_task: "[Cc] federation",
+      })]);
+
+      // 同じ task・同じ作業場所への bind し直しでは出さない (契約の再生成を無駄に起こさない)。
+      events.length = 0;
+      Object.assign(session, { repo_path: row.repo_path, repo_origin: row.repo_origin, current_task: "[Cc] federation" });
+      await service.bind({ sessionId: "session-1", cwd: row.repo_path, task: "federation" });
+      expect(events).toEqual([]);
+
+      // task が同じでも作業場所 (repo) が変われば契約対象が変わりうるので出す。
+      Object.assign(session, { repo_path: "E:/Document/Ars", repo_origin: "https://github.com/LUDIARS/Castra.git" });
+      await service.bind({ sessionId: "session-1", cwd: row.repo_path, task: "federation" });
+      expect(events).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
   });
 });

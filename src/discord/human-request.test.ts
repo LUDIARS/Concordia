@@ -19,6 +19,18 @@ describe("parseHumanCommandRequests", () => {
     expect(parseHumanCommandRequests("```ask\n{\"command\":\"ls\"}\n```")).toEqual([]);
   });
 
+  it("マーカーが無くても「`! <command>`」の形を拾い、その行を説明にする (2026-10-06)", () => {
+    const text = [
+      "分類器に止められたので、次を実行してください: `! gh auth login`",
+      "`!important` や `!=` は拾わない。`! gh auth login` の重複も 1 件にする。",
+      fence('{"description":"マーカー","command":"npm run build"}'),
+    ].join("\n");
+    expect(parseHumanCommandRequests(text)).toEqual([
+      { description: "マーカー", command: "npm run build" },
+      { description: "分類器に止められたので、次を実行してください:", command: "gh auth login" },
+    ]);
+  });
+
   it("CRLF と複数ブロックを扱う", () => {
     const text = '```human-command\r\n{"command":"a"}\r\n```\n```human-command\n{"command":"b"}\n```';
     expect(parseHumanCommandRequests(text).map((request) => request.command)).toEqual(["a", "b"]);

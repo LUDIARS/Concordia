@@ -23,12 +23,33 @@ const FENCE_RE = /(^|\n)[ \t]*```human-command[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*``
 export const MAX_COMMAND_LENGTH = 1900;
 export const MAX_DESCRIPTION_LENGTH = 1500;
 
-/** 本文中の human-command マーカーをすべて取り出す。壊れたブロックは無視する。 */
+/**
+ * Claude Code が人に手動で打ってもらうときの書き方「`! <command>`」(バッククォートの中が `! ` で始まる)。
+ * セッションがマーカーを出さずにこの形で頼むことが多いので拾う (2026-10-06 neco 指示「実行する必要があるコマンドを
+ * まとめるチャンネル」)。`!` の直後に空白が要る (`!important` のような語を拾わない)。
+ */
+const BANG_RE = /`!\s+([^`\n]+)`/g;
+const MAX_BANG_CONTEXT = 300;
+
+/** 本文中の human-command マーカーと「`! <command>`」をすべて取り出す。壊れたマーカーは無視し、同じコマンドは 1 件にする。 */
 export function parseHumanCommandRequests(text: string): HumanCommandRequest[] {
   const requests: HumanCommandRequest[] = [];
-  for (const match of text.matchAll(FENCE_RE)) {
-    const request = parseBlock(match[2] ?? "");
-    if (request) requests.push(request);
+  const seen = new Set<string>();
+  const push = (request: HumanCommandRequest | null) => {
+    if (!request || seen.has(request.command)) return;
+    seen.add(request.command);
+    requests.push(request);
+  };
+  for (const match of text.matchAll(FENCE_RE)) push(parseBlock(match[2] ?? ""));
+  // マーカーの中身 (JSON) に書かれた `! ...` は二重に拾わない。
+  const outsideFences = text.replace(FENCE_RE, "\n");
+  for (const line of outsideFences.split(/\r?\n/)) {
+    for (const match of line.matchAll(BANG_RE)) {
+      const command = (match[1] ?? "").trim();
+      if (!command || command.length > MAX_COMMAND_LENGTH) continue;
+      const context = line.replace(BANG_RE, "").replace(/\s+/g, " ").trim().slice(0, MAX_BANG_CONTEXT);
+      push({ description: context, command });
+    }
   }
   return requests;
 }

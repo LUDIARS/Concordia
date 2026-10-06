@@ -4375,6 +4375,7 @@
     {"source":"src/departments/output-policy.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/discord/bot.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/discord/egress.ts","tests":["src/discord/egress.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/discord/test-forum-reconcile.ts","tests":["src/discord/test-forum-reconcile.test.ts"],"contracts":[]},
     {"source":"src/deploy/self-deployment.ts","tests":["src/deploy/self-deployment.test.ts"],"contracts":[]},
     {"source":"src/deploy/service-deployed-runtime.ts","tests":["src/deploy/self-deployment.test.ts"],"contracts":[]},
     {"source":"src/discord/rest-rate-limit-log.ts","tests":["src/discord/rest-rate-limit-log.test.ts"],"contracts":[]},

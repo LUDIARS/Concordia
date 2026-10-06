@@ -175,6 +175,18 @@ describe("review report delivery lifecycle", () => {
     expect(h.adapter.create).toHaveBeenCalledTimes(1);
   });
 
+  it("closes a thread whose PR left the subsidiary's project scope, without a final report (2026-10-06)", async () => {
+    const h = harness([surface()]);
+    h.adapter.postReviewReport = vi.fn(async () => undefined);
+    const getTerminalDetail = vi.fn(async () => { throw new Error("must not be called"); });
+    const result = await reconcileTestForum({ ...h, candidates: [], terminalPullRequests: [], getTerminalDetail, isInScope: () => false });
+    expect(result.closed).toBe(1);
+    expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "candidate-unavailable");
+    expect(h.adapter.postReviewReport).not.toHaveBeenCalled();
+    expect(getTerminalDetail).not.toHaveBeenCalled();
+    expect(h.rows[0].status).toBe("closed");
+  });
+
   it("keeps a thread open when terminal detail fails", async () => {
     const h = harness([surface()]);
     h.adapter.postReviewReport = vi.fn(async () => undefined);

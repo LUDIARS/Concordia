@@ -1573,6 +1573,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             mergeCommitSha: pullRequest.mergeCommitSha,
           }))),
           surfaces: testSurfacesRepo,
+          // 子会社は関連プロジェクトから外した PR の投稿を閉じる (本社は全件が範囲なので渡さない)。
+          ...(projectScope ? { isInScope: (repoOrigin: string) => filterByProjectScope([{ repoOrigin }], projectScope).length > 0 } : {}),
           getTerminalDetail: (id) => source.getProductDetail(id),
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId, reviewReportReceiptsRepo),
           qa: testForumQa,

@@ -201,6 +201,12 @@ export async function reconcileTestForum(input: {
    * 省略時は候補が持つ `mentionUserIds` をそのまま使う。
    */
   resolveMentions?: (sessionId: string) => readonly string[];
+  /**
+   * 子会社の関連プロジェクトの範囲か。 範囲外になった PR (関連プロジェクトから外したもの) の投稿は、 終局の
+   * 確認や報告を待たずにそのまま閉じる。 範囲外の PR の詳細を子会社へ載せないため報告は出さない
+   * (2026-10-06、 GLab から Concordia を外した後もスレッドが開いたまま残った件)。 本社は省略 (全件が範囲)。
+   */
+  isInScope?: (repoOrigin: string) => boolean;
   log?: { warn(message: string): void };
 }): Promise<TestForumReconcileResult> {
   const candidates = [...input.candidates];
@@ -273,6 +279,15 @@ export async function reconcileTestForum(input: {
     const key = prKey(surface.repo_origin, surface.pr_number);
     const candidate = candidatesByPr.get(key);
     if (!candidate) {
+      if (input.isInScope && !input.isInScope(surface.repo_origin)) {
+        await isolate(key, async () => {
+          await input.adapter.close(surface, "candidate-unavailable");
+          if (input.qa) await input.qa.end(surface);
+          input.surfaces.close(surface.id, "candidate-unavailable");
+          closed += 1;
+        });
+        continue;
+      }
       if (input.getTerminalDetail && !terminalByPr.has(key)) {
         // An unavailable terminal list is not evidence that the report is complete.
         // Keep the thread until we can post its actual final state.

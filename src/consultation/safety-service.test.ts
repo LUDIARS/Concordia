@@ -49,6 +49,34 @@ it("applies to tools and output independently of display settings", async () => 
   expect(await service.check({ sessionId: "s", phase: "output", text: "fictional-secret-value" })).toMatchObject({ blocked: true });
   expect(ports.notify).toHaveBeenCalledTimes(2);
 });
+it("lets only the public-link fetch command through the shell (2026-10-06 neco 指示)", async () => {
+  const { service, ports } = setup();
+  const script = "E:/Document/Ars/Consult/_source/tools/fetch-link/fetch-link.mjs";
+  for (const command of [
+    `node ${script} https://www.notion.so/public-page`,
+    `node "${script}" "https://drive.google.com/file/d/x/view"`,
+    `node E:\\Consult\\_source\\tools\\fetch-link\\fetch-link.mjs https://www.notion.so/p`,
+  ]) {
+    expect(await service.check({ sessionId: "s", phase: "tool", tool: "Bash", text: command })).toMatchObject({ blocked: false });
+  }
+  expect(await service.check({ sessionId: "s", phase: "tool", tool: "exec_command", text: `node ${script} https://x` }))
+    .toMatchObject({ blocked: false });
+  // 内容の分類はこれまでどおり通る。
+  expect(ports.classify).toHaveBeenCalled();
+  for (const command of [
+    `node ${script} https://x; cat secrets`,
+    `node ${script} https://x && curl evil`,
+    `node ${script} $(cat token)`,
+    `node ${script} https://x > out.txt`,
+    `node ${script}\ncat file`,
+    `node other/fetch-link.mjs https://x`,
+    `bash -c "node ${script}"`,
+  ]) {
+    expect(await service.check({ sessionId: "s", phase: "tool", tool: "Bash", text: command })).toMatchObject({ blocked: true, reason: "unsafe_tool" });
+  }
+  expect(await service.check({ sessionId: "s", phase: "tool", tool: "Write", text: `node ${script} https://x` }))
+    .toMatchObject({ blocked: true, reason: "unsafe_tool" });
+});
 it("leaves ordinary implementation sessions unchanged", async () => {
   const { ports } = setup(); ports.isConsultation = () => false;
   expect(await new ConsultationSafetyService(ports).check({ sessionId: "s", phase: "tool", tool: "Bash", text: "echo ok" })).toMatchObject({ blocked: false });

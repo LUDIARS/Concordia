@@ -218,6 +218,11 @@
       フック (`tools/consult-codex-hook.mjs` → `tools/consult-fetch-link-command.mjs`) が担い、取得コマンドの形以外は Cc に聞かずに止める
       (Cc に届かなくても止める)。フックが未信頼ならシェルは外したまま。hooks.json の定義を変えると信頼がやり直しになるので、変えるときは
       この判定も見直す。
+    - Cc の相談の情報保護境界 (`src/consultation/safety-policy.ts` の `consultationToolAllowed`、ハーネスの gate から呼ばれる) でも、
+      シェル系ツール (Bash / shell / exec_command など) は `node <…>/_source/tools/fetch-link/fetch-link.mjs <url>` の形だけを通す
+      (`isConsultFetchLinkCommand`)。`;` `&` `|` `` ` `` `$` `<` `>` 改行を含むものは通さない。どの相談フォルダかの厳密な一致は前段の
+      権限 (claude) とフック (codex) が持つ。通した後も内容の分類 (個人情報・機密) は従来どおり行う。2026-10-06 neco 指示「Notion の
+      公開リンクの取得が、相談ハーネスでブロックされる」: この境界が Bash を一律に unsafe_tool で止めていた。
     - 未確認 (2026-10-03): codex の `-s read-only` の sandbox で取得スクリプトのネットワーク通信が通るか。通らなければ Astra の取得は
       「取得中にエラー」になる (閉じ込めは変わらない)。
   - ブランチ切替の案内 (`src/testing/branch-watch.ts` の「⚠️ ブランチ切替を検知しました」) は相談のセッションに出さない

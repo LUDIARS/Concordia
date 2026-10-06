@@ -22,7 +22,7 @@ export class ConsultationSafetyService {
     try {
       if (!this.ports.isConsultation(input.sessionId)) return safetyDecision(null);
       if (input.text.length > 50_000) verdict = safetyDecision("guard_unavailable");
-      else if (input.phase === "tool" && !consultationToolAllowed(input.tool ?? "")) verdict = safetyDecision("unsafe_tool");
+      else if (input.phase === "tool" && !consultationToolAllowed(input.tool ?? "", input.text)) verdict = safetyDecision("unsafe_tool");
       else {
         const terms = await this.ports.confidentialTerms();
         const normalized = input.text.normalize("NFKC").toLocaleLowerCase();
@@ -43,7 +43,7 @@ export class ConsultationSafetyService {
     if (verdict.blocked) {
       // No content, query, URL, private name or matched dictionary term is persisted in the incident.
       const auditId = this.ports.record({ sessionId: input.sessionId, phase: input.phase,
-        tool: input.tool && consultationToolAllowed(input.tool) ? input.tool : undefined }, verdict);
+        tool: input.tool && consultationToolAllowed(input.tool, input.text) ? input.tool : undefined }, verdict);
       this.ports.notify(auditId);
     }
     return verdict;

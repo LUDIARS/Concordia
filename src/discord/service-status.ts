@@ -39,6 +39,7 @@ export function startServiceStatusDiscord(deps: {
     if (stopped) return;
     const projection = snapshot ? projectStatus(snapshot, selection, Date.now()) : null;
     const scope = JSON.stringify({ policy: 1, selection,
+      sites: projection?.sites.map((site) => `${site.id}/${site.name}`).sort() ?? null,
       visible: projection?.services.map((service) => statusServiceKey(service.siteId, service.code)).sort() ?? null });
     // An outage must not erase ownership metadata or repeatedly clear history.
     const previousScope = deps.config.get("service_status_effective_scope") ?? scope;

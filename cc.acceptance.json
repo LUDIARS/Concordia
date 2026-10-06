@@ -3,7 +3,7 @@
   "implementations": [
     { "source": "src/service-status/policy.ts", "tests": ["src/service-status/policy.test.ts"], "contracts": ["CC-SS-02", "CC-SS-03", "CC-SS-04"] },
     { "source": "src/service-status/visibility.ts", "tests": ["src/service-status/policy.test.ts", "src/api/service-status.test.ts"], "contracts": ["CC-SS-03"] },
-    { "source": "src/service-status/client.ts", "tests": ["src/service-status/client.test.ts"], "contracts": ["CC-SS-01", "CC-SS-04"] },
+    { "source": "src/service-status/client.ts", "tests": ["src/service-status/client.test.ts"], "contracts": ["CC-SS-01", "CC-SS-04", "CC-SS-07"] },
     { "source": "src/service-status/settings.ts", "tests": ["src/service-status/settings.test.ts"], "contracts": ["CC-SS-02"] },
     { "source": "src/service-status/render.ts", "tests": ["src/service-status/render.test.ts", "src/service-status/publisher.test.ts"], "contracts": ["CC-SS-03", "CC-SS-04"] },
     { "source": "src/service-status/publisher.ts", "tests": ["src/service-status/publisher.test.ts"], "contracts": ["CC-SS-05", "CC-SS-06"] },

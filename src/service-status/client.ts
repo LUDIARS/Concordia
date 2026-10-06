@@ -2,7 +2,10 @@ import { z } from "zod";
 import { excubitorBaseUrl } from "../config/service-urls.js";
 import type { StatusSnapshot } from "./policy.js";
 
+const RegisteredPeerSchema = z.object({ id: z.string().min(1).max(200), name: z.string().trim().min(1).max(200), enabled: z.boolean() });
+const PeersSchema = z.object({ peers: z.array(RegisteredPeerSchema).max(256) });
 const MeshSchema = z.object({
+  registered_peers: z.array(RegisteredPeerSchema).max(256).optional(),
   generated_at: z.number().finite().nonnegative(),
   stale_after_ms: z.number().finite().positive().max(7 * 24 * 60 * 60 * 1_000),
   nodes: z.array(z.object({
@@ -28,16 +31,23 @@ const MeshSchema = z.object({
   })).max(2_048),
 });
 
-/** @implements CC-SS-01 CC-SS-04 — only read Ex's already collected mesh observations. */
+/** @implements spec/feature/service-status-channel.md CC-SS-01 CC-SS-04 CC-SS-07 — read Ex's cached observations and local registrations. */
 export function parseMesh(raw: unknown): StatusSnapshot {
   const mesh = MeshSchema.parse(raw);
+  const registered = new Map((mesh.registered_peers ?? []).map((peer) => [peer.id, peer]));
+  if (registered.size !== (mesh.registered_peers ?? []).length) throw new Error("ambiguous_registered_site");
   if (new Set(mesh.nodes.map((node) => node.node)).size !== mesh.nodes.length) throw new Error("ambiguous_site_identity");
-  const sites = mesh.nodes.map((node) => ({ id: node.is_self ? "self" : `peer:${node.peer_id}`, name: node.node,
+  const sites = mesh.nodes.map((node) => {
+    const peer = node.peer_id === null ? undefined : registered.get(node.peer_id);
+    if (!node.is_self && (!peer || !peer.enabled)) throw new Error("registered_site_unavailable");
+    return { id: node.is_self ? "self" : `peer:${node.peer_id}`, name: node.is_self ? node.node : peer!.name,
     self: node.is_self, connected: node.status === "up", stale: node.stale || node.scan_completed_at === null
       || node.scan_completed_at > mesh.generated_at
-      || mesh.generated_at - node.scan_completed_at > mesh.stale_after_ms }));
+      || mesh.generated_at - node.scan_completed_at > mesh.stale_after_ms };
+  });
   if (sites.some((site) => site.id === "peer:null") || new Set(sites.map((site) => site.id)).size !== sites.length) throw new Error("ambiguous_site_identity");
-  const siteByName = new Map(sites.map((site) => [site.name, site]));
+  // Coverage is keyed by the observed hostname, never by the operator's display label.
+  const siteByName = new Map(mesh.nodes.map((node, index) => [node.node, sites[index]!]));
   const services: StatusSnapshot["services"] = [];
   const serviceKeys = new Set<string>();
   for (const row of mesh.coverage) {
@@ -69,7 +79,14 @@ export class StatusClient {
   }
 }
 export const serviceStatusClient = new StatusClient(async () => {
-  const response = await fetch(`${excubitorBaseUrl()}/api/v1/federation/mesh`, { signal: AbortSignal.timeout(8_000), redirect: "error" });
-  if (!response.ok) throw new Error("service_status_unavailable");
-  return response.json();
+  const base = excubitorBaseUrl();
+  const signal = AbortSignal.timeout(8_000);
+  const [meshResponse, peerResponse] = await Promise.all([
+    fetch(`${base}/api/v1/federation/mesh`, { signal, redirect: "error" }),
+    fetch(`${base}/api/v1/peers`, { signal, redirect: "error" }),
+  ]);
+  if (!meshResponse.ok || !peerResponse.ok) throw new Error("service_status_unavailable");
+  const mesh = MeshSchema.parse(await meshResponse.json());
+  const peers = PeersSchema.parse(await peerResponse.json());
+  return { ...mesh, registered_peers: peers.peers };
 });

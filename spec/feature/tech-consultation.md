@@ -226,7 +226,10 @@
   - ツール制限を外す部署 (部署設定 `consult_tools: "all"`、既定 `restricted`。2026-10-06 neco 指示「Consult のハーネスを
     すべて許可する設定」、選択「ツール制限だけ外す」):
     - claude: 起動引数の `--tools=` を外す (`PROJECTLESS_CONSULT_CLAUDE_ARGS_ALL_TOOLS`)。役職フォルダの permissions は
-      `defaultMode: "bypassPermissions"` (`consultClaudePermissions(..., { allTools })`)。
+      `defaultMode: "dontAsk"` のまま組み込みツール (Bash・Read・Write・Edit・WebFetch など、`CONSULT_ALL_TOOL_NAMES`) を
+      名前で許す (`consultClaudePermissions(..., { allTools })`)。名前だけの規則はそのツールのどの使い方も許す。
+      最初は `defaultMode: "bypassPermissions"` にしたが、claude 側で一度だけの承認を求めることがあり、Lictor 経由の起動では
+      承認できず don't ask で Bash が拒否された (2026-10-06)。
     - codex: シェルを残し、sandbox を `workspace-write` にする (`confinementArgsFor(..., { allTools })`)。起動 env
       `CONCORDIA_CONSULT_ALL_TOOLS=1` で、フック (`tools/consult-codex-hook.mjs`) はシェルを止めない。
     - Cc の情報保護境界: ツールの判定を飛ばす (`toolsUnrestricted`)。

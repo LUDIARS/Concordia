@@ -27,6 +27,12 @@ export function consultFetchLinkScript(root: string): string {
   return slash(join(root, "_source", "tools", "fetch-link", "fetch-link.mjs"));
 }
 
+/** ツール制限を外した部署の相談で許す claude の組み込みツール。 MCP は起動引数 (--strict-mcp-config) で外したまま。 */
+export const CONSULT_ALL_TOOL_NAMES: readonly string[] = Object.freeze([
+  "Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS",
+  "WebFetch", "WebSearch", "TodoWrite", "Task", "Skill",
+]);
+
 /**
  * 相談セッションの claude に許すツール (それ以外は聞かずに拒否する)。 部署の consult_tools が `all` なら制限を外す
  * (2026-10-06 neco 指示「Consult のハーネスをすべて許可する設定」)。
@@ -34,8 +40,11 @@ export function consultFetchLinkScript(root: string): string {
 export function consultClaudePermissions(
   root: string,
   options: { allTools?: boolean } = {},
-): { defaultMode: "dontAsk"; allow: string[] } | { defaultMode: "bypassPermissions" } {
-  if (options.allTools) return { defaultMode: "bypassPermissions" };
+): { defaultMode: "dontAsk"; allow: string[] } {
+  // bypassPermissions は claude 側で一度だけの承認を求めることがあり、 Lictor 経由の起動では承認できずに効かなかった
+  // (2026-10-06、 制限なしの部署でも Bash が don't ask で拒否された)。 dontAsk のまま組み込みツールを名前で許す
+  // (名前だけの規則はそのツールのどの使い方も許す)。
+  if (options.allTools) return { defaultMode: "dontAsk", allow: [...CONSULT_ALL_TOOL_NAMES] };
   return {
     defaultMode: "dontAsk",
     allow: ["WebSearch", "TodoWrite", "Skill", `Bash(node ${consultFetchLinkScript(root)}:*)`],

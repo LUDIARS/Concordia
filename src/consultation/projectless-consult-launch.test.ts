@@ -149,7 +149,9 @@ describe("resolveProjectlessConsultLaunch", () => {
     expect(result.claudeArgs).toEqual(["--strict-mcp-config"]);
     expect(result.env.CONCORDIA_CONSULT_ALL_TOOLS).toBe("1");
     const settings = (p.prepareWorkspace.mock.calls[0] as unknown as unknown[])[1] as { permissions: unknown; autoMemoryEnabled: boolean };
-    expect(settings.permissions).toEqual({ defaultMode: "bypassPermissions" });
+    // bypassPermissions は Lictor 経由の起動で効かなかったので、 dontAsk のまま組み込みツールを名前で許す。
+    expect(settings.permissions).toMatchObject({ defaultMode: "dontAsk", allow: expect.arrayContaining(["Bash", "Read", "WebFetch"]) });
+    expect((settings.permissions as { allow: string[] }).allow.some((rule) => rule.startsWith("Bash("))).toBe(false);
     expect(settings.autoMemoryEnabled).toBe(false);
   });
 });

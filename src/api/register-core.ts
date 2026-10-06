@@ -1,4 +1,6 @@
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
+import { serviceStatusRouter } from "./service-status.js";
+import { serviceStatusClient } from "../service-status/client.js";
 import { choresRouter } from "./chores.js";
 import { managementAdminRouter, managementRouter } from "./management.js";
 import { sprintDialoguesRouter } from "./sprint-dialogues.js";
@@ -1058,6 +1060,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/federation", federationRouter(deps.federation));
   }
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
+    const subsidiaryRepo = deps.subsidiary;
+    app.route("/v1/service-status", serviceStatusRouter({
+      config: deps.discordConfig,
+      exists: (id) => Boolean(subsidiaryRepo.find(id)),
+      read: () => serviceStatusClient.get(),
+    }));
     app.route(
       "/v1/subsidiaries",
       subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api"), teams: deps.teams, discordRead: deps.subsidiaryDiscordRead }),

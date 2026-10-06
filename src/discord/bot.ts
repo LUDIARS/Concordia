@@ -55,6 +55,7 @@ import { takeInjectAck } from "./inject-ack.js";
 import { ccInjectMirrorPost } from "./cc-inject-mirror.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
+import { startServiceStatusDiscord } from "./service-status.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
 import { buildTeamAdminPanel, upsertTeamAdminPanelMessage } from "./team-admin-panel.js";
 import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monitor.js";
@@ -968,6 +969,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     return session ? readSessionWorkPhase(session).phase : "unknown" as const;
   };
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
+  let serviceStatusDiscord: ReturnType<typeof startServiceStatusDiscord> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
@@ -1133,6 +1135,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     backgroundTimers.clear();
     if (costTimer) { clearInterval(costTimer); costTimer = null; }
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+    void serviceStatusDiscord?.stop();
+    serviceStatusDiscord = null;
     if (prQueueTimer) { clearInterval(prQueueTimer); prQueueTimer = null; }
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
@@ -1166,6 +1170,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      await serviceStatusDiscord?.stop();
+      const serviceStatusChannel = guild.channels.cache.get(layout.serviceStatusChannelId ?? "");
+      if (serviceStatusChannel?.type === ChannelType.GuildText) {
+        serviceStatusDiscord = startServiceStatusDiscord({ db: deps.db, subsidiaryId: deps.subsidiary?.id ?? null,
+          config: configRepo, channel: serviceStatusChannel, warn: (message) => log.warn(message) });
+      }
       // 人間依頼チャンネルは本社・子会社とも自 guild に持つ。作れなくても Bot 起動は止めない。
       humanRequestDiscord?.stop();
       humanRequestDiscord = await startHumanRequestDiscord({ guild, config: configRepo, parentId: layout.statusCategoryId,

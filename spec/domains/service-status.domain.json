@@ -1,0 +1,17 @@
+{
+  "name": "service-status",
+  "description": "子会社の拠点・サービス認可と、Excubitorの監視キャッシュから作る稼働状況の安全なチャット投影。協調coreを支援する境界。",
+  "membership": [
+    { "pathPattern": "(^|/)src/service-status/" },
+    { "pathPattern": "(^|/)src/api/service-status(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/service-status(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/subsidiaries/ServiceStatusField(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/pages/subsidiaries/SubsidiariesSection(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/api\\.ts$" },
+    { "pathPattern": "(^|/)src/api/register-core\\.ts$" }
+  ],
+  "specRefs": ["spec/feature/service-status-channel.md", "spec/ux/product.md#UX-CC-W1", "spec/ux/product.md#UX-CC-W4", "spec/ux/product.md#UX-CC-W5"],
+  "presetRules": [],
+  "templateRules": [],
+  "mechanics": ["visibility-policy", "cached-observation", "owned-discord-projection"]
+}

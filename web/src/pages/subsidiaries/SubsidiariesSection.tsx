@@ -16,6 +16,7 @@ import {
 } from "../../api.js";
 import { SubsidiaryProjectSpawnForm } from "../../components/SubsidiaryProjectSpawnForm.js";
 import { SubsidiaryProjectsField } from "./SubsidiaryProjectsField.js";
+import { ServiceStatusField } from "./ServiceStatusField.js";
 import { runMutation } from "../../lib/mutation.js";
 
 // ─── 子会社管理 ──────────────────────────────────────────────────────
@@ -343,6 +344,7 @@ export function SubsidiariesSection() {
           子会社と同じ仕組みが効く。 違いは <b>出張先 guild へ Bot を接続しない</b>ことだけ (guild_id は不要)。
           反映には本社 Bot の再起動が要る。
         </p>
+        {editId && form.mode === "subsidiary" && <ServiceStatusField key={editId} subsidiaryId={editId} />}
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={!!form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
           {form.mode === "desk" ? "有効化 (本社 Bot が受付を開く)" : "有効化 (boot 時に Bot を起動)"}

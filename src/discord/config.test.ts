@@ -94,6 +94,8 @@ describe("ensureDiscordLayout", () => {
     expect(names).not.toContain("archive");
     expect(channels.get(snap.costChannelId)?.parentId).toBeNull();
     expect(channels.get(snap.activityChannelId)?.parentId).toBe(snap.statusCategoryId);
+    expect(channels.get(snap.serviceStatusChannelId!)?.name).toBe("サービス稼働");
+    expect(channels.get(snap.serviceStatusChannelId!)?.parentId).toBe(snap.statusCategoryId);
   });
 
   it("Session フォーラムを既定部署の名前に揃え、 既定部署が無くなれば Session に戻す", async () => {
@@ -161,6 +163,7 @@ describe("ensureDiscordLayout", () => {
     expect(names).not.toContain("雑談");
     // セッション系 (コスト / monitor) は子会社でも作る。
     expect(names).toContain("concordia-monitor");
+    expect(names).toContain("サービス稼働");
     expect(names).toContain("Session");
     expect(names).toContain("Test");
     expect(names).toContain("TaskWorkflow");

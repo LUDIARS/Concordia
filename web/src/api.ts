@@ -1293,6 +1293,9 @@ export const api = {
 
   // ── 子会社 Delegation ──
   subsidiariesList: () => get<{ subsidiaries: SubsidiarySummary[] }>("/v1/subsidiaries"),
+  serviceStatusSettings: (id: string) => get<{ selection: ServiceStatusSelection }>(`/v1/service-status/subsidiaries/${encodeURIComponent(id)}/settings`),
+  serviceStatusCandidates: (id: string, sites: string[]) => get<ServiceStatusCandidates>(`/v1/service-status/subsidiaries/${encodeURIComponent(id)}/candidates?${new URLSearchParams([["selection", "explicit"], ...sites.map((site) => ["site", site])])}`),
+  serviceStatusSave: (id: string, selection: ServiceStatusSelection) => put<{ selection: ServiceStatusSelection }>(`/v1/service-status/subsidiaries/${encodeURIComponent(id)}/settings`, selection),
   subsidiaryGet: (id: string) =>
     get<{ subsidiary: SubsidiarySummary; delegations: SubsidiaryDelegation[]; locks: SubsidiaryLock[]; requests: SubsidiaryRequest[]; teams: Team[] }>(
       `/v1/subsidiaries/${encodeURIComponent(id)}`,
@@ -1849,6 +1852,11 @@ export interface SubsidiaryRequest {
 /** subsidiary = 別サーバへ出張 (専用 Bot) / desk = 本社サーバ内の軽量窓口 (Bot 無し)。 */
 export type SubsidiaryMode = "subsidiary" | "desk";
 
+export interface ServiceStatusSelection { sites: string[]; services: string[] }
+export interface ServiceStatusCandidates {
+  sites: Array<{ id: string; name: string }>;
+  services: Array<{ key: string; siteId: string; siteName: string; code: string; name: string }>;
+}
 export interface SubsidiarySummary {
   id: string;
   name: string;

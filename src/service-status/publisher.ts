@@ -6,7 +6,7 @@ import { renderChanges, statusPages } from "./render.js";
 
 export interface StatusChannelPort {
   send(content: string, nonce: string): Promise<string>;
-  edit(id: string, content: string): Promise<void>;
+  edit(id: string, content: string): Promise<void | boolean>;
   remove(id: string): Promise<void>;
   findNonce(nonce: string): Promise<string | null>;
 }
@@ -88,7 +88,10 @@ export class StatusPublisher {
       for (let index = 0; index < pages.length; index++) {
         if (stopped()) return;
         const id = ledger.pages[index];
-        if (id) await this.channel.edit(id, pages[index]!);
+        if (id) {
+          const present = await this.channel.edit(id, pages[index]!);
+          if (present === false) await this.send(ledger, pages[index]!, "page", index);
+        }
         else await this.send(ledger, pages[index]!, "page", index);
       }
       for (const id of ledger.pages.slice(pages.length)) { if (stopped()) return; await this.channel.remove(id); }

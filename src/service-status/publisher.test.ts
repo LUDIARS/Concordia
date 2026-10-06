@@ -18,6 +18,15 @@ function projection(state: "up" | "down" = "up"): StatusProjection {
   return { sites: [{ id: "self", name: "HQ", self: true, connected: true, stale: false }], services: [service], running: state === "up" ? [service] : [] };
 }
 describe("status channel delivery ownership", () => {
+  it("recreates a summary after Discord confirms its deletion, preserving the transition baseline", async () => {
+    const f = fixture(); const publisher = new StatusPublisher(f.config, f.port);
+    await publisher.refresh(projection(), "hq");
+    f.posts.clear(); f.port.edit = vi.fn().mockResolvedValue(false);
+    await publisher.refresh(projection(), "hq");
+    expect(f.posts.size).toBe(1);
+    expect(f.port.send).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(f.store.get("service_status_ledger")!).history).toEqual([]);
+  });
   it("updates pages and persists the baseline through restart without duplicate transitions", async () => {
     const f = fixture(); const publisher = new StatusPublisher(f.config, f.port);
     await publisher.refresh(projection(), "hq"); await publisher.refresh(projection("down"), "hq");

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ChannelType } from "discord.js";
+import { ChannelType, Collection } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
 import {
   onSessionRegistered,
@@ -10,6 +10,7 @@ import {
   reconcileOrphanedSessionChannels,
   reconcileLostSessionChannels,
   updateSessionSurfaceMetadata,
+  pruneStatusCategoryChannels,
 } from "./session-channel.js";
 
 // onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
@@ -20,6 +21,23 @@ import {
 const SESSION_ID = "sess-eager-1";
 const CHANNEL_ID = "chan-eager-1";
 const WEBHOOK_ID = "123456789012345679"; // WebhookClient は snowflake を要求するので数値 id
+
+describe("service-status channel survives status-category cleanup", () => {
+  it("preserves the managed status channel while deleting a real orphan and leaving other categories alone", async () => {
+    const managed = { id: "service-status", parentId: "status", name: "サービス稼働", delete: vi.fn() };
+    const orphan = { id: "orphan", parentId: "status", name: "obsolete", delete: vi.fn() };
+    const outside = { id: "outside", parentId: "sessions", name: "session", delete: vi.fn() };
+    const cache = new Collection([managed, orphan, outside].map((channel) => [channel.id, channel] as const));
+    const deps = { guild: { channels: { fetch: vi.fn().mockResolvedValue(cache), cache } },
+      layout: { statusCategoryId: "status", serviceStatusChannelId: managed.id },
+      repo: { listAll: () => [] }, configRepo: { all: () => ({}) }, log: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Parameters<typeof pruneStatusCategoryChannels>[0];
+    expect(await pruneStatusCategoryChannels(deps)).toEqual({ scanned: 2, deleted: 1 });
+    expect(managed.delete).not.toHaveBeenCalled();
+    expect(outside.delete).not.toHaveBeenCalled();
+    expect(orphan.delete).toHaveBeenCalledOnce();
+  });
+});
 
 function makeMocks() {
   // in-memory な session-channels repo (upsert ↔ setWebhook ↔ findBySessionId を共有)

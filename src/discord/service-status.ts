@@ -10,7 +10,13 @@ import { StatusPublisher, type StatusChannelPort } from "../service-status/publi
 export function statusChannelPort(channel: TextChannel): StatusChannelPort {
   return {
     async send(content, nonce) { return (await channel.send({ content, nonce, enforceNonce: true, allowedMentions: { parse: [] } })).id; },
-    async edit(id, content) { await channel.messages.edit(id, { content, allowedMentions: { parse: [] } }); },
+    async edit(id, content) {
+      try { await channel.messages.edit(id, { content, allowedMentions: { parse: [] } }); }
+      catch (error) {
+        if (error instanceof DiscordAPIError && error.code === 10008) return false; // Discord confirmed this message is gone.
+        throw error;
+      }
+    },
     async remove(id) {
       try { await channel.messages.delete(id); }
       catch (error) { if (!(error instanceof DiscordAPIError) || error.code !== 10008) throw error; /* already deleted */ }

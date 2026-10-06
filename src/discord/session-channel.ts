@@ -564,6 +564,8 @@ export async function pruneStatusCategoryChannels(
   knownChannelIds.add(deps.layout.activityChannelId);
   knownChannelIds.add(deps.layout.monitorChannelId);
   knownChannelIds.add(deps.layout.prQueueChannelId);
+  // @implements spec/feature/service-status-channel.md CC-SS-08
+  if (deps.layout.serviceStatusChannelId) knownChannelIds.add(deps.layout.serviceStatusChannelId);
   // status-card channel は configRepo に保存されている (session_status_channel_id:*).
   for (const [key, value] of Object.entries(deps.configRepo.all())) {
     if (!key.startsWith(STATUS_CARD_CHANNEL_KEY_PREFIX)) continue;

@@ -40,11 +40,13 @@ describe("status channel delivery ownership", () => {
     expect([...f.posts.values()][0]!.content).toContain("Concordia");
     expect(JSON.parse(f.store.get("service_status_ledger")!).history).toEqual([]);
   });
-  it("removes legacy history and pages before publishing a revoked scope", async () => {
+  it("overwrites the owned page in place on a revoked scope, without a new post (2026-10-06)", async () => {
     const f = fixture(); const publisher = new StatusPublisher(f.config, f.port);
     await publisher.refresh(projection(), "all"); seedHistory(f, ["90", "91"]);
     await publisher.refresh({ sites: [], services: [], running: [] }, "none");
-    expect(f.port.remove).toHaveBeenCalledTimes(3);
+    expect(f.port.remove).toHaveBeenCalledTimes(2);
+    expect(f.port.send).toHaveBeenCalledTimes(1);
+    expect(f.posts.size).toBe(1);
     expect([...f.posts.values()].every((post) => !post.content.includes("Concordia"))).toBe(true);
   });
   it("purges all old history even during an observation outage", async () => {

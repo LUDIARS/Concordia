@@ -1,5 +1,5 @@
 import type { TextChannel } from "discord.js";
-import { DiscordAPIError } from "discord.js";
+import { DiscordAPIError, MessageFlags } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { serviceStatusClient } from "../service-status/client.js";
@@ -9,7 +9,7 @@ import { StatusPublisher, type StatusChannelPort } from "../service-status/publi
 
 export function statusChannelPort(channel: TextChannel): StatusChannelPort {
   return {
-    async send(content, nonce) { return (await channel.send({ content, nonce, enforceNonce: true, allowedMentions: { parse: [] } })).id; },
+    async send(content, nonce) { return (await channel.send({ content, nonce, enforceNonce: true, allowedMentions: { parse: [] }, flags: MessageFlags.SuppressNotifications })).id; },
     async edit(id, content) {
       try { await channel.messages.edit(id, { content, allowedMentions: { parse: [] } }); }
       catch (error) {

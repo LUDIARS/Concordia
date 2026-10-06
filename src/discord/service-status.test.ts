@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TextChannel } from "discord.js";
+import { MessageFlags, type TextChannel } from "discord.js";
 import { startServiceStatusDiscord, statusChannelPort } from "./service-status.js";
 import type { StatusSnapshot } from "../service-status/policy.js";
 afterEach(() => { vi.useRealTimers(); });
@@ -8,7 +8,7 @@ describe("status Discord adapter", () => {
     const send = vi.fn().mockResolvedValue({ id: "message" });
     const port = statusChannelPort({ send } as unknown as TextChannel);
     expect(await port.send("status", "nonce")).toBe("message");
-    expect(send).toHaveBeenCalledWith({ content: "status", nonce: "nonce", enforceNonce: true, allowedMentions: { parse: [] } });
+    expect(send).toHaveBeenCalledWith({ content: "status", nonce: "nonce", enforceNonce: true, allowedMentions: { parse: [] }, flags: MessageFlags.SuppressNotifications });
   });
   it("stopping during the Ex read cancels future timer work and prevents publication", async () => {
     vi.useFakeTimers(); let resolve!: (snapshot: StatusSnapshot) => void;

@@ -84,9 +84,8 @@ export class StatusPublisher {
       }
       ledger.previous = null; this.save(ledger);
       if (scope !== ledger.scope) {
-        // Revoke every owned old post before publishing a new scope; failures block disclosure.
-        for (const id of [...ledger.pages, ...ledger.history]) { if (stopped()) return; await this.channel.remove(id); }
-        ledger.pages = []; ledger.history = []; ledger.previous = null; ledger.scope = scope; this.save(ledger);
+        // A new scope overwrites the owned pages in place (edits never notify); surplus pages are removed below.
+        ledger.history = []; ledger.previous = null; ledger.scope = scope; this.save(ledger);
       }
       const pages = statusPages(projection);
       for (let index = 0; index < pages.length; index++) {

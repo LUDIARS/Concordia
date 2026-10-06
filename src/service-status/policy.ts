@@ -17,7 +17,8 @@ export interface StatusProjection { sites: StatusSite[]; services: StatusService
 export const emptySelection = (): StatusSelection => ({ sites: [], services: [] });
 export const statusServiceKey = (siteId: string, code: string): string => `${encodeURIComponent(siteId)}/${encodeURIComponent(code)}`;
 
-/** Projection happens before names, counts or transitions are computed. */
+/** @implements spec/feature/service-status-channel.md CC-SS-02 CC-SS-03 CC-SS-04
+ * Projection happens before names, counts or transitions are computed. */
 export function projectStatus(
   snapshot: StatusSnapshot,
   selection: StatusSelection | null,
@@ -39,6 +40,7 @@ export function projectStatus(
   return { sites, services, running: services.filter((service) => service.state === "up") };
 }
 
+/** @implements spec/feature/service-status-channel.md CC-SS-02 CC-SS-03 */
 export function statusCandidates(
   snapshot: StatusSnapshot,
   siteIds: readonly string[],
@@ -64,6 +66,7 @@ export interface StatusChange {
   before: StatusService["state"];
   after: StatusService["state"];
 }
+/** @implements spec/feature/service-status-channel.md CC-SS-05 */
 export function statusChanges(previous: readonly StatusService[] | null, next: readonly StatusService[]): StatusChange[] {
   if (previous === null) return [];
   const old = new Map(previous.map((service) => [statusServiceKey(service.siteId, service.code), service]));

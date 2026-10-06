@@ -42,3 +42,9 @@ revertだけではDiscord投稿を撤去しない。復旧時には当該チャ�
 静的型チェック: backend と frontend、および追加backendテストの対象限定チェックを実施。全backendテストの型チェックには変更範囲外の既存4箇所のエラーがある（startup-policy-check、consult-fetch-link、safety-runtime、usage-budget-spawn）。
 単体・統合・回帰テスト実行、実機Discord評価、サービス起動・再起動は未実施。UX文書はdraftであり、人間承認や実機評価済みとは扱わない。
 受入登録は `cc.acceptance.json` の CC-SS-01〜06。責務の変更境界はservice-status、Discord transport、内部管理API、子会社設定画面。DDD方針の全コード移行や自動強制は本変更に含まない。
+
+### マージ後の登録補修
+
+PR #2471 は e010037bff6c でmainへマージ済み。Revisorでは既存境界のテストが通過したが、service-statusは登録0件であり本機能の実行確認とは扱わない。
+補修で追加8ファイルを `.augur/tests.jsonl` に宣言済みbusiness/program domainで登録し、台帳lintは valid=true。作成者はsessionと記録し、UX-CC-W1/W4/W5を関連付ける。Anatomia未解決のanchorは推測登録しない。責務への仕様リンクをpolicy/renderの関数にも記載する。
+補修の境界はtoolingの共有台帳とservice-statusの仕様注釈。ロジック変更はない。復旧は補修PRのrevert。セッション自身のテスト実行・ビルド配備・再起動、実機UX評価は未実施。

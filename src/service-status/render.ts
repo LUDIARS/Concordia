@@ -3,6 +3,7 @@ const safe = (name: string): string => name
   .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069`*_~|<>@\[\]()\\]/g, " ")
   .slice(0, 180);
 const labels: Record<string, string> = { up: "稼働", down: "停止/異常", unknown: "未確認", unmonitored: "監視なし" };
+/** @implements spec/feature/service-status-channel.md CC-SS-03 CC-SS-04 */
 export function statusPages(projection: StatusProjection | null): string[] {
   const lines = ["## サービス稼働"];
   if (!projection) lines.push("監視情報を取得できません。以前の稼働状態は未確認です。");
@@ -24,6 +25,7 @@ export function statusPages(projection: StatusProjection | null): string[] {
   if (page) pages.push(page);
   return pages;
 }
+/** @implements spec/feature/service-status-channel.md CC-SS-05 CC-SS-06 */
 export function renderChanges(changes: readonly StatusChange[], projection: StatusProjection): string[] {
   return changes.map((change) => {
     const site = projection.sites.find((entry) => entry.id === change.siteId);

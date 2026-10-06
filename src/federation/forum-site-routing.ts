@@ -43,6 +43,32 @@ export function siteNameTagsOf(sites: readonly FederationSiteRow[]): string[] {
 }
 
 /**
+ * 依頼文で拠点を名指しした起動 (2026-10-06 neco 指示「GROMAC で xxxx やる、みたいな形で委託もできるように」)。
+ * 誤った振り分けを避けるため、形は 2 つに限る: 題名か本文の先頭が「<拠点>で」、または `@<拠点>`。
+ * 拠点は有効な拠点の表示名か site_id と大文字小文字を区別せずに照らす。 名指しが 2 つ以上なら本社へ退避して warn する。
+ */
+export function resolveSiteFromText(
+  sites: readonly FederationSiteRow[], title: string, body: string,
+): ForumSiteRouteResolution {
+  const active = sites.filter((site) => site.status === "active");
+  const named = new Set<string>();
+  for (const site of active) {
+    const names = [...new Set([site.name?.trim(), site.site_id].filter((name): name is string => Boolean(name)))];
+    if (names.some((name) => namesSite(name, title, body))) named.add(site.site_id);
+  }
+  if (named.size === 0) return { route: null, warnings: [] };
+  if (named.size > 1) return { route: { kind: "hq" }, warnings: [`依頼文で複数の拠点が名指しされています: ${[...named].join(", ")}`] };
+  return { route: { kind: "site", siteId: [...named][0]! }, warnings: [] };
+}
+
+function namesSite(name: string, title: string, body: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const leading = new RegExp(`^\\s*(?:\\[[^\\]]*\\]\\s*)*${escaped}\\s*で`, "i");
+  const mention = new RegExp(`(^|\\s)@${escaped}(?![\\w-])`, "i");
+  return leading.test(title) || leading.test(body) || mention.test(title) || mention.test(body);
+}
+
+/**
  * Villa 不在時の解決。拠点名タグが 1 個だけ付いていればその拠点、複数なら本社へ退避する。
  * 同名の有効拠点が複数あるときも曖昧として本社へ退避する。
  */

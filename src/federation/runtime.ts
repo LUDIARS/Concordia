@@ -33,7 +33,7 @@ import { createFederationConfigSnapshot } from "./config-snapshot.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
 import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
-import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, siteNameTagsOf } from "./forum-site-routing.js";
+import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf } from "./forum-site-routing.js";
 import { buildRemoteSpawnPayload } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 import type { DepartmentRoute } from "./department-routing.js";
@@ -211,6 +211,16 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     const resolution = villaPcs.length > 0
       ? resolveSiteFromForumTags(sites.list(), villaPcs, appliedTagNames)
       : resolveSiteFromSiteNameTags(sites.list(), appliedTagNames);
+    for (const warning of resolution.warnings) {
+      log.warn(warning);
+      reportIngressWarningOnce(channelId, warning);
+    }
+    return resolution.route;
+  }
+
+  /** 依頼文で名指しされた拠点。 曖昧なら本社へ退避して warn する。 */
+  function resolveTextRoute(channelId: string, title: string, body: string): DepartmentRoute | null {
+    const resolution = resolveSiteFromText(sites.list(), title, body);
     for (const warning of resolution.warnings) {
       log.warn(warning);
       reportIngressWarningOnce(channelId, warning);
@@ -451,7 +461,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       return true;
     },
     routeForumSpawn(input) {
-      const route = resolveForumRoute(input.channelId, input.appliedTagNames);
+      // 拠点タグが無ければ、 依頼文の名指し (「<拠点>で ...」 / `@<拠点>`) で決める。 タグを優先する。
+      const route = resolveForumRoute(input.channelId, input.appliedTagNames) ?? resolveTextRoute(input.channelId, input.title, input.body);
       if (route?.kind !== "site" || !listener) return null;
       hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now() });
       listener.enqueue(route.siteId, buildRemoteSpawnPayload({ ...input, ts: Math.floor(Date.now() / 1000) }));

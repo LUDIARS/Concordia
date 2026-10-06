@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, siteNameTagsOf } from "./forum-site-routing.js";
+import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf } from "./forum-site-routing.js";
 import type { FederationSiteRow } from "../db/federation-sites-repo.js";
 
 const pcs = [{ id: "pc-a", name: "HASTER" }, { id: "pc-b", name: "YIDHRA" }];
@@ -49,5 +49,30 @@ describe("forum site routing without Villa (site name tags)", () => {
   });
   it("does not route to a revoked site", () => {
     expect(resolveSiteFromSiteNameTags([named("a", "HASTER", "revoked")], ["HASTER"]).route).toBeNull();
+  });
+});
+
+describe("forum site routing by naming the site in the request (2026-10-06)", () => {
+  const named = (siteId: string, name: string | null, status: "active" | "revoked" = "active"): FederationSiteRow =>
+    ({ ...site(siteId, null, status), name });
+  const sites = [named("gromac", "GROMAC"), named("haster", "HASTER")];
+
+  it("routes a request that starts with '<site>で' (after project code brackets) or mentions @<site>", () => {
+    expect(resolveSiteFromText(sites, "GROMACで ベンチマークを回す", "").route).toEqual({ kind: "site", siteId: "gromac" });
+    expect(resolveSiteFromText(sites, "[Cc] gromac で検証", "").route).toEqual({ kind: "site", siteId: "gromac" });
+    expect(resolveSiteFromText(sites, "検証", "HASTERで動かしてほしい").route).toEqual({ kind: "site", siteId: "haster" });
+    expect(resolveSiteFromText(sites, "検証", "手元では無理なので @haster でお願い").route).toEqual({ kind: "site", siteId: "haster" });
+  });
+
+  it("does not route on a passing mention, a revoked site, or a longer word", () => {
+    expect(resolveSiteFromText(sites, "検証", "前に GROMAC で動いた件の続き").route).toBeNull();
+    expect(resolveSiteFromText([named("gromac", "GROMAC", "revoked")], "GROMACで検証", "").route).toBeNull();
+    expect(resolveSiteFromText(sites, "検証", "@gromacx でお願い").route).toBeNull();
+  });
+
+  it("falls back to HQ with a warning when two sites are named", () => {
+    const result = resolveSiteFromText(sites, "GROMACで検証", "@haster も見て");
+    expect(result.route).toEqual({ kind: "hq" });
+    expect(result.warnings).not.toEqual([]);
   });
 });

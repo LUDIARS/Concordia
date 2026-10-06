@@ -119,16 +119,43 @@ export async function revokePrivateViewer(channel: TextChannel, userId: string, 
   await channel.permissionOverwrites.delete(userId, reason);
 }
 
-/** 終了時: 閲覧は残し、 Bot 以外の書き込みを止める。 */
-export async function lockPrivateChannel(channel: TextChannel): Promise<void> {
+/** 閲覧者 1 人分の書き込み停止の上限。 超えたらその人を飛ばして次へ進む (速度制限の待ちで全体が止まらないように)。 */
+export const LOCK_MEMBER_TIMEOUT_MS = 10_000;
+
+/**
+ * 終了時: 閲覧は残し、 Bot 以外の書き込みを止める。
+ *
+ * 閲覧者ごとに上限付きで行い、 結果と所要時間を記録する。 1 人が止まっても残りは続け、 最後に失敗した人数を
+ * 例外で返す (2026-10-06、 相談者以外の閲覧者がいる相談チャンネルで書き込み停止が止まった件の調査)。
+ */
+export async function lockPrivateChannel(
+  channel: TextChannel,
+  options: { log?: { info(message: string): void; warn(message: string): void }; memberTimeoutMs?: number } = {},
+): Promise<void> {
   const botId = botUserId(channel.guild);
-  for (const overwrite of channel.permissionOverwrites.cache.values()) {
+  const timeoutMs = options.memberTimeoutMs ?? LOCK_MEMBER_TIMEOUT_MS;
+  const failed: string[] = [];
+  for (const overwrite of [...channel.permissionOverwrites.cache.values()]) {
     if (overwrite.type !== OverwriteType.Member || overwrite.id === botId) continue;
-    await channel.permissionOverwrites.edit(overwrite.id, { SendMessages: false, AttachFiles: false }, {
-      type: OverwriteType.Member,
-      reason: "private channel closed",
-    });
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        channel.permissionOverwrites.edit(overwrite.id, { SendMessages: false, AttachFiles: false }, {
+          type: OverwriteType.Member,
+          reason: "private channel closed",
+        }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs); }),
+      ]);
+      options.log?.info(`private channel lock ok channel=${channel.id} member=${overwrite.id} ms=${Date.now() - started}`);
+    } catch (error) {
+      failed.push(overwrite.id);
+      options.log?.warn(`private channel lock failed channel=${channel.id} member=${overwrite.id} ms=${Date.now() - started}: ${(error as Error).message}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
+  if (failed.length > 0) throw new Error(`private channel lock failed for ${failed.length} member(s)`);
 }
 
 async function alignCategoryName(category: CategoryChannel): Promise<void> {

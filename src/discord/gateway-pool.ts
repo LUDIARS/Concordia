@@ -4,6 +4,10 @@ import {
   Partials,
   type ClientOptions,
 } from "discord.js";
+import { createChildLogger } from "../shared/logger.js";
+import { watchRestRateLimits } from "./rest-rate-limit-log.js";
+
+const restLog = createChildLogger("discord-rest");
 
 /**
  * 1 つの bot token に対する物理 Discord Gateway 接続の lease。
@@ -52,6 +56,8 @@ export class DiscordGatewayPool {
       // logical runtime ごとに guild-scoped listener を持つため、子会社数は 10 を超え得る。
       // EventEmitter の既定警告を避けるだけで、listener は lease release 時に必ず外す。
       client.setMaxListeners(0);
+      // 速度制限で待たされたことを記録する (待ちは discord.js が黙って行うため)。
+      watchRestRateLimits(client, restLog);
       entry = { client, refs: 0, loginPromise: null };
       this.entries.set(token, entry);
     }

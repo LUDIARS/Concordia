@@ -314,7 +314,7 @@ async function closePrivateConsultChannel(
   const ch = await fetchSessionTextChannel(deps, row.channel_id);
   if (ch) {
     try {
-      await lockPrivateChannel(ch);
+      await lockPrivateChannel(ch, { log: deps.log });
       deps.log.info(`session-channel: locked private consultation ${row.channel_id} for ${status} ${row.session_id}`);
     } catch (e) {
       deps.log.warn(`session-channel: private consultation lock failed for ${row.session_id}: ${(e as Error).message}`);

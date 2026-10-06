@@ -158,6 +158,6 @@ async function finishRestoredChannel(
     allowedMentions: { parse: [] },
   }));
   const members = [...channel.permissionOverwrites.cache.values()].filter((overwrite) => overwrite.type === OverwriteType.Member).length;
-  await restoreStep(deps.log, `lock consultation=${id} member_overwrites=${members}`, () => lockPrivateChannel(channel));
+  await restoreStep(deps.log, `lock consultation=${id} member_overwrites=${members}`, () => lockPrivateChannel(channel, { log: deps.log }));
   deps.log.info(`private consultation channel restored consultation=${id} channel=${channel.id}`);
 }

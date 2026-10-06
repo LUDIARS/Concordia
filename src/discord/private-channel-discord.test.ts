@@ -99,4 +99,27 @@ describe("private channels", () => {
     expect(edit).toHaveBeenCalledTimes(1);
     expect(edit).toHaveBeenCalledWith("111", { SendMessages: false, AttachFiles: false }, expect.anything());
   });
+
+  it("locks each viewer with its own deadline, keeps going past a stuck one and reports it (2026-10-06)", async () => {
+    const edit = vi.fn(async (id: string) => {
+      if (id === "stuck") await new Promise(() => undefined);
+    });
+    const channel = {
+      id: "chan-1",
+      guild: { client: { user: { id: "bot-1" } } },
+      permissionOverwrites: {
+        edit,
+        cache: new Map([
+          ["stuck", { id: "stuck", type: OverwriteType.Member }],
+          ["222", { id: "222", type: OverwriteType.Member }],
+          ["bot-1", { id: "bot-1", type: OverwriteType.Member }],
+        ]),
+      },
+    } as unknown as TextChannel;
+    const log = { info: vi.fn(), warn: vi.fn() };
+    await expect(lockPrivateChannel(channel, { log, memberTimeoutMs: 10 })).rejects.toThrow("1 member(s)");
+    expect(edit).toHaveBeenCalledWith("222", { SendMessages: false, AttachFiles: false }, expect.anything());
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("member=stuck"));
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining("member=222"));
+  });
 });

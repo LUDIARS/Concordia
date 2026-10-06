@@ -13,6 +13,7 @@
 import type { SettingsStore } from "../admin/settings-store.js";
 import type { FederationEnv } from "./env.js";
 import { SITE_ID_PATTERN } from "./protocol.js";
+import { hqUrlTransportError } from "./transport-policy.js";
 
 export const FEDERATION_SITE_HQ_URL_KEY = "admin.federation.site.hq_url";
 export const FEDERATION_SITE_ID_KEY = "admin.federation.site.site_id";
@@ -203,6 +204,9 @@ export function updateFederationSite(
         return { ok: false, error: "hq_url must not contain credentials" };
       }
       if (url.hash) return { ok: false, error: "hq_url must not contain a fragment" };
+      // CC-FED-T3: 起動後に拠点クライアントが例外で黙って落ちないよう、保存時点で通信路を検証する。
+      const transportError = hqUrlTransportError(raw);
+      if (transportError) return { ok: false, error: transportError };
     } catch {
       return { ok: false, error: "hq_url must be a valid ws:// or wss:// URL" };
     }

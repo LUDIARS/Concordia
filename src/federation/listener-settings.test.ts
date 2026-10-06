@@ -35,6 +35,7 @@ const env = (overrides: Partial<FederationEnv> = {}): FederationEnv => ({
   siteToken: null,
   outboxMaxRows: 10,
   outboxTtlSec: 10,
+  allowAnyRemote: false,
   ...overrides,
 });
 
@@ -135,11 +136,20 @@ describe("拠点ロール設定", () => {
 
   it("トークンは暗号化して保存し、平文を返さない", () => {
     const db = store();
-    expect(updateFederationSite(db, cipher, { hq_url: "ws://hq:1", site_id: "yidhra", token: "t0ken" }).ok).toBe(true);
+    expect(updateFederationSite(db, cipher, { hq_url: "ws://100.100.1.1:1", site_id: "yidhra", token: "t0ken" }).ok).toBe(true);
     expect(db.get("admin.federation.site.token_enc")).toBe("enc(t0ken)");
     const resolved = resolveFederationSite(db, env(), cipher);
-    expect(resolved).toMatchObject({ hqUrl: "ws://hq:1", siteId: "yidhra", hasToken: true });
+    expect(resolved).toMatchObject({ hqUrl: "ws://100.100.1.1:1", siteId: "yidhra", hasToken: true });
     expect(resolved.token).toBe("t0ken");
+  });
+
+  // CC-FED-T3: 平文 ws は loopback / tailnet IP 宛てだけ保存できる。
+  it("平文 ws:// の宛先が loopback / tailnet IP でなければ保存しない", () => {
+    expect(updateFederationSite(store(), cipher, { hq_url: "ws://hq.example:11112" }).ok).toBe(false);
+    expect(updateFederationSite(store(), cipher, { hq_url: "ws://192.168.1.10:11112" }).ok).toBe(false);
+    expect(updateFederationSite(store(), cipher, { hq_url: "ws://100.122.174.105:11112" }).ok).toBe(true);
+    expect(updateFederationSite(store(), cipher, { hq_url: "ws://127.0.0.1:11112" }).ok).toBe(true);
+    expect(updateFederationSite(store(), cipher, { hq_url: "wss://hq.example" }).ok).toBe(true);
   });
 
   it("ws/wss 以外の hq_url を弾く", () => {

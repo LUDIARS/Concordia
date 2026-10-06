@@ -194,8 +194,10 @@ Phase 0 + Phase 1 は実装済み。実装仕様は
 - ~~連合リンクのイベントスキーマ~~ → 決定: 連合専用スキーマ + `v` (Phase 1 実装、
   `src/federation/protocol.ts`)。`ConcordiaEvent` はそのまま流さない。
 - 子会社側 DB (sessions/chat) と本社 DB の同期範囲 (全量ミラーか、担当担当サーバのみか)。
-- 連合面の公開方式 (既存 AccessControl の逆プロキシに相乗りするか、専用トンネルか)
-  と TLS 証明書の運用。
+- ~~連合面の公開方式 (既存 AccessControl の逆プロキシに相乗りするか、専用トンネルか)
+  と TLS 証明書の運用。~~ → 決定 (2026-10-06 neco): Tailscale の tailnet 上で平文 ws。
+  tailnet 外へ出す場合だけ TLS 前段の wss。拠点への設定投入は Excubitor 依頼
+  (`concordia-federation-site`) で行う ([../feature/federation-link.md](../feature/federation-link.md) CC-FED-T1..T3)。
 - 切断キューの具体的な上限値 (件数 / TTL) は Phase 1 で env 既定 (10000 件 / 7 日) を
   置いた。破棄が起きたときの担当サーバ (拠点) 側への表示は未決 (本社側は
   `reportError("federation", …)` でエラーチャンネルに出す)。

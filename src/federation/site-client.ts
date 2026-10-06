@@ -5,8 +5,8 @@
  * - event フレームは onEvent へ渡し、受領した seq を ack する (Phase 1 では
  *   payload の解釈はしない — 設定配布 / ルーティングは Phase 2+)。
  * - 切断時は指数バックオフ (1s → 2 倍 → 上限 60s、welcome 成功でリセット)。
- * - 拠点間はマシンを跨ぐため、loopback 以外への平文 ws:// は拒否する
- *   (TLS はトンネル / 逆プロキシで終端した wss:// を指す)。
+ * - 拠点間はマシンを跨ぐため、平文 ws:// は loopback と tailnet (WireGuard で暗号化) の IP 宛てだけ許す。
+ *   それ以外は TLS をトンネル / 逆プロキシで終端した wss:// を指す (transport-policy.ts)。
  */
 
 import { WebSocket } from "ws";
@@ -25,6 +25,7 @@ import {
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
 import type { FederationEgressResultFrame } from "./protocol.js";
+import { hqUrlTransportError } from "./transport-policy.js";
 
 const log = createChildLogger("federation/site");
 
@@ -64,18 +65,14 @@ export interface FederationSiteClientHandle {
   requestEgress(input: { requestId?: string; guildId: string; channelId: string; text: string }): Promise<FederationEgressResultFrame>;
 }
 
-/** loopback 以外への平文 ws:// を拒否する。戻り値は正規化済み接続 URL。 */
+/**
+ * 平文 ws:// は loopback か tailnet の IP 宛てだけ許す (CC-FED-T1、transport-policy.ts)。
+ * 戻り値は正規化済み接続 URL。
+ */
 export function resolveHqEndpoint(hqUrl: string): string {
+  const error = hqUrlTransportError(hqUrl);
+  if (error) throw new Error(`federation HQ URL rejected: ${error}`);
   const url = new URL(hqUrl);
-  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
-    throw new Error(`federation HQ URL must be ws(s)://, got ${url.protocol}`);
-  }
-  // URL.hostname は IPv6 を角括弧付き ("[::1]") で返すので剥がしてから比べる。
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const loopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
-  if (url.protocol === "ws:" && !loopback) {
-    throw new Error("plain ws:// to a non-loopback HQ is not allowed; use wss:// (TLS-terminating tunnel)");
-  }
   if (!url.pathname || url.pathname === "/") url.pathname = "/federation/ws";
   return url.toString();
 }

@@ -237,6 +237,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         outbox,
         connections,
         hqVersion: opts.version,
+        // CC-FED-T2 の逃げ道 (TLS 前段が tailnet 外から繋ぐ構成)。既定は listener 側の loopback / tailnet 制限。
+        ...(env.allowAnyRemote ? { isAllowedRemote: () => true } : {}),
         createConfigSnapshot: (siteId) => {
           const site = sites.find(siteId);
           return createFederationConfigSnapshot(

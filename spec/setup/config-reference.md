@@ -394,6 +394,7 @@ reaction workflow の ON/OFF にかかわらず platform 起点の spawn / deleg
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | 未設定 | `federation/env.ts:59` | 登録応答でだけ得られる平文トークン。 secret store にのみ置き、 Git / ログには残さない。 |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | `10000` | `federation/env.ts:60` | 本社側で保持する拠点別 outbox (本社→拠点イベント) の上限行数 (超過は最古から破棄)。 |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | `604800` (7 日) | `federation/env.ts:61` | 同 outbox エントリの TTL 秒 (超過は破棄)。 |
+| `CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE` | 未設定 (= 制限あり) | `federation/env.ts` | `1` で本社 listener の接続元制限 (loopback / tailnet のみ、CC-FED-T2) を外す。TLS 前段が tailnet 外から繋ぐ構成だけで使う。 |
 | `CONCORDIA_VILLA_URL` | `http://127.0.0.1:17610` | `config/service-urls.ts` (消費: `villa/client.ts`) | 拠点タグ名の正本となる Villa の base URL。 到達不能なら拠点タグ無しで degrade する (担当サーバルーティングは継続)。 |
 
 ---

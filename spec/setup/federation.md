@@ -70,6 +70,28 @@ The successful response includes a `token`. The plaintext token is shown **only 
 
 There is no token-reissue or delete endpoint, and a revoked registration keeps its row, so re-registering the same `site_id` returns `409 site_exists` even after a revoke. If a token is lost, revoke the old registration and register the site again under a **different** `site_id` (for example `osaka-dev-2`), then update the remote site's `CONCORDIA_FEDERATION_SITE_ID` along with its token.
 
+## 2a. Tailnet operation and provisioning through Excubitor (recommended)
+
+LUDIARS sites are connected over Tailscale. Plain `ws://` is accepted only when the HQ URL is a loopback or tailnet IP literal (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`; CC-FED-T1), and the HQ listener closes connections from any other source address before `hello` (CC-FED-T2). Bind the HQ listener to the HQ's tailnet address, for example:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:11111/v1/federation/listener \
+  -H 'content-type: application/json' \
+  -d '{"enabled":true,"host":"100.122.174.105","port":11112}'
+```
+
+The remote site's `PUT /v1/federation/site` stays loopback-only. To configure a site without logging in to it, run the provisioning script **from the HQ's Concordia checkout**. It registers the site at the HQ, carries the token to the site through the mutually registered Excubitor operation `concordia-federation-site` (the site's Excubitor writes it to its own loopback Concordia), waits for the operation, and prints the HQ's view of the connection:
+
+```bash
+node tools/federation-provision-site.mjs --peer <Excubitor peer id> --site-id melpot --name MELPOT
+# --hq-url ws://<tailnet ip>:11112 overrides the URL derived from the running listener; --dry-run only prints the plan
+```
+
+- The token is never printed, logged, or written to a file; Excubitor does not record it in the operation history either.
+- The site's Excubitor must already include the `concordia-federation-site` action (Excubitor #2499). An older Excubitor rejects the request with `400 invalid_body`; update it first.
+- The operation POST is not retried. If the request or the operation fails after the site was registered, revoke that `site_id` and run the script again with a new `site_id` (§2).
+- Peer ids come from `GET /api/v1/peers` on the HQ Excubitor.
+
 ## 3. Configure the remote site
 
 Prefer the remote site's loopback management API so the client is replaced immediately:
@@ -178,4 +200,5 @@ Defaults and the reading code path are canonical in [`config-reference.md` §10]
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | Remote site | Registration token; keep only in a secret store. |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | HQ | Optional maximum queued HQ-to-site events per site (oldest dropped first). |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | HQ | Optional retention period in seconds for queued HQ-to-site events. |
+| `CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE` | HQ | Set to `1` only when a TLS front end connects to the listener from a non-loopback, non-tailnet address; it disables the CC-FED-T2 source check. |
 | `CONCORDIA_VILLA_URL` | HQ | Optional Villa base URL used to resolve site tags (§4); defaults to `http://127.0.0.1:17610`. |

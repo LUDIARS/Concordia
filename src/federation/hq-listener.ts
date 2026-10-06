@@ -27,6 +27,7 @@ import {
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
 import type { FederationEgressRequestFrame, FederationFrameInput } from "./protocol.js";
+import { isAllowedFederationRemote } from "./transport-policy.js";
 
 const log = createChildLogger("federation/hq");
 
@@ -73,6 +74,11 @@ export interface FederationListenerDeps {
   createConfigSnapshot?: (siteId: string) => FederationConfigSnapshot;
   /** Discord 実体は bootstrap から注入する。federation は chat 層を知らない。 */
   handleEgressRequest?: (siteId: string, request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * 接続元を受け付けるか (CC-FED-T2)。既定は loopback / tailnet だけ (transport-policy.ts)。
+   * env CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1 のとき runtime が「全て許可」を渡す。
+   */
+  isAllowedRemote?: (remoteAddress: string | undefined) => boolean;
 }
 
 export interface FederationListenerHandle {
@@ -95,6 +101,7 @@ interface LiveSocket {
 
 export function startFederationListener(deps: FederationListenerDeps): Promise<FederationListenerHandle> {
   const nowSec = deps.nowSec ?? (() => Math.floor(Date.now() / 1000));
+  const isAllowedRemote = deps.isAllowedRemote ?? isAllowedFederationRemote;
   const sockets = new Map<string, LiveSocket>();
   const authFailures = new Map<string, { count: number; windowStartMs: number }>();
   /** hello 待ちの接続数 (MAX_PENDING_HANDSHAKES の分母)。 */
@@ -164,6 +171,12 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
 
   wss.on("connection", (ws, req) => {
     const remote = req.socket.remoteAddress ?? "unknown";
+    // CC-FED-T2: 平文 ws を許すのは tailnet (WireGuard) の内側だけなので、それ以外の接続元は hello 前に切る。
+    if (!isAllowedRemote(req.socket.remoteAddress)) {
+      log.warn({ remote }, "federation connection rejected: remote is not loopback or tailnet");
+      ws.close(1008, "remote not allowed");
+      return;
+    }
     if (isRateLimited(remote)) {
       log.warn({ remote }, "federation connection rejected: auth failure rate limit");
       ws.close(1008, "rate limited");

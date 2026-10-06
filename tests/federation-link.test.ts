@@ -277,4 +277,13 @@ describe("federation link", () => {
     expect(resolveHqEndpoint("ws://[::1]:4260")).toContain("/federation/ws");
     expect(resolveHqEndpoint("wss://hq.example.com/federation/ws")).toBe("wss://hq.example.com/federation/ws");
   });
+
+  // CC-FED-T1: tailnet (WireGuard で暗号化) の IP 宛ては平文 ws を許す。ホスト名と LAN は許さない。
+  it("allows plain ws:// only to a tailnet IP among non-loopback HQs", () => {
+    expect(resolveHqEndpoint("ws://100.122.174.105:11112")).toBe("ws://100.122.174.105:11112/federation/ws");
+    expect(resolveHqEndpoint("ws://[fd7a:115c:a1e0::1]:11112")).toContain("/federation/ws");
+    expect(() => resolveHqEndpoint("ws://100.128.0.1:11112")).toThrow(/wss/);
+    expect(() => resolveHqEndpoint("ws://192.168.1.10:11112")).toThrow(/wss/);
+    expect(() => resolveHqEndpoint("ws://hq.tail1234.ts.net:11112")).toThrow(/wss/);
+  });
 });

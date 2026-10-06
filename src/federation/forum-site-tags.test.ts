@@ -26,6 +26,7 @@ const env: FederationEnv = {
   siteToken: null,
   outboxMaxRows: 100,
   outboxTtlSec: 3600,
+  allowAnyRemote: false,
 };
 
 function villaClientReturning(pcs: unknown): VillaClient {

@@ -51,8 +51,19 @@ updated: 2026-07-31
   登録してから運用する。
 - HTTP リクエストは全て 404 — 連合面で受け付ける操作は protocol.ts のフレームのみで、
   `/v1` への透過転送経路は存在しない。
-- TLS は前段のトンネル / 逆プロキシで終端する。拠点クライアントは loopback 以外への
-  平文 `ws://` を拒否する (`resolveHqEndpoint`)。
+- 拠点間の通信路は Tailscale (WireGuard で暗号化された tailnet) を正とする (2026-10-06 neco 判断)。
+  tailnet 外へ出す場合は TLS を前段のトンネル / 逆プロキシで終端した `wss://` にする。
+  判定は `src/federation/transport-policy.ts` (純関数) に集約する。
+  - **CC-FED-T1**: 拠点クライアントは平文 `ws://` を loopback / tailnet の IP リテラル
+    (100.64.0.0/10、fd7a:115c:a1e0::/48) 宛てだけ許す (`resolveHqEndpoint`)。ホスト名 (MagicDNS を含む) は
+    解決先を検証できないので平文では許さない。
+  - **CC-FED-T2**: 本社 listener は loopback / tailnet 以外からの接続を hello 前に close 1008 で切る。
+    TLS 前段が tailnet 外のアドレスから繋ぐ構成だけ、env `CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1` で外せる。
+  - **CC-FED-T3**: `PUT /v1/federation/site` は T1 に反する `hq_url` を保存時点で 400 にする
+    (起動後に拠点クライアントが例外で黙って止まらない)。
+- 拠点 Concordia の拠点設定 (`PUT /v1/federation/site`) は loopback 限定のままにする。拠点の外から設定を入れるのは
+  相互登録済みの Excubitor 依頼 `concordia-federation-site` だけで、本社側の手順は
+  `tools/federation-provision-site.mjs` ([../setup/federation.md](../setup/federation.md))。token は依頼の記録に残さない。
 
 ## プロトコル (v1)
 

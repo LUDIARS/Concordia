@@ -5,8 +5,8 @@
  * - 連合 listener は /v1 HTTP サーバとは別ポート・別 origin。既定 OFF。
  * - port は明示必須 (暗黙の既定 port で外部面を立てない。port の正本は
  *   Excubitor catalog — 運用登録してから有効化する)。
- * - TLS は前段のトンネル / 逆プロキシで終端する前提。拠点クライアント側は
- *   loopback 以外への平文 ws:// を拒否する (site-client.ts)。
+ * - 拠点間は tailnet (WireGuard) を正とし、平文 ws:// は loopback / tailnet IP 宛てだけ許す
+ *   (transport-policy.ts)。本社 listener も既定で loopback / tailnet 以外の接続元を切る。
  */
 
 export interface FederationEnv {
@@ -23,6 +23,12 @@ export interface FederationEnv {
   outboxMaxRows: number;
   /** outbox エントリの TTL 秒 (超過は破棄)。 */
   outboxTtlSec: number;
+  /**
+   * 本社 listener の接続元制限 (loopback / tailnet のみ、CC-FED-T2) を外す
+   * (CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1)。TLS 前段 (逆プロキシ) が非 loopback・非 tailnet の
+   * アドレスから繋いでくる構成のための逃げ道。
+   */
+  allowAnyRemote: boolean;
 }
 
 const DEFAULT_OUTBOX_MAX_ROWS = 10_000;
@@ -59,5 +65,6 @@ export function readFederationEnv(
     siteToken: env.CONCORDIA_FEDERATION_SITE_TOKEN?.trim() || null,
     outboxMaxRows: readPositiveInt(env.CONCORDIA_FEDERATION_OUTBOX_MAX, DEFAULT_OUTBOX_MAX_ROWS),
     outboxTtlSec: readPositiveInt(env.CONCORDIA_FEDERATION_OUTBOX_TTL_SEC, DEFAULT_OUTBOX_TTL_SEC),
+    allowAnyRemote: env.CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE === "1",
   };
 }

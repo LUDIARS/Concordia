@@ -122,6 +122,17 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   操作面経由の `session_id` の両方を `DELETE /v1/sessions/:id` で終わらせる。
   既に終了済みなら no-op として扱う。
 
+## 閉じたスレッドの一括削除
+
+2026-10-06 neco 指示。子会社 GLab の関連プロジェクトに Concordia を足した直後の同期で、過去の PR のスレッドが 167 件
+作られてその場で閉じられた。閉じたスレッドは案内として役に立たないので、運用者の依頼で消せるようにする。
+
+- `POST /v1/discord/test-forum/purge-closed` `{ "subsidiary_id": string | null }` (`src/api/test-forum-admin.ts`) が
+  `discord.test_forum.purge_closed_requested` を出し、その会社 (本社 = null) の Bot だけが処理する。受付だけ返す (202)。
+- Bot はその会社の範囲 (scope) の閉じたスレッド (`listClosed`) を 1 件ずつ削除する (`src/discord/test-forum-purge.ts`)。
+  開いているスレッドには触らない。既に無いスレッドは「見つからない」として数え、失敗はスレッドごとに warn する。
+- 記録 (`discord_test_surfaces`) は書き換えない。何度実行しても同じ結果になる。
+
 ## Runtime boundary
 
 Revisor Test Workflowの読取クライアントはDiscord表示処理から分離する。

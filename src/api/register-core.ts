@@ -150,6 +150,7 @@ import { isProjectlessConsultDepartment } from "../consultation/projectless-cons
 import type { DepartmentRow } from "../db/departments-repo.js";
 import type { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { privateChannelsRouter } from "./private-channels.js";
+import { testForumAdminRouter } from "./test-forum-admin.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import type { ModelRoleRepo } from "../db/model-role-repo.js";
@@ -843,6 +844,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.personalBudget) {
     app.route("/v1/personal-budget", personalBudgetRouter(deps.personalBudget));
   }
+  // Test フォーラムの閉じたスレッドの一括削除 (削除は会社ごとの Bot がイベントで行う)。
+  app.route("/v1/discord/test-forum", testForumAdminRouter({ emit: (event) => eventBus.emit(event) }));
   if (deps.privateChannels) {
     const privateChannels = deps.privateChannels;
     app.route("/v1/discord/private-channels", privateChannelsRouter({

@@ -152,6 +152,8 @@ type ConcordiaEventPayload =
   | { type: "usage_budget.resumable"; event_id: string; session_id: string; text: string; ts: number }
   /** 報告用プライベートチャンネルの作成依頼 (spec/feature/private-channels.md §2)。 本社 Bot が作る。 */
   | { type: "discord.private_channel.requested"; event_id: string; private_channel_id: string; ts: number }
+  /** Test フォーラムの閉じたスレッドの一括削除 (revisor-test-forum-sync.md)。 その会社 (本社 = null) の Bot だけが処理する。 */
+  | { type: "discord.test_forum.purge_closed_requested"; event_id: string; subsidiary_id: string | null; ts: number }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
   /**
    * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、

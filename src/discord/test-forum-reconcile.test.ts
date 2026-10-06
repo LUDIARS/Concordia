@@ -88,6 +88,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
   const surfaces: DiscordTestSurfacesRepo = {
     hasRecordedPr: vi.fn((origin, number) => rows.some((row) => row.repo_origin === origin && row.pr_number === number)),
     listOpen: vi.fn(() => rows.filter((row) => row.status === "open")),
+    listClosed: vi.fn(() => rows.filter((row) => row.status === "closed")),
     create: vi.fn((input) => {
       const row = surface({
         id: rows.length + 10,

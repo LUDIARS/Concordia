@@ -36,6 +36,8 @@ export interface DiscordTestSurfacesRepo {
   /** Includes archived surfaces so fast terminal reviews are backfilled only once. */
   hasRecordedPr?(repoOrigin: string, prNumber: number): boolean;
   listOpen(): DiscordTestSurfaceRow[];
+  /** 閉じたスレッド (一括削除の対象、 test-forum-purge.ts)。 */
+  listClosed(): DiscordTestSurfaceRow[];
   findOpen(id: number): DiscordTestSurfaceRow | null;
   create(input: {
     repoOrigin: string;
@@ -91,6 +93,13 @@ export function makeDiscordTestSurfacesRepo(
       return db.prepare(
         `SELECT * FROM discord_test_surfaces
          WHERE scope = ? AND status = 'open'
+         ORDER BY created_at, id`,
+      ).all(scope) as DiscordTestSurfaceRow[];
+    },
+    listClosed() {
+      return db.prepare(
+        `SELECT * FROM discord_test_surfaces
+         WHERE scope = ? AND status = 'closed'
          ORDER BY created_at, id`,
       ).all(scope) as DiscordTestSurfaceRow[];
     },

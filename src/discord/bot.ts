@@ -161,6 +161,7 @@ import { createPersonalBudgetDiscord } from "./personal-budget-discord.js";
 import { startPeriodic, type PeriodicHandle } from "../personal-budget/periodic.js";
 import { createConsultationClosure } from "./consult-closure-wiring.js";
 import { restoreConsultChannel } from "./consult-channel-restore.js";
+import { purgeClosedTestThreads } from "./test-forum-purge.js";
 import { dailySweepDay } from "../consultation/closure-policy.js";
 import { deliverUsageBudgetNotice } from "./usage-budget-notice.js";
 import { deliverBudgetResumable } from "./budget-resume.js";
@@ -2686,6 +2687,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         },
         log,
       }, ev);
+      return;
+    }
+    if (ev.type === "discord.test_forum.purge_closed_requested") {
+      // その会社の Bot だけが自社の Test フォーラムを掃除する (子会社 Bot は token を共有するので会社で絞る)。
+      if (ev.subsidiary_id !== (subsidiaryId ?? null)) return;
+      void purgeClosedTestThreads({ guild, surfaces: testSurfacesRepo, log })
+        .catch((error) => log.warn(`test forum purge failed: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "consultation.channel_restore_requested") {

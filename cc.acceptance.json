@@ -4422,6 +4422,13 @@
     {"source":"src/stat/repo-change-watcher.ts","tests":["tests/repo-change-watcher.test.ts"],"contracts":["CC-AUTO-TITLE-TASK-STOP"]},
     {"source":"src/consultation/title-summary.ts","tests":["src/consultation/title-summary.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
     {"source":"src/discord/consultation-title.ts","tests":["src/discord/consultation-title.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
-    {"source":"src/discord/bot.ts","tests":["src/discord/consultation-title.test.ts","tests/consultation-title-wiring.test.ts"],"contracts":["CC-CONSULT-TITLE"]}
+    {"source":"src/discord/bot.ts","tests":["src/discord/consultation-title.test.ts","tests/consultation-title-wiring.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
+    {"source":"src/contract/schema.ts","tests":["src/contract/schema.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/contract/seed-rules.ts","tests":["src/contract/schema.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/contract/lifecycle.ts","tests":["src/contract/schema.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/contract/question-bridge.ts","tests":["src/contract/question-bridge.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/harness/project-policy.ts","tests":["src/harness/supervisor-policy.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/harness/supervisor-cli.ts","tests":["src/harness/supervisor-policy.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"web/src/pages/teams/TeamRulesEditor.tsx","tests":["web/src/pages/teams/model.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]}
   ]
 }

@@ -4,13 +4,15 @@ import { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { ensureSessionContract } from "./lifecycle.js";
 import { isContractComplete, parseContractMetadata, SessionContractSchema } from "./schema.js";
-import { seedSessionContract } from "./seed-rules.js";
+import { seedSessionContract, wantsRepoRootView } from "./seed-rules.js";
 
 describe("session contract", () => {
-  it("deterministically seeds risky work as plan", () => {
+  it("seeds every session instruction as fragment regardless of design size", () => {
     const session = { provider: "codex-cli", repo_path: "E:/repo", branch: "feat/x", metadata: "{}", target_project: "Cc" } as SessionRow;
     const contract = seedSessionContract(session, "schema migration", "discord:1");
-    expect(contract.mode?.value).toBe("plan");
+    expect(contract.mode?.value).toBe("fragment");
+    expect(contract.acceptance?.value).toBe("human-ok");
+    expect(contract.testing_claim?.value).toEqual({ required: false, service: null });
     expect(contract.work_location?.value).toBe("worktree");
     expect(contract.goal_and_go?.value).toEqual({ enabled: true });
     // runtime が model / effort を報告していないので seed では決まらない (LLM/human tier 行き)。
@@ -116,5 +118,37 @@ describe("session contract", () => {
     // ただし契約は成立させる。 未決のまま残すと contract-incomplete が編集を全 deny し、
     // 複数チーム repo だけ「カード待ちで止まる」 が復活する (2026-08-21 の撤廃対象)。
     expect(isContractComplete(contract)).toBe(true);
+  });
+});
+
+describe("fragment / structured (spec/feature/session-fragment.md)", () => {
+  const base = { provider: "codex-cli", repo_path: "E:/repo", branch: "feat/x", target_project: "Cc" };
+
+  it("marks sessions bound to a Director case as structured", () => {
+    const session = { ...base, metadata: JSON.stringify({ director_case_id: "case-1" }) } as SessionRow;
+    const contract = seedSessionContract(session, "設計の整理", "discord:1");
+    expect(contract.mode?.value).toBe("structured");
+    expect(contract.acceptance?.value).toBe("plan");
+  });
+
+  it("decides work_location by whether the task should be viewed in repo-root, not by mode", () => {
+    const session = { ...base, metadata: "{}" } as SessionRow;
+    expect(seedSessionContract(session, "ログイン画面のレイアウトを直す", "discord:1").work_location?.value).toBe("repo-root");
+    expect(seedSessionContract(session, "Unity のシーンで演出を確認", "discord:1").work_location?.value).toBe("repo-root");
+    expect(seedSessionContract(session, "API のバリデーションを追加", "discord:1").work_location?.value).toBe("worktree");
+    expect(seedSessionContract(session, "API のバリデーションを追加", "discord:1", null, { worktree: "repo-root-only" }).work_location?.value)
+      .toBe("repo-root");
+    expect(wantsRepoRootView("build UI tweaks")).toBe(true);
+    expect(wantsRepoRootView("build pipeline fix")).toBe(false);
+  });
+
+  it("reads legacy plan / vibes contracts as fragment", () => {
+    const legacy = (mode: string) => JSON.stringify({ contract: {
+      ...seedSessionContract({ ...base, metadata: "{}" } as SessionRow, "x", "discord:1"),
+      mode: { value: mode, decided_by: "seed", rationale: "legacy", genius_card_ids: [] },
+    } });
+    expect(parseContractMetadata(legacy("plan"))?.mode?.value).toBe("fragment");
+    expect(parseContractMetadata(legacy("vibes"))?.mode?.value).toBe("fragment");
+    expect(parseContractMetadata(legacy("structured"))?.mode?.value).toBe("structured");
   });
 });

@@ -6,10 +6,9 @@ export interface ProjectHarnessPolicy { ddd: boolean; contract: boolean; testsRe
 
 /**
  * `contract_enabled` は「契約の確定・承認を **追加で** 要求するか」の opt-in であって、
- * 既存の安全境界を外す opt-out ではない。 未選択プロジェクト (既定 0) でも、 セッション契約が
- * 実際に vibes/plan を宣言していれば従来どおり vibesScope / vibesFileLimit / planUnapproved が
- * 効く必要がある — vibesScope は migration・schema・auth・破壊的パスへの編集を止める唯一の
- * 述語なので、 これを既定で外すと全プロジェクトで保護が消える。
+ * 既存の安全境界を外す opt-out ではない。 未選択プロジェクト (既定 0) でも既定の述語
+ * (test 隔離・main push・強推論モデル実装ゲート等) は効く必要がある。
+ * (plan / vibes の述語は 2026-10-06 に撤廃した: spec/feature/session-fragment.md)
  *
  * したがって述語セットは opt-in 状態によらず常に完全なまま返す。 追加要件の強制は
  * gate ハンドラ側で `contractComplete` を fail-closed にするかどうかで表現する

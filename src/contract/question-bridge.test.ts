@@ -77,9 +77,9 @@ describe("startContractQuestionAnswers", () => {
     const questions = makeDiscordPendingQuestionsRepo(db);
     const session = makeSession("session-team-order");
     insertSeeded(sessions, session);
-    // seed は「高リスク語なし」= vibes、 work_location は repo-root。
+    // seed のタスク文は repo-root で見る内容ではないので worktree。 チーム回答で repo-root に固定される。
     expect(parseContractMetadata(sessions.findSession(session.id)?.metadata ?? null)?.work_location?.value)
-      .toBe("repo-root");
+      .toBe("worktree");
     const teamQuestion = questions.insert({
       session_id: session.id,
       question: `${TEAM_PREFIX}: Unity=team-unity`,

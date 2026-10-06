@@ -499,8 +499,6 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
   envInteger("delegation.teardown_retry_sec", "delegation", "終了指示の再送間隔 (秒)", "CONCORDIA_TEARDOWN_RETRY_SEC", 300, "決定論終了 ladder の session-end 再送間隔。"),
   envInteger("delegation.teardown_force_sec", "delegation", "強制終了までの時間 (秒)", "CONCORDIA_TEARDOWN_FORCE_SEC", 900, "終了指示を無視した active セッションを強制終了するまでの時間。"),
   envInteger("delegation.ask_detach_sec", "delegation", "未回答質問の切り離し時間 (秒)", "CONCORDIA_ASK_DETACH_SEC", 1800, "質問カードを残して run を blocked 化するまでの時間。"),
-  envInteger("delegation.vibes_claim_sec", "delegation", "vibes testing claim 上限 (秒)", "CONCORDIA_VIBES_CLAIM_SEC", 3600, "vibes セッションが testing claim を保持できる時間。"),
-  envInteger("delegation.vibes_max_files", "delegation", "vibes 編集ファイル上限", "CONCORDIA_VIBES_MAX_FILES", 20, "vibes mode で編集できるファイル数の上限。"),
   envInteger("delegation.subsidiary_guard_timeout_ms", "delegation", "子会社ガードのタイムアウト (ms)", "CONCORDIA_SUBSIDIARY_GUARD_TIMEOUT_MS", null, "子会社 delegation のガード判定を打ち切るまでの時間。"),
 ] as const;
 

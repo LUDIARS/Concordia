@@ -77,7 +77,7 @@ export interface IngressDeps {
    * 終了の指示として読み、 相談者本人も自分の相談を終えられる。 未注入は相談として扱わない。
    */
   isConsultSession?: (sessionId: string) => boolean;
-  /** Plan decisions and vibes acceptance unblock implementation/review, so require manager authority. */
+  /** Plan decisions unblock implementation/review, so require manager authority. */
   isPlanDecisionUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
@@ -320,18 +320,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       try {
         await msg.reply({ content: `This session is ${sessionRow.status}; inject is disabled.`, allowedMentions: { repliedUser: false } });
       } catch {}
-      return;
-    }
-    if (/^\s*\[OK\]\s*$/i.test(text)) {
-      if (deps.isPlanDecisionUserAllowed?.(msg.author.id) !== true) {
-        await msg.reply({
-          content: "このユーザーには受け入れ権限がありません (管理職以上が必要)。",
-          allowedMentions: { parse: [], repliedUser: false },
-        }).catch(() => { /* denial reply is best-effort */ });
-        return;
-      }
-      eventBus.emit({ type: "vibes.ok", session_id: sessionRow.session_id, source: `discord:${msg.author.id}:${msg.id}`, ts: Math.floor(Date.now() / 1000) });
-      await msg.reply({ content: "Acceptance recorded. Submitting the existing working branch for review.", allowedMentions: { parse: [], repliedUser: false } });
       return;
     }
     const planReply = await deps.handlePlanReply?.(sessionRow.session_id, text, msg.author.id);

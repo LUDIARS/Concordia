@@ -10,7 +10,7 @@ tags:
   - harness
   - excubitor
   - lifecycle
-status: planned
+status: retired
 related:
   - feature/session-contract.md
   - feature/plan-gate.md
@@ -20,6 +20,10 @@ updated: 2026-08-24
 ---
 
 # バイブスモード
+
+> **2026-10-06 撤廃。** vibes モードと、その testing claim 自動取得・時間上限・編集ファイル上限・
+> 昇格カード・[OK] 完了レーンはすべて撤廃した。後継は [session-fragment.md](session-fragment.md)。
+> 以下は経緯の記録として残す。
 
 > 2026-08-13 neco 指示。 すべてをプランモードで動かすのではなく、 UI 調整や簡単な
 > 機能追加では動作中のものをいじりながら確認する「バイブス」モードを用意する。

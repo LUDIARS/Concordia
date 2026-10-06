@@ -24,7 +24,6 @@ interface ContractLifecycleInput {
   supervisor: () => string;
   questions?: DiscordPendingQuestionsRepo;
   reviewFor?: (provider: string) => ContractReviewPort | undefined;
-  resolveService?: (repoName: string) => string | null | Promise<string | null>;
   resolveTeams?: ResolveTeams;
   resolveTeamSettings?: ResolveTeamSettings;
   /** 契約の model / effort 決定 (llm / human) を Lictor runtime へ反映する口。 */
@@ -43,7 +42,6 @@ export async function ensureSessionContract(
   resolveTeamSettings?: ResolveTeamSettings,
   applyModelEffort?: ApplyModelEffortFn,
   trigger?: "spawn" | "task-change",
-  resolveService?: (repoName: string) => string | null | Promise<string | null>,
 ): Promise<void> {
   const row = sessions.findSession(sessionId); if (!row) return;
   const existing = parseContractMetadata(row.metadata);
@@ -67,7 +65,7 @@ export async function ensureSessionContract(
     const parsed = SessionContractSchema.safeParse({ ...merged, ...reviewed });
     if (parsed.success) merged = parsed.data;
   }
-  merged = await finalizeContract(merged, row, resolveService);
+  merged = finalizeContract(merged, row);
   saveContract(sessions, sessionId, merged, existing ? "task-change" : "spawn-or-first-instruction");
   if (applyModelEffort) {
     const applied = await applyContractModelEffort({ sessions, sessionId, contract: merged, apply: applyModelEffort });
@@ -91,13 +89,11 @@ export async function ensureSessionContract(
  *   question-bridge が `decided_by: "human"` で上書きする (§3.3 の残るカード)。
  *   ここを埋めないと isContractComplete が永久に false になり、 撤廃したはずの
  *   contract-incomplete 停止が複数チーム repo でだけ残る。
- * - testing_claim: vibes で service が解決できたら seed の未解決値を差し替える。
  */
-async function finalizeContract(
+function finalizeContract(
   contract: SessionContract,
-  row: { metadata: string | null; provider: string; target_project: string | null; repo_path: string },
-  resolveService?: (repoName: string) => string | null | Promise<string | null>,
-): Promise<SessionContract> {
+  row: { metadata: string | null; provider: string },
+): SessionContract {
   const seed = <T>(value: T, rationale: string) => ({ value, decided_by: "seed" as const, rationale, genius_card_ids: [] });
   const finalized: SessionContract = {
     ...contract,
@@ -105,14 +101,6 @@ async function finalizeContract(
     effort: contract.effort ?? seed(readRuntimeEffort(row.metadata) ?? "medium", "runtime 既定を維持"),
     team: contract.team ?? seed(null, "チーム選択カードの回答待ち (未選択のまま契約を成立させる)"),
   };
-  if (finalized.mode?.value === "vibes" && finalized.testing_claim?.value.service == null && resolveService) {
-    try {
-      const service = await resolveService(row.target_project ?? row.repo_path);
-      if (service) finalized.testing_claim = seed({ required: true, service }, "Excubitor catalog service resolver");
-    } catch (error) {
-      log.warn({ error }, "vibes testing service resolution failed");
-    }
-  }
   return finalized;
 }
 
@@ -128,15 +116,15 @@ function preserveHumanDecisions(seeded: SessionContract, existing: SessionContra
 export function startContractLifecycle(input: ContractLifecycleInput): { stop(): void } {
   for (const row of input.sessions.listSessions({ status: "active" })) {
     if (input.enabledFor && !input.enabledFor(row.id)) continue;
-    if (!parseContractMetadata(row.metadata)) void ensureSessionContract(input.sessions, row.id, row.current_task ?? "session", input.supervisor(), input.questions, input.reviewFor?.(row.provider), input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn", input.resolveService).catch((error) => log.warn({ error, session_id: row.id }, "initial contract failed"));
+    if (!parseContractMetadata(row.metadata)) void ensureSessionContract(input.sessions, row.id, row.current_task ?? "session", input.supervisor(), input.questions, input.reviewFor?.(row.provider), input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn").catch((error) => log.warn({ error, session_id: row.id }, "initial contract failed"));
   }
   const unsubscribe = eventBus.subscribe((event) => {
     const row = "session_id" in event && typeof event.session_id === "string"
       ? input.sessions.findSession(event.session_id)
       : null;
     if (row && input.enabledFor && !input.enabledFor(row.id)) return;
-    if (event.type === "session.started") void ensureSessionContract(input.sessions, event.session_id, row?.current_task ?? "session", input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn", input.resolveService).catch((error) => log.warn({ error }, "spawn contract failed"));
-    if (event.type === "session.task_changed" && event.current_task) void ensureSessionContract(input.sessions, event.session_id, event.current_task, input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "task-change", input.resolveService).catch((error) => log.warn({ error }, "task contract failed"));
+    if (event.type === "session.started") void ensureSessionContract(input.sessions, event.session_id, row?.current_task ?? "session", input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn").catch((error) => log.warn({ error }, "spawn contract failed"));
+    if (event.type === "session.task_changed" && event.current_task) void ensureSessionContract(input.sessions, event.session_id, event.current_task, input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "task-change").catch((error) => log.warn({ error }, "task contract failed"));
   });
   const answers = input.questions ? startContractQuestionAnswers({
     sessions: input.sessions,

@@ -41,7 +41,6 @@ import confirmCommand from "./commands/confirm.js";
 import ccSkillCommand from "./commands/cc-skill.js";
 import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
 import goalAndGoCommand from "./commands/goal-and-go.js";
-import sessionModeCommand from "./commands/session-mode.js";
 import doctorCommand from "./commands/doctor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
@@ -102,7 +101,6 @@ const COMMANDS: DiscordCommandSpec[] = [
   exRunCommand,
   exRebootCommand,
   goalAndGoCommand,
-  sessionModeCommand,
   doctorCommand,
 ];
 

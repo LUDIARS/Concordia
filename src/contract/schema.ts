@@ -1,7 +1,16 @@
 import { z } from "zod";
 
 export const DecisionSourceSchema = z.enum(["seed", "llm", "human"]);
-export const ContractModeSchema = z.enum(["plan", "vibes"]);
+/**
+ * セッション契約の区分 (spec/feature/session-fragment.md)。 セッションで指示される作業は fragment、
+ * Director の case + プラン工程で進む大きめの設計は structured。 旧契約の plan / vibes は
+ * 読み込み時に fragment へ読み替える (Director case 紐付きの判定は seed 側で行う)。
+ */
+export const ContractModeSchema = z.preprocess(
+  (value) => (value === "plan" || value === "vibes" ? "fragment" : value),
+  z.enum(["fragment", "structured"]),
+);
+export type ContractMode = "fragment" | "structured";
 export const ContractValueSchema = <T extends z.ZodTypeAny>(value: T) => z.object({
   value,
   decided_by: DecisionSourceSchema,

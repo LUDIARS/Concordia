@@ -35,7 +35,8 @@ describe("Discord command registration", () => {
     expect(names).toContain("ex-run");
     expect(names).toContain("ex-reboot");
     expect(names).toContain("co-go-and-go");
-    expect(names).toContain("co-mode");
+    // plan / vibes の切替は撤廃した (spec/feature/session-fragment.md)
+    expect(names).not.toContain("co-mode");
     expect(names).toContain("co-doctor");
     expect(names).not.toContain("skill");
     expect(names.length).toBeGreaterThan(1);

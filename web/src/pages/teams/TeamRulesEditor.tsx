@@ -89,18 +89,6 @@ export function TeamRulesEditor({ team, onSaved }: { team: Team; onSaved: (team:
                 setSetting("pr_rules", base ? { base, push: "revisor" } : undefined);
               }} />
           </label>
-          <label className="text-sm">Vibes claim (秒)
-            <input className="foundation-form block w-full text-sm" type="number" min={1} disabled={busy}
-              placeholder="空 = 未設定"
-              value={draft.settings.vibes_defaults?.claim_sec ?? ""}
-              onChange={(e) => {
-                const seconds = Number(e.target.value);
-                setSetting(
-                  "vibes_defaults",
-                  Number.isInteger(seconds) && seconds > 0 ? { claim_sec: seconds } : undefined,
-                );
-              }} />
-          </label>
         </div>
       </section>
 

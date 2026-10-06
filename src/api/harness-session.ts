@@ -105,8 +105,6 @@ interface HarnessSessionContext {
   implUnlocked?: boolean;
   isWorktree?: boolean;
   contractComplete?: boolean;
-  planApproved?: boolean;
-  contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
   teamId?: string | null;
   /** 所属部署 (spec/feature/departments.md §6)。 ルール供給の部署層を決める。 */
@@ -153,7 +151,6 @@ export interface HarnessSessionApiDeps {
    */
   mainPushAllowlist?: () => string[];
   mentionUserId?: () => string | null;
-  onVibesFileLimit?: (sessionId: string) => void;
   /**
    * 月次予算の判定 (spec/feature/usage-budgets.md §5.2)。 その時点の消費を引き受ける帰属先の予算が尽きていれば deny。
    * 未注入なら判定しない。 判定の失敗はツールを止めない (集計の不調で全作業を止めない)。
@@ -248,8 +245,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       sessionModel: sessionContext?.model,
       implUnlocked: sessionContext?.implUnlocked,
       isWorktree: action.isWorktree ?? sessionContext?.isWorktree,
-      planApproved: sessionContext?.planApproved,
-      contractMode: sessionContext?.contractMode,
       contractScopeDirs: sessionContext?.contractScopeDirs,
       teamTestPolicy: sessionContext?.teamTestPolicy,
       teamWorktreePolicy: sessionContext?.teamWorktreePolicy,
@@ -261,7 +256,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       inquiryReadRoot: sessionContext?.inquiryReadRoot,
       inquiryAllowedRunIds: sessionContext?.inquiryAllowedRunIds,
       editedFiles,
-      vibesMaxFiles: Number(process.env.CONCORDIA_VIBES_MAX_FILES ?? 20),
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
     const mainPushAllowlist = deps.mainPushAllowlist?.() ?? [];
@@ -332,7 +326,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const event: HarnessAuditEvent = verdict.decision === "deny" ? "block" : "gate";
     // 当たった hit の代表 rule (最悪 decision のもの)。
     const lead = verdict.hits.find((h) => h.decision === verdict.decision);
-    if (lead?.rule === "vibes-file-limit" && session_id) deps.onVibesFileLimit?.(session_id);
     if (lead?.rule === "strong-model-impl" && session_id) {
       notifyUserDecision({
         kind: "impl-unlock",
@@ -376,7 +369,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       ...(blackbox ? { blackbox: blackbox.meta } : {}),
       local_policy: {
         version: 1, capturedAt: Date.now(), sessionId: session_id ?? "", repo: action.cwd ?? "", branch: action.branch ?? "",
-        context: { ...sessionContext, contractComplete: enrichedAction.contractComplete, vibesMaxFiles: enrichedAction.vibesMaxFiles }, policy, mainPushAllowlist, strongImplModels: deps.strongImplModels?.() ?? [],
+        context: { ...sessionContext, contractComplete: enrichedAction.contractComplete }, policy, mainPushAllowlist, strongImplModels: deps.strongImplModels?.() ?? [],
         editedRepos, editedFiles, taskBranchLiveRequired: Boolean(deps.taskBranches),
       },
       ...(blackboxError ? { blackbox_error: blackboxError } : {}),

@@ -47,7 +47,6 @@ export const CONCORDIA_EVENT_TYPES = [
   "discord.test_forum.purge_closed_requested",
   "staff.access_changed",
   "team.card_requested",
-  "vibes.ok",
   "transcript.frame",
   "session.permission_request",
   "question.posted",
@@ -219,7 +218,6 @@ const eventSchemas = {
   "department.changed": z.object({ type: z.literal("department.changed"), event_id: z.string(), department_id: z.string(), subsidiary_id: z.string().nullable(), action: z.enum(["created", "updated", "archived", "restored"]), fields: z.array(z.string()), ts: z.number() }).passthrough(),
   "staff.access_changed": z.object({ type: z.literal("staff.access_changed"), platform: z.enum(["discord", "slack"]), ts: z.number() }).passthrough(),
   "team.card_requested": z.object({ type: z.literal("team.card_requested"), team_id: z.string(), kind: z.enum(TEAM_CARD_EVENT_KINDS), title: z.string(), body: z.string(), ts: z.number() }).passthrough(),
-  "vibes.ok": z.object({ type: z.literal("vibes.ok"), session_id: z.string(), source: z.string(), ts: z.number() }).passthrough(),
   "process.started": z.object({
     type: z.literal("process.started"),
     process_name: z.string(),

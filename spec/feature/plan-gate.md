@@ -23,6 +23,10 @@ updated: 2026-08-24
 
 # プランゲート — Discord 上のプランモード
 
+> **2026-10-06 一部撤廃。** §4 のセッション編集封鎖 (`plan-unapproved`) と §5 の vibes 昇格 / 降格は
+> 撤廃した。§1〜§3 の Director プラン工程は「structured」として残す
+> ([session-fragment.md](session-fragment.md))。
+
 > 2026-08-13 neco 指示。 「設問→設計→修正判断」を Discord 上で回す。
 > プランには**タスクの終了条件 (受け入れ条件) を必ず設定する**。
 

@@ -30,7 +30,7 @@
     "heartbeat-and-status-transitions",
     "transcript-path-authority-intake"
   ],
-  "specRefs": [
+  "specRefs": ["spec/feature/session-fragment.md",
     "spec/feature/session-end-bounded-recovery.md",
     "spec/feature/major-inject-editor.md",
     "spec/feature/session-work-phases.md",

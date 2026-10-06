@@ -28,6 +28,9 @@ updated: 2026-08-13
 > 「セッション契約」判定に統合する。 **LLM を使ってすべての条件を契約的に決め、
 > 決められないものは Discord で決定する質問を投げる。**
 
+> **2026-10-06:** `mode` は `fragment | structured` に置き換え、`work_location` は mode と連動させず
+> 「repo-root で見たい内容か」で決める。vibes / plan のゲートは撤廃した ([session-fragment.md](session-fragment.md))。
+
 ## 0. 原則
 
 1. **契約は型付きオブジェクトである。** LLM の出力は zod スキーマ検証を通った値だけが

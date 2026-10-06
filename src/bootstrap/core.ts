@@ -122,7 +122,6 @@ import { consultClaudeReloginCommand } from "../consultation/consult-claude-logi
 import { startEndSessionRequestWatch } from "../control/end-session-request.js";
 import { endSessionNow } from "../control/end-session-command.js";
 import { startContractLifecycle } from "../contract/lifecycle.js";
-import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/model-review-adapter.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { DepartmentsRepo } from "../db/departments-repo.js";
@@ -153,8 +152,6 @@ import { DomainReviewRepo } from "../db/domain-review-repo.js";
 import { DomainReviewService, type DomainReviewPostPort } from "../domain-review/service.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
-import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
-import { startVibesCompletion } from "../control/vibes-completion.js";
 import { deliverDirectorInstruction } from "../director/session-instruction.js";
 import { DirectorAskBridge } from "../director/ask-bridge.js";
 import { startSweeper } from "../sweeper.js";
@@ -2444,7 +2441,6 @@ export async function startBackend(): Promise<BackendHandle> {
         return normalized ? new ModelReviewContractAdapter(modelReview, normalized) : undefined;
       },
       applyModelEffort: (input) => applyRuntimeModelReview(repo, input),
-      resolveService: resolveServiceCode,
       resolveTeams: (repoOrigin) => teamsRepo.forRepo(repoOrigin).map((team) => ({
         id: team.id,
         name: team.name,
@@ -2453,43 +2449,6 @@ export async function startBackend(): Promise<BackendHandle> {
       resolveTeamSettings: (teamId) => {
         const team = teamsRepo.find(teamId);
         return team ? parseTeamSettings(team) : null;
-      },
-      onCompleted: (sessionId, contract) => {
-        if (contract.mode?.value !== "vibes") return;
-        const service = contract.testing_claim?.value.service;
-        if (!service) return;
-        const session = repo.findSession(sessionId);
-        openTestingClaim(testingClaims, {
-          service,
-          sessionId,
-          branch: session?.branch ?? null,
-          note: "Automatically acquired for completed vibes-mode contract",
-          now: Math.floor(Date.now() / 1000),
-        });
-      },
-    }));
-    // vibes ↔ plan モード切替カード (昇格 / 降格承認) の回答を契約更新へ接続する。
-    // 降格確定時の testing claim 自動取得は onCompleted (上の契約確定時) と同じ形。
-    trackPostListenHandle(startModeSwitchAnswers({
-      sessions: repo,
-      questions: pendingQuestions,
-      claims: testingClaims,
-      resolveService: resolveServiceCode,
-      resolveTeamSettings: (teamId) => {
-        const team = teamsRepo.find(teamId);
-        return team ? parseTeamSettings(team) : null;
-      },
-      onDemoted: (sessionId, contract) => {
-        const service = contract.testing_claim?.value.service;
-        if (!service) return;
-        const session = repo.findSession(sessionId);
-        openTestingClaim(testingClaims, {
-          service,
-          sessionId,
-          branch: session?.branch ?? null,
-          note: "Automatically acquired for human-approved vibes demotion",
-          now: Math.floor(Date.now() / 1000),
-        });
       },
     }));
     trackPostListenHandle(startPhaseCompaction({
@@ -2504,27 +2463,6 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     }));
     trackPostListenHandle(directorAskBridge.start());
-    trackPostListenHandle(startVibesLifecycle({
-      sessions: repo,
-      claims: testingClaims,
-      questions: pendingQuestions,
-      resolveTeamClaimSec: (session) => {
-        const team = resolveSessionTeam(session);
-        const claimSec = team ? parseTeamSettings(team).vibes_defaults?.claim_sec : undefined;
-        return claimSec ?? null;
-      },
-    }));
-    trackPostListenHandle(startVibesCompletion({
-      sessions: repo,
-      claims: testingClaims,
-      submitLocalPr: (sessionId) => submitLocalPrForSession(sessionId, { fastLane: false }),
-      endSession: (session, reason) => endSessionNow(
-        { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions, memoria: memoriaClient },
-        session,
-        reason,
-      ),
-      log: localPrLog,
-    }));
     trackPostListenHandle(startHumanResponseConfirmation(repo));
     trackPostListenHandle(startHumanWait(repo));
     trackPostListenHandle(startAutoConfirmStrikeReset(repo));

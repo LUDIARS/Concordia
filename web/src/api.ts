@@ -1523,7 +1523,6 @@ export interface TeamSettings {
   test_policy?: "confirm-queue" | "custos-unity";
   worktree?: "allowed" | "repo-root-only";
   visibility?: "public" | "private";
-  vibes_defaults?: { claim_sec: number };
 }
 
 export interface TeamMetrics {

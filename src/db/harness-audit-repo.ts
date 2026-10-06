@@ -135,7 +135,7 @@ export class HarnessAuditRepo {
 
   /**
    * 当該セッションで編集ツールが触ったファイルパス (action 列) の集合。
-   * vibes-file-limit 述語の editedFiles 供給用。 gate はツール実行ごとに呼ばれるため、
+   * harness local policy の editedFiles 供給用。 gate はツール実行ごとに呼ばれるため、
    * 旧実装の `recent({limit:1000})` (全カラム 1000 行を毎回取得・~200ms) を置き換え、
    * (session_id, tool) index に乗る 1 カラムの DISTINCT だけにする。
    */

@@ -162,7 +162,6 @@ type ConcordiaEventPayload =
    * (spec/feature/director-patrol.md §1.4、Cc 内部からの emit のみ)。
    */
   | { type: "team.card_requested"; team_id: string; kind: TeamCardEventKind; title: string; body: string; ts: number }
-  | { type: "vibes.ok"; session_id: string; source: string; ts: number }
   | { type: "inquiry.resolved"; target_session_id: string; category: string; decision: "proceed" | "ask_human" | "self_judge"; supervisor_user_id: string | null; ts: number }
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }
   | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }

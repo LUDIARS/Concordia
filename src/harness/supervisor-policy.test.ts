@@ -13,12 +13,8 @@ describe("project implementation policy", () => {
     }
   });
 
-  it("still blocks vibes edits to schema/migration paths when contract is not opted in", () => {
+  it("keeps the default safety predicates when contract is not opted in", () => {
     const predicates = projectPredicates(DEFAULT_PREDICATES, { ddd: false, contract: false });
-    const vibes = { tool: "Edit", cwd: "/repo", contractMode: "vibes" as const, contractScopeDirs: ["src"] };
-    // vibesScope は破壊的・schema・auth 編集を止める唯一の述語。 opt-in 未選択でも外れない。
-    expect(evaluateAction({ ...vibes, filePath: "/repo/src/db/schema.ts" }, predicates).blocked).toBe(true);
-    expect(evaluateAction({ ...vibes, filePath: "/repo/other/a.ts" }, predicates).blocked).toBe(true);
     expect(evaluateAction({ tool: "Bash", command: "git push origin main", branch: "main" }, predicates).blocked).toBe(true);
   });
 

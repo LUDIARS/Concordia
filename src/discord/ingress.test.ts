@@ -387,14 +387,14 @@ describe("discord ingress chat routing", () => {
     expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("終了権限") }));
   });
 
-  it("fails closed for vibes acceptance when manager authorization is not wired", async () => {
+  it("treats [OK] as an ordinary message now that the vibes acceptance lane is retired", async () => {
     const fetchMock = stubSuccessfulFetch();
     const msg = makeMessage({ content: "[OK]" });
 
     await handleMessage(makeDeps("codex-cli"), msg);
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalled();
+    expect(msg.reply).not.toHaveBeenCalledWith(expect.objectContaining({
       content: expect.stringContaining("受け入れ権限"),
     }));
   });

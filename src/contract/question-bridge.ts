@@ -73,7 +73,7 @@ export function startContractQuestionAnswers(input: {
       if (!teamId) return;
       input.sessions.patchSession(event.target_session_id, { team_id: teamId });
       const teamSettings = input.resolveTeamSettings?.(teamId) ?? null;
-      const workLocation = resolveTeamWorkLocation(contract.mode?.value ?? null, teamSettings);
+      const workLocation = resolveTeamWorkLocation(teamSettings);
       const updated = saveContract(
         input.sessions,
         event.target_session_id,
@@ -83,7 +83,7 @@ export function startContractQuestionAnswers(input: {
           ...(workLocation ? {
             work_location: human(
               workLocation,
-              teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "契約 mode から導出",
+              "team settings: worktree=repo-root-only",
             ),
           } : {}),
         },

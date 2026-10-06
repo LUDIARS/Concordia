@@ -16,7 +16,8 @@ const PrRulesSchema = z.object({
   push: z.literal("revisor"),
 }).strict();
 
-const VibesDefaultsSchema = z.object({
+/** 撤廃済み (spec/feature/session-fragment.md)。 保存済みチーム設定の読み込みを壊さないよう受け付けるだけで使わない。 */
+const RetiredVibesDefaultsSchema = z.object({
   claim_sec: z.number().int().positive().max(86_400),
 }).strict();
 
@@ -26,7 +27,7 @@ const SettingsSchema = z.object({
   test_policy: z.enum(["confirm-queue", "custos-unity"]).optional(),
   worktree: z.enum(["allowed", "repo-root-only"]).optional(),
   visibility: z.enum(["public", "private"]).optional(),
-  vibes_defaults: VibesDefaultsSchema.optional(),
+  vibes_defaults: RetiredVibesDefaultsSchema.optional(),
 }).strict();
 
 const RepositoriesSchema = z.array(z.string().trim().min(1).max(500)).max(200)

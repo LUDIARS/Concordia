@@ -12,7 +12,6 @@
  * fail-closed (deny) で確実に止める。
  */
 
-import { posix, win32 } from "node:path";
 import { isMainPushAllowlisted, MAIN_PUSH_ALLOWLIST_ENV } from "./main-push-allowlist.js";
 
 export type Decision = "allow" | "deny" | "warn";
@@ -46,11 +45,8 @@ export interface HarnessAction {
   implUnlocked?: boolean;
   /** session contract が全フィールド確定済み。未確定はコード編集を fail-closed deny。 */
   contractComplete?: boolean;
-  planApproved?: boolean;
-  contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
   editedFiles?: string[];
-  vibesMaxFiles?: number;
   /**
    * 問診セッション (director-inquiry-session.md §3) として起動された。
    * true のときだけ読み取り専用契約を強制する。判定できないときは undefined。
@@ -227,51 +223,6 @@ export const contractIncomplete: Predicate = (a) => {
   // (spec/feature/session-contract.md §3.3 / §4)。
   return { rule: "contract-incomplete", decision: "deny", reason: "セッション契約が未確定のためコード編集を開始できません。", suggestion: "契約は spawn 時に決定論で確定するはずです。 未確定のままなら Cc 側の不具合として報告してください。" };
 };
-export const planUnapproved: Predicate = (a) => {
-  if (!isEditTool(a.tool) || a.planApproved !== false || isContractDocument(a.filePath)) return null;
-  return { rule: "plan-unapproved", decision: "deny", reason: "プランが未承認のためコード編集できません。", suggestion: "Director の設計カードで承認してください。" };
-};
-
-const VIBES_PROTECTED_PATH = /(?:^|\/)(?:migrations?|schema|auth|authentication)(?:\/|\.|$)|(?:^|\/)(?:delete|remove|drop)[-_./]/i;
-
-/** Vibes is deliberately a narrow lane: edits must stay in the contracted directories,
- * and destructive/security/schema work is always sent back through plan review. */
-export const vibesScope: Predicate = (a) => {
-  if (a.contractMode !== "vibes" || !isEditTool(a.tool) || !a.filePath) return null;
-  const normalized = a.filePath.replace(/\\/g, "/").toLowerCase();
-  const pathApi = /^[A-Za-z]:[\\/]/.test(a.cwd ?? a.filePath) ? win32 : posix;
-  const base = pathApi.resolve(a.cwd ?? ".");
-  const candidate = pathApi.resolve(base, a.filePath);
-  const inScope = (a.contractScopeDirs ?? []).some((rawScope) => {
-    const scope = rawScope.trim();
-    const portableScope = scope.replace(/\\/g, "/");
-    if (!scope || pathApi.isAbsolute(scope) || portableScope === ".." || portableScope.startsWith("../")) return false;
-    const scopeRoot = pathApi.resolve(base, scope);
-    const pathFromScope = pathApi.relative(scopeRoot, candidate);
-    return pathFromScope === "" || (
-      !pathApi.isAbsolute(pathFromScope) &&
-      pathFromScope !== ".." &&
-      !pathFromScope.startsWith(`..${pathApi.sep}`)
-    );
-  });
-  if (inScope && !VIBES_PROTECTED_PATH.test(normalized)) return null;
-  return {
-    rule: "vibes-scope",
-    decision: "deny",
-    reason: VIBES_PROTECTED_PATH.test(normalized)
-      ? "vibes mode does not permit migration, schema, authentication, or destructive edits."
-      : "The edit is outside the directories approved by the session contract.",
-    suggestion: "Revise the contract and pass plan approval before expanding this change.",
-  };
-};
-
-export const vibesFileLimit: Predicate = (a) => {
-  if (a.contractMode !== "vibes" || !isEditTool(a.tool)) return null;
-  const limit = a.vibesMaxFiles ?? Number(process.env.CONCORDIA_VIBES_MAX_FILES ?? 20);
-  if (new Set(a.editedFiles ?? []).size <= limit) return null;
-  return { rule: "vibes-file-limit", decision: "deny", reason: `Vibes mode is limited to ${limit} edited files.`, suggestion: "Promote this task to plan mode and approve the expanded design." };
-};
-
 /**
  * team settings `worktree: "repo-root-only"` (teams §3.1) の強制。 Unity など worktree
  * 運用が成立しないチームでは、 linked worktree 内での編集を deny して repo root へ戻す。
@@ -325,9 +276,6 @@ export const DEFAULT_PREDICATES: Predicate[] = [
   inquiryReadOnly,
   useCaseReadOnly,
   contractIncomplete,
-  planUnapproved,
-  vibesScope,
-  vibesFileLimit,
   teamWorktreeRestriction,
   privateTeamPublication,
   noMainPush,

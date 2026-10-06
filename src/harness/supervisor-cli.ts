@@ -144,9 +144,9 @@ async function main(): Promise<void> {
       if (verdict.blocked && recoveryAllowed(action, config.recoveryRoots.map((path) => realpathSync(path)), config.recoveryCommands)) {
         // Recovery relaxes ONLY the contract prerequisites that a stale/absent Cc cannot
         // re-confirm. Every other cached restriction (inquiry read-only, team worktree,
-        // main-push allowlist, strong-model gate, vibes scope) stays authoritative, so we
+        // main-push allowlist, strong-model gate) stays authoritative, so we
         // filter the existing verdict rather than re-evaluating against a weaker set.
-        const RECOVERABLE = new Set(["contract-incomplete", "plan-unapproved"]);
+        const RECOVERABLE = new Set(["contract-incomplete"]);
         const remaining = verdict.hits.filter((hit) => !RECOVERABLE.has(hit.rule));
         if (remaining.length < verdict.hits.length) {
           mode = "recovery";

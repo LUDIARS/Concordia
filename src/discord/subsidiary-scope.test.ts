@@ -37,6 +37,9 @@ describe("子会社 guild で使えるコマンド", () => {
   it("相談の受付モーダルと承認ボタンは通し、 公開候補の面は通さない", () => {
     expect(isSubsidiarySessionSurface(surface("consult:modal:dept_1", { button: false }))).toBe(true);
     expect(isSubsidiarySessionSurface(surface("consult:approve:pc_1"))).toBe(true);
+    // 閉じた相談の再開・削除 (2026-10-06: 入れ忘れで「このサーバではこの操作は利用できません」になっていた)。
+    expect(isSubsidiarySessionSurface(surface("consult:resume:pc_1"))).toBe(true);
+    expect(isSubsidiarySessionSurface(surface("consult:delete:pc_1"))).toBe(true);
     expect(isSubsidiarySessionSurface(surface("consult:pub:approve:pub_1"))).toBe(false);
     expect(isSubsidiarySessionSurface(surface("consult:pubedit:pub_1", { button: false }))).toBe(false);
   });

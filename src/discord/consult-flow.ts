@@ -83,6 +83,7 @@ const ERROR_MESSAGES: Readonly<Record<PrivateConsultationError, string>> = {
   not_allowed: "この操作は相談者本人か権限者だけが行えます。",
   cannot_remove_requester: "相談者本人は外せません。",
   requester_only: "この操作は相談者本人だけが行えます。",
+  requester_or_approver_only: "この操作は相談者本人か管理者 (権限者) だけが行えます。",
   consultation_open: "セッションが動いています。終了してから操作してください。",
   channel_deleted: "この相談のチャンネルは削除済みです。",
 };
@@ -198,7 +199,7 @@ export async function handleConsultApproval(interaction: ButtonInteraction, deps
 }
 
 /**
- * 閉じた相談のボタン (相談者本人のみ、 tech-consultation.md §7)。
+ * 閉じた相談のボタン (再開は相談者本人、 削除は相談者本人か権限者、 tech-consultation.md §7)。
  * - 再開: 相談を開き直し、 同じチャンネルを起動元にしてセッションを起動する (書き込みは結び直しで戻る)。
  * - 削除: 記録してからチャンネルを消す。 押した本人への返事はチャンネルと一緒に消えるので先に返す。
  */
@@ -210,7 +211,7 @@ export async function handleConsultLifecycle(interaction: ButtonInteraction, dep
     return;
   }
   if (parsed.action === "delete") {
-    const marked = deps.service.markChannelDeletedByRequester(parsed.consultationId, interaction.user.id);
+    const marked = deps.service.markChannelDeletedByOwner(parsed.consultationId, interaction.user.id);
     if (!marked.ok) {
       await interaction.reply({ content: consultErrorMessage(marked.error), ephemeral: true });
       return;

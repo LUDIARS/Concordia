@@ -174,14 +174,29 @@ describe("PrivateConsultationService reopen / requester deletion (2026-10-06 nec
     expect(service.reopen(id, "111")).toEqual({ ok: false, error: "department_archived" });
   });
 
-  it("lets only the requester delete the channel after the session ends, and not twice", () => {
+  it("lets the requester delete the channel after the session ends, and not twice", () => {
     const { service, store, id } = closedConsultation();
-    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: false, error: "consultation_open" });
+    expect(service.markChannelDeletedByOwner(id, "111")).toEqual({ ok: false, error: "consultation_open" });
     service.close(id);
-    expect(service.markChannelDeletedByRequester(id, "901")).toEqual({ ok: false, error: "requester_only" });
-    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: true, channelId: "chan-1" });
+    expect(service.markChannelDeletedByOwner(id, "222")).toEqual({ ok: false, error: "requester_or_approver_only" });
+    expect(service.markChannelDeletedByOwner(id, "111")).toEqual({ ok: true, channelId: "chan-1" });
     expect(store.find(id)?.channel_deleted_at).not.toBeNull();
-    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: false, error: "channel_deleted" });
+    expect(service.markChannelDeletedByOwner(id, "111")).toEqual({ ok: false, error: "channel_deleted" });
     expect(service.reopen(id, "111")).toEqual({ ok: false, error: "channel_deleted" });
+  });
+});
+
+describe("PrivateConsultationService deletion by an approver (2026-10-06 neco 指示「管理者は押せるようにしといて」)", () => {
+  it("lets an approver delete but not resume, and rejects an invited viewer", () => {
+    const h = setup({ launchers: ["900", "901", "111"] });
+    const started = h.service.start({ departmentId: h.department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake });
+    if (!started.ok) throw new Error(started.error);
+    const id = started.consultation.id;
+    h.store.setChannel(id, "chan-1");
+    h.store.addMember({ consultation_id: id, platform_user_id: "333", reason: "invited", added_by: "111" });
+    h.service.close(id);
+    expect(h.service.reopen(id, "900")).toEqual({ ok: false, error: "requester_only" });
+    expect(h.service.markChannelDeletedByOwner(id, "333")).toEqual({ ok: false, error: "requester_or_approver_only" });
+    expect(h.service.markChannelDeletedByOwner(id, "900")).toEqual({ ok: true, channelId: "chan-1" });
   });
 });

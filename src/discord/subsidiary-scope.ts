@@ -29,7 +29,7 @@ import { PLAN_PREFIX } from "./plan-card.js";
 import { isQuestionInteraction } from "./question.js";
 import { isPermissionInteraction } from "./permission.js";
 import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
-import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
+import { CONSULT_APPROVE_PREFIX, CONSULT_DELETE_PREFIX, CONSULT_MODAL_PREFIX, CONSULT_RESUME_PREFIX } from "./consult-modal.js";
 import { BOUNTY_CUSTOM_ID_PREFIX } from "./bounty-modal.js";
 import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
 
@@ -69,6 +69,9 @@ export function isSubsidiarySessionSurface(interaction: Interaction): boolean {
     // プライベート相談の受付モーダルと承認ボタン。 公開候補 (consult:pub*) は含めない。
     || interaction.customId.startsWith(CONSULT_MODAL_PREFIX)
     || interaction.customId.startsWith(CONSULT_APPROVE_PREFIX)
+    // 閉じた相談の再開・チャンネル削除 (tech-consultation.md §7)。 子会社の相談チャンネルにも出る。
+    || interaction.customId.startsWith(CONSULT_RESUME_PREFIX)
+    || interaction.customId.startsWith(CONSULT_DELETE_PREFIX)
     // バグ報告の受付モーダル (bug-bounty.md §3)。
     || interaction.customId.startsWith(BOUNTY_CUSTOM_ID_PREFIX)
     // 予算切れで中断したセッションの「再開」 (usage-budgets.md §5.3)。 子会社のセッションも再開できる。

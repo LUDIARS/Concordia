@@ -60,7 +60,7 @@ export function createConsultationClosure(deps: ConsultClosureWiringDeps): Consu
       await channel.send({
         content: [
           "セッションを終了しました。このチャンネルは残ります (書き込みは止めています)。",
-          "続きを相談するときは「セッションを再開」、不要になったら「チャンネルを削除」を押してください (相談者本人のみ)。",
+          "続きを相談するときは「セッションを再開」、不要になったら「チャンネルを削除」を押してください (再開は相談者本人、削除は相談者本人か管理者)。",
         ].join("\n"),
         components: [buildConsultClosedRow(consultation.id)],
         allowedMentions: { parse: [] },

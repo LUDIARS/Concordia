@@ -379,8 +379,10 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 - 再開 (相談者本人のみ): 相談を開き直し (`status=open`、24 時間の期限は再開時刻から数え直す、`wrap_status=pending`)、
   同じチャンネルを起動元にしてセッションを起動する。結び直し (`bindPrivateConsultSession`) が書き込みを戻す。
   部署が廃止済み・チャンネル削除済みなら再開しない。起動に失敗したら閉じ直してボタンを出し直す。
-- 削除 (相談者本人のみ): セッションが止まっている相談だけ。`channel_deleted_at` を記録してからチャンネルを消す。
-  権限者・招待された人は再開も削除もできない。
+- 削除 (相談者本人と、その相談の権限者 = 管理者): セッションが止まっている相談だけ。`channel_deleted_at` を記録してから
+  チャンネルを消す (2026-10-06 neco 指示「管理者は押せるようにしといて」)。権限者は再開できない。招待された人は再開も削除もできない。
+- 子会社の Bot は許可した操作だけを受けるので、再開・削除のボタン (`consult:resume:` / `consult:delete:`) を
+  `src/discord/subsidiary-scope.ts` の許可に入れる (入れ忘れると「このサーバではこの操作は利用できません」で断られる)。
 - 復元 (2026-10-06 neco 指示「相談きてたチャンネル復元して。元の権限で」): 削除済みの相談は
   `POST /v1/consultations/:id/restore-channel` で作り直せる (削除済みでなければ 409)。API は
   `consultation.channel_restore_requested` を出し、相談の会社 (本社 = null) の Bot だけが処理する
@@ -398,7 +400,7 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 
 状態所有者: 後始末の状態 = `private_consultations` (consultation)。判断 = `src/consultation/closure-policy.ts`、
 手順 = `closure-service.ts`、Discord・Cc API との接続 = `src/discord/consult-closure-wiring.ts`、
-再開・削除の権限 = `src/consultation/private-consultation-service.ts` (`reopen` / `markChannelDeletedByRequester`)、
+再開・削除の権限 = `src/consultation/private-consultation-service.ts` (`reopen` / `markChannelDeletedByOwner`)、
 ボタン = `src/discord/consult-modal.ts` (`buildConsultClosedRow`) と `src/discord/consult-flow.ts` (`handleConsultLifecycle`)。
 
 ## 8. データ

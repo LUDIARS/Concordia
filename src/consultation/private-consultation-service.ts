@@ -54,6 +54,7 @@ export type PrivateConsultationError =
   | "not_allowed"
   | "cannot_remove_requester"
   | "requester_only"
+  | "requester_or_approver_only"
   | "consultation_open"
   | "channel_deleted";
 
@@ -164,11 +165,12 @@ export class PrivateConsultationService {
   }
 
   /**
-   * 相談者本人がチャンネルを消す前の確認と記録 (2026-10-06 neco 指示「消したいときは本人が消す」)。
+   * チャンネルを消す前の確認と記録。 相談者本人 (2026-10-06 neco 指示「消したいときは本人が消す」) と、
+   * その相談の権限者 (管理者、 同日「管理者は押せるようにしといて」) が消せる。 招待された人は消せない。
    * セッションが動いている間は消させない。 チャンネル自体の削除は呼び出し側が行う。
    */
-  markChannelDeletedByRequester(consultationId: string, actorUserId: string): Result<{ channelId: string }> {
-    const owned = this.requesterAction(consultationId, actorUserId);
+  markChannelDeletedByOwner(consultationId: string, actorUserId: string): Result<{ channelId: string }> {
+    const owned = this.requesterAction(consultationId, actorUserId, { allowApprover: true });
     if (!owned.ok) return owned;
     if (owned.consultation.status === "open") return { ok: false, error: "consultation_open" };
     const channelId = owned.consultation.channel_id;
@@ -215,12 +217,16 @@ export class PrivateConsultationService {
     return { ok: true, department, settings };
   }
 
-  private requesterAction(consultationId: string, actorUserId: string):
+  private requesterAction(consultationId: string, actorUserId: string, options: { allowApprover?: boolean } = {}):
     | { ok: true; consultation: PrivateConsultationRow }
     | { ok: false; error: PrivateConsultationError } {
     const consultation = this.ports.store.find(consultationId);
     if (!consultation) return { ok: false, error: "consultation_not_found" };
-    if (consultation.requester_user_id !== actorUserId) return { ok: false, error: "requester_only" };
+    const isApprover = options.allowApprover === true && this.ports.store.members(consultationId)
+      .some((member) => member.platform_user_id === actorUserId && member.reason === "approver" && member.removed_at === null);
+    if (consultation.requester_user_id !== actorUserId && !isApprover) {
+      return { ok: false, error: options.allowApprover ? "requester_or_approver_only" : "requester_only" };
+    }
     if (consultation.channel_deleted_at !== null) return { ok: false, error: "channel_deleted" };
     return { ok: true, consultation };
   }

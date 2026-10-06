@@ -34,6 +34,9 @@ function setup(status: "open" | "closed" = "closed") {
       edit: vi.fn(async (id: string) => { lockEdits.push(id); }),
     },
   };
+  const order: string[] = [];
+  channel.send = vi.fn(async (message: Record<string, unknown>) => { sent.push(message); order.push("send"); });
+  channel.permissionOverwrites.edit = vi.fn(async (id: string) => { lockEdits.push(id); order.push("lock"); });
   const guild = {
     id: "guild-1",
     client: { user: { id: "bot-1" } },
@@ -41,6 +44,7 @@ function setup(status: "open" | "closed" = "closed") {
     roles: { everyone: { id: "everyone-role" } },
     channels: {
       cache: { find: () => undefined },
+      fetch: vi.fn(async (id: string) => (id === "new-chan" ? channel : null)),
       create: vi.fn(async (input: Record<string, unknown>) => {
         created.push(input);
         if (input.type === ChannelType.GuildCategory) return { id: "cat-1", type: ChannelType.GuildCategory };
@@ -65,7 +69,7 @@ function setup(status: "open" | "closed" = "closed") {
     sessionMessages: sessionMessages as never,
     log: { info: vi.fn(), warn: vi.fn() },
   };
-  return { deps, store, id: consultation.id, sent, created, lockEdits };
+  return { deps, store, id: consultation.id, sent, created, lockEdits, order };
 }
 
 describe("restoreConsultChannel", () => {
@@ -83,6 +87,18 @@ describe("restoreConsultChannel", () => {
     expect(contents.join("\n")).toContain("事実から伝える");
     expect(contents.join("\n")).not.toContain("途中の発言");
     expect(h.sent.at(-1)?.components).toBeDefined();
+    // 中身を先に入れ、書き込みの停止は最後 (止まっても中身は残る)。
+    expect(h.order.indexOf("lock")).toBeGreaterThan(h.order.lastIndexOf("send"));
+  });
+
+  it("re-posts the content into an already rebuilt channel (repost) and refuses a missing channel", async () => {
+    const h = setup();
+    await expect(restoreConsultChannel(h.deps, h.id, "repost")).resolves.toBe("channel_missing");
+    await restoreConsultChannel(h.deps, h.id);
+    const before = h.sent.length;
+    await expect(restoreConsultChannel(h.deps, h.id, "repost")).resolves.toBe("reposted");
+    expect(h.created.filter((c) => c.type === ChannelType.GuildText)).toHaveLength(1);
+    expect(h.sent.slice(before).map((m) => String(m.content)).join("\n")).toContain("事実から伝える");
   });
 
   it("does nothing for a consultation whose channel was not deleted or does not exist", async () => {

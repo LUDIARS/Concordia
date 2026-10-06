@@ -285,12 +285,18 @@ describe("handleConsultLifecycle (2026-10-06 neco 指示: チャンネルは残�
     expect(owner.followUp).toHaveBeenCalledWith(expect.objectContaining({ components: expect.any(Array) }));
   });
 
-  it("deletes the channel only when the requester asks", async () => {
+  it("deletes the channel for the requester, and refuses someone outside the consultation", async () => {
     const ctx = await closedConsultation();
-    await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "900") as unknown as ButtonInteraction, ctx.deps);
+    await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "222") as unknown as ButtonInteraction, ctx.deps);
     expect(ctx.deleteChannel).not.toHaveBeenCalled();
     await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "111") as unknown as ButtonInteraction, ctx.deps);
     expect(ctx.deleteChannel).toHaveBeenCalledTimes(1);
     expect(ctx.store.find(ctx.id)?.channel_deleted_at).not.toBeNull();
+  });
+
+  it("lets an approver (管理者) delete the channel (2026-10-06 neco 指示)", async () => {
+    const ctx = await closedConsultation();
+    await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "900") as unknown as ButtonInteraction, ctx.deps);
+    expect(ctx.deleteChannel).toHaveBeenCalledTimes(1);
   });
 });

@@ -2697,8 +2697,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         categoryStore: privateCategoryStore,
         sessionMessages: new SessionMessagesRepo(deps.db),
         log,
-      }, ev.consultation_id)
-        .then((result) => { if (result !== "restored") log.warn(`consultation channel restore skipped consultation=${ev.consultation_id} reason=${result}`); })
+      }, ev.consultation_id, ev.mode)
+        .then((result) => { if (result !== "restored" && result !== "reposted") log.warn(`consultation channel restore skipped consultation=${ev.consultation_id} reason=${result}`); })
         .catch((error) => log.warn(`consultation channel restore failed consultation=${ev.consultation_id}: ${(error as Error).message}`));
       return;
     }

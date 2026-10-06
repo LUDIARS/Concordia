@@ -98,7 +98,12 @@ describe("consultationsRouter restore-channel (2026-10-06 neco 指示)", () => {
     const accepted = await app.request(`/v1/consultations/${consultation.id}/restore-channel`, { method: "POST" });
     expect(accepted.status).toBe(202);
     expect(events).toEqual([expect.objectContaining({
-      type: "consultation.channel_restore_requested", consultation_id: consultation.id, subsidiary_id: "sub-1", ts: 5,
+      type: "consultation.channel_restore_requested", consultation_id: consultation.id, subsidiary_id: "sub-1", mode: "rebuild", ts: 5,
     })]);
+    // repost は作り直し済み (削除の記録が無い) チャンネルだけ。
+    expect((await app.request(`/v1/consultations/${consultation.id}/restore-channel?mode=repost`, { method: "POST" })).status).toBe(409);
+    consultations.restoreChannel(consultation.id, "33333");
+    expect((await app.request(`/v1/consultations/${consultation.id}/restore-channel?mode=repost`, { method: "POST" })).status).toBe(202);
+    expect(events.at(-1)).toMatchObject({ mode: "repost" });
   });
 });

@@ -223,6 +223,19 @@
       (`isConsultFetchLinkCommand`)。`;` `&` `|` `` ` `` `$` `<` `>` 改行を含むものは通さない。どの相談フォルダかの厳密な一致は前段の
       権限 (claude) とフック (codex) が持つ。通した後も内容の分類 (個人情報・機密) は従来どおり行う。2026-10-06 neco 指示「Notion の
       公開リンクの取得が、相談ハーネスでブロックされる」: この境界が Bash を一律に unsafe_tool で止めていた。
+  - ツール制限を外す部署 (部署設定 `consult_tools: "all"`、既定 `restricted`。2026-10-06 neco 指示「Consult のハーネスを
+    すべて許可する設定」、選択「ツール制限だけ外す」):
+    - claude: 起動引数の `--tools=` を外す (`PROJECTLESS_CONSULT_CLAUDE_ARGS_ALL_TOOLS`)。役職フォルダの permissions は
+      `defaultMode: "bypassPermissions"` (`consultClaudePermissions(..., { allTools })`)。
+    - codex: シェルを残し、sandbox を `workspace-write` にする (`confinementArgsFor(..., { allTools })`)。起動 env
+      `CONCORDIA_CONSULT_ALL_TOOLS=1` で、フック (`tools/consult-codex-hook.mjs`) はシェルを止めない。
+    - Cc の情報保護境界: ツールの判定を飛ばす (`toolsUnrestricted`)。
+    - 残すもの: 個人情報・機密の内容判定 (秘匿語辞書・分類器)、利用者の MCP を読ませない (`--strict-mcp-config` /
+      `mcp_servers={}`)、プラグイン無効、自動メモリ無効、上位フォルダの指示ファイルを読ませない (`claudeMdExcludes` /
+      `project_root_markers=[]`)、作業ディレクトリを役職フォルダに固定。
+    - 予算切れからの再開 (`src/control/budget-resume-launch.ts`) は制限付きの引数のまま (安全側。未対応)。
+    - 役職フォルダの settings.local.json は起動のたびに書き直すので、同じ役職を制限あり・なしの部署で共有すると、後に
+      起動した部署の設定になる。
     - 未確認 (2026-10-03): codex の `-s read-only` の sandbox で取得スクリプトのネットワーク通信が通るか。通らなければ Astra の取得は
       「取得中にエラー」になる (閉じ込めは変わらない)。
   - ブランチ切替の案内 (`src/testing/branch-watch.ts` の「⚠️ ブランチ切替を検知しました」) は相談のセッションに出さない

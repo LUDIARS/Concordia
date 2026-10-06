@@ -261,6 +261,9 @@ FINAL ANSWER は session.message で届くので、chat 経路はすべて途中
 - 部署設定 `auto_check` は `on` (既定) / `off`。
 - `off` の部署のセッションには、応答が止まったときの自動確認 (`stalled-session-nudge`) と Goal & Go の継続確認を
   送らない (技術相談課。「相談セッションは自動確認しない」2026-10-02 neco 指示)。
+- 部署設定 `consult_tools` は `restricted` (既定) / `all`。`all` の相談部署はツールの制限を外す
+  (2026-10-06 neco 指示「Consult のハーネスをすべて許可する設定」、選択「ツール制限だけ外す」)。中身は
+  [技術相談](tech-consultation.md) §6「ツール制限を外す部署」。設定は部署の API (`settings.consult_tools`) で行う。
 
 ### 9.7 月次予算のコスト倍率
 

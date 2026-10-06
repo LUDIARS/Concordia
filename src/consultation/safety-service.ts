@@ -8,6 +8,11 @@ export interface ConsultationSafetyInput {
 }
 export interface ConsultationSafetyPorts {
   isConsultation(sessionId: string): boolean;
+  /**
+   * ツール制限を外した部署の相談か (部署の consult_tools=all、 2026-10-06 neco 指示)。 真ならツールの判定を飛ばし、
+   * 内容の判定 (秘匿語・個人情報・機密) だけを行う。 省略時は false (制限する)。
+   */
+  toolsUnrestricted?(sessionId: string): boolean;
   confidentialTerms(): Promise<readonly string[]>;
   classify(prompt: string): Promise<string>;
   record(input: Omit<ConsultationSafetyInput, "text">, result: ConsultationSafetyDecision): string;
@@ -22,7 +27,8 @@ export class ConsultationSafetyService {
     try {
       if (!this.ports.isConsultation(input.sessionId)) return safetyDecision(null);
       if (input.text.length > 50_000) verdict = safetyDecision("guard_unavailable");
-      else if (input.phase === "tool" && !consultationToolAllowed(input.tool ?? "", input.text)) verdict = safetyDecision("unsafe_tool");
+      else if (input.phase === "tool" && !this.ports.toolsUnrestricted?.(input.sessionId)
+        && !consultationToolAllowed(input.tool ?? "", input.text)) verdict = safetyDecision("unsafe_tool");
       else {
         const terms = await this.ports.confidentialTerms();
         const normalized = input.text.normalize("NFKC").toLocaleLowerCase();

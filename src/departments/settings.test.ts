@@ -12,6 +12,7 @@ describe("DepartmentSettingsSchema", () => {
       startup_inject: "full",
       auto_check: "on",
       budget: { cost_multiplier: 1 },
+      consult_tools: "restricted",
     });
   });
 

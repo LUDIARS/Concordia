@@ -57,10 +57,17 @@ const CODEX_CONFINEMENT_ARGS: readonly string[] = Object.freeze([
 export function confinementArgsFor(
   provider: string,
   claudeArgs: readonly string[],
-  options: { codexShell?: boolean } = {},
+  options: { codexShell?: boolean; allTools?: boolean } = {},
 ): readonly string[] | null {
   if (provider === "claude") return claudeArgs;
   if (provider === "codex") {
+    // ツール制限を外した部署 (consult_tools=all): シェルを残し、 作業フォルダへの書き込みも許す。 利用者の MCP・
+    // プラグインと上位のフォルダの指示 (project_root_markers) は読ませないまま (2026-10-06 neco 指示)。
+    if (options.allTools) {
+      return Object.freeze(CODEX_CONFINEMENT_ARGS
+        .filter((arg, index, args) => arg !== "shell_tool" && !(arg === "--disable" && args[index + 1] === "shell_tool"))
+        .map((arg) => (arg === "read-only" ? "workspace-write" : arg)));
+    }
     if (!options.codexShell) return CODEX_CONFINEMENT_ARGS;
     const args = [...CODEX_CONFINEMENT_ARGS];
     const at = args.indexOf("shell_tool");

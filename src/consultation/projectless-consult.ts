@@ -47,6 +47,18 @@ export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze(
 ]);
 
 /**
+ * 部署の consult_tools が `all` の相談に渡す claude の起動引数。 ツールの制限 (`--tools=`) だけを外し、
+ * 利用者の MCP を読ませない `--strict-mcp-config` は残す (2026-10-06 neco 指示、 選択「ツール制限だけ外す」)。
+ */
+export const PROJECTLESS_CONSULT_CLAUDE_ARGS_ALL_TOOLS: readonly string[] = Object.freeze([
+  "--strict-mcp-config",
+]);
+
+export function projectlessConsultClaudeArgs(allTools: boolean): readonly string[] {
+  return allTools ? PROJECTLESS_CONSULT_CLAUDE_ARGS_ALL_TOOLS : PROJECTLESS_CONSULT_CLAUDE_ARGS;
+}
+
+/**
  * 相談専用の Claude 設定フォルダ (`<root>/.claude-config`)。 `CLAUDE_CONFIG_DIR` で渡し、 利用者の
  * ~/.claude (Castra のワークフローを含むスキル・CLAUDE.md・設定) を読ませない。 ログイン情報もここに持つ
  * (初回は人が `CLAUDE_CONFIG_DIR=<このフォルダ> claude` でログインする)。
@@ -123,7 +135,10 @@ const INSTRUCTION_FILES = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude
  * 自動メモリは使わない (相談で使う環境のメモリは別途指定する)。
  * ツールの許可は Web 検索・ToDo・スキルと公開リンクの取得コマンドだけ。 ほかは聞かずに拒否する (consultClaudePermissions)。
  */
-export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<string, unknown> {
+export function consultWorkspaceClaudeSettings(
+  roleWorkspace: string,
+  options: { allTools?: boolean } = {},
+): Record<string, unknown> {
   // 役職フォルダ自身の AGENTS.md は外さない (Claude Code は CLAUDE.md が無ければ AGENTS.md を指示として読む)。
   const ancestors: string[] = [];
   for (let dir = dirname(roleWorkspace); ; dir = dirname(dir)) {
@@ -137,7 +152,7 @@ export function consultWorkspaceClaudeSettings(roleWorkspace: string): Record<st
       ...INSTRUCTION_FILES.map((file) => `${slash(roleWorkspace)}/*/**/${file}`),
     ],
     autoMemoryEnabled: false,
-    permissions: consultClaudePermissions(dirname(roleWorkspace)),
+    permissions: consultClaudePermissions(dirname(roleWorkspace), options),
   };
 }
 

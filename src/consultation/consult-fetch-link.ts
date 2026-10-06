@@ -17,6 +17,8 @@ import { join } from "node:path";
 
 /** 起動 env に入れる取得スクリプトの絶対パス (tools/consult-fetch-link-command.mjs の FETCH_LINK_SCRIPT_ENV と揃える)。 */
 export const CONSULT_FETCH_LINK_SCRIPT_ENV = "CONCORDIA_CONSULT_FETCH_LINK_SCRIPT";
+/** ツール制限を外した部署の相談 (consult_tools=all)。 tools/consult-codex-hook.mjs の ALL_TOOLS_ENV と揃える。 */
+export const CONSULT_ALL_TOOLS_ENV = "CONCORDIA_CONSULT_ALL_TOOLS";
 
 const slash = (path: string) => path.replace(/\\/g, "/").replace(/\/$/, "");
 
@@ -25,8 +27,15 @@ export function consultFetchLinkScript(root: string): string {
   return slash(join(root, "_source", "tools", "fetch-link", "fetch-link.mjs"));
 }
 
-/** 相談セッションの claude に許すツール (それ以外は聞かずに拒否する)。 */
-export function consultClaudePermissions(root: string): { defaultMode: "dontAsk"; allow: string[] } {
+/**
+ * 相談セッションの claude に許すツール (それ以外は聞かずに拒否する)。 部署の consult_tools が `all` なら制限を外す
+ * (2026-10-06 neco 指示「Consult のハーネスをすべて許可する設定」)。
+ */
+export function consultClaudePermissions(
+  root: string,
+  options: { allTools?: boolean } = {},
+): { defaultMode: "dontAsk"; allow: string[] } | { defaultMode: "bypassPermissions" } {
+  if (options.allTools) return { defaultMode: "bypassPermissions" };
   return {
     defaultMode: "dontAsk",
     allow: ["WebSearch", "TodoWrite", "Skill", `Bash(node ${consultFetchLinkScript(root)}:*)`],

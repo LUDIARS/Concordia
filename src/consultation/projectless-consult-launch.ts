@@ -18,11 +18,11 @@
  */
 
 import type { DepartmentRow } from "../db/departments-repo.js";
-import { CONSULT_FETCH_LINK_SCRIPT_ENV, consultFetchLinkScript } from "./consult-fetch-link.js";
+import { CONSULT_ALL_TOOLS_ENV, CONSULT_FETCH_LINK_SCRIPT_ENV, consultFetchLinkScript } from "./consult-fetch-link.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import {
   CONSULT_SESSION_ENV,
-  PROJECTLESS_CONSULT_CLAUDE_ARGS,
+  projectlessConsultClaudeArgs,
   consultClaudeConfigDir,
   consultCodexHome,
   consultPersonalDataDir,
@@ -83,6 +83,8 @@ export type ProjectlessConsultLaunch =
     claudeConfigReady: boolean;
     /** 相談専用の CODEX_HOME にログイン済みか (codex で起動するときに必要)。 */
     codexHomeReady: boolean;
+    /** 部署の consult_tools が `all` (ツール制限を外す。 内容の判定と MCP・メモリの閉じ込めは残す)。 */
+    allTools: boolean;
     /** Astra (codex) に公開リンクの取得コマンドを許せるか (相談の CODEX_HOME で PreToolUse フックが信頼済み)。 */
     codexFetchLinkReady: boolean;
     /** 相談者のデータフォルダ (Discord 以外からの起動は null)。 */
@@ -99,8 +101,11 @@ export async function resolveProjectlessConsultLaunch(
   const { subsidiaryId, department } = request;
   if (!department) return { kind: "none" };
   let projects: readonly string[];
+  let allTools: boolean;
   try {
-    projects = parseDepartmentSettings(department.settings_json).projects;
+    const settings = parseDepartmentSettings(department.settings_json);
+    projects = settings.projects;
+    allTools = settings.consult_tools === "all";
   } catch {
     // 壊れた設定の部署は部署の起動検証が先に止める。 ここで対象と誤認しない。
     return { kind: "none" };
@@ -116,7 +121,7 @@ export async function resolveProjectlessConsultLaunch(
   if (!ports.workspaceRoot) return { kind: "error", status: 503, error: "projectless_consult_workspace_unavailable" };
   const cwd = consultRoleWorkspace(ports.workspaceRoot, request.roleTitle);
   const dataDir = consultPersonalDataDir(cwd, request.requesterDiscordUserId);
-  await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings(cwd), dataDir);
+  await ports.prepareWorkspace(cwd, consultWorkspaceClaudeSettings(cwd, { allTools }), dataDir);
   const configDir = consultClaudeConfigDir(ports.workspaceRoot);
   const claudeConfigReady = await ports.prepareClaudeConfig(configDir, cwd);
   const codexHome = consultCodexHome(ports.workspaceRoot);
@@ -129,9 +134,11 @@ export async function resolveProjectlessConsultLaunch(
     // 公開リンクの取得コマンド。 codex のフックはこのパスのコマンドだけを通す (consult-fetch-link.ts)。
     [CONSULT_FETCH_LINK_SCRIPT_ENV]: consultFetchLinkScript(ports.workspaceRoot),
     ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
+    // ツール制限を外した部署 (consult_tools=all)。 codex のフックはこれを見てシェルを止めない。
+    ...(allTools ? { [CONSULT_ALL_TOOLS_ENV]: "1" } : {}),
   };
   return {
-    kind: "consult-workspace", cwd, dataDir, claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
+    kind: "consult-workspace", cwd, dataDir, claudeArgs: projectlessConsultClaudeArgs(allTools), allTools,
     restriction: projectlessConsultRestriction(), claudeConfigReady, codexHomeReady, codexFetchLinkReady, env,
   };
 }

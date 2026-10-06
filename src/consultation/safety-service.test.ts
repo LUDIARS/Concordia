@@ -77,6 +77,13 @@ it("lets only the public-link fetch command through the shell (2026-10-06 neco æ
   expect(await service.check({ sessionId: "s", phase: "tool", tool: "Write", text: `node ${script} https://x` }))
     .toMatchObject({ blocked: true, reason: "unsafe_tool" });
 });
+it("skips only the tool check for a department with consult_tools=all, keeping the content check (2026-10-06)", async () => {
+  const { ports } = setup();
+  const service = new ConsultationSafetyService({ ...ports, toolsUnrestricted: () => true });
+  expect(await service.check({ sessionId: "s", phase: "tool", tool: "Bash", text: "ls -a" })).toMatchObject({ blocked: false });
+  expect(await service.check({ sessionId: "s", phase: "tool", tool: "Bash", text: "cat fictional-secret-value" }))
+    .toMatchObject({ blocked: true, reason: "confidential_data" });
+});
 it("leaves ordinary implementation sessions unchanged", async () => {
   const { ports } = setup(); ports.isConsultation = () => false;
   expect(await new ConsultationSafetyService(ports).check({ sessionId: "s", phase: "tool", tool: "Bash", text: "echo ok" })).toMatchObject({ blocked: false });

@@ -76,6 +76,10 @@ describe('consult codex hook', () => {
     await runConsultCodexHook({ event: 'pre-tool', env: {}, write, input: { tool_name: 'apply_patch', tool_input: { input: '*** Begin Patch' } } });
     expect(write).toHaveBeenCalledTimes(1);
     expect(localShellVerdict({ tool_name: 'web_search', tool_input: { query: 'x' } }, shellEnv)).toBeNull();
+    // ツール制限を外した部署 (consult_tools=all) はシェルを止めない (内容の判定は Cc に任せる)。
+    expect(localShellVerdict({ tool_name: 'Bash', tool_input: { command: 'ls -a' } }, { CONCORDIA_CONSULT_ALL_TOOLS: '1' })).toBeNull();
+    expect(localShellVerdict({ tool_name: 'Bash', tool_input: { command: 'ls -a' } }, { CONCORDIA_CONSULT_ALL_TOOLS: '0' }))
+      .toMatchObject({ decision: 'deny' });
   });
 
   it('シェルの command 配列も 1 本の文字列にする', () => {

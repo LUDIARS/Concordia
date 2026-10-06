@@ -1276,7 +1276,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const consultConfined = (consultConfinement?.claudeArgs.length ?? 0) > 0;
     const consultArgsFor = (provider: string): readonly string[] | null =>
       consultConfined
-        ? confinementArgsFor(provider, consultConfinement!.claudeArgs, { codexShell: consultConfinement!.codexFetchLinkReady })
+        ? confinementArgsFor(provider, consultConfinement!.claudeArgs, {
+          codexShell: consultConfinement!.codexFetchLinkReady,
+          allTools: consultConfinement!.allTools,
+        })
         : [];
     // 相談は相談専用の設定フォルダ (claude は CLAUDE_CONFIG_DIR、 codex は CODEX_HOME) にログインしていないと起動できない。
     const consultLoginMissing = (provider: string): string | null => {

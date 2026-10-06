@@ -63,6 +63,14 @@ const StartupInjectSchema = z.enum(["full", "initial-only"]);
 const AutoCheckSchema = z.enum(["on", "off"]);
 
 /**
+ * 相談 (プロジェクト無しの読み取り専用部署) のツール制限 (spec/feature/tech-consultation.md §6)。
+ * `restricted` は Web 検索・ToDo・スキルと公開リンクの取得コマンドだけ。 `all` はツールの制限を外す
+ * (2026-10-06 neco 指示「Consult のハーネスをすべて許可する設定」、 選択「ツール制限だけ外す」)。
+ * `all` でも個人情報・機密の内容判定と、 利用者の MCP・メモリ・上位の指示ファイルを読ませない閉じ込めは残す。
+ */
+const ConsultToolsSchema = z.enum(["restricted", "all"]);
+
+/**
  * プライベート相談 (spec/feature/tech-consultation.md §4)。 enabled の部署だけ `/consult` を受け付け、
  * 社員名簿で approver_min_role 以上の人を閉じたチャンネルへ自動で加える。
  */
@@ -87,6 +95,7 @@ export const DepartmentSettingsSchema = z.object({
   startup_inject: StartupInjectSchema.default("full"),
   auto_check: AutoCheckSchema.default("on"),
   budget: BudgetSettingsSchema.default({}),
+  consult_tools: ConsultToolsSchema.default("restricted"),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -122,6 +131,7 @@ export type DepartmentPrivateConsultation = DepartmentSettings["private"];
 export type DepartmentStartupInject = DepartmentSettings["startup_inject"];
 export type DepartmentAutoCheck = DepartmentSettings["auto_check"];
 export type DepartmentBudgetSettings = DepartmentSettings["budget"];
+export type DepartmentConsultTools = DepartmentSettings["consult_tools"];
 
 export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
@@ -139,6 +149,7 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
   launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full", auto_check: "on",
   budget: { cost_multiplier: 1 },
+  consult_tools: "restricted",
 };
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */

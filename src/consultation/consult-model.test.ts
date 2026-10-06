@@ -49,4 +49,11 @@ describe("confinementArgsFor", () => {
     expect(confinementArgsFor("codex", [], { codexShell: false })).toContain("shell_tool");
     expect(confinementArgsFor("claude", ["--tools=WebSearch"], { codexShell: true })).toEqual(["--tools=WebSearch"]);
   });
+
+  it("consult_tools=all の codex はシェルを残して書き込みを許し、 プラグイン・MCP・上位の指示は外したまま (2026-10-06)", () => {
+    expect(confinementArgsFor("codex", [], { allTools: true })).toEqual([
+      "-p", "consult", "-s", "workspace-write", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
+    ]);
+    expect(confinementArgsFor("claude", ["--strict-mcp-config"], { allTools: true })).toEqual(["--strict-mcp-config"]);
+  });
 });

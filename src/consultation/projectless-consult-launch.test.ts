@@ -53,6 +53,7 @@ describe("resolveProjectlessConsultLaunch", () => {
       codexHomeReady: true,
       // フックの信頼を確かめられない (port 無し) ので、 Astra にはシェルを許さない。
       codexFetchLinkReady: false,
+      allTools: false,
       env: {
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
         CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
@@ -83,6 +84,7 @@ describe("resolveProjectlessConsultLaunch", () => {
       claudeConfigReady: false,
       codexHomeReady: false,
       codexFetchLinkReady: false,
+      allTools: false,
       env: {
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
         CLAUDE_CONFIG_DIR: join("/srv/cw", ".claude-config"),
@@ -134,5 +136,20 @@ describe("resolveProjectlessConsultLaunch", () => {
       { subsidiaryId: "glab", department: department(), specifiedScope: [] },
       { ...ports(), workspaceRoot: undefined },
     )).toEqual({ kind: "error", status: 503, error: "projectless_consult_workspace_unavailable" });
+  });
+
+  it("consult_tools=all の部署はツール制限だけを外し、 MCP の閉じ込めとフックへの印を残す (2026-10-06 neco 指示)", async () => {
+    const p = ports();
+    const result = await resolveProjectlessConsultLaunch({
+      subsidiaryId: "glab", department: department({ settings_json: JSON.stringify({ consult_tools: "all" }) }), specifiedScope: [],
+      roleTitle: "サウンドクリエイター", requesterDiscordUserId: null,
+    }, p);
+    if (result.kind !== "consult-workspace") throw new Error(result.kind);
+    expect(result.allTools).toBe(true);
+    expect(result.claudeArgs).toEqual(["--strict-mcp-config"]);
+    expect(result.env.CONCORDIA_CONSULT_ALL_TOOLS).toBe("1");
+    const settings = (p.prepareWorkspace.mock.calls[0] as unknown as unknown[])[1] as { permissions: unknown; autoMemoryEnabled: boolean };
+    expect(settings.permissions).toEqual({ defaultMode: "bypassPermissions" });
+    expect(settings.autoMemoryEnabled).toBe(false);
   });
 });

@@ -17,10 +17,18 @@ export function createConsultationSafety(deps: {
   audit: Pick<HarnessAuditRepo, "record">;
   roots(): string[];
 }): ConsultationSafetyService {
+  const departmentOf = (id: string) => {
+    const departmentId = id.startsWith("department:") ? id.slice(11) : deps.sessions.findSession(id)?.department_id;
+    return { departmentId, department: departmentId ? deps.departments?.find(departmentId) ?? null : null };
+  };
   return new ConsultationSafetyService({
+    // 壊れた設定・見つからない部署は制限側に倒す (例外は呼び出し側で guard_unavailable になる)。
+    toolsUnrestricted: id => {
+      const { department } = departmentOf(id);
+      return department ? parseDepartmentSettings(department.settings_json).consult_tools === "all" : false;
+    },
     isConsultation: id => {
-      const departmentId = id.startsWith("department:") ? id.slice(11) : deps.sessions.findSession(id)?.department_id;
-      const department = departmentId ? deps.departments?.find(departmentId) : null;
+      const { departmentId, department } = departmentOf(id);
       if (departmentId && !department) throw new Error("consultation_department_unavailable");
       if (!department?.use_case_id) return false;
       // A broken assigned department must not silently disable the safety boundary.

@@ -16,6 +16,8 @@ import { pathToFileURL } from "node:url";
 import { FETCH_LINK_SCRIPT_ENV, isAllowedFetchLinkCommand } from "./consult-fetch-link-command.mjs";
 
 const DEFAULT_TIMEOUT_MS = 3000;
+/** ツール制限を外した部署の相談 (src/consultation/consult-fetch-link.ts の CONSULT_ALL_TOOLS_ENV と揃える)。 */
+export const ALL_TOOLS_ENV = "CONCORDIA_CONSULT_ALL_TOOLS";
 
 /** codex の PreToolUse 入力をハーネスの操作 1 件にする。 */
 export function gateActionFrom(input) {
@@ -37,6 +39,9 @@ const SHELL_LIKE_TOOLS = /^(bash|shell|local_shell|exec_command|unified_exec|con
  * Cc に届かなくても止める (fail-closed)。 シェル以外のツールは null (Cc の判定に任せる)。
  */
 export function localShellVerdict(input, env = process.env) {
+  // ツール制限を外した部署 (consult_tools=all、 src/consultation/consult-fetch-link.ts の CONSULT_ALL_TOOLS_ENV)。
+  // シェルは止めず、 内容の判定は Cc のハーネス判定に任せる。
+  if (env[ALL_TOOLS_ENV] === "1") return null;
   const toolInput = input?.tool_input && typeof input.tool_input === "object" ? input.tool_input : {};
   const shellLike = toolInput.command !== undefined || SHELL_LIKE_TOOLS.test(String(input?.tool_name ?? ""));
   if (!shellLike) return null;

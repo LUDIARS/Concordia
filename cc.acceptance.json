@@ -4360,6 +4360,7 @@
     {"source":"src/departments/output-policy.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/discord/bot.ts","tests":["src/departments/output-policy.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
     {"source":"src/discord/egress.ts","tests":["src/discord/egress.test.ts"],"contracts":["SPEC-CONSULTATION-TURN-STATUS"]},
+    {"source":"src/discord/consult-channel-restore.ts","tests":["src/discord/consult-channel-restore.test.ts"],"contracts":["SPEC-CONSULT-CLOSURE"]},
     {"source":"src/federation/remote-session-payload.ts","tests":["src/federation/remote-session-site.test.ts"],"contracts":[]},
     {"source":"src/federation/remote-thread-registry.ts","tests":["src/federation/remote-session-site.test.ts"],"contracts":[]},
     {"source":"src/federation/remote-session-site.ts","tests":["src/federation/remote-session-site.test.ts"],"contracts":[]},

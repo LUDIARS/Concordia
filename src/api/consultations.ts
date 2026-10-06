@@ -20,7 +20,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { ConcordiaEvent } from "../events.js";
 import type { PublicationError, PublicationService } from "../consultation/publication-service.js";
-import type { PrivateConsultationRow } from "../db/private-consultations-repo.js";
+import type { PrivateConsultationRow, PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
 
 const ProposalSchema = z.object({
   session_id: z.string().trim().min(1).max(200),
@@ -53,6 +53,8 @@ const STATUS: Readonly<Record<PublicationError, 400 | 403 | 404 | 409 | 502 | 50
 
 export interface ConsultationsApiDeps {
   publications: PublicationService;
+  /** 削除済みチャンネルの復元に使う相談の照会。 未指定なら復元 API は 503。 */
+  consultations?: Pick<PrivateConsultationsRepo, "find">;
   emit(event: ConcordiaEvent): void;
   now?: () => number;
 }
@@ -86,6 +88,25 @@ export function consultationsRouter(deps: ConsultationsApiDeps): Hono {
     if (!result.ok) return c.json({ error: result.error }, STATUS[result.error]);
     emitProposed(result);
     return c.json({ publication_id: result.publication.id, tabula_ready: result.tabulaReady }, 201);
+  });
+
+  /**
+   * 削除済みの相談チャンネルを元の閲覧者で作り直す (tech-consultation.md §7、 2026-10-06 neco 指示)。
+   * 作り直しは相談の会社の Bot が consultation.channel_restore_requested を受けて行う (受付だけ返す)。
+   */
+  app.post("/:id/restore-channel", (c) => {
+    if (!deps.consultations) return c.json({ error: "consultation_store_unavailable" }, 503);
+    const consultation = deps.consultations.find(c.req.param("id"));
+    if (!consultation) return c.json({ error: "consultation_not_found" }, 404);
+    if (consultation.channel_deleted_at === null) return c.json({ error: "channel_not_deleted" }, 409);
+    deps.emit({
+      type: "consultation.channel_restore_requested",
+      event_id: randomUUID(),
+      consultation_id: consultation.id,
+      subsidiary_id: consultation.subsidiary_id,
+      ts: Math.floor(now() / 1000),
+    });
+    return c.json({ accepted: true, consultation_id: consultation.id }, 202);
   });
 
   app.post("/:id/share-proposal", async (c) => {

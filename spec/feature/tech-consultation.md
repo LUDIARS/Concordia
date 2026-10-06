@@ -381,6 +381,12 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
   部署が廃止済み・チャンネル削除済みなら再開しない。起動に失敗したら閉じ直してボタンを出し直す。
 - 削除 (相談者本人のみ): セッションが止まっている相談だけ。`channel_deleted_at` を記録してからチャンネルを消す。
   権限者・招待された人は再開も削除もできない。
+- 復元 (2026-10-06 neco 指示「相談きてたチャンネル復元して。元の権限で」): 削除済みの相談は
+  `POST /v1/consultations/:id/restore-channel` で作り直せる (削除済みでなければ 409)。API は
+  `consultation.channel_restore_requested` を出し、相談の会社 (本社 = null) の Bot だけが処理する
+  (`src/discord/consult-channel-restore.ts`)。Discord の元の投稿は戻らないので、除外済みを除くメンバーだけが見られる
+  チャンネルを相談のカテゴリに作り、Cc に残る会話 (相談者の発言と最終回答、§7 の判定と同じ範囲) を再掲する。
+  終了済みの相談は書き込みを止めて再開・削除のボタンを出す。`channel_id` を新しいチャンネルへ付け替え、削除の記録を外す。
 - フォーラムでの公開相談 (部署フォーラムのスレッド) はこの後始末の対象外で、消さずに総務と同じくクローズして残す
   (「フォーラムでの公開相談は消すんじゃなくてクローズで残す」同日)。
 - 状態は `private_consultations.wrap_status` (pending → asking → done、導入前の相談は legacy で対象外) が正本。

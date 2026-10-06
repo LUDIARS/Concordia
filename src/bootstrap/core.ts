@@ -2146,6 +2146,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // (2026-10-02 neco 指示)。 Concordia はワークスペース直下 (E:/Document/Ars/Concordia) で動くので 2 つ上に置く。
     consultWorkspaceRoot,
     consultationPublications,
+    privateConsultations: new PrivateConsultationsRepo(db),
     publishedConsultations: consultationPublicationsRepo,
     usageBudgets: {
       repo: usageBudgetsRepo,

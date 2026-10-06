@@ -75,3 +75,30 @@ describe("consultationsRouter", () => {
     expect((await app.request("/v1/consultations/proposals", post({ session_id: "other", title: "t", summary: "s" }))).status).toBe(404);
   });
 });
+
+describe("consultationsRouter restore-channel (2026-10-06 neco 指示)", () => {
+  it("accepts a restore only for a deleted channel and asks the company's bot to rebuild it", async () => {
+    const db = makeTestDb();
+    const consultations = new PrivateConsultationsRepo(db);
+    const consultation = consultations.create({
+      subsidiary_id: "sub-1", department_id: "dept_qa", requester_user_id: "11111", status: "pending_approval", intake_json: "{}",
+    });
+    consultations.setChannel(consultation.id, "22222");
+    const events: ConcordiaEvent[] = [];
+    const publications = new PublicationService({
+      publications: new ConsultationPublicationsRepo(db), consultations, departmentName: () => "技術相談課",
+      tabulaConnection: () => null, importPage: vi.fn(),
+    });
+    const app = new Hono().route("/v1/consultations", consultationsRouter({
+      publications, consultations, emit: (event) => { events.push(event); }, now: () => 5_000,
+    }));
+    expect((await app.request("/v1/consultations/missing/restore-channel", { method: "POST" })).status).toBe(404);
+    expect((await app.request(`/v1/consultations/${consultation.id}/restore-channel`, { method: "POST" })).status).toBe(409);
+    consultations.markChannelDeleted(consultation.id);
+    const accepted = await app.request(`/v1/consultations/${consultation.id}/restore-channel`, { method: "POST" });
+    expect(accepted.status).toBe(202);
+    expect(events).toEqual([expect.objectContaining({
+      type: "consultation.channel_restore_requested", consultation_id: consultation.id, subsidiary_id: "sub-1", ts: 5,
+    })]);
+  });
+});

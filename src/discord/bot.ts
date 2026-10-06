@@ -159,6 +159,7 @@ import { guildMemberIds } from "./guild-member-ids.js";
 import { createPersonalBudgetDiscord } from "./personal-budget-discord.js";
 import { startPeriodic, type PeriodicHandle } from "../personal-budget/periodic.js";
 import { createConsultationClosure } from "./consult-closure-wiring.js";
+import { restoreConsultChannel } from "./consult-channel-restore.js";
 import { dailySweepDay } from "../consultation/closure-policy.js";
 import { deliverUsageBudgetNotice } from "./usage-budget-notice.js";
 import { deliverBudgetResumable } from "./budget-resume.js";
@@ -2675,6 +2676,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         },
         log,
       }, ev);
+      return;
+    }
+    if (ev.type === "consultation.channel_restore_requested") {
+      // 相談の会社の Bot だけが作り直す (子会社 Bot は token を共有するので会社で絞る)。
+      if (ev.subsidiary_id !== (subsidiaryId ?? null)) return;
+      void restoreConsultChannel({
+        guild,
+        store: privateConsultationsRepo,
+        categoryStore: privateCategoryStore,
+        sessionMessages: new SessionMessagesRepo(deps.db),
+        log,
+      }, ev.consultation_id)
+        .then((result) => { if (result !== "restored") log.warn(`consultation channel restore skipped consultation=${ev.consultation_id} reason=${result}`); })
+        .catch((error) => log.warn(`consultation channel restore failed consultation=${ev.consultation_id}: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "consultation.proposed") {

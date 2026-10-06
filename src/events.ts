@@ -105,6 +105,17 @@ type ConcordiaEventPayload =
       fields: string[];
       ts: number;
     }
+  /**
+   * 削除済みのプライベート相談チャンネルを作り直す依頼 (tech-consultation.md §7)。 相談の会社 (本社 = null) の
+   * Bot だけが元の閲覧者でチャンネルを作り、 残っている会話を再掲する。
+   */
+  | {
+      type: "consultation.channel_restore_requested";
+      event_id: string;
+      consultation_id: string;
+      subsidiary_id: string | null;
+      ts: number;
+    }
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 Bot が相談チャンネルへ判断カードを出す。 */
   | {
       type: "consultation.proposed";

@@ -318,6 +318,8 @@ export interface CoreDelegationDeps {
   };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
+  /** 削除済み相談チャンネルの復元 API が相談を引くのに使う。 */
+  privateConsultations?: Pick<import("../db/private-consultations-repo.js").PrivateConsultationsRepo, "find">;
   /** バグ報告の受付 (spec/feature/bug-bounty.md §3)。 未注入なら /v1/bounty は生えない。 */
   bountyIntake?: BountyIntakeService;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
@@ -898,6 +900,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.consultationPublications) {
     app.route("/v1/consultations", consultationsRouter({
       publications: deps.consultationPublications,
+      ...(deps.privateConsultations ? { consultations: deps.privateConsultations } : {}),
       emit: (event) => eventBus.emit(event),
     }));
   }

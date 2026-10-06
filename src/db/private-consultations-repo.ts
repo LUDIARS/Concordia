@@ -159,6 +159,13 @@ export class PrivateConsultationsRepo {
     `).run(to, to, now, now, id, from).changes > 0;
   }
 
+  /** 削除済みのチャンネルを作り直したとき、 新しいチャンネルへ付け替えて削除の記録を外す。 */
+  restoreChannel(id: string, channelId: string, now: number = Date.now()): void {
+    this.db.prepare(
+      "UPDATE private_consultations SET channel_id = ?, channel_deleted_at = NULL, updated_at = ? WHERE id = ?",
+    ).run(channelId, now, id);
+  }
+
   markChannelDeleted(id: string, now: number = Date.now()): void {
     this.db.prepare(
       "UPDATE private_consultations SET channel_deleted_at = ?, updated_at = ? WHERE id = ? AND channel_deleted_at IS NULL",

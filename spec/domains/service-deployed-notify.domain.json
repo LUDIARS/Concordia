@@ -20,6 +20,9 @@
       "pathPattern": "(^|/)src/deploy/service-deployed-runtime(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/deploy/self-deployment(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/deploy/deployment-targets(\\.test)?\\.ts$"
     },
     {

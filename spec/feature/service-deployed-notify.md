@@ -10,6 +10,17 @@ Revisor の repository / changes が未登録または利用不能でも、デ�
 
 公開済み Release の通知は [公開リリース通知](release-published-notify.md) が所有する。`service.deployed` の台帳・配送先とは別のイベントであり、同じ専用チャンネルを暗黙に共用しない。
 
+## Concordia 自身の配備
+
+2026-10-06 neco 指示「デプロイの通知は GLab にも飛ばそう」。GLab の通知先と対象 (Concordia) は設定済みだったが、Concordia の配備は
+台帳に 10/01 の 2 件しか無かった。Excubitor は再起動の直後に `/v1/events/service-deployed` を呼ぶが、Concordia 自身の再起動では
+その瞬間に Concordia がまだ起動しておらず、通知が抜け落ちていた。
+
+- Concordia は起動 15 秒後に 1 回、自分の版 (`git rev-parse --short=12 HEAD`) を台帳の直前の版 (`latestHash("concordia")`) と比べ、
+  変わっていれば `handleServiceDeployment` を同じ宛先で流す (`src/deploy/self-deployment.ts`)。
+- 台帳が同じ版を 1 回しか受け付けないので、Excubitor の呼び出しが届いても二重には送らない。版が取れない・台帳に記録が無いときは何もしない。
+- 未解決 (Concordia の外): 2026-10-05 21:49 (UTC) 以降、どのサービスの service.deployed も台帳に届いていない。Excubitor 側の確認が要る。
+
 ## 本社・子会社の対象範囲
 
 この節の規則は、デプロイ通知の明示設定を持たない project（`project_codes.deploy_notification` が NULL）に適用する。明示設定を保存した project は [プロジェクト別デプロイ・リリース通知設定](project-notification-preferences.md) で選んだ範囲だけへ配送し、この節の規則へ戻さない。リリース通知の設定はデプロイの宛先に影響しない。

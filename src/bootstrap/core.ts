@@ -170,6 +170,11 @@ import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startHumanWait } from "../control/human-wait.js";
 import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
+import { startSelfDeploymentReport } from "../deploy/self-deployment.js";
+import { handleServiceDeployment } from "../deploy/service-deployed.js";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify as promisifyNode } from "node:util";
+const execFileAsync = promisifyNode(execFileCallback);
 import { startRemoteSessionSite } from "../federation/remote-session-wiring.js";
 import { buildForumSpawnPrompt } from "../discord/forum-spawn.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
@@ -2523,6 +2528,17 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(startHumanResponseConfirmation(repo));
     trackPostListenHandle(startHumanWait(repo));
     trackPostListenHandle(startAutoConfirmStrikeReset(repo));
+    // Concordia 自身の配備を起動後に自己報告する (Excubitor の通知は自分の再起動中に届かないため)。
+    trackPostListenHandle(startSelfDeploymentReport({
+      latestHash: (code) => serviceDeployed.ledger.latestHash(code),
+      readHead: async () => {
+        const { stdout } = await execFileAsync("git", ["rev-parse", "--short=12", "HEAD"], { cwd: process.cwd(), timeout: 10_000 });
+        return stdout.trim() || null;
+      },
+      version: process.env.npm_package_version ?? "dev",
+      handle: (event) => handleServiceDeployment({ event, ledger: serviceDeployed.ledger, lookup: serviceDeployed.lookup, delivery: serviceDeployed.delivery }),
+      log: createChildLogger("self-deployment"),
+    }));
     // 拠点ロール: 本社 forum の拠点タグ付き投稿からセッションを起動し、発言を本社スレッドへ返す。
     trackPostListenHandle(startRemoteSessionSite({
       federation,

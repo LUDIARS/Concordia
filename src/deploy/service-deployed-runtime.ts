@@ -24,6 +24,14 @@ export class SqliteDeploymentLedger implements DeploymentLedger {
       "INSERT INTO service_deployment_ledger(code, current_hash, received_at) VALUES (?, ?, ?) ON CONFLICT(code, current_hash) DO NOTHING",
     ).run(code, currentHash, Date.now()).changes === 1;
   }
+
+  /** そのサービスで最後に受け付けた版 (Concordia 自身の配備の自己報告で使う、 self-deployment.ts)。 */
+  latestHash(code: string): string | null {
+    const row = this.db.prepare(
+      "SELECT current_hash FROM service_deployment_ledger WHERE code = ? ORDER BY received_at DESC LIMIT 1",
+    ).get(code) as { current_hash: string } | undefined;
+    return row?.current_hash ?? null;
+  }
 }
 
 export function createDeploymentLookup(input: {

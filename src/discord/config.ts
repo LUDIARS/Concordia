@@ -199,7 +199,8 @@ export async function ensureDiscordLayout(
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", null);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
-  const serviceStatusChannelId = await ensureTextChannel(guild, repo, "service_status_channel_id", "サービス稼働", statusCategoryId);
+  // サービス稼働もカテゴリ外のルートチャンネル (2026-10-06 neco 指示「雑務窓口とサービス稼働はカテゴリから出す」)。
+  const serviceStatusChannelId = await ensureTextChannel(guild, repo, "service_status_channel_id", "サービス稼働", null);
   // pr-queue / errors / 雑談系 (meta) は子会社では作らない (空 id を返し、 消費側はガードで skip)。
   const prQueueChannelId = includePrQueue
     ? await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId)

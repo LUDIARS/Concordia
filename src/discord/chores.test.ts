@@ -87,6 +87,16 @@ describe("Discord chores", () => {
     expect(card.components[0].toJSON().components.every(b => !b.disabled)).toBe(true);
     expect(choreCard({ ...row, status: "continued" }).components[0].toJSON().components.every(b => b.disabled)).toBe(true);
   });
+  it("moves an existing chores window out of its category (2026-10-06 neco 指示)", async () => {
+    const setParent = vi.fn(async () => undefined);
+    const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", parentId: "meta-category", setParent };
+    const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "meta-category", baseUrl: "http://cc", log: { warn: vi.fn() } });
+    try {
+      expect(setParent).toHaveBeenCalledWith(null, expect.anything());
+    } finally { surface.stopChores(); }
+  });
+
   it("ignores bots, denies unauthorized callers and accepts a human in the dedicated channel", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async (_url: unknown, _options?: RequestInit) => new Response(JSON.stringify({ run: row }), { status: 202 }));

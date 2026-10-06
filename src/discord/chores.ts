@@ -48,11 +48,14 @@ export async function startChoresDiscord(input: {
   const { guild, config } = input;
   const saved = config.get("chores_channel_id");
   const existing = saved ? guild.channels.cache.get(saved) : [...guild.channels.cache.values()].find(c => c.type === ChannelType.GuildText && ["雑務", "雑務窓口"].includes(c.name));
+  // 雑務窓口はカテゴリ外のルートチャンネル (2026-10-06 neco 指示「雑務窓口とサービス稼働はカテゴリから出す」)。
+  // 雑務課のフォーラムは従来どおり parentId のカテゴリに置く。
   const channel: TextChannel = existing?.type === ChannelType.GuildText ? existing : await guild.channels.create({
-    name: "雑務窓口", type: ChannelType.GuildText, parent: input.parentId,
+    name: "雑務窓口", type: ChannelType.GuildText,
     topic: "依頼を投稿すると専用ディレクトリでワンショット実行します。先頭 [codex] でCodex、既定はClaude。結果のOKで完了、Continueでセッション起動。",
   });
   if (channel.name !== "雑務窓口") await channel.setName("雑務窓口");
+  if (channel.parentId) await channel.setParent(null, { reason: "chores window moved out of category" });
   config.set("chores_channel_id", channel.id);
   let stopped = false;
   const forum = await createChoresForum({ guild, config, parentId: input.parentId, windowId: channel.id, card: choreCard, stopped: () => stopped });

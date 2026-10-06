@@ -95,7 +95,8 @@ describe("ensureDiscordLayout", () => {
     expect(channels.get(snap.costChannelId)?.parentId).toBeNull();
     expect(channels.get(snap.activityChannelId)?.parentId).toBe(snap.statusCategoryId);
     expect(channels.get(snap.serviceStatusChannelId!)?.name).toBe("サービス稼働");
-    expect(channels.get(snap.serviceStatusChannelId!)?.parentId).toBe(snap.statusCategoryId);
+    // サービス稼働はカテゴリ外 (2026-10-06 neco 指示「雑務窓口とサービス稼働はカテゴリから出す」)。
+    expect(channels.get(snap.serviceStatusChannelId!)?.parentId).toBeNull();
   });
 
   it("Session フォーラムを既定部署の名前に揃え、 既定部署が無くなれば Session に戻す", async () => {

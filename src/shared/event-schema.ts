@@ -209,7 +209,7 @@ const eventSchemas = {
   "team.created": z.object({ type: z.literal("team.created"), event_id: z.string(), team_id: z.string(), name: z.string(), slug: z.string(), ts: z.number() }).passthrough(),
   "team.changed": z.object({ type: z.literal("team.changed"), event_id: z.string(), team_id: z.string(), fields: z.array(z.string()), ts: z.number() }).passthrough(),
   "discord.private_channel.requested": z.object({ type: z.literal("discord.private_channel.requested"), event_id: z.string(), private_channel_id: z.string(), ts: z.number() }).passthrough(),
-  "consultation.channel_restore_requested": z.object({ type: z.literal("consultation.channel_restore_requested"), event_id: z.string(), consultation_id: z.string(), subsidiary_id: z.string().nullable(), mode: z.enum(["rebuild", "repost"]), ts: z.number() }).passthrough(),
+  "consultation.channel_restore_requested": z.object({ type: z.literal("consultation.channel_restore_requested"), event_id: z.string(), consultation_id: z.string(), subsidiary_id: z.string().nullable(), mode: z.enum(["rebuild", "repost", "finish"]), ts: z.number() }).passthrough(),
   "consultation.proposed": z.object({ type: z.literal("consultation.proposed"), event_id: z.string(), consultation_id: z.string(), publication_id: z.string(), channel_id: z.string(), tabula_ready: z.boolean(), ts: z.number() }).passthrough(),
   "consultation.safety_blocked": z.object({ type: z.literal("consultation.safety_blocked"), audit_id: z.string(), ts: z.number() }).passthrough(),
   "usage_budget.notice": z.object({ type: z.literal("usage_budget.notice"), event_id: z.string(), scope: z.enum(["user", "team"]), target_id: z.string(), threshold: z.union([z.literal(80), z.literal(100)]), text: z.string(), ts: z.number() }).passthrough(),

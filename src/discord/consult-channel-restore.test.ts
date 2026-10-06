@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChannelType, OverwriteType, type Guild } from "discord.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
-import { restoreConsultChannel, restoredTranscriptPosts } from "./consult-channel-restore.js";
+import { restoreConsultChannel, restoredTranscriptPosts, restoreStep } from "./consult-channel-restore.js";
 
 function setup(status: "open" | "closed" = "closed") {
   const db = makeTestDb();
@@ -99,6 +99,25 @@ describe("restoreConsultChannel", () => {
     await expect(restoreConsultChannel(h.deps, h.id, "repost")).resolves.toBe("reposted");
     expect(h.created.filter((c) => c.type === ChannelType.GuildText)).toHaveLength(1);
     expect(h.sent.slice(before).map((m) => String(m.content)).join("\n")).toContain("事実から伝える");
+  });
+
+  it("finish only posts the buttons and locks, without re-posting the conversation", async () => {
+    const h = setup();
+    await restoreConsultChannel(h.deps, h.id);
+    const before = h.sent.length;
+    const locksBefore = h.lockEdits.length;
+    await expect(restoreConsultChannel(h.deps, h.id, "finish")).resolves.toBe("finished");
+    const posted = h.sent.slice(before);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]?.components).toBeDefined();
+    expect(h.lockEdits.length - locksBefore).toBe(2);
+    expect(h.deps.log.info).toHaveBeenCalledWith(expect.stringContaining("restore step ok lock"));
+  });
+
+  it("records which step timed out and stops there", async () => {
+    const log = { info: vi.fn(), warn: vi.fn() };
+    await expect(restoreStep(log, "lock consultation=x", () => new Promise(() => undefined), 10)).rejects.toThrow("timed out");
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("restore step failed lock consultation=x"));
   });
 
   it("does nothing for a consultation whose channel was not deleted or does not exist", async () => {

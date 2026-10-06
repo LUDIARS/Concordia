@@ -99,9 +99,11 @@ export function consultationsRouter(deps: ConsultationsApiDeps): Hono {
     const consultation = deps.consultations.find(c.req.param("id"));
     if (!consultation) return c.json({ error: "consultation_not_found" }, 404);
     // repost: 作り直し済みで中身が入らなかったチャンネル (途中で止まった復元) に中身を入れ直す。
-    const mode = c.req.query("mode") === "repost" ? "repost" : "rebuild";
+    // finish: 中身は入ったが仕上げ (ボタン・書き込みの停止) が終わらなかったチャンネルの仕上げだけ。
+    const requested = c.req.query("mode");
+    const mode = requested === "repost" || requested === "finish" ? requested : "rebuild";
     if (mode === "rebuild" && consultation.channel_deleted_at === null) return c.json({ error: "channel_not_deleted" }, 409);
-    if (mode === "repost" && (consultation.channel_deleted_at !== null || !consultation.channel_id)) {
+    if (mode !== "rebuild" && (consultation.channel_deleted_at !== null || !consultation.channel_id)) {
       return c.json({ error: "channel_missing" }, 409);
     }
     deps.emit({

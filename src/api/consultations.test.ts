@@ -105,5 +105,7 @@ describe("consultationsRouter restore-channel (2026-10-06 neco 指示)", () => {
     consultations.restoreChannel(consultation.id, "33333");
     expect((await app.request(`/v1/consultations/${consultation.id}/restore-channel?mode=repost`, { method: "POST" })).status).toBe(202);
     expect(events.at(-1)).toMatchObject({ mode: "repost" });
+    expect((await app.request(`/v1/consultations/${consultation.id}/restore-channel?mode=finish`, { method: "POST" })).status).toBe(202);
+    expect(events.at(-1)).toMatchObject({ mode: "finish" });
   });
 });

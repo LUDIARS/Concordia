@@ -114,8 +114,11 @@ type ConcordiaEventPayload =
       event_id: string;
       consultation_id: string;
       subsidiary_id: string | null;
-      /** rebuild = 削除済みを作り直す / repost = 作り直し済みのチャンネルへ中身を入れ直す。 */
-      mode: "rebuild" | "repost";
+      /**
+       * rebuild = 削除済みを作り直す / repost = 作り直し済みのチャンネルへ中身を入れ直す /
+       * finish = 仕上げ (再開・削除のボタンと書き込みの停止) だけを行う。
+       */
+      mode: "rebuild" | "repost" | "finish";
       ts: number;
     }
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 Bot が相談チャンネルへ判断カードを出す。 */

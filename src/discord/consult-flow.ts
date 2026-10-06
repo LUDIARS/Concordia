@@ -34,7 +34,7 @@ import {
   revokePrivateViewer,
   type PrivateCategoryStore,
 } from "./private-channel-discord.js";
-import { buildConsultApprovalRow, parseConsultApproval, readConsultModal } from "./consult-modal.js";
+import { buildConsultApprovalRow, buildConsultClosedRow, parseConsultApproval, parseConsultLifecycle, readConsultModal } from "./consult-modal.js";
 import type { PublicationInteractionDeps } from "./consult-publication.js";
 
 export interface ConsultSpawnInput {
@@ -82,6 +82,9 @@ const ERROR_MESSAGES: Readonly<Record<PrivateConsultationError, string>> = {
   not_pending_approval: "この相談は承認待ちではありません。",
   not_allowed: "この操作は相談者本人か権限者だけが行えます。",
   cannot_remove_requester: "相談者本人は外せません。",
+  requester_only: "この操作は相談者本人だけが行えます。",
+  consultation_open: "セッションが動いています。終了してから操作してください。",
+  channel_deleted: "この相談のチャンネルは削除済みです。",
 };
 
 export function consultErrorMessage(error: PrivateConsultationError): string {
@@ -190,6 +193,46 @@ export async function handleConsultApproval(interaction: ButtonInteraction, deps
   const launched = await launch(deps, consultationId, guild, channelId, null);
   await interaction.followUp({
     content: launched.ok ? `<@${interaction.user.id}> が承認し、セッションを起動しました。` : `セッションの起動に失敗しました: ${launched.error}`,
+    allowedMentions: { parse: [] },
+  });
+}
+
+/**
+ * 閉じた相談のボタン (相談者本人のみ、 tech-consultation.md §7)。
+ * - 再開: 相談を開き直し、 同じチャンネルを起動元にしてセッションを起動する (書き込みは結び直しで戻る)。
+ * - 削除: 記録してからチャンネルを消す。 押した本人への返事はチャンネルと一緒に消えるので先に返す。
+ */
+export async function handleConsultLifecycle(interaction: ButtonInteraction, deps: ConsultFlowDeps): Promise<void> {
+  const parsed = parseConsultLifecycle(interaction.customId);
+  const guild = interaction.guild;
+  if (!parsed || !guild) {
+    await interaction.reply({ content: "この操作を受け付けられませんでした。", ephemeral: true });
+    return;
+  }
+  if (parsed.action === "delete") {
+    const marked = deps.service.markChannelDeletedByRequester(parsed.consultationId, interaction.user.id);
+    if (!marked.ok) {
+      await interaction.reply({ content: consultErrorMessage(marked.error), ephemeral: true });
+      return;
+    }
+    await interaction.reply({ content: "このチャンネルを削除します。", ephemeral: true });
+    const channel = await guild.channels.fetch(marked.channelId).catch(() => null);
+    await channel?.delete("consultation channel deleted by requester").catch((error: unknown) =>
+      deps.log.warn(`consult channel delete failed consultation=${parsed.consultationId}: ${(error as Error).message}`));
+    return;
+  }
+  const reopened = deps.service.reopen(parsed.consultationId, interaction.user.id);
+  if (!reopened.ok) {
+    await interaction.reply({ content: consultErrorMessage(reopened.error), ephemeral: true });
+    return;
+  }
+  await interaction.update({ components: [] });
+  const launched = await launch(deps, parsed.consultationId, guild, reopened.consultation.channel_id!, interaction.user.displayName ?? null);
+  // 起動できなければ閉じ直し、 もう一度押せるようにボタンを出し直す。
+  if (!launched.ok) deps.service.close(parsed.consultationId);
+  await interaction.followUp({
+    content: launched.ok ? "セッションを再開しました。このチャンネルで続きを書いてください。" : `セッションの再開に失敗しました: ${launched.error}`,
+    ...(launched.ok ? {} : { components: [buildConsultClosedRow(parsed.consultationId)] }),
     allowedMentions: { parse: [] },
   });
 }

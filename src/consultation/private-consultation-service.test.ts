@@ -146,3 +146,42 @@ describe("PrivateConsultationService approval and members", () => {
     expect(service.invite(id, "111", "333")).toEqual({ ok: false, error: "consultation_closed" });
   });
 });
+
+describe("PrivateConsultationService reopen / requester deletion (2026-10-06 neco 指示)", () => {
+  function closedConsultation() {
+    const h = setup({ launchers: ["900", "901", "111"] });
+    const started = h.service.start({ departmentId: h.department.id, runtimeSubsidiaryId: null, requesterUserId: "111", intake });
+    if (!started.ok) throw new Error(started.error);
+    h.store.setChannel(started.consultation.id, "chan-1");
+    return { ...h, id: started.consultation.id };
+  }
+
+  it("lets only the requester reopen a closed consultation, restarting its clock and wrap", () => {
+    const { service, store, id } = closedConsultation();
+    expect(service.reopen(id, "111")).toEqual({ ok: false, error: "consultation_open" });
+    service.close(id);
+    expect(service.reopen(id, "900")).toEqual({ ok: false, error: "requester_only" });
+    const reopened = service.reopen(id, "111");
+    if (!reopened.ok) throw new Error(reopened.error);
+    expect(reopened.consultation).toMatchObject({ status: "open", closed_at: null, wrap_status: "pending" });
+    expect(store.find(id)?.approved_at).toBeGreaterThan(0);
+  });
+
+  it("does not reopen into an archived department", () => {
+    const { service, departments, department, id } = closedConsultation();
+    service.close(id);
+    departments.setArchived(department.id, true);
+    expect(service.reopen(id, "111")).toEqual({ ok: false, error: "department_archived" });
+  });
+
+  it("lets only the requester delete the channel after the session ends, and not twice", () => {
+    const { service, store, id } = closedConsultation();
+    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: false, error: "consultation_open" });
+    service.close(id);
+    expect(service.markChannelDeletedByRequester(id, "901")).toEqual({ ok: false, error: "requester_only" });
+    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: true, channelId: "chan-1" });
+    expect(store.find(id)?.channel_deleted_at).not.toBeNull();
+    expect(service.markChannelDeletedByRequester(id, "111")).toEqual({ ok: false, error: "channel_deleted" });
+    expect(service.reopen(id, "111")).toEqual({ ok: false, error: "channel_deleted" });
+  });
+});

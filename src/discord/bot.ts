@@ -114,9 +114,7 @@ import {
   fetchForumSessionThread,
   buildForumThreadTitle,
 } from "./forum-session.js";
-import { createConsultationTitleUpdater } from "./consultation-title.js";
 import { publicConsultationTitleEligible } from "../consultation/title-summary.js";
-import { runClaude, extractJson } from "../rules/claude-runner.js";
 import { postSessionStartupContext } from "./session-startup-context.js";
 import {
   postSessionTaskBody,
@@ -978,6 +976,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let reactionListenerTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
+  /**
+   * 相談のセッション (技術相談フォーラムのスレッド・プライベート相談のチャンネル)。 タイトル (スレッド名・
+   * チャンネル名) を変えない (2026-10-06 neco 指示「相談チャンネルはタイトルを変えないでほしい」)。
+   */
+  const isConsultationSession = (sessionId: string): boolean =>
+    isPublicConsultTitleSession(sessionId) || Boolean(privateConsultationsRepo.findBySession(sessionId));
   const isPublicConsultTitleSession = (sessionId: string): boolean => {
     const row = sessionChannelsRepo.findBySessionId(sessionId);
     const session = deps.sessionsRepo.findSession(sessionId);
@@ -988,38 +992,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       intakeEnabled: useCase?.intake_enabled === 1, organizationMatches: Boolean(department && department.subsidiary_id === (subsidiaryId ?? null)),
       privateConsultation: Boolean(privateConsultationsRepo.findBySession(sessionId)) });
   };
-  const consultationTitles = createConsultationTitleUpdater({
-    config: configRepo,
-    read: (sessionId) => {
-      const row = sessionChannelsRepo.findBySessionId(sessionId);
-      if (stopping || !activeGuild || !isPublicConsultTitleSession(sessionId) || !row || row.name_locked === 1
-        || row.status !== "active" || !isActiveDiscordSession(sessionId)
-        || sessionChannelsRepo.findByChannelId(row.channel_id)?.session_id !== sessionId) return null;
-      const state = deps.readModel.getSessionRelayState(sessionId);
-      return { channelId: row.channel_id, nameBody: row.name_body,
-        source: deps.readModel.getSessionTitleEvent(sessionId)?.title ?? state?.currentTask ?? "" };
-    },
-    summarize: async (prompt, signal) => {
-      const result = await runClaude(prompt, { model: "haiku", timeoutMs: 30_000, conversationOnly: true, signal });
-      if (!result.ok) throw new Error("Consultation title generation failed");
-      return extractJson(result.stdout);
-    },
-    surface: async (channelId) => {
-      const thread = activeGuild ? await fetchForumSessionThread(activeGuild, channelId) : null;
-      return thread ? { name: thread.name, rename: (name) => thread.setName(name) } : null;
-    },
-    format: (sessionId, title) => {
-      const row = sessionChannelsRepo.findBySessionId(sessionId);
-      const codes = projectResolver.codesForRepos(readActiveRepos(deps.readModel.getSessionRelayState(sessionId)));
-      const code = codes.length > 4 ? `${codes.slice(0, 4).join("+")}+${codes.length - 4}` : codes.join("+") || "Session";
-      return buildForumThreadTitle(code, title, row?.delegation_emoji, readWorkPhase(sessionId));
-    },
-    remember: (sessionId, title) => {
-      const row = sessionChannelsRepo.findBySessionId(sessionId);
-      if (row && row.name_locked !== 1) sessionChannelsRepo.setDisplayState(sessionId, row.display_state, row.agent_type, title);
-    },
-    warn: (message) => log.warn(message),
-  });
   /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
   let federationEgressRegistered = false;
   let domainReviewPosterRegistered = false;
@@ -1146,7 +1118,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     backgroundTimers.add(timer);
   };
   const clearRuntimeTimers = (): void => {
-    consultationTitles.stop();
     choresDiscord?.stopChores();
     choresDiscord = null;
     humanRequestDiscord?.stop();
@@ -1528,7 +1499,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             });
           },
         });
-        for (const row of sessionChannelsRepo.listActive()) consultationTitles.request(row.session_id);
         log.info(
           `session-forum ${reason} reconcile: scanned=${Math.max(lostChannels.scanned, ended.scanned)}`
           + ` active=${active.reconciled} lost=${lostChannels.reconciled} ended=${ended.reconciled}`
@@ -1731,7 +1701,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
       phaseTitleSync?.stop();
       phaseTitleSync = startForumPhaseTitleSync({
-        guild, channels: sessionChannelsRepo, sessions: deps.sessionsRepo, ownsSession, log,
+        guild, channels: sessionChannelsRepo, sessions: deps.sessionsRepo, log,
+        // 相談のスレッドは作業段階の絵文字でも改名しない (2026-10-06 neco 指示)。
+        ownsSession: (sessionId) => ownsSession(sessionId) && !isConsultationSession(sessionId),
       });
       deps.onRuntimeState?.({ running: true, status: "ready" });
     } catch (e) {
@@ -2505,7 +2477,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               log.info(`task-workflow bound session=${sessionId} run=${delegationRun.id}`);
             }
           }
-          consultationTitles.request(sessionId);
           const sessionSurface = sessionChannelsRepo.findBySessionId(sessionId);
           const needsStartupTaskPost = Boolean(state?.startupTaskText && !state.taskPosted);
           const needsStartupContextPost = !state?.startupContextPosted;
@@ -2946,10 +2917,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const titleEvent = deps.readModel.getSessionTitleEvent(ev.session_id);
       if (!isActiveDiscordSession(ev.session_id)) return;
       if (titleEvent) {
-        if (isPublicConsultTitleSession(ev.session_id)) {
-          consultationTitles.request(ev.session_id);
-          return;
-        }
+        // 相談のスレッド・チャンネルはタイトルを変えない (2026-10-06 neco 指示)。
+        if (isConsultationSession(ev.session_id)) return;
         // title-suggestion (AI 自動) はチャンネル名を変えない。手動/リアクション rename のみ反映。
         const forceRename = titleEvent.source !== "title-suggestion";
         void onSessionTitleChanged(
@@ -2988,10 +2957,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.event" && ev.kind === "lictor.active_repo.changed") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       if (!state || !isActiveDiscordSession(ev.session_id)) return;
-      if (isPublicConsultTitleSession(ev.session_id)) {
-        consultationTitles.request(ev.session_id);
-        return;
-      }
+      if (isConsultationSession(ev.session_id)) return;
       void onSessionTitleChanged(
         { guild, layout, repo: sessionChannelsRepo, log, readWorkPhase },
         {

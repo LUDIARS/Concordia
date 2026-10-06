@@ -26,7 +26,7 @@ import { isConsultIntakeComplete, normalizeConsultIntake, type ConsultIntake } f
 
 export type PrivateConsultationStore = Pick<PrivateConsultationsRepo,
   "create" | "find" | "findByChannel" | "findBySession" | "setChannel" | "markOpen" | "setSession" | "markClosed"
-  | "addMember" | "removeMember" | "members">;
+  | "reopen" | "markChannelDeleted" | "addMember" | "removeMember" | "members">;
 
 export interface PrivateConsultationPorts {
   store: PrivateConsultationStore;
@@ -52,7 +52,10 @@ export type PrivateConsultationError =
   | "consultation_closed"
   | "not_pending_approval"
   | "not_allowed"
-  | "cannot_remove_requester";
+  | "cannot_remove_requester"
+  | "requester_only"
+  | "consultation_open"
+  | "channel_deleted";
 
 export type Result<T> = { ok: true } & T | { ok: false; error: PrivateConsultationError };
 
@@ -145,6 +148,35 @@ export class PrivateConsultationService {
     return this.ports.store.markClosed(consultationId, this.now());
   }
 
+  /**
+   * 閉じた相談を相談者本人が再開する (2026-10-06 neco 指示「技術相談についてはセッション再開可能にする」)。
+   * 開き直した相談を返す。 セッションの起動は呼び出し側 (consult-flow) が同じチャンネルへ行う。
+   */
+  reopen(consultationId: string, actorUserId: string): Result<{ consultation: PrivateConsultationRow }> {
+    const owned = this.requesterAction(consultationId, actorUserId);
+    if (!owned.ok) return owned;
+    if (owned.consultation.status !== "closed") return { ok: false, error: "consultation_open" };
+    const department = this.ports.department(owned.consultation.department_id);
+    if (!department) return { ok: false, error: "department_not_found" };
+    if (department.archived_at !== null) return { ok: false, error: "department_archived" };
+    if (!this.ports.store.reopen(consultationId, this.now())) return { ok: false, error: "channel_deleted" };
+    return { ok: true, consultation: this.ports.store.find(consultationId)! };
+  }
+
+  /**
+   * 相談者本人がチャンネルを消す前の確認と記録 (2026-10-06 neco 指示「消したいときは本人が消す」)。
+   * セッションが動いている間は消させない。 チャンネル自体の削除は呼び出し側が行う。
+   */
+  markChannelDeletedByRequester(consultationId: string, actorUserId: string): Result<{ channelId: string }> {
+    const owned = this.requesterAction(consultationId, actorUserId);
+    if (!owned.ok) return owned;
+    if (owned.consultation.status === "open") return { ok: false, error: "consultation_open" };
+    const channelId = owned.consultation.channel_id;
+    if (!channelId) return { ok: false, error: "channel_deleted" };
+    this.ports.store.markChannelDeleted(consultationId, this.now());
+    return { ok: true, channelId };
+  }
+
   /** 現在の閲覧者としての行 (除外済みなら null)。 */
   memberOf(consultationId: string, userId: string): PrivateConsultationMemberRow | null {
     return this.ports.store.members(consultationId).find((member) => member.platform_user_id === userId) ?? null;
@@ -181,6 +213,16 @@ export class PrivateConsultationService {
     }
     if (!settings.enabled) return { ok: false, error: "department_not_private" };
     return { ok: true, department, settings };
+  }
+
+  private requesterAction(consultationId: string, actorUserId: string):
+    | { ok: true; consultation: PrivateConsultationRow }
+    | { ok: false; error: PrivateConsultationError } {
+    const consultation = this.ports.store.find(consultationId);
+    if (!consultation) return { ok: false, error: "consultation_not_found" };
+    if (consultation.requester_user_id !== actorUserId) return { ok: false, error: "requester_only" };
+    if (consultation.channel_deleted_at !== null) return { ok: false, error: "channel_deleted" };
+    return { ok: true, consultation };
   }
 
   private memberAction(consultationId: string, actorUserId: string):

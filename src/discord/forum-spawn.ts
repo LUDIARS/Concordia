@@ -557,7 +557,8 @@ export async function executeForumSpawn(
     `provider=${provider} project=${project?.project ?? "-"} pid=${result.pid ?? "n/a"}` +
     (modelTarget ? ` effort=${modelTarget.effort}` : ""),
   );
-  if (spawnEmoji && deps.renameThread && !thread.name.startsWith(spawnEmoji)) {
+  // 相談 (事前ヒアリングのある部署) のスレッドはタイトルを変えない (2026-10-06 neco 指示)。
+  if (spawnEmoji && deps.renameThread && !deps.department?.intake && !thread.name.startsWith(spawnEmoji)) {
     // 起動モデルが決まったらスレッド名にモデル絵文字を前置する (2026-09-02 neco 指示)。
     // リネーム失敗 (権限/レート制限) で起動フローは止めない。
     const renamed = `${spawnEmoji} ${thread.name}`.slice(0, 100);

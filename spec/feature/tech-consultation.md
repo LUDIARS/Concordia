@@ -370,16 +370,30 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
   「この内容を全体共有しますか？」カード (共有する / 直して共有 / 共有しない / 取り下げ) を出す。
   24 時間反応がなければ `POST /v1/consultations/publications/:id/expire` で「共有しない」(decided_by = timeout)。
 - 片付け: 答えが出たら (共有・共有しない・取り下げ・期限切れ)、共有しないと判定したら、子会社なら、相談を終える (done)。
-  チャンネルはすぐには消さず、次の見回り (24 時間のおそうじ) でまとめて削除する (「速攻消さずに 24 時間のおそうじで
-  一緒に消す」2026-10-02 neco 指示)。削除に失敗したら次の見回りで再試行する。
+  **チャンネルは消さずに残す** (2026-10-06 neco 指示「プライベートの相談チャンネルは消すと見れなくなるから、セッションは消すけど
+  チャンネルは残しておこうか。(技術相談についてはセッション再開可能にする) 消したいときは本人が消す感じで」。
+  2026-10-02 の「24 時間のおそうじで一緒に消す」を置き換える)。見回りはチャンネルを削除しない。
+- 閉じたときの案内: 実際に閉じたとき 1 回だけ、チャンネルへ「セッションを終了しました。このチャンネルは残ります」と
+  「セッションを再開」「チャンネルを削除」のボタンを投稿する (`announceClosed`)。書き込みは従来どおり止める (§4 の lock)。
+  投稿に失敗しても後始末は止めない。
+- 再開 (相談者本人のみ): 相談を開き直し (`status=open`、24 時間の期限は再開時刻から数え直す、`wrap_status=pending`)、
+  同じチャンネルを起動元にしてセッションを起動する。結び直し (`bindPrivateConsultSession`) が書き込みを戻す。
+  部署が廃止済み・チャンネル削除済みなら再開しない。起動に失敗したら閉じ直してボタンを出し直す。
+- 削除 (相談者本人のみ): セッションが止まっている相談だけ。`channel_deleted_at` を記録してからチャンネルを消す。
+  権限者・招待された人は再開も削除もできない。
 - フォーラムでの公開相談 (部署フォーラムのスレッド) はこの後始末の対象外で、消さずに総務と同じくクローズして残す
   (「フォーラムでの公開相談は消すんじゃなくてクローズで残す」同日)。
 - 状態は `private_consultations.wrap_status` (pending → asking → done、導入前の相談は legacy で対象外) が正本。
   1 段ずつ条件付きで進めるので、見回りとイベントが重なっても二重に問わない (CC-CONSULT-INV-09)。
 - 手動の `/consult wrap` (§5) は残す。
+- 相談のタイトルは変えない (2026-10-06 neco 指示「相談チャンネルはタイトルを変えないでほしい」): 技術相談フォーラムの
+  スレッドもプライベート相談のチャンネルも、作業内容のタイトル・Haiku のタイトル要約 (`consultation-title.ts` は呼ばない)・
+  作業段階の絵文字・起動モデルの絵文字のどれでも改名しない。
 
 状態所有者: 後始末の状態 = `private_consultations` (consultation)。判断 = `src/consultation/closure-policy.ts`、
-手順 = `closure-service.ts`、Discord・Cc API との接続 = `src/discord/consult-closure-wiring.ts`。
+手順 = `closure-service.ts`、Discord・Cc API との接続 = `src/discord/consult-closure-wiring.ts`、
+再開・削除の権限 = `src/consultation/private-consultation-service.ts` (`reopen` / `markChannelDeletedByRequester`)、
+ボタン = `src/discord/consult-modal.ts` (`buildConsultClosedRow`) と `src/discord/consult-flow.ts` (`handleConsultLifecycle`)。
 
 ## 8. データ
 

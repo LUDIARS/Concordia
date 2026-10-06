@@ -3,25 +3,24 @@
  *
  * - セッションの停止・共有の問い・締め切りは Cc の API を通す (Tabula の秘密と公開の記録は Cc 本体が持つ)。
  * - 判定は Bot が持つヘッドレス実行 (claude -p、 会話のみ) で行う。
- * - チャンネルの削除はこの Bot の guild で行う。 既に無いチャンネルは「削除済み」として扱う。
+ * - チャンネルは消さずに残し、 閉じたことと再開・削除のボタンを投稿する (削除は相談者本人の操作、 consult-flow.ts)。
  *
  * @implements SPEC-CONSULT-CLOSURE
  */
 
-import type { Guild } from "discord.js";
-import { ConsultationClosureService, type ChannelDeletion } from "../consultation/closure-service.js";
+import { ChannelType, type Guild } from "discord.js";
+import { ConsultationClosureService } from "../consultation/closure-service.js";
 import type { TranscriptLine } from "../consultation/closure-policy.js";
 import { loadConfidentialTerms } from "../consultation/confidential-terms.js";
 import type { ConsultationPublicationsRepo } from "../db/consultation-publications-repo.js";
 import type { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
 import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
+import { buildConsultClosedRow } from "./consult-modal.js";
 
 /** 判定の締め切り。 claude -p は 1 回 8〜11 秒なので余裕を持たせる。 */
 const JUDGE_TIMEOUT_MS = 180_000;
 /** 判定に読む会話の件数 (新しい側)。 */
 const TRANSCRIPT_MESSAGES = 200;
-/** Discord の Unknown Channel。 */
-const UNKNOWN_CHANNEL = 10003;
 
 export interface ConsultClosureWiringDeps {
   consultations: PrivateConsultationsRepo;
@@ -55,7 +54,18 @@ export function createConsultationClosure(deps: ConsultClosureWiringDeps): Consu
     proposeShare: (consultationId, title, summary) =>
       succeeded(`/v1/consultations/${encodeURIComponent(consultationId)}/share-proposal`, { title, summary }),
     expireShare: (publicationId) => succeeded(`/v1/consultations/publications/${encodeURIComponent(publicationId)}/expire`, {}),
-    deleteChannel: (channelId) => deleteGuildChannel(deps.guild(), channelId),
+    announceClosed: async (consultation) => {
+      const channel = consultation.channel_id ? await deps.guild()?.channels.fetch(consultation.channel_id).catch(() => null) : null;
+      if (channel?.type !== ChannelType.GuildText) return;
+      await channel.send({
+        content: [
+          "セッションを終了しました。このチャンネルは残ります (書き込みは止めています)。",
+          "続きを相談するときは「セッションを再開」、不要になったら「チャンネルを削除」を押してください (相談者本人のみ)。",
+        ].join("\n"),
+        components: [buildConsultClosedRow(consultation.id)],
+        allowedMentions: { parse: [] },
+      });
+    },
     log: deps.log,
   });
 }
@@ -69,16 +79,4 @@ export function consultationTranscript(messages: Pick<SessionMessagesRepo, "list
     }
     return [];
   });
-}
-
-async function deleteGuildChannel(guild: Guild | null, channelId: string): Promise<ChannelDeletion> {
-  if (!guild) return "failed";
-  try {
-    const channel = await guild.channels.fetch(channelId);
-    if (!channel) return "missing";
-    await channel.delete("consultation closed");
-    return "deleted";
-  } catch (error) {
-    return (error as { code?: unknown }).code === UNKNOWN_CHANNEL ? "missing" : "failed";
-  }
 }

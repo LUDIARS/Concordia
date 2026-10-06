@@ -105,6 +105,18 @@ export class PrivateConsultationsRepo {
     `).run(now, now, id).changes > 0;
   }
 
+  /**
+   * 閉じた相談を開き直す (技術相談の再開、 tech-consultation.md §7)。 チャンネルが残っているときだけ。
+   * 24 時間の期限は再開した時刻から数え直し、 後始末 (共有の判定) も次に閉じたときにやり直す。
+   */
+  reopen(id: string, now: number = Date.now()): boolean {
+    return this.db.prepare(`
+      UPDATE private_consultations
+      SET status = 'open', approved_at = ?, closed_at = NULL, wrap_status = 'pending', share_asked_at = NULL, updated_at = ?
+      WHERE id = ? AND status = 'closed' AND channel_id IS NOT NULL AND channel_deleted_at IS NULL
+    `).run(now, now, id).changes > 0;
+  }
+
   /** 開いている相談 (24 時間の期限を見る)。 */
   listOpen(): PrivateConsultationRow[] {
     return this.db.prepare("SELECT * FROM private_consultations WHERE status = 'open' ORDER BY created_at").all() as

@@ -26,8 +26,8 @@ import { handleBountyModalSubmit } from "./bounty-flow.js";
 import { BOUNTY_CUSTOM_ID_PREFIX } from "./bounty-modal.js";
 import budgetCommand from "./commands/budget.js";
 import rewardCommand from "./commands/reward.js";
-import { handleConsultApproval, handleConsultModalSubmit } from "./consult-flow.js";
-import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX } from "./consult-modal.js";
+import { handleConsultApproval, handleConsultLifecycle, handleConsultModalSubmit } from "./consult-flow.js";
+import { CONSULT_APPROVE_PREFIX, CONSULT_MODAL_PREFIX, parseConsultLifecycle } from "./consult-modal.js";
 import {
   CONSULT_PUBLICATION_EDIT_PREFIX,
   CONSULT_PUBLICATION_PREFIX,
@@ -273,12 +273,14 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   // プライベート相談のモーダル送信 / 承認ボタン (tech-consultation.md §4)。 子会社 Bot は相談部署のある会社で配線される (§6)。
   if ((interaction.isModalSubmit() && interaction.customId.startsWith(CONSULT_MODAL_PREFIX))
-    || (interaction.isButton() && interaction.customId.startsWith(CONSULT_APPROVE_PREFIX))) {
+    || (interaction.isButton() && interaction.customId.startsWith(CONSULT_APPROVE_PREFIX))
+    || (interaction.isButton() && parseConsultLifecycle(interaction.customId) !== null)) {
     if (!deps.consult) {
       await interaction.reply({ content: "プライベート相談はこの Bot で使えません。", ephemeral: true }).catch(() => { /* best-effort */ });
       return;
     }
     if (interaction.isModalSubmit()) await handleConsultModalSubmit(interaction, deps.consult);
+    else if (parseConsultLifecycle(interaction.customId)) await handleConsultLifecycle(interaction, deps.consult);
     else await handleConsultApproval(interaction, deps.consult);
     return;
   }

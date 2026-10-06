@@ -8,6 +8,7 @@ import { PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
 import { DepartmentSettingsSchema } from "../departments/settings.js";
 import {
   handleConsultApproval,
+  handleConsultLifecycle,
   handleConsultMembership,
   handleConsultModalSubmit,
   handleConsultWrap,
@@ -239,5 +240,57 @@ describe("handleConsultWrap", () => {
     await handleConsultWrap(approver.interaction, ctx.deps);
     expect(requestProposal).toHaveBeenCalledWith({ sessionId: "sess-1", actorUserId: "900", actorLabel: "neco" });
     expect(approver.replies[0]).toMatchObject({ ephemeral: true });
+  });
+});
+
+describe("handleConsultLifecycle (2026-10-06 neco 指示: チャンネルは残し、本人が再開・削除する)", () => {
+  async function closedConsultation() {
+    const ctx = setup({ launchers: ["900", "111"] });
+    await handleConsultModalSubmit(modal(ctx.guild, ctx.department.id).interaction, ctx.deps);
+    const consultation = ctx.store.findByChannel("chan-1")!;
+    ctx.deps.service.close(consultation.id);
+    ctx.spawn.mockClear();
+    const deleteChannel = vi.fn(async () => undefined);
+    ctx.guild.channels.fetch = vi.fn(async () => ({ ...ctx.channel, delete: deleteChannel })) as never;
+    return { ...ctx, id: consultation.id, deleteChannel };
+  }
+  const button = (guild: unknown, customId: string, userId: string) => ({
+    customId,
+    guild,
+    user: { id: userId, displayName: "neco" },
+    reply: vi.fn(async () => undefined),
+    update: vi.fn(async () => undefined),
+    followUp: vi.fn(async () => undefined),
+  });
+
+  it("resumes the session in the same channel for the requester only", async () => {
+    const ctx = await closedConsultation();
+    const outsider = button(ctx.guild, `consult:resume:${ctx.id}`, "900");
+    await handleConsultLifecycle(outsider as unknown as ButtonInteraction, ctx.deps);
+    expect(outsider.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("相談者本人") }));
+    expect(ctx.spawn).not.toHaveBeenCalled();
+
+    const owner = button(ctx.guild, `consult:resume:${ctx.id}`, "111");
+    await handleConsultLifecycle(owner as unknown as ButtonInteraction, ctx.deps);
+    expect(ctx.spawn).toHaveBeenCalledWith(expect.objectContaining({ channelId: "chan-1" }));
+    expect(ctx.store.find(ctx.id)?.status).toBe("open");
+  });
+
+  it("closes again and re-offers the buttons when the resumed launch fails", async () => {
+    const ctx = await closedConsultation();
+    ctx.spawn.mockResolvedValueOnce({ ok: false, error: "spawn_failed" } as never);
+    const owner = button(ctx.guild, `consult:resume:${ctx.id}`, "111");
+    await handleConsultLifecycle(owner as unknown as ButtonInteraction, ctx.deps);
+    expect(ctx.store.find(ctx.id)?.status).toBe("closed");
+    expect(owner.followUp).toHaveBeenCalledWith(expect.objectContaining({ components: expect.any(Array) }));
+  });
+
+  it("deletes the channel only when the requester asks", async () => {
+    const ctx = await closedConsultation();
+    await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "900") as unknown as ButtonInteraction, ctx.deps);
+    expect(ctx.deleteChannel).not.toHaveBeenCalled();
+    await handleConsultLifecycle(button(ctx.guild, `consult:delete:${ctx.id}`, "111") as unknown as ButtonInteraction, ctx.deps);
+    expect(ctx.deleteChannel).toHaveBeenCalledTimes(1);
+    expect(ctx.store.find(ctx.id)?.channel_deleted_at).not.toBeNull();
   });
 });

@@ -25,6 +25,9 @@ import {
 export const CONSULT_CUSTOM_ID_PREFIX = "consult:";
 export const CONSULT_MODAL_PREFIX = `${CONSULT_CUSTOM_ID_PREFIX}modal:`;
 export const CONSULT_APPROVE_PREFIX = `${CONSULT_CUSTOM_ID_PREFIX}approve:`;
+/** 閉じた相談の再開・チャンネル削除 (相談者本人の操作、 tech-consultation.md §7)。 */
+export const CONSULT_RESUME_PREFIX = `${CONSULT_CUSTOM_ID_PREFIX}resume:`;
+export const CONSULT_DELETE_PREFIX = `${CONSULT_CUSTOM_ID_PREFIX}delete:`;
 
 /** Discord のモーダル題名は 45 文字まで。 */
 const MAX_MODAL_TITLE = 45;
@@ -102,4 +105,18 @@ export function buildConsultApprovalRow(consultationId: string): ActionRowBuilde
 export function parseConsultApproval(customId: string): string | null {
   if (!customId.startsWith(CONSULT_APPROVE_PREFIX)) return null;
   return customId.slice(CONSULT_APPROVE_PREFIX.length) || null;
+}
+
+export function buildConsultClosedRow(consultationId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`${CONSULT_RESUME_PREFIX}${consultationId}`).setLabel("セッションを再開").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`${CONSULT_DELETE_PREFIX}${consultationId}`).setLabel("チャンネルを削除").setStyle(ButtonStyle.Danger),
+  );
+}
+
+export function parseConsultLifecycle(customId: string): { action: "resume" | "delete"; consultationId: string } | null {
+  const action = customId.startsWith(CONSULT_RESUME_PREFIX) ? "resume" : customId.startsWith(CONSULT_DELETE_PREFIX) ? "delete" : null;
+  if (!action) return null;
+  const consultationId = customId.slice((action === "resume" ? CONSULT_RESUME_PREFIX : CONSULT_DELETE_PREFIX).length);
+  return consultationId ? { action, consultationId } : null;
 }

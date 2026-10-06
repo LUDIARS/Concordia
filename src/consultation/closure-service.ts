@@ -5,9 +5,9 @@
  * - 閉じた相談は、 本社なら会話を判定し、 センシティブでなく公開できるときだけ「この内容を全体共有しますか？」を出す。
  *   判定の要約に秘匿語や Cc のプロジェクト名が残っていれば出さない。 子会社の相談は問わずに閉じる。
  * - 共有の問いに 24 時間反応がなければ「共有しない」。 答えが出たら終える (done)。
- * - チャンネルはすぐには消さず、 次の見回り (24 時間のおそうじ) でまとめて消す
- *   (2026-10-02 neco 指示「速攻消さずに 24 時間のおそうじで一緒に消す」)。 フォーラムの公開相談は対象外で、
- *   総務と同じくクローズして残す (このサービスはプライベート相談だけを扱う)。
+ * - チャンネルは消さずに残す (2026-10-06 neco 指示「消すと見れなくなるから、セッションは消すけどチャンネルは
+ *   残しておこう。消したいときは本人が消す」)。 閉じたらチャンネルへ再開・削除のボタンを出す (announceClosed)。
+ *   削除と再開は相談者本人の操作で、 PrivateConsultationService が扱う。 フォーラムの公開相談は対象外。
  * - セッションは共有の答えを待たない (閉じた後に問う)。
  *
  * 状態は private_consultations.wrap_status (pending → asking → done) が正本。 1 段ずつ条件付きで進めるので、
@@ -28,12 +28,9 @@ import {
   type TranscriptLine,
 } from "./closure-policy.js";
 
-export type ChannelDeletion = "deleted" | "missing" | "failed";
-
 export interface ConsultationClosurePorts {
   store: Pick<PrivateConsultationsRepo,
-    "find" | "markClosed" | "listOpen" | "listClosedPendingWrap" | "listAsking" | "listDoneWithChannel"
-    | "advanceWrap" | "markChannelDeleted">;
+    "find" | "markClosed" | "listOpen" | "listClosedPendingWrap" | "listAsking" | "advanceWrap">;
   publications(consultationId: string): ConsultationPublicationRow[];
   /** 相談のセッションを止める。 止まれば session.ended で closeConsultation が呼ばれる。 */
   stopSession(sessionId: string): Promise<boolean>;
@@ -44,7 +41,8 @@ export interface ConsultationClosurePorts {
   leakTerms(): Promise<readonly string[]>;
   proposeShare(consultationId: string, title: string, summary: string): Promise<boolean>;
   expireShare(publicationId: string): Promise<boolean>;
-  deleteChannel(channelId: string): Promise<ChannelDeletion>;
+  /** 閉じたことと、 再開・削除の操作をチャンネルへ出す。 失敗しても後始末は止めない。 */
+  announceClosed(consultation: PrivateConsultationRow): Promise<void>;
   log: { info(message: string): void; warn(message: string): void };
   now?: () => number;
 }
@@ -62,17 +60,23 @@ export class ConsultationClosureService {
 
   /** セッションの終了・消失を受けて閉じ、 後始末を始める。 */
   async closeConsultation(consultationId: string): Promise<void> {
-    this.ports.store.markClosed(consultationId, this.now());
+    const closedNow = this.ports.store.markClosed(consultationId, this.now());
     const consultation = this.ports.store.find(consultationId);
-    if (consultation) await this.wrap(consultation);
+    if (!consultation) return;
+    // 案内は実際に閉じたときだけ (session.ended と見回りが重なっても 1 回)。
+    if (closedNow && consultation.channel_id && consultation.channel_deleted_at === null) {
+      await this.ports.announceClosed(consultation).catch((error: unknown) =>
+        this.ports.log.warn(`consultation close notice failed consultation=${consultationId}: ${(error as Error).message}`));
+    }
+    await this.wrap(consultation);
   }
 
-  /** 共有の答えが出た (公開・共有しない・取り下げ) ら終える。 チャンネルは次の見回りで消す。 */
+  /** 共有の答えが出た (公開・共有しない・取り下げ) ら終える。 チャンネルは残す。 */
   async onShareDecided(consultationId: string): Promise<void> {
     this.ports.store.advanceWrap(consultationId, "asking", "done", this.now());
   }
 
-  /** 定期の見回り。 期限・取りこぼし・削除の再試行をまとめて進める。 */
+  /** 定期の見回り。 期限・取りこぼしをまとめて進める (チャンネルは消さない)。 */
   async sweep(): Promise<void> {
     const now = this.now();
     for (const consultation of this.ports.store.listOpen()) {
@@ -85,7 +89,6 @@ export class ConsultationClosureService {
     }
     for (const consultation of this.ports.store.listClosedPendingWrap()) await this.wrap(consultation);
     for (const consultation of this.ports.store.listAsking()) await this.checkAnswer(consultation, now);
-    for (const consultation of this.ports.store.listDoneWithChannel()) await this.removeChannel(consultation.id);
   }
 
   private async wrap(consultation: PrivateConsultationRow): Promise<void> {
@@ -102,7 +105,7 @@ export class ConsultationClosureService {
         }
         return;
       }
-      // 共有しない。 チャンネルは次の見回りで消す。
+      // 共有しない。 チャンネルは残す。
       this.ports.store.advanceWrap(consultation.id, "pending", "done", this.now());
     } finally {
       this.judging.delete(consultation.id);
@@ -144,14 +147,4 @@ export class ConsultationClosureService {
     }
   }
 
-  private async removeChannel(consultationId: string): Promise<void> {
-    const consultation = this.ports.store.find(consultationId);
-    if (!consultation?.channel_id || consultation.channel_deleted_at !== null) return;
-    const result = await this.ports.deleteChannel(consultation.channel_id);
-    if (result === "failed") {
-      this.ports.log.warn(`consultation channel delete failed consultation=${consultationId}`);
-      return;
-    }
-    this.ports.store.markChannelDeleted(consultationId, this.now());
-  }
 }

@@ -54,3 +54,13 @@ DB 正本が履歴の直近版と異なる状態で保存・復旧を試みた�
 `GET /:id/history` は件数制限と cursor 付きの版一覧、`GET /:id/history/:version` は版の本文と親版、`POST /:id/history/:version/restore` は `expected_revision` 付きの過去版復元を返す。既存 `PUT /:id` と `POST /:id/restore` も同じ履歴を追加する。409 は現行全文を返し、WebUI は未保存下書きを保持する。履歴画面は版を選び、親版との差分を表示し、過去版の復元を明示操作にする。復元内容は現在の placeholder と 32 KiB 制限で再検証し、保存後の適用時点を再表示する。
 
 スキーマは既存 migration 112 を変更せず 113 を末尾に追加し、凍結台帳に 113 の checksum と新しい schema fingerprint を追記する。履歴取得・復元・file pending 復旧、既存編集の初期版保存と競合を回帰テストに記述する。実テストとサービス操作は行わない。
+
+## AI セッションからの調整コマンド
+
+AI セッションは WebUI の代わりに、Cc 本体のビルド済み `dist/control/inject-source-apply.js` を絶対パスで呼び、`get` / `history` / `apply` で文面を調整する。Cc は dist 実行なので反映済みの本体ビルドを使い、作業ディレクトリに依存させない。管理 API への任意の書込み権限を与えず、許可ルールはこのコマンドだけに絞る。
+
+- 接続先は `CONCORDIA_URL`、無ければ Cc が配る `CONCORDIA_HOST` / `CONCORDIA_PORT` から決める。ポートを既定値で埋めない。どれも無ければ失敗する。
+- `get` は現在の全文を標準出力 (または `--out`) へ、id・revision・版 ID・適用時点を標準エラーへ出す。
+- `history` は `GET /:id/history` の版一覧 (版 ID・親版・変更種別・actor・日時・revision) を出す。
+- `apply` は `--file` の本文と `--expected-revision` (直前に `get` で読んだ revision) を必須とする。WebUI と同じく履歴 GET で baseline を作ってから本文 GET を行い、その revision と版 ID を CAS 条件に入れて `PUT` する。読んだ revision と現在値が違えば送らずに失敗する。409 は現在の revision を示して失敗し、自動再送しない。
+- 変更履歴は既存の DB 版履歴 (append-only) が正本で、コマンド経由の更新も同じ履歴に版として残る。

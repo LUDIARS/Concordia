@@ -1826,6 +1826,16 @@
       "contracts": []
     },
     {
+      "source": "src/control/inject-source-apply.ts",
+      "tests": ["src/control/inject-source-apply.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/inject-source-client.ts",
+      "tests": ["src/control/inject-source-apply.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/major-inject-catalog.ts",
       "tests": ["src/control/major-inject-editor.test.ts"],
       "contracts": []

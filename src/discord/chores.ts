@@ -32,6 +32,17 @@ export function choreCompletionReply(run: Chore, guildId: string): {
   };
 }
 
+/**
+ * 受付の返信。窓口は雑務課スレッドへの案内だけを返し、回答はスレッドに投稿する (2026-10-07 neco 指示)。
+ * @implements CC-CHORES-FORUM AT-06
+ */
+export function acceptReplyText(run: Pick<Chore, "id" | "provider">, where: { fromForum: boolean; threadId: string | null }): string {
+  const head = `雑務 ${run.id.slice(0, 8)} を受け付けました（${run.provider}）。`;
+  if (where.fromForum) return `${head}作業と回答はこのスレッドに投稿します。完了後にOK / Continueを表示します。`;
+  if (where.threadId) return `${head}作業と回答は雑務課の <#${where.threadId}> に投稿します。`;
+  return `${head}雑務課への投稿は照合待ちです。成果はWebUIから確認できます。`;
+}
+
 export interface ChoresDiscord {
   handlesMessage: (message: Message) => boolean;
   message: (message: Message) => Promise<void>;
@@ -52,7 +63,7 @@ export async function startChoresDiscord(input: {
   // 雑務課のフォーラムは従来どおり parentId のカテゴリに置く。
   const channel: TextChannel = existing?.type === ChannelType.GuildText ? existing : await guild.channels.create({
     name: "雑務窓口", type: ChannelType.GuildText,
-    topic: "依頼を投稿すると専用ディレクトリでワンショット実行します。先頭 [codex] でCodex、既定はClaude。結果のOKで完了、Continueでセッション起動。",
+    topic: "依頼を投稿すると雑務課フォーラムにスレッドを作り、ワンショット実行の作業と回答をそこへ投稿します。先頭 [codex] でCodex、既定はClaude。",
   });
   if (channel.name !== "雑務窓口") await channel.setName("雑務窓口");
   if (channel.parentId) await channel.setParent(null, { reason: "chores window moved out of category" });
@@ -70,6 +81,16 @@ export async function startChoresDiscord(input: {
     if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
     return result;
   };
+  /** 窓口の依頼者へ、最初の結果が出たときだけ雑務課スレッドへの案内を返信する (回答本文は窓口に出さない)。 */
+  const noticeWindowResult = async (run: Chore, threadId: string): Promise<void> => {
+    const reply = choreCompletionReply(run, guild.id);
+    if (!reply.reply) return;
+    const noticeKey = `chores_window_notice:${run.id}`;
+    // 結果不明の外部投稿は繰り返さない (pending のまま残す)。
+    if (!config.compareAndSwap(noticeKey, null, "pending")) return;
+    await channel.send({ content: `雑務 ${run.id.slice(0, 8)} の回答を <#${threadId}> に投稿しました。`, ...reply });
+    config.compareAndSwap(noticeKey, "pending", "done");
+  };
   const deliver = async (): Promise<void> => {
     if (delivering || stopped) return;
     delivering = true;
@@ -84,6 +105,7 @@ export async function startChoresDiscord(input: {
         if (resultThread) {
           const messageId = forum.forumCardId(run.id);
           if (!messageId) throw new Error("雑務の結果カードを照合できません。");
+          if (forum.isWindowOrigin(run)) await noticeWindowResult(run, resultThread.id);
           await call(`/${run.id}/delivery`, { revision: run.revision, message_id: messageId });
           continue;
         }
@@ -131,7 +153,7 @@ export async function startChoresDiscord(input: {
     catch (error) { recorded = false; input.log.warn(`chores forum delivery unresolved run=${run.id}: ${String(error)}`); }
     const replyKey = `chores_accept_reply:${choreDiscordRequestKey({ guildId: guild.id, messageId: message.id })}`;
     if (!stopped && config.compareAndSwap(replyKey, null, "pending")) {
-      await message.reply({ content: `雑務 ${run.id.slice(0, 8)} を受け付けました（${run.provider}）。${recorded ? "作業内容を雑務課に記録しました。" : "雑務課への投稿は照合待ちです。成果はWebUIから確認できます。"}完了後にOK / Continueを表示します。`, allowedMentions: { parse: [] } });
+      await message.reply({ content: acceptReplyText(run, { fromForum: message.channel.isThread(), threadId: recorded ? forum.workThreadId(run.id) : null }), allowedMentions: { parse: [] } });
       config.compareAndSwap(replyKey, "pending", "done"); // Do not repeat a reply whose external result is unknown.
     }
   };

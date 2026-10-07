@@ -22,7 +22,9 @@ export async function createChoresForum(input: {
   rememberSource: (requestKey: string, message: Message) => void;
   mirror: (run: Chore) => Promise<void>;
   forumCardId: (runId: string) => string | null;
+  workThreadId: (runId: string) => string | null;
   resultChannel: (run: Chore) => Promise<ThreadChannel | null>;
+  isWindowOrigin: (run: Chore) => boolean;
   canOperate: (runId: string, channelId: string, messageId: string) => boolean;
   rememberedWindowCard: (runId: string) => string | null;
   rememberWindowCard: (runId: string, messageId: string) => void;
@@ -39,7 +41,7 @@ export async function createChoresForum(input: {
     if (!config.compareAndSwap("chores_forum_creation", null, "pending")) throw new Error("雑務課フォーラム作成の結果が不明です。既存チャンネルを照合してください。");
     forum = await guild.channels.create({
       name: "雑務課", type: ChannelType.GuildForum, parent: input.parentId,
-      topic: "作業内容と結果を依頼ごとのスレッドに残します。ここへの新しい作業投稿からも起動できます。雑務窓口でも依頼できます。",
+      topic: "作業内容と回答を依頼ごとのスレッドに投稿します。ここへの新しい作業投稿からも起動できます。雑務窓口の依頼もここに回答します。",
     });
   }
   config.set("chores_forum_id", forum.id);
@@ -55,6 +57,10 @@ export async function createChoresForum(input: {
     const current = read(id);
     if (current?.threadId === after.threadId && (after.cardId === null || current.cardId === after.cardId)) return current;
     throw new Error("確認済みの雑務投稿後に所有権が変わりました。投稿先を照合してください。");
+  };
+  const readOrigin = (run: Chore): { channelId: string; messageId: string; forum: boolean } | null => {
+    const source = config.get(sourceKey(run.request_key));
+    return source ? z.object({ channelId: z.string(), messageId: z.string(), forum: z.boolean() }).strict().parse(JSON.parse(source)) : null;
   };
   const assertActive = (): void => { if (input.stopped()) throw new Error("雑務のDiscord受付は停止しています。"); };
   const threadById = async (id: string): Promise<ThreadChannel> => {
@@ -163,13 +169,17 @@ export async function createChoresForum(input: {
     },
     mirror,
     forumCardId: (runId) => read(runId)?.cardId ?? null,
+    workThreadId: (runId) => read(runId)?.threadId ?? null,
     async resultChannel(run) {
-      const source = config.get(sourceKey(run.request_key));
-      if (!source) return null; // Historic receipts retain their original text-window destination.
-      const origin = z.object({ channelId: z.string(), messageId: z.string(), forum: z.boolean() }).strict().parse(JSON.parse(source));
-      if (!origin.forum) return null;
-      return threadById(origin.channelId);
+      const origin = readOrigin(run);
+      if (!origin) return null; // Historic receipts retain their original text-window destination.
+      if (origin.forum) return threadById(origin.channelId);
+      // 窓口の依頼も回答は雑務課の作業スレッドへ出す (2026-10-07 neco 指示)。窓口へは推測で戻さない。
+      const threadId = read(run.id)?.threadId;
+      if (!threadId) throw new Error("雑務の作業スレッドが未確定です。投稿先を照合してください。");
+      return threadById(threadId);
     },
+    isWindowOrigin: (run) => readOrigin(run)?.forum === false,
     canOperate(runId, channelId, messageId) {
       const address = read(runId);
       if (channelId === input.windowId) {

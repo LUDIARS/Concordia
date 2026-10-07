@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelType, type Guild, type Message, type Interaction } from "discord.js";
-import { choreCard, choreCompletionReply, startChoresDiscord } from "./chores.js";
+import { acceptReplyText, choreCard, choreCompletionReply, startChoresDiscord } from "./chores.js";
 import type { Chore } from "../chores/domain.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -128,6 +128,41 @@ describe("Discord chores", () => {
     await surface.interaction(interaction as unknown as Interaction);
     expect(interaction.reply).toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled(); surface.stopChores();
   });
+  it("answers a window request only in the chores forum and guides the window to its thread (CC-CHORES-FORUM AT-06)", async () => {
+    vi.useFakeTimers();
+    const run = { ...row, request_key: "discord:123:456" };
+    let delivered = false;
+    const fetcher = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith("/deliveries")) return new Response(JSON.stringify({ runs: delivered ? [] : [run] }));
+      if (String(url).endsWith("/delivery")) { delivered = true; return new Response(JSON.stringify({ ok: true })); }
+      return new Response(JSON.stringify({ run }), { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const send = vi.fn(async () => ({ id: "notice" }));
+    const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", send, messages: { fetch: vi.fn() } };
+    const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "p", baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
+    const message = { guildId: "123", channelId: "channel", id: "456", author: { id: "human", bot: false }, webhookId: null,
+      channel: { isThread: () => false }, content: "依頼", reply: vi.fn() };
+    try {
+      await surface.message(message as unknown as Message);
+      expect(message.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("<#work-thread>") }));
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(delivered).toBe(true);
+      // 窓口には結果カードを出さず、依頼者への案内を 1 回だけ返信する。
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("<#work-thread>"),
+        reply: { messageReference: "456", failIfNotExists: false }, allowedMentions: { parse: [], repliedUser: true } }));
+      expect(send.mock.calls[0]![0]).not.toHaveProperty("components");
+    } finally { surface.stopChores(); }
+  });
+
+  it("builds the accept reply as forum guidance", () => {
+    expect(acceptReplyText(row, { fromForum: false, threadId: "t1" })).toContain("<#t1>");
+    expect(acceptReplyText(row, { fromForum: true, threadId: "t1" })).toContain("このスレッド");
+    expect(acceptReplyText(row, { fromForum: false, threadId: null })).toContain("照合待ち");
+  });
+
   it("accepts a forum starter with the same permission and request identity while ignoring discussion and bot mirrors", async () => {
     vi.useFakeTimers();
     const keys: string[] = [];

@@ -48,8 +48,24 @@ OFF だけを例外として保持する。
 
 - metadataに明示`goal`がある場合、既存の`/co-goal` / goal APIを正本とする。Ccはゴール、
   現在タスク、達成度評価と次タスク実行の指示を同じセッションへinjectする。
-- 明示goalがない場合、現在の指示、`current_task`、git diff、未完了TODO、利用可能な
-  タスク管理情報から残作業を調べるようinjectする。
+- 明示goalがない場合、人間から受けた指示の作業に残りがあるときだけ続け、終わっていれば
+  待機するようinjectする。
+
+## 指示されていないセッション外のタスクを持ち込まない (2026-10-07 neco 指示)
+
+起動直後や作業の区切りで、指示に無い作業をセッションが始めていた。原因は自走継続の文面
+(git diff・TODO・タスク管理情報から次のタスクを定義して実行させていた) と、残作業 sweep
+(`taskflow:residual`) が見つけたプロジェクトの未着手タスクを `current_task` に書き込んで
+自走させていたこと。
+
+- 人間の指示を一度も受けていないセッションには自走継続を送らない。状態所有者は
+  `sessions.metadata.goal_and_go.instructed` (goal-and-go が所有)。人間の`user_activity`、
+  ユーザ発話、人間由来injectで `true` になり、明示`goal`の登録も指示として扱う。
+- `taskflow.continue_requested` の本文 (sweep が見つけた次タスク) は `current_task` に持ち込まない。
+  自走継続はセッション自身の `current_task` だけを続ける。
+- 自走継続の文面は「受けた指示の範囲だけで作業し、Actio の未着手 task・git diff・TODO などの
+  セッション外のタスクを持ち込まない」と明示する。
+- 不変条件: 自走継続 inject は、`instructed=true` または明示`goal`を持つセッションにだけ届く。
 - 達成度や残作業の意味判断は、文脈を保持している同じAIセッション自身が行う。CcはLLMを
   内包せず、待機・opt-in・安全上限を決定論的に管理する。
 - 続行は既存の`session.inject`経路を使う。新しいセッションは作らない。

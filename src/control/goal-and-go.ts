@@ -16,6 +16,12 @@ export interface GoalAndGoStatus {
   started_at: number | null;
   last_continued_at: number | null;
   stopped_reason: "continuation_limit" | "runtime_limit" | null;
+  /**
+   * 人間の指示 (ユーザ発話・人間由来 inject・user_activity) を一度でも受けたか。
+   * 受けていないセッションには自走継続を送らない (2026-10-07 neco 指示: 指示されていない
+   * セッション外のタスクを持ち込まない)。明示ゴールの登録も指示として扱う。
+   */
+  instructed?: boolean;
 }
 
 const DEFAULT_STATUS: GoalAndGoStatus = {
@@ -69,6 +75,7 @@ export function readGoalAndGoStatus(metadata: string | null | undefined): GoalAn
         value.stopped_reason === "continuation_limit" || value.stopped_reason === "runtime_limit"
           ? value.stopped_reason
           : null,
+      ...(value.instructed === true ? { instructed: true } : {}),
     };
   } catch {
     return { ...DEFAULT_STATUS };
@@ -112,7 +119,7 @@ export function buildGoalAndGoPrompt(input: {
       ]
     : [
         "明示ゴールは登録されていません。",
-        "現在の指示、git diff、未完了TODO、利用可能なタスク管理情報を確認し、残作業があれば次の具体的なタスクを定義して、そのまま実行してください。",
+        "人間から受けた指示の作業に残りがあるときだけ、その作業を続けてください。受けた指示の作業が終わっていれば何もせず待機してください。",
       ];
   const currentTask = input.currentTask?.trim()
     ? [`Cc上の現在タスク: ${input.currentTask.trim()}`]
@@ -122,8 +129,9 @@ export function buildGoalAndGoPrompt(input: {
     "人間から新しい入力がないため、自走継続の判断を行ってください。",
     ...focus,
     ...currentTask,
-    "Actioのタスク状態・依存関係・クリティカルパス・関連PRを確認してください。対象作業の1ループは実装・審査・マージ・反映の確認までです。各操作は既存の人間の許可範囲で判断し、Test OKだけで完了にしないでください。",
-    "一つのタスクが審査待ちや判断待ちで止まっても、同じ承認範囲で進められる別のタスクを確認してください。審査待ちの重複提出はしないでください。",
+    "指示されていないセッション外のタスク (Actio の未着手 task、git diff、TODO など) を持ち込まないでください。作業してよいのは、このセッションが人間から受けた指示の範囲だけです。",
+    "受けた指示の作業の1ループは実装・審査・マージ・反映の確認までです。各操作は既存の人間の許可範囲で判断し、Test OKだけで完了にしないでください。",
+    "受けた指示の作業が審査待ちや判断待ちで止まったら、同じ指示の範囲で進められる作業だけを進めてください。審査待ちの重複提出はしないでください。",
     "ループの区切りでは予定タスクを列挙し、実行中は GO、待機するものには理由を示してください。進められるものが無ければ必要な人間判断を要約し、POST /v1/sessions/:id/human-wait に summary と task_references を記録して待機してください。人間の回答まで自動確認を止めます。",
   ].join("\n");
 }
@@ -159,18 +167,20 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     opts.repo.setMetadata(sessionId, mergeGoalAndGoStatus(session.metadata, status));
   };
 
+  /** 人間の入力で呼ぶ。指示を受けた印を付け、自走の回数・時間予算をリセットする。 */
   const resetProgress = (sessionId: string): void => {
     const session = opts.repo.findSession(sessionId);
     if (!session) return;
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled) return;
     if (
+      status.instructed === true &&
       status.continuation_count === 0 &&
       status.started_at === null &&
       status.last_continued_at === null &&
       status.stopped_reason === null
     ) return;
-    saveStatus(sessionId, { ...DEFAULT_STATUS, enabled: true });
+    saveStatus(sessionId, { ...DEFAULT_STATUS, enabled: true, instructed: true });
   };
 
   const markStopped = (
@@ -195,6 +205,8 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     if (session.status !== "active") return;
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled || status.stopped_reason !== null) return;
+    // 人間の指示を一度も受けていないセッションは自走させない (明示ゴールは指示として扱う)。
+    if (status.instructed !== true && !readExplicitGoal(session.metadata)) return;
     if (opts.isAutoCheckDisabled?.(session)) return;
     // 人間の回答待ちなら自走しない。continuation_count も消費せず、回答後の継続を残す。
     if (isHumanWaitActive(opts.repo, sessionId) || !allowAutoInject({
@@ -299,7 +311,8 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
       if (!session || isHumanWaitActive(opts.repo, event.target_session_id)
         || !allowAutoInject({ probe: opts.hasPendingQuestion, sessionId: event.target_session_id,
           source: GOAL_AND_GO_SOURCE, log: opts.log })) return;
-      opts.repo.patchSession(event.target_session_id, { current_task: event.text });
+      // 残作業 sweep が見つけた次タスク (event.text) はセッションの外から来た、指示されていない
+      // タスクなので current_task に持ち込まない (2026-10-07 neco 指示)。セッション自身の作業だけを続ける。
       continueSession(event.target_session_id);
       return;
     }

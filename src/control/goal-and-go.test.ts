@@ -34,6 +34,9 @@ function fakeRepo(metadata: string | null) {
   return { repo, session, events };
 }
 
+/** 人間の指示を受け済みで goal-and-go が ON のセッション。 */
+const INSTRUCTED = JSON.stringify({ goal_and_go: { enabled: true, instructed: true } });
+
 function finalFrame(): Extract<ConcordiaEvent, { type: "transcript.frame" }> {
   return {
     type: "transcript.frame",
@@ -96,7 +99,7 @@ describe("startGoalAndGo", () => {
     // spec/feature/inquiry.md §8: 「idle 経過で自走継続を促す」タイマは撤去した。
     // 継続はお伺い (タスク カテゴリ) の応答と taskflow.continue_requested だけが起こす。
     vi.useFakeTimers();
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -119,7 +122,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("continues via taskflow.continue_requested as before", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -160,7 +163,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("drops a missing task markdown before building the continuation prompt", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -173,6 +176,7 @@ describe("startGoalAndGo", () => {
       maxRuntimeSec: 3600,
     });
 
+    env.session.current_task = "次タスク: 消えたタスク (spec/tasks/missing.md)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 消えたタスク (spec/tasks/missing.md)", ts: 1 });
     await vi.waitFor(() => expect(injected).toHaveLength(1));
 
@@ -187,7 +191,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("drops a completed task markdown before building the continuation prompt", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -200,6 +204,7 @@ describe("startGoalAndGo", () => {
       maxRuntimeSec: 3600,
     });
 
+    env.session.current_task = "次タスク: 完了済み (spec/tasks/done.md)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 完了済み (spec/tasks/done.md)", ts: 1 });
     await vi.waitFor(() => expect(injected).toHaveLength(1));
 
@@ -213,7 +218,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("keeps a pending task markdown in the continuation prompt", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -226,6 +231,7 @@ describe("startGoalAndGo", () => {
       maxRuntimeSec: 3600,
     });
 
+    env.session.current_task = "次タスク: 保留 (spec/tasks/pending.md)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 保留 (spec/tasks/pending.md)", ts: 1 });
     await vi.waitFor(() => expect(injected).toHaveLength(1));
 
@@ -236,7 +242,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("keeps the current task when task markdown validation fails transiently", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -249,6 +255,7 @@ describe("startGoalAndGo", () => {
       maxRuntimeSec: 3600,
     });
 
+    env.session.current_task = "次タスク: 保留 (spec/tasks/pending.md)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 保留 (spec/tasks/pending.md)", ts: 1 });
     await vi.waitFor(() => expect(injected).toHaveLength(1));
 
@@ -259,7 +266,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("keeps a current task whose text is not the taskflow path format", () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -273,6 +280,7 @@ describe("startGoalAndGo", () => {
     });
 
     expect(extractTaskMdPath("次タスク: 手動入力")).toBeNull();
+    env.session.current_task = "次タスク: 手動入力";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 手動入力", ts: 1 });
 
     expect(injected[0]!.text).toContain("Cc上の現在タスク: 次タスク: 手動入力");
@@ -281,7 +289,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("does not let an older task lookup clear a newer current task", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
     let finishLookup!: (task: { status: string } | null) => void;
     const lookup = new Promise<{ status: string } | null>((resolve) => { finishLookup = resolve; });
@@ -296,7 +304,9 @@ describe("startGoalAndGo", () => {
       maxRuntimeSec: 3600,
     });
 
+    env.session.current_task = "次タスク: 古いタスク (spec/tasks/old.md)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 古いタスク (spec/tasks/old.md)", ts: 1 });
+    env.session.current_task = "次タスク: 手動入力";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 手動入力", ts: 2 });
     finishLookup(null);
     await Promise.resolve();
@@ -317,7 +327,7 @@ describe("startGoalAndGo", () => {
 
   it("does not continue while an unanswered question blocks the session", async () => {
     // 未回答の ask カードがある間に自走継続を流すと、モデルが自分の質問に自分で答える。
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -341,7 +351,7 @@ describe("startGoalAndGo", () => {
   });
 
   it("does not continue a session whose department turned auto-check off (departments.md §9.6)", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const injected: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
@@ -361,10 +371,11 @@ describe("startGoalAndGo", () => {
   });
 
   it("revalidates Actio dependencies before injecting", async () => {
-    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const env = fakeRepo(INSTRUCTED);
     const canContinue = vi.fn(async () => false);
     const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600,
       taskStore: { authoritative: true, findByRelativePath: async () => ({ status: "pending" }), canContinue } });
+    env.session.current_task = "Task (actio:task-1)";
     eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "Task (actio:task-1)", ts: 1 });
     await vi.waitFor(() => expect(canContinue).toHaveBeenCalled());
     expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
@@ -415,6 +426,65 @@ describe("startGoalAndGo", () => {
     handle.stop();
   });
 
+  describe("指示されていないセッション外のタスクを持ち込まない (2026-10-07 neco 指示)", () => {
+    function collect() {
+      const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+      const unsubscribe = eventBus.subscribe((event) => {
+        if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+      });
+      return { injected, unsubscribe };
+    }
+
+    it("does not continue a session that has never received a human instruction", () => {
+      const env = fakeRepo(setGoalAndGoEnabled(null, true));
+      const original = env.session.current_task;
+      const { injected, unsubscribe } = collect();
+      const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600, now: () => 100 });
+      try {
+        eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 外のタスク (spec/tasks/outside.md)", ts: 1 });
+        expect(injected).toHaveLength(0);
+        expect(env.session.current_task).toBe(original);
+        expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
+      } finally { handle.stop(); unsubscribe(); }
+    });
+
+    it("never adopts the sweep's next task as the session's current task", () => {
+      const env = fakeRepo(INSTRUCTED);
+      const { injected, unsubscribe } = collect();
+      const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600, now: () => 100 });
+      try {
+        eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 外のタスク", ts: 1 });
+        expect(env.session.current_task).toBe("安定化を完了する");
+        expect(injected).toHaveLength(1);
+        expect(injected[0]!.text).not.toContain("次タスク: 外のタスク");
+        expect(injected[0]!.text).toContain("セッション外のタスク");
+        expect(injected[0]!.text).toContain("持ち込まないでください");
+      } finally { handle.stop(); unsubscribe(); }
+    });
+
+    it("human activity marks the session as instructed, after which it may continue", () => {
+      const env = fakeRepo(setGoalAndGoEnabled(null, true));
+      const { injected, unsubscribe } = collect();
+      const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600, now: () => 100 });
+      try {
+        eventBus.emit({ type: "session.event", session_id: "s1", kind: "user_activity", ts: 2 });
+        expect(readGoalAndGoStatus(env.session.metadata).instructed).toBe(true);
+        eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "続き", ts: 3 });
+        expect(injected).toHaveLength(1);
+      } finally { handle.stop(); unsubscribe(); }
+    });
+
+    it("treats an explicitly registered goal as an instruction", () => {
+      const env = fakeRepo(JSON.stringify({ goal_and_go: { enabled: true }, goal: { mode: "scoped", text: "PR作成まで" } }));
+      const { injected, unsubscribe } = collect();
+      const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600, now: () => 100 });
+      try {
+        eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "続き", ts: 1 });
+        expect(injected).toHaveLength(1);
+      } finally { handle.stop(); unsubscribe(); }
+    });
+  });
+
   it("stops instead of injecting beyond the continuation limit", async () => {
     // 上限 (maxContinuations) は暴走の最終防波堤として残る (spec §8)。
     // idle タイマは無いので taskflow.continue_requested で上限超過を起こす。
@@ -425,6 +495,7 @@ describe("startGoalAndGo", () => {
         started_at: 10,
         last_continued_at: 20,
         stopped_reason: null,
+        instructed: true,
       },
     }));
     const handle = startGoalAndGo({

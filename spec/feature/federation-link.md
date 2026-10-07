@@ -212,6 +212,27 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 (`resolveSiteFromText`)。拠点は有効な拠点の表示名か site_id と大文字小文字を区別せずに照らす。文中で拠点名に触れただけ
 (「前に GROMAC で動いた件」など) は振り分けない。2 つ以上名指しされたら本社へ退避して warn する。拠点タグがあればタグを優先する。
 
+### `/spawn` の起動先 (2026-10-07 neco 指示) {#SPEC-FED-SPAWN-SITE}
+
+「spawnコマンドにspawnする拠点を設定できるように」「拠点は タグを用意 / プロジェクトと関連させて自動で対象のマシンで動作させる /
+特定できなければ対象選択UI出す」。本社 Bot の `/spawn` は次の順に起動先を決める (`src/discord/commands/spawn-site.ts` の
+`decideSpawnTarget`)。
+
+1. `site` 指定 (補完は有効な拠点) — 拠点 ID か表示名 (大文字小文字を区別しない) で解決する。未知・失効・同名複数は理由を返して起動しない。
+2. `project` を担当する拠点 — 拠点ごとの担当プロジェクト (`GET/PUT /v1/federation/sites/:id/projects`、設定ストア
+   `federation.site_projects`) に 1 拠点だけあればそこで起動する。
+3. 担当拠点が複数 — 起動者だけが操作できる選択メニュー (担当拠点 + 本社、120 秒) を出す。時間切れは起動しない。
+4. それ以外 (担当なし・project なし・`task` 付き・子会社 Bot) は従来どおり本社で起動する。`task` は Memoria の完了連携を本社しか持たないので
+   自動では拠点へ渡さず、`site` 明示との併用は断る。
+
+拠点へは forum 起動と同じ `spawn` payload に任意の `options` (provider / template / inject_prompt / model / effort / project / branch / cwd) を
+載せて渡し、拠点はそれを自分の `/v1/admin/spawn-session` へ渡す (effort は provider ごとのキーへ寄せる)。古い拠点は知らないキーを読み捨てる。
+team は拠点へ渡せないので、provider 起動は `project` か `cwd` を要求する。
+
+発言と返信はスレッドで中継する。スレッド内で実行したらそのスレッド、それ以外は受付返信からスレッドを作る。本社はスレッド → 拠点を
+台帳に記録し、そのスレッドへの人の返信はタグが無くても拠点へ届ける (`routeIngress` が台帳を先に見る。名指し起動のスレッドも同じ)。
+listener 停止中は本社で代わりに起動しない。
+
 拠点タグの候補: Villa から PC が取れれば従来どおり PC 名。取れない (Villa 停止・API 不一致) ときは
 有効な拠点の表示名 (無ければ site_id、20 文字で切る) をタグにし、同じ名前で解決する
 (`siteNameTagsOf` / `resolveSiteFromSiteNameTags`)。曖昧なら本社へ退避して warn する。

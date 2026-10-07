@@ -15,7 +15,20 @@ import type { ConsultCommandDeps } from "./commands/consult.js";
 import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
 
+/** `/spawn site:` が使う連合の口 (federation runtime の listSpawnSites / routeSiteSpawn)。 */
+export interface SpawnSitePort {
+  list(): Array<{ siteId: string; name: string }>;
+  /** project を担当する有効な拠点 (空なら本社で起動)。 */
+  forProject(project: string): Array<{ siteId: string; name: string }>;
+  route(input: {
+    site: string; guildId: string; channelId: string; authorId: string | null; title: string; body: string;
+    options: import("../federation/remote-session-payload.js").RemoteSpawnOptions;
+  }): { ok: true; siteId: string; siteName: string } | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable" };
+}
+
 export interface DiscordCommandDeps {
+  /** `/spawn site:` の拠点候補と起動の受け渡し。 未注入 (子会社 Bot・連合なし) なら site 指定は断る。 */
+  spawnSites?: SpawnSitePort;
   backlogAdmission?: (guildId: string, channelId: string) => Promise<boolean>;
   concordiaUrl: string;
   sessionsRepo: SessionsRepo;

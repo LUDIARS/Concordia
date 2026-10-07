@@ -9,6 +9,7 @@
  *   POST /v1/federation/sites/:id/revoke → 失効 (+ 接続中なら切断)
  *   PUT  /v1/federation/sites/:id/departments → 担当 guild の設定
  *   PUT  /v1/federation/sites/:id/villa-pc → Villa PC との対応設定
+ *   GET/PUT /v1/federation/sites/:id/projects → 担当プロジェクト (`/spawn` の自動振り分け)
  *   POST /v1/federation/sites/:id/config → 現在の設定を明示再配布
  */
 
@@ -25,6 +26,7 @@ import type {
   FederationSitePatch,
 } from "../federation/listener-settings.js";
 import { reportError } from "../errors.js";
+import type { SiteProjectsStore } from "../federation/site-projects.js";
 
 const CreateSiteSchema = z.object({
   site_id: z.string().regex(SITE_ID_PATTERN, "site_id must match [a-z0-9][a-z0-9-]{1,63}"),
@@ -34,6 +36,7 @@ const DepartmentsSchema = z.object({
   departments: z.array(z.string().min(1).max(100)).max(100),
 });
 const VillaPcSchema = z.object({ villa_pc_id: z.string().min(1).max(200).nullable() });
+const ProjectsSchema = z.object({ projects: z.array(z.string().trim().min(1).max(100)).max(200) }).strict();
 const SiteRoleSchema = z.object({
   hq_url: z.string().trim().min(1).max(500).nullable().optional(),
   site_id: z.string().regex(SITE_ID_PATTERN).nullable().optional(),
@@ -47,6 +50,8 @@ const ListenerSchema = z.object({
 
 export interface FederationApiDeps {
   sites: FederationSitesRepo;
+  /** 拠点ごとの担当プロジェクト (`/spawn` の自動振り分け)。 未注入なら設定 API は 503。 */
+  siteProjects?: Pick<SiteProjectsStore, "get" | "set">;
   outbox: FederationOutboxRepo;
   connections: FederationConnections;
   /** listener が有効か。動的 status 未供給時の後方互換表示用。 */
@@ -188,6 +193,25 @@ export function federationRouter(deps: FederationApiDeps): Hono {
       villa_pc_id: parsed.data.villa_pc_id,
     });
     return c.json({ ok: true, site_id: siteId, villa_pc_id: parsed.data.villa_pc_id });
+  });
+
+  app.get("/sites/:id/projects", (c) => {
+    const siteId = c.req.param("id");
+    if (!deps.sites.find(siteId)) return c.json({ error: "site_not_found", site_id: siteId }, 404);
+    if (!deps.siteProjects) return c.json({ error: "site_projects_unavailable" }, 503);
+    return c.json({ site_id: siteId, projects: deps.siteProjects.get(siteId) });
+  });
+
+  app.put("/sites/:id/projects", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = ProjectsSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const siteId = c.req.param("id");
+    if (!deps.sites.find(siteId)) return c.json({ error: "site_not_found", site_id: siteId }, 404);
+    if (!deps.siteProjects) return c.json({ error: "site_projects_unavailable" }, 503);
+    const projects = deps.siteProjects.set(siteId, parsed.data.projects);
+    reportError("federation", "連合拠点の担当プロジェクトを更新しました", { site_id: siteId, projects });
+    return c.json({ ok: true, site_id: siteId, projects });
   });
 
   app.post("/sites/:id/config", (c) => {

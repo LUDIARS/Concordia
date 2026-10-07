@@ -113,3 +113,22 @@ describe("federation forum site tag candidates", () => {
     })).not.toThrow();
   });
 });
+
+describe("/spawn site: と担当プロジェクト (2026-10-07)", () => {
+  let db: Database.Database;
+  beforeEach(() => { db = makeTestDb(); });
+  const settings = () => { const values = new Map<string, string>(); return { get: (k: string) => values.get(k) ?? null, set: (k: string, v: string) => { values.set(k, v); } }; };
+
+  it("担当プロジェクトから拠点を引き、listener が無ければ拠点へ渡さず理由を返す", () => {
+    const sites = makeFederationSitesRepo(db, secretBox);
+    sites.create({ siteId: "melpot", name: "MELPOT" });
+    const runtime = createFederationRuntime({ db, secretBox, version: "test", env, settings: settings(), villaClient: villaClientReturning([]) });
+    runtime.apiDeps.siteProjects?.set("melpot", ["Mp"]);
+    expect(runtime.sitesForProject("Mp")).toEqual([{ siteId: "melpot", name: "MELPOT" }]);
+    expect(runtime.sitesForProject("Fg")).toEqual([]);
+    expect(runtime.listSpawnSites()).toEqual([{ siteId: "melpot", name: "MELPOT" }]);
+    const input = { guildId: "111111111111111111", channelId: "222222222222222222", authorId: null, title: "t", body: "", options: {} };
+    expect(runtime.routeSiteSpawn({ ...input, site: "nowhere" })).toEqual({ ok: false, reason: "unknown_site" });
+    expect(runtime.routeSiteSpawn({ ...input, site: "melpot" })).toEqual({ ok: false, reason: "listener_unavailable" });
+  });
+});

@@ -8,6 +8,7 @@ import type { SettingsStore } from "../admin/settings-store.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
 import { createRemoteSessionSite } from "./remote-session-site.js";
+import { remoteSpawnRequestFields } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 
 /** runtime.ts を import しないための最小ポート (module-runtime-composition-only)。 */
@@ -44,6 +45,7 @@ export function startRemoteSessionSite(input: {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          ...remoteSpawnRequestFields(request.options),
           prompt: request.prompt,
           source_discord_guild_id: request.guildId,
           source_discord_channel_id: request.channelId,

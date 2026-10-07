@@ -152,6 +152,15 @@ Degradation is deliberate and always logged, because "I tagged it and it still r
 
 Pass `{"villa_pc_id": null}` to unmap a site, which withdraws its tag.
 
+**Projects (per `/spawn`).** Assign the project codes a site runs. `/spawn project:<code>` then starts on that site automatically when exactly one active site has the project, shows a target menu when several do, and stays at the HQ otherwise. `/spawn site:<id>` always wins (`spec/feature/federation-link.md#SPEC-FED-SPAWN-SITE`).
+
+```bash
+curl -sS -X PUT http://127.0.0.1:11111/v1/federation/sites/osaka-dev/projects \
+  -H 'content-type: application/json' \
+  -d '{"projects":["Mp","Pa"]}'
+curl -s http://127.0.0.1:11111/v1/federation/sites/osaka-dev/projects
+```
+
 ## 5. Confirm the connection
 
 On the HQ, inspect the federation state:

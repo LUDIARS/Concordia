@@ -105,3 +105,24 @@ describe("/v1/federation", () => {
     expect(body.sites[0].pending_events).toBe(1);
   });
 });
+
+describe("/v1/federation/sites/:id/projects (2026-10-07)", () => {
+  it("stores and reads the projects a site runs, rejecting unknown sites and bad bodies", async () => {
+    const db = makeTestDb();
+    const sites = makeFederationSitesRepo(db, secretBox);
+    sites.create({ siteId: "melpot", name: "MELPOT" });
+    const saved = new Map<string, string[]>();
+    const app = new Hono();
+    app.route("/v1/federation", federationRouter({
+      sites, outbox: makeFederationOutboxRepo(db, { maxRows: 100, ttlSec: 3600 }), connections: createFederationConnections(), listenerEnabled: false,
+      siteProjects: { get: (id) => saved.get(id) ?? [], set: (id, projects) => { saved.set(id, [...projects]); return [...projects]; } },
+    }));
+    const json = { "content-type": "application/json" };
+    const put = await app.request("/v1/federation/sites/melpot/projects", { method: "PUT", headers: json, body: JSON.stringify({ projects: ["Mp", "Pa"] }) });
+    expect(put.status).toBe(200);
+    expect(await (await app.request("/v1/federation/sites/melpot/projects")).json()).toEqual({ site_id: "melpot", projects: ["Mp", "Pa"] });
+    expect((await app.request("/v1/federation/sites/none/projects")).status).toBe(404);
+    const bad = await app.request("/v1/federation/sites/melpot/projects", { method: "PUT", headers: json, body: JSON.stringify({ projects: "Mp" }) });
+    expect(bad.status).toBe(400);
+  });
+});

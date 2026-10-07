@@ -1,6 +1,10 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/commands/spawn-site.ts", "tests": ["src/discord/commands/spawn-site.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
+    { "source": "src/discord/commands/spawn.ts", "tests": ["src/discord/commands/spawn.test.ts", "src/discord/commands/spawn-site.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
+    { "source": "src/federation/site-projects.ts", "tests": ["src/federation/site-projects.test.ts", "src/federation/forum-site-tags.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
+    { "source": "src/api/federation.ts", "tests": ["tests/federation-api.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
     { "source": "src/api/sessions/prompt-title.ts", "tests": ["src/api/sessions/prompt-title.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
     { "source": "src/api/sessions/prompt-title-summarizer.ts", "tests": ["src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
     { "source": "src/api/sessions/events.ts", "tests": ["tests/sessions-api.test.ts", "src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },

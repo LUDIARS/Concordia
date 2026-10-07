@@ -18,6 +18,22 @@ export const REMOTE_SPAWN_MAX_TITLE = 200;
 
 const snowflake = z.string().regex(/^\d{5,32}$/);
 
+/**
+ * `/spawn site:` が拠点へ渡す起動条件 (任意)。 forum 起動は持たない。
+ * 古い拠点は知らないキーを読み捨てるので、 無指定の forum 起動と同じ動きになる。
+ */
+const spawnOptionsSchema = z.object({
+  provider: z.enum(["claude", "codex", "gemini"]).optional(),
+  template: z.string().max(100).optional(),
+  inject_prompt: z.boolean().optional(),
+  model: z.string().max(100).optional(),
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  project: z.string().max(200).optional(),
+  branch: z.string().max(200).optional(),
+  cwd: z.string().max(500).optional(),
+});
+export type RemoteSpawnOptions = z.infer<typeof spawnOptionsSchema>;
+
 const spawnSchema = z.object({
   type: z.literal("spawn"),
   guild_id: snowflake,
@@ -26,6 +42,7 @@ const spawnSchema = z.object({
   title: z.string().max(REMOTE_SPAWN_MAX_TITLE),
   body: z.string().max(REMOTE_SPAWN_MAX_BODY),
   runtime_rules: z.array(z.string().max(100)).max(20).default([]),
+  options: spawnOptionsSchema.optional(),
   ts: z.number().int(),
 });
 
@@ -52,8 +69,10 @@ export function buildRemoteSpawnPayload(input: {
   title: string;
   body: string;
   runtimeRules: readonly string[];
+  options?: RemoteSpawnOptions;
   ts: number;
 }): RemoteSpawnPayload {
+  const options = input.options ? spawnOptionsSchema.parse(input.options) : undefined;
   return {
     type: "spawn",
     guild_id: input.guildId,
@@ -62,7 +81,19 @@ export function buildRemoteSpawnPayload(input: {
     title: Array.from(input.title).slice(0, REMOTE_SPAWN_MAX_TITLE).join(""),
     body: Array.from(input.body).slice(0, REMOTE_SPAWN_MAX_BODY).join(""),
     runtime_rules: [...input.runtimeRules].slice(0, 20),
+    ...(options && Object.keys(options).length > 0 ? { options } : {}),
     ts: input.ts,
+  };
+}
+
+/** 拠点の /v1/admin/spawn-session に渡す起動条件。 effort は provider ごとのキーへ寄せる。 */
+export function remoteSpawnRequestFields(options: RemoteSpawnOptions | undefined): Record<string, unknown> {
+  if (!options) return {};
+  const { effort, inject_prompt, ...rest } = options;
+  return {
+    ...Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined)),
+    ...(inject_prompt !== undefined ? { inject_prompt } : {}),
+    ...(effort ? { options: options.provider === "claude" ? { effort } : { model_reasoning_effort: effort } } : {}),
   };
 }
 

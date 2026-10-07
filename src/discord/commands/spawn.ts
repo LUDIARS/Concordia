@@ -1,6 +1,7 @@
 import { ChannelType, SlashCommandBuilder, type PublicThreadChannel } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
+import { chooseSpawnTarget, decideSpawnTarget, executeSiteSpawn, HQ_SPAWN_TARGET, type SpawnResponder } from "./spawn-site.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
 import { memoriaTaskCache, toTaskChoices } from "../memoria-task-cache.js";
 import { toTeamChoices } from "../team-choices.js";
@@ -66,7 +67,12 @@ const spawnCommand: DiscordCommandSpec = {
         .setRequired(false)
         .setAutocomplete(true))
     .addStringOption((o) => o.setName("branch").setDescription("requested working branch (Cc に登録)").setRequired(false))
-    .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false)),
+    .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false))
+    .addStringOption((o) =>
+      o.setName("site")
+        .setDescription("起動先の拠点 (未指定なら本社)。拠点の Cc で起動し、発言はスレッドで中継する")
+        .setRequired(false)
+        .setAutocomplete(true)),
 
   async autocomplete(interaction, deps) {
     const focusedOption = interaction.options.getFocused(true);
@@ -84,6 +90,14 @@ const spawnCommand: DiscordCommandSpec = {
         ? deps.teams?.listForSubsidiary(deps.subsidiaryId) ?? []
         : deps.teams?.list() ?? [];
       await interaction.respond(toTeamChoices(teams, focused));
+      return;
+    }
+    if (focusedOption.name === "site") {
+      const sites = deps.subsidiaryId ? [] : deps.spawnSites?.list() ?? [];
+      await interaction.respond(sites
+        .filter((site) => !focused || site.siteId.toLowerCase().includes(focused) || site.name.toLowerCase().includes(focused))
+        .slice(0, 25)
+        .map((site) => ({ name: `${site.name} (${site.siteId})`.slice(0, 100), value: site.siteId })));
       return;
     }
     if (focusedOption.name === "task") {
@@ -130,6 +144,36 @@ const spawnCommand: DiscordCommandSpec = {
     const requestedTeam = interaction.options.getString("team")?.trim() || undefined;
     const task = interaction.options.getString("task")?.trim() || undefined;
     const branch = interaction.options.getString("branch")?.trim() || undefined;
+    const site = interaction.options.getString("site")?.trim() || undefined;
+
+    // 拠点指定は本社 Bot の連合が有効なときだけ。 本社で黙って起動しない。
+    if (site && (deps.subsidiaryId || !deps.spawnSites)) {
+      await interaction.reply({ content: "拠点を指定した起動は、連合が有効な本社の Bot でだけ使えます。", ephemeral: true });
+      return;
+    }
+    // 起動先: 明示の拠点 → project の担当拠点 (1 つなら自動) → 複数なら選択 UI → それ以外は本社
+    // (2026-10-07 neco 指示「タグを用意 / プロジェクトと関連させて自動で対象のマシンで動作 / 特定できなければ対象選択UI」)。
+    const spawnSites = deps.subsidiaryId ? undefined : deps.spawnSites;
+    let target = decideSpawnTarget({ site, project, task, sitesForProject: spawnSites ? (p) => spawnSites.forProject(p) : undefined });
+    let ix: SpawnResponder = interaction;
+    if (target.kind === "choose") {
+      const chosen = await chooseSpawnTarget(interaction, project!, target.candidates, deps.log);
+      if (!chosen) return;
+      // 選択の interaction は返信の型引数だけが異なる。 以後は共通の返信 API だけを使う。
+      ix = chosen.interaction as unknown as SpawnResponder;
+      target = chosen.target === HQ_SPAWN_TARGET ? { kind: "hq" } : { kind: "site", site: chosen.target, via: "explicit" };
+    }
+    if (target.kind === "site" && spawnSites) {
+      if (task) {
+        await ix.reply({ content: "拠点で起動するときは `task` を指定できません。作業内容は `prompt` で指定してください。", ephemeral: true });
+        return;
+      }
+      deps.log.info(`spawn command branch=site site=${target.site} via=${target.via} provider=${provider ?? "-"} template=${template ?? "-"} user=${interaction.user.id}`);
+      await executeSiteSpawn(ix, spawnSites, target.site, {
+        ...(provider ? { provider } : {}), template, inject, prompt, model, effort, project, branch, cwd,
+      }, deps.log);
+      return;
+    }
 
     // 明示指定が最優先。 未指定のときだけ「どのチーム面で実行したか」から補う。
     // セッションはほぼ workspace root から起動されるので、起動後の付け替えでは
@@ -196,8 +240,8 @@ const spawnCommand: DiscordCommandSpec = {
     // /v1/admin/spawn-session は loopback 信頼境界に乗るので token 不要。
     // provider / model / 既定 cwd はテンプレから継承する。
     if (template) {
-      await interaction.deferReply({ ephemeral: false });
-      if (!await markExplicitSpawnThread(interaction, deps)) return;
+      await ix.deferReply({ ephemeral: false });
+      if (!await markExplicitSpawnThread(ix, deps)) return;
       deps.log.info(`spawn command branch=template template=${template} inject=${inject ? 1 : 0}`);
       const cached = await delegationTemplateCache.get(deps.concordiaUrl, deps.log);
       const selected = cached.templates.find((candidate) => candidate.call_name === template);
@@ -227,14 +271,14 @@ const spawnCommand: DiscordCommandSpec = {
       );
       if ("error" in r || !r.ok) {
         deps.log.warn(`spawn command template failed template=${template} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
-        await interaction.editReply({
+        await ix.editReply({
           content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}`,
         });
         return;
       }
       const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
       deps.log.info(`spawn command template ok template=${template} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
-      await interaction.editReply({
+      await ix.editReply({
         content: channelMention
           ? `Spawned from \`${template}\`${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
           : `spawn accepted for \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""}), but no session registered within 12 seconds. Check the Lictor runtime and try again.`,
@@ -245,18 +289,18 @@ const spawnCommand: DiscordCommandSpec = {
     // ── provider 直接指定 ───────────────────────────────────────
     if (!provider) {
       deps.log.warn("spawn command rejected missing provider and template");
-      await interaction.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
+      await ix.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
       return;
     }
     if (!project && !cwd && !team) {
-      await interaction.reply({
+      await ix.reply({
         content: "作業対象プロジェクトを特定できません。`project`、個別リポジトリの `cwd`、または `team` を指定してください。Castra 直下では起動しません。",
         ephemeral: true,
       });
       return;
     }
-    await interaction.deferReply({ ephemeral: false });
-    if (!await markExplicitSpawnThread(interaction, deps)) return;
+    await ix.deferReply({ ephemeral: false });
+    if (!await markExplicitSpawnThread(ix, deps)) return;
     deps.log.info(`spawn command branch=admin-provider provider=${provider} project=${project ?? "-"} requested_branch=${branch ?? "-"}`);
     const request: Record<string, unknown> = {
       provider,
@@ -281,12 +325,12 @@ const spawnCommand: DiscordCommandSpec = {
     );
     if ("error" in r || !r.ok) {
       deps.log.warn(`spawn command admin-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
-      await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
+      await ix.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
       return;
     }
     const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
     deps.log.info(`spawn command admin-provider ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
-    await interaction.editReply({
+    await ix.editReply({
       content: channelMention
         ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${branch ? ` on \`${branch}\`` : ""} → ${channelMention}`
         : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
@@ -327,7 +371,7 @@ function effortOptions(provider: string | null, effort: string): Record<string, 
 export default spawnCommand;
 
 async function markExplicitSpawnThread(
-  interaction: Parameters<DiscordCommandSpec["execute"]>[0],
+  interaction: SpawnResponder,
   deps: Parameters<DiscordCommandSpec["execute"]>[1],
 ): Promise<boolean> {
   const channel = interaction.channel;

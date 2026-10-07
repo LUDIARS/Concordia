@@ -33,7 +33,9 @@ import { createFederationConfigSnapshot } from "./config-snapshot.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
 import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
-import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf } from "./forum-site-routing.js";
+import { resolveExplicitSite, resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf, sitesForProject, spawnSiteChoices } from "./forum-site-routing.js";
+import { createSiteProjectsStore } from "./site-projects.js";
+import type { RemoteSpawnOptions } from "./remote-session-payload.js";
 import { buildRemoteSpawnPayload } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 import type { DepartmentRoute } from "./department-routing.js";
@@ -100,6 +102,23 @@ export interface FederationRuntime {
     runtimeRules: readonly string[];
     appliedTagNames: readonly string[];
   }): { siteId: string; siteName: string } | null;
+  /** `/spawn site:` の補完候補 (有効な拠点)。 */
+  listSpawnSites(): Array<{ siteId: string; name: string }>;
+  /** project を担当する有効な拠点。 空なら本社で起動する。 */
+  sitesForProject(project: string): Array<{ siteId: string; name: string }>;
+  /**
+   * `/spawn site:` の明示指定でその拠点に起動を渡す。 拠点の発言と返信は channelId のスレッドで中継する。
+   * 解決できない・listener 停止中は理由を返し、 本社では起動しない。
+   */
+  routeSiteSpawn(input: {
+    site: string;
+    guildId: string;
+    channelId: string;
+    authorId: string | null;
+    title: string;
+    body: string;
+    options: RemoteSpawnOptions;
+  }): { ok: true; siteId: string; siteName: string } | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable" };
   /** Discord のタグ同期用。Villa から PC が取れなければ有効な拠点名を返す。 */
   listForumSiteTagNames(): Promise<string[]>;
   /** 拠点ロール: 本社から届いた event payload の受け手。 */
@@ -173,6 +192,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   let siteEventHandler: ((payload: unknown) => void) | null = null;
   /** 本社: 拠点へ起動を渡したスレッド。 settings 未注入 (テスト) ではプロセス内だけで持つ。 */
   const hqThreads = createRemoteThreadRegistry(opts.settings ?? memorySettings(), "federation.hq.remote_threads");
+  /** 本社: 拠点ごとの担当プロジェクト (`/spawn` の project から起動先を決める)。 */
+  const siteProjects = createSiteProjectsStore(opts.settings ?? memorySettings());
   const villa = opts.villaClient ?? new VillaClient();
   let villaPcs: VillaPc[] = [];
   let villaFetchedAt = 0;
@@ -216,6 +237,13 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       reportIngressWarningOnce(channelId, warning);
     }
     return resolution.route;
+  }
+
+  /** 本社が拠点へ渡したスレッドの実行先。 拠点が失効・削除済みなら null (他の経路で決める)。 */
+  function resolveThreadRoute(channelId: string): DepartmentRoute | null {
+    const entry = hqThreads.find(channelId);
+    if (!entry?.siteId) return null;
+    return sites.find(entry.siteId)?.status === "active" ? { kind: "site", siteId: entry.siteId } : null;
   }
 
   /** 依頼文で名指しされた拠点。 曖昧なら本社へ退避して warn する。 */
@@ -402,6 +430,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       sites,
       outbox,
       connections,
+      siteProjects,
       listenerEnabled: currentListenerConfig().enabled,
       disconnectSite: (siteId, code) => listener?.disconnect(siteId, code),
       redistributeConfig: (siteId) => listener?.sendConfigUpdate(siteId) ?? false,
@@ -456,7 +485,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       }
     },
     routeIngress(input) {
-      const forumRoute = resolveForumRoute(input.channel_id, input.applied_tag_names ?? []);
+      // 本社が拠点へ渡したスレッド (名指し起動・`/spawn site:`) は、 タグが無くてもその拠点へ届ける。
+      const forumRoute = resolveForumRoute(input.channel_id, input.applied_tag_names ?? []) ?? resolveThreadRoute(input.channel_id);
       const route = forumRoute ?? resolveDepartmentRoute(sites, input.guild_id);
       if (route.kind !== "site" || !listener) return false;
       listener.enqueue(route.siteId, { type: "ingress", ...input });
@@ -470,6 +500,29 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       listener.enqueue(route.siteId, buildRemoteSpawnPayload({ ...input, ts: Math.floor(Date.now() / 1000) }));
       const site = sites.find(route.siteId);
       return { siteId: route.siteId, siteName: site?.name ?? route.siteId };
+    },
+    listSpawnSites() {
+      return spawnSiteChoices(sites.list());
+    },
+    sitesForProject(project) {
+      return sitesForProject(sites.list(), siteProjects.all(), project);
+    },
+    routeSiteSpawn(input) {
+      const resolved = resolveExplicitSite(sites.list(), input.site);
+      if (!resolved.ok) return resolved;
+      if (!listener) return { ok: false, reason: "listener_unavailable" };
+      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: resolved.siteId, at: Date.now() });
+      listener.enqueue(resolved.siteId, buildRemoteSpawnPayload({
+        guildId: input.guildId,
+        channelId: input.channelId,
+        authorId: input.authorId,
+        title: input.title,
+        body: input.body,
+        runtimeRules: [],
+        options: input.options,
+        ts: Math.floor(Date.now() / 1000),
+      }));
+      return resolved;
     },
     async listForumSiteTagNames() {
       const pcs = await refreshVillaPcs();

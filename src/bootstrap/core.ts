@@ -1866,6 +1866,11 @@ export async function startBackend(): Promise<BackendHandle> {
     }),
     resolveForumSiteTags: () => federation.listForumSiteTagNames(),
     routeRemoteSpawn: (input) => federation.routeForumSpawn(input),
+    spawnSites: {
+      list: () => federation.listSpawnSites(),
+      forProject: (project) => federation.sitesForProject(project),
+      route: (input) => federation.routeSiteSpawn(input),
+    },
     setFederationEgressExecutor: federation.setEgressExecutor,
     setDomainReviewPoster: (poster) => { domainReviewPoster = poster; },
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に

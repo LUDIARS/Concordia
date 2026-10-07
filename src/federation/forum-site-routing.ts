@@ -68,6 +68,42 @@ function namesSite(name: string, title: string, body: string): boolean {
   return leading.test(title) || leading.test(body) || mention.test(title) || mention.test(body);
 }
 
+/** `/spawn site:` で指定できる拠点 (有効な拠点だけ)。 */
+export function spawnSiteChoices(sites: readonly FederationSiteRow[]): Array<{ siteId: string; name: string }> {
+  return sites.filter((site) => site.status === "active").map((site) => ({ siteId: site.site_id, name: site.name?.trim() || site.site_id }));
+}
+
+/**
+ * project を担当する有効な拠点 (2026-10-07 neco 指示「プロジェクトと関連させて自動で対象のマシンで動作させる」)。
+ * プロジェクトコードは大文字小文字を区別して照らす (Cc の略称表と同じ規則)。 対応が無ければ空 (本社で起動)。
+ */
+export function sitesForProject(
+  sites: readonly FederationSiteRow[], assignments: Readonly<Record<string, readonly string[]>>, project: string,
+): Array<{ siteId: string; name: string }> {
+  const key = project.trim();
+  if (!key) return [];
+  return spawnSiteChoices(sites).filter((site) => (assignments[site.siteId] ?? []).includes(key));
+}
+
+export type ExplicitSiteResolution =
+  | { ok: true; siteId: string; siteName: string }
+  | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" };
+
+/**
+ * `/spawn site:` の明示指定を拠点に解決する (2026-10-07 neco 指示「spawnコマンドにspawnする拠点を設定できるように」)。
+ * site_id を優先し、 無ければ表示名と大文字小文字を区別せずに照らす。 失効済み・同名複数は起動しない (本社へ黙って落とさない)。
+ */
+export function resolveExplicitSite(sites: readonly FederationSiteRow[], ref: string): ExplicitSiteResolution {
+  const key = ref.trim().toLowerCase();
+  const byId = sites.filter((site) => site.site_id.toLowerCase() === key);
+  const matches = byId.length > 0 ? byId : sites.filter((site) => site.name?.trim().toLowerCase() === key);
+  if (matches.length === 0) return { ok: false, reason: "unknown_site" };
+  const active = matches.filter((site) => site.status === "active");
+  if (active.length === 0) return { ok: false, reason: "inactive_site" };
+  if (active.length > 1) return { ok: false, reason: "ambiguous_site" };
+  return { ok: true, siteId: active[0]!.site_id, siteName: active[0]!.name?.trim() || active[0]!.site_id };
+}
+
 /**
  * Villa 不在時の解決。拠点名タグが 1 個だけ付いていればその拠点、複数なら本社へ退避する。
  * 同名の有効拠点が複数あるときも曖昧として本社へ退避する。

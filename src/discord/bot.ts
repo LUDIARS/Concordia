@@ -286,6 +286,8 @@ export interface DiscordBotDeps {
   routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[] }) => boolean;
   /** Session forum の拠点タグ付き投稿を拠点での起動へ渡す (federation-link.md §本社からのセッション起動)。 */
   routeRemoteSpawn?: import("./forum-spawn.js").ForumSpawnDeps["routeRemoteSpawn"];
+  /** `/spawn site:` の拠点候補と起動の受け渡し (本社 runtime だけが渡す)。 */
+  spawnSites?: import("./command-port.js").SpawnSitePort;
   resolveForumSiteTags?: () => Promise<readonly string[]>;
   setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
   /**
@@ -2200,6 +2202,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       subsidiaryId,
       // 子会社の `/spawn` は担当プロジェクトへ閉じる (subsidiary-delegation §3.4)。
       resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
+      // 拠点での起動は本社 Bot だけ (子会社 Bot は連合 listener を持たない)。
+      ...(!subsidiaryId && deps.spawnSites ? { spawnSites: deps.spawnSites } : {}),
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
       isSessionControlUserAllowed,
       // プライベート相談。 子会社 Bot は自社のプロジェクトを持たない相談部署だけを扱う (tech-consultation.md §6)。

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRemoteSessionSite, splitForRelay, REMOTE_RELAY_CHUNK } from "./remote-session-site.js";
-import { buildRemoteSpawnPayload, parseSiteEventPayload, REMOTE_SPAWN_MAX_BODY } from "./remote-session-payload.js";
+import { buildRemoteSpawnPayload, parseSiteEventPayload, remoteSpawnRequestFields, REMOTE_SPAWN_MAX_BODY } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry, REMOTE_THREAD_LIMIT } from "./remote-thread-registry.js";
 import { readSourceChannel } from "./remote-session-wiring.js";
 
@@ -106,5 +106,34 @@ describe("remote session site", () => {
     expect(splitForRelay("  ")).toEqual([]);
     expect(readSourceChannel(JSON.stringify({ discord_source_channel_id: THREAD }))).toBe(THREAD);
     expect(readSourceChannel("broken")).toBeNull();
+  });
+});
+
+describe("remote spawn options (/spawn site:, 2026-10-07)", () => {
+  it("carries spawn options through the payload and drops unknown or empty options", () => {
+    const payload = buildRemoteSpawnPayload({
+      guildId: GUILD, channelId: THREAD, authorId: USER, title: "t", body: "b", runtimeRules: [], ts: 1,
+      options: { provider: "codex", project: "Pa", effort: "high", branch: "main" },
+    });
+    expect(parseSiteEventPayload(payload)).toMatchObject({ options: { provider: "codex", project: "Pa", effort: "high", branch: "main" } });
+    expect(buildRemoteSpawnPayload({ guildId: GUILD, channelId: THREAD, authorId: null, title: "t", body: "", runtimeRules: [], ts: 1, options: {} }))
+      .not.toHaveProperty("options");
+    // 古い拠点 / 新しい本社の差: 知らないキーは読み捨てる。
+    expect(parseSiteEventPayload({ ...payload, extra: 1 })).not.toHaveProperty("extra");
+  });
+
+  it("maps options to spawn-session fields with provider-specific effort keys", () => {
+    expect(remoteSpawnRequestFields({ provider: "claude", effort: "max", project: "Mp", template: "opus", inject_prompt: false }))
+      .toEqual({ provider: "claude", project: "Mp", template: "opus", inject_prompt: false, options: { effort: "max" } });
+    expect(remoteSpawnRequestFields({ provider: "codex", effort: "low" })).toEqual({ provider: "codex", options: { model_reasoning_effort: "low" } });
+    expect(remoteSpawnRequestFields(undefined)).toEqual({});
+  });
+
+  it("passes the options to the site's spawn", async () => {
+    const { site, spawn } = setup();
+    await site.handleEvent(buildRemoteSpawnPayload({
+      guildId: GUILD, channelId: THREAD, authorId: USER, title: "t", body: "b", runtimeRules: [], ts: 1, options: { project: "Pa" },
+    }));
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ options: { project: "Pa" } }));
   });
 });

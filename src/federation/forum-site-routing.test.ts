@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf } from "./forum-site-routing.js";
+import { resolveExplicitSite, resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf, sitesForProject, spawnSiteChoices } from "./forum-site-routing.js";
 import type { FederationSiteRow } from "../db/federation-sites-repo.js";
 
 const pcs = [{ id: "pc-a", name: "HASTER" }, { id: "pc-b", name: "YIDHRA" }];
@@ -74,5 +74,32 @@ describe("forum site routing by naming the site in the request (2026-10-06)", ()
     const result = resolveSiteFromText(sites, "GROMACで検証", "@haster も見て");
     expect(result.route).toEqual({ kind: "hq" });
     expect(result.warnings).not.toEqual([]);
+  });
+});
+
+describe("explicit and project site resolution for /spawn (2026-10-07)", () => {
+  const named = (siteId: string, name: string | null, status: "active" | "revoked" = "active"): FederationSiteRow =>
+    ({ ...site(siteId, null, status), name });
+  const sites = [named("melpot", "MELPOT"), named("gromac", "GROMAC"), named("old", "OLD", "revoked")];
+
+  it("lists only active sites as spawn choices", () => {
+    expect(spawnSiteChoices(sites)).toEqual([{ siteId: "melpot", name: "MELPOT" }, { siteId: "gromac", name: "GROMAC" }]);
+  });
+
+  it("resolves an explicit site by id or case-insensitive name, refusing revoked, unknown and ambiguous sites", () => {
+    expect(resolveExplicitSite(sites, "melpot")).toEqual({ ok: true, siteId: "melpot", siteName: "MELPOT" });
+    expect(resolveExplicitSite(sites, "Gromac")).toEqual({ ok: true, siteId: "gromac", siteName: "GROMAC" });
+    expect(resolveExplicitSite(sites, "old")).toEqual({ ok: false, reason: "inactive_site" });
+    expect(resolveExplicitSite(sites, "nowhere")).toEqual({ ok: false, reason: "unknown_site" });
+    expect(resolveExplicitSite([named("a", "DUP"), named("b", "DUP")], "dup")).toEqual({ ok: false, reason: "ambiguous_site" });
+  });
+
+  it("finds the active sites assigned to a project code", () => {
+    const assignments = { melpot: ["Mp", "Pa"], gromac: ["Pa"], old: ["Fg"] };
+    expect(sitesForProject(sites, assignments, "Mp")).toEqual([{ siteId: "melpot", name: "MELPOT" }]);
+    expect(sitesForProject(sites, assignments, "Pa").map((s) => s.siteId)).toEqual(["melpot", "gromac"]);
+    expect(sitesForProject(sites, assignments, "Fg")).toEqual([]);
+    expect(sitesForProject(sites, assignments, "mp")).toEqual([]);
+    expect(sitesForProject(sites, assignments, " ")).toEqual([]);
   });
 });

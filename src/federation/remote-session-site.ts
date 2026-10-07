@@ -7,7 +7,7 @@
  *
  * @implements spec/feature/federation-link.md §本社からのセッション起動
  */
-import { parseSiteEventPayload, type RemoteIngressPayload, type RemoteSpawnPayload } from "./remote-session-payload.js";
+import { parseSiteEventPayload, type RemoteIngressPayload, type RemoteSpawnOptions, type RemoteSpawnPayload } from "./remote-session-payload.js";
 import type { RemoteThreadRegistry } from "./remote-thread-registry.js";
 
 /** egress 本文の 1 通あたりの文字数 (Discord 2000 と protocol の 8000 に余白を残す)。 */
@@ -17,7 +17,7 @@ export interface RemoteSessionSiteDeps {
   registry: RemoteThreadRegistry;
   /** forum 起動と同じ依頼文を組み立てる (discord/ を import しないため注入)。 */
   buildPrompt(title: string, body: string, runtimeRules: readonly string[]): string;
-  spawn(input: { guildId: string; channelId: string; authorId: string | null; prompt: string }): Promise<{ ok: boolean; error?: string }>;
+  spawn(input: { guildId: string; channelId: string; authorId: string | null; prompt: string; options?: RemoteSpawnOptions }): Promise<{ ok: boolean; error?: string }>;
   /** そのスレッドから起動した稼働中セッション。無ければ null。 */
   findSessionByChannel(channelId: string): string | null;
   /** セッション metadata の起動元スレッド。無ければ null。 */
@@ -57,6 +57,7 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
       channelId: payload.channel_id,
       authorId: payload.author_id,
       prompt: deps.buildPrompt(payload.title, payload.body, payload.runtime_rules),
+      ...(payload.options ? { options: payload.options } : {}),
     }).catch((error: unknown) => ({ ok: false, error: String(error) }));
     if (!result.ok) {
       deps.log.warn(`remote spawn failed channel=${payload.channel_id}: ${result.error ?? "unknown"}`);

@@ -1,6 +1,9 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/api/sessions/prompt-title.ts", "tests": ["src/api/sessions/prompt-title.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
+    { "source": "src/api/sessions/prompt-title-summarizer.ts", "tests": ["src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
+    { "source": "src/api/sessions/events.ts", "tests": ["tests/sessions-api.test.ts", "src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
     { "source": "src/service-status/policy.ts", "tests": ["src/service-status/policy.test.ts"], "contracts": ["CC-SS-02", "CC-SS-03", "CC-SS-04"] },
     { "source": "src/service-status/visibility.ts", "tests": ["src/service-status/policy.test.ts", "src/api/service-status.test.ts"], "contracts": ["CC-SS-03"] },
     { "source": "src/service-status/client.ts", "tests": ["src/service-status/client.test.ts"], "contracts": ["CC-SS-01", "CC-SS-04", "CC-SS-07"] },

@@ -8,6 +8,7 @@ import {
   isCastraSessionBinding,
   readExplicitWorkingBranch,
 } from "../../control/session-work-policy.js";
+import { applyPromptTitle } from "./prompt-title-summarizer.js";
 
 export function registerEventsRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.get("/:id/tasks", (c) => {
@@ -76,11 +77,18 @@ app.post("/:id/event", async (c) => {
         }
       }
     }
-    // prompt event は「いま何してるか」の最有力 signal なので current_task に反映
+    // prompt event は「いま何してるか」の最有力 signal。 制御注入を除いた人の指示だけを
+    // 1 行タイトルにし、 要約器があれば裏で Haiku 要約に差し替える (SPEC-SESSION-PROMPT-TITLE)。
     if (parsed.data.kind === "prompt") {
       const summary = (parsed.data.payload as { summary?: unknown } | undefined)?.summary;
-      if (typeof summary === "string" && summary.trim().length > 0) {
-        deps.repo.patchSession(id, { current_task: summary.trim().slice(0, 200) });
+      if (typeof summary === "string") {
+        applyPromptTitle({
+          sessionId: id,
+          text: summary,
+          store: deps.repo,
+          summarize: deps.summarizePromptTitle,
+          onSummarized: (sessionId) => eventBus.emit({ type: "session.event", session_id: sessionId, kind: "prompt_title_summarized", ts: nowSec() }),
+        });
       }
     }
     // task_update event は TodoWrite の状態遷移. session_task_records へ

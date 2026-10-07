@@ -59,7 +59,7 @@ owner: product-owner
 
 | 価値 | シナリオ | 不変条件 | 対応する既存仕様 |
 |---|---|---|---|
-| UX-CC-SC-W1 | SC-S1 | CC-INV-01/02 | [spawn target](../feature/delegation-spawn-target-validation.md) |
+| UX-CC-SC-W1 | SC-S1 | CC-INV-01/02 | [spawn target](../feature/delegation-spawn-target-validation.md)、[セッションタイトル](../feature/session-prompt-title.md) |
 | UX-CC-SC-W2 | SC-S2/SC-S3 | CC-INV-04/08 | [shutdown](../feature/session-shutdown.md)、[自律継続](../feature/autonomous-work-continuation.md) |
 | UX-CC-SC-W3 | SC-S4 | CC-INV-06 | [message layer](../feature/session-message-layer.md)、[子会社委任](../feature/subsidiary-delegation.md) |
 

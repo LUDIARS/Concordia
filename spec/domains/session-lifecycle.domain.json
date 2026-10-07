@@ -11,7 +11,7 @@
       "pathPattern": "(^|/)tests/sessions-repo\\.test\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa|work-phase)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa|work-phase|prompt-title|prompt-title-summarizer)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/contract/[^/]+$"
@@ -38,7 +38,8 @@
     "spec/feature/session-process-reaper.md",
     "spec/feature/session-compaction.md",
     "spec/feature/inject-context-gating.md",
-    "spec/feature/workplace-chat.md"
+    "spec/feature/workplace-chat.md",
+    "spec/feature/session-prompt-title.md"
   ],
   "rationale": "sessions 行は全機能 (中継・委託・コスト・ハーネス) が参照する正本だが、書き込み経路 (register/patch) を所有するドメイン宣言が無く、この層だけを触る PR が Anatomia review gate (target domain missing) で止まっていた (2026-08-13 Cc #494)。読み手のドメイン (session-message-layer 等) と重ねず、行の生成・更新だけを切り出して宣言する。"
 }

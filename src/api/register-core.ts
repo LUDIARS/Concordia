@@ -173,6 +173,7 @@ import { checkoutsRouter } from "./checkouts.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { HarnessBlackboxService } from "../harness/blackbox-engine.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
+import { createHaikuPromptTitleSummarizer } from "./sessions/prompt-title-summarizer.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
@@ -560,6 +561,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         deps.adminState.getThinkingMessagesEnabled(),
       ),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
+      summarizePromptTitle: deps.harnessRunClaude ? createHaikuPromptTitleSummarizer(deps.harnessRunClaude) : undefined,
       // 部署の起動時の注入方針 (departments.md §9.5)。 壊れた設定は全部送る側へ倒す (表示の出し分けだけで権限には効かない)。
       departmentStartupInject: (departmentId) => {
         const department = deps.departments?.find(departmentId);

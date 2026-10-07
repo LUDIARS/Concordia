@@ -23,6 +23,7 @@ export interface SpawnSitePort {
   route(input: {
     site: string; guildId: string; channelId: string; authorId: string | null; title: string; body: string;
     options: import("../federation/remote-session-payload.js").RemoteSpawnOptions;
+    runtimeRules?: readonly string[];
   }): { ok: true; siteId: string; siteName: string } | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable" };
 }
 

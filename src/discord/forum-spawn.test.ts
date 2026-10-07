@@ -99,6 +99,67 @@ describe("forum spawn", () => {
     expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("HASTER"));
   });
 
+  describe("project-assigned sites (SPEC-FED-SPAWN-SITE, 2026-10-07)", () => {
+    const routeOk = () => vi.fn(() => ({ ok: true as const, siteId: "melpot", siteName: "MELPOT" }));
+
+    it("hands the post to the only site assigned to the resolved project", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const route = routeOk();
+      const deps = makeDeps({ spawnSites: { forProject: () => [{ siteId: "melpot", name: "MELPOT" }], route } });
+      await expect(executeForumSpawn(deps, makeThread())).resolves.toEqual({ ok: true });
+      expect(route).toHaveBeenCalledWith(expect.objectContaining({
+        site: "melpot", channelId: "thread-1", title: "[Cc] Implement Phase 2", body: "Build spawn-by-post", options: { project: "Concordia" },
+      }));
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("MELPOT"));
+    });
+
+    it("asks for the target when several sites are assigned, then follows the answer", async () => {
+      const requestIntake = vi.fn(async () => true);
+      const route = routeOk();
+      const candidates = [{ siteId: "melpot", name: "MELPOT" }, { siteId: "gromac", name: "GROMAC" }];
+      const deps = makeDeps({ requestIntake, spawnSites: { forProject: () => candidates, route } });
+      await expect(executeForumSpawn(deps, makeThread())).resolves.toEqual({ ok: false, error: "site selection requested" });
+      expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["site"], siteChoices: candidates }));
+      expect(route).not.toHaveBeenCalled();
+      await expect(executeForumSpawn(deps, makeThread(), { title: "[Cc] Implement Phase 2", body: "Build spawn-by-post", site: "gromac" }))
+        .resolves.toEqual({ ok: true });
+      expect(route).toHaveBeenCalledWith(expect.objectContaining({ site: "gromac" }));
+    });
+
+    it("spawns on HQ when HQ is chosen or no site is assigned", async () => {
+      const route = routeOk();
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 })));
+      const chooseHq = makeDeps({ spawnSites: { forProject: () => [{ siteId: "melpot", name: "MELPOT" }], route } });
+      await executeForumSpawn(chooseHq, makeThread(), { title: "[Cc] Implement Phase 2", body: "Build spawn-by-post", site: "__hq__" });
+      const unassigned = makeDeps({ spawnSites: { forProject: () => [], route } });
+      await executeForumSpawn(unassigned, makeThread());
+      expect(route).not.toHaveBeenCalled();
+    });
+
+    it("does not silently spawn on HQ when the assigned site cannot be reached", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const route = vi.fn(() => ({ ok: false as const, reason: "listener_unavailable" as const }));
+      const deps = makeDeps({ spawnSites: { forProject: () => [{ siteId: "melpot", name: "MELPOT" }], route } });
+      await expect(executeForumSpawn(deps, makeThread())).resolves.toEqual({ ok: false, error: "site route failed: listener_unavailable" });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("listener"));
+    });
+
+    it("keeps department forums on their own launch path", async () => {
+      const route = routeOk();
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 })));
+      const deps = makeDeps({
+        department: { id: "dept", name: "AI総合", projects: [], hasLaunchDefault: true } as unknown as ForumSpawnDeps["department"],
+        spawnSites: { forProject: () => [{ siteId: "melpot", name: "MELPOT" }], route },
+      });
+      await executeForumSpawn(deps, makeThread());
+      expect(route).not.toHaveBeenCalled();
+    });
+  });
+
   it("spawns on HQ as before when no site is selected", async () => {
     const routeRemoteSpawn = vi.fn(() => null);
     const deps = makeDeps({ routeRemoteSpawn });

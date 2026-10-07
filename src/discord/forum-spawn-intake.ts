@@ -34,7 +34,19 @@ const MAX_PROJECT_CHOICES = 25;
  * spawn に必要だが投稿から取れなかった項目。 template = 起動テンプレ (モデル) を決められない。
  * consultation = 技術相談の事前ヒアリング (技術レベル・役職・目的) が欠けている (tech-consultation.md §3)。
  */
-export type ForumSpawnMissingField = "project" | "task" | "template" | "consultation";
+export type ForumSpawnMissingField = "project" | "task" | "template" | "consultation" | "site";
+
+/**
+ * 起動先の選択肢 (関係プロジェクトを複数の拠点が担当しているとき、 2026-10-07 neco 指示)。
+ * 本社は FORUM_SPAWN_HQ_SITE で表す。
+ */
+export interface ForumSpawnSiteChoice {
+  siteId: string;
+  name: string;
+}
+
+/** 起動先の選択で「本社で起動」を表す値 (拠点 ID の規則 [a-z0-9-] と重ならない)。 */
+export const FORUM_SPAWN_HQ_SITE = "__hq__";
 
 /** テンプレ質問の選択肢。 label には provider / model を添えて選びやすくする。 */
 export interface ForumSpawnTemplateChoice {
@@ -93,6 +105,8 @@ export interface PendingForumSpawnIntake {
   chosenEffort?: string;
   /** 質問時に出した機械サジェスト (カード再描画で根拠を出し続けるために保持)。 */
   suggestion?: ForumSpawnModelSuggestion;
+  /** 起動先の質問で出した拠点 (選択値の検証に使う)。 */
+  siteChoices?: readonly ForumSpawnSiteChoice[];
 }
 
 /** thread id をキーにした保留質問。 1 スレッドにつき 1 件しか持たない。 */
@@ -187,11 +201,20 @@ export function buildForumSpawnIntakeQuestion(input: {
   suggestion?: ForumSpawnModelSuggestion;
   /** consultation の質問文 (dialogue/intake.ts の buildConsultIntakeQuestion)。 */
   consultationQuestion?: string;
+  /** 起動先の質問の候補 (担当拠点)。 本社は常に選択肢に足す。 */
+  siteChoices?: readonly ForumSpawnSiteChoice[];
   threadId: string;
 }): { content: string; components: ForumSpawnIntakeComponentRow[] } {
   // 事前ヒアリングだけが不足なら、 起動の不足としてではなく回答の前提を尋ねる文面にする。
   if (input.missing.length === 1 && input.missing[0] === "consultation") {
     return { content: `<@${input.requesterUserId}> ${input.consultationQuestion ?? CONSULTATION_FALLBACK_QUESTION}`, components: [] };
+  }
+  // 起動先だけが決まらない (関係プロジェクトを複数の拠点が担当) なら、 拠点の選択メニューを出す。
+  if (input.missing.length === 1 && input.missing[0] === "site") {
+    return {
+      content: `<@${input.requesterUserId}> この作業の関係プロジェクトは複数の拠点が担当しています。起動先を選んでください。`,
+      components: [siteSelectRow(input.threadId, input.siteChoices ?? [])],
+    };
   }
   // モデルだけが不足 (project/task は揃っている) なら Test forum 同型のモデル/Effort カード。
   if (
@@ -283,6 +306,8 @@ export interface ForumSpawnIntakeRequest {
   suggestion?: ForumSpawnModelSuggestion;
   /** 事前ヒアリングの質問文 (missing に consultation を含むとき)。 */
   consultationQuestion?: string;
+  /** 起動先の質問の候補 (missing に site を含むとき)。 */
+  siteChoices?: readonly ForumSpawnSiteChoice[];
 }
 
 /**
@@ -316,6 +341,7 @@ export async function requestForumSpawnIntake(
     modelChoices: request.modelChoices,
     ...(suggestion ? { chosenModel: suggestion.nick, chosenEffort: suggestion.effort, suggestion } : {}),
     ...(request.consultationQuestion ? { consultationQuestion: request.consultationQuestion } : {}),
+    ...(request.siteChoices ? { siteChoices: request.siteChoices } : {}),
     threadId: request.threadId,
   });
   deps.store.set(request.threadId, {
@@ -330,6 +356,7 @@ export async function requestForumSpawnIntake(
     createdAt: now,
     ...(request.modelChoices?.length ? { modelChoices: [...request.modelChoices] } : {}),
     ...(suggestion ? { chosenModel: suggestion.nick, chosenEffort: suggestion.effort, suggestion } : {}),
+    ...(request.siteChoices?.length ? { siteChoices: [...request.siteChoices] } : {}),
   });
   try {
     await deps.postCard(request.threadId, question.content, question.components);
@@ -363,6 +390,8 @@ export interface ForumSpawnIntakeResumeDeps {
       project?: string;
       model?: string;
       effort?: string;
+      /** 起動先の質問で選んだ拠点 ID (本社は FORUM_SPAWN_HQ_SITE)。 */
+      site?: string;
     },
   ) => Promise<void>;
   /** スレッドへの通常返信 (webhook 可)。 */
@@ -528,6 +557,21 @@ export async function dispatchForumSpawnIntakeInteraction(
     return;
   }
 
+  if (kind === "site") {
+    const choice = (pending.siteChoices ?? []).find((site) => site.siteId === selected);
+    if (!choice && selected !== FORUM_SPAWN_HQ_SITE) {
+      await ix.reply({ content: "選択値が無効です。質問カードから選び直してください。", ephemeral: true });
+      return;
+    }
+    await ix.update({
+      content: `起動先: **${choice?.name ?? "本社"}** (回答: <@${ix.user.id}>)`,
+      components: [],
+      allowedMentions: { parse: [] },
+    });
+    await resume(deps, pending, [], { site: selected });
+    return;
+  }
+
   if (kind === "template") {
     // テンプレは本文へ足さず override として渡す — selector の再判定に賭けず確定させる。
     await ix.update({
@@ -561,6 +605,7 @@ const MISSING_FIELD_LABELS: Readonly<Record<ForumSpawnMissingField, string>> = {
   task: "タスク内容",
   template: "起動テンプレ (モデル)",
   consultation: "相談の前提 (技術レベル・役職)",
+  site: "起動先の拠点",
 };
 
 /** 打ち切り時にスレッドへ返す文面 (質問を出せなかったときの明示。 無言で捨てない)。 */
@@ -574,7 +619,7 @@ async function resume(
   deps: ForumSpawnIntakeResumeDeps,
   pending: PendingForumSpawnIntake,
   additions: readonly string[],
-  overrides: { template?: string; project?: string; model?: string; effort?: string } = {},
+  overrides: { template?: string; project?: string; model?: string; effort?: string; site?: string } = {},
 ): Promise<void> {
   const body = supplementForumSpawnBody(pending.body, additions);
   // 回答済みに倒してから再開する。 消さないのは聞き返し回数を持ち越すため、
@@ -589,6 +634,7 @@ async function resume(
       ...(overrides.project ? { project: overrides.project } : {}),
       ...(overrides.model ? { model: overrides.model } : {}),
       ...(overrides.effort ? { effort: overrides.effort } : {}),
+      ...(overrides.site ? { site: overrides.site } : {}),
     });
   } catch (error) {
     deps.log.warn(`forum-spawn intake resume failed thread=${pending.threadId}: ${(error as Error).message}`);
@@ -608,10 +654,10 @@ function isAnswerAllowed(
   return deps.isLaunchUserAllowed?.(userId) === true;
 }
 
-type ForumSpawnIntakeKind = "project" | "template" | "model" | "effort" | "launch";
+type ForumSpawnIntakeKind = "project" | "template" | "model" | "effort" | "launch" | "site";
 
 function parseCustomId(customId: string): { kind: ForumSpawnIntakeKind; threadId: string } | null {
-  const match = /^forum-spawn-intake:(project|template|model|effort|launch):([^:]+)$/.exec(customId);
+  const match = /^forum-spawn-intake:(project|template|model|effort|launch|site):([^:]+)$/.exec(customId);
   return match ? { kind: match[1] as ForumSpawnIntakeKind, threadId: match[2]! } : null;
 }
 
@@ -624,6 +670,23 @@ function projectSelectRow(
       .setCustomId(`${CUSTOM_ID_PREFIX}project:${threadId}`)
       .setPlaceholder("関係プロジェクトを選ぶ")
       .addOptions(choices.map((project) => ({ label: project.slice(0, 100), value: project.slice(0, 100) }))),
+  );
+}
+
+function siteSelectRow(
+  threadId: string,
+  choices: readonly ForumSpawnSiteChoice[],
+): ActionRowBuilder<StringSelectMenuBuilder> {
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`${CUSTOM_ID_PREFIX}site:${threadId}`)
+      .setPlaceholder("起動先を選ぶ")
+      .addOptions(
+        ...choices.slice(0, MAX_PROJECT_CHOICES - 1).map((site) => ({
+          label: site.name.slice(0, 100), value: site.siteId.slice(0, 100), description: `拠点 ${site.siteId}`.slice(0, 100),
+        })),
+        { label: "本社", value: FORUM_SPAWN_HQ_SITE, description: "本社の Cc で起動する" },
+      ),
   );
 }
 

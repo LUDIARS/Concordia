@@ -3,6 +3,7 @@ import {
   buildForumSpawnIntakeQuestion,
   detectMissingForumSpawnInfo,
   dispatchForumSpawnIntakeInteraction,
+  FORUM_SPAWN_HQ_SITE,
   handleForumSpawnIntakeReply,
   isForumSpawnIntakeInteraction,
   MAX_ASK_COUNT,
@@ -384,5 +385,43 @@ describe("本文の補完", () => {
 
   it("空の追記は落とす", () => {
     expect(supplementForumSpawnBody("本文", ["  ", ""])).toBe("本文");
+  });
+});
+
+describe("起動先の拠点の質問 (2026-10-07)", () => {
+  const sites = [{ siteId: "melpot", name: "MELPOT" }, { siteId: "gromac", name: "GROMAC" }];
+  function siteSelect(values: string[]) {
+    const update = vi.fn(async () => undefined);
+    const reply = vi.fn(async () => undefined);
+    return {
+      interaction: { customId: "forum-spawn-intake:site:thread-1", guildId: "g1", channelId: "thread-1", user: { id: "user-1" }, values, update, reply },
+      update,
+      reply,
+    };
+  }
+
+  it("担当拠点と本社を選択肢に出す", () => {
+    const question = buildForumSpawnIntakeQuestion({ requesterUserId: "user-1", missing: ["site"], projectChoices: [], siteChoices: sites, threadId: "thread-1" });
+    expect(question.content).toContain("起動先");
+    const menu = question.components[0]!.toJSON().components[0] as { custom_id: string; options: Array<{ value: string }> };
+    expect(menu.custom_id).toBe("forum-spawn-intake:site:thread-1");
+    expect(menu.options.map((option) => option.value)).toEqual(["melpot", "gromac", FORUM_SPAWN_HQ_SITE]);
+  });
+
+  it("選んだ拠点 (または本社) を override として再開し、候補外の値は拒否する", async () => {
+    const store: ForumSpawnIntakeStore = new Map();
+    const { deps: askDeps } = requestDeps(store);
+    await requestForumSpawnIntake(askDeps, { ...baseRequest, body: "Pagus を起動", missing: ["site"], projectChoices: [], siteChoices: sites });
+    const { deps, resumeSpawn } = resumeDeps(store);
+
+    const forged = siteSelect(["elsewhere"]);
+    await dispatchForumSpawnIntakeInteraction(forged.interaction as never, deps);
+    expect(forged.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(resumeSpawn).not.toHaveBeenCalled();
+
+    const chosen = siteSelect(["gromac"]);
+    await dispatchForumSpawnIntakeInteraction(chosen.interaction as never, deps);
+    expect(chosen.update).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("GROMAC"), components: [] }));
+    expect(resumeSpawn).toHaveBeenCalledWith("thread-1", { title: "直したい", body: "Pagus を起動", site: "gromac" });
   });
 });

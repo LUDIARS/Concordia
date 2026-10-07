@@ -31,9 +31,13 @@ import {
 } from "./forum-system-tag.js";
 import {
   detectMissingForumSpawnInfo,
+  FORUM_SPAWN_HQ_SITE,
   forumSpawnIntakeGiveUpMessage,
   type ForumSpawnMissingField,
+  type ForumSpawnSiteChoice,
 } from "./forum-spawn-intake.js";
+import type { SpawnSitePort } from "./command-port.js";
+import { siteSpawnFailureMessage } from "./commands/spawn-site.js";
 import {
   buildConsultIntakeQuestion,
   resolveConsultIntake,
@@ -98,6 +102,8 @@ export interface SuppliedForumSpawnContent {
   readonly model?: string;
   /** モデル質問カードで選んだ effort。 未指定は provider 既定 (claude=high / codex=xhigh)。 */
   readonly effort?: string;
+  /** 起動先の質問で選んだ拠点 ID (本社は FORUM_SPAWN_HQ_SITE)。 */
+  readonly site?: string;
 }
 
 /**
@@ -183,7 +189,14 @@ export interface ForumSpawnDeps {
     missing: readonly ForumSpawnMissingField[];
     /** missing に consultation を含むときの質問文。 */
     consultationQuestion?: string;
+    /** missing に site を含むときの候補 (担当拠点)。 */
+    siteChoices?: readonly ForumSpawnSiteChoice[];
   }) => Promise<boolean>;
+  /**
+   * 本社の Session forum のみ: 関係プロジェクトの担当拠点で起動する (2026-10-07 neco 指示)。
+   * 担当が 1 拠点ならその拠点の Cc へ渡し、 複数なら起動先を聞き返す。 未配線は本社で起動する。
+   */
+  spawnSites?: Pick<SpawnSitePort, "forProject" | "route">;
   hasExistingRun: (triggeredBy: string) => boolean;
   /**
    * 本社のみ: 拠点タグ付きの新規投稿を、その拠点での起動指示として連合リンクへ渡す
@@ -365,6 +378,12 @@ export async function executeForumSpawn(
       );
       return { ok: false, error: "project out of subsidiary scope" };
     }
+  }
+  // 関係プロジェクトの担当拠点で起動する (federation-link.md SPEC-FED-SPAWN-SITE)。 部署フォーラムは
+  // 部署の起動既定を拠点へ渡せないので対象外。
+  if (project && deps.spawnSites && !deps.department && !inSubsidiary) {
+    const routed = await routeForumSpawnToProjectSite(deps, deps.spawnSites, thread, { title, body, project: project.project, supplied: suppliedContent?.site });
+    if (routed) return routed;
   }
   // 技術相談の事前ヒアリング (tech-consultation.md §3)。 回答の前提が揃うまで起動しない。
   // 起動の直前ではなく、ここで揃うまで聞き返す。
@@ -585,10 +604,47 @@ export async function executeForumSpawn(
  * 不足情報をスレッドで質問する。 質問面が未配線 / 依頼者不明 / 聞き返し上限のときは
  * 何が足りないかを平文で伝えて終わる (無言で捨てない)。
  */
+/**
+ * 担当拠点の判定。 拠点へ渡した・起動先を聞き返したら結果を返し、 本社で起動するなら null。
+ * 選んだ値 (supplied) が本社なら null、 拠点ならその拠点へ渡す。
+ */
+async function routeForumSpawnToProjectSite(
+  deps: ForumSpawnDeps,
+  sites: Pick<SpawnSitePort, "forProject" | "route">,
+  thread: ForumSpawnThread,
+  input: { title: string; body: string; project: string; supplied?: string },
+): Promise<ForumSpawnResult | null> {
+  if (input.supplied === FORUM_SPAWN_HQ_SITE) return null;
+  const candidates = input.supplied ? [] : sites.forProject(input.project);
+  const siteId = input.supplied ?? (candidates.length === 1 ? candidates[0]!.siteId : null);
+  if (!siteId) {
+    if (candidates.length === 0) return null;
+    await askForMissingForumSpawnInfo(deps, thread, { title: input.title, body: input.body, missing: ["site"], siteChoices: candidates });
+    return { ok: false, error: "site selection requested" };
+  }
+  const routed = sites.route({
+    site: siteId, guildId: thread.guildId, channelId: thread.id, authorId: thread.ownerId,
+    title: input.title, body: input.body, options: { project: input.project },
+    runtimeRules: activeRuntimeRuleNames(thread),
+  });
+  if (!routed.ok) {
+    // 担当拠点へ渡せないときに本社で黙って起動しない (拠点のマシンでしか動かない前提の作業がある)。
+    deps.log.warn(`forum-spawn project site route failed thread=${thread.id} site=${siteId} reason=${routed.reason}`);
+    await reply(deps, thread, `担当拠点へ起動を渡せませんでした: ${siteSpawnFailureMessage(routed.reason)}`);
+    return { ok: false, error: `site route failed: ${routed.reason}` };
+  }
+  deps.log.info(`forum-spawn routed to project site thread=${thread.id} site=${routed.siteId} project=${JSON.stringify(input.project)}`);
+  await reply(deps, thread, `関係プロジェクト \`${input.project}\` の担当拠点「${routed.siteName}」の Cc にセッションの起動を依頼しました。起動結果はこのスレッドに届きます。`);
+  return { ok: true };
+}
+
 async function askForMissingForumSpawnInfo(
   deps: ForumSpawnDeps,
   thread: ForumSpawnThread,
-  content: { title: string; body: string; missing: readonly ForumSpawnMissingField[]; consultationQuestion?: string },
+  content: {
+    title: string; body: string; missing: readonly ForumSpawnMissingField[]; consultationQuestion?: string;
+    siteChoices?: readonly ForumSpawnSiteChoice[];
+  },
 ): Promise<void> {
   const missing = content.missing.length > 0 ? content.missing : (["project"] as const);
   deps.log.info(`forum-spawn info missing thread=${thread.id} fields=${missing.join(",")}`);
@@ -601,6 +657,7 @@ async function askForMissingForumSpawnInfo(
         body: content.body,
         missing,
         ...(content.consultationQuestion ? { consultationQuestion: content.consultationQuestion } : {}),
+        ...(content.siteChoices ? { siteChoices: content.siteChoices } : {}),
       });
       if (asked) return;
     } catch (error) {

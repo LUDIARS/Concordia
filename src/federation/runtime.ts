@@ -118,6 +118,8 @@ export interface FederationRuntime {
     title: string;
     body: string;
     options: RemoteSpawnOptions;
+    /** forum 起動のランタイムルールタグ。 `/spawn` は持たない。 */
+    runtimeRules?: readonly string[];
   }): { ok: true; siteId: string; siteName: string } | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable" };
   /** Discord のタグ同期用。Villa から PC が取れなければ有効な拠点名を返す。 */
   listForumSiteTagNames(): Promise<string[]>;
@@ -518,7 +520,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         authorId: input.authorId,
         title: input.title,
         body: input.body,
-        runtimeRules: [],
+        runtimeRules: input.runtimeRules ?? [],
         options: input.options,
         ts: Math.floor(Date.now() / 1000),
       }));

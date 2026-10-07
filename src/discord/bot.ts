@@ -1998,6 +1998,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               : deps.subsidiary?.resolveProjects() ?? [],
             modelChoices,
             ...(suggestion ? { suggestion } : {}),
+            ...(input.siteChoices ? { siteChoices: input.siteChoices } : {}),
             ...(input.consultationQuestion ? { consultationQuestion: input.consultationQuestion } : {}),
           },
         );
@@ -2022,6 +2023,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       },
       // 拠点での起動は本社 runtime だけが渡す (子会社 Bot は連合 listener を持たない)。
       ...(!subsidiaryId && deps.routeRemoteSpawn ? { routeRemoteSpawn: deps.routeRemoteSpawn } : {}),
+      // 関係プロジェクトの担当拠点での起動も本社だけ (2026-10-07 neco 指示)。
+      ...(!subsidiaryId && deps.spawnSites ? { spawnSites: deps.spawnSites } : {}),
       hasExistingRun: (triggeredBy) => {
         if (delegationRepo.findRunByTriggeredBy(triggeredBy) !== null) return true;
         const parsed = parseForumSpawnTrigger(triggeredBy);
@@ -2065,6 +2068,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       project?: string;
       model?: string;
       effort?: string;
+      site?: string;
     },
   ): Promise<void> => {
     const ch = await client.channels.fetch(threadId).catch(() => null);

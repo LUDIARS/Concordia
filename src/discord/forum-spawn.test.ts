@@ -367,27 +367,22 @@ describe("forum spawn", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  it("関係プロジェクトが取れない投稿は拒否ではなく質問にする (neco 指示 3)", async () => {
+  it("関係プロジェクトが取れない本社の投稿は聞き返さずプロジェクト無しで起動する (2026-10-07 neco 指示)", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const requestIntake = vi.fn(async () => true);
-    const postToThread = vi.fn(async () => undefined);
 
     await handleForumSpawnThread(
-      makeDeps({ resolveProjectTarget: () => null, requestIntake, postToThread }),
+      makeDeps({ resolveProjectTarget: () => null, requestIntake }),
       makeThread(),
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({
-      requesterUserId: "123456789",
-      title: "[Cc] Implement Phase 2",
-      missing: ["project"],
+    expect(requestIntake).not.toHaveBeenCalledWith(expect.objectContaining({
+      missing: expect.arrayContaining(["project"]),
     }));
-    expect(postToThread).not.toHaveBeenCalled();
   });
 
-  it("本文が空なら タスク内容 も併せて聞く", async () => {
+  it("本文が空なら タスク内容 だけを聞く (関係プロジェクトは聞かない)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     const requestIntake = vi.fn(async () => true);
 
@@ -396,7 +391,7 @@ describe("forum spawn", () => {
       makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "   " })) }),
     );
 
-    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["project", "task"] }));
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["task"] }));
   });
 
   it("本文が空でも project が取れるなら タスク内容 だけ聞く", async () => {
@@ -422,11 +417,11 @@ describe("forum spawn", () => {
         requestIntake: vi.fn(async () => false),
         postToThread,
       }),
-      makeThread(),
+      makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "   " })) }),
     );
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("関係プロジェクト"));
+    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("タスク内容"));
   });
 
   it("質問カードの投稿が失敗しても不足を平文で返す", async () => {
@@ -439,10 +434,10 @@ describe("forum spawn", () => {
         requestIntake: vi.fn(async () => { throw new Error("component post failed at private endpoint"); }),
         postToThread,
       }),
-      makeThread(),
+      makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "   " })) }),
     );
 
-    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("関係プロジェクト"));
+    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("タスク内容"));
   });
 
   it("回答で補完した本文を渡すと起動まで進む", async () => {

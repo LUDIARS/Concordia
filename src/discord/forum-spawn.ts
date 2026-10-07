@@ -316,10 +316,13 @@ export async function executeForumSpawn(
   // 部署であってもプロジェクトを必須にする (本社の作業領域全体を子会社の依頼で読ませない)。
   // 例外は読み取り専用の相談部署 (tech-consultation.md §6): プロジェクトを拾わず、 Cc が空の
   // 相談用ディレクトリとツール制限で閉じ込めて起動する。
+  // 本社の窓口と担当プロジェクトの無い部署では関係プロジェクトは任意。 投稿から取れなければ
+  // 「無い」としてプロジェクト無しで起動し、聞き返さない (2026-10-07 neco 指示: 無いなら無いで
+  // 良い。取れない回答を聞き返し続けて同じ質問が 3 回出た)。 子会社と担当プロジェクトのある部署は
+  // 起動範囲を閉じる制約なので必須のまま。
   const inSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
   const projectlessConsult = inSubsidiary && deps.department?.projectless === true;
-  const projectRequired = !projectlessConsult
-    && (!deps.department || departmentProjects.length > 0 || inSubsidiary);
+  const projectRequired = !projectlessConsult && (inSubsidiary || departmentProjects.length > 0);
   const project = projectlessConsult ? null
     : (suppliedContent?.project ? asSubsidiaryProjectTarget(suppliedContent.project) : null)
       ?? deps.resolveProjectTarget(title, body)

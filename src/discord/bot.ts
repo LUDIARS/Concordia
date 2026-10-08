@@ -103,6 +103,7 @@ import {
   type ForumSpawnThread,
 } from "./forum-spawn.js";
 import { suggestForumModelFromUsage } from "./forum-model-suggest-usage.js";
+import { shouldResumeForumSpawn } from "./forum-discussion-policy.js";
 import {
   handleForumSpawnIntakeReply,
   requestForumSpawnIntake,
@@ -2092,6 +2093,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   });
   client.on(Events.ThreadCreate, onThreadCreate);
   clientListenerCleanup.push(() => client.off(Events.ThreadCreate, onThreadCreate));
+
+  const onDiscussionTypeUpdate = (before: AnyThreadChannel, after: AnyThreadChannel): void => {
+    if (gatewayClosed || stopping || !inScope(after.guildId)) return;
+    const deps = forumSpawnDepsNow(after.parentId);
+    if (!deps) return;
+    const current = toForumSpawnThread(after);
+    const previous = { appliedTags: before.appliedTags, availableTags: current.availableTags };
+    if (!shouldResumeForumSpawn(previous, current)) return;
+    void handleForumSpawnThread(deps, current).catch(error => {
+      log.warn(`forum-spawn type selection failed thread=${after.id}: ${String(error)}`);
+    });
+  };
+  client.on(Events.ThreadUpdate, onDiscussionTypeUpdate);
+  clientListenerCleanup.push(() => client.off(Events.ThreadUpdate, onDiscussionTypeUpdate));
 
   const onMessageReactionAdd = instrumentDiscord("reactionAddEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;

@@ -14,6 +14,28 @@ import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
 const MANAGED_TAG = { id: "managed-tag", name: CONCORDIA_MANAGED_FORUM_TAG_NAME };
 
+describe("discussion type before Cc intake", () => {
+  it("retains the guard after improvement is selected", async () => {
+    const guardInstruction = vi.fn(async () => ({ ok: false as const, replyText: "guard denied" }));
+    const deps = makeDeps({ guardInstruction });
+    const thread = makeThread({ fetchTagState: vi.fn(async () => ({ appliedTags: ["i"], availableTags: [{ id: "i", name: "改善/議論" }] })) });
+    expect(await executeForumSpawn(deps, thread)).toEqual({ ok: false, error: "subsidiary guard denied the request" });
+    expect(guardInstruction).toHaveBeenCalledOnce();
+  });
+  it.each([{ appliedTags: [] }, { appliedTags: ["planning"] }])("does not guard, ask for a project or spawn for $appliedTags", async ({ appliedTags }) => {
+    const guardInstruction = vi.fn();
+    const resolveProjectTarget = vi.fn(() => null);
+    const deps = makeDeps({ guardInstruction, resolveProjectTarget });
+    const thread = makeThread({ fetchTagState: vi.fn(async () => ({ appliedTags, availableTags: [{ id: "planning", name: "企画/議論" }, { id: "improvement", name: "改善/議論" }] })) });
+    const result = await executeForumSpawn(deps, thread);
+    expect(result.ok).toBe(false);
+    expect(guardInstruction).not.toHaveBeenCalled();
+    expect(resolveProjectTarget).not.toHaveBeenCalled();
+    expect(deps.postToThread).not.toHaveBeenCalled();
+    expect(deps.selectTemplate).not.toHaveBeenCalled();
+  });
+});
+
 function template(callName = "forum-codex-session"): DelegationTemplateLite {
   return {
     call_name: callName,

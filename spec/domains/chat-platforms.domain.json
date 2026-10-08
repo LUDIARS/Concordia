@@ -66,6 +66,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/forum-discussion-type-first.md",
     "spec/feature/human-request-channel.md",
     "spec/feature/personal-ai-budget.md",
     "spec/tasks/2026-10-03-final-answer-decoration.md",

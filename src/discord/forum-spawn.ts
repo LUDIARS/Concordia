@@ -1,4 +1,5 @@
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
+import { forumDiscussionSpawnPolicy } from "./forum-discussion-policy.js";
 import {
   forumModelChoices,
   matchExplicitForumModel,
@@ -224,6 +225,8 @@ export interface ForumSpawnDeps {
   log: { info: (message: string) => void; warn: (message: string) => void };
 }
 
+const activeForumSpawnThreads = new Map<string, Promise<unknown>>();
+
 export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: ForumSpawnThread): Promise<void> {
   if (thread.parentId !== deps.sessionForumId) return;
   if (hasConcordiaManagedForumTag(thread)) {
@@ -236,7 +239,12 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
     return;
   }
-  await executeForumSpawn(deps, thread);
+  const previous = activeForumSpawnThreads.get(thread.id) ?? Promise.resolve();
+  // 前イベントの失敗は元の呼び出し側が報告する。次のタグ決定イベントは失わない。
+  const current = previous.catch(() => undefined).then(() => executeForumSpawn(deps, thread));
+  activeForumSpawnThreads.set(thread.id, current);
+  try { await current; }
+  finally { if (activeForumSpawnThreads.get(thread.id) === current) activeForumSpawnThreads.delete(thread.id); }
 }
 
 /**
@@ -257,6 +265,19 @@ export async function executeForumSpawn(
   if (deps.department?.archived) {
     await reply(deps, thread, `部署「${deps.department.name}」は廃止されているため、セッションを起動しません。`);
     return { ok: false, error: "department archived" };
+  }
+
+  // Di のタイプ選択と企画議論は Cc の起動情報聞き返しより先に判定する。
+  let initialTags: ForumTagState;
+  try { initialTags = await thread.fetchTagState(); }
+  catch (error) {
+    deps.log.warn(`forum-spawn initial tag refresh failed thread=${thread.id}: ${String(error)}`);
+    return { ok: false, error: "forum tag refresh failed" };
+  }
+  const discussionPolicy = forumDiscussionSpawnPolicy(initialTags);
+  if (discussionPolicy === "pending" || discussionPolicy === "planning") {
+    deps.log.info(`forum-spawn deferred to Di thread=${thread.id} policy=${discussionPolicy}`);
+    return { ok: false, error: discussionPolicy === "pending" ? "discussion type pending" : "Di planning discussion" };
   }
 
   let title = suppliedContent?.title;

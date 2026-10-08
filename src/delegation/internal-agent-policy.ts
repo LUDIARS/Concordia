@@ -1,5 +1,5 @@
 /** @implements spec/feature/internal-agent-model-policy.md */
-import { suggestForumModel, type ForumModelSuggestionInput } from "./forum-model-suggest.js";
+import { suggestForumModel, type ForumModelSuggestionInput } from "../discord/forum-model-suggest.js";
 import { forumModelChoices, type ForumModelTemplate } from "./forum-model-selection.js";
 
 /** Reuse the existing policy; never substitute the parent's model. No I/O. */

@@ -1,5 +1,3 @@
-import type { GuildRoleList } from "../platform/guild-role-list.js";
-export type { GuildRoleList } from "../platform/guild-role-list.js";
 /**
  * 月次予算の属性の倍率に使う Discord のロールを、 Bot (本社・子会社) が在籍する guild から読む
  * (spec/feature/usage-budgets.md §3.1 §6)。
@@ -35,6 +33,12 @@ export interface RoleGuildLike {
 
 export interface RoleClientLike {
   guilds: { cache: CacheLike<RoleGuildLike> };
+}
+
+export interface GuildRoleList {
+  guild_id: string;
+  guild_name: string;
+  roles: Array<{ id: string; name: string }>;
 }
 
 function guildsOf(clients: readonly RoleClientLike[]): RoleGuildLike[] {

@@ -68,7 +68,7 @@ function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 }
 
 describe("federation link", () => {
-  it("keeps the legacy link alive without delivering privileged queued events", async () => {
+  it("authenticates, delivers queued events in order, and drains on ack", async () => {
     const hq = await startHq();
     const { token } = hq.sites.create({ siteId: "site-a" });
 
@@ -84,23 +84,23 @@ describe("federation link", () => {
       token,
       siteVersion: "test-site",
       configCachePath: testConfigCachePath(),
-      onEvent: (payload) => { received.push((payload as { n: number }).n); },
+      onEvent: (payload) => received.push((payload as { n: number }).n),
       onLinked: (info) => { linkedInfo = info; },
     });
     registerCleanup(() => client.stop());
 
-    await waitFor(() => client.getConfig() !== null);
-    expect(received).toEqual([]);
+    await waitFor(() => received.length === 2);
+    expect(received).toEqual([1, 2]);
     expect(linkedInfo).toEqual({ hqVersion: "test-hq", pendingEvents: 2 });
     expect(client.isLinked()).toBe(true);
 
-    // 旧 token による接続だけでは高権限を払い出さず、outbox を保持する。
-    expect(hq.outbox.pendingCount("site-a")).toBe(2);
+    // ack で outbox が掃けている。
+    await waitFor(() => hq.outbox.pendingCount("site-a") === 0);
 
-    // 長寿命 socket でも認可へ昇格しない。
+    // 接続中の enqueue は即時配送。
     hq.listener.enqueue("site-a", { n: 3 });
-    expect(hq.outbox.pendingCount("site-a")).toBe(3);
-    expect(received).toEqual([]);
+    await waitFor(() => received.length === 3);
+    expect(received).toEqual([1, 2, 3]);
 
     // ライブ状態が WebUI 用レジストリに反映されている。
     expect(hq.connections.get("site-a")?.siteVersion).toBe("test-site");
@@ -151,7 +151,7 @@ describe("federation link", () => {
     for (let i = 1; i <= total; i++) hq.listener.enqueue("site-a", { n: i });
 
     const seen: number[] = [];
-    let configReceived = false;
+    let bogusAckSent = false;
     const ws = new WebSocket(hq.url);
     registerCleanup(() => { try { ws.close(); } catch { /* ignore */ } });
     ws.on("open", () => {
@@ -159,17 +159,18 @@ describe("federation link", () => {
     });
     ws.on("message", (raw) => {
       const frame = JSON.parse(raw.toString()) as { type?: string; seq?: number };
-      if (frame.type === 'config-snapshot') {
-        ws.send(serializeFederationFrame({ type: 'ack', seq: total * 10 }));
-        ws.ping();
-      }
       if (frame.type !== "event" || typeof frame.seq !== "number") return;
       seen.push(frame.seq);
+      // 1 バッチ受け取ったところで「全部受領した」と嘘の ack を送る。未配送の
+      // 101..150 が消えてしまうなら、この後それらは永久に届かない。
+      if (seen.length === 100 && !bogusAckSent) {
+        bogusAckSent = true;
+        ws.send(serializeFederationFrame({ type: "ack", seq: total * 10 }));
+      }
     });
-    ws.on('pong', () => { configReceived = true; });
-    await waitFor(() => configReceived);
-    expect(seen).toEqual([]);
-    expect(hq.outbox.pendingCount('site-a')).toBe(total);
+
+    await waitFor(() => seen.includes(total));
+    expect(seen).toEqual(Array.from({ length: total }, (_, i) => i + 1));
   });
 
   it("drops a hq-disconnected site from the live registry immediately", async () => {

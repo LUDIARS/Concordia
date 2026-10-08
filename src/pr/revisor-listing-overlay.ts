@@ -9,7 +9,7 @@
  * `RevisorClient.listLocalPrs` の本体から純関数として切り出しただけで、 挙動は変えない。
  */
 
-import type { RevisorLocalPr } from "./revisor-pr-types.js";
+import type { RevisorLocalPr } from "./revisor-client.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:4d4fc91a */
 import augurContract_40ed6508 from './revisor-listing-overlay.contract.js'; /* augur-inject:contract-predicate:9f55c9eb */
 

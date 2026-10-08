@@ -1,4 +1,4 @@
-import { ROLE_GUIDANCE_MAX_CHARS, stripSkillFrontmatter, type RoleGuidanceBlockInput } from "./role-guidance-core.js";
+import { ROLE_GUIDANCE_MAX_CHARS, stripSkillFrontmatter, type RoleGuidanceBlockInput } from "./role-guidance.js";
 
 /** @implements SPEC-CONSULT-PROJECTLESS */
 /**

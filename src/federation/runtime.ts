@@ -11,11 +11,8 @@
  */
 
 import type Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
-import { createWorkloadSecurity } from "./security/runtime.js";
 import type { FederationApiDeps } from "../api/federation.js";
 import { makeFederationOutboxRepo } from "../db/federation-outbox-repo.js";
-import { makeFederationRejectedEventsRepo } from "../db/federation-rejected-events-repo.js";
 import { makeFederationSitesRepo } from "../db/federation-sites-repo.js";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -44,7 +41,6 @@ import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressRequestFrame } from "./protocol.js";
-import { deliveryOutcome } from "./security/event-outcome.js";
 
 export interface FederationIngressInput {
   guild_id: string;
@@ -160,9 +156,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     maxRows: env.outboxMaxRows,
     ttlSec: env.outboxTtlSec,
   });
-  const rejectedEvents = makeFederationRejectedEventsRepo(opts.db);
   const connections = createFederationConnections();
-  const workloadSecurity = createWorkloadSecurity(opts.db, message => log.warn(message));
   let listener: FederationListenerHandle | null = null;
   /** 実際に待ち受けている bind 先 (未起動なら null)。 設定との差分判定に使う。 */
   let listenerBinding: { host: string; port: number } | null = null;
@@ -266,19 +260,13 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
 
   async function startListener(host: string, port: number): Promise<void> {
     try {
-      const certFile = process.env.CONCORDIA_FEDERATION_TLS_CERT_FILE;
-      const keyFile = process.env.CONCORDIA_FEDERATION_TLS_KEY_FILE;
-      if (Boolean(certFile) !== Boolean(keyFile)) throw new Error('federation_tls_pair_required');
       const started = await startFederationListener({
         host,
         port,
         sites,
         outbox,
-        rejectedEvents,
         connections,
         hqVersion: opts.version,
-        ...(certFile && keyFile ? { tls: { cert: readFileSync(certFile, 'utf8'), key: readFileSync(keyFile, 'utf8') } } : {}),
-        prepareEvent: (siteId, payload) => workloadSecurity.prepareEvent(siteId, payload),
         // CC-FED-T2 の逃げ道 (TLS 前段が tailnet 外から繋ぐ構成)。既定は listener 側の loopback / tailnet 制限。
         ...(env.allowAnyRemote ? { isAllowedRemote: () => true } : {}),
         createConfigSnapshot: (siteId) => {
@@ -369,28 +357,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         token: binding.token,
         siteVersion: opts.version,
         platform: process.platform === "win32" || process.platform === "darwin" ? process.platform : undefined,
-        // 本社からの高権限操作は受信ごとに認可し、停止・配線交換後は実行しない。
-        onEvent: async (payload, _seq, ownsSocket) => {
-          const handler = siteEventHandler;
-          if (!handler) throw new Error('remote_session_handler_unavailable');
-          const isCurrent = () => !stopped && siteBinding === binding && ownsSocket()
-            && siteEventHandler === handler && new URL(binding.hqUrl).protocol === 'wss:';
-          const authorization = await workloadSecurity.authorizeEvent(payload, isCurrent);
-          if (authorization.status !== 'accepted') {
-            log.warn(`federation privileged event not executed status=${authorization.status}`
-              + ('reason' in authorization ? ` reason=${authorization.reason}` : ''));
-            return deliveryOutcome(authorization);
-          }
-          // 要求台帳へ受理を記録した後なので、ここで止まると再配送は duplicate になる。
-          // 黙って ack せず、結果不明として本社の退避表へ回す。
-          if (!isCurrent()) return { kind: 'reject', reason: 'handler_failed' };
-          try { handler(authorization.payload); }
-          catch (e) {
-            log.error({ err: (e as Error).message }, 'federation privileged event handler failed');
-            return { kind: 'reject', reason: 'handler_failed' };
-          }
-          return { kind: 'ack' };
-        },
+        // 本社からの spawn / ingress (Phase 4)。 受け手未登録なら読み捨てる (ack は返す)。
+        onEvent: (payload) => siteEventHandler?.(payload),
       });
       siteBinding = binding;
       // query/path に資格情報相当が含まれていてもログへ出さない。
@@ -461,8 +429,6 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
 
   return {
     apiDeps: {
-      authorizeHq: (headers, method, path, body) => stopped ? Promise.resolve(false)
-        : workloadSecurity.authorizeHq(headers, method, path, body),
       sites,
       outbox,
       connections,
@@ -524,19 +490,14 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       // 本社が拠点へ渡したスレッド (名指し起動・`/spawn site:`) は、 タグが無くてもその拠点へ届ける。
       const forumRoute = resolveForumRoute(input.channel_id, input.applied_tag_names ?? []) ?? resolveThreadRoute(input.channel_id);
       const route = forumRoute ?? resolveDepartmentRoute(sites, input.guild_id);
-      if (route.kind !== "site") return false;
-      if (!listener) {
-        log.warn('remote ingress denied: federation listener unavailable');
-        return true; // Explicit remote target must not fall through to local injection.
-      }
+      if (route.kind !== "site" || !listener) return false;
       listener.enqueue(route.siteId, { type: "ingress", ...input });
       return true;
     },
     routeForumSpawn(input) {
       // 拠点タグが無ければ、 依頼文の名指し (「<拠点>で ...」 / `@<拠点>`) で決める。 タグを優先する。
       const route = resolveForumRoute(input.channelId, input.appliedTagNames) ?? resolveTextRoute(input.channelId, input.title, input.body);
-      if (route?.kind !== "site") return null;
-      if (!listener) throw new Error('remote_spawn_unavailable');
+      if (route?.kind !== "site" || !listener) return null;
       hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now() });
       listener.enqueue(route.siteId, buildRemoteSpawnPayload({ ...input, ts: Math.floor(Date.now() / 1000) }));
       const site = sites.find(route.siteId);

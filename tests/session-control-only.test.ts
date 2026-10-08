@@ -147,7 +147,7 @@ describe("セッションコントロールのみ構成 (全ワークフロー�
       }));
       env.repo.setMetadata(SESSION_ID, JSON.stringify({ lictor_pid: 4321 }));
 
-      const r = await env.app.request(`/v1/admin/stop-session/${SESSION_ID}`, { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await env.app.request(`/v1/admin/stop-session/${SESSION_ID}`, { method: "POST" });
       expect(r.status).toBe(202);
       const body = await r.json() as { status: string; job_id: string };
       expect(body.status).toBe("queued");

@@ -54,9 +54,6 @@
     },
     {
       "pathPattern": "(^|/)tests/blocks/revisor-local-pr/[^/]+$"
-    },
-    {
-      "pathPattern": "(^|/)src/pr/revisor-pr-types\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the revisor-local-pr domain: local PR review submission and session-authorized merge.",

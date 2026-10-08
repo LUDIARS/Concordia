@@ -33,10 +33,6 @@ env は代替手段として残し、**正本を Concordia の設定 (schema_met
 
 ## API (loopback)
 
-2026-10-07 以降、`PUT /v1/federation/site` は [Cc workload認可](cc-workload-security.md) の
-`hq-config` proof を必須とする。loopback・旧拠点tokenだけでは更新しない。
-Web UI と Ex provisioning の呼出元移行・管理者grant配備が済むまで更新は拒否される。
-
 ```
 GET  /v1/federation/listener   → {enabled, port, host, source, running}
 PUT  /v1/federation/listener   {enabled?, port?, host?}

@@ -132,7 +132,7 @@ import { consultationsRouter } from "./consultations.js";
 import type { BountyIntakeService } from "../bounty/intake-service.js";
 import { bountyRouter } from "./bounty.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
-import type { GuildRoleList } from "../platform/guild-role-list.js";
+import type { GuildRoleList } from "../discord/member-roles.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";

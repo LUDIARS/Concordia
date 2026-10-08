@@ -3,7 +3,6 @@
  */
 
 import { Hono } from "hono";
-import { localBrowserGuard } from "./api/local-browser-guard.js";
 import { registerChatRoutes, type ChatDeps } from "./api/register-chat.js";
 import { registerCoreRoutes, type CoreDeps } from "./api/register-core.js";
 import { registerCostRoutes, type CostDeps } from "./api/register-cost.js";
@@ -44,7 +43,6 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
-  app.use("*", localBrowserGuard());
   installApiInstrumentation(app);
   const requestLog = createChildLogger("http");
   const perfLog = createChildLogger("perf");

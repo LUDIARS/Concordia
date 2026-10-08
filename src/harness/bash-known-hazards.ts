@@ -1,4 +1,4 @@
-import type { Predicate } from "./predicate-types.js";
+import type { Predicate } from "./predicates.js";
 
 /** Castra harness-guard rules now have a provider-neutral Cc owner. No magic-comment bypass. */
 export const bashKnownHazards: Predicate = action => {

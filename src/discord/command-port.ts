@@ -11,7 +11,7 @@ import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.j
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
-import type { ConsultCommandDeps } from "./consult-command-types.js";
+import type { ConsultCommandDeps } from "./commands/consult.js";
 import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
 
@@ -52,7 +52,7 @@ export interface DiscordCommandDeps {
   /** 回答で補完した内容から spawn を再開する (bot.ts が thread 再取得を配線)。 */
   resumeForumSpawnIntake?: (
     threadId: string,
-    content: import("./forum-spawn-types.js").SuppliedForumSpawnContent,
+    content: import("./forum-spawn.js").SuppliedForumSpawnContent,
   ) => Promise<void>;
   /** Session forum スレッドへの通常返信 (webhook 経由)。 */
   replyToForumThread?: (threadId: string, content: string) => Promise<void>;

@@ -494,13 +494,13 @@ describe("admin API", () => {
   });
 
   it("POST /v1/admin/stop-session/:id 404 for unknown id", async () => {
-    const r = await env.app.request("/v1/admin/stop-session/nope", { headers: { "content-type": "application/json" }, method: "POST" });
+    const r = await env.app.request("/v1/admin/stop-session/nope", { method: "POST" });
     expect(r.status).toBe(404);
   });
 
   it("POST /v1/admin/stop-session/:id 400 when metadata.lictor_pid missing", async () => {
     await seedSession(env, "no-meta", "DESKTOP-A", "active");
-    const r = await env.app.request("/v1/admin/stop-session/no-meta", { headers: { "content-type": "application/json" }, method: "POST" });
+    const r = await env.app.request("/v1/admin/stop-session/no-meta", { method: "POST" });
     expect(r.status).toBe(400);
   });
 
@@ -511,7 +511,7 @@ describe("admin API", () => {
       await seedSession(env, "queued-stop", "DESKTOP-A", "active");
       env.repo.setMetadata("queued-stop", JSON.stringify({ lictor_pid: 123, agent_client_pid: 456 }));
 
-      const r = await env.app.request("/v1/admin/stop-session/queued-stop", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await env.app.request("/v1/admin/stop-session/queued-stop", { method: "POST" });
       const body = await r.json() as {
         status: string;
         report_status: string;
@@ -546,7 +546,7 @@ describe("admin API", () => {
 
     it("dry run returns ok without spawning or exiting", async () => {
       const app = makeTestApp({ rng: () => 0.99 }).app;
-      const r = await app.request("/v1/admin/restart", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await app.request("/v1/admin/restart", { method: "POST" });
       expect(r.status).toBe(200);
       const j = (await r.json()) as any;
       expect(j.ok).toBe(true);

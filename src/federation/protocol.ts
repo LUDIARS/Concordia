@@ -20,7 +20,6 @@
  */
 
 import { z } from "zod";
-import { EVENT_REJECT_REASONS, type EventRejectReason } from "./security/event-outcome.js";
 
 export const FEDERATION_PROTOCOL_VERSION = 1;
 
@@ -112,17 +111,6 @@ const ackSchema = z.object({
   seq: z.number().int().positive(),
 }).passthrough();
 
-/**
- * 拠点が実行を拒否したイベント。ack と違い outbox から消さず、本社は退避表へ移して通知する。
- * 理由コードだけを運び、Cr の応答本文や token は載せない。
- */
-const eventRejectedSchema = z.object({
-  v: versionField,
-  type: z.literal("event-rejected"),
-  seq: z.number().int().positive(),
-  reason: z.enum(EVENT_REJECT_REASONS),
-}).passthrough();
-
 export const FEDERATION_ERROR_CODES = [
   "auth_failed",
   "unsupported_version",
@@ -149,7 +137,6 @@ const frameSchemas = {
   "config-snapshot": configSnapshotFrameSchema,
   "config-update": configUpdateFrameSchema,
   ack: ackSchema,
-  "event-rejected": eventRejectedSchema,
   error: errorSchema,
 } as const;
 
@@ -163,7 +150,6 @@ export type FederationConfigSnapshot = z.infer<typeof configSnapshotSchema>;
 export type FederationConfigSnapshotFrame = z.infer<typeof configSnapshotFrameSchema>;
 export type FederationConfigUpdateFrame = z.infer<typeof configUpdateFrameSchema>;
 export type FederationAckFrame = z.infer<typeof ackSchema>;
-export type FederationEventRejectedFrame = z.infer<typeof eventRejectedSchema>;
 export type FederationErrorFrame = z.infer<typeof errorSchema>;
 export type FederationFrame =
   | FederationHelloFrame
@@ -175,7 +161,6 @@ export type FederationFrame =
   | FederationConfigSnapshotFrame
   | FederationConfigUpdateFrame
   | FederationAckFrame
-  | FederationEventRejectedFrame
   | FederationErrorFrame;
 
 export type FederationFrameType = FederationFrame["type"];
@@ -250,7 +235,6 @@ export type FederationFrameInput =
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
   | { type: "config-update"; snapshot: FederationConfigSnapshot }
   | { type: "ack"; seq: number }
-  | { type: "event-rejected"; seq: number; reason: EventRejectReason }
   | { type: "error"; code: FederationErrorCode; message: string };
 
 export function serializeFederationFrame(frame: FederationFrameInput): string {

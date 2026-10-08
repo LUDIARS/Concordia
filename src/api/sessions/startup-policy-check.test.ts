@@ -47,7 +47,7 @@ it("repairs missing policy without tracking workflow changes", async () => {
 
 it("sends no policy update to a session of a department that takes the initial inject only (departments.md §9.5)", async () => {
   const { repo, deps } = fixture();
-  repo.insertSession({ id: "consult-fixture", provider: "claude-code", repo_path: "E:/fixture/consult",
+  repo.insertSession({ id: "consult-fixture", provider: "claude", repo_path: "E:/fixture/consult",
     repo_origin: null, branch: null, host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null,
     metadata: null, department_id: "dept-qa" });
   const consultDeps = { ...deps, departmentStartupInject: (id: string) => (id === "dept-qa" ? "initial-only" as const : "full" as const) };

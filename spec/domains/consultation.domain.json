@@ -32,7 +32,7 @@
       "pathPattern": "(^|/)tools/consult-codex-hook(\\.test)?\\.mjs$"
     },
     {
-      "pathPattern": "(^|/)tools/consult-fetch-link-command((\\.test)?\\.mjs|\\.d\\.mts)$"
+      "pathPattern": "(^|/)tools/consult-fetch-link-command(\\.test)?\\.mjs$"
     },
     {
       "pathPattern": "(^|/)src/api/sessions/(qa|relay)(-safety\\.test)?\\.ts$"

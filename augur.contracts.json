@@ -3,10 +3,6 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
-    {"id":"cc-security-C-21","criterion":"C-21 authorizeWorkloadClaims(input): sender・audience・action・resourceと短命workload claimsを検査する","symbol":"authorizeWorkloadClaims","file":"src/federation/security/claims.ts","module":"src/federation/security/claims.contract.ts","mode":"observe","sample":1},
-    {"id":"cc-security-C-22","criterion":"C-22 verifyWorkloadProof(input): proofを本文・宛先・token・要求へ束縛する","symbol":"verifyWorkloadProof","file":"src/federation/security/proof.ts","module":"src/federation/security/proof.contract.ts","mode":"observe","sample":1},
-    {"id":"cc-security-C-23","criterion":"C-23 localBrowserDecision(input): 不正Host/Originと非JSON変更要求を拒否する","symbol":"localBrowserDecision","file":"src/api/local-browser-policy.ts","module":"src/api/local-browser.contract.ts","mode":"observe","sample":1},
-    {"id":"cc-security-C-24","criterion":"C-24 authorizeWorkloadRequest(input): 操作ごとの失効確認と永続nonce消費前に許可しない","symbol":"authorizeWorkloadRequest","file":"src/federation/security/authorize.ts","module":"src/federation/security/authorize.contract.ts","mode":"observe","sample":1},
     { "id": "C-13", "criterion": "C-13 compareMigrations(left, right, ancestor): 同番号で定義が異なり少なくとも片側が祖先にない定義の場合だけ衝突を返す", "symbol": "compareMigrations", "file": "src/developer-tools/migration-preflight/compare.ts", "module": "src/developer-tools/migration-preflight/compare.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "HR-sampling-budget", "criterion": "HR-sampling-budget: cap and time-slot exclusion hold for observed sampling decisions", "symbol": "sampleDecision", "file": "src/harness/reliability/guidance.ts", "module": "src/harness/reliability/contracts/sampling.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "HR-workflow-source", "criterion": "HR-workflow-source: automatic control packets never create workflow requests", "symbol": "workflowGuidance", "file": "src/harness/reliability/workflow-guidance.ts", "module": "src/harness/reliability/contracts/workflow.contract.ts", "mode": "observe", "sample": 1 },

@@ -24,17 +24,17 @@ describe("usage budget at admin spawn", () => {
     env.adminState.setWorkspaceRoot(env.logsDir);
     // 今月、 この依頼者が起こしたセッションが 1 本ある (1,000 トークン消費)。
     env.repo.insertSession({
-      id: "earlier", provider: "claude-code", repo_path: env.logsDir, repo_origin: null, branch: null, host: "h",
+      id: "earlier", provider: "claude", repo_path: env.logsDir, repo_origin: null, branch: null, host: "h",
       started_at: Math.floor(Date.now() / 1000), last_seen_at: Math.floor(Date.now() / 1000), transcript_path: null,
       metadata: JSON.stringify({ discord_requester_user_id: REQUESTER }),
     });
   }, 30_000);
 
   const spawn = (body: Record<string, unknown>) => Promise.resolve(env.app.request("/v1/admin/spawn-session", {
-    method: "POST", headers: { host: 'localhost', "content-type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }));
   const setBudget = (scope: string, id: string, limit: number) => Promise.resolve(env.app.request(`/v1/usage-budgets/${scope}/${id}`, {
-    method: "PUT", headers: { host: 'localhost', "content-type": "application/json" }, body: JSON.stringify({ limit_tokens: limit }),
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit_tokens: limit }),
   }));
 
   it("launches while the requester has budget left and refuses once it is used up", async () => {

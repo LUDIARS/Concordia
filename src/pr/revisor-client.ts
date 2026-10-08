@@ -1,5 +1,3 @@
-import type { RevisorLocalPr } from "./revisor-pr-types.js";
-export type { RevisorLocalPr } from "./revisor-pr-types.js";
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { toTokenResolver } from "./revisor-token.js";
@@ -40,6 +38,36 @@ export interface RevisorReviewTrigger {
     status: string;
     check_url?: string;
   }>;
+}
+
+/**
+ * Revisor の local PR 1 件 (GET /v1/local-prs の pullRequests[])。 Revisor 側は
+ * camelCase の JSON をそのまま返すので、 ここでは受け取った形に寄せて型付けする。
+ * 未知フィールドは無視する (Revisor の進化で Concordia が落ちないようにする)。
+ */
+export interface RevisorLocalPr {
+  id: string;
+  number: number;
+  repository: string;
+  title: string;
+  author: string;
+  status: string;
+  /** queued | running | test_ok | failed | action_required など。 */
+  checkStatus: string;
+  draft?: boolean;
+  headRef: string;
+  baseRef: string;
+  headSha: string;
+  reviewedHeadSha?: string | null;
+  reviewer?: string | null;
+  labels?: string[];
+  reasons?: string[];
+  advisories?: string[];
+  humanQuestion?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  sessionId?: string | null;
+  reviewLane?: "standard" | "fast";
 }
 
 export interface RevisorLocalPrReader {

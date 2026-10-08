@@ -20,7 +20,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetMultipliersRepo } from "../db/usage-budget-multipliers-repo.js";
-import type { GuildRoleList } from "../platform/guild-role-list.js";
+import type { GuildRoleList } from "../discord/member-roles.js";
 import { budgetNoticeText, evaluateBudget } from "../cost/usage-budget.js";
 import { subjectKey, type UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { MAX_COST_MULTIPLIER } from "../cost/budget-multiplier.js";

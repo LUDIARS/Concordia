@@ -157,7 +157,7 @@ describe("sessions API", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind: "edit", payload: { file: "src/foo.ts" } }),
     });
-    const r = await app.request("/v1/sessions/z", { headers: { "content-type": "application/json" }, method: "DELETE" });
+    const r = await app.request("/v1/sessions/z", { method: "DELETE" });
     expect(r.status).toBe(200);
     const j = await r.json() as any;
     expect(j.session.status).toBe("ended");
@@ -172,7 +172,7 @@ describe("sessions API", () => {
     expect(generated.summary_md).toContain("Session z");
     expect(generated.bullets).toBeTruthy();
 
-    const done = await app.request("/v1/sessions/z/session-end-done", { headers: { "content-type": "application/json" }, method: "POST" });
+    const done = await app.request("/v1/sessions/z/session-end-done", { method: "POST" });
     expect(done.status).toBe(200);
     expect(await done.json()).toMatchObject({ ok: true, stop: { stopped: [], failed: [] } });
     const detail = await (await app.request("/v1/sessions/z")).json() as any;
@@ -189,7 +189,7 @@ describe("sessions API", () => {
       }),
     });
 
-    const done = await app.request("/v1/sessions/not-ending/session-end-done", { headers: { "content-type": "application/json" }, method: "POST" });
+    const done = await app.request("/v1/sessions/not-ending/session-end-done", { method: "POST" });
     expect(done.status).toBe(200);
     expect(await done.json()).toMatchObject({ ok: true, ignored: true });
     const detail = await (await app.request("/v1/sessions/not-ending")).json() as any;
@@ -370,7 +370,7 @@ describe("sessions API", () => {
 
     it("request-stat: stat-collect task を enqueue する (trigger=manual)", async () => {
       await startReqSession("rq1");
-      const r = await app.request("/v1/sessions/rq1/request-stat", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await app.request("/v1/sessions/rq1/request-stat", { method: "POST" });
       expect(r.status).toBe(200);
       const j = (await r.json()) as { ok: boolean; enqueued: boolean };
       expect(j.enqueued).toBe(true);
@@ -385,9 +385,9 @@ describe("sessions API", () => {
 
     it("request-stat: 未配信 stat-collect があれば no-op で 200 を返す", async () => {
       await startReqSession("rq2");
-      const r1 = await app.request("/v1/sessions/rq2/request-stat", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r1 = await app.request("/v1/sessions/rq2/request-stat", { method: "POST" });
       expect(((await r1.json()) as { enqueued: boolean }).enqueued).toBe(true);
-      const r2 = await app.request("/v1/sessions/rq2/request-stat", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r2 = await app.request("/v1/sessions/rq2/request-stat", { method: "POST" });
       const j2 = (await r2.json()) as { ok: boolean; enqueued: boolean; reason?: string };
       expect(j2.enqueued).toBe(false);
       expect(j2.reason).toBe("already_pending");
@@ -395,7 +395,7 @@ describe("sessions API", () => {
 
     it("request-title: title-suggest task を enqueue する (reason=manual)", async () => {
       await startReqSession("rq3");
-      const r = await app.request("/v1/sessions/rq3/request-title", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await app.request("/v1/sessions/rq3/request-title", { method: "POST" });
       expect(r.status).toBe(200);
       const pendRes = await app.request("/v1/sessions/rq3/pending-tasks");
       const p = (await pendRes.json()) as {
@@ -407,9 +407,9 @@ describe("sessions API", () => {
     });
 
     it("request-stat / request-title: 不在 session は 404", async () => {
-      const r1 = await app.request("/v1/sessions/nope/request-stat", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r1 = await app.request("/v1/sessions/nope/request-stat", { method: "POST" });
       expect(r1.status).toBe(404);
-      const r2 = await app.request("/v1/sessions/nope/request-title", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r2 = await app.request("/v1/sessions/nope/request-title", { method: "POST" });
       expect(r2.status).toBe(404);
     });
   });
@@ -445,7 +445,7 @@ describe("sessions API", () => {
     it("POST /heartbeat revives a lost session to active", async () => {
       const env = makeTestApp();
       await startLostSession(env, "rv2");
-      const r = await env.app.request("/v1/sessions/rv2/heartbeat", { headers: { "content-type": "application/json" }, method: "POST" });
+      const r = await env.app.request("/v1/sessions/rv2/heartbeat", { method: "POST" });
       expect(r.status).toBe(200);
       expect(env.repo.findSession("rv2")?.status).toBe("active");
     });
@@ -470,7 +470,7 @@ describe("sessions API", () => {
         body: JSON.stringify({ id: "rv4", provider: "claude-code", repo_path: "/x", host: "h" }),
       });
       env.repo.setStatus("rv4", "ended", 10, 10);
-      await env.app.request("/v1/sessions/rv4/heartbeat", { headers: { "content-type": "application/json" }, method: "POST" });
+      await env.app.request("/v1/sessions/rv4/heartbeat", { method: "POST" });
       expect(env.repo.findSession("rv4")?.status).toBe("ended");
     });
   });

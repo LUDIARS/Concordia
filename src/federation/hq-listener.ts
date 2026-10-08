@@ -6,19 +6,21 @@
  *   別ポートで立てる。既定 OFF の opt-in (bootstrap/core.ts が env を見て起動)。
  * - この面で受け付ける操作は protocol.ts で定義したフレームだけ。/v1 への
  *   透過転送経路は作らない (HTTP リクエストは全て 404)。
- * - TLS は前段のトンネル / 逆プロキシで終端する。
+ * - 高権限配送には listener 自身の TLS と要求ごとの workload proof を必須にする。
  *
  * 接続フロー: hello (期限内・先頭フレーム) → トークン照合 (定数時間) →
  * welcome → outbox 配送 (seq 昇順) → ack で削除。死活は WS ping/pong。
  */
 
-import { createServer, type Server as HttpServer } from "node:http";
+import { createServer, type RequestListener } from "node:http";
+import { createServer as createSecureServer } from "node:https";
 import { WebSocketServer, WebSocket } from "ws";
 import { eventBus } from "../events.js";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { FederationSitesRepo } from "../db/federation-sites-repo.js";
 import type { FederationOutboxRepo } from "../db/federation-outbox-repo.js";
+import type { FederationRejectedEventsRepo } from "../db/federation-rejected-events-repo.js";
 import type { FederationConnections } from "./hq-connections.js";
 import {
   parseFederationFrame,
@@ -28,6 +30,7 @@ import {
 import type { FederationConfigSnapshot } from "./protocol.js";
 import type { FederationEgressRequestFrame, FederationFrameInput } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
+import { settleRejectedEvent } from "./event-rejection.js";
 
 const log = createChildLogger("federation/hq");
 
@@ -62,10 +65,15 @@ const MAX_PENDING_HANDSHAKES = 64;
 const MAX_PENDING_HANDSHAKES_PER_REMOTE = 4;
 
 export interface FederationListenerDeps {
+  tls?: { cert: string; key: string };
+  /** Sign queued operations at delivery time, never persist short-lived tokens. */
+  prepareEvent?: (siteId: string, payload: unknown) => Promise<unknown>;
   host: string;
   port: number;
   sites: FederationSitesRepo;
   outbox: FederationOutboxRepo;
+  /** 拠点が実行を拒否した依頼の退避先。無い場合も拒否は通知し、ack 扱いにはしない。 */
+  rejectedEvents?: FederationRejectedEventsRepo;
   connections: FederationConnections;
   /** welcome で名乗る本社バージョン (package.json version 等)。 */
   hqVersion: string;
@@ -95,6 +103,9 @@ export interface FederationListenerHandle {
 
 interface LiveSocket {
   ws: WebSocket;
+  secure: boolean;
+  delivering: boolean;
+  unacked: number[];
   lastSentSeq: number;
   isAlive: boolean;
 }
@@ -110,10 +121,11 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
   const pendingByRemote = new Map<string, number>();
 
   // 連合面は WS 専用。HTTP リクエストへは何も生やさない (/v1 透過転送の禁止)。
-  const server: HttpServer = createServer((_req, res) => {
+  const rejectHttp: RequestListener = (_req, res) => {
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "federation endpoint is WebSocket only" }));
-  });
+  };
+  const server = deps.tls ? createSecureServer(deps.tls, rejectHttp) : createServer(rejectHttp);
   const wss = new WebSocketServer({ server, path: "/federation/ws", maxPayload: MAX_FRAME_BYTES });
   wss.on("error", (err) => log.error({ err: (err as Error).message }, "federation wss error"));
 
@@ -142,19 +154,49 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
 
   function deliverPending(siteId: string): void {
     const socket = sockets.get(siteId);
-    if (!socket || socket.ws.readyState !== WebSocket.OPEN) return;
-    const rows = deps.outbox.listPending(siteId, socket.lastSentSeq, DELIVERY_BATCH);
-    for (const row of rows) {
-      let payload: unknown = null;
-      try { payload = JSON.parse(row.payload); } catch { /* keep null */ }
-      try {
-        socket.ws.send(serializeFederationFrame({ type: "event", seq: row.seq, payload }));
-        socket.lastSentSeq = row.seq;
-      } catch (e) {
-        log.warn({ siteId, err: (e as Error).message }, "federation event send failed");
-        return;
-      }
+    if (!socket || socket.delivering || socket.ws.readyState !== WebSocket.OPEN) return;
+    if (!socket.secure || !deps.prepareEvent) {
+      if (deps.outbox.pendingCount(siteId) > 0) log.warn({ siteId }, 'federation privileged delivery denied: WSS and workload security required');
+      return;
     }
+    socket.delivering = true;
+    void (async () => {
+      for (;;) {
+        const room = DELIVERY_BATCH - socket.unacked.length;
+        if (room <= 0) return;
+        const rows = deps.outbox.listPending(siteId, socket.lastSentSeq, room);
+        if (rows.length === 0) return;
+        for (const row of rows) {
+          const payload = await deps.prepareEvent!(siteId, JSON.parse(row.payload));
+          if (sockets.get(siteId) !== socket || socket.ws.readyState !== WebSocket.OPEN) return;
+          const frame = serializeFederationFrame({ type: 'event', seq: row.seq, payload });
+          if (Buffer.byteLength(frame) > MAX_FRAME_BYTES) throw new Error('workload_event_too_large');
+          socket.ws.send(frame);
+          socket.lastSentSeq = row.seq;
+          socket.unacked.push(row.seq);
+        }
+      }
+    })().catch(() => {
+      // Do not log tokens/Cr response bodies. Retain outbox for explicit reconciliation/retry.
+      log.warn({ siteId }, 'federation workload delivery failed; queued request retained');
+    }).finally(() => { socket.delivering = false; });
+  }
+
+  function handleEventRejected(siteId: string, seq: number, reason: string): void {
+    const live = sockets.get(siteId);
+    const result = settleRejectedEvent({
+      siteId, seq, reason, inFlight: live?.unacked ?? [], rejectedEvents: deps.rejectedEvents,
+      report: (message, detail) => reportError("federation", message, detail),
+    });
+    if (!live || result.status === "ignored") {
+      log.warn({ siteId, seq, reason }, "federation event-rejected ignored (seq not in flight)");
+      return;
+    }
+    live.unacked = result.inFlight;
+    log.warn({ siteId, seq, reason, retained: result.retained }, "federation event rejected by site");
+    deps.sites.touchSeen(siteId);
+    deps.connections.touch(siteId, nowSec());
+    deliverPending(siteId);
   }
 
   function send(siteId: string, frame: FederationFrameInput): boolean {
@@ -269,7 +311,8 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           try { existing.ws.close(1000, "replaced"); } catch { /* already closing */ }
         }
 
-        sockets.set(siteId, { ws, lastSentSeq: 0, isAlive: true });
+        sockets.set(siteId, { ws, secure: 'encrypted' in req.socket && req.socket.encrypted === true,
+          delivering: false, unacked: [], lastSentSeq: 0, isAlive: true });
         deps.sites.touchConnected(siteId, siteVersion, platform);
         deps.connections.attach({
           siteId,
@@ -293,6 +336,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         return;
       }
 
+      if (sockets.get(siteId)?.ws !== ws) return; // Revoked/replaced sockets no longer own any action.
       if (frame.type === "egress-request") {
         void (async () => {
           const result = deps.handleEgressRequest
@@ -318,10 +362,15 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         // lastSentSeq=0 で無効化され、再送 → 再 ack で正しく収束する。
         const acked = sockets.get(siteId);
         const ackSeq = Math.min(frame.seq, acked?.lastSentSeq ?? 0);
+        if (acked) acked.unacked = acked.unacked.filter(seq => seq > ackSeq);
         if (ackSeq > 0) deps.outbox.ackUpTo(siteId, ackSeq);
         deps.sites.touchSeen(siteId);
         deps.connections.touch(siteId, nowSec());
         deliverPending(siteId);
+        return;
+      }
+      if (frame.type === "event-rejected") {
+        handleEventRejected(siteId, frame.seq, frame.reason);
         return;
       }
       // 認証後の hello / event / welcome 等は連合面で許可した操作ではない。
@@ -418,6 +467,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
       for (const socket of sockets.values()) {
         try { socket.ws.close(1001, "hq shutting down"); } catch { /* ignore */ }
       }
+      sockets.clear();
       wss.close();
       server.close();
     },

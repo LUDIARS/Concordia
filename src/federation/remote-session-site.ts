@@ -68,7 +68,7 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
   };
 
   const ingress = async (payload: RemoteIngressPayload): Promise<void> => {
-    if (!deps.registry.find(payload.channel_id)) return; // この拠点で起動したスレッドだけを扱う。
+    if (deps.registry.find(payload.channel_id)?.guildId !== payload.guild_id) return;
     // forum の最初の投稿 (message id == thread id) は spawn 側が本文として渡している。
     if (payload.message_id === payload.channel_id) return;
     const sessionId = deps.findSessionByChannel(payload.channel_id);

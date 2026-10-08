@@ -1,3 +1,5 @@
+import { USE_CASE_FORMAT_KEYS, type UseCaseFormat, type UseCaseFormatKey } from "./formats-schema.js";
+export { USE_CASE_FORMAT_KEYS, type UseCaseWorkMode, type UseCaseFormat, type UseCaseFormatKey } from "./formats-schema.js";
 /**
  * ユースケースのフォーマット (雛形)。 作成時の初期値だけを与え、 作成後の値は
  * ユースケース側が正 (フォーマットを変えても既存ユースケースは書き換わらない)。
@@ -7,22 +9,6 @@
  */
 
 import { PLANNING_ADJUSTMENT_FORMAT } from "./planning-adjustment.js";
-
-export type UseCaseWorkMode = "edit" | "read-only";
-
-export interface UseCaseFormat {
-  key: UseCaseFormatKey;
-  name: string;
-  workMode: UseCaseWorkMode;
-  useRequesterProfile: boolean;
-  /** 回答前に事前ヒアリング (知りたいこと・技術レベル・役職・目的) を揃えるか (tech-consultation.md §3)。 */
-  intake: boolean;
-  summary: string;
-  preData: string;
-}
-
-export const USE_CASE_FORMAT_KEYS = ["chores", "qa", "sparring", "research-report", "planning-adjustment"] as const;
-export type UseCaseFormatKey = typeof USE_CASE_FORMAT_KEYS[number];
 
 export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>> = {
   "planning-adjustment": PLANNING_ADJUSTMENT_FORMAT,

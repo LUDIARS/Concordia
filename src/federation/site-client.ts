@@ -2,8 +2,9 @@
  * 連合クライアント (拠点側)。拠点 → 本社への outbound WS 接続を維持する。
  *
  * - 接続後すぐ hello を送り、welcome を受けてから link 確立とみなす。
- * - event フレームは onEvent へ渡し、受領した seq を ack する (Phase 1 では
- *   payload の解釈はしない — 設定配布 / ルーティングは Phase 2+)。
+ * - event フレームは onEvent へ渡し、処理済み (受理・重複) だけ ack する。実行拒否は
+ *   event-rejected で本社へ返し、一時障害は ack せずに切って再配送させる
+ *   (spec/feature/cc-workload-security.md「配送結果の区別」)。
  * - 切断時は指数バックオフ (1s → 2 倍 → 上限 60s、welcome 成功でリセット)。
  * - 拠点間はマシンを跨ぐため、平文 ws:// は loopback と tailnet (WireGuard で暗号化) の IP 宛てだけ許す。
  *   それ以外は TLS をトンネル / 逆プロキシで終端した wss:// を指す (transport-policy.ts)。
@@ -25,6 +26,7 @@ import {
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
 import type { FederationEgressResultFrame } from "./protocol.js";
+import type { EventDeliveryOutcome } from "./security/event-outcome.js";
 import { hqUrlTransportError } from "./transport-policy.js";
 
 const log = createChildLogger("federation/site");
@@ -49,7 +51,8 @@ export interface FederationSiteClientDeps {
   siteVersion: string;
   /** OS platform used for template resolution at HQ. */
   platform?: "win32" | "darwin";
-  onEvent?: (payload: unknown, seq: number) => void;
+  /** 戻り値で本社への応答を決める。省略 (void) は処理済み = ack。 */
+  onEvent?: (payload: unknown, seq: number, ownsSocket: () => boolean) => void | EventDeliveryOutcome | Promise<void | EventDeliveryOutcome>;
   /** welcome 受信 (link 確立) 通知。テスト / 起動ログ用。 */
   onLinked?: (info: { hqVersion: string; pendingEvents: number }) => void;
   /** 本社設定の更新通知。キャッシュ起動値も link 前に一度渡す。 */
@@ -85,6 +88,8 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
   let stopped = false;
   let linked = false;
   let backoffMs = BACKOFF_INITIAL_MS;
+  /** 一時障害で再配送を求めた連続回数。Cr 停止中に 1 秒間隔で再接続し続けないよう、welcome でも戻さない。 */
+  let deferStreak = 0;
   let ws: WebSocket | null = null;
   let retryTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
@@ -109,8 +114,10 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
     if (stopped) return;
     // ハンドラは必ずこの socket を見る。再接続後に古い socket のハンドラが遅れて
     // 発火しても、外側の可変 ws (= 新しい接続) へ ack を撃たないようにするため。
-    const socket = new WebSocket(endpoint);
+    const socket = new WebSocket(endpoint, { maxPayload: 64 * 1024 });
     ws = socket;
+    let eventQueue = Promise.resolve();
+    let pendingEvents = 0;
 
     let lastActivityMs = Date.now();
     const markActive = () => { lastActivityMs = Date.now(); };
@@ -146,20 +153,38 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
       const frame = parsed.frame;
       if (frame.type === "welcome") {
         linked = true;
-        backoffMs = BACKOFF_INITIAL_MS;
+        backoffMs = Math.min(BACKOFF_INITIAL_MS * 2 ** deferStreak, BACKOFF_MAX_MS);
         log.info({ hqVersion: frame.hq_version, pending: frame.pending_events, v: FEDERATION_PROTOCOL_VERSION }, "federation link established");
         deps.onLinked?.({ hqVersion: frame.hq_version, pendingEvents: frame.pending_events });
         return;
       }
       if (frame.type === "event") {
-        try {
-          deps.onEvent?.(frame.payload, frame.seq);
-        } catch (e) {
-          log.warn({ err: (e as Error).message, seq: frame.seq }, "federation onEvent handler failed");
-        }
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(serializeFederationFrame({ type: "ack", seq: frame.seq }));
-        }
+        if (!linked || ws !== socket || stopped) return;
+        // A higher cumulative ack must not delete an earlier pending operation.
+        if (pendingEvents >= 100) { socket.close(1013, 'event backlog full'); return; }
+        pendingEvents += 1;
+        eventQueue = eventQueue.then(async () => {
+          const ownsSocket = () => !stopped && ws === socket && socket.readyState === WebSocket.OPEN;
+          if (!ownsSocket()) return;
+          const outcome = (await deps.onEvent?.(frame.payload, frame.seq, ownsSocket)) ?? { kind: 'ack' as const };
+          if (!ownsSocket()) return;
+          if (outcome.kind !== 'retry') deferStreak = 0;
+          if (outcome.kind === 'ack') {
+            socket.send(serializeFederationFrame({ type: 'ack', seq: frame.seq }));
+          } else if (outcome.kind === 'reject') {
+            log.warn({ seq: frame.seq, reason: outcome.reason }, 'federation event rejected; reporting to hq');
+            socket.send(serializeFederationFrame({ type: 'event-rejected', seq: frame.seq, reason: outcome.reason }));
+          } else {
+            // ack せずに切る。後続も同じ socket では処理しないので、累積 ack で先行依頼を消さない。
+            // 本社は再接続後に新しい proof で再配送する。
+            log.warn({ seq: frame.seq, reason: outcome.reason }, 'federation event deferred; reconnecting for redelivery');
+            deferStreak = Math.min(deferStreak + 1, 6);
+            socket.close(1013, 'event retry');
+          }
+        }).catch(() => {
+          log.warn({ seq: frame.seq }, 'federation event handler failed');
+          socket.close(1011, 'event processing failed');
+        }).finally(() => { pendingEvents -= 1; });
         return;
       }
       if (frame.type === "config-snapshot" || frame.type === "config-update") {

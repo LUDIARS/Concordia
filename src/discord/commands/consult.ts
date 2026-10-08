@@ -1,9 +1,10 @@
 // @implements SPEC-CONSULT-PRIVATE
 // @implements SPEC-CONSULT-MEMBERS
 import { SlashCommandBuilder } from "discord.js";
-import type { ConsultIntakeDefaults } from "../../dialogue/intake.js";
+import type { ConsultCommandDeps } from "../consult-command-types.js";
+export type { ConsultCommandDeps } from "../consult-command-types.js";
 import type { DiscordCommandSpec } from "../command-port.js";
-import { handleConsultMembership, handleConsultWrap, type ConsultFlowDeps } from "../consult-flow.js";
+import { handleConsultMembership, handleConsultWrap } from "../consult-flow.js";
 import { buildConsultModal } from "../consult-modal.js";
 
 /**
@@ -16,12 +17,6 @@ import { buildConsultModal } from "../consult-modal.js";
  * 本社 guild と、 子会社 guild (その会社のプロジェクトを持たない相談部署だけ、 tech-consultation.md §6) に出す。
  * 子会社では wrap (公開候補) を使えない (Bot が requestProposal を配線しない)。
  */
-export interface ConsultCommandDeps extends ConsultFlowDeps {
-  /** この Bot の会社でプライベート相談を受け付ける稼働中の部署 (補完用)。 */
-  privateDepartments(): ReadonlyArray<{ id: string; name: string }>;
-  /** モーダルの既定値 (依頼者メモの技術レベル・役職)。 */
-  requesterDefaults(userId: string): ConsultIntakeDefaults | null;
-}
 
 /** Discord の autocomplete は 25 件まで。 */
 const MAX_CHOICES = 25;

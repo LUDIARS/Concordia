@@ -266,6 +266,17 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   };
 
   const app = buildApp(deps);
+  const request = app.request.bind(app);
+  // Relative test paths represent a normal local client. Explicit wire requests
+  // retain their headers so missing/empty/hostile Host cases still reach the guard.
+  app.request = (input, init, env) => {
+    if (typeof input !== "string" || !input.startsWith("/") || input.startsWith("//")) {
+      return request(input, init, env);
+    }
+    const headers = new Headers(init?.headers);
+    if (!headers.has("host")) headers.set("host", "localhost");
+    return request(input, { ...init, headers }, env);
+  };
 
   return {
     app,

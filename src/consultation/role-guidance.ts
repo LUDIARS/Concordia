@@ -1,3 +1,5 @@
+import { ROLE_GUIDANCE_MAX_CHARS, stripSkillFrontmatter as stripFrontmatterCore, type RoleGuidanceBlockInput, type RoleGuidanceBlock } from "./role-guidance-core.js";
+export { ROLE_GUIDANCE_MAX_CHARS, type RoleGuidanceSkill, type RoleGuidanceSource, type RoleGuidanceBlockInput, type RoleGuidanceBlock } from "./role-guidance-core.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:37000b15 */
 import augurContract_9a0c2082 from './role-guidance-provider.contract.js'; /* augur-inject:contract-predicate:1199e4e5 */
 import augurContract_2871634a from './role-guidance-block.contract.js'; /* augur-inject:contract-predicate:368ad07c */
@@ -15,30 +17,6 @@ import augurContract_98a8198e from './role-guidance-frontmatter.contract.js'; /*
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
-/** 初回指示に載せる役職の指示の既定の上限 (文字数)。 */
-export const ROLE_GUIDANCE_MAX_CHARS = 40_000;
-
-export interface RoleGuidanceSkill {
-  name: string;
-  /** SKILL.md の全文 (frontmatter 付きのままでよい)。 */
-  text: string;
-}
-
-export interface RoleGuidanceSource {
-  claudeMd: string | null;
-  skills: readonly RoleGuidanceSkill[];
-}
-
-export interface RoleGuidanceBlockInput extends RoleGuidanceSource {
-  maxChars?: number;
-}
-
-export interface RoleGuidanceBlock {
-  text: string;
-  /** 上限のために載せなかったスキル名 (呼び出し側が warn ログに出す)。 */
-  omittedSkills: string[];
-}
-
 /** 指示ファイルを自分で読めない provider か。 claude は役職フォルダの CLAUDE.md とスキルを自分で読む。 */
 export function needsInlineRoleGuidance(provider: string): boolean {
   return provider !== "claude";
@@ -46,11 +24,9 @@ export function needsInlineRoleGuidance(provider: string): boolean {
 // @ts-expect-error augur-inject
 needsInlineRoleGuidance = contract(needsInlineRoleGuidance, { ...augurContract_9a0c2082, contractId: 'consult-guide-C-1', mode: 'observe', sample: 1, where: 'src/consultation/role-guidance.ts:39', rule: 'contract-wrap', id: '9a0c2082' }); /* augur-inject:contract-wrap:9a0c2082 */
 
-const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
-
 /** SKILL.md 先頭の YAML frontmatter を外した本文。 frontmatter が無ければそのまま。 */
 export function stripSkillFrontmatter(text: string): string {
-  return text.replace(FRONTMATTER, "").trim();
+  return stripFrontmatterCore(text);
 }
 // @ts-expect-error augur-inject
 stripSkillFrontmatter = contract(stripSkillFrontmatter, { ...augurContract_98a8198e, contractId: 'consult-guide-C-3', mode: 'observe', sample: 1, where: 'src/consultation/role-guidance.ts:46', rule: 'contract-wrap', id: '98a8198e' }); /* augur-inject:contract-wrap:98a8198e */

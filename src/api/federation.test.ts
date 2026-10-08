@@ -17,6 +17,24 @@ describe("federation management API", () => {
     sites.create({ siteId: "site-a" });
   });
 
+  it('HQ変更は旧loopback信頼に戻らず、本文と宛先pathを認可する', async () => {
+    const updateSite = vi.fn(async () => ({ ok: false as const, error: 'not applied' }));
+    const authorizeHq = vi.fn(async () => false);
+    const app = federationRouter({ sites, outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
+      connections: createFederationConnections(), listenerEnabled: false, updateSite, authorizeHq });
+    const body = JSON.stringify({ hq_url: 'wss://untrusted.example' });
+    const response = await app.request('http://local/site?target=1', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body,
+    });
+    expect(response.status).toBe(403);
+    expect(updateSite).not.toHaveBeenCalled();
+    expect(authorizeHq).toHaveBeenCalledWith(expect.any(Object), 'PUT', '/site?target=1', body);
+    const unconfigured = federationRouter({ sites, outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
+      connections: createFederationConnections(), listenerEnabled: false, updateSite });
+    expect((await unconfigured.request('http://local/site', { method: 'PUT', body })).status).toBe(403);
+    expect(updateSite).not.toHaveBeenCalled();
+  });
+
   it("stores department assignments and explicitly redistributes configuration", async () => {
     const redistributeConfig = vi.fn(() => true);
     const app = federationRouter({
@@ -101,6 +119,7 @@ describe("federation management API", () => {
       outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
       connections: createFederationConnections(),
       listenerEnabled: false,
+      authorizeHq: async () => true,
       updateSite: async () => ({
         ok: true,
         config: {

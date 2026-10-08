@@ -13,6 +13,7 @@
 
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
+import { localAllowedOrigins, localSocketBrowserAllowed } from "./local-browser-guard.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -136,7 +137,10 @@ export function attachWsServer(
   pathName = "/ws",
   sessionsRepo?: SessionsRepo,
 ): WsHandle {
-  const wss = new WebSocketServer({ server: httpServer, path: pathName });
+  const allowedOrigins = localAllowedOrigins();
+  const wss = new WebSocketServer({ server: httpServer, path: pathName,
+    verifyClient: ({ req }: { req: import('node:http').IncomingMessage }) => localSocketBrowserAllowed(req, allowedOrigins),
+  });
 
   // ws は server オプション指定時に httpServer の 'error' を wss へ転送する。
   // wss 側にハンドラが無いと、 その転送された 'error' (例: listen EADDRINUSE) が

@@ -43,6 +43,10 @@ updated: 2026-07-31
 
 ## 信頼境界 (Phase 0)
 
+2026-10-07 の高権限境界は [Cc workload 認可](cc-workload-security.md) が優先する。
+旧 hello token は接続情報に限定し、spawn/ingress と HQ変更には Cr workload の要求別認可を要求する。
+TLS 未構成のリンクから高権限イベントは配送しない。以下の旧構成手順だけでは高権限操作は有効化されない。
+
 - 連合 listener は `node:http` の専用サーバ + `WebSocketServer` で、既存 `/v1`
   (loopback 信頼境界) とは**別ポート・別 origin**。`isLoopbackHost` の起動時拒否は
   変更していない。

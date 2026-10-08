@@ -62,7 +62,7 @@ describe("skills catalog / reaction skill workflows API", () => {
     env = makeTestApp();
     env.adminState.setWorkspaceRoots([root]);
     // 起動時走査の代わりに 1 度だけ明示的に走らせる。
-    await env.app.request("/v1/skills/refresh", { method: "POST" });
+    await env.app.request("/v1/skills/refresh", { headers: { "content-type": "application/json" }, method: "POST" });
   });
 
   afterEach(() => {
@@ -92,7 +92,7 @@ describe("skills catalog / reaction skill workflows API", () => {
   });
 
   it("POST /v1/reaction-workflow/migrate-builtin は組み込み写像をスキルへ写す", async () => {
-    const r = await env.app.request("/v1/reaction-workflow/migrate-builtin", { method: "POST" });
+    const r = await env.app.request("/v1/reaction-workflow/migrate-builtin", { headers: { "content-type": "application/json" }, method: "POST" });
     expect(r.status).toBe(200);
     const body = await r.json() as {
       migrated: number; uncovered: string[]; path: string;
@@ -127,7 +127,7 @@ describe("skills catalog / reaction skill workflows API", () => {
 
     const del = await env.app.request(
       `/v1/admin/reaction-skill-workflows/${encodeURIComponent("🔥")}`,
-      { method: "DELETE" },
+      { headers: { "content-type": "application/json" }, method: "DELETE" },
     );
     expect(del.status).toBe(200);
     const after = await del.json() as { entries: Array<{ emoji: string }> };

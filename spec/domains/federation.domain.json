@@ -30,6 +30,7 @@
     "offline-outbox"
   ],
   "specRefs": [
+    "spec/feature/cc-workload-security.md",
     "マルチ拠点連合 (本社/子会社/担当サーバ) / 段階導入 / Phase 0 — 信頼境界の分離",
     "マルチ拠点連合 (本社/子会社/担当サーバ) / 段階導入 / Phase 1 — 連合リンク基盤",
     "連合リンク基盤 (マルチ拠点 Phase 0+1)",

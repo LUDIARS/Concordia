@@ -110,7 +110,7 @@ describe("staff roster API", () => {
   it("DELETE /v1/staff removes the member so they fall back to ヒラ社員", async () => {
     env.staff.upsertManual({ platform: "discord", platformUserId: "u1", role: "manager" });
 
-    const response = await env.app.request("/v1/staff/discord/u1", { method: "DELETE" });
+    const response = await env.app.request("/v1/staff/discord/u1", { headers: { "content-type": "application/json" }, method: "DELETE" });
     expect(response.status).toBe(200);
     expect(env.staff.roleOf("discord", "u1")).toBeNull();
     expect(capabilityAllowed(null, "merge_pr")).toBe(false);

@@ -276,7 +276,10 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function del<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  const r = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+  });
   if (!r.ok) throw new Error(`${r.status} ${path}`);
   return (await r.json()) as T;
 }

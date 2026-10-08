@@ -13,6 +13,7 @@ import { SecretBox } from "../shared/secret-box.js";
 import { createFederationRuntime } from "./runtime.js";
 import { VillaClient } from "../villa/client.js";
 import type { FederationEnv } from "./env.js";
+import { SqliteSettingsStore } from '../admin/settings-store.js';
 
 const secretBox = new SecretBox(Buffer.alloc(32, 9));
 
@@ -117,7 +118,7 @@ describe("federation forum site tag candidates", () => {
 describe("/spawn site: と担当プロジェクト (2026-10-07)", () => {
   let db: Database.Database;
   beforeEach(() => { db = makeTestDb(); });
-  const settings = () => { const values = new Map<string, string>(); return { get: (k: string) => values.get(k) ?? null, set: (k: string, v: string) => { values.set(k, v); } }; };
+  const settings = () => new SqliteSettingsStore(db);
 
   it("担当プロジェクトから拠点を引き、listener が無ければ拠点へ渡さず理由を返す", () => {
     const sites = makeFederationSitesRepo(db, secretBox);

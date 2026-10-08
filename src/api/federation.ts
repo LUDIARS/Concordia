@@ -49,6 +49,8 @@ const ListenerSchema = z.object({
 }).strict();
 
 export interface FederationApiDeps {
+  /** Independent workload proof required even for loopback Ex callers. */
+  authorizeHq?: (headers: Record<string, string>, method: string, path: string, body: string) => Promise<boolean>;
   sites: FederationSitesRepo;
   /** 拠点ごとの担当プロジェクト (`/spawn` の自動振り分け)。 未注入なら設定 API は 503。 */
   siteProjects?: Pick<SiteProjectsStore, "get" | "set">;
@@ -108,7 +110,14 @@ export function federationRouter(deps: FederationApiDeps): Hono {
 
   app.put("/site", async (c) => {
     if (!deps.updateSite) return c.json({ error: "site control is unavailable" }, 503);
-    const parsed = SiteRoleSchema.safeParse(await c.req.json().catch(() => null));
+    const body = await c.req.text();
+    const url = new URL(c.req.url);
+    if (!deps.authorizeHq || !await deps.authorizeHq(c.req.header(), c.req.method, url.pathname + url.search, body)) {
+      return c.json({ error: "workload_authorization_denied" }, 403);
+    }
+    let raw: unknown;
+    try { raw = JSON.parse(body); } catch { return c.json({ error: "invalid_body" }, 400); }
+    const parsed = SiteRoleSchema.safeParse(raw);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const result = await deps.updateSite(parsed.data);
     if (!result.ok) return c.json({ error: result.error }, 400);

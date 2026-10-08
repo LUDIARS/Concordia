@@ -1,3 +1,5 @@
+import type { RevisorRepositoryRegistration, RevisorLocalPrSummary } from "./revisor-pr-types.js";
+export type { RevisorRepositoryRegistration, RevisorLocalPrSummary } from "./revisor-pr-types.js";
 /**
  * Revisor の local PR API クライアント (提出と一覧)。
  *
@@ -18,26 +20,6 @@ import { listRepositoryOpenPrs } from "./revisor-repository-open-prs.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
-
-export interface RevisorRepositoryRegistration {
-  repository: string;
-  rootPath: string;
-  baseRef: string;
-}
-
-export interface RevisorLocalPrSummary {
-  id: string;
-  number: number;
-  repository: string;
-  headRef: string;
-  status: string;
-  checkStatus: string;
-  sessionId?: string | null;
-  reviewLane?: "standard" | "fast";
-  /** 提出時の説明。 GitHub PR 本文へ「審査を通った説明」をそのまま載せるために使う。 */
-  title?: string;
-  body?: string;
-}
 
 export interface SubmitLocalPrInput {
   repository: string;

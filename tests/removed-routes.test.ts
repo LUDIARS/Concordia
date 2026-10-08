@@ -16,7 +16,7 @@ describe("removed dead API routes", () => {
     ["DELETE", "/v1/processes/anything"],
   ] as const)("returns 404 for %s %s", async (method, path) => {
     const env = makeTestApp();
-    const response = await env.app.request(path, { method });
+    const response = await env.app.request(path, { headers: { "content-type": "application/json" }, method });
     expect(response.status).toBe(404);
   });
 
@@ -41,7 +41,7 @@ describe("removed dead API routes", () => {
     const token = readFileSync(join(env.logsDir, ".spawn.token"), "utf8").trim();
     const response = await env.app.request("/v1/spawn/preview", {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     });
     expect(response.status).toBe(404);
   });

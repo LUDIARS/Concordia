@@ -11,7 +11,7 @@
  */
 
 import { normalizeRepoOrigin } from "./normalize.js";
-import type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-client.js";
+import type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-pr-types.js";
 
 /**
  * セッションの repo_origin と Revisor の登録リポジトリを突き合わせる。

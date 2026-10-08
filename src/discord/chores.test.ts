@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelType, type Guild, type Message, type Interaction } from "discord.js";
+import { ChannelType, type Guild, type Message, type Interaction, type MessageCreateOptions } from "discord.js";
 import { acceptReplyText, choreCard, choreCompletionReply, startChoresDiscord } from "./chores.js";
 import type { Chore } from "../chores/domain.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
@@ -138,7 +138,7 @@ describe("Discord chores", () => {
       return new Response(JSON.stringify({ run }), { status: 202 });
     });
     vi.stubGlobal("fetch", fetcher);
-    const send = vi.fn(async () => ({ id: "notice" }));
+    const send = vi.fn(async (_message: MessageCreateOptions) => ({ id: "notice" }));
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", send, messages: { fetch: vi.fn() } };
     const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
     const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "p", baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });

@@ -8,7 +8,7 @@
  */
 
 import { listOpenLocalPrsForRepository } from "./local-pr-lookup.js";
-import type { RevisorLocalPrSummary } from "./revisor-local-pr-client.js";
+import type { RevisorLocalPrSummary } from "./revisor-pr-types.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:6d989ed3 */
 import augurContract_892b6dcf from './revisor-repository-scope.contract.js'; /* augur-inject:contract-predicate:9f4efd26 */
 

@@ -14,7 +14,7 @@
  */
 
 import { normalizeRepoOrigin } from "./normalize.js";
-import type { RevisorLocalPr } from "./revisor-client.js";
+import type { RevisorLocalPr } from "./revisor-pr-types.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:0887d9f6 */
 import augurContract_758adfb0 from './revisor-branch-lookup.contract.js'; /* augur-inject:contract-predicate:ddf8f565 */
 

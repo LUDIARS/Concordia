@@ -1,4 +1,4 @@
-import type { UseCaseFormat } from "./formats.js";
+import type { UseCaseFormat } from "./formats-schema.js";
 
 /** 企画調整の会話契約。保存済みのユースケースはこの初期値から独立する。
  * @implements CC-PLAN-01

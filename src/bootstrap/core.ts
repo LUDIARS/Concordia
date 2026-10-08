@@ -1,5 +1,6 @@
 // @spec ハーネス信頼性の実装境界
 import { createChoresRuntime } from "../chores/runtime.js";
+import { MeetingLinkStore } from "../meeting-links/store.js";
 import { createManagementRuntime } from "../management/runtime.js";
 import { startManagementRemote } from "../management/remote-startup.js";
 import { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
@@ -2060,6 +2061,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const actioChatSharedSecret = readActioChatSecret(process.env);
   const chatDestinations = readChatDestinations(process.env);
   const app = buildApp({
+    meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     actioChat: {
       secret: () => actioChatSharedSecret,

@@ -9,7 +9,9 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
 import type { SchedulerHandle } from "../daily/scheduler.js";
 import type { MetricsStore } from "../metrics/store.js";
-import { setDiscordConfig, discordConfigStatus } from "../discord/conn-config.js";
+import { setDiscordConfig, discordConfigStatus, resolveDiscordConfig } from "../discord/conn-config.js";
+import type { MeetingLinkStore } from "../meeting-links/store.js";
+import { meetingLinkRouter } from "../meeting-links/routes.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { createChildLogger } from "../shared/logger.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
@@ -43,6 +45,7 @@ export interface DiscordBotAdmin {
 }
 
 export interface ChatDeps {
+  meetingLinks?: MeetingLinkStore;
   repo: SessionsRepo;
   metrics?: MetricsStore;
   chat: ChatRepo;
@@ -64,6 +67,10 @@ export interface ChatDeps {
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
+  const meetingLinkSecrets = deps.secretBox;
+  if (deps.meetingLinks && meetingLinkSecrets) app.route("/v1/discord/meeting-handoffs", meetingLinkRouter({
+    store: deps.meetingLinks, botConfig: () => resolveDiscordConfig(deps.discordConfig, meetingLinkSecrets),
+  }));
   app.route("/v1/sessions", chatAttachmentsRouter({ chat: deps.chat, sessions: deps.repo, workspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
   // workflow.daily が無効なら日次レビュー API は 409 + 理由 (無言の 404 にしない)。
   {

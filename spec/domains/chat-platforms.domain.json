@@ -4,6 +4,10 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/meeting-links/.*\\.ts$" },
+    { "pathPattern": "(^|/)src/api/register-chat\\.ts$" },
+    { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
+    { "pathPattern": "(^|/)excubitor\\.catalog\\.yaml$" },
     {
       "pathPattern": "src/discord/"
     },
@@ -66,6 +70,8 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/meeting-respondent-handoff.md",
+    "spec/ux/meeting-respondent-handoff.md",
     "spec/feature/forum-discussion-type-first.md",
     "spec/feature/human-request-channel.md",
     "spec/feature/personal-ai-budget.md",

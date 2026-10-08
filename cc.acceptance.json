@@ -1,6 +1,15 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/bot.ts", "tests": ["src/meeting-links/discord.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/api/register-chat.ts", "tests": ["src/meeting-links/routes.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/routes.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/store.ts", "tests": ["src/meeting-links/store.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/policy.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/redeem.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/config.ts", "tests": ["src/meeting-links/config.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/redeem.ts", "tests": ["src/meeting-links/redeem.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/discord.ts", "tests": ["src/meeting-links/discord.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/meeting-links/routes.ts", "tests": ["src/meeting-links/routes.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/discord/forum-spawn.ts", "tests": ["src/discord/forum-spawn.test.ts"], "contracts": ["CC-FORUM-TYPE-01"] },
     { "source": "src/discord/bot.ts", "tests": ["src/discord/forum-discussion-policy.test.ts", "src/discord/forum-spawn.test.ts"], "contracts": ["CC-FORUM-TYPE-01"] },
     { "source": "src/discord/forum-discussion-policy.ts", "tests": ["src/discord/forum-discussion-policy.test.ts", "src/discord/forum-spawn.test.ts"], "contracts": ["CC-FORUM-TYPE-01"] },

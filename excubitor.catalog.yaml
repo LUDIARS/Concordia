@@ -30,6 +30,9 @@ services:
       CONCORDIA_URL: http://${host}:${port}
     env:
       NODE_ENV: production
+      CONCORDIA_MEETING_LINK_ENABLED: "true"
+      CONCORDIA_MEETING_LINK_GUILD_ID: "1136199339417534606"
+      CONCORDIA_MEETING_LINK_PUBLIC_URL: "https://ae.ai-run-do.com"
       CONCORDIA_COST_MODE: worker
       CONCORDIA_DISCORD_COST_REFRESH_MIN: "10"
       CONCORDIA_LOG_FILE: "1"

@@ -1,5 +1,7 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
+import { MeetingLinkStore } from "../meeting-links/store.js";
+import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeting-links/discord.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
@@ -434,6 +436,7 @@ export interface DiscordBotDeps {
 export type DiscordBotHandle = ChatPlatform;
 
 export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatform | null> {
+  const meetingLinks = new MeetingLinkStore(deps.db);
   const env = deps.resolveConfig ? deps.resolveConfig() : readDiscordEnv();
   // W6: 許可要求の投稿可否は起動時スナップショットではなく都度解決する。
   // (env を直接見ていた頃は Web UI で変えても再起動まで効かなかった)
@@ -2168,6 +2171,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // already been acknowledged」/「Unknown interaction」になる。 また子会社 guild の
     // /spawn を本社 runtime が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
+    if (isMeetingLinkInteraction(interaction)) {
+      void handleMeetingLinkInteraction(interaction, meetingLinks)
+        .catch(() => log.warn("meeting respondent private reply failed"));
+      return;
+    }
     if (sprintDialoguesDiscord?.handlesInteraction(interaction)) {
       void sprintDialoguesDiscord.interaction(interaction).catch(error => log.warn(`sprint dialogue choice failed: ${String(error)}`));
       return;

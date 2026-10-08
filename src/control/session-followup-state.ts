@@ -3,9 +3,21 @@ import { fileURLToPath } from "node:url";
 import { DELEGATION_RUN_STATUSES } from "../db/delegation-repo.js";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
 
+/** Sources fetched independently for the followup; one failure must not discard the others. */
+export type FollowupSource = "actio" | "revisor-registry" | "revisor-prs";
+
+const SOURCE_LABELS: Record<FollowupSource, string> = {
+  actio: "Actio タスク",
+  "revisor-registry": "Revisor 登録一覧",
+  "revisor-prs": "Revisor local PR",
+};
+
 export interface SessionFollowupSnapshot {
   workflow: ProjectStartupWorkflow;
-  tasks: readonly { status: string }[];
+  /** reason は Actio 状態が unknown のときの理由 (spec/feature/task-linked-followup.md)。 */
+  tasks: readonly { status: string; reason?: string }[];
+  /** 取得に失敗した取得元。空または未指定なら全部取れている。 */
+  unavailable?: readonly FollowupSource[];
   /** Newest first; historical failures must not override a later completed run. */
   delegations: readonly { status: string }[];
   prs: readonly { status: string; checkStatus: string }[];
@@ -43,6 +55,12 @@ export function selectSessionFollowupState(snapshot: SessionFollowupSnapshot): S
   return "unknown";
 }
 
+function unknownTaskReasons(snapshot?: SessionFollowupSnapshot): string[] {
+  const reasons = [...new Set((snapshot?.tasks ?? []).filter((task) => task.status === "unknown" && task.reason)
+    .map((task) => task.reason as string))];
+  return reasons.length ? [`関連タスクの状態が unknown の理由: ${reasons.join(", ")}`] : [];
+}
+
 export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): string {
   const state = snapshot ? selectSessionFollowupState(snapshot) : "unknown";
   const skill = fileURLToPath(new URL("../../skills/session-followup/SKILL.md", import.meta.url));
@@ -50,6 +68,10 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
     "[自動確認] Cc の作業状態に応じた確認です。",
     `workflow=${snapshot?.workflow ?? "unknown"}; state=${state}`,
     ...(!snapshot ? ["Actio・審査・委託状態は取得できていません。保存済みのタスク参照から再照合してください。"] : []),
+    ...(snapshot?.unavailable?.length
+      ? [`取得できなかった状態: ${snapshot.unavailable.map((source) => SOURCE_LABELS[source]).join("・")}。取れた状態だけで判断し、取れなかったものは保存済みの参照から再照合してください。`]
+      : []),
+    ...unknownTaskReasons(snapshot),
     "Actio タスクの現状態を正本として確認し、人間の指示と task link の対応を混ぜないでください。",
     ...(state === "task-blocked" ? ["blocked タスクは依存待ち・人間判断待ちを照合し、待機中の同じ依頼を重複実行しないでください。"] : []),
     ...(state === "reflection-needed" ? ["PR の merged だけでループを完了にしないでください。対象変更の反映、Actio の残タスク、次の GO または人間判断待ちを確認してください。"] : []),

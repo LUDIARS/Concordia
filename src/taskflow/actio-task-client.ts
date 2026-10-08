@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import type { ActioBinding } from "./actio-binding.js";
 import type { ActioTransport } from "./actio-transport.js";
 import type { TaskStatus } from "./types.js";
-import { taskTeamInScope } from "./actio-team-selection.js";
+import { lateBoundTeam, taskTeamInScope } from "./actio-team-selection.js";
+import { createChildLogger } from "../shared/logger.js";
 import { isLegacyReferenceInScope } from "./actio-reference-scope.js";
 import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
@@ -12,6 +13,7 @@ import type { PlanningTask } from "./continuation-plan.js";
 const Task = z.object({
   id: z.string().min(1), title: z.string(), description: z.string().nullable(),
   projectId: z.string().nullable(), ownerId: z.string(), teamId: z.string().nullable(),
+  assigneeId: z.string().nullable().optional(),
   status: z.enum(["open", "in_progress", "blocked", "done", "cancelled"]),
   source: z.string().nullable(), sourceRef: z.string().nullable(),
   pluginId: z.string().nullable(), pluginPayload: z.record(z.unknown()).nullable(),
@@ -24,6 +26,8 @@ const Task = z.object({
 });
 export type ActioWorkflowTask = z.infer<typeof Task>;
 export const ACTIO_WORKFLOW_SOURCE = "concordia.taskflow.v3";
+
+const log = createChildLogger("taskflow/actio");
 
 export function workflowStatus(status: ActioWorkflowTask["status"]): TaskStatus {
   return status === "open" ? "pending" : status === "done" || status === "cancelled" ? status : "delegated";
@@ -56,7 +60,7 @@ export class ActioWorkflowClient {
   }
 
   async get(binding: ActioBinding, id: string): Promise<ActioWorkflowTask> {
-    return this.decode(binding, await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`));
+    return this.bindTeamLate(binding, this.decode(binding, await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`)));
   }
 
   /**
@@ -67,7 +71,7 @@ export class ActioWorkflowClient {
     const result = z.object({ task: Task }).safeParse(await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(id)}`));
     if (!result.success) throw new Error("Invalid Actio task response");
     const task = result.data.task;
-    if (task.source === ACTIO_WORKFLOW_SOURCE) return { task: this.scoped(binding, task), legacy: false };
+    if (task.source === ACTIO_WORKFLOW_SOURCE) return { task: await this.bindTeamLate(binding, this.scoped(binding, task)), legacy: false };
     if (!isLegacyReferenceInScope(binding, task)) throw new Error("Actio task ownership mismatch");
     return { task, legacy: true };
   }
@@ -175,6 +179,29 @@ export class ActioWorkflowClient {
 
   private remoteStatus(status: TaskStatus): string {
     return status === "pending" ? "open" : status === "delegated" ? "in_progress" : status;
+  }
+
+  /**
+   * Writes the exactly known team into a team-less task (late binding, spec/feature/task-linked-followup.md).
+   * The task is already in scope, so a failed write never blocks the read or the operation; it is
+   * logged and retried on the next single-task access.
+   */
+  private async bindTeamLate(binding: ActioBinding, task: ActioWorkflowTask): Promise<ActioWorkflowTask> {
+    const teamId = lateBoundTeam(binding, task.teamId);
+    if (!teamId) return task;
+    try {
+      const bound = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(task.id)}`, {
+        teamId,
+        // Local team tasks require an assignee, matching create().
+        ...(binding.authMode === "loopback" && !task.assigneeId ? { assigneeId: binding.ownerId } : {}),
+      }));
+      if (bound.id !== task.id || bound.teamId !== teamId) throw new Error("Actio late team binding not applied");
+      return bound;
+    } catch (error) {
+      log.warn({ task_id: task.id, project_id: binding.projectId, team_id: teamId, err: (error as Error).message },
+        "Actio late team binding failed; task used as team-less");
+      return task;
+    }
   }
 
   private decode(binding: ActioBinding, response: unknown): ActioWorkflowTask {

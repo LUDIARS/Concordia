@@ -36,4 +36,14 @@ describe("task-linked followup", () => {
     expect(text).toContain("Actio・審査・委託状態は取得できていません");
     expect(text).toContain("人間の確認待ちは維持");
   });
+
+  it("names only the sources that failed and the reasons tasks are unknown", () => {
+    const text = renderSessionFollowup({ ...empty, unavailable: ["revisor-prs"],
+      tasks: [{ status: "unknown", reason: "task_out_of_scope" }, { status: "unknown", reason: "task_out_of_scope" }] });
+    expect(text).toContain("workflow=revisor");
+    expect(text).toContain("取得できなかった状態: Revisor local PR");
+    expect(text).not.toContain("Actio・審査・委託状態は取得できていません");
+    expect(text).toContain("unknown の理由: task_out_of_scope");
+    expect(renderSessionFollowup(empty)).not.toContain("取得できなかった状態");
+  });
 });

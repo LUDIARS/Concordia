@@ -4,6 +4,9 @@ import type { SessionRow } from "../shared/types.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { ACTIO_REFERENCE } from "../taskflow/actio-store.js";
 import type { TaskStore } from "../taskflow/store.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("work/task-links");
 
 export const SESSION_TASK_LINKS_KEY = "cc_task_links";
 const MAX_LINKS = 16;
@@ -18,9 +21,13 @@ export interface SessionTaskLink {
   subsidiary_id: string | null;
 }
 
+/** Why a linked task state is unknown; never swallowed (spec/feature/task-linked-followup.md). */
+export type LinkedTaskUnknownReason = "not_found" | "task_out_of_scope" | "task_unavailable" | "status_unrecognized";
+
 export interface LinkedTaskView extends SessionTaskLink {
   status: "open" | "in_progress" | "blocked" | "done" | "cancelled" | "unknown";
   state: "current" | "unknown";
+  reason?: LinkedTaskUnknownReason;
 }
 
 const ACTIO_STATUSES = new Set(["open", "in_progress", "blocked", "done", "cancelled"]);
@@ -45,6 +52,12 @@ function taskReadFailure(error: unknown): "not_found" | "task_out_of_scope" | "t
     || error.message === "Actio task team access mismatch"
     || error.message === "Actio task project binding missing or ambiguous") return "task_out_of_scope";
   return "task_unavailable";
+}
+
+function unknownView(link: SessionTaskLink, reason: LinkedTaskUnknownReason, detail: string): LinkedTaskView {
+  // Error messages here are fixed strings from the Actio adapter; no task body or credential.
+  log.warn({ task_reference: link.task_reference, reason, detail: detail.slice(0, 200) }, "linked task state unavailable");
+  return { ...link, status: "unknown", state: "unknown", reason };
 }
 
 /** 関連付け・表示は参照専用の読み込みを優先する (旧来タスクも対象)。無い store は従来の read。 */
@@ -132,12 +145,17 @@ export async function readLinkedTaskViews(input: {
   for (const link of links) {
     try {
       const task = await referenceReader(input.tasks)?.(before.repo_path, link.task_reference, readSubsidiaryId(before.metadata));
-      const rawStatus = task?.repoPath === link.repo_path ? task.frontmatter.actio_status : null;
-      const current = typeof rawStatus === "string" && ACTIO_STATUSES.has(rawStatus);
-      result.push({ ...link, status: current ? rawStatus as LinkedTaskView["status"] : "unknown",
-        state: current ? "current" : "unknown" });
-    } catch {
-      result.push({ ...link, status: "unknown", state: "unknown" });
+      if (!task) throw new Error("task_read_unavailable");
+      const rawStatus = task.frontmatter.actio_status;
+      if (task.repoPath !== link.repo_path) {
+        result.push(unknownView(link, "task_out_of_scope", "task repository differs from the linked repository"));
+      } else if (typeof rawStatus === "string" && ACTIO_STATUSES.has(rawStatus)) {
+        result.push({ ...link, status: rawStatus as LinkedTaskView["status"], state: "current" });
+      } else {
+        result.push(unknownView(link, "status_unrecognized", `unrecognized Actio status ${String(rawStatus)}`));
+      }
+    } catch (error) {
+      result.push(unknownView(link, taskReadFailure(error), error instanceof Error ? error.message : "non-error thrown"));
     }
   }
   if (!sameBinding(before, input.sessions.findSession(input.sessionId))) {

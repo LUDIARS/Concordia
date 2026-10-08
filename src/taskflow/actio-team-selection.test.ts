@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ActioBinding } from "./actio-binding.js";
 import {
   ActioTeamCandidatesError, ActioTeamSelectionError, bindingTeamCandidates, failureTeamCandidates,
-  selectActioTeam, taskTeamInScope,
+  lateBoundTeam, selectActioTeam, taskTeamInScope,
 } from "./actio-team-selection.js";
 
 const BASE: ActioBinding = {
@@ -42,8 +42,17 @@ describe("team scope helpers", () => {
     expect(taskTeamInScope(MULTI, "team-a")).toBe(true);
     expect(taskTeamInScope(MULTI, "team-x")).toBe(false);
     expect(taskTeamInScope(BASE, "team-a")).toBe(false);
-    expect(taskTeamInScope({ ...BASE, teamId: "team-1" }, null)).toBe(false);
+    // A team-less task belongs to the binding's single fixed team (neco 2026-10-09).
+    expect(taskTeamInScope({ ...BASE, teamId: "team-1" }, null)).toBe(true);
     expect(taskTeamInScope({ ...BASE, teamId: "team-1" }, "team-1")).toBe(true);
+    expect(taskTeamInScope({ ...BASE, teamId: "team-1" }, "team-2")).toBe(false);
+  });
+
+  it("late-binds only a team-less task, and only to an exactly known team", () => {
+    expect(lateBoundTeam({ ...BASE, teamId: "team-1" }, null)).toBe("team-1");
+    expect(lateBoundTeam({ ...BASE, teamId: "team-1" }, "team-1")).toBeNull();
+    expect(lateBoundTeam(MULTI, null)).toBeNull();
+    expect(lateBoundTeam(BASE, null)).toBeNull();
   });
 
   it("lists candidates and carries them on refusal errors only", () => {

@@ -93,4 +93,25 @@ describe("session instruction to Actio task links", () => {
     expect((await result("Actio task service unavailable")).kind).toBe("task_unavailable");
     expect(readSessionTaskLinks(sessions.findSession("s")!.metadata)).toEqual([]);
   });
+
+  it("reports why a linked task state is unknown instead of swallowing it", async () => {
+    const sessions = fixture();
+    let readReference = vi.fn(async () => ({ path: "actio:T-2", repoPath: "/repo", frontmatter: { actio_status: "open" } }));
+    const tasks = { readReference: (...args: unknown[]) => readReference(...(args as [])) } as never;
+    expect((await addSessionTaskLink({ sessions, tasks, sessionId: "s", instructionRef: "msg", taskReference: "actio:T-2" })).kind).toBe("linked");
+    const reasonOf = async () => (await readLinkedTaskViews({ sessions, tasks, sessionId: "s" })).links.map((link) => [link.status, link.reason]);
+
+    readReference = vi.fn(async () => { throw new Error("Actio task ownership mismatch"); });
+    expect(await reasonOf()).toEqual([["unknown", "task_out_of_scope"]]);
+    readReference = vi.fn(async () => { throw new Error("Actio task request rejected (404)"); });
+    expect(await reasonOf()).toEqual([["unknown", "not_found"]]);
+    readReference = vi.fn(async () => { throw new Error("fetch failed"); });
+    expect(await reasonOf()).toEqual([["unknown", "task_unavailable"]]);
+    readReference = vi.fn(async () => ({ path: "actio:T-2", repoPath: "/repo", frontmatter: { actio_status: "review" } }));
+    expect(await reasonOf()).toEqual([["unknown", "status_unrecognized"]]);
+    readReference = vi.fn(async () => ({ path: "actio:T-2", repoPath: "/other", frontmatter: { actio_status: "open" } }));
+    expect(await reasonOf()).toEqual([["unknown", "task_out_of_scope"]]);
+    readReference = vi.fn(async () => ({ path: "actio:T-2", repoPath: "/repo", frontmatter: { actio_status: "in_progress" } }));
+    expect(await reasonOf()).toEqual([["in_progress", undefined]]);
+  });
 });

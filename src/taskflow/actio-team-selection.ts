@@ -36,10 +36,20 @@ selectActioTeam = contract(selectActioTeam, { ...augurContract_a9e60c3d, contrac
 // @ts-expect-error augur-inject
 selectActioTeam = contract(selectActioTeam, { ...augurContract_561cd9dc, contractId: 'actio-team-C-2', mode: 'observe', sample: 1, where: 'src/taskflow/actio-team-selection.ts:19', rule: 'contract-wrap', id: '561cd9dc' }); /* augur-inject:contract-wrap:561cd9dc */
 
-/** A task read through a team-less multi-team binding may belong to any registered team. */
+/**
+ * A task read through a team-less multi-team binding may belong to any registered team.
+ * A team-less task is in scope of a binding fixed to one team: that team is its exact scope
+ * (spec/feature/task-linked-followup.md, neco 2026-10-09).
+ */
 export function taskTeamInScope(binding: Pick<ActioBinding, "teamId" | "teamCandidates">, taskTeamId: string | null): boolean {
   if (taskTeamId === binding.teamId) return true;
-  return binding.teamId === null && taskTeamId !== null && (binding.teamCandidates?.includes(taskTeamId) ?? false);
+  if (taskTeamId === null) return binding.teamId !== null;
+  return binding.teamId === null && (binding.teamCandidates?.includes(taskTeamId) ?? false);
+}
+
+/** The team to write into a team-less task once its scope is exact (late binding). Null when nothing to bind. */
+export function lateBoundTeam(binding: Pick<ActioBinding, "teamId">, taskTeamId: string | null): string | null {
+  return taskTeamId === null ? binding.teamId : null;
 }
 
 /**

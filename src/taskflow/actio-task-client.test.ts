@@ -217,3 +217,50 @@ describe("ActioWorkflowClient", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("team-less tasks under a single-team binding (late binding)", () => {
+  const local: ActioBinding = { ...BINDING, teamId: "team-1", ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
+  const localTask = (overrides: Partial<ActioWorkflowTask> = {}) => task({ ownerId: "actio-local", teamId: null, ...overrides });
+
+  it("reads a team-less task and writes the exactly known team into it", async () => {
+    const { transport: t, request } = transport({ task: localTask() }, { task: localTask({ teamId: "team-1", assigneeId: "actio-local" }) });
+
+    const got = await new ActioWorkflowClient(t).get(local, "task-1");
+
+    expect(got.teamId).toBe("team-1");
+    const [, method, path, body] = request.mock.calls[1]!;
+    expect([method, path]).toEqual(["PATCH", "/api/tasks/task-1"]);
+    expect(body).toEqual({ teamId: "team-1", assigneeId: "actio-local" });
+  });
+
+  it("keeps an existing assignee and still returns the task when the write fails", async () => {
+    const assigned = localTask({ assigneeId: "someone" });
+    const request = vi.fn(async (_b: ActioBinding, method: string, _path: string, _body?: unknown) => {
+      if (method === "PATCH") throw new Error("Actio task request rejected (400)");
+      return { task: assigned };
+    });
+    const client = new ActioWorkflowClient({ request } as unknown as ActioTransport);
+
+    await expect(client.get(local, "task-1")).resolves.toMatchObject({ id: "task-1", teamId: null });
+    expect(request.mock.calls[1]![3]).toEqual({ teamId: "team-1" });
+  });
+
+  it("binds through the reference reader too, but never a task of another team", async () => {
+    const { transport: t, request } = transport({ task: localTask() }, { task: localTask({ teamId: "team-1" }) });
+    await expect(new ActioWorkflowClient(t).getReference(local, "task-1")).resolves.toMatchObject({ legacy: false, task: { teamId: "team-1" } });
+    expect(request).toHaveBeenCalledTimes(2);
+
+    const { transport: other, request: otherRequest } = transport({ task: localTask({ teamId: "team-9" }) });
+    await expect(new ActioWorkflowClient(other).get(local, "task-1")).rejects.toThrow("Actio task ownership mismatch");
+    expect(otherRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not write a team when the binding is team-less or already matches", async () => {
+    const { transport: t, request } = transport({ task: task() });
+    await new ActioWorkflowClient(t).get(BINDING, "task-1");
+    const { transport: same, request: sameRequest } = transport({ task: localTask({ teamId: "team-1" }) });
+    await new ActioWorkflowClient(same).get(local, "task-1");
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(sameRequest).toHaveBeenCalledTimes(1);
+  });
+});

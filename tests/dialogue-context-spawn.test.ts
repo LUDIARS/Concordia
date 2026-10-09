@@ -97,6 +97,35 @@ describe("dialogue context on department spawn", () => {
     expect(env.repo.findSession("default-session")?.department_id).toBe(general.department.id);
   });
 
+  // departments.md §9.8: 非エンジニア向けの部署は、 ユースケースが無くても話し方の節が初回指示に入る。
+  it("adds the non-engineer guidance to a department without a use case", async () => {
+    const general = env.departmentService.create({
+      subsidiary_id: null, name: "総務", slug: "general", settings: { audience: "non-engineer" },
+    });
+    if (!general.ok) throw new Error("setup failed");
+
+    const response = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ department: general.department.id, provider: "claude", cwd: env.logsDir, prompt: "敵の出現数を減らして" }),
+    });
+    expect(response.status).toBe(200);
+    const prompt = startupPrompt(spawnCalls[0]);
+    expect(prompt).toContain("### 話し方: 非エンジニア向け");
+    expect(prompt.indexOf("### 話し方: 非エンジニア向け")).toBeLessThan(prompt.indexOf("敵の出現数を減らして"));
+  });
+
+  it("keeps the standard startup prompt for departments without the audience setting", async () => {
+    const department = qaDepartment();
+    const response = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ department: department.id, cwd: env.logsDir, prompt: "DDD って何が良いの" }),
+    });
+    expect(response.status).toBe(200);
+    expect(startupPrompt(spawnCalls[0])).not.toContain("話し方: 非エンジニア向け");
+  });
+
   it("registers a correction from a department session", async () => {
     const department = qaDepartment();
     env.repo.insertSession({

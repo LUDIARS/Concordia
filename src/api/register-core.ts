@@ -117,6 +117,7 @@ import {
 } from "../control/pending-delegation-spawns.js";
 import { resolveDepartmentLaunch } from "../departments/launch-resolution.js";
 import { applySpawnLaunch, readSpawnLaunchRequest } from "../departments/spawn-request.js";
+import { audienceGuidanceBlock } from "../dialogue/audience-guidance.js";
 import { buildLaunchContext } from "../dialogue/launch-context.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
 import { useCasesRouter, sessionCorrectionsRouter } from "./use-cases.js";
@@ -1165,6 +1166,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             intake: readConsultIntakeRequest(body),
           }).block;
         }
+        // 話し方 (departments.md §9.8)。 ユースケースが無い総務でも足す。 設定は resolveDepartmentLaunch で検証済み。
+        const audienceBlock = audienceGuidanceBlock(parseDepartmentSettings(department.department.settings_json).audience);
+        if (audienceBlock) dialogueBlock = [dialogueBlock, audienceBlock].filter(Boolean).join("\n\n");
       }
     }
     if (requestedDepartmentId && consultationSafety) {

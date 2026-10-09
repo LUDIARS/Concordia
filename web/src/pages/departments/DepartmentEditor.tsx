@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import {
   api,
   type Department,
+  type DepartmentAudience,
   type DepartmentOutputItem,
   type DepartmentOutputMode,
   type DepartmentSettings,
@@ -73,6 +74,7 @@ export function DepartmentEditor({
   const [output, setOutput] = useState(initial.output);
   const [privateConsult, setPrivateConsult] = useState(initial.private ?? { enabled: false, approver_min_role: "manager" as const });
   const [costMultiplier, setCostMultiplier] = useState(String(initial.budget?.cost_multiplier ?? 1));
+  const [audience, setAudience] = useState<DepartmentAudience>(initial.audience ?? "standard");
   const [rulesText, setRulesText] = useState(department.rules_text);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -92,6 +94,7 @@ export function DepartmentEditor({
     output,
     private: privateConsult,
     budget: { cost_multiplier: Number(costMultiplier) },
+    audience,
   });
 
   const save = async () => {
@@ -199,6 +202,21 @@ export function DepartmentEditor({
             </Labeled>
           ))}
         </div>
+      </fieldset>
+
+      <fieldset className="border border-border rounded p-2 space-y-2">
+        <legend className="text-xs text-subtle px-1">話し方</legend>
+        <Labeled label="人に向けた返信の書き方 (起動時の前提データに足す。作業規則や承認は変わらない)">
+          <select
+            className="foundation-form"
+            aria-label="話し方"
+            value={audience}
+            onChange={(e) => setAudience(e.target.value as DepartmentAudience)}
+          >
+            <option value="standard">標準</option>
+            <option value="non-engineer">非エンジニア向け (用語を噛み砕き、やったこと／決めてほしいことをまとめる)</option>
+          </select>
+        </Labeled>
       </fieldset>
 
       <fieldset className="border border-border rounded p-2 space-y-2">

@@ -48,3 +48,16 @@ describe("DepartmentEditor — 予算のコスト倍率", () => {
     expect(update.mock.calls[0]![1]).toMatchObject({ settings: { startup_inject: "initial-only", auto_check: "off" } });
   });
 });
+
+// 話し方 (departments.md §9.8)。 古い保存値に無ければ標準として出す。
+describe("DepartmentEditor — 話し方", () => {
+  it("標準から非エンジニア向けへ切り替えて保存する", async () => {
+    render(<DepartmentEditor department={department as never} useCases={[]} onSaved={() => {}} client={client} />);
+    const select = screen.getByLabelText("話し方") as HTMLSelectElement;
+    expect(select.value).toBe("standard");
+    fireEvent.change(select, { target: { value: "non-engineer" } });
+    fireEvent.click(screen.getByText("保存"));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0]![1]).toMatchObject({ settings: { audience: "non-engineer" } });
+  });
+});

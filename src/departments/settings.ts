@@ -10,6 +10,7 @@
  * @implements SPEC-DEPT-OUTPUT
  * @implements SPEC-CONSULT-PRIVATE
  * @implements SPEC-USAGE-BUDGET-MULTIPLIER
+ * @implements SPEC-DEPT-AUDIENCE
  */
 
 import { z } from "zod";
@@ -71,6 +72,12 @@ const AutoCheckSchema = z.enum(["on", "off"]);
 const ConsultToolsSchema = z.enum(["restricted", "all"]);
 
 /**
+ * 人に向けた話し方 (spec/feature/departments.md §9.8、 2026-10-09 neco 指示)。 `non-engineer` の部署は
+ * 起動時の前提データに非エンジニア向けの話し方を足す。
+ */
+const AudienceSchema = z.enum(["standard", "non-engineer"]);
+
+/**
  * プライベート相談 (spec/feature/tech-consultation.md §4)。 enabled の部署だけ `/consult` を受け付け、
  * 社員名簿で approver_min_role 以上の人を閉じたチャンネルへ自動で加える。
  */
@@ -96,6 +103,7 @@ export const DepartmentSettingsSchema = z.object({
   auto_check: AutoCheckSchema.default("on"),
   budget: BudgetSettingsSchema.default({}),
   consult_tools: ConsultToolsSchema.default("restricted"),
+  audience: AudienceSchema.default("standard"),
 }).strict().superRefine((settings, ctx) => {
   const lowered = settings.projects.map((project) => project.toLowerCase());
   if (new Set(lowered).size !== lowered.length) {
@@ -132,6 +140,7 @@ export type DepartmentStartupInject = DepartmentSettings["startup_inject"];
 export type DepartmentAutoCheck = DepartmentSettings["auto_check"];
 export type DepartmentBudgetSettings = DepartmentSettings["budget"];
 export type DepartmentConsultTools = DepartmentSettings["consult_tools"];
+export type DepartmentAudience = DepartmentSettings["audience"];
 
 export const DEFAULT_PRIVATE_CONSULTATION: DepartmentPrivateConsultation = { enabled: false, approver_min_role: "manager" };
 
@@ -150,6 +159,7 @@ export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {
   launch: {}, projects: [], output: DEFAULT_OUTPUT_POLICY, private: DEFAULT_PRIVATE_CONSULTATION, startup_inject: "full", auto_check: "on",
   budget: { cost_multiplier: 1 },
   consult_tools: "restricted",
+  audience: "standard",
 };
 
 /** 保存済みの settings_json を型付きへ解決する。 壊れていれば例外 (無言で空にしない)。 */

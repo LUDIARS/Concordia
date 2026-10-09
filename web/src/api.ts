@@ -1559,7 +1559,11 @@ export interface DepartmentSettings {
   private?: { enabled: boolean; approver_min_role: "manager" | "executive" };
   /** 月次予算の数え方 (usage-budgets.md §3.1)。 消費 × cost_multiplier を予算から引く。 古い保存値には無い。 */
   budget?: { cost_multiplier: number };
+  /** 人に向けた話し方 (departments.md §9.8)。 古い保存値には無い (= standard)。 */
+  audience?: DepartmentAudience;
 }
+
+export type DepartmentAudience = "standard" | "non-engineer";
 
 export interface Department {
   id: string;

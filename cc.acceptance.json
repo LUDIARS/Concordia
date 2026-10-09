@@ -1968,6 +1968,31 @@
       "contracts": ["CC-HUMAN-TODO-02"]
     },
     {
+      "source": "src/dialogue/audience-guidance.ts",
+      "tests": ["src/dialogue/audience-guidance.test.ts", "tests/dialogue-context-spawn.test.ts"],
+      "contracts": ["SPEC-DEPT-AUDIENCE"]
+    },
+    {
+      "source": "src/departments/settings.ts",
+      "tests": ["src/dialogue/audience-guidance.test.ts"],
+      "contracts": ["SPEC-DEPT-AUDIENCE"]
+    },
+    {
+      "source": "src/api/register-core.ts",
+      "tests": ["tests/dialogue-context-spawn.test.ts"],
+      "contracts": ["SPEC-DEPT-AUDIENCE"]
+    },
+    {
+      "source": "web/src/pages/departments/DepartmentEditor.tsx",
+      "tests": ["web/src/pages/departments/DepartmentEditor.budget.test.tsx"],
+      "contracts": ["SPEC-DEPT-AUDIENCE"]
+    },
+    {
+      "source": "web/src/api.ts",
+      "tests": ["web/src/pages/departments/DepartmentEditor.budget.test.tsx"],
+      "contracts": ["SPEC-DEPT-AUDIENCE"]
+    },
+    {
       "source": "src/control/human-todo-digest.ts",
       "tests": ["src/control/human-todo-digest.test.ts"],
       "contracts": ["CC-HUMAN-TODO-01"]

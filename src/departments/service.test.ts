@@ -117,6 +117,7 @@ describe("DepartmentService", () => {
       auto_check: "on",
       budget: { cost_multiplier: 1 },
       consult_tools: "restricted",
+      audience: "standard",
     });
   });
 

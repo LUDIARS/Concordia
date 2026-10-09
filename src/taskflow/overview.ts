@@ -3,6 +3,7 @@ import type { PrCiStatus, PrRecordRow, PrState } from "../db/pr-records-repo.js"
 import type { SessionRow } from "../shared/types.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
+import { buildTaskExecutionView, type TaskExecutionView, type TranscriptTail } from "./execution-view.js";
 
 export interface TaskflowOverviewRow {
   path: string;
@@ -35,6 +36,8 @@ export interface TaskflowOverviewRow {
     state: PrState;
   } | null;
   ci_status: PrCiStatus;
+  /** 実行状況 (受領・現在の動作・最終応答・停止理由・成果物)。 業務状態 `status` とは独立。 */
+  execution: TaskExecutionView;
 }
 
 export interface TaskflowOverview {
@@ -83,12 +86,17 @@ export function buildTaskflowOverview(input: {
   sessions: readonly SessionRow[];
   runs: readonly DelegationRunRow[];
   prs: readonly PrRecordRow[];
+  /**
+   * 実装担当セッションの transcript 最新行を一括で引く。 組み立て中に 1 回だけ、 実際に表示する
+   * 行の担当セッション id で呼ぶ。 未指定なら応答・tool は null。
+   */
+  loadTails?: (sessionIds: readonly string[]) => ReadonlyMap<string, TranscriptTail>;
   now?: number;
 }): TaskflowOverview {
   const sessionsById = new Map(input.sessions.map((session) => [session.id, session]));
   const runsById = new Map(input.runs.map((run) => [run.id, run]));
 
-  const tasks = input.documents.map((document): TaskflowOverviewRow => {
+  const drafts = input.documents.map((document) => {
     const fm = document.frontmatter;
     const runtime = document.runtime ?? defaultRuntime();
     const explicitSessionId = runtime.source_session;
@@ -102,7 +110,10 @@ export function buildTaskflowOverview(input: {
     const sessionId = explicitSessionId ?? run?.child_session_id ?? run?.parent_session_id ?? null;
     const session = sessionId ? sessionsById.get(sessionId) ?? null : null;
     const pr = resolveTaskPr(document, session, sessionId, input.prs);
-    return {
+    // 実行状況は実装担当 (子) を見る。 run が無いタスクは紐付いたセッションそのもの。
+    const workerId = run ? run.child_session_id : sessionId;
+    const worker = workerId ? sessionsById.get(workerId) ?? null : null;
+    const row: Omit<TaskflowOverviewRow, "execution"> = {
       path: input.relativePath(document),
       repo_path: document.repoPath,
       title: document.title,
@@ -125,13 +136,33 @@ export function buildTaskflowOverview(input: {
       pr: pr ? { number: pr.number, title: pr.title, url: pr.url, state: pr.state } : null,
       ci_status: pr?.ci_status ?? "unknown",
     };
-  }).sort(compareRows);
+    return { row, run, pr, worker, workerId };
+  });
+  // 読み出し件数に上限があるので、 動いている担当 (active / blocked) を先に渡す。
+  const workerIds = drafts
+    .filter((draft) => draft.workerId)
+    .sort((left, right) => Number(isLive(right.worker)) - Number(isLive(left.worker)))
+    .map((draft) => draft.workerId!);
+  const tails = input.loadTails && workerIds.length > 0 ? input.loadTails(workerIds) : null;
+  const tasks = drafts.map(({ row, run, pr, worker, workerId }): TaskflowOverviewRow => ({
+    ...row,
+    execution: buildTaskExecutionView({
+      run,
+      session: worker,
+      pr,
+      tail: workerId ? tails?.get(workerId) ?? null : null,
+    }),
+  })).sort(compareRows);
 
   return {
     generated_at: input.now ?? Math.floor(Date.now() / 1000),
     counts: countTaskflowRows(tasks),
     tasks,
   };
+}
+
+function isLive(session: SessionRow | null): boolean {
+  return session?.status === "active" || session?.status === "blocked";
 }
 
 function resolveTaskPr(

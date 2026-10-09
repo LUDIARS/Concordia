@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
-import { TranscriptLogsRepo } from "./transcript-logs-repo.js";
+import { TAIL_MAX_SESSIONS, TAIL_SCAN_ROWS, TranscriptLogsRepo } from "./transcript-logs-repo.js";
 
 let db: ReturnType<typeof makeTestDb>;
 let repo: TranscriptLogsRepo;
@@ -170,5 +170,35 @@ describe("TranscriptLogsRepo async flush", () => {
       kind: "raw",
       payload: null,
     })).toThrow("closed");
+  });
+});
+
+describe("TranscriptLogsRepo.latestTailBySessions", () => {
+  it("returns the latest assistant text and tool-use per session", () => {
+    repo.insert({ session_id: "s1", seq: 1, ts: 1, kind: "text", payload: { role: "assistant", text: "old" } });
+    repo.insert({ session_id: "s1", seq: 2, ts: 2, kind: "tool-use", payload: { name: "Read" } });
+    repo.insert({ session_id: "s1", seq: 3, ts: 3, kind: "text", payload: { role: "assistant", text: "new" } });
+    repo.insert({ session_id: "s1", seq: 4, ts: 4, kind: "text", payload: { role: "user", text: "human" } });
+    repo.insert({ session_id: "s2", seq: 1, ts: 5, kind: "tool-use", payload: { name: "Bash" } });
+
+    const tails = repo.latestTailBySessions(["s1", "s2", "s1", "missing"]);
+    expect(tails.get("s1")).toEqual({
+      lastText: { ts: 3, payload: { role: "assistant", text: "new" } },
+      lastToolUse: { ts: 2, payload: { name: "Read" } },
+    });
+    expect(tails.get("s2")).toEqual({ lastText: null, lastToolUse: { ts: 5, payload: { name: "Bash" } } });
+    expect(tails.get("missing")).toEqual({ lastText: null, lastToolUse: null });
+  });
+
+  it("only scans the recent tail of each session and caps the session count", () => {
+    repo.insert({ session_id: "s1", seq: 1, ts: 1, kind: "text", payload: { role: "assistant", text: "too old" } });
+    for (let seq = 2; seq <= TAIL_SCAN_ROWS + 1; seq += 1) {
+      repo.insert({ session_id: "s1", seq, ts: seq, kind: "thinking", payload: {} });
+    }
+    expect(repo.latestTailBySessions(["s1"]).get("s1")?.lastText).toBeNull();
+
+    const ids = Array.from({ length: TAIL_MAX_SESSIONS + 5 }, (_, index) => `x${index}`);
+    expect(repo.latestTailBySessions(ids).size).toBe(TAIL_MAX_SESSIONS);
+    expect(repo.latestTailBySessions([]).size).toBe(0);
   });
 });

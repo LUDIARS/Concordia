@@ -28,6 +28,50 @@ describe("taskflow overview", () => {
     expect(overview.counts).toMatchObject({ total: 1, delegated: 1, ci_failure: 1 });
   });
 
+  it("adds the child's execution view and loads transcripts once for the shown workers", () => {
+    const calls: string[][] = [];
+    const overview = buildTaskflowOverview({
+      documents: [task({ status: "delegated", source_session: "session-1" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [session()],
+      runs: [{ ...run(), spawn_branch: "codex/task" }],
+      prs: [pr()],
+      loadTails: (ids) => {
+        calls.push([...ids]);
+        return new Map([["session-1", {
+          lastText: { ts: 9, payload: { role: "assistant", text: "PR を出しました" } },
+          lastToolUse: { ts: 8, payload: { name: "Edit" } },
+        }]]);
+      },
+      now: 123,
+    });
+    expect(calls).toEqual([["session-1"]]);
+    // 業務状態 status と実行状況 execution.state は独立して出る。
+    expect(overview.tasks[0].status).toBe("delegated");
+    expect(overview.tasks[0].execution).toMatchObject({
+      state: "working",
+      received_at: 1,
+      current_action: { label: "Edit", source: "tool" },
+      last_response: { text: "PR を出しました", at: 9 },
+      stop_reason: null,
+    });
+    expect(overview.tasks[0].execution.artifacts.map((item) => item.kind)).toEqual(["pr", "branch"]);
+  });
+
+  it("does not load transcripts when no task has a worker session", () => {
+    let called = false;
+    const overview = buildTaskflowOverview({
+      documents: [task({})],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [],
+      runs: [],
+      prs: [],
+      loadTails: () => { called = true; return new Map(); },
+    });
+    expect(called).toBe(false);
+    expect(overview.tasks[0].execution.state).toBe("not_started");
+  });
+
   it("attributes the task to a team via the run first, then the session", () => {
     const overviewByRun = buildTaskflowOverview({
       documents: [task({ status: "delegated", source_session: "session-1" })],

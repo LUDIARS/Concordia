@@ -8,6 +8,7 @@ import {
   type TaskflowTaskStatus,
 } from "../api.js";
 import { useTeamFilter } from "../lib/TeamFilterContext.js";
+import { ExecutionCell } from "./taskflow/ExecutionCell.js";
 
 const STATUS_LABEL: Record<TaskflowTaskStatus, string> = {
   pending: "未着手",
@@ -101,7 +102,7 @@ export function Taskflow() {
             Taskflow
             {team && <span className="ml-2 text-xs font-normal text-subtle">チーム: {team.name}</span>}
           </h1>
-          <p className="text-xs text-subtle">task md を正本に、担当・状態・PR・CI を 1 画面で確認します。</p>
+          <p className="text-xs text-subtle">担当・タスク状態・実行状況 (受領・現在の動作・最終応答・停止理由)・PR・CI を 1 画面で確認します。</p>
         </div>
         <button
           onClick={() => void load()}
@@ -158,13 +159,14 @@ export function Taskflow() {
       {error && <div className="text-danger text-sm">load error: {error}</div>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
-        <table className="w-full min-w-[1040px] text-sm">
+        <table className="w-full min-w-[1320px] text-sm">
           <thead className="text-xs text-subtle border-b border-border">
             <tr>
               <th className="text-left p-2">Project / Task</th>
               <th className="text-left p-2">組織</th>
               <th className="text-left p-2">担当</th>
-              <th className="text-left p-2">状態</th>
+              <th className="text-left p-2">タスク状態</th>
+              <th className="text-left p-2">実行状況</th>
               <th className="text-left p-2">Session / Run</th>
               <th className="text-left p-2">PR</th>
               <th className="text-left p-2">CI</th>
@@ -190,6 +192,7 @@ export function Taskflow() {
                     {STATUS_LABEL[task.status]}
                   </span>
                 </td>
+                <td className="p-2 align-top"><ExecutionCell execution={task.execution} /></td>
                 <td className="p-2 text-xs">
                   {task.parent_session_id || task.child_session_id ? (
                     // 委託タスク: 管理者 (親) → 実装担当 (子) の系譜で表示する。
@@ -233,7 +236,7 @@ export function Taskflow() {
               </tr>
             ))}
             {data && visible.length === 0 && (
-              <tr><td colSpan={8} className="p-6 text-center text-subtle">該当する task md はありません。</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center text-subtle">該当する task md はありません。</td></tr>
             )}
           </tbody>
         </table>

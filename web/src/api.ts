@@ -180,6 +180,20 @@ export interface TaskflowOverviewTask {
   subsidiary_id: string | null;
   pr: { number: number; title: string; url: string | null; state: string } | null;
   ci_status: TaskflowCiStatus;
+  /** 実行状況 (業務状態 status とは独立)。 spec/feature/task-workflow-v3.md CC-TF-EXEC-01 */
+  execution?: TaskflowExecution;
+}
+
+export type TaskflowExecutionState =
+  | "not_started" | "queued" | "launching" | "received" | "working" | "waiting" | "stopped" | "finished";
+
+export interface TaskflowExecution {
+  state: TaskflowExecutionState;
+  received_at: number | null;
+  current_action: { label: string; source: "tool" | "current_task"; at: number | null } | null;
+  last_response: { text: string; at: number } | null;
+  stop_reason: string | null;
+  artifacts: Array<{ kind: "pr" | "branch"; label: string; url: string | null }>;
 }
 
 export interface TaskflowOverviewResult {

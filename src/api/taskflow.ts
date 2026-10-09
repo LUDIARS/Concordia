@@ -12,6 +12,7 @@ import {
   resolveTaskflowSubsidiaryId,
 } from "../taskflow/overview.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "../taskflow/failure.js";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
@@ -49,6 +50,8 @@ export function taskflowRouter(input: {
   sessions: SessionsRepo;
   delegation: DelegationRepo;
   prs: PrRecordsRepo;
+  /** 実行状況 (最終応答・現在の tool) 用。 未指定なら該当項目は null で返す。 */
+  transcripts?: Pick<TranscriptLogsRepo, "latestTailBySessions">;
 }): Hono {
   const app = new Hono();
   app.onError((error, c) => {
@@ -202,6 +205,9 @@ export function taskflowRouter(input: {
       sessions: input.sessions.listSessions({}),
       runs: input.delegation.recentRuns(1000),
       prs: input.prs.list({ limit: 500 }),
+      loadTails: input.transcripts
+        ? (sessionIds) => input.transcripts!.latestTailBySessions(sessionIds)
+        : undefined,
     });
     const tasks = overview.tasks.filter((task) => {
       if (project && task.project.toLowerCase() !== project) return false;

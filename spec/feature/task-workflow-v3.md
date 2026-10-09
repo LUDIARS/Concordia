@@ -221,3 +221,31 @@ Rollback reverts these files; no data migration is involved.
 価値 UX-CC-PRODUCT。利用者が失うと困る状態は、PR提出後に委託セッションが終了し競合修正・再審査・マージが取り残されること。
 状態所有者: PR状態はRevisor、終了ladderはCc taskflow。不変条件: open/missingのPRでは自動終了しない。mergedかつ残作業noneかつ未回答質問なしの場合だけ、対象runの子セッションの終了を予約する。親や対話セッションを終了しない。
 既存のマージ許可を再質問せず、審査ゲートと人間判断要求は維持する。検証はsession-end.test.tsとruntime.test.ts（mergedで子を終了、openでは継続）、復旧は終了判定の変更をrevertする。永続状態の移行なし。
+
+## CC-TF-EXEC-01: 実行状況 (サイドカー) の可視化
+
+価値 UX-CC-W2 (委任後も仕事を見失わず、重複依頼せずに再開できる)、補助で UX-CC-W3。
+利用者が失うと困る状態は、委託した仕事が「受け取られたか」「いま何をしているか」「なぜ止まったか」が
+Taskflow 画面から分からず、セッション一覧や Discord を辿らないと再開・再依頼の判断ができないこと。
+
+Taskflow の各行に、タスクの業務状態 (`status`、正本は Actio / task state) とは別の **実行状況** (`execution`) を出す。
+両者を一つの値に混ぜない。実行状況は委託 run・子セッション・PR・transcript から毎回導出する読み取りモデルで、保存しない。
+
+| 項目 | 意味 | 導出元 |
+|---|---|---|
+| `state` | `not_started` / `queued` / `launching` / `received` / `working` / `waiting` / `stopped` / `finished` | run の status、子セッションの status |
+| `assignee` | 担当 (既存の `assignee` と同じ) | runtime → session metadata → run |
+| `received_at` | 受領した時刻 (子セッションが起動した時刻) | 子セッションの `started_at` |
+| `current_action` | いま何をしているか。最後の tool 名、または作業中のタスク名 | transcript の最新 `tool-use` の `name` / session `current_task` |
+| `last_response` | 最後の応答 (先頭 280 文字) と時刻 | transcript の最新 assistant `text` |
+| `stop_reason` | 止まった理由。止まっていなければ null | run の `error`、`blocked` / `failed` / `spawn_failed`、子セッションの終了 |
+| `artifacts` | 成果物リンク: PR、作業ブランチ | PR 記録、run の `spawn_branch` |
+
+- 状態所有者: run 状態は delegation、セッション状態は sessions、PR は pr_records (Revisor 由来)。この読み取りモデルはどれも書き換えない。
+- 不変条件:
+  - CC-TF-EXEC-INV-01: 実行状況はタスクの業務状態を上書き・推定しない (`status` と `execution.state` は独立)。
+  - CC-TF-EXEC-INV-02: tool の入力 (`input_preview`) は出さない。出すのは tool 名だけ。応答本文は 280 文字で切る。
+  - CC-TF-EXEC-INV-03: transcript の読み出しは表示対象行の子セッション (最大 100 件) に限り、各セッションの末尾 50 行だけを (session_id, ts) index で引く。末尾 50 行に無い項目は null (CC-NODE-01)。
+  - CC-TF-EXEC-INV-04: 導出できない項目は null とし、推測で埋めない。
+- 復旧: 読み取り専用で永続状態の移行は無い。不具合時は該当 PR を revert する。
+- 検証: `src/taskflow/execution-view.test.ts` (状態導出・停止理由・応答切り詰め・tool 入力非表示)、`src/db/transcript-logs-repo.test.ts` (最新行の一括取得)。

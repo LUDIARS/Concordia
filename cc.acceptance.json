@@ -4510,6 +4510,10 @@
     {"source":"src/pr/local-pr-lookup.ts","tests":["src/pr/local-pr-submission.test.ts","src/pr/submission-reconcile.test.ts"],"contracts":[]},
     {"source":"src/taskflow/actio-team-selection.ts","tests":["src/taskflow/actio-team-selection.test.ts"],"contracts":[]},
     {"source":"src/control/session-followup-state.ts","tests":["src/control/session-followup-state.test.ts"],"contracts":[]},
-    {"source":"src/control/session-followup-snapshot.ts","tests":["src/control/session-followup-snapshot.test.ts"],"contracts":[]}
+    {"source":"src/control/session-followup-snapshot.ts","tests":["src/control/session-followup-snapshot.test.ts"],"contracts":[]},
+    {"source":"src/taskflow/execution-view.ts","tests":["src/taskflow/execution-view.test.ts","src/taskflow/overview.test.ts"],"contracts":[]},
+    {"source":"src/db/transcript-logs-repo.ts","tests":["src/db/transcript-logs-repo.test.ts"],"contracts":[]},
+    {"source":"web/src/pages/taskflow/ExecutionCell.tsx","tests":["web/src/pages/taskflow/ExecutionCell.test.tsx"],"contracts":[]},
+    {"source":"web/src/pages/Taskflow.tsx","tests":["web/src/pages/Taskflow.test.tsx"],"contracts":[]}
   ]
 }

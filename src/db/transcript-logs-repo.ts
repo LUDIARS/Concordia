@@ -46,6 +46,9 @@ interface QueuedFrame {
  *  イベントループを長時間ブロックしないよう書き込みを分割する. */
 const FLUSH_BATCH_SIZE = 200;
 const FLUSH_RETRY_DELAY_MS = 1_000;
+/** latestTailBySessions が 1 セッションあたり読む末尾行数とセッション数の上限. */
+export const TAIL_SCAN_ROWS = 50;
+export const TAIL_MAX_SESSIONS = 100;
 
 export class TranscriptLogsRepo {
   private readonly queue: QueuedFrame[] = [];
@@ -264,6 +267,45 @@ export class TranscriptLogsRepo {
       kind: r.kind,
       payload: safeParse(r.payload),
     }));
+  }
+
+  /**
+   * Taskflow の実行状況表示用に、各セッションの最新 assistant text と最新 tool-use を 1 行ずつ返す.
+   * kind 列に index が無いので、(session_id, ts) index で末尾 TAIL_SCAN_ROWS 行だけを読む
+   * (CC-TF-EXEC-INV-03)。 セッション数も上限で切り、 範囲外は結果に含めない.
+   */
+  latestTailBySessions(sessionIds: readonly string[]): Map<string, {
+    lastText: { ts: number; payload: unknown } | null;
+    lastToolUse: { ts: number; payload: unknown } | null;
+  }> {
+    this.flushSync();
+    const out = new Map<string, {
+      lastText: { ts: number; payload: unknown } | null;
+      lastToolUse: { ts: number; payload: unknown } | null;
+    }>();
+    const unique = [...new Set(sessionIds.filter(Boolean))].slice(0, TAIL_MAX_SESSIONS);
+    if (unique.length === 0) return out;
+    const statement = this.db.prepare(
+      `SELECT ts, kind, payload FROM transcript_logs
+        WHERE session_id = ?
+        ORDER BY ts DESC, seq DESC
+        LIMIT ${TAIL_SCAN_ROWS}`,
+    );
+    for (const sessionId of unique) {
+      const rows = statement.all(sessionId) as Array<{ ts: number; kind: string; payload: string }>;
+      let lastText: { ts: number; payload: unknown } | null = null;
+      let lastToolUse: { ts: number; payload: unknown } | null = null;
+      for (const row of rows) {
+        if (!lastToolUse && row.kind === "tool-use") lastToolUse = { ts: row.ts, payload: safeParse(row.payload) };
+        if (!lastText && row.kind === "text") {
+          const payload = safeParse(row.payload) as { role?: unknown } | null;
+          if (payload && payload.role === "assistant") lastText = { ts: row.ts, payload };
+        }
+        if (lastText && lastToolUse) break;
+      }
+      out.set(sessionId, { lastText, lastToolUse });
+    }
+    return out;
   }
 
   /**

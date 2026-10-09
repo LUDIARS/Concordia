@@ -692,6 +692,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     sessions: deps.repo,
     delegation: deps.delegation,
     prs: deps.prs,
+    transcripts: deps.transcriptLogs,
   }));
   app.route("/v1/tasks", tasksRouter(deps.fallbackTasks));
   if (deps.director) {

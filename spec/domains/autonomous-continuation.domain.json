@@ -7,6 +7,7 @@
     { "pathPattern": "(^|/)src/control/automatic-continuation-policy(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/nudge-delivery(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/auto-confirm-strikes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/human-todo-(digest|report)(\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/stalled-session-nudge(\\.test)?\\.ts$"
     },
@@ -22,6 +23,8 @@
     "transcript-mtime-stall-detection",
     "ask-aware-nudge-suppression",
     "cooldown-throttling",
+    "human-todo-change-report",
+    "ai-work-continuation-past-strike-out",
     "goal-and-go-resumption"
   ],
   "specRefs": [

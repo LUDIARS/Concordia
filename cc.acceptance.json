@@ -1965,7 +1965,42 @@
     {
       "source": "src/control/auto-confirm-strikes.ts",
       "tests": ["src/control/auto-confirm-strikes.test.ts"],
-      "contracts": []
+      "contracts": ["CC-HUMAN-TODO-02"]
+    },
+    {
+      "source": "src/control/human-todo-digest.ts",
+      "tests": ["src/control/human-todo-digest.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/control/human-todo-report.ts",
+      "tests": ["src/control/human-todo-report.test.ts", "src/discord/human-todo-post.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/discord/human-todo-post.ts",
+      "tests": ["src/discord/human-todo-post.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/events.ts",
+      "tests": ["src/control/human-todo-report.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/shared/event-schema.ts",
+      "tests": ["src/control/human-todo-report.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/discord/bot.ts",
+      "tests": ["src/discord/human-todo-post.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01"]
+    },
+    {
+      "source": "src/bootstrap/core.ts",
+      "tests": ["src/control/human-todo-report.test.ts", "src/control/auto-confirm-strikes.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01", "CC-HUMAN-TODO-02"]
     },
     {
       "source": "src/delegation/parttimer-inject.ts",

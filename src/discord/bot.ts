@@ -125,6 +125,7 @@ import {
   stripDelegationInjectHeader,
   taskKindForInjectSource,
 } from "./session-task-post.js";
+import { postHumanTodoChange } from "./human-todo-post.js";
 import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
@@ -960,6 +961,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!channel?.isTextBased()) return false;
       const message = await channel.messages.fetch(messageId);
       await message.pin();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  /** pinChannelMessage の逆。 消えた message や権限不足は false (best-effort)。 */
+  const unpinChannelMessage = async (channelId: string, messageId: string): Promise<boolean> => {
+    const guild = activeGuild;
+    if (!guild) return false;
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return false;
+      const message = await channel.messages.fetch(messageId);
+      await message.unpin();
       return true;
     } catch {
       return false;
@@ -3100,6 +3115,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             : { parse: [] },
         });
       })().catch((e) => log.warn(`stall nudge notice failed session=${ev.target_session_id}: ${(e as Error).message}`));
+      return;
+    }
+    if (ev.type === "session.human_todos_changed") {
+      // 人間のやることの初出・変化・解消。 変化が無い周は control 側で発行しない。
+      if (!isActiveDiscordSession(ev.target_session_id) || !webhooks) return;
+      void postHumanTodoChange({
+        webhooks,
+        sessions: deps.sessionsRepo,
+        channelIdForSession: (sessionId) => sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null,
+        pin: pinChannelMessage,
+        unpin: unpinChannelMessage,
+        resolveMentionUserId: deps.resolveMentionUserId,
+        log,
+      }, ev).catch((e) => log.warn(`human todo notice failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.inject") {

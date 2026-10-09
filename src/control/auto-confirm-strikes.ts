@@ -11,6 +11,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
 import { humanResponseSession } from "./human-response-confirmation.js";
+import type { SessionFollowupState } from "./session-followup-state.js";
 
 export const AUTO_CONFIRM_STRIKES_KEY = "cc_auto_confirm_strikes";
 export const AUTO_CONFIRM_STRIKE_LIMIT = 3;
@@ -49,6 +50,28 @@ export function renderStrikeOutNotice(count: number): string[] {
   return [
     `人間の反応が無いまま自動確認が ${count} 回続きました。これ以降、人間の入力があるまで自動確認を送りません。`,
     "進められる作業が無ければ人間判断の要点を示して待機してください。",
+  ];
+}
+
+/**
+ * AI が自分で進められる作業が残っている状態 (2026-10-08 neco 指示「AIが実装中のものは、
+ * 引き続き状況と残作業確認して処理を進めるよう自動確認で誘導」)。
+ * この状態では 3 アウトで止めず、回数も数えない。審査・委託の通知待ちと状態不明は含めない
+ * (そこで確認を続けると「確認 → 待機の返答 → 確認」の往復に戻るため)。
+ */
+const AI_WORK_STATES: ReadonlySet<SessionFollowupState> = new Set<SessionFollowupState>([
+  "task-active", "review-needed", "review-failed", "merge-confirmation", "reflection-needed",
+]);
+
+export function isAiWorkInProgress(state: SessionFollowupState | null | undefined): boolean {
+  return !!state && AI_WORK_STATES.has(state);
+}
+
+/** AI が進められる作業へ添える継続誘導。新しい実行許可は与えない。 */
+export function renderAiWorkContinuation(): string[] {
+  return [
+    "AI が進められる作業が残っています。状況と残作業を確認し、許可済みの範囲で処理を進めてください。",
+    "人間の判断・回答が要る点だけは決め打ちせず、human-wait に記録するか ask で質問して待機してください。",
   ];
 }
 

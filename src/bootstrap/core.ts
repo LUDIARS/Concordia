@@ -168,6 +168,7 @@ import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startHumanWait } from "../control/human-wait.js";
 import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
+import { reportHumanTodos } from "../control/human-todo-report.js";
 import { startSelfDeploymentReport } from "../deploy/self-deployment.js";
 import { handleServiceDeployment } from "../deploy/service-deployed.js";
 import { execFile as execFileCallback } from "node:child_process";
@@ -2515,6 +2516,13 @@ export async function startBackend(): Promise<BackendHandle> {
         cooldownSec: cfg.stallNudgeCooldownSec,
         // 質問カードを出して回答を待っているセッションは「停止」 ではない。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+        // 巡回ごとに人間のやること (human-wait + 未回答の質問カード) を照合し、変化時だけ報告する。
+        reportHumanTodos: (session) => {
+          reportHumanTodos({
+            repo,
+            listUnansweredQuestions: (sessionId) => pendingQuestions.listUnanswered(sessionId),
+          }, session);
+        },
       }),
     );
     trackPostListenHandle(

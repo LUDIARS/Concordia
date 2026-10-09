@@ -197,6 +197,12 @@ type ConcordiaEventPayload =
    */
   | { type: "session.stall_nudged"; target_session_id: string; idle_sec: number; ts: number }
   /**
+   * 自動確認の巡回で「人間のやること」が初出・変化 (report) または解消 (resolved) した通知。
+   * text は Cc が組み立てた報告本文。メンション先の個人識別子は載せず、Discord bot の
+   * 配信境界で解決する (spec/feature/autonomous-work-continuation.md §2)。
+   */
+  | { type: "session.human_todos_changed"; target_session_id: string; change: "report" | "resolved"; digest: string | null; item_count: number; text: string; ts: number }
+  /**
    * One frame from a session's transcript stream. Lictor tails Claude's
    * JSONL session file and POSTs each line (after simplification) as a
    * frame. Forwarded via WS so the Web UI's transcript pane can render
@@ -305,6 +311,7 @@ export function eventSessionId(event: ConcordiaEvent): string | null {
     case "transcript.frame":
     case "session.inject":
     case "session.stall_nudged":
+    case "session.human_todos_changed":
     case "session.permission_request":
     case "delegation.mirror":
     case "question.posted":

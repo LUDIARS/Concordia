@@ -25,8 +25,9 @@ const STATE_BADGE: Record<TaskflowExecutionState, string> = {
 
 export function ExecutionCell({ execution }: { execution: TaskflowExecution | undefined }) {
   if (!execution) return <span className="text-subtle">—</span>;
+  // 狭い列を縦に潰さないよう、 実行状況の幅は最小と最大を決めて折り返す。
   return (
-    <div className="space-y-1 text-xs max-w-sm">
+    <div className="space-y-1 text-xs min-w-[20rem] max-w-md break-words">
       <div className="flex flex-wrap items-center gap-1">
         <span className={`text-[11px] px-1.5 py-0.5 rounded ${STATE_BADGE[execution.state]}`}>
           {STATE_LABEL[execution.state]}

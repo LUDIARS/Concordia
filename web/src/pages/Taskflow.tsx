@@ -159,8 +159,8 @@ export function Taskflow() {
       {error && <div className="text-danger text-sm">load error: {error}</div>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
-        <table className="w-full min-w-[1320px] text-sm">
-          <thead className="text-xs text-subtle border-b border-border">
+        <table className="w-full min-w-[1400px] text-sm">
+          <thead className="text-xs text-subtle border-b border-border whitespace-nowrap">
             <tr>
               <th className="text-left p-2">Project / Task</th>
               <th className="text-left p-2">組織</th>
@@ -181,13 +181,13 @@ export function Taskflow() {
                   <div className="font-medium truncate" title={task.title}>{task.title}</div>
                   <div className="text-[11px] text-subtle font-mono truncate" title={task.path}>{task.path}</div>
                 </td>
-                <td className="p-2 text-xs">
+                <td className="p-2 text-xs whitespace-nowrap">
                   {task.subsidiary_id
                     ? subsidiaryNames.get(task.subsidiary_id) ?? shortId(task.subsidiary_id)
                     : "本社"}
                 </td>
                 <td className="p-2">{task.assignee ?? <span className="text-subtle">未割当</span>}</td>
-                <td className="p-2">
+                <td className="p-2 whitespace-nowrap">
                   <span className={`text-[11px] px-1.5 py-0.5 rounded ${STATUS_BADGE[task.status]}`}>
                     {STATUS_LABEL[task.status]}
                   </span>
@@ -227,12 +227,12 @@ export function Taskflow() {
                     </a>
                   ) : <span className="text-subtle">—</span>}
                 </td>
-                <td className="p-2">
+                <td className="p-2 whitespace-nowrap">
                   <span className={`text-[11px] px-1.5 py-0.5 rounded ${CI_BADGE[task.ci_status]}`}>
                     {task.ci_status}
                   </span>
                 </td>
-                <td className="p-2 text-xs">{task.kind || "—"}</td>
+                <td className="p-2 text-xs whitespace-nowrap">{task.kind || "—"}</td>
               </tr>
             ))}
             {data && visible.length === 0 && (

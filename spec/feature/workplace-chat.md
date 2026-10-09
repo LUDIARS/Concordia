@@ -23,6 +23,7 @@ UX-CC-W1/W4/W6、CC-INV-02/03/06、CC-DEPT-INV-01 を維持する。
 11. Markdown と表は専用レンダラで描画し、幅の広い表・コードはスクロールで読み取れる。生 HTML を実行しない。
 12. プレイヤー投稿の転記エコーだけを非表示にし、別の同文投稿を失わない。
 13. バグ報告・修正は Pf フラグメント登録から除外する。
+14. Discord / Slack から人間がセッションへ送った指示は、task link の有無によらず届いた時点で Pf フラグメントへ記録する (2026-10-09 neco「全部入れる」)。短い返事も除外しない。非公開相談とバグ報告の除外、未登録プロジェクトを作らないこと、再送で重複しないことは 7・13 と同じ。
 
 ## 責務と復旧
 
@@ -70,6 +71,24 @@ Revisor local PR を試行する。未実測を理由に機械ゲートが拒否
 `consultation` は相談の保護、実装指示と Pf の連携は独立した adapter/application が持つ。
 会話原本は session_messages、部署設定は departments、仕様フラグメントは Pf が所有する。
 表示設定は会話原本を削除せず再設定で戻せる。外部登録は同じ指示の ID で照合する。
+
+### 人間の指示 inject の記録 (2026-10-09)
+
+7 は task link の登録時にだけ記録していたが、セッションが task link をほとんど登録せず、
+Cc 由来のフラグメントは全 Pf プロジェクトで 0 件だった (Tirocinium の報告で判明)。
+14 で、人間の inject を受けた時点の記録を足す。task link 経由の記録はそのまま残す。
+
+- 入口は `POST /v1/sessions/:id/inject` (`src/api/sessions/relay.ts`)。人間の inject (source が
+  `discord:<uid>…` / `slack:<uid>…` で発言者名あり) のときだけ記録する。制御 inject は対象外。
+- 判断と参照の組み立ては `src/work/inject-instruction-fragments.ts`、配線は
+  `src/api/sessions/inject-fragments.ts`。送信は既存の instruction-fragments (受入条件 7) を再利用する。
+- 参照はセッション ID と source から作る。source にメッセージ ID がある経路は再送でも同じ参照になり、
+  ID の無い経路は inject 時刻で区別する。
+- inject の応答は待たせない。Pf / Anatomia の停止や結果不明はログに残し、inject は成功のまま返す。
+- 復旧は変更の revert。Pf に記録済みのフラグメントは Pf 側の整理 (再構築) で扱う。
+
+検証: `src/work/inject-instruction-fragments.test.ts` (登録・短い返事・非公開/バグ除外・再送の参照・
+checkout 無し)。backend 型チェックで確認。実 Discord からの記録と Pf への実登録は反映後に確認する。
 
 ## 調査と検証
 

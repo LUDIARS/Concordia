@@ -4403,6 +4403,8 @@
     {"source":"src/consultation/safety-runtime.ts","tests":["src/consultation/safety-runtime.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
     {"source":"src/db/harness-audit-repo.ts","tests":["src/db/harness-audit-repo.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
     {"source":"src/work/instruction-fragments-client.ts","tests":["src/work/instruction-fragments-client.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/work/inject-instruction-fragments.ts","tests":["src/work/inject-instruction-fragments.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
+    {"source":"src/api/sessions/inject-fragments.ts","tests":["src/work/inject-instruction-fragments.test.ts"],"contracts":["SPEC-CC-WORKPLACE"]},
     {"source":"src/personal-budget/types.ts","tests":["src/personal-budget/allocation.test.ts"],"contracts":[]},
     {"source":"src/personal-budget/allocation.ts","tests":["src/personal-budget/allocation.test.ts","src/personal-budget/consumption-service.test.ts"],"contracts":["pbudget-C-1","pbudget-C-2"]},
     {"source":"src/personal-budget/dispatch-policy.ts","tests":["src/personal-budget/dispatch-policy.test.ts","tests/personal-budget-gate.test.ts"],"contracts":["pbudget-C-3"]},

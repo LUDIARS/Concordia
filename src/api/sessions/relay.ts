@@ -7,6 +7,7 @@ import type { SessionsApiDeps } from "./deps.js";
 import type { ConcordiaEvent } from "../../events.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, LICTOR_SLOW_FETCH_TIMEOUT_MS, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { withinTeardownGrace } from "../../platform/session-teardown-grace.js";
+import { recordHumanInjectFragments } from "./inject-fragments.js";
 
 export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/transcript-frame", async (c) => {
@@ -213,6 +214,7 @@ app.post("/:id/inject", async (c) => {
       deps.repo.mergeMetadata(id, { [HUMAN_CONVERSATION_KEY]: true });
       requestStartupPolicyRefresh(deps, id);
     }
+    recordHumanInjectFragments(deps, id, { source: src, ts, authorLabel, text: parsed.data.text });
     return c.json({ ok: true, ts });
   });
 }

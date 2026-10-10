@@ -80,10 +80,29 @@ export function summarizeCcInject(text: string): string {
 // @ts-expect-error augur-inject
 summarizeCcInject = contract(summarizeCcInject, { ...augurContract_3fb7485d, contractId: 'C-12', mode: 'observe', sample: 1, where: 'src/discord/cc-inject-mirror.ts:69', rule: 'contract-wrap', id: '3fb7485d' }); /* augur-inject:contract-wrap:3fb7485d */
 
-/** Cc 由来 inject を転記する文面。 転記しないものは null。 */
+/** 中身が失敗・異常の知らせである inject の source (本文によらずエラー扱い)。 */
+const ERROR_INJECT_SOURCES: ReadonlySet<string> = new Set(["error-autofix", "budget-exhausted", "auto:delegation-watchdog"]);
+/** 1 行要旨にこれが含まれればエラーの知らせとみなす (Revisor の審査失敗・衝突など)。 */
+const ERROR_SUMMARY = /失敗|エラー|拒否|衝突|\b(error|errors|fail|failed|failure|rejected|conflict)\b/i;
+
+/**
+ * 部署の出力方針で Cc の指令の転記を切っていても出す、 エラーの知らせか
+ * (2026-10-10 neco 指示: 総務は Cc inject を出さない、 エラーの通知はする)。
+ */
+export function isErrorCcInject(input: { source: string | null | undefined; text: string }): boolean {
+  if (ERROR_INJECT_SOURCES.has((input.source ?? "").trim())) return true;
+  return ERROR_SUMMARY.test(summarizeCcInject(input.text));
+}
+
+/**
+ * Cc 由来 inject を転記する文面。 転記しないものは null。
+ * `injectTranscript: false` (部署の出力方針 `inject_transcript` が off) のときは、
+ * エラーの知らせだけを転記する。 内容は Cc の WebUI のセッション画面で見る。
+ */
 export function ccInjectMirrorPost(input: {
   source: string | null | undefined;
   text: string;
+  injectTranscript?: boolean;
 }): CcInjectMirrorPost | null {
   if (!shouldDisplaySessionInject(input.source)) return null;
   const source = (input.source ?? "").trim();
@@ -94,6 +113,7 @@ export function ccInjectMirrorPost(input: {
   if (parseInjectSource(source).platform !== null) return null;
   if (taskKindForInjectSource(source) !== null) return null;
   if (source === STALL_NUDGE_INJECT_SOURCE) return null;
+  if (input.injectTranscript === false && !isErrorCcInject({ source, text })) return null;
 
   const username = `⚙️ Cc inject / ${source || "unknown"}`.slice(0, CC_INJECT_MIRROR_MAX_USERNAME);
   return { username, content: summarizeCcInject(text) };

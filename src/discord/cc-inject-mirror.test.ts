@@ -4,6 +4,7 @@ import {
   CC_INJECT_SUMMARY_MAX,
   STALL_NUDGE_INJECT_SOURCE,
   ccInjectMirrorPost,
+  isErrorCcInject,
   summarizeCcInject,
 } from "./cc-inject-mirror.js";
 
@@ -145,3 +146,31 @@ describe("summarizeCcInject", () => {
   });
 });
 
+
+// 総務など、 部署の出力方針で Cc の指令の転記を切った場合 (2026-10-10 neco 指示)。
+describe("ccInjectMirrorPost — inject_transcript off", () => {
+  it("hides ordinary Cc injects such as policy updates and auto checks", () => {
+    expect(ccInjectMirrorPost({ source: "cc-session-work-policy", text: "[Cc policy update]\nrepo: x", injectTranscript: false })).toBeNull();
+    expect(ccInjectMirrorPost({ source: "auto:goal-and-go", text: "[自動確認] Cc の作業状態に応じた確認です。", injectTranscript: false })).toBeNull();
+  });
+
+  it("still posts error notices by source or by their summary line", () => {
+    expect(ccInjectMirrorPost({ source: "error-autofix", text: "直してください", injectTranscript: false })?.content).toBe("直してください");
+    expect(ccInjectMirrorPost({ source: "revisor", text: "[Revisor] #2630 の登録テストが失敗しました", injectTranscript: false })?.content)
+      .toBe("Revisor: #2630 の登録テストが失敗しました");
+    expect(ccInjectMirrorPost({ source: "revisor", text: "review failed: 2 tests", injectTranscript: false })).not.toBeNull();
+  });
+
+  it("keeps the previous behaviour when the transcript is on or unspecified", () => {
+    expect(ccInjectMirrorPost({ source: "cc-session-work-policy", text: "policy", injectTranscript: true })?.content).toBe("policy");
+    expect(ccInjectMirrorPost({ source: "cc-session-work-policy", text: "policy" })?.content).toBe("policy");
+  });
+});
+
+describe("isErrorCcInject", () => {
+  it("does not treat ordinary words as errors", () => {
+    expect(isErrorCcInject({ source: "revisor", text: "Revisor PR マージ: #2630" })).toBe(false);
+    expect(isErrorCcInject({ source: "testing-traffic", text: "concordia のテストを始めます" })).toBe(false);
+    expect(isErrorCcInject({ source: "auto:delegation-watchdog", text: "応答がありません" })).toBe(true);
+  });
+});

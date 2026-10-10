@@ -10,7 +10,7 @@ tags:
   - inject
   - session
 status: implemented
-updated: 2026-09-30
+updated: 2026-10-10
 ---
 
 # Discord セッションのタスク本文投稿と pin
@@ -139,10 +139,14 @@ Cc が自分で入れる inject (作業ポリシー更新 `session-work-policy` 
 | source が委託タスク本文 (`taskKindForInjectSource` が非 null) | ❌ §3.2 のタスク本文投稿 |
 | source が `auto:stall-nudge` | ❌ 自動確認は本文を出さず事実だけ通知する (2026-08-25 neco 指示) |
 | source が正規 `auto:session-end` | ❌ 内部終了処理は実行し、利用者への転記だけ抑止 (2026-10-03) |
+| 部署の出力方針 `inject_transcript` が off (総務など) で、エラーの知らせでない | ❌ 内容は Cc の WebUI のセッション画面で見る (2026-10-10 neco 指示) |
 | それ以外 | ✅ |
 
 - username は `⚙️ Cc inject / <source>` (source 空なら `unknown`)、80 文字で切る。
 - 本文は全文ではなく `summarizeCcInject(text)` の 1 行 (下の規則) だけを出す。
+- エラーの知らせ (`isErrorCcInject`): source が `error-autofix` / `budget-exhausted` / `auto:delegation-watchdog`、
+  または 1 行要旨に「失敗・エラー・拒否・衝突」か英語の error / fail(ed/ure) / rejected / conflict を含むもの
+  (Revisor の審査失敗など)。`inject_transcript` が off の部署でもこれは出す (departments.md §9.4)。
 - 送信は `isActiveDiscordSession` 確認後の webhook 送信で best-effort。失敗は warn ログのみ。
 
 変更理由: 当初 (Revisor #2181) は本文を最大 1900 文字で全文転記していたが、policy update や

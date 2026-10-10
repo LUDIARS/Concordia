@@ -3179,9 +3179,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // Cc 由来 inject (作業ポリシー更新 / 委託の状態通知 / auto:inquiry 等) は PTY に入る
       // だけで Discord にも transcript にも残らないので、 session thread へ転記する。
       // 転記対象の判定は ccInjectMirrorPost (spec/feature/discord-session-task-post.md §3.6)。
-      const ccPost = ccInjectMirrorPost({ source: src, text: ev.text });
-      if (!ccPost) return;
+      // 部署の出力方針で指令の転記を切っていれば、 エラーの知らせだけを出す (総務、 departments.md §9.4)。
       if (!isActiveDiscordSession(ev.target_session_id)) return;
+      const ccPost = ccInjectMirrorPost({
+        source: src,
+        text: ev.text,
+        injectTranscript: sessionOutputEnabled(ev.target_session_id, "inject_transcript"),
+      });
+      if (!ccPost) return;
       void (async () => {
         const client = await webhooks.getForSession(ev.target_session_id);
         if (!client) return;

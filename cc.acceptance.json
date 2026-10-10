@@ -1892,6 +1892,8 @@
       "contracts": []
     },
     {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SEI-VIS-01"]},
+    {"source":"src/discord/cc-inject-mirror.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SPEC-DEPT-OUTPUT"]},
+    {"source":"src/discord/bot.ts","tests":["src/discord/cc-inject-mirror.test.ts"],"contracts":["SPEC-DEPT-OUTPUT"]},
     {
       "source": "src/discord/cc-inject-mirror.contract.ts",
       "tests": ["src/discord/cc-inject-mirror.test.ts"],

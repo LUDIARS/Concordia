@@ -82,6 +82,10 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
   },
   envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
     "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),
+  // 会議の回答者リンク (CC-MEETING-LINK-01, src/meeting-links/config.ts)。 起動時に env から読む。
+  envBoolean("services.meeting_link_enabled", "services", "会議の回答者リンク", "CONCORDIA_MEETING_LINK_ENABLED", false, "guild 限定の一回限りの回答者リンクを発行する。 true / false で明示する。"),
+  envString("services.meeting_link_guild_id", "services", "会議リンクの guild", "CONCORDIA_MEETING_LINK_GUILD_ID", null, "回答者リンクを発行してよい Discord guild ID。 有効時は必須。"),
+  envString("services.meeting_link_public_url", "services", "会議リンクの公開 URL", "CONCORDIA_MEETING_LINK_PUBLIC_URL", null, "回答者リンクに載せる公開 URL。 有効時は必須。"),
   envString("services.concordia_base_url", "services", "Concordia 自身の URL", "CONCORDIA_BASE_URL", "http://127.0.0.1:11111", "MCP サーバ等の別プロセスが叩く Concordia の loopback URL。"),
   envString("services.excubitor_url", "services", "Excubitor URL", "CONCORDIA_EXCUBITOR_URL", "http://127.0.0.1:17332", "サービス監視・起動制御を行う Excubitor の base URL。"),
   envString("services.excubitor_url_alias", "services", "Excubitor URL (慣用キー)", "EXCUBITOR_URL", null, "Excubitor 側の慣用 env。 CONCORDIA_EXCUBITOR_URL 未設定のときだけ使う。"),

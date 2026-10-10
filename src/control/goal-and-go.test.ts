@@ -6,6 +6,7 @@ import {
   buildGoalAndGoPrompt,
   extractTaskMdPath,
   readGoalAndGoStatus,
+  resetGoalAndGoBudget,
   setGoalAndGoEnabled,
   startGoalAndGo,
 } from "./goal-and-go.js";
@@ -512,5 +513,21 @@ describe("startGoalAndGo", () => {
     expect(env.events.some((event) => event.kind === "goal_and_go_stopped")).toBe(true);
     expect(env.events.some((event) => event.kind === "inject")).toBe(false);
     handle.stop();
+  });
+});
+
+describe("resetGoalAndGoBudget (daily-goal-run の確認だけが呼ぶ緩和)", () => {
+  it("clears count and runtime while keeping the instructed mark", () => {
+    const env = fakeRepo(JSON.stringify({ role_label: "x", goal_and_go: { enabled: true, instructed: true, continuation_count: 6, started_at: 10, last_continued_at: 20, stopped_reason: "continuation_limit" } }));
+    expect(resetGoalAndGoBudget(env.repo, "s1")).toBe(true);
+    expect(readGoalAndGoStatus(env.session.metadata)).toEqual({ enabled: true, instructed: true, continuation_count: 0, started_at: null, last_continued_at: null, stopped_reason: null });
+    expect(JSON.parse(env.session.metadata!).role_label).toBe("x");
+  });
+
+  it("does not re-enable a disabled session or touch a missing one", () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, false));
+    expect(resetGoalAndGoBudget(env.repo, "s1")).toBe(false);
+    expect(readGoalAndGoStatus(env.session.metadata).enabled).toBe(false);
+    expect(resetGoalAndGoBudget(env.repo, "missing")).toBe(false);
   });
 });

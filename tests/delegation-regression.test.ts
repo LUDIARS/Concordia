@@ -26,6 +26,8 @@ const EXPECTED_SEED_CALLS = [
   "refactor",
   "task-process",
   "morning-tasks",
+  // デイリーゴール自走の専用セッション (2026-10-10、spec/feature/daily-goal-run.md)。 scheduler だけが invoke する。
+  "daily-goal-runner",
   "gemma4-12-impl",
   "test-qa",
   // レビュー・脆弱性対応・カイゼン + タスク種別別 Caller (sort_order 未指定 → 既定 1000、 call_name ASC 順)
@@ -80,7 +82,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 12, 13, 20, 30, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 12, 13, 20, 30, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 145, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-6-1")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");

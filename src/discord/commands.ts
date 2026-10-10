@@ -42,6 +42,7 @@ import ccSkillCommand from "./commands/cc-skill.js";
 import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
 import goalAndGoCommand from "./commands/goal-and-go.js";
 import doctorCommand from "./commands/doctor.js";
+import dailyGoalCommand from "./commands/daily-goal.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
@@ -102,6 +103,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   exRebootCommand,
   goalAndGoCommand,
   doctorCommand,
+  dailyGoalCommand,
 ];
 
 // 子会社 guild の許可範囲は subsidiary-scope.ts が正本 (登録と dispatch で同じ集合を使う)。

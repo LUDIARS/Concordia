@@ -105,6 +105,26 @@ export function setGoalAndGoEnabled(
   return mergeGoalAndGoStatus(metadata, { ...DEFAULT_STATUS, enabled });
 }
 
+/**
+ * 自走の回数・時間予算を戻す。 `instructed: true` は保つ。 無効化されたセッションは触らない。
+ *
+ * 呼んでよいのはデイリーゴール自走の 1 時間ごとの確認 (進捗あり、 または完了確認で AI だけで
+ * 進められる残りがある場合) だけ。 CC-WM-INV-03 で許す唯一の緩和で、 回答待ちと止まる条件に
+ * 当たった後は呼び出し側が呼ばない (spec/feature/daily-goal-run.md — 予算)。
+ * 人間入力によるリセット (startGoalAndGo の clear) の挙動は変えない。
+ */
+export function resetGoalAndGoBudget(
+  repo: Pick<SessionsRepo, "findSession" | "setMetadata">,
+  sessionId: string,
+): boolean {
+  const session = repo.findSession(sessionId);
+  if (!session) return false;
+  const status = readGoalAndGoStatus(session.metadata);
+  if (!status.enabled) return false;
+  repo.setMetadata(sessionId, mergeGoalAndGoStatus(session.metadata, { ...DEFAULT_STATUS, enabled: true, instructed: true }));
+  return true;
+}
+
 export function buildGoalAndGoPrompt(input: {
   metadata: string | null | undefined;
   currentTask?: string | null;

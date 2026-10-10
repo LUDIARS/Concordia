@@ -319,6 +319,7 @@ import {
 } from "./workflow.js";
 import { WorkflowBindingRegistry } from "../workflow/binding-registry.js";
 import { createMorningSchedulerBinding } from "../workflow/morning-binding.js";
+import { createDailyGoalRuntime } from "./daily-goal-run.js";
 import { createCuriosityWalkBinding } from "../workflow/curiosity-binding.js";
 import { startCuriosityWalk } from "../director/walk-runtime.js";
 import { collectWalkMaterials } from "../director/walk-materials.js";
@@ -1839,7 +1840,25 @@ export async function startBackend(): Promise<BackendHandle> {
     returnNotices.mark(noticeKey, nowMs);
   };
 
+  // デイリーゴール自走 (spec/feature/daily-goal-run.md)。 scheduler は workflow.daily_goal に従って張り替える。
+  const dailyGoalRuntime = createDailyGoalRuntime({
+    db,
+    sessions: repo,
+    delegationRepo,
+    delegationService,
+    prs,
+    projectCodes: projectCodesRepo,
+    pendingQuestions,
+    staff: staffRepo,
+    taskStore: () => taskStore,
+    revisor: revisorClient,
+    settings: adminState.store,
+    isEnabled: () => isWorkflowEnabled("daily_goal"),
+    baseUrl: publicUrl,
+    log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
+  });
   discordBotDeps = {
+    dailyGoals: dailyGoalRuntime.surface,
     backlogAdmission: createBacklogAdmission(excubitorClient, () => readActioChatSecret(process.env)),
     db,
     onHumanReturn: notifyHumanReturn,
@@ -2064,6 +2083,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const app = buildApp({
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
+    dailyGoals: dailyGoalRuntime.service,
     actioChat: {
       secret: () => actioChatSharedSecret,
       credentials: input => {
@@ -2684,6 +2704,8 @@ export async function startBackend(): Promise<BackendHandle> {
     });
     // 朝タスクは cron スケジューラと寿命が違う (日次レビュー等は残したまま朝の
     // 自動起動だけ止めたい)。 daily と束ねず専用フラグで切り替える。
+    // デイリーゴールの 1 分 tick (起動・確認・候補)。 無効の間は動かさない。
+    workflowBindings.register({ key: "daily_goal", name: "daily-goal-run", start: () => dailyGoalRuntime.startScheduler() });
     workflowBindings.register(
       createMorningSchedulerBinding(() => startActioMorningScheduler({ delegationService, store: taskStore })),
     );

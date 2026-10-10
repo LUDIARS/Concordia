@@ -49,7 +49,7 @@ updated: 2026-10-10
 | ID | 方式 | 起点 | ゴールの所有者 | セッションの形 | 確認の周期 | 完了 | 正本 spec / domain | 状態 |
 |---|---|---|---|---|---|---|---|---|
 | WM-1 | 対話 (指示駆動) | 人間の指示 | 人間の指示、明示があればセッション goal (`/co-goal`) | 既存のセッション | 最終回答後 300 秒の Goal & Go | 指示の範囲が終わる | [goal-and-go](goal-and-go.md) / `autonomous-continuation` | 実装済み |
-| WM-2 | デイリーゴール自走 | 朝に人間がその日のゴールを確定 | Cc のデイリーゴール (Actio task を参照) | ゴール 1 件につき専用セッション 1 本 | 1 時間ごとの確認 + 確認と確認の間は Goal & Go | ゴール到達 (証跡)、十分にこなした (残りが達成不能か人間判断待ちだけ)、人間の停止 | [daily-goal-run](daily-goal-run.md) / `daily-goal-run` | 計画 |
+| WM-2 | デイリーゴール自走 | 朝に人間がその日のゴールを確定 | Cc のデイリーゴール (Actio task を参照) | ゴール 1 件につき専用セッション 1 本 | 1 時間ごとの確認 + 確認と確認の間は Goal & Go | ゴール到達 (証跡)、十分にこなした (残りが達成不能か人間判断待ちだけ)、人間の停止 | [daily-goal-run](daily-goal-run.md) / `daily-goal-run` | 実装済み |
 | WM-3 | 委託 | 親セッションまたは人間が範囲を渡す | 委託 run (依頼文と契約) | 子セッション (spawn) または call_only | run の状態遷移 | run の完了と成果の照合 | [delegation](delegation.md) / `agent-delegation` ほか `delegation-*` | 実装済み |
 | WM-4 | 定期パートタイマー | cron・朝・監視イベント | テンプレートの定型手順 | 短期の委託セッション | なし (1 回で終わる) | 手順の完了報告 | [delegation-parttimer-inject](delegation-parttimer-inject.md) / `parttimer-review-scheduling` | 実装済み |
 | WM-5 | Director 案件 | 人間が案件 (case) を起案 | `director_cases` (case/step/decision) | 工程ごとに委託 | step の遷移 | 全 step 完了 | [director](director.md)・[director-goal-flow](director-goal-flow.md) / `director-patrol` | case 正本は実装済み、自動進行は計画 |
@@ -99,5 +99,6 @@ CC-INV-01〜08 は全方式に適用する。
 - [ ] スプリントの休止と、消さないものが明記されている。
 - [ ] 方式をまたぐ不変条件が ID 付きで書かれている。
 
-方式をセッションに記録する仕組み (CC-WM-INV-01 の機械的な裏付け) は未実装。WM-2 の実装と
-同じ変更で入れる。
+方式をセッションに記録する仕組み (CC-WM-INV-01 の機械的な裏付け) は `src/work-modes/work-mode.ts`
+(セッション metadata の `work_mode`)。WM-2 の専用セッションが最初の利用者で、別の方式が active な
+セッションへは記録しない。ほかの方式の起動経路への適用は、それぞれの方式を変更するときに入れる。

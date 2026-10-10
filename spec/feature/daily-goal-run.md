@@ -10,7 +10,7 @@ tags:
   - daily-goal
   - autonomous
   - safety
-status: planned
+status: implemented
 related:
   - feature/work-modes.md
   - feature/goal-and-go.md
@@ -170,16 +170,90 @@ CC-INV-02/03/04/06/08、CC-WM-INV-01〜04 を適用する。
   分解はセッション自身が行う。複数日の仕事は案件にし、その日の分をデイリーゴールとして切り出してよい。
 - **WM-7 スプリント (休止)**: 計画・振り返りの会合とフェーズ遷移を持たない。1 日の確定と 1 時間の確認だけ。
 
-## 実装の分割 (後続)
+## 実装 (2026-10-10)
 
-本書は仕様のみ。実装は次の単位で別 PR にする。
+次の 5 単位を 1 PR にまとめて実装した (neco 指示「実装開始」)。設計判断の正本は
+`spec/tasks/2026-10-10-daily-goal-run-impl.md`。
 
-1. ドメイン: `src/daily-goal-run/` に確定の検証・進捗判定・終了判定の純関数、
-   デイリーゴールと確認記録の永続化、起動と確認の use case。
-2. 起動: `daily-goal-runner` テンプレートと spawn 依頼の同一性。
-3. 確認: 1 時間ごとの scheduler、証跡の収集 (git / Revisor / Actio)、Goal & Go 予算リセットの連携。
-4. 表示: Discord のカードとタイムライン、`/co-daily-goal`、朝の候補カード。
-5. 方式の記録: セッション metadata の方式 (CC-WM-INV-01)。
+1. ドメイン `src/daily-goal-run/`: 判断は `confirmation-policy` / `launch-policy` / `checkpoint-policy` /
+   `stop-policy` の純関数、手順は `service` (確定) ・`launch` ・`checkpoint` ・`finish` ・`candidates` の use case、
+   保存は `repository` (`daily_goals` / `daily_goal_checkpoints` / `daily_goal_timeline` / `daily_goal_cards` /
+   `daily_goal_candidates`)、外部 I/O は `ports` と `evidence` (git / pr_records / Revisor / Actio の読み取り)。
+2. 起動: delegation テンプレート `daily-goal-runner` (call_only、Opus 5.5 / medium)。依頼の同一性は
+   起動前に保存した run id (`reserved_run_id`) で持ち、結果不明は run 台帳と照合する。Actio に新しい task を
+   封印しない (`task_binding: "caller"`)。
+3. 確認: `scheduler` が 1 分ごとに tick し、起動・照合・確認・候補を進める。Goal & Go の予算は
+   `resetGoalAndGoBudget` (`src/control/goal-and-go.ts`) で戻す。呼ぶのは進捗ありの確認と、完了確認への
+   doable 返答だけ。
+4. 表示: Discord の「デイリーゴール」チャンネル (meta カテゴリ) にゴールごと 1 枚のカードを置き、
+   同じ message を編集する。停止ボタンと候補の確定モーダル、`/co-daily-goal`。
+5. 方式の記録: `src/work-modes/work-mode.ts` (`work_mode` metadata、CC-WM-INV-01)。
+
+### HTTP (loopback 限定、workflow `daily_goal` が無効なら 409)
+
+| メソッド | パス | 呼べる主体 |
+|---|---|---|
+| GET | `/v1/daily-goals?date=YYYY-MM-DD` | 読み取り |
+| GET | `/v1/daily-goals/:id` (確認記録・タイムライン込み) | 読み取り |
+| POST | `/v1/daily-goals/:id/reached` `{session_id, evidence:[{item, refs[]}], report?}` | 紐付いた専用セッションだけ |
+| POST | `/v1/daily-goals/:id/exhausted` `{session_id, remaining:[…], report?}` | 紐付いた専用セッションだけ |
+| POST | `/v1/daily-goals/:id/report` `{session_id, report}` | 紐付いた専用セッションだけ |
+
+確定と停止の HTTP は設けない (人間の判断は Discord の本人操作だけ)。証跡の参照 (`refs`) は
+`commit:<sha>` / `pr:<origin>#<n>:<state>` / `revisor:<id>:<status>:<check>` / `actio:<id>:done` の形で、
+Cc が集めた証跡に実在するものだけを到達の照合に使う。`report` はセッションの自己申告としてカードに
+載せるだけで、進捗・到達の判定には使わない (CC-DG-INV-03)。
+
+### 設定 (設定 > ワークフロー)
+
+- `daily_goal.launch_time` (既定 `07:30`): 起動時刻。候補カードはこの 30 分前。
+- `daily_goal.checkpoint_minutes` (既定 60): 確認の間隔。
+- `daily_goal.candidate_projects` (既定 空): 候補カードを出すプロジェクト。空なら出さない。
+- workflow toggle `daily_goal` (既定 有効): 無効の間は scheduler・コマンド登録・API・カードの操作を止める。
+
+### ファイル
+
+- `src/daily-goal-run/authorize-confirmer.contract.ts`
+- `src/daily-goal-run/candidates.ts`
+- `src/daily-goal-run/card.ts`
+- `src/daily-goal-run/checkpoint-policy.ts`
+- `src/daily-goal-run/checkpoint.ts`
+- `src/daily-goal-run/config.ts`
+- `src/daily-goal-run/confirmation-policy.ts`
+- `src/daily-goal-run/domain.ts`
+- `src/daily-goal-run/evidence.ts`
+- `src/daily-goal-run/exhausted.contract.ts`
+- `src/daily-goal-run/finish.ts`
+- `src/daily-goal-run/goal-reached.contract.ts`
+- `src/daily-goal-run/launch-at.contract.ts`
+- `src/daily-goal-run/launch-policy.ts`
+- `src/daily-goal-run/launch.ts`
+- `src/daily-goal-run/ontime-runtime.ts`
+- `src/daily-goal-run/plan-checkpoint.contract.ts`
+- `src/daily-goal-run/ports.ts`
+- `src/daily-goal-run/prompts.ts`
+- `src/daily-goal-run/repository.ts`
+- `src/daily-goal-run/scheduler.ts`
+- `src/daily-goal-run/service.ts`
+- `src/daily-goal-run/session-binding.ts`
+- `src/daily-goal-run/stop-policy.ts`
+- `src/daily-goal-run/surface-port.ts`
+- `src/daily-goal-run/surface.ts`
+- `src/daily-goal-run/validate-draft.contract.ts`
+- `src/work-modes/ontime-runtime.ts`
+- `src/work-modes/work-mode.contract.ts`
+- `src/work-modes/work-mode.ts`
+- `src/api/daily-goal-run.ts`
+- `src/bootstrap/daily-goal-run.ts`
+- `src/delegation/daily-goal-runner-template.ts`
+- `src/discord/commands/daily-goal.ts`
+- `src/discord/daily-goal-card-render.ts`
+- `src/discord/daily-goal-discord.ts`
+
+### 既知の制約
+
+- 「反映を Ex で確認」のような Cc が機械的に集められない受入条件は、到達の証跡にならない。
+  そうした条件は「人間判断待ち」として「やり切り」で報告し、人間がカードで確かめる。
 
 ## 受け入れ基準
 

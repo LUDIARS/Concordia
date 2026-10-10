@@ -14,6 +14,7 @@ import type { SessionPrPort } from "../pr/session-pr-operations.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
+import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
 
 /** `/spawn site:` が使う連合の口 (federation runtime の listSpawnSites / routeSiteSpawn)。 */
 export interface SpawnSitePort {
@@ -100,6 +101,8 @@ export interface DiscordCommandDeps {
    * 使う。 未注入なら操作パネルは「使えない」と明示して返す (無言で何も起きない、にしない)。
    */
   prOperations?: SessionPrPort;
+  /** デイリーゴール自走の確定 (`/co-daily-goal`)。 未注入なら使えないと返す。 */
+  dailyGoals?: DailyGoalSurfacePort;
 }
 
 export interface DiscordCommandSpec {

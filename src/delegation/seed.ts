@@ -8,6 +8,7 @@ import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "..
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 import { initialRoleModel } from "../model-catalog/role-policy.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
+import { DAILY_GOAL_RUNNER_TEMPLATE } from "./daily-goal-runner-template.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -1195,6 +1196,8 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  // デイリーゴール自走 (WM-2) の専用セッション。 daily-goal-run の scheduler だけが invoke する。
+  DAILY_GOAL_RUNNER_TEMPLATE,
   ...VULTUS_CATALOG_TEMPLATES,
   ...GENIUS_INGEST_TEMPLATES,
   ];

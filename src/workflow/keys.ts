@@ -8,7 +8,7 @@
  * 持つ (値の解決は toggles.ts、 実体の起動/停止は binding-registry.ts)。
  */
 
-export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost", "director", "curiosity", "inbox", "github"] as const;
+export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost", "director", "curiosity", "inbox", "github", "daily_goal"] as const;
 
 export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
 
@@ -37,6 +37,7 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   curiosity: "散歩セッション (ランダムなタイミングで 2 素材を並べて 1 問だけつぶやく)",
   inbox: "承認インボックスの朝夕ダイジェストと放置催促",
   github: "GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)",
+  daily_goal: "デイリーゴール自走 (朝のゴール確定 → 専用セッション → 1 時間ごとの確認)",
 };
 
 /** schema_meta 上の設定キー。 */

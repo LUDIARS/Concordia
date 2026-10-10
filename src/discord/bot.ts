@@ -6,6 +6,8 @@ import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
+import { startDailyGoalDiscord, type DailyGoalDiscord } from "./daily-goal-discord.js";
+import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -363,6 +365,8 @@ export interface DiscordBotDeps {
    * 未注入なら PR 操作は実行せず、 その理由を返す (無言スキップにしない)。
    */
   prOperations?: DiscordCommandDeps["prOperations"];
+  /** デイリーゴール自走の確定・停止・カード配達の口 (本社 Bot だけ)。 */
+  dailyGoals?: DailyGoalSurfacePort;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -986,6 +990,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let humanRequestDiscord: HumanRequestDiscord | null = null;
   let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
+  let dailyGoalDiscord: DailyGoalDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
     const session = deps.sessionsRepo.findSession(sessionId);
     return session ? readSessionWorkPhase(session).phase : "unknown" as const;
@@ -1151,6 +1156,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     managementDiscord = null;
     sprintDialoguesDiscord?.stop();
     sprintDialoguesDiscord = null;
+    dailyGoalDiscord?.stop();
+    dailyGoalDiscord = null;
     phaseTitleSync?.stop();
     phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
@@ -1222,6 +1229,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         choresDiscord?.stopChores();
         choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
+        dailyGoalDiscord?.stop();
+        dailyGoalDiscord = deps.dailyGoals
+          ? await startDailyGoalDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId, port: deps.dailyGoals, log })
+            .catch((error) => { log.warn(`daily goal channel unavailable: ${String(error)}`); return null; })
+          : null;
         managementDiscord?.stop();
         managementDiscord = await startManagementDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
@@ -2191,6 +2203,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         .catch(() => log.warn("meeting respondent private reply failed"));
       return;
     }
+    if (dailyGoalDiscord?.handlesInteraction(interaction)) {
+      void dailyGoalDiscord.interaction(interaction).catch((error) => log.warn(`daily goal interaction failed: ${String(error)}`));
+      return;
+    }
     if (sprintDialoguesDiscord?.handlesInteraction(interaction)) {
       void sprintDialoguesDiscord.interaction(interaction).catch(error => log.warn(`sprint dialogue choice failed: ${String(error)}`));
       return;
@@ -2268,6 +2284,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
       // PR 操作パネル。実処理はリアクション経由と同じ口を使う。
       prOperations: deps.prOperations,
+      // デイリーゴールの確定は本社 Bot だけ (子会社は subsidiary-scope で弾かれる)。
+      ...(!subsidiaryId && deps.dailyGoals ? { dailyGoals: deps.dailyGoals } : {}),
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(

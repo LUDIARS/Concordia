@@ -1,0 +1,12 @@
+{
+  "name": "work-modes",
+  "description": "作業の進め方 (方式) の一覧と選び方。対話・デイリーゴール自走・委託・定期パートタイマー・Director 案件・相談・スプリント (休止) の 7 方式について、起点・ゴールの所有者・確認の周期・完了と、方式をまたぐ不変条件 CC-WM-INV-01〜04 を所有する。各方式の中身は方式ごとの domain が持ち、本 domain は複製しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)spec/feature/work-modes\\.md$" },
+    { "pathPattern": "(^|/)src/work-modes/[^/]+\\.ts$" }
+  ],
+  "cardTemplate": "Explain which work mode a session belongs to, who owns its goal, and why budgets of one mode never relax another.",
+  "specRefs": ["spec/feature/work-modes.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+}

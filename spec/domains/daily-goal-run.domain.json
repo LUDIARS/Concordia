@@ -1,0 +1,14 @@
+{
+  "name": "daily-goal-run",
+  "description": "デイリーゴール自走 (WM-2)。人間本人が朝に確定したその日のゴールから専用セッションを 1 本起動し、1 時間ごとの確認で証跡・報告・判断点を出しながら Goal & Go で自走させる。ゴールの確定検証・証跡による進捗判定・終了判定・確認記録を所有する。Actio の task 状態、起動の実体 (agent-delegation)、セッション内の自走継続 (autonomous-continuation) は所有しない。UX-CC-W9; CC-DG-INV-01〜07。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)spec/feature/daily-goal-run\\.md$" },
+    { "pathPattern": "(^|/)src/daily-goal-run/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/daily-goal-run(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)tests/daily-goal-run[^/]*\\.test\\.ts$" }
+  ],
+  "cardTemplate": "Explain who confirmed the daily goal, which evidence marked progress at each checkpoint, and why the run stopped.",
+  "specRefs": ["spec/feature/daily-goal-run.md", "spec/feature/work-modes.md", "spec/feature/goal-and-go.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+}

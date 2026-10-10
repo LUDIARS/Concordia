@@ -60,6 +60,8 @@ spec/
 ## feature 一覧
 | ドキュメント | 概要 |
 |---|---|
+| [work-modes.md](feature/work-modes.md) | 作業の進め方 7 方式の一覧と選び方 (方式ごとの正本 spec への入口) |
+| [daily-goal-run.md](feature/daily-goal-run.md) | デイリーゴール自走 — 朝に確定したゴールを専用セッションが 1 時間ごとの確認で進める (計画) |
 | [discord-ui.md](feature/discord-ui.md) | Discord UI 基本 |
 | [discord-ui-pr-b.md](feature/discord-ui-pr-b.md) | Discord UI PR-B |
 | [discord-control-ui.md](feature/discord-control-ui.md) | Discord 制御 UI |

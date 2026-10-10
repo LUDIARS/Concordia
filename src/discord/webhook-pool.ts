@@ -220,6 +220,30 @@ export class WebhookPool {
     }
   }
 
+  /** webhook で投稿したメッセージを session-scoped token で削除する (「作業中…」の片付け)。 */
+  async deleteForSession(sessionId: string, messageId: string): Promise<boolean> {
+    const client = await this.getForSession(sessionId);
+    if (!client) return false;
+    const token = webhookToken(client);
+    if (!token) return false;
+    const threadId = this.threadTargets.get(client);
+    const threadQuery = threadId ? `?thread_id=${encodeURIComponent(threadId)}` : "";
+    try {
+      const res = await fetch(
+        `https://discord.com/api/v10/webhooks/${client.id}/${token}/messages/${messageId}${threadQuery}`,
+        { method: "DELETE", signal: webhookSendAbortSignal() },
+      );
+      // 既に消えている (404) なら目的は果たしている。
+      if (res.ok || res.status === 404) return true;
+      const body = await res.text().catch(() => "");
+      whLog.warn({ sessionId, message_id: messageId, status: res.status, body: body.slice(0, 200) }, "webhook-pool delete failed");
+      return false;
+    } catch (error) {
+      whLog.warn({ sessionId, message_id: messageId, err: (error as Error).message }, "webhook-pool delete threw");
+      return false;
+    }
+  }
+
   /**
    * channel 上の bot 所有 webhook (`Concordia`) を全削除し cache/inflight からも除く.
    * session 終了 → archive 時に呼ぶ。 archived channel が Discord の webhook budget

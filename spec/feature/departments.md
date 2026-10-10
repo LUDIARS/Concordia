@@ -237,6 +237,7 @@ slug は会社ごとに一意 (本社と子会社で同じ slug を使える)。
 | `inject_transcript` | Cc が送った指令の転記 (task / delegation / system、起動時のタスク本文・起動コンテキスト、作業ポリシー更新・自動確認などの 1 行通知)。off でもエラーの知らせ (審査失敗など) は出す。内容は Cc の WebUI で見る (2026-10-10 neco 指示、discord-session-task-post.md §3.6) |
 | `context_usage` | コンテキストの使用量 (サイズ) の表示 |
 | `session_end_report` | 終了時の `/session-end` の自動指示と #報告 への独白 (全体設定は無く、inherit は出す。2026-10-02 追加) |
+| `working_post` | 作業中にスレッドへ出す「🔄 作業中…」(1 作業 1 通、待機で削除)。全体設定は無く、inherit は出す。エンジニア課は off (2026-10-10 neco 指示、working-indicator.md) |
 
 前提質問 (question) と状態カードはこの方針の外で、常に投稿する。技術相談課は状態カード以外をすべて off にする
 (「FINAL ANSWER のみ」「Inject 指令は非表示」「コンテキストサイズも不要」「/session-end 的なのは投稿しなくて良い」、2026-10-02 neco 指示)。

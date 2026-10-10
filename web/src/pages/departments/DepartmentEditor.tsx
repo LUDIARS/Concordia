@@ -24,6 +24,7 @@ const OUTPUT_ITEMS: Array<{ key: DepartmentOutputItem; label: string }> = [
   { key: "inject_transcript", label: "Cc の指令（inject）" },
   { key: "context_usage", label: "コンテキスト使用量" },
   { key: "session_end_report", label: "セッション終了報告" },
+  { key: "working_post", label: "「作業中…」の投稿" },
 ];
 
 const OUTPUT_MODES: Array<{ value: DepartmentOutputMode; label: string }> = [

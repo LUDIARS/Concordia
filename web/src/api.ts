@@ -1548,7 +1548,7 @@ export interface TeamMetrics {
 
 export type DepartmentOutputMode = "inherit" | "on" | "off";
 export type DepartmentOutputItem = "thinking" | "status_card" | "session_info_card" | "cost_report"
-  | "intermediate" | "inject_transcript" | "context_usage" | "session_end_report";
+  | "intermediate" | "inject_transcript" | "context_usage" | "session_end_report" | "working_post";
 
 export interface DepartmentSettings {
   launch: { template?: string; provider?: string; model?: string; reasoning_effort?: string; project?: string };

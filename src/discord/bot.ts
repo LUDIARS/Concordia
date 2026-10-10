@@ -51,6 +51,7 @@ import {
 } from "./session-channel.js";
 import { createTaskWorkflowOrphanReconciler } from "./taskworkflow-orphan-reconcile.js";
 import { ChannelWorkState, classifySessionMessageWorkSignal } from "./channel-work-state.js";
+import { WORKING_POST_TEXT, WorkingPost } from "./working-post.js";
 import type { SessionRelayState } from "../platform/chat-read-model.js";
 import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
@@ -1048,6 +1049,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // Discord errors チャンネルへの poster は意図的に持たない。
   let errorMonitor: ErrorMonitorHandle | null = null;
   let channelWorkState: ChannelWorkState | null = null;
+  let workingPost: WorkingPost | null = null;
   /**
    * コンテキスト使用量の 1 行を組む。 推定できなければ null (数字を作らない)。
    *
@@ -1735,15 +1737,29 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       } else {
         log.info("stale-channel periodic sweep disabled");
       }
-      // Discord は「作業中」メッセージを投稿せず、Forum の状態タグだけで表す。
-      // summary / final_answer が実際に投稿されるまでタグを保持する。
+      // Forum の状態タグで作業中を表し、 summary / final_answer が実際に投稿されるまで保持する。
+      // 同じ契機で「🔄 作業中…」を 1 通だけ出す (部署の出力方針 working_post、 エンジニア課は出さない。
+      // working-indicator.md、 2026-10-10 neco 指示)。 進捗ごとの再投稿はしない。
+      workingPost = new WorkingPost({
+        log: (m) => log.warn(`working-post: ${m}`),
+        enabled: (sessionId) => sessionOutputEnabled(sessionId, "working_post"),
+        post: async (sessionId) => {
+          const client = webhooks ? await webhooks.getForSession(sessionId) : null;
+          if (!client || !webhooks) return null;
+          return (await webhooks.send(client, { content: WORKING_POST_TEXT, username: "Concordia" }))?.id ?? null;
+        },
+        remove: async (sessionId, messageId) => { await webhooks?.deleteForSession(sessionId, messageId); },
+      });
+      const sessionWorkingPost = workingPost;
       channelWorkState = new ChannelWorkState({
         log: (m) => log.info(`channel-work-state: ${m}`),
-        setWorking: (sessionId, working) =>
-          sessionWorkStateApply(
+        setWorking: async (sessionId, working) => {
+          await sessionWorkStateApply(
             { guild, layout: layout!, repo: sessionChannelsRepo, log },
             { sessionId, working },
-          ),
+          );
+          await sessionWorkingPost.setWorking(sessionId, working);
+        },
       });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
       phaseTitleSync?.stop();
@@ -2833,6 +2849,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (ev.type === "session.lost") {
       channelWorkState?.clear(ev.session_id);
+      void workingPost?.clear(ev.session_id);
       forgetContextPostState(ev.session_id);
       closePrivateConsultationOf(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
@@ -2846,6 +2863,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (ev.type === "session.ended") {
       channelWorkState?.clear(ev.session_id);
+      void workingPost?.clear(ev.session_id);
       forgetContextPostState(ev.session_id);
       closePrivateConsultationOf(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });

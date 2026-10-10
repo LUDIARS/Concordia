@@ -49,6 +49,11 @@ const OutputPolicySchema = z.object({
    * 全体設定は無く、 inherit は出す。
    */
   session_end_report: OutputModeSchema.default("inherit"),
+  /**
+   * 作業中にスレッドへ出す「🔄 作業中…」(2026-10-10 neco 指示、 エンジニア課以外で出す)。
+   * 全体設定は無く、 inherit は出す。
+   */
+  working_post: OutputModeSchema.default("inherit"),
 }).strict();
 
 /**
@@ -153,6 +158,7 @@ export const DEFAULT_OUTPUT_POLICY: DepartmentOutputPolicy = {
   inject_transcript: "inherit",
   context_usage: "inherit",
   session_end_report: "inherit",
+  working_post: "inherit",
 };
 
 export const EMPTY_DEPARTMENT_SETTINGS: DepartmentSettings = {

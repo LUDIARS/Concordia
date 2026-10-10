@@ -110,6 +110,12 @@ channel → message を引き直す (`ManageMessages` が要る)。失敗して�
 Discord は空 message を拒否するので投稿はしないが、`discord_startup_context_posted` は
 立てる — 立てないとセッション登録のたびに再入して失敗ログを吐き続ける。
 
+部署の出力方針 `inject_transcript` が off の部署 (総務・技術相談課など) では、タスク本文と
+起動時 Inject を出さない。ただし Discord から起動した人がいれば、起動コンテキスト message を
+「`<@起動者>` このセッションを起動しました」だけにして投稿する (2026-10-10 neco 指示「spawn した
+セッションは起動者にメンションとばす」)。メンションでスレッドの通知が届くようにするため。
+判定は `src/discord/session-startup-context.ts` の `planStartupPosts()` (純関数)。
+
 ### 3.5 同時到着時の順序
 
 起動時投稿と委託 inject は別イベントとして並行に届き得るため、同一セッションの

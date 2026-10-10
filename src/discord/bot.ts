@@ -122,7 +122,7 @@ import {
   buildForumThreadTitle,
 } from "./forum-session.js";
 import { publicConsultationTitleEligible } from "../consultation/title-summary.js";
-import { postSessionStartupContext } from "./session-startup-context.js";
+import { planStartupPosts, postSessionStartupContext } from "./session-startup-context.js";
 import {
   postSessionTaskBody,
   stripDelegationInjectHeader,
@@ -2576,21 +2576,28 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           const needsStartupContextPost = !state?.startupContextPosted;
           const startupTaskText = state?.startupTaskText;
           const webhookPool = webhooks;
+          // 部署の出力方針で Cc の指令の転記を切った部署はタスク本文と起動時 Inject を出さず、
+          // 起動者へのメンションだけを出す (departments.md §9.4、 2026-10-10 neco 指示)。
+          // タスク本文と起動コンテキストの成功は独立して記録する。前者だけが失敗しても
+          // 後者の投稿済みフラグによって再試行不能にしてはいけない。
+          const startupPosts = planStartupPosts({
+            injectTranscript: sessionOutputEnabled(sessionId, "inject_transcript"),
+            needsTaskPost: needsStartupTaskPost,
+            needsContextPost: needsStartupContextPost,
+            startupTaskText,
+            startupInjectText: state?.startupInjectText,
+            requesterUserId: state?.requesterDiscordUserId,
+          });
           if (
             sessionSurface
-            && (state?.startupInjectText || startupTaskText)
-            // タスク本文と起動コンテキストの成功は独立して記録する。前者だけが失敗しても
-            // 後者の投稿済みフラグによって再試行不能にしてはいけない。
-            && (needsStartupTaskPost || needsStartupContextPost)
+            && (startupPosts.taskPost || startupPosts.contextPost)
             && !startupContextInflight.has(sessionId)
             && webhookPool
-            // 部署の出力方針で Cc の指令の転記を出さない (技術相談課、 departments.md §9.4)。
-            && sessionOutputEnabled(sessionId, "inject_transcript")
           ) {
             startupContextInflight.add(sessionId);
             try {
               // タスク本文が先。 pin する 1 通目が thread の先頭に来るようにする。
-              if (needsStartupTaskPost && startupTaskText) {
+              if (startupPosts.taskPost && startupTaskText) {
                 await queueSessionTaskPost(sessionId, async () => {
                   const latestState = deps.readModel.getSessionRelayState(sessionId);
                   const taskPosted = await postSessionTaskBody({
@@ -2609,12 +2616,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                   if (!taskPosted) log.warn(`session task post failed session=${sessionId}`);
                 });
               }
-              if (needsStartupContextPost) {
+              if (startupPosts.contextPost) {
                 const posted = await postSessionStartupContext({
                   sessionId,
                   context: {
                     requesterUserId: state?.requesterDiscordUserId ?? null,
-                    startupInjectText: state?.startupInjectText ?? null,
+                    startupInjectText: startupPosts.includeInject ? state?.startupInjectText ?? null : null,
                     surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
                     sessionChannelId: sessionSurface.channel_id,
                     sourceGuildId: state?.sourceDiscordGuildId ?? forumSpawn?.guildId ?? null,

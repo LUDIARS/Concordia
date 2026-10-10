@@ -47,6 +47,32 @@ export function buildSessionStartupContextMessage(input: SessionStartupContext):
   };
 }
 
+/**
+ * 起動時にスレッドへ出す 2 通 (タスク本文・起動コンテキスト) のどれを出すかを決める。
+ *
+ * 部署の出力方針で Cc の指令の転記を切った部署 (総務・技術相談課) は、 タスク本文と起動時
+ * Inject を出さない。 ただし起動者へのメンションは出す — spawn した人に通知が届かないと、
+ * 起動したことにも返事が来たことにも気づけない (2026-10-10 neco 指示)。
+ */
+export function planStartupPosts(input: {
+  injectTranscript: boolean;
+  needsTaskPost: boolean;
+  needsContextPost: boolean;
+  startupTaskText: string | null | undefined;
+  startupInjectText: string | null | undefined;
+  requesterUserId: string | null | undefined;
+}): { taskPost: boolean; contextPost: boolean; includeInject: boolean } {
+  if (input.injectTranscript) {
+    const hasStartupText = Boolean(input.startupInjectText || input.startupTaskText);
+    return {
+      taskPost: hasStartupText && input.needsTaskPost && Boolean(input.startupTaskText),
+      contextPost: hasStartupText && input.needsContextPost,
+      includeInject: true,
+    };
+  }
+  return { taskPost: false, contextPost: input.needsContextPost && Boolean(input.requesterUserId), includeInject: false };
+}
+
 export async function postSessionStartupContext(input: {
   sessionId: string;
   context: SessionStartupContext;

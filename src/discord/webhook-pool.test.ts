@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ChannelType } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
 
@@ -141,5 +141,29 @@ describe("WebhookPool.purgeChannel — archived channel の webhook budget 解�
     const guild = { channels: { cache: new Map() }, client: { user: { id: "bot" } } };
     const pool = new WebhookPool(guild as any, { findBySessionId: () => null } as any);
     expect(await pool.purgeChannel("missing")).toBe(0);
+  });
+});
+
+// 「作業中…」の片付け (working-indicator.md、 2026-10-10)。
+describe("WebhookPool.deleteForSession", () => {
+  const row = { channel_id: CHANNEL_ID, webhook_id: WEBHOOK_ID, webhook_token: "tok-row" };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("deletes the webhook message by id and treats an already deleted one as done", async () => {
+    const { pool } = makePool(makeChannel({}), row);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await pool.deleteForSession("s1", "999")).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain(`/webhooks/${WEBHOOK_ID}/tok-row/messages/999`);
+    expect(init.method).toBe("DELETE");
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    expect(await pool.deleteForSession("s1", "999")).toBe(true);
+  });
+
+  it("reports failure on other errors", async () => {
+    const { pool } = makePool(makeChannel({}), row);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 500 })));
+    expect(await pool.deleteForSession("s1", "999")).toBe(false);
   });
 });

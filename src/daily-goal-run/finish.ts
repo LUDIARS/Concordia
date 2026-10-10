@@ -1,13 +1,16 @@
 /**
- * 止まる条件の use case: ゴール到達・十分にこなした・人間の停止、 と喪失の記録。
+ * 止まる条件の use case: ゴール到達・十分にこなした・人間の停止・締切、 と喪失の記録。
  *
  * @implements spec/feature/daily-goal-run.md — 6. 終わり方 / 予算 / CC-DG-INV-03 / CC-DG-INV-05 / CC-DG-INV-06 / CC-DG-INV-08
  *
  * 到達は Cc が集めた証跡で照合し、 自己申告だけでは認めない。 やり切りは残りの一つずつを
  * 照合し、 doable が残れば拒否して続行 (GO) を返す。 その拒否が完了確認への返答なら、
  * そのときだけ Goal & Go の予算を戻す (CC-WM-INV-03 で許す唯一の緩和)。
+ * 締切は day-close が締切を判定してから呼ぶ (ここは時刻を判断しない)。 最後の証跡を集め、
+ * 受入条件ごとの到達を記録してから止める。
  */
 
+import { randomUUID } from "node:crypto";
 import { canHumanStop, evaluateExhausted, evaluateGoalReached } from "./stop-policy.js";
 import { buildGoAfterRejectionPrompt, buildStoppedNotice } from "./prompts.js";
 import { releaseGoalFromMetadata } from "./session-binding.js";
@@ -30,7 +33,6 @@ export class DailyGoalFinisher {
   constructor(
     private readonly deps: DailyGoalServiceDeps,
     private readonly touch: (goalId: string, line?: string) => void,
-    private readonly onExhausted: (goal: DailyGoal, now: number) => void,
   ) {}
 
   /** 呼べるのは紐付いた専用セッションだけ。 */
@@ -53,6 +55,7 @@ export class DailyGoalFinisher {
       unverified.push(...claim.refs.filter((ref) => !known.has(ref)));
       if (goal.acceptance.includes(claim.item)) byItem.set(claim.item, [...(byItem.get(claim.item) ?? []), ...verified]);
     }
+    this.deps.repo.setAcceptanceProgress(goal.id, Object.fromEntries(byItem), now);
     const result = evaluateGoalReached(goal.acceptance, byItem);
     if (!result.reached) {
       this.touch(goal.id, `到達の報告を照合: 証跡の無い受入条件が ${result.missing.length} 件あり続行`);
@@ -72,7 +75,6 @@ export class DailyGoalFinisher {
     if (result.accepted) {
       this.decideOpenCompletion(goal.id, "exhausted");
       this.close(goal, "exhausted", now, { reason: "exhausted", remaining: [...remaining] });
-      this.onExhausted({ ...goal, remaining: [...remaining] }, now);
       return { outcome: "exhausted" };
     }
     if (result.reason === "invalid_items") {
@@ -92,7 +94,31 @@ export class DailyGoalFinisher {
     return { outcome: "go", doable: result.doable, budgetReset };
   }
 
-  /** 人間本人の停止。 確定者本人か session_control (管理職以上)。 */
+  /**
+   * 締切での停止。 最後の証跡を集め、 受入条件ごとに記録済みの到達 (実在する証跡の参照) を
+   * 残してから止める。 証跡が集められなくても止める (締切は止まる条件)。
+   */
+  async stopByDeadline(goalId: string, now: number): Promise<DailyGoal | null> {
+    const goal = this.deps.repo.byId(goalId);
+    if (!goal || (goal.status !== "confirmed" && goal.status !== "running")) return null;
+    let evidence: import("./domain.js").EvidenceSnapshot = { items: [], taskStatuses: {}, unavailable: ["evidence"] };
+    try { evidence = await this.deps.evidence.collect(goal, goal.launchedAt ?? goal.confirmedAt); }
+    catch (error) { this.deps.log?.warn(`daily goal deadline evidence failed goal=${goal.id}: ${String(error)}`); }
+    const known = new Set(evidence.items.map((item) => item.key));
+    const progress = Object.fromEntries(goal.acceptance.map((item) => [item, (goal.acceptanceProgress?.[item] ?? []).filter((ref) => known.has(ref))]));
+    this.deps.repo.setAcceptanceProgress(goal.id, progress, now);
+    this.decideOpenCompletion(goal.id, "go");
+    this.deps.repo.addCheckpoint({
+      id: (this.deps.newId ?? randomUUID)(), goalId: goal.id, at: now, kind: "deadline", evidence, progress: false, report: null, decision: "deadline",
+    });
+    const reached = Object.values(progress).filter((refs) => refs.length > 0).length;
+    try { this.close(goal, "deadline", now, { reason: "deadline" }); }
+    catch { return this.deps.repo.byId(goal.id); }
+    this.touch(goal.id, `締切: 受入条件 ${goal.acceptance.length} 件中 ${reached} 件に到達の証跡があります`);
+    return this.deps.repo.byId(goal.id);
+  }
+
+  /** 人間本人の停止。 登録した本人か session_control (管理職以上)。 */
   stopByHuman(goalId: string, actor: GoalActor, now: number): DailyGoal {
     const goal = this.deps.repo.byId(goalId);
     if (!goal) throw new DailyGoalConflict("デイリーゴールが見つかりません。", "not_found");
@@ -101,7 +127,7 @@ export class DailyGoalFinisher {
       isConfirmer: actor.userId === goal.confirmedBy.userId,
       hasSessionControl: capabilityAllowed(actor.role, "session_control"),
     });
-    if (!allowed) throw new DailyGoalConflict("停止できるのは確定した本人か管理職以上です。", "forbidden");
+    if (!allowed) throw new DailyGoalConflict("停止できるのは登録した本人か管理職以上です。", "forbidden");
     if (goal.status !== "confirmed" && goal.status !== "running") throw new DailyGoalConflict(`このゴールは既に ${goal.status} です。`, "not_running");
     this.decideOpenCompletion(goal.id, "go");
     this.close(goal, "stopped", now, { reason: "human_stop", by: actor.userId });
@@ -122,12 +148,12 @@ export class DailyGoalFinisher {
     if (open?.kind === "completion" && open.decision === "pending") this.deps.repo.decideCheckpoint(open.id, decision, null);
   }
 
-  private close(goal: DailyGoal, status: "achieved" | "exhausted" | "stopped", now: number,
-    input: { reason: "goal_reached" | "exhausted" | "human_stop"; by?: string; remaining?: RemainingItem[] }): void {
+  private close(goal: DailyGoal, status: "achieved" | "exhausted" | "stopped" | "deadline", now: number,
+    input: { reason: "goal_reached" | "exhausted" | "human_stop" | "deadline"; by?: string; remaining?: RemainingItem[] }): void {
     if (!this.deps.repo.finish(goal.id, { status, reason: input.reason, by: input.by ?? null, remaining: input.remaining, now })) {
       throw new DailyGoalConflict("このゴールは既に終了しています。", "not_running");
     }
-    const label = status === "achieved" ? "達成" : status === "exhausted" ? "やり切り" : "停止";
+    const label = status === "achieved" ? "達成" : status === "exhausted" ? "やり切り" : status === "deadline" ? "締切" : "停止";
     this.touch(goal.id, `${label}: ${input.reason === "human_stop" ? `<@${input.by}> が停止しました` : "止まる条件を照合しました"}`);
     if (!goal.sessionId) return;
     this.deps.autonomy.disable(goal.sessionId);

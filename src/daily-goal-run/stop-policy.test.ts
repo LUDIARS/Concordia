@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canHumanStop, evaluateExhausted, evaluateGoalReached } from "./stop-policy.js";
+import { canHumanStop, evaluateExhausted, evaluateGoalReached, STOP_CONDITIONS } from "./stop-policy.js";
 
 describe("evaluateGoalReached (CC-DG-INV-03)", () => {
   it("reaches only when every acceptance item has verified evidence", () => {
@@ -41,5 +41,11 @@ describe("canHumanStop", () => {
     expect(canHumanStop({ isHuman: true, isConfirmer: false, hasSessionControl: true })).toBe(true);
     expect(canHumanStop({ isHuman: true, isConfirmer: false, hasSessionControl: false })).toBe(false);
     expect(canHumanStop({ isHuman: false, isConfirmer: true, hasSessionControl: true })).toBe(false);
+  });
+});
+
+describe("STOP_CONDITIONS (CC-DG-INV-05)", () => {
+  it("has exactly four stop conditions including the deadline, and no stagnation or midnight condition", () => {
+    expect([...STOP_CONDITIONS]).toEqual(["goal_reached", "exhausted", "human_stop", "deadline"]);
   });
 });

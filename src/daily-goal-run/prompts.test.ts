@@ -8,6 +8,10 @@ const goal = {
 } as DailyGoal;
 
 describe("daily goal prompts", () => {
+  it("shows なし when no Actio task is referenced", () => {
+    expect(buildProgressCheckPrompt({ ...goal, actioTaskIds: [] }, [], "http://cc")).toContain("対応する Actio task: なし");
+  });
+
   it("carries only the goal, acceptance, permissions and Actio task IDs plus the report APIs", () => {
     const text = buildProgressCheckPrompt(goal, ["commit:a"], "http://cc");
     expect(text).toContain("進捗確認");
@@ -28,6 +32,7 @@ describe("daily goal prompts", () => {
   it("tells the session to end through session-end without carrying the rest over", () => {
     expect(buildStoppedNotice(goal, "stopped")).toContain("人間が");
     expect(buildStoppedNotice(goal, "achieved")).toContain("session-end");
+    expect(buildStoppedNotice(goal, "deadline")).toContain("締切");
     expect(describePermissions(goal.permissions)).toBe("マージ=不可 / テスト=可 / サービス操作=不可 / 反映=不可");
   });
 });

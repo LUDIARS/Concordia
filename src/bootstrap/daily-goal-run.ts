@@ -4,7 +4,9 @@
  * @implements spec/feature/daily-goal-run.md — 状態の所有者 / 予算 / CC-INV-08
  *
  * 他ドメインの状態 (session metadata の goal-and-go・人間待ち・質問・delegation run・Actio) は
- * それぞれの所有者の API を通して読み書きする。 Actio へは読み取りだけ。
+ * それぞれの所有者の API を通して読み書きする。 Actio へは読み取りだけ。 投稿の読み取りは
+ * 既存の Claude CLI 呼び出し (runClaude、 API キーを使わない)、 日のまとめの記載先は Memoria
+ * (接続先はサービス URL `memoria`)。
  */
 
 import type { Database } from "better-sqlite3";
@@ -22,6 +24,12 @@ import { resetGoalAndGoBudget, setGoalAndGoEnabled } from "../control/goal-and-g
 import { isHumanWaitActive } from "../control/human-wait.js";
 import { allowAutoInject, isBlockedByPendingQuestion, pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { DailyGoalRepository } from "../daily-goal-run/repository.js";
+import { DailyGoalDraftRepository } from "../daily-goal-run/draft-repository.js";
+import { DailyGoalDayRepository } from "../daily-goal-run/day-repository.js";
+import { createLlmGoalExtraction, type GoalExtractionPort } from "../daily-goal-run/goal-extraction.js";
+import { createMemoriaJournalHttp, type MemoriaJournalPort } from "../daily-goal-run/memoria-journal.js";
+import { runClaude } from "../rules/claude-runner.js";
+import { memoriaBaseUrl } from "../config/service-urls.js";
 import { DailyGoalRunService } from "../daily-goal-run/service.js";
 import { createEvidenceAdapter } from "../daily-goal-run/evidence.js";
 import { resolveDailyGoalConfig } from "../daily-goal-run/config.js";
@@ -46,6 +54,10 @@ export interface DailyGoalRuntimeDeps {
   settings: Pick<SettingsStore, "get">;
   isEnabled: () => boolean;
   baseUrl: string;
+  /** 投稿の読み取り。 未指定なら runClaude (Sonnet、 会話のみ) で読む。 */
+  extraction?: GoalExtractionPort;
+  /** 日のまとめの記載先。 未指定なら Memoria の HTTP API。 */
+  journal?: MemoriaJournalPort;
   log: { info(message: string): void; warn(message: string): void };
 }
 
@@ -64,6 +76,10 @@ export function createDailyGoalRuntime(deps: DailyGoalRuntimeDeps): DailyGoalRun
   };
   const service = new DailyGoalRunService({
     repo: new DailyGoalRepository(deps.db),
+    drafts: new DailyGoalDraftRepository(deps.db),
+    days: new DailyGoalDayRepository(deps.db),
+    extraction: deps.extraction ?? createLlmGoalExtraction((prompt, opts) => runClaude(prompt, opts), { model: "sonnet" }),
+    journal: deps.journal ?? createMemoriaJournalHttp({ baseUrl: memoriaBaseUrl() }),
     evidence: createEvidenceAdapter({
       session: (id) => {
         const row = sessions.findSession(id);
@@ -139,23 +155,14 @@ export function createDailyGoalRuntime(deps: DailyGoalRuntimeDeps): DailyGoalRun
       },
     },
     projects: {
+      // コードは完全一致、 名前は大文字小文字を無視。 複数のプロジェクトに当たれば一意でないので採用しない。
       resolve: (value) => {
-        const row = deps.projectCodes.findByCode(value)
-          ?? deps.projectCodes.list().find((item) => item.project.toLowerCase() === value.toLowerCase());
-        return row ? { project: row.project, repoPath: row.repo_path } : null;
-      },
-    },
-    tasks: {
-      activeTasks: async (project) => {
-        const store = deps.taskStore();
-        if (!store) return [];
-        const documents = await store.findForProject(project, ["pending", "delegated"]);
-        return documents.map((doc) => ({
-          id: doc.path.replace(/^actio:/, ""),
-          title: doc.title,
-          status: doc.runtime?.status ?? "pending",
-          dueAt: typeof doc.frontmatter.due_at === "string" ? doc.frontmatter.due_at : null,
-        }));
+        const exact = deps.projectCodes.findByCode(value.trim());
+        if (exact) return { project: exact.project, repoPath: exact.repo_path };
+        const wanted = value.trim().toLowerCase();
+        const hits = deps.projectCodes.list().filter((item) => item.project.toLowerCase() === wanted || item.code.toLowerCase() === wanted);
+        const projects = new Set(hits.map((item) => item.project));
+        return projects.size === 1 ? { project: hits[0]!.project, repoPath: hits[0]!.repo_path } : null;
       },
     },
     config: () => resolveDailyGoalConfig((key) => deps.settings.get(key)),

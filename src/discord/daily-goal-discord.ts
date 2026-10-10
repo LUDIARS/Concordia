@@ -1,40 +1,40 @@
 /**
- * デイリーゴールの Discord 面: カードの配達 (1 ゴール 1 message の編集) と、 停止・候補確定の操作。
+ * デイリーゴールの Discord 面: 入口チャンネル、 カードの配達 (1 ゴール 1 message の編集・9:00 の通知・
+ * 4:00 のまとめ) と、 停止・まとめ再送の操作、 投稿の受付 (daily-goal-post-intake)。
  *
- * @implements spec/feature/daily-goal-run.md — 1. 候補カード / 5. カードの更新 / 6. 人間の停止 / CC-DG-INV-01
+ * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 5. カードの更新 / 6. 人間の停止 / 7. 9:00 の通知 / 8. まとめの投稿と再送 / CC-DG-INV-01
  *
  * 新規投稿は intent を先に保存してから送る。 結果不明は marker で既存投稿を照合し、
  * 見つからない間は同じカードを再送しない (sprint-dialogues の CC-SD-04 と同じ扱い)。
  */
 
 import { createHash } from "node:crypto";
-import { ChannelType, type Guild, type Interaction, type TextChannel } from "discord.js";
+import { ChannelType, type Guild, type Interaction, type Message, type TextChannel } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
-import { parsePermissionText } from "../daily-goal-run/confirmation-policy.js";
 import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
 import type { DailyGoalCard } from "../daily-goal-run/repository.js";
-import { confirmReply, splitIds, splitLines } from "./commands/daily-goal.js";
+import { createDailyGoalPostIntake } from "./daily-goal-post-intake.js";
 import {
-  DAILY_GOAL_CANDIDATE_MODAL_PREFIX,
-  DAILY_GOAL_CANDIDATE_PREFIX,
+  DAILY_GOAL_RESEND_PREFIX,
   DAILY_GOAL_STOP_PREFIX,
-  candidateModal,
   cardMarker,
-  renderCandidateCard,
+  renderDaySummaryCard,
   renderGoalCard,
+  renderReminderCard,
 } from "./daily-goal-card-render.js";
 import { definiteDiscordRejection } from "./sprint-dialogues-surface.js";
 
 export const DAILY_GOAL_CHANNEL_NAME = "デイリーゴール";
 const CHANNEL_CONFIG_KEY = "daily_goal_channel_id";
 
-async function ensureChannel(guild: Guild, config: DiscordConfigRepo, parentId: string): Promise<TextChannel> {
+/** 入口チャンネルを用意し、 説明 (topic) を投稿の書き方にそろえる。 */
+async function ensureChannel(guild: Guild, config: DiscordConfigRepo, parentId: string, topic: string, log: { warn(message: string): void }): Promise<TextChannel> {
   const saved = config.get(CHANNEL_CONFIG_KEY);
   const known = saved ? guild.channels.cache.get(saved) : [...guild.channels.cache.values()].find((c) => c.type === ChannelType.GuildText && c.name === DAILY_GOAL_CHANNEL_NAME);
   const channel: TextChannel = known?.type === ChannelType.GuildText ? known : await guild.channels.create({
-    name: DAILY_GOAL_CHANNEL_NAME, type: ChannelType.GuildText, parent: parentId,
-    topic: "デイリーゴールの確認カード (1 ゴール 1 枚、1 時間ごとに更新) と朝の候補カード。/co-daily-goal で確定します。",
+    name: DAILY_GOAL_CHANNEL_NAME, type: ChannelType.GuildText, parent: parentId, topic,
   });
+  if (channel.topic !== topic) await channel.setTopic(topic).catch((error) => log.warn(`daily goal channel topic update failed: ${String(error)}`));
   config.set(CHANNEL_CONFIG_KEY, channel.id);
   return channel;
 }
@@ -42,6 +42,10 @@ async function ensureChannel(guild: Guild, config: DiscordConfigRepo, parentId: 
 export interface DailyGoalDiscord {
   handlesInteraction(interaction: Interaction): boolean;
   interaction(interaction: Interaction): Promise<void>;
+  /** デイリーゴールチャンネル (とその中のスレッド) の投稿か。 */
+  handlesMessage(message: Message): boolean;
+  message(message: Message): Promise<void>;
+  messageUpdated(message: Message): Promise<void>;
   stop(): void;
 }
 
@@ -50,14 +54,17 @@ export async function startDailyGoalDiscord(input: {
   log: { warn(message: string): void };
 }): Promise<DailyGoalDiscord> {
   const { port, guild } = input;
-  const channel = await ensureChannel(guild, input.config, input.parentId);
+  const channel = await ensureChannel(guild, input.config, input.parentId, port.channelTopic(), input.log);
+  const intake = createDailyGoalPostIntake({ guild, channelId: channel.id, port, log: input.log });
   let stopped = false;
   let busy = false;
 
   const render = (card: DailyGoalCard) => {
     const content = port.cards.content(card, Date.now());
     if (!content) return null;
-    return content.kind === "goal" ? renderGoalCard(card.id, content.goalId, content.view) : renderCandidateCard(card.id, content.candidate, content.view);
+    if (content.kind === "goal") return renderGoalCard(card.id, content.goalId, content.view);
+    if (content.kind === "reminder") return renderReminderCard(card.id, content.view);
+    return renderDaySummaryCard(card.id, content.date, content.view);
   };
 
   /** 結果不明の新規投稿を marker で照合する。 見つからなければ unknown のまま残す (再送しない)。 */
@@ -107,46 +114,36 @@ export async function startDailyGoalDiscord(input: {
   });
 
   return {
-    handlesInteraction: (i) => (i.isButton() && i.customId.startsWith("dg:")) || (i.isModalSubmit() && i.customId.startsWith(DAILY_GOAL_CANDIDATE_MODAL_PREFIX)),
+    handlesInteraction: (i) => i.isButton() && i.customId.startsWith("dg:"),
     async interaction(i) {
-      if (stopped || (!i.isButton() && !i.isModalSubmit())) return;
+      if (stopped || !i.isButton()) return;
       if (!port.isEnabled()) {
         await i.reply({ content: "デイリーゴール自走は設定で無効です。", ephemeral: true });
         return;
       }
       if (i.guildId !== guild.id || !i.channelId) return;
-      if (i.isButton() && i.customId.startsWith(DAILY_GOAL_STOP_PREFIX)) {
-        try {
+      try {
+        if (i.customId.startsWith(DAILY_GOAL_STOP_PREFIX)) {
           const goal = port.stop(i.customId.slice(DAILY_GOAL_STOP_PREFIX.length), actorOf(i));
           await i.reply({ content: `デイリーゴール ${goal.id} を停止しました。`, ephemeral: true });
-          void deliver();
-        } catch (error) { await i.reply({ content: (error as Error).message.slice(0, 1500), ephemeral: true }); }
-        return;
-      }
-      if (i.isButton() && i.customId.startsWith(DAILY_GOAL_CANDIDATE_PREFIX)) {
-        const candidate = port.candidate(i.customId.slice(DAILY_GOAL_CANDIDATE_PREFIX.length));
-        if (!candidate) { await i.reply({ content: "この候補は見つかりません。/co-daily-goal で確定してください。", ephemeral: true }); return; }
-        await i.showModal(candidateModal(candidate));
-        return;
-      }
-      if (i.isModalSubmit()) {
-        const candidate = port.candidate(i.customId.slice(DAILY_GOAL_CANDIDATE_MODAL_PREFIX.length));
-        if (!candidate) { await i.reply({ content: "この候補は見つかりません。/co-daily-goal で確定してください。", ephemeral: true }); return; }
-        const result = port.confirm({
-          draft: {
-            project: candidate.project,
-            goalText: i.fields.getTextInputValue("goal"),
-            acceptance: splitLines(i.fields.getTextInputValue("acceptance")),
-            actioTaskIds: splitIds(i.fields.getTextInputValue("actio_tasks")),
-            permissions: parsePermissionText(i.fields.getTextInputValue("permissions")),
-          },
-          actor: actorOf(i),
-          receiptId: i.id,
-        });
-        await i.reply({ content: confirmReply(result, (goal) => port.launchAtFor(goal)), ephemeral: true, allowedMentions: { parse: [] } });
-        if (result.ok && result.created) port.launchSoon();
+        } else if (i.customId.startsWith(DAILY_GOAL_RESEND_PREFIX)) {
+          await i.deferReply({ ephemeral: true });
+          const day = await port.resendSummary(i.customId.slice(DAILY_GOAL_RESEND_PREFIX.length), actorOf(i));
+          await i.editReply({ content: `${day.businessDate} のまとめを再送しました (日記: ${day.diaryState} / ノート: ${day.noteState})。` });
+        } else {
+          // 撤廃した候補カードのボタン。 登録は投稿でだけ行う。
+          await i.reply({ content: "候補カードは廃止されました。デイリーゴールチャンネルへの投稿で登録してください。", ephemeral: true });
+          return;
+        }
+        void deliver();
+      } catch (error) {
+        const content = (error as Error).message.slice(0, 1500);
+        if (i.deferred) await i.editReply({ content }); else await i.reply({ content, ephemeral: true });
       }
     },
+    handlesMessage: (message) => !stopped && intake.handles(message),
+    message: async (message) => { if (!stopped) await intake.created(message); },
+    messageUpdated: async (message) => { if (!stopped) await intake.updated(message); },
     stop() { stopped = true; clearInterval(timer); },
   };
 }

@@ -3,8 +3,8 @@
  *
  * @implements spec/feature/daily-goal-run.md — 5. 確認 / 6. 終わり方 / CC-DG-INV-01 / CC-DG-INV-03
  *
- * 読み取り (一覧・詳細) と、 専用セッションからの報告 (到達・やり切り・報告文) だけを持つ。
- * 報告を呼べるのは紐付いた session_id のセッションだけ。 確定と停止は人間の判断なので
+ * 読み取り (一覧・詳細・業務日の状態) と、 専用セッションからの報告 (到達・やり切り・報告文) だけを持つ。
+ * 報告を呼べるのは紐付いた session_id のセッションだけ。 登録・停止・まとめの再送は人間の判断なので
  * HTTP には設けない (Discord の本人操作の内部呼び出しに限る)。 loopback 限定。
  */
 
@@ -69,6 +69,11 @@ export function dailyGoalRunRouter(service: DailyGoalRunService, opts: { isEnabl
     const date = c.req.query("date");
     if (date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: "date must be YYYY-MM-DD" }, 400);
     return c.json({ goals: service.list(date) });
+  });
+  app.get("/days/:date", (c) => {
+    const date = c.req.param("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: "date must be YYYY-MM-DD" }, 400);
+    return c.json(service.dayDetail(date));
   });
   app.get("/:id", (c) => {
     const detail = service.detail(c.req.param("id"));

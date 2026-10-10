@@ -281,6 +281,13 @@ Cc は loopback で次を呼ぶ。接続先は Cc のサービス URL 設定 (`m
   締切停止 → まとめ → Memoria 記載 → 投稿)、`memoria-journal` (port + HTTP adapter)。
 - 通知: `reminder-policy` (純関数) と scheduler の 9:00 判定。
 - 保存: `daily_goal_drafts`、`daily_goal_days` (業務日ごとの目標なし・通知・まとめ・記載の状態)。
+- ファイル: 純関数 `src/daily-goal-run/business-day.ts` / `no-goal-policy.ts` / `structured-post-parser.ts` /
+  `extraction-guard.ts` / `draft-policy.ts` / `deadline-policy.ts` / `reminder-policy.ts` / `day-summary.ts` / `post-replies.ts`、
+  use case `post-intake.ts` / `day-close.ts` / `reminder.ts`、 port と adapter `goal-extraction.ts` / `memoria-journal.ts`、
+  保存 `draft-repository.ts` / `day-repository.ts`、 操作面の口 `surface-port.ts` / `surface.ts`、
+  Discord adapter `src/discord/daily-goal-post-intake.ts` / `daily-goal-discord.ts` / `daily-goal-card-render.ts`。
+  撤廃で削除したファイル: `src/daily-goal-run/candidates.ts`、 `src/discord/commands/daily-goal.ts`、
+  `src/daily-goal-run/validate-draft.contract.ts`、 `src/daily-goal-run/launch-at.contract.ts`。
 
 ### HTTP (loopback 限定、workflow `daily_goal` が無効なら 409)
 

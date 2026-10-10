@@ -17,7 +17,7 @@ describe("daily-goal-runner template", () => {
   it("renders only the goal, acceptance, permissions, Actio tasks and the procedure", () => {
     const result = renderTemplate(DAILY_GOAL_RUNNER_TEMPLATE.prompt_template, {
       daily_goal_id: "g1", target_repo: "E:/repo", goal_text: "出荷", acceptance: "1. A", permissions: "マージ=不可",
-      actio_tasks: "actio:t1", concordia_url: "http://cc",
+      actio_tasks: "actio:t1", deadline: "10/11 04:00", concordia_url: "http://cc",
     }, DAILY_GOAL_RUNNER_TEMPLATE.input_schema ?? []);
     expect(result.missing).toEqual([]);
     expect(result.unknown_vars).toEqual([]);
@@ -25,5 +25,7 @@ describe("daily-goal-runner template", () => {
     expect(result.rendered).toContain("http://cc/v1/daily-goals/g1/exhausted");
     expect(result.rendered).toContain("ask で聞いて止まる");
     expect(result.rendered).toContain("セッション外の task");
+    expect(result.rendered).toContain("## 締切\n10/11 04:00");
+    expect(result.rendered).toContain("締切の 4 つだけ");
   });
 });

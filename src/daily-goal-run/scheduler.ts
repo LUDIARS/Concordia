@@ -1,9 +1,9 @@
 /**
- * デイリーゴールの scheduler。 1 分ごとに tick し、 起動・確認・候補を進める。
+ * デイリーゴールの scheduler。 1 分ごとに tick し、 締切・起動・確認・9:00 の通知を進める。
  *
- * @implements spec/feature/daily-goal-run.md — 3. 起動 (7:30) / 5. 1 時間ごとの確認 / 1. 候補カード
+ * @implements spec/feature/daily-goal-run.md — 3. 起動 / 5. 1 時間ごとの確認 / 7. 9:00 の通知 / 8. 4:00 の締切
  *
- * 時刻で止める判断は持たない (日付が変わっても running は止めない)。 tick の失敗は
+ * 時刻の判断は service の use case (deadline-policy / reminder-policy) が持つ。 0:00 では止めない。 tick の失敗は
  * loop-bulkhead が隔離し、 連続失敗で停止を通知する。 生成側が stop を所有する。
  */
 

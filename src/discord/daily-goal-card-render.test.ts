@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardMarker, candidateModal, renderCandidateCard, renderGoalCard } from "./daily-goal-card-render.js";
+import { cardMarker, renderDaySummaryCard, renderGoalCard, renderReminderCard } from "./daily-goal-card-render.js";
 import type { DailyGoalCardView } from "../daily-goal-run/card.js";
 
 const view: DailyGoalCardView = {
@@ -24,12 +24,12 @@ describe("daily goal card rendering", () => {
     expect(long.content.endsWith(cardMarker("goal-g1"))).toBe(true);
   });
 
-  it("renders candidates with a confirm button that opens a prefilled modal", () => {
-    const candidate = { id: "c1", date: "2026-10-11", project: "Cc", repoPath: "r", suggestedGoal: "x", suggestedAcceptance: ["A"], actioTaskIds: ["t1"], actioTasks: [], carryover: [], continuing: [], createdAt: 0 };
-    const message = renderCandidateCard("c1", candidate, { title: "候補", lines: ["案"] });
-    expect(JSON.stringify(message.components[0]!.toJSON())).toContain("dg:cand:c1");
-    const modal = JSON.stringify(candidateModal(candidate).toJSON());
-    expect(modal).toContain("dgm:c1");
-    expect(modal).toContain("merge=no test=no service=no deploy=no");
+  it("renders the reminder without buttons and the summary with a resend button only when it is journaled", () => {
+    const reminder = renderReminderCard("reminder-2026-10-10", { title: "目標がまだありません", lines: ["目標なし"] });
+    expect(reminder.components).toEqual([]);
+    expect(reminder.content.endsWith(cardMarker("reminder-2026-10-10"))).toBe(true);
+    const summary = renderDaySummaryCard("summary-2026-10-10", "2026-10-10", { title: "まとめ", lines: ["- 達成"], resendable: true });
+    expect(JSON.stringify(summary.components[0]!.toJSON())).toContain("dg:resend:2026-10-10");
+    expect(renderDaySummaryCard("summary-x", "2026-10-10", { title: "まとめ", lines: [], resendable: false }).components).toEqual([]);
   });
 });

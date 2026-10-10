@@ -114,7 +114,7 @@ import {
   requestForumSpawnIntake,
   type ForumSpawnIntakeStore,
 } from "./forum-spawn-intake.js";
-import type { AnyThreadChannel } from "discord.js";
+import type { AnyThreadChannel, Message, PartialMessage } from "discord.js";
 import { selectForumDelegationTemplate } from "./forum-delegation-selector.js";
 import {
   resolveForumSessionSurface,
@@ -1785,6 +1785,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    // デイリーゴールチャンネル (とその聞き返しスレッド) の投稿は登録の入口。 他の ingress へ回さない。
+    if (dailyGoalDiscord?.handlesMessage(msg)) {
+      void dailyGoalDiscord.message(msg).catch((error) => log.warn(`daily goal post failed: ${String(error)}`));
+      return;
+    }
     if (sprintDialoguesDiscord?.handlesMessage(msg)) {
       void sprintDialoguesDiscord.message(msg).catch(error => log.warn(`sprint dialogue input failed: ${String(error)}`));
       return;
@@ -1932,6 +1937,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   });
   client.on(Events.MessageCreate, onMessageCreate);
   clientListenerCleanup.push(() => client.off(Events.MessageCreate, onMessageCreate));
+
+  // デイリーゴールの元投稿の編集は下書きの読み直し (spec/feature/daily-goal-run.md §2)。 他の用途には使わない。
+  const onMessageUpdate = instrumentDiscord("messageUpdate", (_old: unknown, updated: Message | PartialMessage) => {
+    if (gatewayClosed || stopping || !inScope(updated.guildId)) return;
+    const surface = dailyGoalDiscord;
+    if (!surface) return;
+    void (async () => {
+      const message = updated.partial ? await updated.fetch() : updated;
+      if (surface.handlesMessage(message)) await surface.messageUpdated(message);
+    })().catch((error) => log.warn(`daily goal edited post failed: ${String(error)}`));
+  });
+  client.on(Events.MessageUpdate, onMessageUpdate);
+  clientListenerCleanup.push(() => client.off(Events.MessageUpdate, onMessageUpdate));
 
   const toForumSpawnThread = (thread: AnyThreadChannel): ForumSpawnThread => {
     const parent = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
@@ -2300,8 +2318,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
       // PR 操作パネル。実処理はリアクション経由と同じ口を使う。
       prOperations: deps.prOperations,
-      // デイリーゴールの確定は本社 Bot だけ (子会社は subsidiary-scope で弾かれる)。
-      ...(!subsidiaryId && deps.dailyGoals ? { dailyGoals: deps.dailyGoals } : {}),
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(

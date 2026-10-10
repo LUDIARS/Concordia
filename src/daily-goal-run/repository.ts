@@ -13,7 +13,6 @@ import type {
   DailyGoal,
   DailyGoalCheckpoint,
   DailyGoalStatus,
-  GoalCandidate,
   LaunchState,
   RemainingItem,
   StopReason,
@@ -24,12 +23,13 @@ interface GoalRow {
   actio_task_ids: string; permissions: string; confirmed_by: string; confirmed_at: number; status: DailyGoalStatus;
   session_id: string | null; run_id: string | null; launch_state: LaunchState; launched_at: number | null;
   launch_error: string | null; next_launch_at: number | null; stop_reason: StopReason | null; stopped_by: string | null;
-  remaining: string | null; created_at: number;
+  remaining: string | null; source_message_id: string | null; acceptance_progress: string | null; created_at: number;
 }
 
 export interface DailyGoalCard {
   id: string;
-  kind: "goal" | "candidate";
+  /** goal = ゴールごとのカード、 reminder = 9:00 の通知、 summary = 4:00 のまとめ。 refId は goal id か業務日。 */
+  kind: "goal" | "reminder" | "summary";
   refId: string;
   revision: number;
   deliveredRevision: number;
@@ -68,6 +68,11 @@ export class DailyGoalRepository {
     ); CREATE TABLE IF NOT EXISTS daily_goal_candidates (
       id TEXT PRIMARY KEY, date TEXT NOT NULL, project TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL
     );`);
+    // 候補 (daily_goal_candidates) は撤廃したが、 既存のデータは消さない (新規に書かないだけ)。
+    const columns = new Set((db.prepare("PRAGMA table_info(daily_goals)").all() as Array<{ name: string }>).map((c) => c.name));
+    if (!columns.has("source_message_id")) db.exec("ALTER TABLE daily_goals ADD COLUMN source_message_id TEXT");
+    if (!columns.has("acceptance_progress")) db.exec("ALTER TABLE daily_goals ADD COLUMN acceptance_progress TEXT");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS daily_goals_source_message ON daily_goals(source_message_id) WHERE source_message_id IS NOT NULL");
   }
 
   private decode(raw: unknown): DailyGoal | null {
@@ -86,16 +91,24 @@ export class DailyGoalRepository {
       ...(r.stop_reason ? { stopReason: r.stop_reason } : {}),
       ...(r.stopped_by ? { stoppedBy: r.stopped_by } : {}),
       ...(r.remaining ? { remaining: JSON.parse(r.remaining) as RemainingItem[] } : {}),
+      ...(r.source_message_id ? { sourceMessageId: r.source_message_id } : {}),
+      ...(r.acceptance_progress ? { acceptanceProgress: JSON.parse(r.acceptance_progress) as Record<string, string[]> } : {}),
     };
   }
 
-  /** 同じ id (確定操作の受付 ID 由来) の再送は既存行を返す。 */
+  /** 同じ id (登録元の投稿由来) の再送は既存行を返す。 同じ投稿から 2 件目は作らない (CC-DG-INV-02)。 */
   create(goal: Omit<DailyGoal, "status" | "launchState">): { goal: DailyGoal; created: boolean } {
+    const existing = goal.sourceMessageId ? this.bySourceMessage(goal.sourceMessageId) : null;
+    if (existing) return { goal: existing, created: false };
     const info = this.db.prepare(`INSERT OR IGNORE INTO daily_goals (id,date,project,repo_path,goal_text,acceptance,actio_task_ids,
-      permissions,confirmed_by,confirmed_at,status,launch_state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed','none',?,?)`).run(
+      permissions,confirmed_by,confirmed_at,status,launch_state,source_message_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed','none',?,?,?)`).run(
       goal.id, goal.date, goal.project, goal.repoPath, goal.goalText, JSON.stringify(goal.acceptance), JSON.stringify(goal.actioTaskIds),
-      JSON.stringify(goal.permissions), JSON.stringify(goal.confirmedBy), goal.confirmedAt, goal.createdAt, goal.createdAt);
+      JSON.stringify(goal.permissions), JSON.stringify(goal.confirmedBy), goal.confirmedAt, goal.sourceMessageId ?? null, goal.createdAt, goal.createdAt);
     return { goal: this.byId(goal.id)!, created: info.changes === 1 };
+  }
+
+  bySourceMessage(messageId: string): DailyGoal | null {
+    return this.decode(this.db.prepare("SELECT * FROM daily_goals WHERE source_message_id=?").get(messageId));
   }
 
   byId(id: string): DailyGoal | null { return this.decode(this.db.prepare("SELECT * FROM daily_goals WHERE id=?").get(id)); }
@@ -114,10 +127,14 @@ export class DailyGoalRepository {
   bySession(sessionId: string): DailyGoal[] {
     return this.db.prepare(`SELECT * FROM daily_goals WHERE session_id=? AND status IN ${ACTIVE}`).all(sessionId).map((r) => this.decode(r)!);
   }
-  /** 指定日の終了済みゴール (翌朝の候補の材料)。 */
-  finishedOn(date: string, project: string): DailyGoal[] {
-    return this.db.prepare("SELECT * FROM daily_goals WHERE date=? AND project=? AND status='exhausted' ORDER BY created_at")
-      .all(date, project).map((r) => this.decode(r)!);
+  /** 業務日のゴール (登録順)。 */
+  onDate(date: string): DailyGoal[] {
+    return this.db.prepare("SELECT * FROM daily_goals WHERE date=? ORDER BY created_at LIMIT 500").all(date).map((r) => this.decode(r)!);
+  }
+
+  /** 受入条件ごとに Cc が実在を確かめた証跡の参照を記録する (到達の照合のたびに上書き)。 */
+  setAcceptanceProgress(id: string, progress: Record<string, string[]>, now: number): void {
+    this.db.prepare("UPDATE daily_goals SET acceptance_progress=?, updated_at=? WHERE id=?").run(JSON.stringify(progress), now, id);
   }
 
   /** 起動の intent を先に保存する。 確定済み・未起動のゴールだけが 1 回だけ通る。 */
@@ -218,24 +235,5 @@ export class DailyGoalRepository {
   unknownCards(): DailyGoalCard[] {
     return this.db.prepare("SELECT * FROM daily_goal_cards WHERE delivery_status='unknown' AND message_id IS NULL AND intent=1 ORDER BY rowid LIMIT 20")
       .all().map((r) => this.decodeCard(r));
-  }
-
-  /** 候補を保存する。 内容が変わったときだけ true (カードの版を上げる判断に使う)。 */
-  upsertCandidate(candidate: GoalCandidate): boolean {
-    const content = JSON.stringify(candidate);
-    const existing = this.db.prepare("SELECT content FROM daily_goal_candidates WHERE id=?").get(candidate.id) as { content: string } | undefined;
-    if (existing) {
-      const before = { ...(JSON.parse(existing.content) as GoalCandidate), createdAt: candidate.createdAt };
-      if (JSON.stringify(before) === content) return false;
-      this.db.prepare("UPDATE daily_goal_candidates SET content=? WHERE id=?").run(content, candidate.id);
-      return true;
-    }
-    this.db.prepare("INSERT INTO daily_goal_candidates (id,date,project,content,created_at) VALUES (?,?,?,?,?)")
-      .run(candidate.id, candidate.date, candidate.project, content, candidate.createdAt);
-    return true;
-  }
-  candidate(id: string): GoalCandidate | null {
-    const r = this.db.prepare("SELECT content FROM daily_goal_candidates WHERE id=?").get(id) as { content: string } | undefined;
-    return r ? JSON.parse(r.content) as GoalCandidate : null;
   }
 }

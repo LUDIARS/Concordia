@@ -20,7 +20,6 @@ const COMMAND_WORKFLOWS: Record<string, WorkflowKey> = {
   confirm: "test",
   prs: "review",
   "rv-prs": "review",
-  "co-daily-goal": "daily_goal",
 };
 
 export function workflowForCommand(name: string): WorkflowKey | null {

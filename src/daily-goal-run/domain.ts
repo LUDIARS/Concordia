@@ -24,7 +24,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   deploy: "反映",
 };
 
-/** 確定した人間の本人性。 Discord の操作から取る (bot / webhook は確定できない)。 */
+/** 登録した人間の本人性。 デイリーゴールチャンネルの投稿から取る (bot / webhook は登録できない)。 */
 export interface GoalConfirmer {
   platform: "discord";
   userId: string;
@@ -33,12 +33,13 @@ export interface GoalConfirmer {
   messageId?: string;
 }
 
-export type DailyGoalStatus = "confirmed" | "running" | "achieved" | "exhausted" | "stopped" | "lost";
+/** confirmed = 登録済み・起動前。 deadline = 締切 (翌朝の業務日境界) で止めた。 */
+export type DailyGoalStatus = "confirmed" | "running" | "achieved" | "exhausted" | "stopped" | "deadline" | "lost";
 
 /** 起動の結果。 unknown は「起動を要求したが結果を確認できていない」 (CC-INV-03)。 */
 export type LaunchState = "none" | "intent" | "launched" | "unknown";
 
-export type StopReason = "goal_reached" | "exhausted" | "human_stop" | "session_lost";
+export type StopReason = "goal_reached" | "exhausted" | "human_stop" | "deadline" | "session_lost";
 
 export interface DailyGoal {
   id: string;
@@ -61,35 +62,82 @@ export interface DailyGoal {
   nextLaunchAt?: number;
   stopReason?: StopReason;
   stoppedBy?: string;
-  /** 「やり切り」で認めた残り。 翌朝の候補の材料 (自動でゴールにはしない、CC-DG-INV-08)。 */
+  /** 「やり切り」で認めた残り。 日のまとめに載せる (翌日のゴールには自動でしない、CC-DG-INV-08)。 */
   remaining?: RemainingItem[];
+  /** 登録元の投稿 (message id)。 同じ投稿から 2 件目を作らない (CC-DG-INV-02)。 */
+  sourceMessageId?: string;
+  /** 受入条件ごとに Cc が実在を確かめた証跡の参照 (到達の照合・締切停止の記録)。 */
+  acceptanceProgress?: Record<string, string[]>;
   createdAt: number;
 }
 
-/** 確定前の入力。 欠けがあれば確定しない。 */
-export interface GoalDraft {
-  project?: string | null;
-  repoPath?: string | null;
-  goalText?: string | null;
-  acceptance?: readonly string[] | null;
-  actioTaskIds?: readonly string[] | null;
-  permissions?: Partial<Record<PermissionKey, boolean | null | undefined>> | null;
+/** 投稿から読み取ったもの。 quotes は各項目の根拠となる本文の引用 (extraction-guard が検査する)。 */
+export interface ExtractedGoal {
+  project?: string;
+  goalText?: string;
+  acceptance: string[];
+  permissions: GoalPermissions;
+  actioTaskIds: string[];
+  /** キーは `project` / `goalText` / `acceptance.<n>` / `permissions.<key>`。 */
+  quotes: Record<string, string>;
 }
 
-export type DraftField = "project" | "goalText" | "acceptance" | "actioTaskIds" | PermissionKey;
+/** 登録に要る 3 項目。 どれかが欠ければ下書きにする (CC-DG-INV-01 / CC-DG-INV-09)。 */
+export type PostField = "project" | "goal" | "acceptance";
 
-export const DRAFT_FIELD_LABELS: Record<DraftField, string> = {
+export const POST_FIELD_LABELS: Record<PostField, string> = {
   project: "プロジェクト",
-  goalText: "ゴール文",
-  acceptance: "受入条件 (1 件以上)",
-  actioTaskIds: "対応する Actio task (1 件以上)",
-  merge: "許可範囲: マージの可否",
-  test: "許可範囲: テストの可否",
-  service: "許可範囲: サービス操作の可否",
-  deploy: "許可範囲: 反映の可否",
+  goal: "ゴール (その日に達成すること)",
+  acceptance: "受入条件 (何がそろったら達成か)",
 };
 
-/** 確定・停止を行う操作者。 role は社員名簿の役職 (未登録は null = ヒラ社員相当)。 */
+export type DraftStatus = "open" | "registered" | "expired";
+
+/** 投稿から読み取ったが登録に足りないもの。 聞き返しのスレッドで埋める。 */
+export interface DailyGoalDraft {
+  id: string;
+  businessDate: string;
+  sourceMessageId: string;
+  authorUserId: string;
+  guildId: string;
+  channelId: string;
+  threadId?: string;
+  /** 元投稿と、 聞き返しスレッドでの元投稿者の返信 (順に)。 */
+  textParts: string[];
+  extracted: ExtractedGoal | null;
+  missing: PostField[];
+  status: DraftStatus;
+  goalId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ReminderState = "none" | "queued" | "posted";
+export type CloseState = "none" | "stopping" | "summarized" | "journaled" | "posted" | "skipped";
+/** Memoria への記載の状態。 intent / unknown は結果不明で、 照合してから再送する (CC-INV-03)。 */
+export type JournalState = "none" | "intent" | "unknown" | "written" | "unwritten" | "skipped";
+
+/** 業務日ごとの目標なし・9:00 の通知・4:00 のまとめと記載の状態。 */
+export interface DailyGoalDay {
+  businessDate: string;
+  noGoalBy?: string;
+  noGoalAt?: number;
+  reminderState: ReminderState;
+  reminderMessageId?: string;
+  summaryTitle?: string;
+  summaryMarkdown?: string;
+  closeState: CloseState;
+  diaryState: JournalState;
+  noteState: JournalState;
+  diaryUrl?: string;
+  noteId?: string;
+  noteUrl?: string;
+  error?: string;
+  nextAttemptAt: number;
+  updatedAt: number;
+}
+
+/** 登録・停止・再送を行う操作者。 role は社員名簿の役職 (未登録は null = ヒラ社員相当)。 */
 export interface GoalActor {
   platform: "discord";
   userId: string;
@@ -118,10 +166,11 @@ export interface EvidenceSnapshot {
   unavailable: string[];
 }
 
-export type CheckpointKind = "progress" | "completion" | "skipped_waiting";
+/** deadline = 締切で止める直前に集めた最後の証跡。 */
+export type CheckpointKind = "progress" | "completion" | "skipped_waiting" | "deadline";
 
 /** 確認への判断。 go = 続行、 reached / exhausted = 止まる、 waiting = 回答待ち。 */
-export type CheckpointDecision = "go" | "reached" | "exhausted" | "waiting" | "pending";
+export type CheckpointDecision = "go" | "reached" | "exhausted" | "waiting" | "pending" | "deadline";
 
 export interface DailyGoalCheckpoint {
   id: string;
@@ -138,21 +187,6 @@ export type RemainingItem =
   | { item: string; class: "unachievable"; reason: string }
   | { item: string; class: "human_judgment"; questionId?: number; humanWait?: boolean }
   | { item: string; class: "doable"; note?: string };
-
-/** ゴール候補 (案)。 人間が確定するまでゴールではない (CC-DG-INV-01)。 */
-export interface GoalCandidate {
-  id: string;
-  date: string;
-  project: string;
-  repoPath: string;
-  suggestedGoal: string;
-  suggestedAcceptance: string[];
-  actioTaskIds: string[];
-  actioTasks: Array<{ id: string; title: string; status: string; dueAt: string | null }>;
-  carryover: Array<{ goalId: string; item: string; class: RemainingItem["class"]; reason?: string }>;
-  continuing: Array<{ goalId: string; goalText: string }>;
-  createdAt: number;
-}
 
 export class DailyGoalConflict extends Error {
   constructor(message: string, readonly code: string = "conflict") {

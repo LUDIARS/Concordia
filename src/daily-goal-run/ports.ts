@@ -9,6 +9,8 @@
 
 import type { DailyGoalConfig } from "./config.js";
 import type { EvidencePort } from "./evidence.js";
+import type { GoalExtractionPort } from "./goal-extraction.js";
+import type { MemoriaJournalPort } from "./memoria-journal.js";
 
 export interface DailyGoalLaunchInput {
   runId: string;
@@ -62,19 +64,20 @@ export interface DailyGoalInjectPort {
 }
 
 export interface DailyGoalProjectPort {
-  /** プロジェクト名またはコードから登録済みの repo を引く。 */
+  /** プロジェクト名またはコードから登録済みの repo を引く。 一意に決まらなければ null。 */
   resolve(projectOrCode: string): { project: string; repoPath: string } | null;
-}
-
-/** 候補カードの材料 (Actio の読み取りのみ)。 */
-export interface DailyGoalTaskSourcePort {
-  activeTasks(project: string): Promise<Array<{ id: string; title: string; status: string; dueAt: string | null }>>;
 }
 
 export interface DailyGoalLog { info(message: string): void; warn(message: string): void }
 
 export interface DailyGoalServiceDeps {
   repo: import("./repository.js").DailyGoalRepository;
+  drafts: import("./draft-repository.js").DailyGoalDraftRepository;
+  days: import("./day-repository.js").DailyGoalDayRepository;
+  /** 投稿の読み取り (構造化した書式でない投稿だけに使う)。 */
+  extraction: GoalExtractionPort;
+  /** 日のまとめの記載先 (Memoria の日記とノート)。 */
+  journal: MemoriaJournalPort;
   evidence: EvidencePort;
   delegation: DelegationLaunchPort;
   sessions: DailyGoalSessionPort;
@@ -82,7 +85,6 @@ export interface DailyGoalServiceDeps {
   autonomy: DailyGoalAutonomyPort;
   inject: DailyGoalInjectPort;
   projects: DailyGoalProjectPort;
-  tasks?: DailyGoalTaskSourcePort;
   config: () => DailyGoalConfig;
   /** 専用セッションが報告 API を呼ぶための Cc の URL。 */
   baseUrl: string;

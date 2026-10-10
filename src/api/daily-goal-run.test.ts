@@ -10,6 +10,7 @@ function setup(overrides: Partial<Record<keyof DailyGoalRunService, unknown>> = 
     reportReached: vi.fn(async () => ({ outcome: "reached" })),
     reportExhausted: vi.fn(() => ({ outcome: "go", doable: ["x"], budgetReset: true })),
     recordReport: vi.fn(),
+    dayDetail: vi.fn((date: string) => ({ day: { businessDate: date, closeState: "posted" }, goals: [], drafts: [] })),
     ...overrides,
   } as unknown as DailyGoalRunService;
   const app = dailyGoalRunRouter(service, { isEnabled: () => opts.enabled ?? true, localRequest: () => opts.local ?? true, now: () => 5 });
@@ -44,10 +45,17 @@ describe("daily goal HTTP", () => {
     expect((await post("/g1/reached", { evidence: [] })).status).toBe(400);
   });
 
-  it("has no route that confirms or stops a goal", async () => {
+  it("reads the business-day state (目標なし・通知・まとめ・記載)", async () => {
+    const { app } = setup();
+    expect(await (await app.request("/days/2026-10-10")).json()).toMatchObject({ day: { businessDate: "2026-10-10", closeState: "posted" } });
+    expect((await app.request("/days/bad")).status).toBe(400);
+  });
+
+  it("has no route that registers, stops a goal or resends the summary", async () => {
     const { post } = setup();
     expect((await post("/", { goal: "x" })).status).toBe(404);
     expect((await post("/g1/stop", {})).status).toBe(404);
+    expect((await post("/days/2026-10-10/resend", {})).status).toBe(404);
   });
 
   it("returns 409 when the workflow is disabled and 403 off loopback", async () => {

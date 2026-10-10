@@ -3,14 +3,19 @@
  *
  * @implements spec/feature/daily-goal-run.md — 6. 終わり方 / CC-DG-INV-03 / CC-DG-INV-05 / CC-DG-INV-06
  *
- * 止まる条件は 3 つだけ: ゴール到達・十分にこなした・人間の停止。
- * 時刻・日付の変わり目・進捗の停滞では止めない (この判断関数は時刻を入力に取らない)。
+ * 止まる条件は 4 つだけ: ゴール到達・十分にこなした・人間の停止・締切 (翌朝の業務日境界)。
+ * 締切の時刻判断は deadline-policy.ts だけが持つ。 ここの判断関数は時刻を入力に取らず、
+ * 日付の変わり目 (0:00)・進捗の停滞では止めない。
  */
 
 import type { RemainingItem } from "./domain.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:d7bfa5b8 */
 import augurContract_56c7f597 from './goal-reached.contract.js'; /* augur-inject:contract-predicate:9e684a9c */
 import augurContract_e832796c from './exhausted.contract.js'; /* augur-inject:contract-predicate:f7de827f */
+
+/** 止まる条件の一覧 (CC-DG-INV-05)。 喪失は止まる条件ではなく状態として扱う。 */
+export const STOP_CONDITIONS = ["goal_reached", "exhausted", "human_stop", "deadline"] as const;
+export type StopCondition = (typeof STOP_CONDITIONS)[number];
 
 export type GoalReachedResult =
   | { reached: true }
@@ -63,7 +68,7 @@ export function evaluateExhausted(
 // @ts-expect-error augur-inject
 evaluateExhausted = contract(evaluateExhausted, { ...augurContract_e832796c, contractId: 'dg-C-6', mode: 'observe', sample: 1, where: 'src/daily-goal-run/stop-policy.ts:40', rule: 'contract-wrap', id: 'e832796c' }); /* augur-inject:contract-wrap:e832796c */
 
-/** 人間の停止は本人の操作のみ。 確定者本人か、 session_control (管理職以上) を持つ人。 */
+/** 人間の停止は本人の操作のみ。 登録した本人か、 session_control (管理職以上) を持つ人。 */
 export function canHumanStop(input: { isHuman: boolean; isConfirmer: boolean; hasSessionControl: boolean }): boolean {
   return input.isHuman && (input.isConfirmer || input.hasSessionControl);
 }

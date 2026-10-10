@@ -8,8 +8,9 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { describeDeadline } from "./business-day.js";
 import { isDue } from "./launch-policy.js";
-import { describePermissions } from "./prompts.js";
+import { describeActioTasks, describePermissions } from "./prompts.js";
 import { bindGoalToMetadata } from "./session-binding.js";
 import type { DailyGoal } from "./domain.js";
 import type { DailyGoalServiceDeps } from "./ports.js";
@@ -18,14 +19,15 @@ export const DAILY_GOAL_RUNNER_CALL_NAME = "daily-goal-runner";
 /** 起動が失敗と確定したときの再試行までの待ち。 */
 export const LAUNCH_RETRY_MS = 10 * 60_000;
 
-export function runnerArgs(goal: DailyGoal, baseUrl: string): Record<string, string> {
+export function runnerArgs(goal: DailyGoal, baseUrl: string, dayBoundary: string): Record<string, string> {
   return {
     daily_goal_id: goal.id,
     target_repo: goal.repoPath,
     goal_text: goal.goalText,
     acceptance: goal.acceptance.map((item, index) => `${index + 1}. ${item}`).join("\n"),
     permissions: describePermissions(goal.permissions),
-    actio_tasks: goal.actioTaskIds.map((id) => `actio:${id}`).join(", "),
+    actio_tasks: describeActioTasks(goal.actioTaskIds),
+    deadline: `${describeDeadline(goal.date, dayBoundary)} (業務日 ${goal.date} の締切)`,
     concordia_url: baseUrl,
   };
 }
@@ -33,11 +35,10 @@ export function runnerArgs(goal: DailyGoal, baseUrl: string): Record<string, str
 export class DailyGoalLauncher {
   constructor(private readonly deps: DailyGoalServiceDeps, private readonly touch: (goalId: string, line?: string) => void) {}
 
-  /** 期限が来た confirmed ゴールを起動する。 */
+  /** 登録済み・未起動のゴールをその場で起動する (起動時刻の制限は持たない)。 */
   async launchDue(now: number): Promise<void> {
-    const { launchTime } = this.deps.config();
     for (const goal of this.deps.repo.listByStatus(["confirmed"])) {
-      if (isDue(goal, now, launchTime)) await this.launch(goal, now);
+      if (isDue(goal, now)) await this.launch(goal, now);
     }
   }
 
@@ -48,7 +49,7 @@ export class DailyGoalLauncher {
     let result: Awaited<ReturnType<DailyGoalServiceDeps["delegation"]["launch"]>>;
     try {
       result = await this.deps.delegation.launch({
-        runId, goalId: goal.id, args: runnerArgs(goal, this.deps.baseUrl), cwd: goal.repoPath, project: goal.project,
+        runId, goalId: goal.id, args: runnerArgs(goal, this.deps.baseUrl, this.deps.config().dayBoundary), cwd: goal.repoPath, project: goal.project,
         requesterDiscordUserId: goal.confirmedBy.userId, sourceGuildId: goal.confirmedBy.guildId, sourceChannelId: goal.confirmedBy.channelId,
       });
     } catch (error) {

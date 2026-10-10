@@ -3,25 +3,26 @@ import { createDailyGoalSurface } from "./surface.js";
 import type { DailyGoalRunService } from "./service.js";
 
 describe("createDailyGoalSurface", () => {
-  it("resolves the live staff role for every confirm and stop", () => {
-    const confirmGoal = vi.fn(() => ({ ok: false, kind: "missing", missing: [] }));
+  it("resolves the live staff role for every post, stop and resend", async () => {
+    const intakePost = vi.fn(async () => ({ kind: "ignored" }));
     const stopByHuman = vi.fn(() => ({ id: "g" }));
-    const roles = ["staff", "manager"] as const;
+    const resendSummary = vi.fn(async () => ({ businessDate: "2026-10-10" }));
+    const roles = ["staff", "manager", "executive"] as const;
     let call = 0;
-    const service = { confirmGoal, stopByHuman, deps: { repo: {}, config: () => ({ launchTime: "07:30" }) } } as unknown as DailyGoalRunService;
+    const service = { intake: { intakePost }, stopByHuman, resendSummary, deps: { repo: {} } } as unknown as DailyGoalRunService;
     const surface = createDailyGoalSurface(service, { roleOf: () => roles[call++] ?? null, isEnabled: () => true, now: () => 7 });
     const actor = { userId: "u", guildId: "g", channelId: "c", isBot: false, isWebhook: false };
-    surface.confirm({ draft: {}, actor, receiptId: "i" });
+    await surface.intake.post({ text: "目標", messageId: "m1", actor });
     surface.stop("g", actor);
-    expect(confirmGoal).toHaveBeenCalledWith({ draft: {}, actor: { platform: "discord", ...actor, role: "staff" }, receiptId: "i", now: 7 });
+    await surface.resendSummary("2026-10-10", actor);
+    expect(intakePost).toHaveBeenCalledWith({ text: "目標", messageId: "m1", actor: { platform: "discord", ...actor, role: "staff" }, now: 7 });
     expect(stopByHuman).toHaveBeenCalledWith("g", { platform: "discord", ...actor, role: "manager" }, 7);
+    expect(resendSummary).toHaveBeenCalledWith("2026-10-10", { platform: "discord", ...actor, role: "executive" }, 7);
   });
 
-  it("computes the launch time from the configured value", () => {
-    const service = { deps: { repo: {}, config: () => ({ launchTime: "08:00" }) } } as unknown as DailyGoalRunService;
-    const surface = createDailyGoalSurface(service, { roleOf: () => null, isEnabled: () => false });
-    const confirmedAt = new Date(2026, 9, 10, 6, 0).getTime();
-    expect(surface.launchAtFor({ confirmedAt, date: "2026-10-10" } as never)).toBe(new Date(2026, 9, 10, 8, 0).getTime());
+  it("exposes the posting guide as the channel topic and the enabled flag", () => {
+    const surface = createDailyGoalSurface({ deps: { repo: {} } } as unknown as DailyGoalRunService, { roleOf: () => null, isEnabled: () => false });
+    expect(surface.channelTopic()).toContain("目標なし");
     expect(surface.isEnabled()).toBe(false);
   });
 });

@@ -41,7 +41,7 @@ describe("DailyGoalRepository (CC-DG-INV-02 / CC-INV-03)", () => {
     expect(repo.bySession("s1").map((g) => g.id)).toEqual(["g1"]);
     expect(repo.finish("g1", { status: "exhausted", reason: "exhausted", remaining: [{ item: "A", class: "unachievable", reason: "r" }], now: 4 })).toBe(true);
     expect(repo.finish("g1", { status: "stopped", reason: "human_stop", now: 5 })).toBe(false);
-    expect(repo.finishedOn("2026-10-10", "Concordia")[0]?.remaining).toHaveLength(1);
+    expect(repo.onDate("2026-10-10")[0]?.remaining).toHaveLength(1);
   });
 
   it("records checkpoint decisions once", () => {
@@ -70,12 +70,20 @@ describe("DailyGoalRepository (CC-DG-INV-02 / CC-INV-03)", () => {
     expect(repo.cardByMessage("m1")?.id).toBe("goal-g1");
   });
 
-  it("stores candidates and reports only real changes", () => {
+  it("never creates a second goal from the same post and keeps acceptance progress", () => {
     const { repo } = setup();
-    const candidate = { id: "c1", date: "2026-10-10", project: "p", repoPath: "r", suggestedGoal: "x", suggestedAcceptance: [], actioTaskIds: [], actioTasks: [], carryover: [], continuing: [], createdAt: 1 };
-    expect(repo.upsertCandidate(candidate)).toBe(true);
-    expect(repo.upsertCandidate({ ...candidate, createdAt: 2 })).toBe(false);
-    expect(repo.upsertCandidate({ ...candidate, suggestedGoal: "y" })).toBe(true);
-    expect(repo.candidate("c1")?.suggestedGoal).toBe("y");
+    expect(repo.create({ ...goal, sourceMessageId: "m1" }).created).toBe(true);
+    expect(repo.create({ ...goal, id: "g2", sourceMessageId: "m1" })).toMatchObject({ created: false, goal: { id: "g1" } });
+    expect(repo.bySourceMessage("m1")?.id).toBe("g1");
+    repo.setAcceptanceProgress("g1", { A: ["commit:a"] }, 2);
+    expect(repo.byId("g1")?.acceptanceProgress).toEqual({ A: ["commit:a"] });
+    expect(repo.onDate("2026-10-10").map((g) => g.id)).toEqual(["g1"]);
+  });
+
+  it("adds the new columns to a table created by the first version", () => {
+    const db = new Database(":memory:"); databases.push(db);
+    db.exec("CREATE TABLE daily_goals (id TEXT PRIMARY KEY, date TEXT NOT NULL, project TEXT NOT NULL, repo_path TEXT NOT NULL, goal_text TEXT NOT NULL, acceptance TEXT NOT NULL, actio_task_ids TEXT NOT NULL, permissions TEXT NOT NULL, confirmed_by TEXT NOT NULL, confirmed_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', session_id TEXT, run_id TEXT, launch_state TEXT NOT NULL DEFAULT 'none', launched_at INTEGER, launch_error TEXT, next_launch_at INTEGER, stop_reason TEXT, stopped_by TEXT, remaining TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
+    const repo = new DailyGoalRepository(db);
+    expect(repo.create({ ...goal, sourceMessageId: "m9" }).goal.sourceMessageId).toBe("m9");
   });
 });

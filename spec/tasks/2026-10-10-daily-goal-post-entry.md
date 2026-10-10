@@ -102,3 +102,45 @@ neco 指示 (2026-10-10):
 - `*-policy.ts` / `business-day.ts` / `day-summary.ts` / `extraction-guard.ts` が `better-sqlite3` / `discord.js` / `process.env` を import していない。
 - `launch_time` / `candidate_projects` / `co-daily-goal` が src に残っていない。
 - 止まる条件で時刻を見るのが `deadline-policy` だけ。
+
+## 実装結果 (2026-10-10)
+
+Actio タスク参照: `actio:611505c4-1917-4ab7-9875-c2b1a04760ad` (委託 run `01182dcc-f122-49d0-91bf-8a0730c7f438`)。
+
+### 追加・変更したもの
+
+- 純関数: `business-day` / `no-goal-policy` / `structured-post-parser` / `extraction-guard` / `draft-policy` /
+  `deadline-policy` / `reminder-policy` / `day-summary` / `post-replies`、 `stop-policy` に `STOP_CONDITIONS` (締切を含む 4 つ)、
+  `confirmation-policy` に `capPermissions` (権限を超える許可を不可に落とす)。
+- use case: `post-intake` (投稿・補足・編集の読み直し)、 `day-close` (締切停止 → まとめ → 記載 → 投稿)、 `reminder` (9:00)。
+- port + adapter: `goal-extraction` (`runClaude` による `claude -p`、 90 秒)、 `memoria-journal` (HTTP、 接続先は `memoriaBaseUrl()`)。
+- 保存: `draft-repository` (`daily_goal_drafts`)、 `day-repository` (`daily_goal_days`)、 `daily_goals` に
+  `source_message_id` (一意索引) と `acceptance_progress` を追加 (既存表は ALTER で足す)。
+- Discord: `daily-goal-post-intake` (投稿の経路判定と返信)、 `daily-goal-discord` (topic の更新、 通知・まとめカード、 再送ボタン)、
+  `bot.ts` の messageCreate / messageUpdate 配線。
+- 撤廃: `candidates.ts`、 候補カードと確定モーダル、 `/co-daily-goal`、 設定 `daily_goal.launch_time` / `daily_goal.candidate_projects`、
+  `launch-policy` の起動時刻。 `daily_goal_candidates` 表は残す。
+- 設定追加: `daily_goal.day_boundary` (04:00)、 `daily_goal.reminder_time` (09:00)。 HTTP `GET /v1/daily-goals/days/:date`。
+- 契約: dg-C-1 を `evaluateDraft` へ付け替え、 dg-C-3 (`launchAt`) を削除、 dg-C-7〜11 を追加。
+
+### 自己検証の結果
+
+- `grep -rn "TODO\|FIXME\|not implemented" src/daily-goal-run`: 0 件。
+- `*-policy.ts` / `business-day.ts` / `day-summary.ts` / `extraction-guard.ts` の `better-sqlite3` / `discord.js` / `process.env` import: 0 件。
+- `launch_time` / `candidate_projects` / `co-daily-goal` が src (テスト以外) に残っていない。
+- 止まる条件で時刻を見るのは `deadline-policy` だけ (`deadlineOf` を使うのは `business-day` 自身、 カードの締切表示、 9:00 の通知時刻の判定)。
+- 実施した検証: `tsc --noEmit -p tsconfig.json` (通過)、 `tsc -p tsconfig.test.json` (今回の変更起因のエラーなし)、
+  `npm run build` のサーバ側 (通過。 web は worktree に `web/node_modules` が無く失敗。 今回の変更とは無関係)、
+  `augur contracts lint` (dg 系の指摘なし)、 `augur tests lint` (valid)。 単体・統合・起動テストは指示により未実行。
+
+### 設計判断を変えた点・決めた点
+
+- `close_state` に `skipped` を足した。 目標なし・ゴールも下書きも無い日は記載も投稿もしないため、 終端の状態が要る。
+- 未記載 (`unwritten`) と結果不明 (`unknown`) の再送は「次の tick」ではなく 5 分後以降の tick にした。 Memoria が止まっている間に毎分叩かないため。
+- まとめの投稿は記載を 1 回試した後に出す (Memoria 未反映でも投稿が止まらないように)。 記載の状態はまとめカードに載せ、 後で記載できたらカードを更新する。
+- 締切停止は継続中に加え、 起動前 (登録済み・起動結果の照合中) のゴールも対象にした。
+- 受入条件ごとの到達は、 専用セッションの到達報告を照合するたびに `acceptance_progress` へ保存し、 締切時は Cc が集めた証跡に実在する参照だけを残す。
+- 構造化した書式で 3 項目がそろわず、 自由文の部分 (元投稿か返信) があるときは全文を LLM で読む。
+- 「目標なし」の投稿にも登録と同じ `session_spawn` を求める (誰でも通知を止められないように)。
+- プロジェクトの解決は、 コードの完全一致か、 名前・コードの大文字小文字を無視した一致が 1 プロジェクトに決まるときだけ。
+- 読み取りの LLM は Sonnet (会話のみ)。 撤廃した候補カードのボタンを押されたら「投稿で登録してください」と返す。

@@ -1,18 +1,17 @@
 /**
  * 人間の操作面 (chat platform) がデイリーゴールに使う口。
  *
- * @implements spec/feature/daily-goal-run.md — 2. 確定 / 6. 人間の停止 / カード / CC-DG-INV-01
+ * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 2. 聞き返し / 6. 人間の停止 / 8. まとめの再送 / カード / CC-DG-INV-01
  *
- * 確定と停止は人間本人の操作からだけ呼ばれる (公開 HTTP は持たない)。 役職の解決は
+ * 登録・停止・再送は人間本人の操作からだけ呼ばれる (公開 HTTP は持たない)。 役職の解決は
  * composition root が社員名簿で行い、 操作面は transport の本人性 (user / bot / webhook) を渡す。
  * カードの配達側はここから中身と配達状態の CAS を使う。
  */
 
-import type { ConfirmResult } from "./service.js";
-import type { DailyGoal, GoalCandidate, GoalDraft } from "./domain.js";
+import type { DailyGoalCardContent } from "./service.js";
+import type { DailyGoal, DailyGoalDay } from "./domain.js";
 import type { DailyGoalCard } from "./repository.js";
-import type { DailyGoalCardView } from "./card.js";
-import type { buildCandidateCard } from "./card.js";
+import type { IntakeResult } from "./post-intake.js";
 
 export interface SurfaceActor {
   userId: string;
@@ -23,21 +22,24 @@ export interface SurfaceActor {
   isWebhook: boolean;
 }
 
-export type SurfaceCardContent =
-  | { kind: "goal"; goalId: string; view: DailyGoalCardView }
-  | { kind: "candidate"; candidate: GoalCandidate; view: ReturnType<typeof buildCandidateCard> }
-  | null;
+export type SurfaceCardContent = DailyGoalCardContent;
 
 export interface DailyGoalSurfacePort {
   isEnabled(): boolean;
-  /** receiptId は確定操作の受付 ID (interaction id)。 同じ操作の再送は同じゴールを返す。 */
-  confirm(input: { draft: GoalDraft; actor: SurfaceActor; receiptId: string }): ConfirmResult;
+  /** チャンネルの説明 (投稿の書き方)。 */
+  channelTopic(): string;
+  intake: {
+    /** チャンネル直下の人間の投稿。 */
+    post(input: { text: string; messageId: string; actor: SurfaceActor }): Promise<IntakeResult>;
+    /** 元投稿の編集。 */
+    edited(input: { text: string; messageId: string; actor: SurfaceActor }): Promise<IntakeResult>;
+    /** 聞き返しスレッドでの返信。 */
+    threadReply(input: { threadId: string; text: string; actor: SurfaceActor }): Promise<IntakeResult>;
+    /** 操作面が作ったスレッドを下書きに結び付ける。 */
+    attachThread(draftId: string, threadId: string): void;
+  };
   stop(goalId: string, actor: SurfaceActor): DailyGoal;
-  candidate(candidateId: string): GoalCandidate | null;
-  /** 起動時刻を過ぎていれば今すぐ起動を試みる (scheduler の次 tick を待たない)。 */
-  launchSoon(): void;
-  /** 起動予定時刻 (epoch ms)。 */
-  launchAtFor(goal: DailyGoal): number;
+  resendSummary(date: string, actor: SurfaceActor): Promise<DailyGoalDay>;
   cards: {
     pending(now: number): DailyGoalCard[];
     unknown(): DailyGoalCard[];

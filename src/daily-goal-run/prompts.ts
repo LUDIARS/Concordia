@@ -3,7 +3,7 @@
  *
  * @implements spec/feature/daily-goal-run.md — 5. 1 時間ごとの確認 / 6. 終わり方
  *
- * 文面はゴール文・受入条件・許可範囲・Actio task ID と、 Cc が集めた証跡だけから作る。
+ * 文面はゴール文・受入条件・許可範囲・Actio task ID・締切と、 Cc が集めた証跡だけから作る。
  * セッション外のタスクを持ち込ませない。
  */
 
@@ -15,12 +15,16 @@ export function describePermissions(permissions: GoalPermissions): string {
   return PERMISSION_KEYS.map((key) => `${PERMISSION_LABELS[key]}=${permissions[key] ? "可" : "不可"}`).join(" / ");
 }
 
+export function describeActioTasks(ids: readonly string[]): string {
+  return ids.length ? ids.map((id) => `actio:${id}`).join(", ") : "なし";
+}
+
 function goalHeader(goal: DailyGoal): string[] {
   return [
     `デイリーゴール: ${goal.goalText}`,
     "受入条件:",
     ...goal.acceptance.map((item, index) => `  ${index + 1}. ${item}`),
-    `対応する Actio task: ${goal.actioTaskIds.map((id) => `actio:${id}`).join(", ")}`,
+    `対応する Actio task: ${describeActioTasks(goal.actioTaskIds)}`,
     `許可範囲: ${describePermissions(goal.permissions)} (許可に無い操作は ask で聞いて止まる)`,
   ];
 }
@@ -72,12 +76,14 @@ export function buildGoAfterRejectionPrompt(goal: DailyGoal, reason: string): st
   ].join("\n");
 }
 
-export function buildStoppedNotice(goal: DailyGoal, status: "achieved" | "exhausted" | "stopped"): string {
+export function buildStoppedNotice(goal: DailyGoal, status: "achieved" | "exhausted" | "stopped" | "deadline"): string {
   const reason = status === "achieved"
     ? "受入条件の証跡がそろい、ゴール到達を確認しました。"
     : status === "exhausted"
       ? "残りが達成不能か人間判断待ちだけであることを確認しました (やり切り)。"
-      : "人間がこのデイリーゴールを停止しました。新しい作業を始めないでください。";
+      : status === "deadline"
+        ? "締切 (翌朝の業務日の境界) に達しました。新しい作業を始めず、到達した受入条件と残りは Cc の日のまとめに載ります。"
+        : "人間がこのデイリーゴールを停止しました。新しい作業を始めないでください。";
   return [
     `[Concordia daily-goal-run 終了 ${goal.id}]`,
     reason,

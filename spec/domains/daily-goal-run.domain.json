@@ -1,6 +1,6 @@
 {
   "name": "daily-goal-run",
-  "description": "デイリーゴール自走 (WM-2)。人間本人が朝に確定したその日のゴールから専用セッションを 1 本起動し、1 時間ごとの確認で証跡・報告・判断点を出しながら Goal & Go で自走させる。ゴールの確定検証・証跡による進捗判定・終了判定・確認記録を所有する。Actio の task 状態、起動の実体 (agent-delegation)、セッション内の自走継続 (autonomous-continuation) は所有しない。UX-CC-W9; CC-DG-INV-01〜07。",
+  "description": "デイリーゴール自走 (WM-2)。人間本人が確定したその日のゴールから朝 7:30 に専用セッションを 1 本起動し、1 時間ごとの確認で証跡・報告・判断点を出しながら Goal & Go で自走させる。止まるのはゴール到達・十分にこなした・人間の停止の 3 つだけ。ゴールの確定検証・証跡による進捗判定・完了確認・止まる条件の照合・確認記録を所有する。Actio の task 状態、起動の実体 (agent-delegation)、セッション内の自走継続 (autonomous-continuation) は所有しない。UX-CC-W9; CC-DG-INV-01〜08。",
   "presetRules": [],
   "templateRules": [],
   "membership": [

@@ -68,7 +68,7 @@ describe("Discord chores", () => {
     const channel = { id: "channel", type: ChannelType.GuildText, send, messages: { fetch: vi.fn(async () => posted) } };
     const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) } } as unknown as Guild);
     const surface = await startChoresDiscord({ guild, config: memoryConfig(),
-      parentId: "p", baseUrl: "http://cc", log: { warn: vi.fn() } });
+      baseUrl: "http://cc", log: { warn: vi.fn() } });
     try {
       await vi.advanceTimersByTimeAsync(9000);
       expect(send).toHaveBeenCalledTimes(1);
@@ -91,7 +91,7 @@ describe("Discord chores", () => {
     const setParent = vi.fn(async () => undefined);
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", parentId: "meta-category", setParent };
     const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "meta-category", baseUrl: "http://cc", log: { warn: vi.fn() } });
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", log: { warn: vi.fn() } });
     try {
       expect(setParent).toHaveBeenCalledWith(null, expect.anything());
     } finally { surface.stopChores(); }
@@ -104,7 +104,7 @@ describe("Discord chores", () => {
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務" };
     const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
     const config = memoryConfig();
-    const surface = await startChoresDiscord({ guild, config, parentId: "parent", baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
+    const surface = await startChoresDiscord({ guild, config, baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
     const message = { guildId: "guild", channelId: "channel", id: "message", author: { id: "human", bot: false }, webhookId: null, channel: { isThread: () => false }, content: "[codex] 依頼", reply: vi.fn() };
     expect(surface.handlesMessage(message as unknown as Message)).toBe(true);
     expect(surface.handlesMessage({ ...message, guildId: "other" } as unknown as Message)).toBe(false);
@@ -122,7 +122,7 @@ describe("Discord chores", () => {
     const channel = { id: "channel", type: ChannelType.GuildText };
     const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
     const surface = await startChoresDiscord({ guild, config: memoryConfig(),
-      parentId: "p", baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
+      baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
     const interaction = { isButton: () => true, guildId: "guild", channelId: "other", message: { author: { id: "bot" } },
       user: { id: "human" }, customId: `chore:${row.id}:continue`, reply: vi.fn() };
     await surface.interaction(interaction as unknown as Interaction);
@@ -141,7 +141,7 @@ describe("Discord chores", () => {
     const send = vi.fn(async () => ({ id: "notice" }));
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", send, messages: { fetch: vi.fn() } };
     const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "p", baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
     const message = { guildId: "123", channelId: "channel", id: "456", author: { id: "human", bot: false }, webhookId: null,
       channel: { isThread: () => false }, content: "依頼", reply: vi.fn() };
     try {
@@ -173,7 +173,7 @@ describe("Discord chores", () => {
     });
     vi.stubGlobal("fetch", fetcher);
     const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", { id: "channel", type: ChannelType.GuildText }]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const surface = await startChoresDiscord({ guild, config: memoryConfig(), parentId: "p", baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
     const message = { guildId: "guild", channelId: "work-thread", id: "work-thread", channel: { isThread: () => true, parentId: "forum" },
       author: { id: "human", bot: false }, webhookId: null, content: "[codex] フォーラムの依頼", reply: vi.fn() } as unknown as Message;
     const target = await guild.channels.fetch("work-thread");

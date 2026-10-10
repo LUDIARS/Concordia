@@ -28,12 +28,14 @@ export const DAILY_GOAL_CHANNEL_NAME = "デイリーゴール";
 const CHANNEL_CONFIG_KEY = "daily_goal_channel_id";
 
 /** 入口チャンネルを用意し、 説明 (topic) を投稿の書き方にそろえる。 */
-async function ensureChannel(guild: Guild, config: DiscordConfigRepo, parentId: string, topic: string, log: { warn(message: string): void }): Promise<TextChannel> {
+async function ensureChannel(guild: Guild, config: DiscordConfigRepo, topic: string, log: { warn(message: string): void }): Promise<TextChannel> {
   const saved = config.get(CHANNEL_CONFIG_KEY);
   const known = saved ? guild.channels.cache.get(saved) : [...guild.channels.cache.values()].find((c) => c.type === ChannelType.GuildText && c.name === DAILY_GOAL_CHANNEL_NAME);
   const channel: TextChannel = known?.type === ChannelType.GuildText ? known : await guild.channels.create({
-    name: DAILY_GOAL_CHANNEL_NAME, type: ChannelType.GuildText, parent: parentId, topic,
+    name: DAILY_GOAL_CHANNEL_NAME, type: ChannelType.GuildText, topic,
   });
+  // デイリーゴールはカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
+  if (channel.parentId) await channel.setParent(null, { reason: "daily goal channel moved out of category" });
   if (channel.topic !== topic) await channel.setTopic(topic).catch((error) => log.warn(`daily goal channel topic update failed: ${String(error)}`));
   config.set(CHANNEL_CONFIG_KEY, channel.id);
   return channel;
@@ -50,11 +52,11 @@ export interface DailyGoalDiscord {
 }
 
 export async function startDailyGoalDiscord(input: {
-  guild: Guild; config: DiscordConfigRepo; parentId: string; port: DailyGoalSurfacePort;
+  guild: Guild; config: DiscordConfigRepo; port: DailyGoalSurfacePort;
   log: { warn(message: string): void };
 }): Promise<DailyGoalDiscord> {
   const { port, guild } = input;
-  const channel = await ensureChannel(guild, input.config, input.parentId, port.channelTopic(), input.log);
+  const channel = await ensureChannel(guild, input.config, port.channelTopic(), input.log);
   const intake = createDailyGoalPostIntake({ guild, channelId: channel.id, port, log: input.log });
   let stopped = false;
   let busy = false;

@@ -58,16 +58,18 @@ export interface ManagementDiscord {
 }
 
 export async function startManagementDiscord(input: {
-  guild: Guild; config: DiscordConfigRepo; parentId: string; baseUrl: string;
+  guild: Guild; config: DiscordConfigRepo; baseUrl: string;
   allowed?: (userId: string) => boolean; log: { warn: (message: string) => void };
 }): Promise<ManagementDiscord> {
   const { guild, config } = input;
   const saved = config.get("management_channel_id");
   const existing = saved ? guild.channels.cache.get(saved) : guild.channels.cache.find((c) => c.type === ChannelType.GuildText && c.name === "cdgd管理");
   const channel: TextChannel = existing?.type === ChannelType.GuildText ? existing : await guild.channels.create({
-    name: "cdgd管理", type: ChannelType.GuildText, parent: input.parentId,
+    name: "cdgd管理", type: ChannelType.GuildText,
     topic: "CDGD マネジメント層 (dots) の依頼のうち、人間の判断・受入・効果確認が要るものを表示します。",
   });
+  // cdgd管理はカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
+  if (channel.parentId) await channel.setParent(null, { reason: "management channel moved out of category" });
   config.set("management_channel_id", channel.id);
   const abort = new AbortController();
   let stopped = false;

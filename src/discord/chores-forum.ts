@@ -15,7 +15,7 @@ type Address = z.infer<typeof addressSchema>;
  * @implements CC-CHORES-FORUM AT-01 AT-02 AT-03 AT-04
  */
 export async function createChoresForum(input: {
-  guild: Guild; config: DiscordConfigRepo; parentId: string; windowId: string;
+  guild: Guild; config: DiscordConfigRepo; windowId: string;
   card: (run: Chore) => { content: string }; stopped: () => boolean;
 }): Promise<{
   forumId: string;
@@ -34,16 +34,18 @@ export async function createChoresForum(input: {
   const candidate = saved ? guild.channels.cache.get(saved) ?? await guild.channels.fetch(saved) : undefined;
   if (saved && candidate?.type !== ChannelType.GuildForum) throw new Error("保存した雑務課フォーラムを照合できません。");
   const existing = candidate?.type === ChannelType.GuildForum ? candidate
-    : [...guild.channels.cache.values()].find(c => c.type === ChannelType.GuildForum && c.name === "雑務課" && c.parentId === input.parentId);
+    : [...guild.channels.cache.values()].find(c => c.type === ChannelType.GuildForum && c.name === "雑務課");
   let forum: ForumChannel;
   if (existing?.type === ChannelType.GuildForum) forum = existing;
   else {
     if (!config.compareAndSwap("chores_forum_creation", null, "pending")) throw new Error("雑務課フォーラム作成の結果が不明です。既存チャンネルを照合してください。");
     forum = await guild.channels.create({
-      name: "雑務課", type: ChannelType.GuildForum, parent: input.parentId,
+      name: "雑務課", type: ChannelType.GuildForum,
       topic: "作業内容と回答を依頼ごとのスレッドに投稿します。ここへの新しい作業投稿からも起動できます。雑務窓口の依頼もここに回答します。",
     });
   }
+  // 雑務課はカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
+  if (forum.parentId) await forum.setParent(null, { reason: "chores forum moved out of category" });
   config.set("chores_forum_id", forum.id);
   config.delete("chores_forum_creation");
   const key = (id: string): string => `chores_forum_run:${id}`;

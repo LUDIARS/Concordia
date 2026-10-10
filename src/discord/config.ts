@@ -428,9 +428,16 @@ export async function ensureDeskChannel(
   repo: DiscordConfigRepo,
   deskId: string,
   channelName: string,
-  parentId: string,
 ): Promise<string> {
-  return ensureTextChannel(guild, repo, `desk_channel_id:${deskId}`, channelName, parentId);
+  // desk の窓口はカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
+  return ensureTextChannel(guild, repo, `desk_channel_id:${deskId}`, channelName, null);
+}
+
+/** 手動指定や保存済みのチャンネルをカテゴリの外へ出す (見つからない・カテゴリ外なら何もしない)。 */
+export async function detachFromCategory(guild: Guild, channelId: string): Promise<void> {
+  const channel = guild.channels.cache.get(channelId) ?? await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel || channel.isThread() || !channel.parentId) return;
+  await channel.setParent(null, { reason: `${channel.name} channel moved out of category` });
 }
 
 async function ensureCategory(guild: Guild, repo: DiscordConfigRepo, key: string, name: string): Promise<string> {

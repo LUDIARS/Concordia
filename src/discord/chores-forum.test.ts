@@ -31,11 +31,18 @@ function fixture() {
   const guild = { id: "guild", client: { user: { id: "bot" } }, channels: {
     cache: new Map([["forum", forum]]), fetch: vi.fn(async () => thread),
   } } as unknown as Guild;
-  const create = () => createChoresForum({ guild, config, parentId: "category", windowId: "window", card: choreCard, stopped: () => stopped });
+  const create = () => createChoresForum({ guild, config, windowId: "window", card: choreCard, stopped: () => stopped });
   return { config, create, values, card, thread, forum, stop: () => { stopped = true; } };
 }
 
 describe("durable chores forum delivery addresses", () => {
+  it("moves the chores forum out of its category", async () => {
+    const f = fixture();
+    const setParent = vi.fn(async () => f.forum);
+    Object.assign(f.forum, { parentId: "meta-category", setParent });
+    await f.create();
+    expect(setParent).toHaveBeenCalledWith(null, expect.anything());
+  });
   it("creates one work record for concurrent delivery and adopts it after reconnect", async () => {
     const f = fixture();
     const surface = await f.create();

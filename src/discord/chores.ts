@@ -53,14 +53,14 @@ export interface ChoresDiscord {
   stopChores: () => void;
 }
 export async function startChoresDiscord(input: {
-  guild: Guild; config: DiscordConfigRepo; parentId: string; baseUrl: string;
+  guild: Guild; config: DiscordConfigRepo; baseUrl: string;
   allowed?: (userId: string) => boolean; log: { warn: (message: string) => void };
 }): Promise<ChoresDiscord> {
   const { guild, config } = input;
   const saved = config.get("chores_channel_id");
   const existing = saved ? guild.channels.cache.get(saved) : [...guild.channels.cache.values()].find(c => c.type === ChannelType.GuildText && ["雑務", "雑務窓口"].includes(c.name));
   // 雑務窓口はカテゴリ外のルートチャンネル (2026-10-06 neco 指示「雑務窓口とサービス稼働はカテゴリから出す」)。
-  // 雑務課のフォーラムは従来どおり parentId のカテゴリに置く。
+  // 雑務課のフォーラムもカテゴリを持たない (2026-10-10 neco 指示)。
   const channel: TextChannel = existing?.type === ChannelType.GuildText ? existing : await guild.channels.create({
     name: "雑務窓口", type: ChannelType.GuildText,
     topic: "依頼を投稿すると雑務課フォーラムにスレッドを作り、ワンショット実行の作業と回答をそこへ投稿します。先頭 [codex] でCodex、既定はClaude。",
@@ -69,7 +69,7 @@ export async function startChoresDiscord(input: {
   if (channel.parentId) await channel.setParent(null, { reason: "chores window moved out of category" });
   config.set("chores_channel_id", channel.id);
   let stopped = false;
-  const forum = await createChoresForum({ guild, config, parentId: input.parentId, windowId: channel.id, card: choreCard, stopped: () => stopped });
+  const forum = await createChoresForum({ guild, config, windowId: channel.id, card: choreCard, stopped: () => stopped });
   const abort = new AbortController();
   let delivering = false;
   const call = async <T>(path: string, body?: unknown): Promise<T> => {

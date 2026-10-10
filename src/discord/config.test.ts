@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ChannelType } from "discord.js";
 import type { Guild } from "discord.js";
-import { ensureDiscordLayout, SESSION_FORUM_TOPIC, TEST_FORUM_TOPIC } from "./config.js";
+import { detachFromCategory, ensureDeskChannel, ensureDiscordLayout, SESSION_FORUM_TOPIC, TEST_FORUM_TOPIC } from "./config.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 
@@ -243,5 +243,26 @@ describe("ensureDiscordLayout", () => {
     expect(names).not.toContain("NEW-0");
     expect(names).toContain(CONCORDIA_MANAGED_FORUM_TAG_NAME);
     expect(names).toHaveLength(20);
+  });
+});
+
+describe("desk の窓口はカテゴリを持たない (2026-10-10 neco 指示)", () => {
+  it("新規作成はカテゴリ外、 カテゴリ内の既存チャンネルは外へ出す", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const repo = makeFakeRepo();
+    const category = await guild.channels.create({ name: "meta", type: ChannelType.GuildCategory });
+    const old = await guild.channels.create({ name: "kd窓口", type: ChannelType.GuildText, parent: category.id });
+    expect(await ensureDeskChannel(guild, repo, "desk-kd", "kd窓口")).toBe(old.id);
+    expect(channels.get(old.id)?.parentId).toBeNull();
+    const fresh = await ensureDeskChannel(guild, repo, "desk-new", "新窓口");
+    expect(channels.get(fresh)?.parentId).toBeNull();
+  });
+  it("保存済み id のチャンネルを detachFromCategory でカテゴリ外へ出す", async () => {
+    const setParent = async (_parent: null) => { channel.parentId = null; };
+    const channel = { id: "desk", name: "kd窓口", parentId: "meta" as string | null, isThread: () => false, setParent };
+    const guild = { channels: { cache: new Map([["desk", channel]]), fetch: async () => null } } as unknown as Guild;
+    await detachFromCategory(guild, "desk");
+    expect(channel.parentId).toBeNull();
+    await detachFromCategory(guild, "missing");
   });
 });

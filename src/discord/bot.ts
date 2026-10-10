@@ -27,7 +27,7 @@ import { makeDiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js
 import { makeDiscordReviewReportReceiptsRepo } from "../db/discord-review-report-receipts-repo.js";
 import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
 import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-client.js";
-import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
+import { detachFromCategory, ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { DirectorRepo } from "../director/repo.js";
@@ -1229,15 +1229,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sprintDialoguesDiscord = startSprintDialogues({ guild, db: deps.db, parentId: layout.metaCategoryId,
           workspaceRoot: workspaceRoots[0] ?? process.cwd(), allowed: isSessionControlUserAllowed, reply: deps.runHeadless, log });
         choresDiscord?.stopChores();
-        choresDiscord = await startChoresDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
+        // 雑務課・cdgd管理・デイリーゴールはカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
+        choresDiscord = await startChoresDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
         dailyGoalDiscord?.stop();
         dailyGoalDiscord = deps.dailyGoals
-          ? await startDailyGoalDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId, port: deps.dailyGoals, log })
+          ? await startDailyGoalDiscord({ guild, config: configRepo, port: deps.dailyGoals, log })
             .catch((error) => { log.warn(`daily goal channel unavailable: ${String(error)}`); return null; })
           : null;
         managementDiscord?.stop();
-        managementDiscord = await startManagementDiscord({ guild, config: configRepo, parentId: layout.metaCategoryId,
+        managementDiscord = await startManagementDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
@@ -1267,14 +1268,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
       }
       // 本社内 desk: 「タスク依頼」チャンネルを本社 guild に自動作成する。
+      // desk の窓口 (kd窓口など) はカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
       if (deps.desk) {
         try {
           if (!deskChannelId) {
-            deskChannelId = await ensureDeskChannel(
-              guild, configRepo, deps.desk.id, deps.desk.channelName, layout.metaCategoryId,
-            );
+            deskChannelId = await ensureDeskChannel(guild, configRepo, deps.desk.id, deps.desk.channelName);
             deps.desk.onChannelResolved?.(deskChannelId);
             log.info(`desk channel ensured id=${deskChannelId} name=${deps.desk.channelName} guild=${guild.id}`);
+          } else {
+            await detachFromCategory(guild, deskChannelId);
           }
         } catch (e) {
           log.warn(`desk channel ensure failed guild=${guild.id}: ${(e as Error).message}`);

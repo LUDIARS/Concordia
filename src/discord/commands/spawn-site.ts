@@ -9,6 +9,7 @@
 import { ActionRowBuilder, ComponentType, StringSelectMenuBuilder, type MessageComponentInteraction } from "discord.js";
 import type { DiscordCommandSpec, SpawnSitePort } from "../command-port.js";
 import type { RemoteSpawnOptions } from "../../federation/remote-session-payload.js";
+import { markSiteTitle } from "../../federation/forum-site-routing.js";
 
 /**
  * `/spawn` の返信先。 通常はスラッシュコマンド、 起動先を選んだ後はその選択の interaction。
@@ -137,6 +138,30 @@ export function siteSpawnFailureMessage(reason: "unknown_site" | "inactive_site"
 }
 
 /** Discord 側の手順: スレッドを用意して拠点へ渡し、 結果を受付返信に書く。 */
+/** 拠点の印を付けられるスレッド (discord.js の ThreadChannel のうち使う部分)。 */
+interface RenamableThread {
+  id: string;
+  name?: string;
+  setName?: (name: string) => Promise<unknown>;
+}
+
+/**
+ * 拠点へ渡したスレッドのタイトルに拠点の印 (`[M]` など) を付ける (2026-10-10 neco 指示)。
+ * 改名の失敗で起動の依頼は取り消さない (依頼は送信済み)。
+ */
+async function markSiteThread(
+  thread: RenamableThread | null, siteName: string, log: { warn(message: string): void },
+): Promise<void> {
+  if (!thread?.setName || typeof thread.name !== "string") return;
+  const name = markSiteTitle(thread.name, siteName);
+  if (name === thread.name) return;
+  try {
+    await thread.setName(name);
+  } catch (error) {
+    log.warn(`spawn command site title mark failed channel=${thread.id}: ${(error as Error).message}`);
+  }
+}
+
 export async function executeSiteSpawn(
   interaction: SpawnResponder,
   port: SpawnSitePort,
@@ -156,11 +181,12 @@ export async function executeSiteSpawn(
   const request = buildSiteSpawnRequest(fields);
   await interaction.deferReply({ ephemeral: false });
   let channelId = interaction.channelId;
-  if (!interaction.channel?.isThread()) {
+  let thread: RenamableThread | null = interaction.channel?.isThread() ? interaction.channel as RenamableThread : null;
+  if (!thread) {
     // 拠点の発言と返信をこのチャンネルに流さないよう、 受付返信からスレッドを作る。
     await interaction.editReply({ content: `拠点「${site}」での起動を準備しています…` });
     const reply = await interaction.fetchReply();
-    const thread = await reply.startThread({ name: Array.from(request.title).slice(0, THREAD_NAME_MAX).join("") });
+    thread = await reply.startThread({ name: Array.from(request.title).slice(0, THREAD_NAME_MAX).join("") });
     channelId = thread.id;
   }
   const routed = port.route({
@@ -173,6 +199,7 @@ export async function executeSiteSpawn(
     return;
   }
   log.info(`spawn command routed to site site=${routed.siteId} channel=${channelId}`);
+  await markSiteThread(thread, routed.siteName, log);
   await interaction.editReply({
     content: `拠点「${routed.siteName}」の Cc にセッションの起動を依頼しました。起動結果と発言は <#${channelId}> に届き、そこへの返信は拠点のセッションに届きます。`,
   });

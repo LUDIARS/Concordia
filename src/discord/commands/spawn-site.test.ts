@@ -64,7 +64,7 @@ describe("site spawn request", () => {
 
 describe("executeSiteSpawn", () => {
   function responder(inThread: boolean) {
-    const thread = { id: "999999999999999999" };
+    const thread = { id: "999999999999999999", name: "Pagus", setName: vi.fn(async () => undefined) };
     const reply = { startThread: vi.fn(async () => thread) };
     const ix = {
       reply: vi.fn(), deferReply: vi.fn(), editReply: vi.fn(), fetchReply: vi.fn(async () => reply),
@@ -82,6 +82,7 @@ describe("executeSiteSpawn", () => {
     expect(reply.startThread).toHaveBeenCalled();
     expect(sites.route).toHaveBeenCalledWith(expect.objectContaining({ site: "melpot", channelId: thread.id, title: "Pagus", options: { provider: "claude", project: "Pa" } }));
     expect(ix.editReply).toHaveBeenLastCalledWith({ content: expect.stringContaining("MELPOT") });
+    expect(thread.setName).toHaveBeenCalledWith("[M] Pagus");
   });
 
   it("reuses the current thread and reports a route failure without spawning at HQ", async () => {

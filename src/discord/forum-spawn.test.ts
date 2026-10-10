@@ -121,6 +121,18 @@ describe("forum spawn", () => {
     expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("HASTER"));
   });
 
+  it("marks a thread handed to a site with the site initial and keeps the spawn when renaming fails", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const rename = vi.fn(async () => undefined);
+    const deps = makeDeps({ routeRemoteSpawn: vi.fn(() => ({ siteName: "HASTER" })) });
+    await expect(executeForumSpawn(deps, makeThread({ name: "[Cc] Implement Phase 2", rename }))).resolves.toEqual({ ok: true });
+    expect(rename).toHaveBeenCalledWith("[H] [Cc] Implement Phase 2");
+
+    const failing = vi.fn(async () => { throw new Error("missing permissions"); });
+    await expect(executeForumSpawn(deps, makeThread({ id: "thread-2", name: "[Cc] Implement Phase 2", rename: failing }))).resolves.toEqual({ ok: true });
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining("site title mark failed"));
+  });
+
   describe("project-assigned sites (SPEC-FED-SPAWN-SITE, 2026-10-07)", () => {
     const routeOk = () => vi.fn(() => ({ ok: true as const, siteId: "melpot", siteName: "MELPOT" }));
 

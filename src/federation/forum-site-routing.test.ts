@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveExplicitSite, resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, siteNameTagsOf, sitesForProject, spawnSiteChoices } from "./forum-site-routing.js";
+import { markSiteTitle, resolveExplicitSite, resolveSiteFromForumTags, resolveSiteFromSiteNameTags, resolveSiteFromText, resolveSiteFromTitleMark, siteNameTagsOf, siteTitleMark, sitesForProject, spawnSiteChoices } from "./forum-site-routing.js";
 import type { FederationSiteRow } from "../db/federation-sites-repo.js";
 
 const pcs = [{ id: "pc-a", name: "HASTER" }, { id: "pc-b", name: "YIDHRA" }];
@@ -74,6 +74,40 @@ describe("forum site routing by naming the site in the request (2026-10-06)", ()
     const result = resolveSiteFromText(sites, "GROMACで検証", "@haster も見て");
     expect(result.route).toEqual({ kind: "hq" });
     expect(result.warnings).not.toEqual([]);
+  });
+});
+
+describe("site title mark (2026-10-10 neco: タイトルに[拠点名(1文字)])", () => {
+  const named = (siteId: string, name: string | null, status: "active" | "revoked" = "active"): FederationSiteRow =>
+    ({ ...site(siteId, null, status), name });
+
+  it("uses the upper-cased initial of the display name", () => {
+    expect(siteTitleMark("MELPOT")).toBe("[M]");
+    expect(siteTitleMark(" haster")).toBe("[H]");
+  });
+
+  it("prefixes the mark once and keeps an already marked title", () => {
+    expect(markSiteTitle("[Cc] Phase 2", "MELPOT")).toBe("[M] [Cc] Phase 2");
+    expect(markSiteTitle("[M] [Cc] Phase 2", "MELPOT")).toBe("[M] [Cc] Phase 2");
+    expect(markSiteTitle("[m] task", "MELPOT")).toBe("[m] task");
+    expect(Array.from(markSiteTitle("あ".repeat(120), "MELPOT"))).toHaveLength(100);
+  });
+
+  it("routes a title that starts with a site mark and ignores longer brackets", () => {
+    const sites = [named("melpot", "MELPOT"), named("haster", "HASTER")];
+    expect(resolveSiteFromTitleMark(sites, "[M] 状態の確認")).toEqual({ route: { kind: "site", siteId: "melpot" }, warnings: [] });
+    expect(resolveSiteFromTitleMark(sites, " [h] fix")).toEqual({ route: { kind: "site", siteId: "haster" }, warnings: [] });
+    expect(resolveSiteFromTitleMark(sites, "[Cc] Phase 2").route).toBeNull();
+    expect(resolveSiteFromTitleMark(sites, "[X] unknown").route).toBeNull();
+    expect(resolveSiteFromText(sites, "[M] 本文で指定", "").route).toEqual({ kind: "site", siteId: "melpot" });
+  });
+
+  it("falls back to HQ with a warning when two active sites share the initial, and skips revoked sites", () => {
+    const shared = resolveSiteFromTitleMark([named("melpot", "MELPOT"), named("macmini", "MacMini")], "[M] task");
+    expect(shared.route).toEqual({ kind: "hq" });
+    expect(shared.warnings[0]).toContain("melpot");
+    expect(resolveSiteFromTitleMark([named("melpot", "MELPOT"), named("old", "MOLD", "revoked")], "[M] task").route)
+      .toEqual({ kind: "site", siteId: "melpot" });
   });
 });
 

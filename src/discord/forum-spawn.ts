@@ -39,6 +39,7 @@ import {
 } from "./forum-spawn-intake.js";
 import type { SpawnSitePort } from "./command-port.js";
 import { siteSpawnFailureMessage } from "./commands/spawn-site.js";
+import { markSiteTitle } from "../federation/forum-site-routing.js";
 import {
   buildConsultIntakeQuestion,
   resolveConsultIntake,
@@ -59,6 +60,8 @@ export interface ForumSpawnThread {
   availableTags: readonly ForumTagIdentity[];
   fetchStarterMessage: () => Promise<{ content: string } | null>;
   fetchTagState: () => Promise<ForumTagState>;
+  /** スレッド名の変更 (拠点へ渡したスレッドに拠点の印を付ける)。 未配線なら付けない。 */
+  rename?: (name: string) => Promise<void>;
 }
 
 /**
@@ -309,6 +312,7 @@ export async function executeForumSpawn(
     });
     if (remote) {
       deps.log.info(`forum-spawn routed to site thread=${thread.id} site=${remote.siteName}`);
+      await markThreadForSite(deps, thread, remote.siteName);
       await reply(deps, thread, `拠点「${remote.siteName}」の Cc にセッションの起動を依頼しました。起動結果はこのスレッドに届きます。`);
       return { ok: true };
     }
@@ -655,8 +659,24 @@ async function routeForumSpawnToProjectSite(
     return { ok: false, error: `site route failed: ${routed.reason}` };
   }
   deps.log.info(`forum-spawn routed to project site thread=${thread.id} site=${routed.siteId} project=${JSON.stringify(input.project)}`);
+  await markThreadForSite(deps, thread, routed.siteName);
   await reply(deps, thread, `関係プロジェクト \`${input.project}\` の担当拠点「${routed.siteName}」の Cc にセッションの起動を依頼しました。起動結果はこのスレッドに届きます。`);
   return { ok: true };
+}
+
+/**
+ * 拠点へ渡したスレッドのタイトルに拠点の印 (`[M]` など) を付ける (2026-10-10 neco 指示)。
+ * 改名の失敗で起動の依頼は取り消さない (依頼は送信済み)。
+ */
+async function markThreadForSite(deps: ForumSpawnDeps, thread: ForumSpawnThread, siteName: string): Promise<void> {
+  if (!thread.rename) return;
+  const name = markSiteTitle(thread.name, siteName);
+  if (name === thread.name) return;
+  try {
+    await thread.rename(name);
+  } catch (error) {
+    deps.log.warn(`forum-spawn site title mark failed thread=${thread.id}: ${(error as Error).message}`);
+  }
 }
 
 async function askForMissingForumSpawnInfo(

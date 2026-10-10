@@ -1967,6 +1967,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const starter = await thread.fetchStarterMessage();
         return starter ? { content: starter.content } : null;
       },
+      rename: async (name) => {
+        await thread.setName(name);
+      },
       fetchTagState: async () => {
         const freshThread = await thread.fetch(true);
         const freshParent = freshThread.parent?.type === ChannelType.GuildForum

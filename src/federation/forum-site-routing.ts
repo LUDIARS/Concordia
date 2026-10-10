@@ -50,6 +50,8 @@ export function siteNameTagsOf(sites: readonly FederationSiteRow[]): string[] {
 export function resolveSiteFromText(
   sites: readonly FederationSiteRow[], title: string, body: string,
 ): ForumSiteRouteResolution {
+  const marked = resolveSiteFromTitleMark(sites, title);
+  if (marked.route || marked.warnings.length > 0) return marked;
   const active = sites.filter((site) => site.status === "active");
   const named = new Set<string>();
   for (const site of active) {
@@ -66,6 +68,46 @@ function namesSite(name: string, title: string, body: string): boolean {
   const leading = new RegExp(`^\\s*(?:\\[[^\\]]*\\]\\s*)*${escaped}\\s*で`, "i");
   const mention = new RegExp(`(^|\\s)@${escaped}(?![\\w-])`, "i");
   return leading.test(title) || leading.test(body) || mention.test(title) || mention.test(body);
+}
+
+/**
+ * 拠点で動くスレッドのタイトル印 (2026-10-10 neco 指示「タイトルに[拠点名(1文字)]つける」)。
+ * 拠点ごとのフォーラムを持つ代わりに、 本社の Session forum で拠点のスレッドを見分ける。
+ * 印は表示名 (無ければ site_id) の先頭 1 文字を大文字にしたもの。
+ */
+export function siteTitleMark(siteName: string): string {
+  const initial = Array.from(siteName.trim())[0] ?? "?";
+  return `[${initial.toUpperCase()}]`;
+}
+
+/** Discord のスレッド名上限。 */
+const MAX_THREAD_NAME = 100;
+
+/** タイトルに拠点の印を付ける。 すでに同じ印で始まっていればそのまま返す (付け直しを冪等にする)。 */
+export function markSiteTitle(title: string, siteName: string): string {
+  const mark = siteTitleMark(siteName);
+  const trimmed = title.trim();
+  if (trimmed.toUpperCase().startsWith(mark)) return title;
+  return Array.from(`${mark} ${trimmed}`).slice(0, MAX_THREAD_NAME).join("");
+}
+
+/**
+ * 題名先頭の拠点の印 (`[M] ...`) で拠点を決める。 印が有効な拠点 1 つにだけ当たればその拠点、
+ * 頭文字が同じ拠点が複数あれば本社へ退避して warn する。 1 文字の括弧だけを印として読む
+ * (`[Cc]` のような既存の括弧書きは印ではない)。
+ */
+export function resolveSiteFromTitleMark(
+  sites: readonly FederationSiteRow[], title: string,
+): ForumSiteRouteResolution {
+  const match = /^\s*(\[[^\]]\])/u.exec(title);
+  if (!match) return { route: null, warnings: [] };
+  const mark = match[1]!.toUpperCase();
+  const matches = sites.filter((site) => site.status === "active" && siteTitleMark(site.name?.trim() || site.site_id) === mark);
+  if (matches.length === 0) return { route: null, warnings: [] };
+  if (matches.length > 1) {
+    return { route: { kind: "hq" }, warnings: [`タイトルの印 ${mark} に当たる拠点が複数あります: ${matches.map((site) => site.site_id).join(", ")}`] };
+  }
+  return { route: { kind: "site", siteId: matches[0]!.site_id }, warnings: [] };
 }
 
 /** `/spawn site:` で指定できる拠点 (有効な拠点だけ)。 */

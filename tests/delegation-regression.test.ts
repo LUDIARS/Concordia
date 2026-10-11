@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeTestApp } from "./helpers/test-app.js";
+import { SEED_ARS_ROOT } from "../src/control/seed-cwd-rebase.js";
 import type { SpawnRequest } from "../src/control/spawner.js";
 
 const EXPECTED_SEED_CALLS = [
@@ -99,6 +102,9 @@ describe("delegation seed regression", () => {
         spawnCalls.push(req);
         return { ok: true, pid: 10_000 + spawnCalls.length, command: ["stub-spawn", req.provider] };
       },
+      // seed の default_cwd は本社の Ars ルートで書かれている。 本社以外の PC でも同じ結果に
+      // なるよう、その構成を写した workspace root を渡し、seed cwd の読み替えを通す。
+      delegationWorkspaceRoots: [WORKSPACE_ROOT],
     });
     const withNoExternalAutoModel = await withFastFamulusFallback(async () => {
       const list = await env.app.request("/v1/delegation/templates");
@@ -106,6 +112,7 @@ describe("delegation seed regression", () => {
 
       for (const template of templates) {
         const args = argsFor(template);
+        mirrorSeedCwd(expectedSeedCwd(template, args));
         const invoke = await env.app.request("/v1/delegation/invoke", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -156,6 +163,7 @@ describe("delegation seed regression", () => {
         expect(req?.env?.CONCORDIA_DELEGATION_CALL_NAME).toBe(template.call_name);
         expect(req?.env?.CONCORDIA_DELEGATION_PROMPT_FILE).toBe(json.prompt_file_path);
         expect(req?.cwd).toBe(expectedCwd(template, args));
+        expect(req?.cwd === undefined || existsSync(req.cwd), template.call_name).toBe(true);
       }
     });
 
@@ -165,6 +173,22 @@ describe("delegation seed regression", () => {
     // テンプレが増えるたびに既定 5s を超えるため、本数に見合う timeout を明示する。
   }, 30000);
 });
+
+/** seed の本社 Ars ルートを写した workspace root (この PC に本社のパスが無いときに使われる)。 */
+const WORKSPACE_ROOT = mkdtempSync(join(tmpdir(), "concordia-seed-root-"));
+
+function seedRelative(cwd: string): string | null {
+  const normalized = cwd.replace(/\//g, "\\");
+  if (normalized.toLowerCase() === SEED_ARS_ROOT.toLowerCase()) return "";
+  return normalized.toLowerCase().startsWith(`${SEED_ARS_ROOT.toLowerCase()}\\`)
+    ? normalized.slice(SEED_ARS_ROOT.length + 1)
+    : null;
+}
+
+function mirrorSeedCwd(cwd: string | undefined): void {
+  const relative = cwd ? seedRelative(cwd) : null;
+  if (relative !== null) mkdirSync(join(WORKSPACE_ROOT, relative), { recursive: true });
+}
 
 function argsFor(template: Template): Record<string, unknown> {
   const args: Record<string, unknown> = {};
@@ -185,19 +209,28 @@ function valueFor(name: string, type: "string" | "number" | "boolean"): unknown 
     case "goal": return "reduce coupling";
     case "reproduce_steps": return "run the regression command";
     case "target": return "src/example.ts";
-    case "target_repo": return "E:\\Document\\Ars\\Concordia";
+    // seed と同じ本社のパス。 この PC に無ければ WORKSPACE_ROOT 側へ読み替えられる。
+    case "target_repo": return `${SEED_ARS_ROOT}\\Concordia`;
     case "task": return "Implement the regression exercise";
     case "task_list": return "- #1 [Concordia] regression delegation task";
     default: return `regression-${name}`;
   }
 }
 
-function expectedCwd(template: Template, args: Record<string, unknown>): string | undefined {
+function expectedSeedCwd(template: Template, args: Record<string, unknown>): string | undefined {
   if (!template.default_cwd) return undefined;
   return template.default_cwd.replace(
     /\$\{target_repo(?::[^}]*)?\}/g,
     String(args.target_repo ?? ""),
   );
+}
+
+/** 本社のパスが実在すればそのまま、無ければ WORKSPACE_ROOT へ読み替えた先で起動する。 */
+function expectedCwd(template: Template, args: Record<string, unknown>): string | undefined {
+  const seedCwd = expectedSeedCwd(template, args);
+  const relative = seedCwd ? seedRelative(seedCwd) : null;
+  if (!seedCwd || relative === null || existsSync(seedCwd)) return seedCwd;
+  return relative ? `${WORKSPACE_ROOT}\\${relative.replace(/\\+$/, "")}` : WORKSPACE_ROOT;
 }
 
 async function withFastFamulusFallback<T>(fn: () => Promise<T>): Promise<T> {

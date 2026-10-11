@@ -876,7 +876,7 @@ describe("DelegationService.invoke — parttimer", () => {
   });
 
   it("タスク本文を prompt file の先頭に置く", async () => {
-    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: "E:/Document/Ars/Quaestor" });
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: tmpdir() });
     if (!r.ok) throw new Error("expected ok");
     const file = readFileSync(r.prompt_file_path, "utf8");
 
@@ -886,7 +886,7 @@ describe("DelegationService.invoke — parttimer", () => {
   });
 
   it("実装委託の前置き・完了条件・コミット代行を載せない", async () => {
-    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: "E:/Document/Ars/Quaestor" });
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: tmpdir() });
     if (!r.ok) throw new Error("expected ok");
     const file = readFileSync(r.prompt_file_path, "utf8");
 

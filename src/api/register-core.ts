@@ -13,6 +13,7 @@ import type { ManagementService } from "../management/service.js";
 import { harnessConfluxRouter } from "./harness-conflux.js";
 import type { Hono } from "hono";
 import { requestStartupPolicyRefresh, type PolicyDeps } from "./sessions/startup-policy-check.js";
+import { existsSync } from "node:fs";
 import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { resolveProjectlessConsultLaunch } from "../consultation/projectless-consult-launch.js";
 import { withConsultWorkspaceTrust } from "../consultation/projectless-consult.js";
@@ -203,6 +204,7 @@ import {
   type SpawnMode,
 } from "../control/spawner.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
+import { rebaseSeedCwd } from "../control/seed-cwd-rebase.js";
 import { interactiveSpawnEnvironment } from "../control/interactive-spawn-env.js";
 import { resolveTeamSpawnCwd } from "../control/team-spawn-cwd.js";
 import {
@@ -1429,7 +1431,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       let tplCwd: string | undefined = cwdOverride;
       if (!tplCwd && tpl.default_cwd) {
         const expanded = substituteVars(tpl.default_cwd, tplArgs).trim();
-        tplCwd = (expanded && !expanded.includes("${")) ? expanded : undefined;
+        // seed の本社パスを、この PC の workspace root へ読み替える (seed-cwd-rebase.ts)。
+        tplCwd = (expanded && !expanded.includes("${"))
+          ? rebaseSeedCwd(expanded, deps.adminState.getWorkspaceRoots(), existsSync)
+          : undefined;
       }
       // dialog で承認された body.model をテンプレ既定より優先する。
       let modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : tpl.model;

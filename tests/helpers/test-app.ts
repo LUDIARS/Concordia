@@ -78,6 +78,8 @@ export interface TestAppOptions {
   /** Kept for older tests; dispatcher fanout was removed. */
   rng?: () => number;
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+  /** 委託の seed cwd を読み替える workspace root (seed-cwd-rebase.ts)。 省略時は読み替えない。 */
+  delegationWorkspaceRoots?: string[];
   sessionSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   /** 子会社のプロジェクトを持たない相談の作業ディレクトリの置き場所 (tech-consultation.md §6)。 */
   consultWorkspaceRoot?: string;
@@ -215,6 +217,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     repo: delegation,
     promptsDir: join(logsDir, "delegation-prompts"),
     spawn: opts.delegationSpawn ?? (() => ({ ok: true, pid: null, command: [] })),
+    ...(opts.delegationWorkspaceRoots ? { workspaceRoots: () => opts.delegationWorkspaceRoots ?? [] } : {}),
     teamRules: (value) => {
       const team = teams.findByIdOrSlug(value);
       return team ? {

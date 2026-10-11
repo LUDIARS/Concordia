@@ -13,8 +13,22 @@
  * テストが外部バイナリとネットワークに依存しなくなる。
  */
 
+import { realpathSync } from "node:fs";
 import { afterEach } from "vitest";
 import { flushCleanups } from "./cleanup.js";
+
+// TEMP / TMP が 8.3 短縮形 (C:\Users\MITARA~1.KAZ\...) の PC では、 tmpdir() 由来のパスと
+// git / realpath が返す長い形が一致せず、 cwd を比べるテストが環境だけで赤くなる
+// (2026-10-11 MELPOT)。 テスト中の一時ディレクトリは長い形に揃える。
+for (const key of ["TEMP", "TMP"] as const) {
+  const value = process.env[key];
+  if (!value) continue;
+  try {
+    process.env[key] = realpathSync.native(value);
+  } catch {
+    // 実在しない TEMP はそのまま (tmpdir() の既定動作に任せる)。
+  }
+}
 
 // isolate: false では process.env が test file 間で共有される。 setupFiles は各 file の
 // collection 前に再実行されるので、 前の file が値を変更・削除していても既定値へ戻す。

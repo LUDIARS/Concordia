@@ -5,6 +5,7 @@ import { resolveMajorInjectContent } from "../control/major-inject-resolver.js";
  * spec/delegation.md §3-4.
  */
 
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ import {
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget, type SpawnWorktreeState } from "../control/spawn-target.js";
+import { rebaseSeedCwd } from "../control/seed-cwd-rebase.js";
 import { resolveDelegationBranch } from "./branch-source.js";
 import { resolveDepartmentLaunch, type DepartmentLookupPort } from "../departments/launch-resolution.js";
 import { buildDelegationContext } from "./persona-context.js";
@@ -517,7 +519,8 @@ export class DelegationService {
     let cwd: string | undefined = input.cwd ?? undefined;
     if (!cwd && def.default_cwd) {
       const expanded = substituteVars(def.default_cwd, input.args ?? {}).trim();
-      cwd = expanded === "" ? undefined : expanded;
+      // seed の本社パスを、この PC の workspace root へ読み替える (seed-cwd-rebase.ts)。
+      cwd = expanded === "" ? undefined : rebaseSeedCwd(expanded, this.deps.workspaceRoots?.() ?? [], existsSync);
     }
     let spawnBranch: string | null = null;
     let spawnWorktreePath: string | null = null;

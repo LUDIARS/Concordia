@@ -36,8 +36,12 @@ describe("spawn target branch/worktree", () => {
   });
 
   it("reuses an existing worktree for the requested branch", async () => {
-    const repo = "E:/Document/Ars/Concordia";
-    const existing = "E:/Document/Ars/Concordia-feat-x";
+    // cwd の実在検査は本物のファイルシステムを見るので、どの PC にもある一時ディレクトリを使う。
+    const root = mkdtempSync(join(tmpdir(), "spawn-target-reuse-")).replace(/\\/g, "/");
+    const repo = `${root}/Concordia`;
+    const existing = `${root}/Concordia-feat-x`;
+    mkdirSync(repo);
+    mkdirSync(existing);
     const calls: string[][] = [];
     const git: SpawnTargetGitRunner = async (_cwd, args) => {
       calls.push(args);
@@ -69,6 +73,7 @@ describe("spawn target branch/worktree", () => {
       worktree_created: false,
     });
     expect(calls.some((args) => args[0] === "worktree" && args[1] === "add")).toBe(false);
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("copies ignored project startup configuration from the primary worktree before reuse", async () => {

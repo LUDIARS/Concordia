@@ -91,11 +91,21 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const chatMeta = row.metadata;
   if (chatMeta.source === "discord") return;
   const sessionId = row.sessionId;
-  // 部署の出力方針で途中の発言を止めたセッション (相談) は、 chat 経路の投稿を一切流さない。
+  // Final-only departments retain explicit own-surface artifact delivery.
   const chatPolicy = sessionId ? deps.relayOutputPolicy?.(sessionId) : undefined;
-  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy)) return;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
   const session = sessionId ? deps.readModel.getSessionRelayState(sessionId) : null;
+  const chatPost = {
+    channel: row.channel,
+    sessionId,
+    explicitChannelId: chatMeta.discord_channel_id ?? null,
+    sessionChannelId: sessionRow?.channel_id ?? null,
+    attachmentCount: chatMeta.attachment_paths?.length ?? 0,
+  };
+  // Envelope check only: the accepted file count is checked again before sending.
+  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy, chatPost)) return;
+  const artifactOnly = chatPolicy?.intermediate === false;
+  if (artifactOnly && (session?.status !== "active" || sessionRow?.status !== "active")) return;
   if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) {
     deps.log.warn(
       `egress.handleChatPosted skipped unrelayable session message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
@@ -137,12 +147,33 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   // Forum thread は親 forum の共有 webhook + thread_id が必要なので、明示指定でも
   // session surface と一致する場合は session 経路を使う。meta の明示指定だけ channel 経路。
   const isSessionSurface = !!sessionRow && !!sessionId && channelId === sessionRow.channel_id;
+  const attachFiles = await buildAttachFiles(
+    chatMeta.attachment_paths,
+    `message_id=${row.id}`,
+    deps.log,
+    deps.resolveWorkspaceRoots?.() ?? [],
+  );
+  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy, { ...chatPost, attachmentCount: attachFiles.length })) return;
+  // File I/O can outlive the session or its surface. Never route this exception
+  // to a replacement channel or create a late artifact in the teardown window.
+  if (artifactOnly && sessionId) {
+    const currentSurface = deps.sessionChannelsRepo.findBySessionId(sessionId);
+    const currentSession = deps.readModel.getSessionRelayState(sessionId);
+    if (currentSession?.status !== "active" || currentSurface?.status !== "active"
+      || currentSurface.channel_id !== channelId) return;
+  }
   const client = isSessionSurface
     ? await deps.webhooks.getForSession(sessionId)
     : await deps.webhooks.getForChannel(channelId);
   if (!client) {
     deps.log.warn(`egress.handleChatPosted no webhook client message_id=${row.id} channel=${channelId} sessionRow=${sessionRow ? "yes" : "no"}`);
     return;
+  }
+  // Webhook lookup is asynchronous too; its completion grants no new lifetime.
+  if (artifactOnly && sessionId) {
+    const currentSurface = deps.sessionChannelsRepo.findBySessionId(sessionId);
+    if (deps.readModel.getSessionRelayState(sessionId)?.status !== "active"
+      || currentSurface?.status !== "active" || currentSurface.channel_id !== channelId) return;
   }
 
   const author = resolveAuthor(row);
@@ -151,12 +182,6 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   )];
   const mentionPrefix = mentionUserIds.map((id) => `<@${id}>`).join(" ");
   const content = mentionPrefix ? `${mentionPrefix} ${row.text}` : row.text;
-  const attachFiles = await buildAttachFiles(
-    chatMeta.attachment_paths,
-    `message_id=${row.id}`,
-    deps.log,
-    deps.resolveWorkspaceRoots?.() ?? [],
-  );
   const identity = session
     ? buildDiscordWebhookIdentity({
         model: session.model,

@@ -46,9 +46,25 @@ export function shouldRelaySessionMessage(message: RelayableMessage, policy: Rel
 
 /**
  * セッションが chat 経路 (lictor chat・圧縮の通知・終了の独白など) で出す投稿を流すか。
- * FINAL ANSWER は session.message で届くので、 chat 経路の投稿はすべて途中の発言として扱う。
+ * FINAL ANSWER は session.message で届くので、 通常の chat 投稿は途中の発言として扱う。
  * #報告 などのメタチャンネル宛ても止める (非公開の相談の中身がそこへ漏れないように)。
+ * 明示的な本人宛て成果物だけは例外。配送直前に検査済み添付数で判定する。
+ * @implements CC-EXPLICIT-ARTIFACT-01
  */
-export function shouldRelaySessionChatPost(policy: RelayOutputPolicy): boolean {
-  return policy.intermediate;
+export interface SessionChatPost {
+  channel: string;
+  sessionId: string | null;
+  explicitChannelId: string | null;
+  sessionChannelId: string | null;
+  attachmentCount: number;
+}
+
+export function shouldRelaySessionChatPost(policy: RelayOutputPolicy, post?: SessionChatPost): boolean {
+  if (policy.intermediate) return true;
+  return !!post
+    && post.channel === "system"
+    && !!post.sessionId
+    && !!post.sessionChannelId
+    && post.explicitChannelId === post.sessionChannelId
+    && post.attachmentCount > 0;
 }

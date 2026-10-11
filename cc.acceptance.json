@@ -1,6 +1,8 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/relay-output-filter.ts", "tests": ["src/discord/relay-output-filter.test.ts"], "contracts": ["CC-EXPLICIT-ARTIFACT-01", "SPEC-DEPT-OUTPUT"] },
+    { "source": "src/discord/egress.ts", "tests": ["src/discord/egress-artifact.test.ts", "src/discord/egress.test.ts"], "contracts": ["CC-EXPLICIT-ARTIFACT-01"] },
     { "source": "src/discord/bot.ts", "tests": ["src/meeting-links/discord.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/api/register-chat.ts", "tests": ["src/meeting-links/routes.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/bootstrap/core.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/routes.test.ts", "src/control/session-followup-snapshot.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },

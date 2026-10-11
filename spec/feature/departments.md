@@ -243,8 +243,13 @@ slug は会社ごとに一意 (本社と子会社で同じ slug を使える)。
 (「FINAL ANSWER のみ」「Inject 指令は非表示」「コンテキストサイズも不要」「/session-end 的なのは投稿しなくて良い」、2026-10-02 neco 指示)。
 
 `intermediate` を off にしたセッションは、chat 経路の投稿 (lictor chat・圧縮の通知・終了の独白など) も流さない。
-FINAL ANSWER は session.message で届くので、chat 経路はすべて途中の発言として扱う。#報告 などのメタチャンネル宛ても止める
+FINAL ANSWER は session.message で届くので、通常の chat 経路は途中の発言として扱う。#報告 などのメタチャンネル宛ても止める
 (非公開の相談の中身がそこへ漏れないように)。
+
+明示的に依頼された成果物の添付は例外とする。`system` 投稿で、自身の登録済み Discord
+セッション宛先を明示し、既存の添付検査を通過したファイルがある場合だけ、添付と説明を
+同じ宛先へ配送する。別宛先・meta 投稿・添付なしの途中経過は引き続き止める。
+詳細と受入条件は [CC-EXPLICIT-ARTIFACT-01](explicit-artifact-relay.md)。
 
 ### 9.5 起動時の注入
 

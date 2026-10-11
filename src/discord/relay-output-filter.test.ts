@@ -33,8 +33,32 @@ describe("shouldRelaySessionMessage", () => {
     expect(shouldRelaySessionMessage({ author_type: "assistant" }, policy)).toBe(true);
   });
 
-  it("途中の発言を止めた方針では chat 経路の投稿 (独白・圧縮の通知など) を一切流さない", () => {
+  it("途中の発言を止めた方針では通常の chat 投稿 (独白・圧縮の通知など) を流さない", () => {
     expect(shouldRelaySessionChatPost(consult)).toBe(false);
     expect(shouldRelaySessionChatPost(all)).toBe(true);
+  });
+});
+
+describe("explicit session artifacts (CC-EXPLICIT-ARTIFACT-01)", () => {
+  const artifact = {
+    channel: "system", sessionId: "s1", explicitChannelId: "c1",
+    sessionChannelId: "c1", attachmentCount: 1,
+  };
+
+  it("allows a validated own-surface artifact without enabling intermediate output", () => {
+    expect(shouldRelaySessionChatPost(consult, artifact)).toBe(true);
+    expect(consult.intermediate).toBe(false);
+  });
+
+  it.each([
+    { channel: "報告" }, { channel: "chitchat" }, { channel: "consultation" },
+    { sessionId: null }, { sessionChannelId: null }, { explicitChannelId: null },
+    { explicitChannelId: "another-channel" }, { attachmentCount: 0 },
+  ])("keeps other posts hidden: %j", (change) => {
+    expect(shouldRelaySessionChatPost(consult, { ...artifact, ...change })).toBe(false);
+  });
+
+  it("preserves ordinary chat when intermediate output is enabled", () => {
+    expect(shouldRelaySessionChatPost(all, { ...artifact, channel: "報告", attachmentCount: 0 })).toBe(true);
   });
 });

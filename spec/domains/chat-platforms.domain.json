@@ -70,6 +70,8 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/explicit-artifact-relay.md",
+    "spec/feature/departments.md",
     "spec/feature/meeting-respondent-handoff.md",
     "spec/ux/meeting-respondent-handoff.md",
     "spec/feature/forum-discussion-type-first.md",

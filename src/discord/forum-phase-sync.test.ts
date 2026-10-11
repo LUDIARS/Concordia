@@ -22,8 +22,8 @@ function setup() {
   const fetch = vi.fn(async () => thread);
   const deps = {
     guild: { channels: { cache: new Map(), fetch } } as any,
-    channels: { findBySessionId: () => row, listAll: () => [row] } as any,
-    sessions: { findSession: () => session } as any,
+    channels: { findBySessionId: vi.fn(() => row), listActive: vi.fn(() => [row]) } as any,
+    sessions: { findSession: vi.fn(() => session) } as any,
     ownsSession: vi.fn(() => true), log: { warn: vi.fn() },
   };
   const sync = startForumPhaseTitleSync(deps);
@@ -95,6 +95,46 @@ describe("persisted phase title synchronization", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(thread.setName).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not scan retained history when reconciling active surfaces", async () => {
+    const { sync, deps } = setup();
+    await sync.reconcile();
+    deps.channels.listAll = vi.fn(() => { throw new Error("history must not be scanned"); });
+    deps.channels.listActive.mockReturnValue([]);
+    deps.ownsSession.mockClear();
+    deps.channels.findBySessionId.mockClear();
+    await sync.reconcile();
+    expect(deps.channels.listAll).not.toHaveBeenCalled();
+    expect(deps.channels.findBySessionId).not.toHaveBeenCalled();
+    expect(deps.ownsSession).not.toHaveBeenCalled();
+  });
+  it.each(["missing", "closed", "text", "ended"])("rejects %s before expensive ownership lookups", async (kind) => {
+    const { sync, deps, row, session, fetch } = setup();
+    await sync.reconcile();
+    if (kind === "missing") deps.channels.findBySessionId.mockReturnValue(null);
+    if (kind === "closed") row.status = "ended";
+    if (kind === "text") row.channel_kind = "text";
+    if (kind === "ended") session.status = "ended";
+    deps.ownsSession.mockClear();
+    deps.sessions.findSession.mockClear();
+    fetch.mockClear();
+    await sync.refresh("session");
+    expect(deps.ownsSession).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    if (kind !== "ended") expect(deps.sessions.findSession).not.toHaveBeenCalled();
+  });
+  it("rechecks eligibility when a session ends during fetch", async () => {
+    const { sync, thread, fetch, session, deps } = setup();
+    let release!: (value: typeof thread) => void;
+    fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const done = sync.reconcile();
+    await Promise.resolve();
+    session.status = "ended";
+    deps.ownsSession.mockClear();
+    release(thread);
+    await done;
+    expect(thread.setName).not.toHaveBeenCalled();
+    expect(deps.ownsSession).not.toHaveBeenCalled();
   });
   it.each(["foreign", "ended", "archived", "text"])("skips %s surfaces", async (kind) => {
     const { sync, thread, session, row, deps } = setup();

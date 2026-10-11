@@ -17,7 +17,7 @@ function affectedSession(event: ConcordiaEvent): string | null {
 /** Projects persisted phase onto existing names; never changes business state or locked summaries. */
 export function startForumPhaseTitleSync(deps: {
   guild: Guild;
-  channels: Pick<DiscordSessionChannelsRepo, "findBySessionId" | "listAll">;
+  channels: Pick<DiscordSessionChannelsRepo, "findBySessionId" | "listActive">;
   sessions: Pick<SessionsRepo, "findSession">;
   ownsSession: (sessionId: string) => boolean;
   log: { warn: (message: string) => void };
@@ -27,8 +27,10 @@ export function startForumPhaseTitleSync(deps: {
   const pending = new Set<string>();
   const eligible = (id: string): boolean => {
     const channel = deps.channels.findBySessionId(id);
-    return deps.ownsSession(id) && channel?.channel_kind === "thread" && channel.status === "active"
-      && deps.sessions.findSession(id)?.status === "active";
+    // Reject inactive surfaces before ownership/consultation lookups. Those lookups
+    // read several repositories and must not scale with retained session history.
+    return channel?.channel_kind === "thread" && channel.status === "active"
+      && deps.sessions.findSession(id)?.status === "active" && deps.ownsSession(id);
   };
   const drain = (): Promise<void> => {
     if (running) return running;
@@ -62,7 +64,9 @@ export function startForumPhaseTitleSync(deps: {
   };
   const reconcile = (): Promise<void> => {
     if (stopped) return Promise.resolve();
-    for (const row of deps.channels.listAll()) {
+    // The repository keeps this list within the current Bot's scope. Recheck
+    // eligibility here and after fetch so closure/rebinding cannot revive a thread.
+    for (const row of deps.channels.listActive()) {
       if (eligible(row.session_id)) pending.add(row.session_id);
     }
     return drain();

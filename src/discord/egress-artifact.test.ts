@@ -4,6 +4,11 @@ import type { ChatMessageRelay } from "../platform/chat-read-model.js";
 import { buildAttachFiles } from "./attachment-files.js";
 import { handleEvent, type EgressDeps } from "./egress.js";
 
+// Concordia uses isolate:false to avoid native DB worker teardown failures.
+// Reload egress before installing its attachment mock: another test file may
+// already have cached egress with the real file loader in the shared worker.
+vi.hoisted(() => vi.resetModules());
+
 vi.mock("./attachment-files.js", () => ({
   DISCORD_ATTACH_MAX_BYTES: 24 * 1024 * 1024,
   buildAttachFiles: vi.fn(),

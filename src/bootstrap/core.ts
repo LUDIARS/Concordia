@@ -175,6 +175,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify as promisifyNode } from "node:util";
 const execFileAsync = promisifyNode(execFileCallback);
 import { startRemoteSessionSite } from "../federation/remote-session-wiring.js";
+import { createInquiryRunner } from "../federation/inquiry-runner.js";
 import { buildForumSpawnPrompt } from "../discord/forum-spawn.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
@@ -2505,6 +2506,8 @@ export async function startBackend(): Promise<BackendHandle> {
       handle: (event) => handleServiceDeployment({ event, ledger: serviceDeployed.ledger, lookup: serviceDeployed.lookup, delivery: serviceDeployed.delivery }),
       log: createChildLogger("self-deployment"),
     }));
+    // 拠点間ワンショット調査 (SPEC-FED-INQUIRY): 依頼を受けたら作業ルート配下で読み取り専用の claude -p を 1 回動かす。
+    federation.setInquiryRunner(createInquiryRunner({ workspaceRoots: () => adminState.getWorkspaceRoots() }));
     // 拠点ロール: 本社 forum の拠点タグ付き投稿からセッションを起動し、発言を本社スレッドへ返す。
     trackPostListenHandle(startRemoteSessionSite({
       federation,

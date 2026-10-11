@@ -277,6 +277,49 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 - `POST /v1/federation/sites/:id/config` — 現在の設定を明示再配布。応答の `delivered` は
   live 接続へ `config-update` を送れたか (オフライン / listener 無効なら false)。
   失効済み / 未登録拠点は 404。
+- `POST /v1/federation/inquiries` `{target, prompt, project?, timeout_sec?}` — 拠点間ワンショット調査
+  (SPEC-FED-INQUIRY)。結果を待って `{ok, executed_by, output, error, duration_ms}` を返す。失敗は 502、
+  不正な依頼は 400、連合未構成は 503。
+
+## 拠点間ワンショット調査 (2026-10-11 neco 指示) {#SPEC-FED-INQUIRY}
+
+依頼: 「連合で各拠点同士がワンショットで調査内容などを軽量に実行できるようにする」。
+背景: MELPOT のセッションが起動しない件で、本社から MELPOT の Cc ログを読む手段が無く、原因の切り分けが
+拠点の人に頼るしかなかった。セッション (スレッド・Lictor・Discord 中継) を立てずに、 1 回の問い合わせで
+相手拠点の状態・ログ・コードを調べて答えだけ返す経路を足す。
+
+- 価値: 拠点の中を、相手の人手を使わず 1 回の依頼で読み取って答えを得る。
+- 不変条件:
+  - 依頼を受けた側は `claude -p` を 1 回だけ、読み取り専用の道具 (Read / Grep / Glob と git の参照系 Bash) で動かす。
+    書き込み・Web・サブエージェントは `--disallowedTools` でも塞ぐ (`src/federation/inquiry-policy.ts`)。
+  - 拠点同士は本社が中継する (拠点は本社にしか繋がっていない)。本社は依頼の origin を送信元拠点と照合し、
+    結果は依頼を渡した宛先からのものだけ受け付ける (なりすまし・横取りの防止)。
+  - 依頼・結果は outbox を使わない直接フレーム (`inquiry-request` / `inquiry-result`)。切断中は即失敗、
+    結果不明は依頼元の期限切れで終わり、再送しない。古い Cc は未知フレームを読み捨てるので期限切れになる。
+  - 実行は 1 拠点 1 本、待ち行列 3 本まで。超えたら busy で断る。期限は 30〜600 秒 (既定 300)、結果本文は 64,000 文字まで。
+  - 作業ディレクトリは `project` を作業ルート配下で解決する (`..` 等は protocol で拒否)。無指定は最初の作業ルート。
+  - 実行は Cc の one-shot 費用台帳に `kind: federation-inquiry` で記録する。
+
+| 責務 | ファイル |
+|------|---------|
+| 判断 (振り分け・道具・期限・切り詰め) | `src/federation/inquiry-policy.ts` |
+| 待ち合わせ (request_id → 結果、本社の中継表) | `src/federation/inquiry-broker.ts` |
+| 手順 (本社 / 拠点どちらでも同じ入口) | `src/federation/inquiry-service.ts` |
+| 実行 (claude -p、同時実行制御、費用記録) | `src/federation/inquiry-runner.ts` |
+| フレーム | `src/federation/protocol.ts` (`inquiry-request` / `inquiry-result`) |
+| 受け口 | `src/federation/hq-listener.ts` / `src/federation/site-client.ts` |
+| 配線 | `src/federation/runtime.ts` (`requestInquiry` / `setInquiryRunner`)、`src/bootstrap/core.ts` |
+| API | `src/api/federation.ts` (`POST /v1/federation/inquiries`) |
+
+流れ (拠点 A → 拠点 B):
+
+1. A の `POST /v1/federation/inquiries {target: "b"}` → A は本社へ `inquiry-request {origin: "a", target: "b"}`。
+2. 本社は origin と接続元を照合し、B が有効・接続中なら中継表に記録して B へ渡す。そうでなければ理由付きの結果を A へ返す。
+3. B は自分宛てなら実行し、`inquiry-result {executed_by: "b"}` を本社へ返す。本社は中継表から A を引いて返す。
+4. 本社自身が宛先 (`target: "hq"`) なら本社が実行する。本社から拠点へは直接送る。
+
+反映順: 本社と各拠点の Cc を更新するまで、その拠点への依頼は期限切れになる (既存の配備順に従う)。
+人の画面 (Discord コマンド) はまだ無い。セッション・人は各拠点の loopback API を使う。
 
 ## イベント
 

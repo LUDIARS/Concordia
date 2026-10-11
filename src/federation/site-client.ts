@@ -24,7 +24,7 @@ import {
   writeFederationConfigCache,
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressResultFrame } from "./protocol.js";
+import type { FederationEgressResultFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame } from "./protocol.js";
 import { hqUrlTransportError } from "./transport-policy.js";
 
 const log = createChildLogger("federation/site");
@@ -54,6 +54,11 @@ export interface FederationSiteClientDeps {
   onLinked?: (info: { hqVersion: string; pendingEvents: number }) => void;
   /** 本社設定の更新通知。キャッシュ起動値も link 前に一度渡す。 */
   onConfig?: (config: FederationConfigSnapshot) => void;
+  /** 本社からのワンショット調査依頼 / 結果 (SPEC-FED-INQUIRY)。 */
+  onInquiryRequest?: (request: FederationInquiryRequestFrame) => void;
+  onInquiryResult?: (result: FederationInquiryResultFrame) => void;
+  /** リンク断 (再接続前)。 待ち合わせ中の依頼を失敗で解くため。 */
+  onUnlinked?: () => void;
   /** テストまたは埋め込み時の保存先。未指定なら cwd の固定キャッシュ。 */
   configCachePath?: string;
 }
@@ -63,6 +68,8 @@ export interface FederationSiteClientHandle {
   isLinked(): boolean;
   getConfig(): FederationConfigSnapshot | null;
   requestEgress(input: { requestId?: string; guildId: string; channelId: string; text: string }): Promise<FederationEgressResultFrame>;
+  /** link 中なら本社へ直接フレームを送る (outbox を使わない)。 */
+  send(frame: FederationFrameInput): boolean;
 }
 
 /**
@@ -181,6 +188,15 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         pending.resolve(frame);
         return;
       }
+      if (frame.type === "inquiry-request" || frame.type === "inquiry-result") {
+        try {
+          if (frame.type === "inquiry-request") deps.onInquiryRequest?.(frame);
+          else deps.onInquiryResult?.(frame);
+        } catch (e) {
+          log.warn({ err: (e as Error).message, type: frame.type }, "federation inquiry handler failed");
+        }
+        return;
+      }
       if (frame.type === "error") {
         log.warn({ code: frame.code, message: frame.message }, "federation error from hq");
         // 失効 / 認証失敗は再接続しても直らない — 停止して人間の再設定を待つ。
@@ -207,6 +223,7 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
       if (ws !== socket) return;
       linked = false;
       rejectPendingEgress("HQ link closed before egress completed");
+      deps.onUnlinked?.();
       if (stopped) return;
       log.info({ backoffMs }, "federation link closed; reconnecting");
       scheduleReconnect();
@@ -230,6 +247,16 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
     },
     isLinked() {
       return linked;
+    },
+    send(frame) {
+      if (!linked || !ws || ws.readyState !== WebSocket.OPEN) return false;
+      try {
+        ws.send(serializeFederationFrame(frame));
+        return true;
+      } catch (e) {
+        log.warn({ err: (e as Error).message, type: frame.type }, "federation direct frame send failed (to hq)");
+        return false;
+      }
     },
     getConfig() {
       return config;

@@ -14,6 +14,7 @@
  *   hq → site : config-update { snapshot }   (明示再配布された設定正本)
  *   site → hq : ack { seq }              (seq 以下を受領済みとして outbox から削除)
  *   hq → site : error { code, message }  (close 直前の理由通知)
+ *   双方向    : inquiry-request / inquiry-result (拠点間ワンショット調査、本社が中継)
  *
  * 死活は WS プロトコルレベルの ping/pong (ws ライブラリ) で行い、
  * アプリフレームには持ち込まない。
@@ -82,6 +83,39 @@ const egressResultSchema = z.object({
   error: z.string().max(500).optional(),
 }).passthrough();
 
+/**
+ * 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 本社 ⇄ 拠点の双方向。 拠点同士は本社が中継する。
+ * target / origin は site_id か本社を表す "hq"。
+ */
+export const INQUIRY_HQ = "hq";
+export const INQUIRY_MAX_PROMPT = 8_000;
+export const INQUIRY_MAX_OUTPUT = 64_000;
+export const INQUIRY_MIN_TIMEOUT_SEC = 30;
+export const INQUIRY_MAX_TIMEOUT_SEC = 600;
+const inquiryParty = z.union([z.literal(INQUIRY_HQ), z.string().regex(SITE_ID_PATTERN)]);
+
+const inquiryRequestSchema = z.object({
+  v: versionField,
+  type: z.literal("inquiry-request"),
+  request_id: z.string().min(1).max(100),
+  origin: inquiryParty,
+  target: inquiryParty,
+  prompt: z.string().min(1).max(INQUIRY_MAX_PROMPT),
+  project: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  timeout_sec: z.number().int().min(INQUIRY_MIN_TIMEOUT_SEC).max(INQUIRY_MAX_TIMEOUT_SEC),
+}).passthrough();
+
+const inquiryResultSchema = z.object({
+  v: versionField,
+  type: z.literal("inquiry-result"),
+  request_id: z.string().min(1).max(100),
+  ok: z.boolean(),
+  output: z.string().max(INQUIRY_MAX_OUTPUT).optional(),
+  error: z.string().max(500).optional(),
+  executed_by: inquiryParty,
+  duration_ms: z.number().int().nonnegative().optional(),
+}).passthrough();
+
 const configSnapshotSchema = z.object({
   discord: z.record(z.string()),
   templates: z.array(z.object({
@@ -138,6 +172,8 @@ const frameSchemas = {
   "config-update": configUpdateFrameSchema,
   ack: ackSchema,
   error: errorSchema,
+  "inquiry-request": inquiryRequestSchema,
+  "inquiry-result": inquiryResultSchema,
 } as const;
 
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
@@ -151,6 +187,8 @@ export type FederationConfigSnapshotFrame = z.infer<typeof configSnapshotFrameSc
 export type FederationConfigUpdateFrame = z.infer<typeof configUpdateFrameSchema>;
 export type FederationAckFrame = z.infer<typeof ackSchema>;
 export type FederationErrorFrame = z.infer<typeof errorSchema>;
+export type FederationInquiryRequestFrame = z.infer<typeof inquiryRequestSchema>;
+export type FederationInquiryResultFrame = z.infer<typeof inquiryResultSchema>;
 export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
@@ -161,7 +199,9 @@ export type FederationFrame =
   | FederationConfigSnapshotFrame
   | FederationConfigUpdateFrame
   | FederationAckFrame
-  | FederationErrorFrame;
+  | FederationErrorFrame
+  | FederationInquiryRequestFrame
+  | FederationInquiryResultFrame;
 
 export type FederationFrameType = FederationFrame["type"];
 
@@ -235,7 +275,9 @@ export type FederationFrameInput =
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
   | { type: "config-update"; snapshot: FederationConfigSnapshot }
   | { type: "ack"; seq: number }
-  | { type: "error"; code: FederationErrorCode; message: string };
+  | { type: "error"; code: FederationErrorCode; message: string }
+  | { type: "inquiry-request"; request_id: string; origin: string; target: string; prompt: string; project?: string; timeout_sec: number }
+  | { type: "inquiry-result"; request_id: string; ok: boolean; output?: string; error?: string; executed_by: string; duration_ms?: number };
 
 export function serializeFederationFrame(frame: FederationFrameInput): string {
   return JSON.stringify({ ...frame, v: FEDERATION_PROTOCOL_VERSION });

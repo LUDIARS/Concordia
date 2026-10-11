@@ -38,6 +38,9 @@ import { createSiteProjectsStore } from "./site-projects.js";
 import type { RemoteSpawnOptions } from "./remote-session-payload.js";
 import { buildRemoteSpawnPayload } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
+import { createInquiryService, type InquiryRequestInput } from "./inquiry-service.js";
+import type { InquiryOutcome } from "./inquiry-broker.js";
+import type { InquiryRunner } from "./inquiry-runner.js";
 import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressRequestFrame } from "./protocol.js";
@@ -129,6 +132,10 @@ export interface FederationRuntime {
   requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
   /** Discord 実体を bootstrap から渡す egress ポート。 */
   setEgressExecutor(executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null): void;
+  /** 拠点間ワンショット調査を依頼して結果を待つ (SPEC-FED-INQUIRY)。 */
+  requestInquiry(input: InquiryRequestInput): Promise<InquiryOutcome>;
+  /** 依頼を受けたときの実行器 (claude -p)。 bootstrap が作業ルートを知っているので注入する。 */
+  setInquiryRunner(runner: InquiryRunner | null): void;
   stop(): void;
 }
 
@@ -197,6 +204,16 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   /** 本社: 拠点ごとの担当プロジェクト (`/spawn` の project から起動先を決める)。 */
   const siteProjects = createSiteProjectsStore(opts.settings ?? memorySettings());
   const villa = opts.villaClient ?? new VillaClient();
+  let inquiryRunner: InquiryRunner | null = null;
+  const inquiries = createInquiryService({
+    role: () => listener ? { kind: "hq" } : siteClient && siteBinding ? { kind: "site", siteId: siteBinding.siteId } : { kind: "none" },
+    sendToSite: (siteId, frame) => listener?.send(siteId, frame) ?? false,
+    sendToHq: (frame) => siteClient?.send(frame) ?? false,
+    isActiveSite: (siteId) => sites.find(siteId)?.status === "active",
+    isConnected: (siteId) => connections.get(siteId) !== null,
+    runner: () => inquiryRunner,
+    log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
+  });
   let villaPcs: VillaPc[] = [];
   let villaFetchedAt = 0;
   let villaInflight: Promise<VillaPc[]> | null = null;
@@ -290,6 +307,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           if (!egressExecutor) return { ok: false, error: "HQ Discord egress is unavailable" };
           return egressExecutor(request);
         },
+        handleInquiryRequest: (siteId, request) => inquiries.onSiteRequest(siteId, request),
+        handleInquiryResult: (siteId, result) => inquiries.onSiteResult(siteId, result),
       });
       if (stopped) {
         started.close();
@@ -359,6 +378,9 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         platform: process.platform === "win32" || process.platform === "darwin" ? process.platform : undefined,
         // 本社からの spawn / ingress (Phase 4)。 受け手未登録なら読み捨てる (ack は返す)。
         onEvent: (payload) => siteEventHandler?.(payload),
+        onInquiryRequest: (request) => inquiries.onHqRequest(request),
+        onInquiryResult: (result) => inquiries.onHqResult(result),
+        onUnlinked: () => inquiries.failAll("HQ link closed before the inquiry completed"),
       });
       siteBinding = binding;
       // query/path に資格情報相当が含まれていてもログへ出さない。
@@ -436,6 +458,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       listenerEnabled: currentListenerConfig().enabled,
       disconnectSite: (siteId, code) => listener?.disconnect(siteId, code),
       redistributeConfig: (siteId) => listener?.sendConfigUpdate(siteId) ?? false,
+      requestInquiry: (input) => inquiries.request(input),
       listenerStatus: () => ({ config: currentListenerConfig(), running: listenerBinding }),
       siteStatus: () => {
         const { token: _token, tokenDecryptionFailed: _tokenError, ...config } = currentSiteConfig();
@@ -546,8 +569,15 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       const result = await siteClient.requestEgress(input);
       return result.ok ? { ok: true } : { ok: false, error: result.error ?? "egress rejected" };
     },
+    requestInquiry(input) {
+      return inquiries.request(input);
+    },
+    setInquiryRunner(runner) {
+      inquiryRunner = runner;
+    },
     stop() {
       stopped = true;
+      inquiries.failAll("federation runtime stopped");
       if (listenerPoll) { clearInterval(listenerPoll); listenerPoll = null; }
       stopSiteClient();
       stopListener();

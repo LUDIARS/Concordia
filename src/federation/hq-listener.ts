@@ -26,7 +26,7 @@ import {
   type FederationErrorCode,
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressRequestFrame, FederationFrameInput } from "./protocol.js";
+import type { FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
 
 const log = createChildLogger("federation/hq");
@@ -74,6 +74,9 @@ export interface FederationListenerDeps {
   createConfigSnapshot?: (siteId: string) => FederationConfigSnapshot;
   /** Discord 実体は bootstrap から注入する。federation は chat 層を知らない。 */
   handleEgressRequest?: (siteId: string, request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>;
+  /** 拠点からのワンショット調査依頼 / 結果 (SPEC-FED-INQUIRY)。 振り分けは runtime が持つ。 */
+  handleInquiryRequest?: (siteId: string, request: FederationInquiryRequestFrame) => void;
+  handleInquiryResult?: (siteId: string, result: FederationInquiryResultFrame) => void;
   /**
    * 接続元を受け付けるか (CC-FED-T2)。既定は loopback / tailnet だけ (transport-policy.ts)。
    * env CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1 のとき runtime が「全て許可」を渡す。
@@ -308,6 +311,22 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           log.warn({ siteId, err: (e as Error).message }, "federation egress request failed");
           send(siteId!, { type: "egress-result", request_id: frame.request_id, ok: false, error: "HQ egress failed" });
         });
+        return;
+      }
+
+      if (frame.type === "inquiry-request" || frame.type === "inquiry-result") {
+        deps.sites.touchSeen(siteId);
+        deps.connections.touch(siteId, nowSec());
+        try {
+          if (frame.type === "inquiry-request") {
+            if (deps.handleInquiryRequest) deps.handleInquiryRequest(siteId, frame);
+            else send(siteId, { type: "inquiry-result", request_id: frame.request_id, ok: false, error: "HQ inquiry is unavailable", executed_by: "hq" });
+          } else {
+            deps.handleInquiryResult?.(siteId, frame);
+          }
+        } catch (e) {
+          log.warn({ siteId, type: frame.type, err: (e as Error).message }, "federation inquiry frame handling failed");
+        }
         return;
       }
 

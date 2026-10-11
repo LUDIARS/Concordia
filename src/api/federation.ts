@@ -18,7 +18,7 @@ import { z } from "zod";
 import type { FederationSitesRepo } from "../db/federation-sites-repo.js";
 import type { FederationOutboxRepo } from "../db/federation-outbox-repo.js";
 import type { FederationConnections } from "../federation/hq-connections.js";
-import { SITE_ID_PATTERN } from "../federation/protocol.js";
+import { INQUIRY_HQ, INQUIRY_MAX_PROMPT, INQUIRY_MAX_TIMEOUT_SEC, INQUIRY_MIN_TIMEOUT_SEC, SITE_ID_PATTERN } from "../federation/protocol.js";
 import type {
   FederationListenerConfig,
   FederationListenerPatch,
@@ -35,6 +35,12 @@ const CreateSiteSchema = z.object({
 const DepartmentsSchema = z.object({
   departments: z.array(z.string().min(1).max(100)).max(100),
 });
+const InquirySchema = z.object({
+  target: z.union([z.literal(INQUIRY_HQ), z.string().regex(SITE_ID_PATTERN)]),
+  prompt: z.string().trim().min(1).max(INQUIRY_MAX_PROMPT),
+  project: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  timeout_sec: z.number().int().min(INQUIRY_MIN_TIMEOUT_SEC).max(INQUIRY_MAX_TIMEOUT_SEC).optional(),
+}).strict();
 const VillaPcSchema = z.object({ villa_pc_id: z.string().min(1).max(200).nullable() });
 const ProjectsSchema = z.object({ projects: z.array(z.string().trim().min(1).max(100)).max(200) }).strict();
 const SiteRoleSchema = z.object({
@@ -76,6 +82,14 @@ export interface FederationApiDeps {
     | { ok: true; config: FederationSiteConfig; running: { hqUrl: string; siteId: string } | null }
     | { ok: false; error: string }
   >;
+  /** 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 未注入なら 503。 */
+  requestInquiry?: (input: { target: string; prompt: string; project?: string; timeoutSec?: number }) => Promise<{
+    ok: boolean;
+    output: string;
+    error: string | null;
+    executedBy: string;
+    durationMs: number | null;
+  }>;
 }
 
 export function federationRouter(deps: FederationApiDeps): Hono {
@@ -193,6 +207,26 @@ export function federationRouter(deps: FederationApiDeps): Hono {
       villa_pc_id: parsed.data.villa_pc_id,
     });
     return c.json({ ok: true, site_id: siteId, villa_pc_id: parsed.data.villa_pc_id });
+  });
+
+  // 拠点間ワンショット調査。 宛先 ("hq" か site_id) で 1 回だけ読み取り専用の claude -p を動かし、結果を待って返す。
+  app.post("/inquiries", async (c) => {
+    if (!deps.requestInquiry) return c.json({ error: "inquiry_unavailable" }, 503);
+    const parsed = InquirySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const outcome = await deps.requestInquiry({
+      target: parsed.data.target,
+      prompt: parsed.data.prompt,
+      ...(parsed.data.project ? { project: parsed.data.project } : {}),
+      ...(parsed.data.timeout_sec ? { timeoutSec: parsed.data.timeout_sec } : {}),
+    });
+    return c.json({
+      ok: outcome.ok,
+      executed_by: outcome.executedBy,
+      output: outcome.output,
+      error: outcome.error,
+      duration_ms: outcome.durationMs,
+    }, outcome.ok ? 200 : 502);
   });
 
   app.get("/sites/:id/projects", (c) => {

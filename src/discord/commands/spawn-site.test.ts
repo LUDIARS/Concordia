@@ -4,6 +4,7 @@ import {
   decideSpawnTarget,
   executeSiteSpawn,
   HQ_SPAWN_TARGET,
+  siteForumStarter,
   siteSpawnFailureMessage,
   siteSpawnInputError,
   spawnTargetMenu,
@@ -92,6 +93,63 @@ describe("executeSiteSpawn", () => {
     expect(reply.startThread).not.toHaveBeenCalled();
     expect(sites.route).toHaveBeenCalledWith(expect.objectContaining({ channelId: ix.channelId }));
     expect(ix.editReply).toHaveBeenLastCalledWith({ content: expect.stringContaining("listener") });
+  });
+
+  describe("Session フォーラムでのやり取り (2026-10-11 neco「スレッドではなく、フォーラムで」)", () => {
+    const FORUM_ID = "444444444444444444";
+    function forumOf(post = { id: "555555555555555555", name: "Pagus", setName: vi.fn(async () => undefined) }) {
+      return { post, forum: { forumId: FORUM_ID, openPost: vi.fn(async () => post) } };
+    }
+
+    it("opens a forum post instead of a reply thread and hands it to the site", async () => {
+      const { ix, reply } = responder(false);
+      const { post, forum } = forumOf();
+      const sites = port({ ok: true, siteId: "melpot", siteName: "MELPOT" });
+      await executeSiteSpawn(ix, sites, "melpot", { provider: "claude", inject: false, prompt: "Pagus\n調べて", project: "Pa" }, log(), forum);
+      expect(reply.startThread).not.toHaveBeenCalled();
+      expect(forum.openPost).toHaveBeenCalledWith({ title: "Pagus", content: expect.stringContaining("Pagus\n調べて") });
+      expect(sites.route).toHaveBeenCalledWith(expect.objectContaining({ channelId: post.id }));
+      expect(post.setName).toHaveBeenCalledWith("[M] Pagus");
+      expect(ix.editReply).toHaveBeenLastCalledWith({ content: expect.stringContaining(`<#${post.id}>`) });
+    });
+
+    it("opens a forum post even from a thread outside the Session forum", async () => {
+      const { ix } = responder(true);
+      const { post, forum } = forumOf();
+      const sites = port({ ok: true, siteId: "melpot", siteName: "MELPOT" });
+      await executeSiteSpawn(ix, sites, "melpot", { template: "opus-mid", inject: false }, log(), forum);
+      expect(forum.openPost).toHaveBeenCalled();
+      expect(sites.route).toHaveBeenCalledWith(expect.objectContaining({ channelId: post.id }));
+    });
+
+    it("reuses the current Session forum post", async () => {
+      const { ix } = responder(true);
+      (ix.channel as { parentId?: string }).parentId = FORUM_ID;
+      const { forum } = forumOf();
+      const sites = port({ ok: true, siteId: "melpot", siteName: "MELPOT" });
+      await executeSiteSpawn(ix, sites, "melpot", { template: "opus-mid", inject: false }, log(), forum);
+      expect(forum.openPost).not.toHaveBeenCalled();
+      expect(sites.route).toHaveBeenCalledWith(expect.objectContaining({ channelId: ix.channelId }));
+    });
+
+    it("does not hand the spawn to the site when the forum post cannot be created", async () => {
+      const { ix, reply } = responder(false);
+      const forum = { forumId: FORUM_ID, openPost: vi.fn(async () => { throw new Error("Missing Permissions"); }) };
+      const sites = port({ ok: true, siteId: "melpot", siteName: "MELPOT" });
+      const logger = log();
+      await executeSiteSpawn(ix, sites, "melpot", { template: "opus-mid", inject: false }, logger, forum);
+      expect(sites.route).not.toHaveBeenCalled();
+      expect(reply.startThread).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Missing Permissions"));
+      expect(ix.editReply).toHaveBeenLastCalledWith({ content: expect.stringContaining("Session フォーラム") });
+    });
+  });
+
+  it("names the requester and keeps the request in the forum starter", () => {
+    expect(siteForumStarter({ siteLabel: "melpot", userId: "333", body: "" })).toBe("<@333> の依頼で拠点「melpot」にセッションの起動を依頼します。");
+    const long = siteForumStarter({ siteLabel: "melpot", userId: "333", body: "x".repeat(5000) });
+    expect(long.length).toBeLessThan(2000);
+    expect(long.endsWith("…")).toBe(true);
   });
 
   it("rejects incomplete input before touching Discord threads", async () => {

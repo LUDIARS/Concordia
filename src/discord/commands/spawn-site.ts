@@ -2,9 +2,10 @@
  * `/spawn site:` — 起動先の拠点を指定して、その拠点の Cc にセッションを起動させる
  * (2026-10-07 neco 指示「spawnコマンドにspawnする拠点を設定できるように」)。
  *
- * 拠点は Bot トークンを持たないので、 拠点のセッションの発言と人の返信はスレッドで中継する
- * (spec/feature/federation-link.md §本社からのセッション起動)。 スレッド内で実行したらそのスレッド、
- * それ以外は受付返信からスレッドを作る。 本社では起動しない。
+ * 拠点は Bot トークンを持たないので、 拠点のセッションの発言と人の返信は本社の Session フォーラムの投稿で中継する
+ * (spec/feature/federation-link.md §本社からのセッション起動)。 Session フォーラムの投稿内で実行したらその投稿、
+ * それ以外は Session フォーラムに投稿を立てる (2026-10-11 neco「スレッドではなく、フォーラムでやり取りしてほしい」)。
+ * フォーラムが無い構成 (forum mode off) だけ受付返信からスレッドを作る。 本社では起動しない。
  */
 import { ActionRowBuilder, ComponentType, StringSelectMenuBuilder, type MessageComponentInteraction } from "discord.js";
 import type { DiscordCommandSpec, SpawnSitePort } from "../command-port.js";
@@ -145,6 +146,28 @@ interface RenamableThread {
   setName?: (name: string) => Promise<unknown>;
 }
 
+/** 拠点とのやり取りに使う本社の Session フォーラム。 */
+export interface SiteSpawnForum {
+  forumId: string;
+  /** 投稿を立てる。 Bot が立てた投稿は forum 起動 (executeForumSpawn) の対象外なので本社では起動しない。 */
+  openPost(input: { title: string; content: string }): Promise<RenamableThread>;
+}
+
+const STARTER_BODY_MAX = 1700;
+
+/** フォーラム投稿の最初の本文。 依頼者と依頼内容を残す (拠点へは spawn payload で別に渡る)。 */
+export function siteForumStarter(input: { siteLabel: string; userId: string; body: string }): string {
+  const body = Array.from(input.body.trim());
+  const shown = body.length > STARTER_BODY_MAX ? `${body.slice(0, STARTER_BODY_MAX).join("")}…` : body.join("");
+  const head = `<@${input.userId}> の依頼で拠点「${input.siteLabel}」にセッションの起動を依頼します。`;
+  return shown ? `${head}\n\n${shown}` : head;
+}
+
+function isPostOfForum(channel: SpawnResponder["channel"], forumId: string): boolean {
+  if (!channel?.isThread()) return false;
+  return (channel as { parentId?: string | null }).parentId === forumId;
+}
+
 /**
  * 拠点へ渡したスレッドのタイトルに拠点の印 (`[M]` など) を付ける (2026-10-10 neco 指示)。
  * 改名の失敗で起動の依頼は取り消さない (依頼は送信済み)。
@@ -168,6 +191,7 @@ export async function executeSiteSpawn(
   site: string,
   fields: SiteSpawnFields,
   log: { info(message: string): void; warn(message: string): void },
+  forum?: SiteSpawnForum,
 ): Promise<void> {
   const inputError = siteSpawnInputError(fields);
   if (inputError) {
@@ -181,7 +205,26 @@ export async function executeSiteSpawn(
   const request = buildSiteSpawnRequest(fields);
   await interaction.deferReply({ ephemeral: false });
   let channelId = interaction.channelId;
-  let thread: RenamableThread | null = interaction.channel?.isThread() ? interaction.channel as RenamableThread : null;
+  let thread: RenamableThread | null = null;
+  if (forum) {
+    if (isPostOfForum(interaction.channel, forum.forumId)) {
+      thread = interaction.channel as RenamableThread;
+    } else {
+      try {
+        thread = await forum.openPost({
+          title: Array.from(request.title).slice(0, THREAD_NAME_MAX).join(""),
+          content: siteForumStarter({ siteLabel: site, userId: interaction.user.id, body: request.body }),
+        });
+      } catch (error) {
+        log.warn(`spawn command site forum post failed site=${site} forum=${forum.forumId}: ${(error as Error).message}`);
+        await interaction.editReply({ content: "spawn failed: Session フォーラムに投稿を作れなかったため、拠点へ起動を渡していません。" });
+        return;
+      }
+      channelId = thread.id;
+    }
+  } else if (interaction.channel?.isThread()) {
+    thread = interaction.channel as RenamableThread;
+  }
   if (!thread) {
     // 拠点の発言と返信をこのチャンネルに流さないよう、 受付返信からスレッドを作る。
     await interaction.editReply({ content: `拠点「${site}」での起動を準備しています…` });

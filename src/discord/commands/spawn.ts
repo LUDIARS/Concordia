@@ -1,7 +1,7 @@
 import { ChannelType, SlashCommandBuilder, type PublicThreadChannel } from "discord.js";
-import type { DiscordCommandSpec } from "../command-port.js";
+import type { DiscordCommandDeps, DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
-import { chooseSpawnTarget, decideSpawnTarget, executeSiteSpawn, HQ_SPAWN_TARGET, type SpawnResponder } from "./spawn-site.js";
+import { chooseSpawnTarget, decideSpawnTarget, executeSiteSpawn, HQ_SPAWN_TARGET, type SiteSpawnForum, type SpawnResponder } from "./spawn-site.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
 import { memoriaTaskCache, toTaskChoices } from "../memoria-task-cache.js";
 import { toTeamChoices } from "../team-choices.js";
@@ -171,7 +171,7 @@ const spawnCommand: DiscordCommandSpec = {
       deps.log.info(`spawn command branch=site site=${target.site} via=${target.via} provider=${provider ?? "-"} template=${template ?? "-"} user=${interaction.user.id}`);
       await executeSiteSpawn(ix, spawnSites, target.site, {
         ...(provider ? { provider } : {}), template, inject, prompt, model, effort, project, branch, cwd,
-      }, deps.log);
+      }, deps.log, siteSpawnForum(deps));
       return;
     }
 
@@ -369,6 +369,20 @@ function effortOptions(provider: string | null, effort: string): Record<string, 
 }
 
 export default spawnCommand;
+
+/** 拠点とのやり取りに使う Session フォーラム。 forum mode off (フォーラム無し) なら undefined。 */
+function siteSpawnForum(deps: DiscordCommandDeps): SiteSpawnForum | undefined {
+  const forumId = deps.layout.forumMode ? deps.layout.sessionForumId : "";
+  if (!forumId) return undefined;
+  return {
+    forumId,
+    async openPost({ title, content }) {
+      const forum = await deps.guild.channels.fetch(forumId);
+      if (!forum || forum.type !== ChannelType.GuildForum) throw new Error("Session forum not found");
+      return forum.threads.create({ name: title, message: { content, allowedMentions: { parse: [] } } });
+    },
+  };
+}
 
 async function markExplicitSpawnThread(
   interaction: SpawnResponder,

@@ -25,6 +25,8 @@
     { "source": "src/discord/forum-spawn.ts", "tests": ["src/discord/forum-spawn.test.ts"], "contracts": ["SPEC-FED-SITE-TITLE-MARK"] },
     { "source": "src/discord/commands/spawn-site.ts", "tests": ["src/discord/commands/spawn-site.test.ts"], "contracts": ["SPEC-FED-SITE-TITLE-MARK"] },
     { "source": "src/discord/bot.ts", "tests": ["src/discord/forum-spawn.test.ts"], "contracts": ["SPEC-FED-SITE-TITLE-MARK"] },
+    { "source": "src/discord/bot.ts", "tests": ["src/discord/federation-egress.test.ts"], "contracts": ["SPEC-FED-EGRESS-THREAD"] },
+    { "source": "src/discord/federation-egress.ts", "tests": ["src/discord/federation-egress.test.ts"], "contracts": ["SPEC-FED-EGRESS-THREAD"] },
     { "source": "src/discord/commands/spawn.ts", "tests": ["src/discord/commands/spawn.test.ts", "src/discord/commands/spawn-site.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
     { "source": "src/federation/site-projects.ts", "tests": ["src/federation/site-projects.test.ts", "src/federation/forum-site-tags.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
     { "source": "src/api/federation.ts", "tests": ["tests/federation-api.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },

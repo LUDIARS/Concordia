@@ -185,6 +185,7 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 | 拠点側の処理 (起動・返信の注入・発言の中継) | `src/federation/remote-session-site.ts` |
 | 拠点側の配線 (spawn API・sessions・eventBus) | `src/federation/remote-session-wiring.ts` |
 | 本社側の振り分け (`routeForumSpawn`) と egress 許可 | `src/federation/runtime.ts` |
+| 本社側の egress 送信 (スレッドは親 channel の webhook + thread_id) | `src/discord/federation-egress.ts` |
 | forum 起動の差し込み口 (`routeRemoteSpawn`) | `src/discord/forum-spawn.ts` |
 
 流れ:
@@ -206,6 +207,11 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
    1800 文字ごとに egress 要求で本社スレッドへ返す。
 5. 本社: egress 要求は、台帳でそのスレッドをその拠点へ渡していれば担当サーバ設定に関係なく通す。
    それ以外は従来どおり担当サーバで検証する。
+6. 本社: 通した egress は Discord ポート (`src/discord/federation-egress.ts`) が送る。宛先がスレッドなら
+   webhook は親 channel / forum のものを使い `thread_id` を付ける (スレッド自身には webhook を作れない)。
+   拒否・送信失敗は拠点へ返すだけでなく本社ログにも warn で残す (2026-10-11 MELPOT: スレッド宛ての
+   egress が全て webhook 無しで失敗し、起動結果も発言も届かず「spawn できていない」に見えた)。
+   {#SPEC-FED-EGRESS-THREAD}
 
 依頼文での名指し (2026-10-06 neco 指示「GROMAC で xxxx やる、みたいな形で委託もできるように」): 拠点タグが無いときは、
 題名か本文の先頭が「<拠点>で」(題名先頭の `[Cc]` などの括弧は飛ばす)、または `@<拠点>` を含む依頼をその拠点で起動する

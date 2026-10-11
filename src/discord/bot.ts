@@ -130,6 +130,7 @@ import {
 } from "./session-task-post.js";
 import { postHumanTodoChange } from "./human-todo-post.js";
 import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-spawn-session.js";
+import { createFederationEgressExecutor } from "./federation-egress.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
@@ -1301,17 +1302,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const setEgressExecutor = deps.setFederationEgressExecutor;
       if (!deps.subsidiary && setEgressExecutor) {
         federationEgressRegistered = true;
-        setEgressExecutor(async (request) => {
-          // guild id と実 channel 所属をここで確認する。連合層は Discord 型へ依存せず、
-          // 本社の Discord ポートだけが channel → guild の対応を知る。
-          if (request.guild_id !== guild.id) return { ok: false, error: "destination guild is not this Discord runtime" };
-          const channel = await guild.channels.fetch(request.channel_id).catch(() => null);
-          if (!channel || channel.guildId !== guild.id) return { ok: false, error: "destination channel is not in the requested guild" };
-          const webhook = await webhooks!.getForChannel(request.channel_id);
-          if (!webhook) return { ok: false, error: "Discord webhook is unavailable for destination channel" };
-          const sent = await webhooks!.send(webhook, { content: request.text, username: "Concordia", allowedMentions: { parse: [] } });
-          return sent ? { ok: true } : { ok: false, error: "Discord send failed" };
-        });
+        setEgressExecutor(createFederationEgressExecutor({
+          guildId: guild.id,
+          fetchChannel: (channelId) => guild.channels.fetch(channelId),
+          getWebhook: (channelId) => webhooks!.getForChannel(channelId),
+          send: (client, options) => webhooks!.send(client, options),
+          log,
+        }));
       }
       if (env.applicationId) {
         try {

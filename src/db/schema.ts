@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 131;
+export const SCHEMA_VERSION = 132;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3378,6 +3378,14 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE UNIQUE INDEX pending_question_provider_request ON discord_pending_questions(session_id, provider_request_id)
         WHERE provider_request_id IS NOT NULL;
     `);
+  },
+},
+{
+  version: 132,
+  name: "transcript-time-sequence-index",
+  source: "transcript_logs(ts, seq) index v1 (CC-ESCALATION-INTAKE-SCAN-01)",
+  up(db) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_transcript_logs_ts_seq ON transcript_logs(ts, seq)`);
   },
 },
 ];

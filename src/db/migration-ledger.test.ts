@@ -73,6 +73,26 @@ describe("migration ledger", () => {
     }
   });
 
+  it("adds the transcript time index without changing history or earlier migration checksums", () => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter(migration => migration.version <= 131), 131);
+      db.prepare("INSERT INTO transcript_logs(session_id,seq,ts,kind,payload) VALUES (?,?,?,?,?)")
+        .run("history", 1, 10, "text", '{"text":"ESCALATION preserved"}');
+      const history = db.prepare("SELECT * FROM transcript_logs").all();
+      const ledger = db.prepare("SELECT version,name,checksum FROM schema_migrations ORDER BY version").all();
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT * FROM transcript_logs").all()).toEqual(history);
+      expect(db.prepare("SELECT version,name,checksum FROM schema_migrations WHERE version <= 131 ORDER BY version").all())
+        .toEqual(ledger);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?").get("idx_transcript_logs_ts_seq"))
+        .toEqual({ name: "idx_transcript_logs_ts_seq" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps the schema that the migrations produce", () => {
     // checksum は version / name / source しか見ないので、 source を据え置いたまま
     // up() の SQL だけ書き換えると素通りする。 その場合起動は通るが、 DB の中身が

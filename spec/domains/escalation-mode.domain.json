@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/db/(schema|migration-ledger|transcript-logs-repo)(\\.test)?\\.ts$" },
     {
       "pathPattern": "(^|/)src/api/sessions/escalation(\\.test)?\\.ts$"
     },
@@ -28,6 +29,7 @@
     "workflow-packet-substitution"
   ],
   "specRefs": [
+    "spec/feature/escalation-mode.md#cc-escalation-intake-scan-01-取り込み検索の範囲",
     "spec/feature/escalation-mode.md",
     "spec/feature/cc-workflow.md"
   ],

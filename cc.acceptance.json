@@ -409,6 +409,7 @@
     {
       "source": "src/db/schema.ts",
       "tests": [
+        "src/db/transcript-logs-repo.test.ts",
         "src/db/migration-ledger.test.ts",
         "src/db/domain-review-repo.test.ts",
         "tests/harness-reliability/conflux.test.ts",
@@ -4553,7 +4554,7 @@
     {"source":"src/control/session-followup-state.ts","tests":["src/control/session-followup-state.test.ts"],"contracts":[]},
     {"source":"src/control/session-followup-snapshot.ts","tests":["src/control/session-followup-snapshot.test.ts"],"contracts":[]},
     {"source":"src/taskflow/execution-view.ts","tests":["src/taskflow/execution-view.test.ts","src/taskflow/overview.test.ts"],"contracts":[]},
-    {"source":"src/db/transcript-logs-repo.ts","tests":["src/db/transcript-logs-repo.test.ts"],"contracts":[]},
+    {"source":"src/db/transcript-logs-repo.ts","tests":["src/db/transcript-logs-repo.test.ts"],"contracts":["CC-ESCALATION-INTAKE-SCAN-01"]},
     {"source":"web/src/pages/taskflow/ExecutionCell.tsx","tests":["web/src/pages/taskflow/ExecutionCell.test.tsx"],"contracts":[]},
     {"source":"web/src/pages/Taskflow.tsx","tests":["web/src/pages/Taskflow.test.tsx"],"contracts":[]},
     {"source":"src/daily-goal-run/domain.ts","tests":["src/daily-goal-run/service.test.ts","src/daily-goal-run/repository.test.ts","tests/daily-goal-run-wiring.test.ts"],"contracts":[]},

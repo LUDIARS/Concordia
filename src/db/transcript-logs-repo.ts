@@ -370,8 +370,8 @@ export class TranscriptLogsRepo {
    * payload 本文に needle を含む frame を新しい順に返す。
    *
    * Cc 停止中に transcript へ残された宣言 (spec/feature/escalation-mode.md §1) を
-   * 復帰後の tick が拾うための走査口。 LIKE の全表走査になるので、 呼び出し側は
-   * 必ず sinceTs で範囲を絞る。
+   * 復帰後の tick が拾うための走査口。 sinceTs を渡すと時刻/seq 索引で候補を絞り、
+   * その範囲で payload を部分一致検索する。期間なしの既存契約は維持する。
    */
   listFramesContaining(
     needle: string,

@@ -20,6 +20,32 @@ function add(session_id: string, seq: number, kind = "text") {
   repo.insert({ session_id, seq, ts: seq, kind, payload: { text: `f${seq}` } });
 }
 
+describe("TranscriptLogsRepo.listFramesContaining time index", () => {
+  it("keeps inclusive cutoff, cross-session ordering, limits and buffered frames", () => {
+    for (const [session_id, seq, ts, text] of [
+      ["old", 0, 9, "ESCALATION old"],
+      ["b", 4, 10, "ESCALATION later-sequence"],
+      ["a", 2, 10, "ESCALATION first"],
+      ["c", 1, 11, "ordinary frame"],
+      ["d", 1, 12, "ESCALATION newest"],
+    ] as const) repo.insert({ session_id, seq, ts, kind: "text", payload: { text } });
+    const rows = repo.listFramesContaining("ESCALATION", { sinceTs: 10, limit: 2 });
+    expect(rows.map(row => [row.session_id, row.ts, row.seq])).toEqual([["a", 10, 2], ["b", 10, 4]]);
+    expect(repo.listFramesContaining("ESCALATION", { sinceTs: 10, limit: 10 })).toHaveLength(3);
+    expect(repo.listFramesContaining("ESCALATION", { limit: 10 })).toHaveLength(4);
+  });
+
+  it("uses the time range index without a temporary sort for the intake query", () => {
+    const plans = db.prepare(`EXPLAIN QUERY PLAN
+      SELECT id, session_id, seq, ts, kind, payload FROM transcript_logs
+      WHERE payload LIKE ? AND ts >= ? ORDER BY ts ASC, seq ASC LIMIT ?
+    `).all("%ESCALATION%", 10, 1000) as Array<{ detail: string }>;
+    const detail = plans.map(row => row.detail).join("\n");
+    expect(detail).toContain("SEARCH transcript_logs USING INDEX idx_transcript_logs_ts_seq");
+    expect(detail).not.toContain("USE TEMP B-TREE");
+  });
+});
+
 describe("TranscriptLogsRepo.maxId", () => {
   it("frame が無ければ 0 を返す", () => {
     expect(repo.maxId("s1")).toBe(0);

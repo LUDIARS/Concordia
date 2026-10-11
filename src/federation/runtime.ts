@@ -104,6 +104,8 @@ export interface FederationRuntime {
     body: string;
     runtimeRules: readonly string[];
     appliedTagNames: readonly string[];
+    /** 本社が投稿から解決したプロジェクト。 拠点はこれで cwd を決める (無ければ拠点の workspace root)。 */
+    project?: string | null;
   }): { siteId: string; siteName: string } | null;
   /** `/spawn site:` の補完候補 (有効な拠点)。 */
   listSpawnSites(): Array<{ siteId: string; name: string }>;
@@ -522,7 +524,12 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       const route = resolveForumRoute(input.channelId, input.appliedTagNames) ?? resolveTextRoute(input.channelId, input.title, input.body);
       if (route?.kind !== "site" || !listener) return null;
       hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now() });
-      listener.enqueue(route.siteId, buildRemoteSpawnPayload({ ...input, ts: Math.floor(Date.now() / 1000) }));
+      const { project, ...spawnInput } = input;
+      listener.enqueue(route.siteId, buildRemoteSpawnPayload({
+        ...spawnInput,
+        ...(project ? { options: { project } } : {}),
+        ts: Math.floor(Date.now() / 1000),
+      }));
       const site = sites.find(route.siteId);
       return { siteId: route.siteId, siteName: site?.name ?? route.siteId };
     },

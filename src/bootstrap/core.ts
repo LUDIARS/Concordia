@@ -2515,6 +2515,7 @@ export async function startBackend(): Promise<BackendHandle> {
       settings: new SqliteSettingsStore(db),
       concordiaUrl: publicUrl,
       buildPrompt: (title, body, rules) => buildForumSpawnPrompt(title, body, rules),
+      workspaceRoot: () => adminState.getWorkspaceRoot(),
       log: createChildLogger("federation/remote-session"),
     }));
     trackPostListenHandle(

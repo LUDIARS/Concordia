@@ -24,6 +24,8 @@ export interface RemoteThreadRegistry {
   find(channelId: string): RemoteThreadEntry | null;
   /** 新規に記録できたら true (既にあれば false = 再送)。 */
   record(channelId: string, entry: RemoteThreadEntry): boolean;
+  /** 記録を消す。起動に失敗したスレッドを、次の spawn で起動し直せるようにする。 */
+  forget(channelId: string): void;
 }
 
 export function createRemoteThreadRegistry(store: Pick<SettingsStore, "get" | "set">, key: string): RemoteThreadRegistry {
@@ -47,6 +49,12 @@ export function createRemoteThreadRegistry(store: Pick<SettingsStore, "get" | "s
       const kept = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, REMOTE_THREAD_LIMIT);
       store.set(key, JSON.stringify(Object.fromEntries(kept)));
       return true;
+    },
+    forget(channelId) {
+      const all = read();
+      if (!all[channelId]) return;
+      delete all[channelId];
+      store.set(key, JSON.stringify(all));
     },
   };
 }

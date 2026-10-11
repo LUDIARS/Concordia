@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRemoteSessionSite, splitForRelay, REMOTE_RELAY_CHUNK } from "./remote-session-site.js";
-import { buildRemoteSpawnPayload, parseSiteEventPayload, remoteSpawnRequestFields, REMOTE_SPAWN_MAX_BODY } from "./remote-session-payload.js";
+import { buildRemoteSpawnPayload, parseSiteEventPayload, remoteSpawnRequestFields, REMOTE_SPAWN_MAX_BODY, withSiteDefaultCwd } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry, REMOTE_THREAD_LIMIT } from "./remote-thread-registry.js";
 import { readSourceChannel } from "./remote-session-wiring.js";
 
@@ -47,7 +47,35 @@ describe("remote session payload", () => {
   });
 });
 
+describe("site default cwd", () => {
+  it("fills the workspace root only when the request has no project / cwd / template", () => {
+    expect(withSiteDefaultCwd({}, "D:\\LUDIARS")).toEqual({ cwd: "D:\\LUDIARS" });
+    expect(withSiteDefaultCwd({ project: "Concordia" }, "D:\\LUDIARS")).toEqual({ project: "Concordia" });
+    expect(withSiteDefaultCwd({ cwd: "D:\\X" }, "D:\\LUDIARS")).toEqual({ cwd: "D:\\X" });
+    expect(withSiteDefaultCwd({ template: "impl" }, "D:\\LUDIARS")).toEqual({ template: "impl" });
+    expect(withSiteDefaultCwd({ project: " " }, "D:\\LUDIARS")).toEqual({ project: " ", cwd: "D:\\LUDIARS" });
+    expect(withSiteDefaultCwd({}, "  ")).toEqual({});
+  });
+
+  it("carries the HQ-resolved project to the site request", () => {
+    const payload = buildRemoteSpawnPayload({
+      guildId: GUILD, channelId: THREAD, authorId: null, title: "t", body: "b", runtimeRules: [], options: { project: "Concordia" }, ts: 1,
+    });
+    expect(withSiteDefaultCwd(remoteSpawnRequestFields(parseSiteEventPayload(payload)?.type === "spawn" ? payload.options : undefined), "D:\\LUDIARS"))
+      .toEqual({ project: "Concordia" });
+  });
+});
+
 describe("remote thread registry", () => {
+  it("forgets an entry so the thread can be recorded again", () => {
+    const registry = createRemoteThreadRegistry(memoryStore(), "k");
+    registry.record("1", { guildId: GUILD, siteId: null, at: 1 });
+    registry.forget("1");
+    registry.forget("missing");
+    expect(registry.find("1")).toBeNull();
+    expect(registry.record("1", { guildId: GUILD, siteId: null, at: 2 })).toBe(true);
+  });
+
   it("records once and keeps only the newest entries", () => {
     const registry = createRemoteThreadRegistry(memoryStore(), "k");
     expect(registry.record("1", { guildId: GUILD, siteId: "s", at: 1 })).toBe(true);
@@ -68,10 +96,13 @@ describe("remote session site", () => {
     expect(h.egress).toEqual([{ guildId: GUILD, channelId: THREAD, text: expect.stringContaining("起動しました") }]);
   });
 
-  it("reports a spawn failure to the thread", async () => {
+  it("reports a spawn failure to the thread and lets a resend retry the spawn", async () => {
     const h = setup({ spawnOk: false });
     await h.site.handleEvent(spawnPayload());
     expect(h.egress[0]?.text).toContain("失敗");
+    expect(h.registry.find(THREAD)).toBeNull();
+    await h.site.handleEvent(spawnPayload());
+    expect(h.spawn).toHaveBeenCalledTimes(2);
   });
 
   it("injects replies as human input, skipping the starter post and unknown threads", async () => {

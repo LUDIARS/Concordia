@@ -198,6 +198,12 @@ Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `
 2. 拠点: 連合クライアントの `onEvent` が payload を受ける。`spawn` はスレッド台帳
    (`federation.site.remote_threads`) に記録できたときだけ、forum 起動と同じ依頼文で自分の
    `/v1/admin/spawn-session` を呼ぶ (再送は冪等)。結果 (起動した / 失敗した) をスレッドへ返す。
+   起動に失敗したら台帳から消し、再送で起動し直せるようにする。失敗ログには spawn-session の拒否理由を含める。
+   {#SPEC-FED-REMOTE-SPAWN-CWD}
+   起動場所: 本社は forum 起動の project 解決 (選択回答 → project code registry) で取れた project を
+   `options.project` として渡す。拠点は project / cwd / template のどれも無い依頼に、自分の主 workspace root を
+   cwd として補う (`withSiteDefaultCwd`)。spawn-session は cwd 無しの起動を `project cwd is required` で拒否するため
+   (2026-10-11 MELPOT: プロジェクトを名指ししない拠点向け forum 投稿が全て HTTP 400 で起動しなかった)。
 3. 本社: スレッドへの人の返信は既存の ingress 転送 (拠点タグで拠点へ) で `ingress` payload になる。
    拠点は台帳にあるスレッドだけを扱い、forum の最初の投稿 (message id = thread id) は spawn 本文と
    重複するので捨てる。起動元スレッド (`discord_source_channel_id`) が一致する稼働中セッションへ

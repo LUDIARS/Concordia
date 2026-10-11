@@ -97,6 +97,17 @@ export function remoteSpawnRequestFields(options: RemoteSpawnOptions | undefined
   };
 }
 
+/**
+ * 起動場所 (project / cwd / template) の指定が無い依頼に、拠点の workspace root を cwd として補う。
+ * spawn-session は cwd 無しの起動を拒否する (project cwd is required) ため、補わないと
+ * プロジェクトを名指ししない forum 投稿が拠点で必ず 400 になる。 root が空なら補わない。
+ */
+export function withSiteDefaultCwd(fields: Record<string, unknown>, workspaceRoot: string): Record<string, unknown> {
+  const has = (key: string) => typeof fields[key] === "string" && (fields[key] as string).trim() !== "";
+  if (has("project") || has("cwd") || has("template") || !workspaceRoot.trim()) return fields;
+  return { ...fields, cwd: workspaceRoot.trim() };
+}
+
 /** 拠点が受け取った payload を解釈する。 知らない形・壊れた形は null (読み捨て)。 */
 export function parseSiteEventPayload(payload: unknown): SiteEventPayload | null {
   const type = payload && typeof payload === "object" ? (payload as { type?: unknown }).type : undefined;

@@ -115,10 +115,19 @@ describe("forum spawn", () => {
     expect(routeRemoteSpawn).toHaveBeenCalledWith(expect.objectContaining({
       guildId: "guild-1", channelId: "thread-1", authorId: "123456789",
       title: "[Cc] Implement Phase 2", body: "Build spawn-by-post", appliedTagNames: ["HASTER"],
+      project: "Concordia",
     }));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(selectTemplate).not.toHaveBeenCalled();
     expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("HASTER"));
+  });
+
+  it("hands a site post without a resolvable project to the site with project null", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const routeRemoteSpawn = vi.fn(() => ({ siteName: "HASTER" }));
+    const deps = makeDeps({ routeRemoteSpawn, resolveProjectTarget: () => null });
+    await expect(executeForumSpawn(deps, makeThread())).resolves.toEqual({ ok: true });
+    expect(routeRemoteSpawn).toHaveBeenCalledWith(expect.objectContaining({ project: null }));
   });
 
   it("marks a thread handed to a site with the site initial and keeps the spawn when renaming fails", async () => {

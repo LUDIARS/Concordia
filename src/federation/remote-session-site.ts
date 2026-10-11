@@ -61,6 +61,8 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
     }).catch((error: unknown) => ({ ok: false, error: String(error) }));
     if (!result.ok) {
       deps.log.warn(`remote spawn failed channel=${payload.channel_id}: ${result.error ?? "unknown"}`);
+      // 台帳に残すと、本社からの再送が「再送」扱いで捨てられ、起動し直せなくなる。
+      deps.registry.forget(payload.channel_id);
       await notify(payload.guild_id, payload.channel_id, "拠点でのセッション起動に失敗しました。拠点の Cc のログを確認してください。");
       return;
     }

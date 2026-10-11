@@ -215,6 +215,7 @@ export interface ForumSpawnDeps {
     body: string;
     runtimeRules: readonly string[];
     appliedTagNames: readonly string[];
+    project?: string | null;
   }) => { siteName: string } | null;
   /**
    * 起動モデル確定時にスレッド名へモデル絵文字を付けるための rename 口 (best-effort)。
@@ -309,6 +310,8 @@ export async function executeForumSpawn(
       body,
       runtimeRules: activeRuntimeRuleNames(thread),
       appliedTagNames: tagNames,
+      // 拠点は依頼文から project を引けないので、本社で解決できた分だけ渡す (取れなければ拠点の workspace root)。
+      project: suppliedContent?.project?.trim() || deps.resolveProjectTarget(title, body)?.project || null,
     });
     if (remote) {
       deps.log.info(`forum-spawn routed to site thread=${thread.id} site=${remote.siteName}`);

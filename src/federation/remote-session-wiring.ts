@@ -8,7 +8,7 @@ import type { SettingsStore } from "../admin/settings-store.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
 import { createRemoteSessionSite } from "./remote-session-site.js";
-import { remoteSpawnRequestFields } from "./remote-session-payload.js";
+import { remoteSpawnRequestFields, withSiteDefaultCwd } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 
 /** runtime.ts を import しないための最小ポート (module-runtime-composition-only)。 */
@@ -35,6 +35,8 @@ export function startRemoteSessionSite(input: {
   /** 自分自身の Cc (loopback)。 forum 起動と同じ /v1/admin/spawn-session を使う。 */
   concordiaUrl: string;
   buildPrompt(title: string, body: string, runtimeRules: readonly string[]): string;
+  /** 起動場所の指定が無い依頼の cwd (拠点の主 workspace root)。 */
+  workspaceRoot(): string;
   log: { info(message: string): void; warn(message: string): void };
 }): { stop(): void } {
   const site = createRemoteSessionSite({
@@ -45,7 +47,7 @@ export function startRemoteSessionSite(input: {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...remoteSpawnRequestFields(request.options),
+          ...withSiteDefaultCwd(remoteSpawnRequestFields(request.options), input.workspaceRoot()),
           prompt: request.prompt,
           source_discord_guild_id: request.guildId,
           source_discord_channel_id: request.channelId,
@@ -53,7 +55,10 @@ export function startRemoteSessionSite(input: {
         }),
       });
       if (response.ok) return { ok: true };
-      return { ok: false, error: `spawn-session HTTP ${response.status}` };
+      // 拒否理由をログに残す (HTTP status だけでは原因を追えない)。
+      const reason = await response.json()
+        .then((json) => (json as { error?: unknown }).error, () => undefined);
+      return { ok: false, error: `spawn-session HTTP ${response.status}${typeof reason === "string" ? `: ${reason}` : ""}` };
     },
     findSessionByChannel: (channelId) =>
       input.sessions.findAllActive().find((session) => readSourceChannel(session.metadata) === channelId)?.id ?? null,

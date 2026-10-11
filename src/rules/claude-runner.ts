@@ -11,8 +11,18 @@ import { spawnOneShot as spawn, resolveModel } from "@ludiars/one-shot";
 import { access } from "node:fs/promises";
 import { createChildLogger } from "../shared/logger.js";
 import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
+import { resolveClaudeLaunch, type ClaudeLaunch } from "./claude-launch.js";
 
 const log = createChildLogger("claude-runner");
+
+/** 見つかった起動先はプロセス内で覚える (高頻度の経路で PATH を毎回探さない)。 見つからない間は毎回探し直す。 */
+let claudeLaunchCache: ClaudeLaunch | null = null;
+export function claudeLaunch(): ClaudeLaunch {
+  if (claudeLaunchCache) return claudeLaunchCache;
+  const launch = resolveClaudeLaunch();
+  if (launch.file !== "claude.exe") claudeLaunchCache = launch;
+  return launch;
+}
 const TIMEOUT_MS = Number(process.env.CONCORDIA_CLAUDE_TIMEOUT_MS ?? "120000");
 
 /**
@@ -117,7 +127,10 @@ export async function runClaude(
     if (opts.dangerouslySkipPermissions && !opts.conversationOnly) args.push("--dangerously-skip-permissions");
 
     // Shared launch resolution avoids cmd.exe ownership and shell quoting.
-    const file = process.platform === "win32" ? "claude.exe" : "claude";
+    // npm 版 (claude.cmd のみ) の拠点では shim の起動先を Node で直接起動する。
+    const launch = claudeLaunch();
+    const file = launch.file;
+    args.unshift(...launch.prefixArgs);
 
     let child;
     let abortListener: (() => void) | undefined;

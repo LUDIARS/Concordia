@@ -71,7 +71,9 @@ describe("resolveGitBashPath (via runClaude on win32)", () => {
     const { runClaude } = await import("./claude-runner.js");
     await runClaude("相談", { conversationOnly: true, dangerouslySkipPermissions: true });
     const args = vi.mocked(spawn).mock.calls[0]!;
-    expect(args[0]).toBe("claude.exe");
+    // PATH 上のネイティブ版を絶対パスで起動する (cmd.exe を挟まない)。
+    expect(args[0]).toMatch(/claude\.exe$/i);
+    expect(args[0]).not.toMatch(/cmd(\.exe)?$/i);
     expect(args[1]).toEqual(expect.arrayContaining(["--tools=", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode"]));
     expect(args[1]).not.toContain("--dangerously-skip-permissions");
   });

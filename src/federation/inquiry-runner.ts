@@ -10,6 +10,7 @@ import { resolve as resolvePath } from "node:path";
 import { spawnOneShot, resolveModel } from "@ludiars/one-shot";
 import { windowsTreeKillArgs } from "../processes/runner.js";
 import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
+import { claudeLaunch } from "../rules/claude-runner.js";
 import { buildInquiryPrompt, inquiryClaudeArgs, truncateInquiryOutput } from "./inquiry-policy.js";
 
 export const INQUIRY_QUEUE_LIMIT = 3;
@@ -62,13 +63,14 @@ async function terminate(child: ChildProcess): Promise<void> {
 }
 
 function runClaudeOnce(input: { cwd: string; prompt: string; timeoutMs: number }): Promise<{ ok: boolean; output: string; error: string | null }> {
-  const file = process.platform === "win32" ? "claude.exe" : "claude";
+  // npm 版 (claude.cmd のみ) の拠点でも cmd.exe を挟まずに起動する (2026-10-11 MELPOT)。
+  const launch = claudeLaunch();
   return new Promise((done) => {
     let output = "";
     let stderr = "";
     let stopReason: string | null = null;
     let kill: Promise<void> | null = null;
-    const child = spawnOneShot(file, inquiryClaudeArgs(resolveModel("opus", "claude")), {
+    const child = spawnOneShot(launch.file, [...launch.prefixArgs, ...inquiryClaudeArgs(resolveModel("opus", "claude"))], {
       cwd: input.cwd,
       env: inquiryEnvironment(process.env),
       windowsHide: true,

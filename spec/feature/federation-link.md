@@ -321,6 +321,9 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 - 価値: 拠点の中を、相手の人手を使わず 1 回の依頼で読み取って答えを得る。
 - 不変条件:
   - 依頼を受けた側は `claude -p` を 1 回だけ、読み取り専用の道具 (Read / Grep / Glob と git の参照系 Bash) で動かす。
+    起動先は `src/rules/claude-launch.ts` が決める (規則の実行 `claude-runner` と共通): PATH の `claude.exe` → npm 版の
+    `claude.cmd` が指す `cli.js` を Node で直接 → ネイティブ版の既定位置。cmd.exe は挟まない
+    (2026-10-11 MELPOT: npm 版しか無く `spawn claude.exe ENOENT` で調査も注入前の検査も動かなかった)。
     書き込み・Web・サブエージェントは `--disallowedTools` でも塞ぐ (`src/federation/inquiry-policy.ts`)。
   - 拠点同士は本社が中継する (拠点は本社にしか繋がっていない)。本社は依頼の origin を送信元拠点と照合し、
     結果は依頼を渡した宛先からのものだけ受け付ける (なりすまし・横取りの防止)。

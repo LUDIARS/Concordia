@@ -1,4 +1,5 @@
 import { buildDelegationContextTemplate } from "../delegation/persona-context.js";
+import { REMAINING_WORK_GUIDANCE } from "./remaining-work-guidance.js";
 import { buildImplementationInjectTemplate } from "../delegation/implementation-inject.js";
 import { buildParttimerInjectTemplate } from "../delegation/parttimer-inject.js";
 import {
@@ -28,6 +29,7 @@ export const MAJOR_INJECT_DEFINITIONS: readonly MajorInjectDefinition[] = [
     id: "session.work_policy", label: "セッション作業方針", workflow: "session", case: "startup",
     apply_scope: "next_startup_policy", placeholders: [], required_placeholders: [],
     default_content: [
+      ...REMAINING_WORK_GUIDANCE,
       "設計が固まったら、開始指示が未確認の実装は開始前に人間に確認してください。同じ範囲の開始指示をすでに受けている場合は、その根拠を確認して進め、重ねて確認しないでください。人間の指示と対応する Actio task を紐付け、task の状態を正本として進捗を追ってください。Cc の session work-phase は補助記録です。",
       "対象プロジェクトと実 checkout branch を確認し、Cc へ登録してください。branch 不一致など機械的な対象判定は Cc の警告に従ってください。",
       // 2026-09-29 neco 指示: spawn スレッドは設計が主。別プロジェクトの作業の扱いを重さで分ける。

@@ -463,8 +463,8 @@ describe("startGoalAndGo", () => {
       } finally { handle.stop(); unsubscribe(); }
     });
 
-    it("human activity marks the session as instructed, after which it may continue", () => {
-      const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    it.each([null, "{}"])("default ON continues after human activity without an explicit GO switch (%s)", (metadata) => {
+      const env = fakeRepo(metadata);
       const { injected, unsubscribe } = collect();
       const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600, now: () => 100 });
       try {
@@ -472,6 +472,20 @@ describe("startGoalAndGo", () => {
         expect(readGoalAndGoStatus(env.session.metadata).instructed).toBe(true);
         eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "続き", ts: 3 });
         expect(injected).toHaveLength(1);
+        expect(injected[0]!.text).toContain("「残っていること」");
+        expect(injected[0]!.text).toContain("再度 GO や同じ開始確認を求めず");
+      } finally { handle.stop(); unsubscribe(); }
+    });
+
+    it("human activity does not turn an explicitly disabled session back ON", () => {
+      const env = fakeRepo(setGoalAndGoEnabled(null, false));
+      const { injected, unsubscribe } = collect();
+      const handle = startGoalAndGo({ repo: env.repo, seconds: 1, maxContinuations: 6, maxRuntimeSec: 3600 });
+      try {
+        eventBus.emit({ type: "session.event", session_id: "s1", kind: "user_activity", ts: 2 });
+        eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "続き", ts: 3 });
+        expect(injected).toHaveLength(0);
+        expect(readGoalAndGoStatus(env.session.metadata).enabled).toBe(false);
       } finally { handle.stop(); unsubscribe(); }
     });
 

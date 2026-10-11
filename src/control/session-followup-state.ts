@@ -2,6 +2,7 @@
 import { fileURLToPath } from "node:url";
 import { DELEGATION_RUN_STATUSES } from "../db/delegation-repo.js";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
+import { REMAINING_WORK_GUIDANCE } from "./remaining-work-guidance.js";
 
 /** Sources fetched independently for the followup; one failure must not discard the others. */
 export type FollowupSource = "actio" | "revisor-registry" | "revisor-prs";
@@ -73,6 +74,7 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
       : []),
     ...unknownTaskReasons(snapshot),
     "Actio タスクの現状態を正本として確認し、人間の指示と task link の対応を混ぜないでください。",
+    ...REMAINING_WORK_GUIDANCE,
     ...(state === "task-blocked" ? ["blocked タスクは依存待ち・人間判断待ちを照合し、待機中の同じ依頼を重複実行しないでください。"] : []),
     ...(state === "reflection-needed" ? ["PR の merged だけでループを完了にしないでください。対象変更の反映、Actio の残タスク、次の GO または人間判断待ちを確認してください。"] : []),
     `固定手順: ${JSON.stringify(skill)} の該当stateだけ読んでください。`,

@@ -7,6 +7,7 @@ import { parseRequesterSource } from "./requester.js";
 import { allowAutoInject, type PendingQuestionProbe } from "./pending-question-blocker.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { isHumanWaitActive } from "./human-wait.js";
+import { REMAINING_WORK_GUIDANCE } from "./remaining-work-guidance.js";
 
 export const GOAL_AND_GO_SOURCE = "auto:goal-and-go";
 
@@ -149,10 +150,11 @@ export function buildGoalAndGoPrompt(input: {
     "人間から新しい入力がないため、自走継続の判断を行ってください。",
     ...focus,
     ...currentTask,
+    ...REMAINING_WORK_GUIDANCE,
     "指示されていないセッション外のタスク (Actio の未着手 task、git diff、TODO など) を持ち込まないでください。作業してよいのは、このセッションが人間から受けた指示の範囲だけです。",
     "受けた指示の作業の1ループは実装・審査・マージ・反映の確認までです。各操作は既存の人間の許可範囲で判断し、Test OKだけで完了にしないでください。",
     "受けた指示の作業が審査待ちや判断待ちで止まったら、同じ指示の範囲で進められる作業だけを進めてください。審査待ちの重複提出はしないでください。",
-    "ループの区切りでは予定タスクを列挙し、実行中は GO、待機するものには理由を示してください。進められるものが無ければ必要な人間判断を要約し、POST /v1/sessions/:id/human-wait に summary と task_references を記録して待機してください。人間の回答まで自動確認を止めます。",
+    "ループの区切りでは予定タスクを列挙し、実行中は GO、待機するものには理由を示してください。必要な人間判断がある場合は POST /v1/sessions/:id/human-wait に summary と task_references を記録して待機してください。人間の回答まで自動確認を止めます。",
   ].join("\n");
 }
 

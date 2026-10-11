@@ -1,6 +1,11 @@
 {
   "version": 1,
   "implementations": [
+    {
+      "source": "src/control/remaining-work-guidance.ts",
+      "tests": ["src/control/remaining-work-guidance.test.ts", "src/control/goal-and-go.test.ts", "src/control/session-followup-state.test.ts"],
+      "contracts": ["CC-GO-REMAINING-01"]
+    },
     { "source": "src/discord/relay-output-filter.ts", "tests": ["src/discord/relay-output-filter.test.ts"], "contracts": ["CC-EXPLICIT-ARTIFACT-01", "SPEC-DEPT-OUTPUT"] },
     { "source": "src/discord/egress.ts", "tests": ["src/discord/egress-artifact.test.ts", "src/discord/egress.test.ts"], "contracts": ["CC-EXPLICIT-ARTIFACT-01"] },
     { "source": "src/discord/bot.ts", "tests": ["src/meeting-links/discord.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
@@ -1814,7 +1819,7 @@
     },
     {
       "source": "src/control/workflow-inject-defaults.ts",
-      "tests": ["src/control/workflow-inject-defaults.test.ts"],
+      "tests": ["src/control/workflow-inject-defaults.test.ts", "src/control/remaining-work-guidance.test.ts"],
       "contracts": []
     },
     {"source":"src/bootstrap/core.ts","tests":["src/consultation/consult-log-writer.test.ts","tests/harness-reliability/task-branch.test.ts","src/chores/runtime.test.ts","tests/chores-wiring.test.ts","src/taskflow/actio-project-binding.test.ts","src/implementation-tools/worktree.test.ts","src/inbox/pending-plans.test.ts","src/api/sprint-dialogues.test.ts","src/discord/sprint-dialogues.test.ts","src/api/developer-tools.test.ts","src/developer-tools/service.test.ts","src/platform/actio-chat-policy.test.ts","src/platform/actio-chat-config.test.ts","src/platform/actio-chat-destination.test.ts","src/discord/actio-backlog-command.test.ts","src/platform/actio-chat-admission.test.ts","src/api/inject-sources.test.ts","src/control/startup-policy.test.ts","src/control/session-followup-snapshot.test.ts"],"contracts":["CC-CHORES-01","CC-AT-DISCOVERY-01","CC-INBOX-PLAN-01","CC-SD-01","CC-SD-02","CC-SD-03","CC-SD-04","CC-SD-05","CC-SD-06","CC-TOOLS-01","CC-TOOLS-02","CC-TOOLS-03","CC-ACTIO-CHAT-01","CC-ACTIO-CHAT-COMMAND-01"]},
@@ -1856,7 +1861,7 @@
     },
     {
       "source": "src/control/major-inject-catalog.ts",
-      "tests": ["src/control/major-inject-editor.test.ts"],
+      "tests": ["src/control/major-inject-editor.test.ts", "src/control/remaining-work-guidance.test.ts"],
       "contracts": []
     },
     {

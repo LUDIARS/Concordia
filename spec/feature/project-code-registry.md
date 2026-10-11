@@ -52,3 +52,18 @@ session title、forum routing の正本には使わない。
   保持したまま workflow だけを変更する。Revisor の変更系契約どおり workflow token と
   Concordia actor identity を付け、token 未設定・未登録・到達不能は明示的に失敗する。
 - Revisor からの未検証データやエラー本文をブラウザへ素通ししない。
+
+## Actio との同期 (spec/faq/actio-cc-task-project-sync.md §4.2)
+
+プロジェクトの正本は Cc の `project_codes`。Actio は `GET /v1/project-codes/admin` を 10 分ごとに取り込む。
+
+### 改名の追跡 (CC-PCR-RENAME-01)
+
+- `PATCH /v1/project-codes/:code` で code を付け替えると、同じ transaction で `project_code_renames` に旧 code → 新 code を残す。
+- `GET /v1/project-codes/admin` の各項目は `renamed_from` (旧 code、新しい順) を返す。A→B→C なら C は `[B, A]`。いま登録されている code は旧 code として返さない (同じ code が別のプロジェクトで再登録されていれば、それを指すタスクは付け替え対象ではない)。
+- Actio の同期はこれを見て、旧 code を指すタスクの `projectId` を新しい code へ付け替える (Actio 側の変更)。この履歴が残る前の改名 (`LwP` → `LP`) は、移行手順 M2 の `--rename` で補う。
+
+### 大文字小文字の衝突 (CC-PCR-CASE-01)
+
+- code は大文字小文字を区別するので、大文字小文字だけが違う code (`LD` / `Ld` など) の登録は止めない。
+- 登録 (`POST`) と更新 (`PATCH`) の応答は `warnings` を返し、大文字小文字だけが違う既存 code があれば `{ kind: "case_collision", code, conflicts_with }` を入れる。名前を小文字にして引く経路と衝突しうることを知らせるため。既存の 3 組はそのまま残す。

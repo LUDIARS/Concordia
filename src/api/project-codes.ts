@@ -16,6 +16,7 @@ import {
 } from "./project-notification-preferences.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
 import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
+import { caseCollisionWarnings } from "../projects/project-code-case.js";
 import type {
   RevisorRepositoryAdmin,
   RevisorRepositoryRecord,
@@ -149,6 +150,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       .map((row) => ({ id: row.id, name: row.display_name || row.name, enabled: row.enabled === 1 }));
     const subsidiaryName = new Map(subsidiaries.map((row) => [row.id, row.name]));
     const revisorRepos = await listRevisorRepositories(deps);
+    // 改名履歴を持たない repo 実装 (テスト用の差し替えなど) では空として扱う。
+    const renamedFrom = deps.repo.renamedFrom?.() ?? new Map<string, string[]>();
 
     return c.json({
       entries: rows.map((row) => {
@@ -177,6 +180,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
+          // 改名前の code (新しい順)。Actio の同期が旧 code のタスクを付け替えるのに使う。
+          renamed_from: renamedFrom.get(row.code) ?? [],
           teams: teamIds.map((id) => ({ id, name: teamName.get(id) ?? id })),
           subsidiaries: subsidiaryIds.map((id) => ({ id, name: subsidiaryName.get(id) ?? id })),
           // undefined = Revisor に問い合わせできなかった (unknown)。 null = 未登録。
@@ -217,7 +222,10 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           repoUrl: `https://github.com/${repository}`,
         });
       }
-      return c.json({ project_code: toResponseRow(result.row), created: result.created }, result.created ? 201 : 200);
+      return c.json({
+        project_code: toResponseRow(result.row), created: result.created,
+        warnings: caseCollisionWarnings(result.row.code, deps.repo.list().map((row) => row.code)),
+      }, result.created ? 201 : 200);
     } catch (error) {
       if (error instanceof ProjectCodeConflictError) {
         return c.json({ error: "project_code_conflict", field: error.field }, 409);
@@ -272,7 +280,10 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       if (deps.subsidiaries && current.project.toLowerCase() !== row.project.toLowerCase()) {
         deps.subsidiaries.moveProjectAssignment(current.project, row.project);
       }
-      return c.json({ project_code: toAdminRow(row) });
+      return c.json({
+        project_code: toAdminRow(row),
+        warnings: caseCollisionWarnings(row.code, deps.repo.list().map((entry) => entry.code)),
+      });
     } catch (error) {
       if (error instanceof ProjectCodeConflictError) {
         return c.json({ error: "project_code_conflict", field: error.field }, 409);

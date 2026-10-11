@@ -9,6 +9,7 @@ import { isLegacyReferenceInScope } from "./actio-reference-scope.js";
 import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
 import type { PlanningTask } from "./continuation-plan.js";
+import { appendTaskInstruction, endTaskRun, startTaskRun, taskRuns } from "./task-runs.js";
 
 const Task = z.object({
   id: z.string().min(1), title: z.string(), description: z.string().nullable(),
@@ -79,6 +80,10 @@ export class ActioWorkflowClient {
   async create(binding: ActioBinding, input: {
     issuedBySessionId?: string | null;
     sourceRef: string; title: string; body: string; kind: string; memoryLinks: string[]; status?: TaskStatus; dueAt?: string | null;
+    /** 委託元のテンプレート名。タイトルには使わず payload に残す。 */
+    template?: string | null;
+    /** 作業単位のキーで一致した既存 task は、本文が違っても同じ作業として再利用する。 */
+    reuseExisting?: boolean;
   }): Promise<{ task: ActioWorkflowTask; existed: boolean }> {
     const sourceRef = createHash("sha256").update(JSON.stringify([
       binding.projectId, binding.ownerId, binding.teamId, input.sourceRef,
@@ -91,7 +96,10 @@ export class ActioWorkflowClient {
       }
     };
     const existing = (await this.list(binding)).find((task) => task.sourceRef === sourceRef);
-    if (existing) { verifyContent(existing); return { task: existing, existed: true }; }
+    if (existing) {
+      if (!input.reuseExisting) verifyContent(existing);
+      return { task: existing, existed: true };
+    }
     const task = this.decode(binding, await this.transport.request(binding, "POST", "/api/tasks", {
       title: input.title, description: input.body, projectId: binding.projectId, teamId: binding.teamId,
       // Local deployment has one verified owner; team tasks require an assignee.
@@ -99,7 +107,8 @@ export class ActioWorkflowClient {
       source: ACTIO_WORKFLOW_SOURCE, sourceRef,
       pluginId: ACTIO_WORKFLOW_SOURCE, pluginRef: sourceRef,
       pluginPayload: { version: 3, kind: input.kind, memory_links: input.memoryLinks,
-        issued_by_session_id: input.issuedBySessionId ?? null, working_session_id: null },
+        issued_by_session_id: input.issuedBySessionId ?? null, working_session_id: null,
+        ...(input.template ? { template: input.template } : {}) },
       status: this.remoteStatus(input.status ?? "pending"), creatorType: "ai",
       deadline: input.dueAt ?? null,
     }));
@@ -128,6 +137,36 @@ export class ActioWorkflowClient {
       if (JSON.stringify(pluginPayload) === JSON.stringify(current.pluginPayload)) return;
       const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { pluginPayload }));
       if (JSON.stringify(updated.pluginPayload) !== JSON.stringify(pluginPayload)) throw new Error("Actio PR evidence update was not confirmed");
+    });
+  }
+
+  /**
+   * run の開始を task へ記録する (run と task の多対 1)。続きの指示があれば本文へ追記し、
+   * 未着手・終了済みの task は作業中へ戻す。依存待ち (blocked) は人の判断を残すため変えない。
+   */
+  async recordRunStart(binding: ActioBinding, id: string, run: {
+    runId: string; sessionId: string | null; at: string; instruction: string | null;
+  }): Promise<void> {
+    return this.serializeMetadata(binding, id, async () => {
+      const current = await this.get(binding, id);
+      const pluginPayload = startTaskRun(current.pluginPayload, run);
+      const body = current.description ?? "";
+      const description = run.instruction ? appendTaskInstruction(body, run.runId, run.instruction) : body;
+      const patch: Record<string, unknown> = { pluginPayload };
+      if (description !== body) patch.description = description;
+      if (current.status !== "in_progress" && current.status !== "blocked") patch.status = this.remoteStatus("delegated");
+      const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, patch));
+      if (!taskRuns(updated.pluginPayload).some((entry) => entry.run_id === run.runId)) throw new Error("Actio run record was not confirmed");
+    });
+  }
+
+  /** run の終了を task へ記録する。記録の無い run なら何も書かない。 */
+  async recordRunEnd(binding: ActioBinding, id: string, run: { runId: string; at: string; reason: string }): Promise<void> {
+    return this.serializeMetadata(binding, id, async () => {
+      const current = await this.get(binding, id);
+      const pluginPayload = endTaskRun(current.pluginPayload, run);
+      if (JSON.stringify(pluginPayload) === JSON.stringify({ ...current.pluginPayload })) return;
+      this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { pluginPayload }));
     });
   }
 

@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 132;
+export const SCHEMA_VERSION = 133;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3386,6 +3386,23 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   source: "transcript_logs(ts, seq) index v1 (CC-ESCALATION-INTAKE-SCAN-01)",
   up(db) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_transcript_logs_ts_seq ON transcript_logs(ts, seq)`);
+  },
+},
+{
+  version: 133,
+  name: "project-code-renames",
+  source: "project_code_renames v1 (spec/feature/project-code-registry.md 改名の追跡)",
+  up(db) {
+    // code の付け替えを残す。Actio の同期が旧 code を指すタスクを新しい code へ付け替える根拠になる。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_code_renames (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_code  TEXT NOT NULL COLLATE BINARY,
+        to_code    TEXT NOT NULL COLLATE BINARY,
+        renamed_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_code_renames_to ON project_code_renames(to_code);
+    `);
   },
 },
 ];

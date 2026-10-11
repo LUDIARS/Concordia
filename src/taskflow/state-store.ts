@@ -51,18 +51,37 @@ export class TaskflowStateStore {
     return state;
   }
 
-  claimActioExecution(key: TaskStateKey, runId: string, sessionId: string | null): boolean {
+  /**
+   * 1 つの task は同時に 1 run (spec/feature/task-workflow-v3.md §run と task)。
+   * 前の run が終わっていれば (`isRunOver`) 新しい run がその task を引き継ぐ。
+   * 書き込みは読んだ前の run を条件にするので、同時に 2 つの run が引き継ぐことはない。
+   */
+  claimActioExecution(key: TaskStateKey, runId: string, sessionId: string | null, isRunOver: (runId: string) => boolean = () => false): boolean {
+    const repoPath = normalizePath(key.repoPath);
+    const current = this.db.prepare(`SELECT delegation_run_id FROM taskflow_task_state
+      WHERE repo_path = ? AND task_path = ? AND actio_task_id IS NOT NULL`).get(repoPath, key.taskPath) as
+      { delegation_run_id: string | null } | undefined;
+    if (!current) return false;
+    const previous = current.delegation_run_id;
+    if (previous !== null && previous !== runId && !isRunOver(previous)) return false;
     const result = this.db.prepare(`UPDATE taskflow_task_state
       SET delegation_run_id = ?, source_session = ?, updated_at = ?
-      WHERE repo_path = ? AND task_path = ? AND actio_task_id IS NOT NULL
-        AND (delegation_run_id IS NULL OR delegation_run_id = ?)`)
-      .run(runId, sessionId, this.now(), normalizePath(key.repoPath), key.taskPath, runId);
+      WHERE repo_path = ? AND task_path = ? AND actio_task_id IS NOT NULL AND delegation_run_id IS ?`)
+      .run(runId, sessionId, this.now(), repoPath, key.taskPath, previous);
     return result.changes === 1;
   }
 
   releaseActioExecution(runId: string): void {
     this.db.prepare(`UPDATE taskflow_task_state SET delegation_run_id = NULL, updated_at = ?
       WHERE actio_task_id IS NOT NULL AND delegation_run_id = ?`).run(this.now(), runId);
+  }
+
+  /** 状態の写しの照合 (taskflow/state-reconcile.ts) が読む v3 行。status は Actio のキャッシュ。 */
+  actioReferences(): Array<{ repo_path: string; task_path: string; status: TaskStatus; subsidiary_id: string | null }> {
+    return this.db.prepare(`SELECT repo_path, task_path, status, subsidiary_id FROM taskflow_task_state
+      WHERE actio_task_id IS NOT NULL ORDER BY repo_path, task_path`).all() as Array<{
+        repo_path: string; task_path: string; status: TaskStatus; subsidiary_id: string | null;
+      }>;
   }
 
   assignmentsForSession(sessionId: string): Array<{ repo_path: string; task_path: string; subsidiary_id: string | null }> {

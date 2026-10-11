@@ -108,9 +108,11 @@ async function main(): Promise<void> {
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),
         actio_team_id: z.string().trim().min(1).max(120).optional()
           .describe("Actio team for the implementation task; must be one of the project's registered teams. Omit for a team-less task"),
+        taskflow_reference: z.string().regex(/^actio:[A-Za-z0-9-]+$/).optional()
+          .describe("Actio task to continue (actio:<id>). Required when handing work over to a successor; the run is linked to this task instead of creating a new one"),
       },
     },
-    async ({ call_name, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides, actio_team_id }) => {
+    async ({ call_name, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides, actio_team_id, taskflow_reference }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
@@ -130,6 +132,7 @@ async function main(): Promise<void> {
           options,
           overrides,
           actio_team_id,
+          taskflow_reference,
         },
       );
       if (!r.ok) {

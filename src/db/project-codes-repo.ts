@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { seedDomainReview } from "./domain-review-seed.js";
+import { listProjectCodeRenamedFrom, recordProjectCodeRename } from "./project-code-renames.js";
 
 export interface ProjectCodeRow {
   code: string;
@@ -74,6 +75,11 @@ export class ProjectCodesRepo {
     return this.list().find(
       (row) => normalizeRepoOrigin(row.repo_origin ?? "").toLowerCase() === target,
     ) ?? null;
+  }
+
+  /** 登録中の code ごとの旧 code (新しい順)。改名の無い code は含まない。 */
+  renamedFrom(): Map<string, string[]> {
+    return listProjectCodeRenamedFrom(this.db, new Set(this.list().map((row) => row.code)));
   }
 
   findByCode(code: string): ProjectCodeRow | null {
@@ -173,6 +179,8 @@ export class ProjectCodesRepo {
         patch.releaseNotification === undefined ? existing.release_notification ?? null : patch.releaseNotification,
         Date.now(), existing.code,
       );
+      // 改名は同じ transaction で履歴に残す (Actio が旧 code のタスクを付け替える根拠)。
+      recordProjectCodeRename(this.db, existing.code, nextCode, Date.now());
       return this.findByCode(nextCode);
     });
     return run.immediate();

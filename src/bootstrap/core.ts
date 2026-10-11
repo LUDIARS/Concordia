@@ -63,6 +63,8 @@ import {
   makeDiscordConfigRepo,
 } from "../db/discord-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
+import { isDelegationRunOver, listTaskRunsOnBranch } from "../db/delegation-task-runs.js";
+import { selectHandoffReference } from "../delegation/handoff-task.js";
 import { DelegationService } from "../delegation/service.js";
 import { DelegationEffortBlackbox } from "../delegation/effort-blackbox.js";
 import { DelegationQueue } from "../delegation/queue.js";
@@ -254,6 +256,7 @@ import { readActioBindings } from "../taskflow/actio-binding.js";
 import { createActioBindingReader } from "../taskflow/actio-project-binding.js";
 import { listLocalActioProjects } from "../taskflow/actio-projects.js";
 import { TaskflowStateStore } from "../taskflow/state-store.js";
+import { startTaskStatusReconcile } from "../taskflow/state-reconcile-scheduler.js";
 import { TaskflowRuntime } from "../taskflow/runtime.js";
 import { startCheckoutPublishedDeployWatch } from "../deploy/watch.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
@@ -953,6 +956,9 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 実装委託の追跡タスク起票先。 memoriaClient はこの後で組むので遅延解決にする。
     taskStore: () => taskStore,
+    // 引き継ぎの自動判定 (同じ repo/branch で終わった前の run の task を続ける)。
+    findHandoffReference: (target) => target.branch
+      ? selectHandoffReference(listTaskRunsOnBranch(db, target.branch), target) : null,
     // パートタイマーの最終報告へ付ける管理者メンション。 以前は「委託先が
     // GET /v1/admin/state を引いて自分で埋める」手順を本文に書いていたが、 変数展開で
     // 空へ潰れて `<@> ` が届いていた。 Cc が知っている値は Cc が埋める。
@@ -1305,7 +1311,10 @@ export async function startBackend(): Promise<BackendHandle> {
       repositories: () => projectCodesRepo.list(), registered: () => listLocalActioProjects(actioTransport) }),
     new ActioWorkflowClient(actioTransport),
     taskflowState,
+    (runId) => isDelegationRunOver(db, runId),
   );
+  // taskflow_task_state.status は Actio のキャッシュ。定期的に Actio に合わせる (読むだけ)。
+  const taskStatusReconcile = startTaskStatusReconcile(taskStore, taskflowState);
   const fallbackTasks = new CcTaskRepository(db);
   const actioTasks = new ActioTaskClient(excubitorClient);
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -3071,6 +3080,7 @@ export async function startBackend(): Promise<BackendHandle> {
     clearInterval(workflowWorkerWatch);
   });
   resources.own("cost runtime", () => costRuntime.stop());
+  resources.own("taskflow status reconcile", () => taskStatusReconcile.stop());
   resources.own("personal budget consumption", () => personalBudgetConsumptionLoop.stop());
   resources.own("discord restart timer", () => clearDiscordBotAutoRestart());
   resources.own("post-listen startup", () => postListenStartup.catch(() => {}));

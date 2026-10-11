@@ -1,7 +1,7 @@
-/** @implements spec/feature/task-workflow-v3.md — delegation moves rendered content to Actio first */
+/** @implements spec/feature/task-workflow-v3.md — delegation moves rendered content to Actio first; Actio task sync (CC-TF-SYNC-01..04) */
 
 import { describe, expect, it, vi } from "vitest";
-import type { TaskCreateInput, TaskStore } from "../taskflow/store.js";
+import type { TaskCreateInput, TaskRunStart, TaskStore } from "../taskflow/store.js";
 import type { TaskDocument } from "../taskflow/types.js";
 import { sealDelegationTask } from "./actio-task.js";
 import type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -29,7 +29,12 @@ function fixture(override: Partial<TaskStore> = {}) {
   };
   const create = vi.fn(async (_input: TaskCreateInput) => document);
   const associate = vi.fn((_document: TaskDocument, _runId: string, _sessionId: string | null) => undefined);
-  return { create, associate, document, store: { create, associate, ...override } as unknown as TaskStore };
+  const recordRunStart = vi.fn(async (_document: TaskDocument, _run: TaskRunStart) => undefined);
+  const releaseExecution = vi.fn((_runId: string) => undefined);
+  const read = vi.fn(async (_repo: string, reference: string, _subsidiary: string | null): Promise<TaskDocument> =>
+    ({ ...document, path: reference, runtime: { status: "delegated" } as TaskDocument["runtime"] }));
+  return { create, associate, recordRunStart, releaseExecution, read, document,
+    store: { create, associate, recordRunStart, releaseExecution, read, ...override } as unknown as TaskStore };
 }
 
 describe("sealDelegationTask", () => {
@@ -61,7 +66,7 @@ describe("sealDelegationTask", () => {
 
     expect(sealed.reference).toBe("actio:task-1");
     expect(create.mock.calls[0]![0]).toMatchObject({
-      repoPath: REPO, subsidiaryId: null, title: "実装委託 (Opus / xhigh)", body: CONTENT,
+      repoPath: REPO, subsidiaryId: null, title: CONTENT, template: "実装委託 (Opus / xhigh)", reuseExisting: true, body: CONTENT,
       kind: "実装", memoryLinks: ["mem-1"], status: "delegated",
       issuedBySessionId: "parent-1", teamId: null,
     });
@@ -97,22 +102,64 @@ describe("sealDelegationTask", () => {
     expect(associate).toHaveBeenCalledWith(document, "run-1", null);
   });
 
-  /** Identity is derived from the request, so a lost response retries onto the same task. */
-  it("derives the same source identity for an identical request", async () => {
+  /** CC-TF-SYNC-01: the work key, not the rendered body, identifies the task. */
+  it("derives the same work key when only the rendered body changes", async () => {
     const { store: a, create: createA } = fixture();
     const { store: b, create: createB } = fixture();
     const input = { definition: definition(), invocation: invocation(), runId: "run-1", content: CONTENT };
 
     await sealDelegationTask({ ...input, store: a });
-    await sealDelegationTask({ ...input, store: b, runId: "run-2" });
+    await sealDelegationTask({ ...input, store: b, runId: "run-2", content: "別の本文 (引き継ぎ)" });
 
     const reference = createA.mock.calls[0]![0].sourceRef;
+    expect(reference).toBe("work:e:/document/ars/concordia:feat/x:秘密を含む委託本文");
     expect(createB.mock.calls[0]![0].sourceRef).toBe(reference);
-    expect(reference).toMatch(/^delegation:[0-9a-f]{64}$/);
+  });
 
-    const { store: c, create: createC } = fixture();
-    await sealDelegationTask({ ...input, store: c, content: "別の本文" });
-    expect(createC.mock.calls[0]![0].sourceRef).not.toBe(reference);
+  /** CC-TF-SYNC-02: an explicit reference continues that task; no new task is created. */
+  it("continues the referenced task and records the run with the new instruction", async () => {
+    const { store, create, read, associate, recordRunStart } = fixture();
+    const sealed = await sealDelegationTask({
+      store, definition: definition(), invocation: invocation({ args: { task: "続き", taskflow_reference: "actio:prev" } }),
+      runId: "run-2", content: "続きの指示",
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith(REPO, "actio:prev", null);
+    expect(sealed.reference).toBe("actio:prev");
+    expect(associate.mock.calls[0]![1]).toBe("run-2");
+    expect(recordRunStart.mock.calls[0]![1]).toEqual({ runId: "run-2", sessionId: null, instruction: "続きの指示" });
+  });
+
+  /** CC-TF-SYNC-02: a predecessor that ended on the same branch hands its task over automatically. */
+  it("reuses the handoff task found on the same repository and branch", async () => {
+    const { store, create } = fixture();
+    const finder = vi.fn(() => "actio:lost");
+    const sealed = await sealDelegationTask({
+      store, definition: definition(), invocation: invocation(), runId: "run-2", content: CONTENT, findHandoffReference: finder,
+    });
+    expect(finder).toHaveBeenCalledWith({ repoPath: REPO, branch: "feat/x" });
+    expect(sealed.reference).toBe("actio:lost");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("does not hand over a finished task and creates by work key instead", async () => {
+    const { store, create, document } = fixture({
+      read: vi.fn(async () => ({ ...fixture().document, path: "actio:done", runtime: { status: "done" } as TaskDocument["runtime"] })),
+    });
+    const sealed = await sealDelegationTask({
+      store, definition: definition(), invocation: invocation(), runId: "run-2", content: CONTENT, findHandoffReference: () => "actio:done",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(sealed.reference).toBe(document.path);
+  });
+
+  /** CC-TF-SYNC-03: a failed run record must not leave the task claimed by a run that never launched. */
+  it("releases the claim when the run record cannot be written", async () => {
+    const { store, releaseExecution } = fixture({ recordRunStart: vi.fn(async () => { throw new Error("Actio down"); }) });
+    await expect(sealDelegationTask({
+      store, definition: definition(), invocation: invocation(), runId: "run-1", content: CONTENT,
+    })).rejects.toThrow("Actio down");
+    expect(releaseExecution).toHaveBeenCalledWith("run-1");
   });
 
   it("falls back to the template's default working directory", async () => {

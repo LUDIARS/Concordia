@@ -6,7 +6,7 @@ import { workflowStatus, type ActioWorkflowClient, type ActioWorkflowTask } from
 import { ActioTeamCandidatesError, selectActioTeam } from "./actio-team-selection.js";
 import { mainRepositoryKey } from "./repository-identity.js";
 import type { TaskflowStateStore } from "./state-store.js";
-import type { RemainingTasksInput, TaskCreateInput, TaskScanScope, TaskStore } from "./store.js";
+import type { RemainingTasksInput, TaskCreateInput, TaskRunStart, TaskScanScope, TaskStore } from "./store.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
 import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
@@ -22,6 +22,9 @@ export class ActioTaskStore implements TaskStore {
     private readonly bindings: ActioBindingReader,
     private readonly client: ActioWorkflowClient,
     private readonly state: TaskflowStateStore,
+    /** 前の run がもう作業していないか。終わっていれば新しい run が同じ task を引き継ぐ。 */
+    private readonly isRunOver: (runId: string) => boolean = () => false,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async scan(scope?: TaskScanScope): Promise<TaskDocument[]> {
@@ -62,9 +65,19 @@ export class ActioTaskStore implements TaskStore {
 
   associate(document: TaskDocument, runId: string, sessionId: string | null): void {
     const worker = taskSessionMetadata(document.frontmatter).working_session_id ?? sessionId;
-    if (!this.state.claimActioExecution({ repoPath: document.repoPath, taskPath: document.path }, runId, worker)) {
+    if (!this.state.claimActioExecution({ repoPath: document.repoPath, taskPath: document.path }, runId, worker, this.isRunOver)) {
       throw new Error("Actio task already associated with a delegation; inspect that run before retry");
     }
+  }
+
+  async recordRunStart(document: TaskDocument, run: TaskRunStart): Promise<void> {
+    const binding = await this.binding(document.repoPath, document.runtime?.subsidiary_id ?? null);
+    await this.client.recordRunStart(binding, this.id(document.path), { ...run, at: this.now().toISOString() });
+  }
+
+  async recordRunEnd(repoPath: string, reference: string, runId: string, reason: string, subsidiaryId: string | null): Promise<void> {
+    const binding = await this.binding(repoPath, subsidiaryId);
+    await this.client.recordRunEnd(binding, this.id(reference), { runId, reason, at: this.now().toISOString() });
   }
 
   releaseExecution(runId: string): void { this.state.releaseActioExecution(runId); }

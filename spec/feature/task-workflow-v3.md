@@ -249,3 +249,61 @@ Taskflow の各行に、タスクの業務状態 (`status`、正本は Actio / t
   - CC-TF-EXEC-INV-04: 導出できない項目は null とし、推測で埋めない。
 - 復旧: 読み取り専用で永続状態の移行は無い。不具合時は該当 PR を revert する。
 - 検証: `src/taskflow/execution-view.test.ts` (状態導出・停止理由・応答切り詰め・tool 入力非表示)、`src/db/transcript-logs-repo.test.ts` (最新行の一括取得)。
+
+## Actio とのタスク同期 (CC-TF-SYNC)
+
+設計の正本: [Actio と Concordia のタスク・プロジェクト同期](../faq/actio-cc-task-project-sync.md) の推奨案 A。neco 指示 2026-10-11「Actio と Concordia は同一のタスクを持つべき」。
+
+- 正本の分担: タスクの本文と状態は Actio、プロジェクト登録は Cc (`project_codes`)。Cc は `actio:<id>` を参照するだけで、委託の実行回 (run) のために task を作らない。
+- 状態所有者: task の本文・状態・`pluginPayload.runs[]` は Actio。run の状態は delegation_runs。`taskflow_task_state.status` は Actio を読んだ結果のキャッシュ。
+
+### CC-TF-SYNC-01: 作業単位のキー (work key)
+
+委託から task を決めるキーは描画後の本文ではなく、次の順で決める (`src/delegation/work-key.ts`)。
+
+1. `args.taskflow_reference` (`actio:<id>`) があれば、その task を再利用する。
+2. タスク仕様 (`spec/tasks/<file>.md`) がどの引数にあっても、`work:<repoKey>:<path>`。設計ファイル (それ以外の `spec/` の md) は、依頼の 1 行目 (`task` 引数) にあるときだけ作業の指定とみなす。参考資料として本文に挙がった設計ファイルで別の作業を束ねないため。
+3. どちらも無ければ `work:<repoKey>:<branch>:<題名の正規化>`。
+
+作業単位のキーで一致した既存 task は、本文が違っても同じ作業として再利用する (`reuseExisting`)。本文に依存する従来のキー (`session:` / `remaining:` など) は、これまでどおり内容の食い違いを拒否する。
+
+### CC-TF-SYNC-02: 引き継ぎの再利用と taskflow_reference 入力
+
+- 同じ (リポジトリ, ブランチ) に、task に結びついた run が残っていて、その run が終わっている (session が lost / ended、または run が completed / failed / spawn_failed) なら、その task を再利用する。作業中の run が残っている task は選ばない。完了・取り消し済みの task は引き継がず、作業単位のキーで決め直す (`src/delegation/handoff-task.ts`、`src/db/delegation-task-runs.ts`)。
+- `POST /v1/delegation/invoke` と MCP `delegation_invoke` は `taskflow_reference` を明示入力として受ける。`args.taskflow_reference` と食い違えば `taskflow_reference_conflict` (400) で拒否する。引き継ぎ専用のテンプレートは、入力スキーマで `taskflow_reference` を required にして渡すことを必須にする (現時点で専用テンプレートは無い。一般テンプレートの引き継ぎは自動判定で拾う)。
+- 既存 task を続けるときの新しい指示は、本文の末尾へ「続きの指示 (run <id>)」として追記する。子は追記込みの本文を Actio から読む。同じ指示が本文に含まれていれば追記しない。
+
+### CC-TF-SYNC-03: run と task は多対 1
+
+- `pluginPayload.runs[]` に `{ run_id, session_id, started_at, ended_at, end_reason }` を追記する (`src/taskflow/task-runs.ts`)。run の開始時に、終わっていない前の記録は `superseded` で閉じる。run が completed / failed になったら、その run の記録を閉じる。記録の書き込みに失敗しても run の終了処理は止めない。
+- 「1 つの task は同時に 1 run」の排他は保つ。前の run が終わっていれば (CC-TF-SYNC-02 と同じ判定)、新しい run を受け入れる。書き込みは読んだ前の run を条件にするので、2 つの run が同時に引き継ぐことはない。run の行がまだ無い (封印直後) run は作業中として扱う。
+- run の記録を書けなかった封印は、取った排他を返してから失敗する。
+- 新しい run が始まるとき、未着手・終了済みの task は作業中 (`in_progress`) に戻す。依存待ち (`blocked`) は人の判断を残すため変えない。
+
+### CC-TF-SYNC-04: タイトル
+
+task のタイトルはテンプレートの題名ではなく、依頼の要約 (`task` 引数の 1 文目、無ければ本文の 1 行目) を 80 文字までで使う (`src/delegation/task-title.ts`)。テンプレート名は `pluginPayload.template` に残す。
+
+### CC-TF-SYNC-05: 状態の写しの照合
+
+`taskflow_task_state.status` は Actio のキャッシュと位置づける。10 分ごとの照合ジョブ (`src/taskflow/state-reconcile*.ts`) が `ActioTaskStore.scan` を読むだけで (Actio へは書かない)、食い違った Cc の列を Actio に合わせる。Actio が止まっている間は次の周期を待つ。
+
+### CC-TF-SYNC-06: 移行手順 M1〜M6 (dry-run 既定)
+
+`node --import tsx tools/actio-sync-migration.mjs --actio-url <url> --cc-url <url> [--db <concordia.db>] [--rename OLD=NEW] [--out <file>]` は、Actio と Cc を読むだけで計画を JSON に書き出す。接続先のポートは各サービスの `excubitor.catalog.yaml` を正本とし、コードに埋め込まない。
+
+| 手順 | 計画 | 適用 |
+|---|---|---|
+| M1 | 同じプロジェクト・同じ branch の未完了 v3 task を組にし、新しい方を残して古い方を `cancelled` + `pluginPayload.superseded_by` にする案。branch が分からず題名だけが同じ組は `review_required` | `review_required` でない組だけ |
+| M2 | Cc の `renamed_from` と `--rename` で、消えた code を指すタスクを新しい code へ | 計画時の code のままのものだけ |
+| M3 | チームが 1 つのプロジェクトは team-less タスクをそのチームへ。複数チームは候補だけ並べる | 1 チームの分だけ |
+| M4 | Memoria 由来で `projectId` が空の未完了タスクを、`category` の語と code / プロジェクト名の完全一致で 1 つに決まるものだけ候補にする | 決まったものだけ |
+| M5 | 旧 md タスクの pending / delegated を `work:<repoKey>:<path>` で作る案。ほかは archive 候補 | 対象外 (§7 の判断待ち) |
+| M6 | Cc の status と Actio の status の食い違い | 照合ジョブが直す |
+
+実装: 計画は `src/taskflow/sync-migration-types.ts`、`src/taskflow/sync-migration-duplicates.ts` (M1)、`src/taskflow/sync-migration-renamed-codes.ts` (M2)、`src/taskflow/sync-migration-teams.ts` (M3)、`src/taskflow/sync-migration-memoria.ts` (M4)、`src/taskflow/sync-migration-legacy.ts` (M5)、`src/taskflow/sync-migration-status.ts` (M6)、`src/taskflow/sync-migration-plan.ts`、適用は `src/taskflow/sync-migration-apply.ts`。CLI は `tools/actio-sync-migration.mjs` が入口で、引数は `src/developer-tools/actio-sync-migration/args.ts`、読み取り (Actio と Cc の GET、Cc DB の readonly) は `src/developer-tools/actio-sync-migration/sources.ts`、実行は `src/developer-tools/actio-sync-migration/run.ts`。
+
+適用は人が計画を確認した後だけ、`--apply M1,M2,M3,M4 --plan <dry-run の出力>` で行う。更新は Actio API (`PATCH /api/tasks/:id`) だけで、DB へ直接書かない。更新の直前に task を読み直し、計画の前提が崩れたもの (完了済み・移動済み・チーム設定済み) は飛ばして結果ファイルに残す。
+
+- 復旧: 照合ジョブと引き継ぎ判定は該当 PR の revert で止まる。run の記録 (`runs[]`) と本文への追記は Actio に残るが、読む側は未知の項目を無視する。移行の適用結果は結果ファイルに task ごとに残るので、その一覧から Actio で戻す。
+- 検証: `src/delegation/work-key.test.ts`、`task-title.test.ts`、`handoff-task.test.ts`、`actio-task.test.ts`、`task-run-end.test.ts`、`src/db/delegation-task-runs.test.ts`、`src/taskflow/task-runs.test.ts`、`state-store-actio.test.ts`、`actio-task-client-runs.test.ts`、`state-reconcile.test.ts`、`sync-migration.test.ts`、`src/developer-tools/actio-sync-migration/args.test.ts`。

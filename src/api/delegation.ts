@@ -68,6 +68,7 @@ import { continueResidentSidecar,prepareResidentChild,type ResidentSidecarPorts 
 import { reconcileResidentSidecars,closeResidentSidecar } from "../delegation/sidecar/resident-runtime.js";
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { mergeTaskflowReference, TASKFLOW_REFERENCE } from "../delegation/work-key.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 const statusLogger = createChildLogger("delegation-status");
@@ -193,6 +194,8 @@ const InvokeSchema = z.object({
   subsidiary_id: z.string().trim().min(1).max(120).optional().nullable(),
   /** 実装タスクを載せる Actio チーム (プロジェクトの登録 teamIds のいずれか)。 */
   actio_team_id: z.string().trim().min(1).max(120).optional().nullable(),
+  /** 続ける Actio task (`actio:<id>`)。渡すと新しい task を作らずこの task に run を結びつける。 */
+  taskflow_reference: z.string().regex(TASKFLOW_REFERENCE).optional(),
   /** 起動する部署 id (spec/feature/departments.md §5)。 所有会社・廃止を service が検証する。 */
   department: z.string().trim().min(1).max(120).optional().nullable(),
   project: z.string().max(120).optional().nullable(),
@@ -711,6 +714,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const referenced = mergeTaskflowReference(parsed.data.args, parsed.data.taskflow_reference);
+    if (!referenced.ok) return c.json({ error: referenced.error }, 400);
+    parsed.data.args = referenced.args;
     const parentSessionId = resolveParentSessionId(c.req, parsed.data.parent_session_id);
     const residentParent = parentSessionId ? deps.sessions?.findSession(parentSessionId) : null;
     const isResident = residentParent && isSidecarParentMetadata(residentParent.metadata);
@@ -1047,6 +1053,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (deps.residents) reconcileResidentSidecars(deps.residents);
     if ((!isPartial || partialFailureError) && (persistedStatus === "completed" || persistedStatus === "failed")) {
       deps.service.recordEffortOutcome(updated, persistedStatus);
+      void deps.service.recordTaskRunEnd?.(updated, persistedStatus);
       // 終了時に依頼ファイルを掃き出す。 サンドボックス下の委託先は `.git` に書けないので、
       // 「実装は済んだがコミットできないまま failed」 を最後に拾う経路がここ。
       void sweepCommitRequest(updated, deps);

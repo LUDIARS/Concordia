@@ -104,6 +104,8 @@ describe("projectCodesRouter", () => {
         revisor_workflow: null,
       },
       created: true,
+      // 大文字小文字だけが違う code が無ければ空 (CC-PCR-CASE-01)。
+      warnings: [],
     });
   });
 

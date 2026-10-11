@@ -6,6 +6,9 @@
   "membership": [
     { "pathPattern": "(^|/)src/control/startup-policy-project(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/implementation-tools(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/project-code-renames(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/projects/project-code-case(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/project-codes-sync\\.test\\.ts$" },
     { "pathPattern": "(^|/)src/db/project-codes-repo(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/project-notification-seed(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/(schema|migration-ledger)\\.ts$" },

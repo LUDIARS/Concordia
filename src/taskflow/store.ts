@@ -16,6 +16,18 @@ export interface TaskCreateInput {
   dueAt?: string | null;
   /** Explicit Actio team; must be one of the project's registered teams. */
   teamId?: string | null;
+  /** 委託元のテンプレート名 (pluginPayload.template)。 */
+  template?: string | null;
+  /** 作業単位のキー (work:...) で一致した既存 task を本文の違いを問わず再利用する。 */
+  reuseExisting?: boolean;
+}
+
+/** task に結びつく委託の実行回 (run と task の多対 1)。 */
+export interface TaskRunStart {
+  runId: string;
+  sessionId: string | null;
+  /** 既存 task を続けるときに渡された新しい指示。本文へ追記する。 */
+  instruction: string | null;
 }
 
 export interface TaskScanScope { project?: string }
@@ -39,4 +51,6 @@ export interface TaskStore {
   releaseWorkingSession?(sessionId: string): Promise<void>;
   associate?(document: TaskDocument, runId: string, sessionId: string | null): void;
   releaseExecution?(runId: string): void;
+  recordRunStart?(document: TaskDocument, run: TaskRunStart): Promise<void>;
+  recordRunEnd?(repoPath: string, reference: string, runId: string, reason: string, subsidiaryId: string | null): Promise<void>;
 }

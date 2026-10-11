@@ -74,7 +74,8 @@ import { resolveTemplateForScope } from "./template-overrides.js";
 import { readFederationEnv } from "../federation/env.js";
 import { normalizeSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { TaskStore } from "../taskflow/store.js";
-import { sealDelegationTask } from "./actio-task.js";
+import { sealDelegationTask, type HandoffReferenceFinder } from "./actio-task.js";
+import { recordDelegationTaskRunEnd } from "./task-run-end.js";
 import { describeSealFailure, SEAL_FAILURE_ERROR } from "./seal-failure.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
@@ -133,6 +134,8 @@ export interface DelegationServiceDeps {
   /** Resolves editable major Inject prose from a composition-root owned store. */
   majorInject?: import("../control/major-inject-resolver.js").MajorInjectResolver;
   taskStore?: () => TaskStore;
+  /** 引き継ぎの自動判定: 同じ (リポジトリ, ブランチ) で終わった前の run の task 参照。 */
+  findHandoffReference?: HandoffReferenceFinder;
   repo: DelegationRepo;
   /** 端末 spawn を上書き (テスト用)。 省略時は実際に wt.exe を起動 */
   spawn?: DelegationSpawner;
@@ -300,7 +303,8 @@ export class DelegationService {
     const runId = input.reserved_run_id ?? randomUUID();
     if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND && input.task_binding !== "caller") {
       try {
-        const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId, content: renderedPrompt });
+        const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId,
+          content: renderedPrompt, findHandoffReference: this.deps.findHandoffReference });
         def = sealed.definition;
         input = sealed.invocation;
         renderedPrompt = sealed.prompt;
@@ -493,6 +497,12 @@ export class DelegationService {
   recordEffortOutcome(run: DelegationRunRow, status: "completed" | "failed"): void {
     if (!this.deps.effortBlackbox || run.effort_decision_id == null) return;
     this.deps.effortBlackbox.recordOutcome(run.effort_decision_id, status);
+  }
+
+  /** 終わった run を Actio task の runs[] に閉じる (run と task の多対 1)。 */
+  recordTaskRunEnd(run: DelegationRunRow, status: "completed" | "failed"): Promise<void> {
+    return recordDelegationTaskRunEnd(this.deps.taskStore?.(), run, status, (error) =>
+      log.warn({ run_id: run.id, err: (error as Error).message }, "Actio task run end was not recorded"));
   }
 
   /**

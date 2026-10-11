@@ -24,7 +24,7 @@ import {
   writeFederationConfigCache,
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressResultFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame } from "./protocol.js";
+import type { FederationEgressResultFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenResultFrame } from "./protocol.js";
 import { hqUrlTransportError } from "./transport-policy.js";
 
 const log = createChildLogger("federation/site");
@@ -68,6 +68,8 @@ export interface FederationSiteClientHandle {
   isLinked(): boolean;
   getConfig(): FederationConfigSnapshot | null;
   requestEgress(input: { requestId?: string; guildId: string; channelId: string; text: string }): Promise<FederationEgressResultFrame>;
+  /** 拠点のセッションを映す投稿を本社の Session フォーラムに立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
+  requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<FederationMirrorOpenResultFrame>;
   /** link 中なら本社へ直接フレームを送る (outbox を使わない)。 */
   send(frame: FederationFrameInput): boolean;
 }
@@ -97,12 +99,21 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
   let idleTimer: NodeJS.Timeout | null = null;
   const pendingEgress = new Map<string, { resolve: (result: FederationEgressResultFrame) => void; timer: NodeJS.Timeout }>();
 
+  const pendingMirror = new Map<string, { resolve: (result: FederationMirrorOpenResultFrame) => void; timer: NodeJS.Timeout }>();
+  const mirrorFailure = (requestId: string, error: string): FederationMirrorOpenResultFrame =>
+    ({ v: FEDERATION_PROTOCOL_VERSION, type: "mirror-open-result", request_id: requestId, ok: false, error });
+
   const rejectPendingEgress = (error: string): void => {
     for (const [requestId, pending] of pendingEgress) {
       clearTimeout(pending.timer);
       pending.resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error });
     }
     pendingEgress.clear();
+    for (const [requestId, pending] of pendingMirror) {
+      clearTimeout(pending.timer);
+      pending.resolve(mirrorFailure(requestId, error));
+    }
+    pendingMirror.clear();
   };
 
   const scheduleReconnect = () => {
@@ -184,6 +195,14 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         const pending = pendingEgress.get(frame.request_id);
         if (!pending) return;
         pendingEgress.delete(frame.request_id);
+        clearTimeout(pending.timer);
+        pending.resolve(frame);
+        return;
+      }
+      if (frame.type === "mirror-open-result") {
+        const pending = pendingMirror.get(frame.request_id);
+        if (!pending) return;
+        pendingMirror.delete(frame.request_id);
         clearTimeout(pending.timer);
         pending.resolve(frame);
         return;
@@ -284,6 +303,27 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
           pendingEgress.delete(requestId);
           clearTimeout(timer);
           resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error: (e as Error).message });
+        }
+      });
+    },
+    requestMirrorOpen(input) {
+      const requestId = randomUUID();
+      if (!linked || !ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.resolve(mirrorFailure(requestId, "HQ link is not connected"));
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pendingMirror.delete(requestId);
+          resolve(mirrorFailure(requestId, "mirror request timed out after 30 seconds"));
+        }, EGRESS_TIMEOUT_MS);
+        timer.unref?.();
+        pendingMirror.set(requestId, { resolve, timer });
+        try {
+          ws!.send(serializeFederationFrame({ type: "mirror-open-request", request_id: requestId, session_id: input.sessionId, title: input.title, text: input.text }));
+        } catch (e) {
+          pendingMirror.delete(requestId);
+          clearTimeout(timer);
+          resolve(mirrorFailure(requestId, (e as Error).message));
         }
       });
     },

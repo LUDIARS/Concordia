@@ -84,6 +84,29 @@ const egressResultSchema = z.object({
 }).passthrough();
 
 /**
+ * 拠点で起動したセッションを本社の Session フォーラムへ映す (SPEC-FED-SITE-SESSION-MIRROR)。
+ * 拠点 → 本社で投稿を立てる依頼、 本社 → 拠点で立てた投稿の宛先を返す。
+ */
+const mirrorOpenRequestSchema = z.object({
+  v: versionField,
+  type: z.literal("mirror-open-request"),
+  request_id: z.string().min(1).max(100),
+  session_id: z.string().min(1).max(200),
+  title: z.string().min(1).max(100),
+  text: z.string().min(1).max(2_000),
+}).passthrough();
+
+const mirrorOpenResultSchema = z.object({
+  v: versionField,
+  type: z.literal("mirror-open-result"),
+  request_id: z.string().min(1).max(100),
+  ok: z.boolean(),
+  guild_id: z.string().min(1).max(100).optional(),
+  channel_id: z.string().min(1).max(100).optional(),
+  error: z.string().max(500).optional(),
+}).passthrough();
+
+/**
  * 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 本社 ⇄ 拠点の双方向。 拠点同士は本社が中継する。
  * target / origin は site_id か本社を表す "hq"。
  */
@@ -174,6 +197,8 @@ const frameSchemas = {
   error: errorSchema,
   "inquiry-request": inquiryRequestSchema,
   "inquiry-result": inquiryResultSchema,
+  "mirror-open-request": mirrorOpenRequestSchema,
+  "mirror-open-result": mirrorOpenResultSchema,
 } as const;
 
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
@@ -189,6 +214,8 @@ export type FederationAckFrame = z.infer<typeof ackSchema>;
 export type FederationErrorFrame = z.infer<typeof errorSchema>;
 export type FederationInquiryRequestFrame = z.infer<typeof inquiryRequestSchema>;
 export type FederationInquiryResultFrame = z.infer<typeof inquiryResultSchema>;
+export type FederationMirrorOpenRequestFrame = z.infer<typeof mirrorOpenRequestSchema>;
+export type FederationMirrorOpenResultFrame = z.infer<typeof mirrorOpenResultSchema>;
 export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
@@ -201,7 +228,9 @@ export type FederationFrame =
   | FederationAckFrame
   | FederationErrorFrame
   | FederationInquiryRequestFrame
-  | FederationInquiryResultFrame;
+  | FederationInquiryResultFrame
+  | FederationMirrorOpenRequestFrame
+  | FederationMirrorOpenResultFrame;
 
 export type FederationFrameType = FederationFrame["type"];
 
@@ -277,7 +306,9 @@ export type FederationFrameInput =
   | { type: "ack"; seq: number }
   | { type: "error"; code: FederationErrorCode; message: string }
   | { type: "inquiry-request"; request_id: string; origin: string; target: string; prompt: string; project?: string; timeout_sec: number }
-  | { type: "inquiry-result"; request_id: string; ok: boolean; output?: string; error?: string; executed_by: string; duration_ms?: number };
+  | { type: "inquiry-result"; request_id: string; ok: boolean; output?: string; error?: string; executed_by: string; duration_ms?: number }
+  | { type: "mirror-open-request"; request_id: string; session_id: string; title: string; text: string }
+  | { type: "mirror-open-result"; request_id: string; ok: boolean; guild_id?: string; channel_id?: string; error?: string };
 
 export function serializeFederationFrame(frame: FederationFrameInput): string {
   return JSON.stringify({ ...frame, v: FEDERATION_PROTOCOL_VERSION });

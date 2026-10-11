@@ -265,6 +265,27 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
   名指し (「<拠点>で」/ `@<拠点>`) より先に見て、拠点タグがあればタグを優先する。頭文字が同じ有効拠点が複数あれば本社へ退避して warn する。
   `[Cc]` のような 2 文字以上の括弧は印として読まない。失効済みの拠点は印の照合に入れない。
 
+### 拠点で起動したセッションを本社へ映す (2026-10-11 neco 指示) {#SPEC-FED-SITE-SESSION-MIRROR}
+
+「MELPOT側のフォーラムでspawnしていた。本社側でも投稿できるようにしてほしい」。拠点が自分の Discord (拠点のフォーラム) で
+起動したセッションは本社に投稿が無く、本社からは見ることも返信することもできなかった。拠点のセッションを本社の Session フォーラムへ映す。
+
+| 責務 | 実装 |
+|---|---|
+| 依頼・応答のフレーム (`mirror-open-request` / `mirror-open-result`) | `src/federation/protocol.ts` / `hq-listener.ts` / `site-client.ts` |
+| 本社: 投稿を立てて台帳に載せる | `src/federation/hq-session-mirror.ts` (Discord 実体は `bot.ts` が opener を注入) |
+| 映した投稿の台帳 (本社 `<site>:<session>` / 拠点 `<session>` → 投稿) | `src/federation/session-mirror-store.ts` |
+| 拠点: 映す判断・発言の転送・返信の注入 | `src/federation/remote-session-site.ts` / `remote-session-wiring.ts` |
+
+1. 拠点: `session.started` で、起動元スレッド (`discord_source_channel_id`) を持ち、そのスレッドが本社から渡されたもの
+   (スレッド台帳にある) ではないセッションだけを映す。題名は作業内容 → プロジェクト → 作業フォルダ名の順。本社自身 (拠点ロールでない Cc) は映さない。
+2. 本社: 有効な拠点からの依頼だけ受け、Session フォーラムに Bot が `[拠点の印] 題名` の投稿を立てる。投稿はスレッド台帳
+   (`federation.hq.remote_threads`) に拠点として記録する。これで拠点の発言 (egress) が通り、投稿への人の返信は既存の ingress 転送で拠点へ届く。
+   同じセッションの再送には同じ投稿を返す。Bot が立てた投稿は forum 起動の対象外なので本社では起動しない。
+3. 拠点: 返ってきた投稿を台帳 (`federation.site.session_mirrors`) とスレッド台帳に記録する。AI の発言は、本社から起動したスレッドが
+   無ければ映した投稿へ返す。映した投稿への返信は、そのセッションが稼働中なら注入し、終わっていれば「準備中か終了」と返す。
+4. 本社が断った・連合リンクが切れていたときは映さず warn だけ残す (セッション自体は拠点で動き続ける)。
+
 拠点タグの候補: Villa から PC が取れれば従来どおり PC 名。取れない (Villa 停止・API 不一致) ときは
 有効な拠点の表示名 (無ければ site_id、20 文字で切る) をタグにし、同じ名前で解決する
 (`siteNameTagsOf` / `resolveSiteFromSiteNameTags`)。曖昧なら本社へ退避して warn する。

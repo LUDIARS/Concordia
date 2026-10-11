@@ -44,6 +44,8 @@ import type { InquiryRunner } from "./inquiry-runner.js";
 import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressRequestFrame } from "./protocol.js";
+import { createHqSessionMirror, type MirrorPostOpener } from "./hq-session-mirror.js";
+import { createSessionMirrorStore, HQ_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
 
 export interface FederationIngressInput {
   guild_id: string;
@@ -134,6 +136,12 @@ export interface FederationRuntime {
   requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
   /** Discord 実体を bootstrap から渡す egress ポート。 */
   setEgressExecutor(executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null): void;
+  /** 拠点ロールで本社へ繋ぐ設定があるか。 */
+  isSiteRole(): boolean;
+  /** 拠点ロール: 拠点のセッションを映す投稿を本社に立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
+  requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
+  /** 本社: Session フォーラムに投稿を立てる Discord ポート (bot.ts が注入)。 */
+  setMirrorPostOpener(opener: MirrorPostOpener | null): void;
   /** 拠点間ワンショット調査を依頼して結果を待つ (SPEC-FED-INQUIRY)。 */
   requestInquiry(input: InquiryRequestInput): Promise<InquiryOutcome>;
   /** 依頼を受けたときの実行器 (claude -p)。 bootstrap が作業ルートを知っているので注入する。 */
@@ -206,6 +214,17 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   /** 本社: 拠点ごとの担当プロジェクト (`/spawn` の project から起動先を決める)。 */
   const siteProjects = createSiteProjectsStore(opts.settings ?? memorySettings());
   const villa = opts.villaClient ?? new VillaClient();
+  let mirrorPostOpener: MirrorPostOpener | null = null;
+  const sessionMirror = createHqSessionMirror({
+    threads: hqThreads,
+    mirrors: createSessionMirrorStore(opts.settings ?? memorySettings(), HQ_SESSION_MIRRORS_KEY),
+    activeSiteName: (siteId) => {
+      const site = sites.find(siteId);
+      return site?.status === "active" ? site.name || site.site_id : null;
+    },
+    opener: () => mirrorPostOpener,
+    log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
+  });
   let inquiryRunner: InquiryRunner | null = null;
   const inquiries = createInquiryService({
     role: () => listener ? { kind: "hq" } : siteClient && siteBinding ? { kind: "site", siteId: siteBinding.siteId } : { kind: "none" },
@@ -309,6 +328,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           if (!egressExecutor) return { ok: false, error: "HQ Discord egress is unavailable" };
           return egressExecutor(request);
         },
+        handleMirrorOpen: (siteId, request) => sessionMirror.open(siteId, request),
         handleInquiryRequest: (siteId, request) => inquiries.onSiteRequest(siteId, request),
         handleInquiryResult: (siteId, result) => inquiries.onSiteResult(siteId, result),
       });
@@ -570,6 +590,19 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     },
     setSiteEventHandler(handler) {
       siteEventHandler = handler;
+    },
+    isSiteRole() {
+      return Boolean(siteClient && siteBinding);
+    },
+    async requestMirrorOpen(input) {
+      if (!siteClient) return { ok: false, error: "federation site link is not configured" };
+      const result = await siteClient.requestMirrorOpen(input);
+      return result.ok
+        ? { ok: true, ...(result.guild_id ? { guildId: result.guild_id } : {}), ...(result.channel_id ? { channelId: result.channel_id } : {}) }
+        : { ok: false, error: result.error ?? "mirror rejected" };
+    },
+    setMirrorPostOpener(opener) {
+      mirrorPostOpener = opener;
     },
     async requestEgress(input) {
       if (!siteClient) return { ok: false, error: "federation site link is not configured" };

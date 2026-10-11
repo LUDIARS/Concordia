@@ -10,11 +10,28 @@ import { eventBus } from "../events.js";
 import { createRemoteSessionSite } from "./remote-session-site.js";
 import { remoteSpawnRequestFields, withSiteDefaultCwd } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
+import { createSessionMirrorStore, SITE_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
 
 /** runtime.ts を import しないための最小ポート (module-runtime-composition-only)。 */
 export interface RemoteSessionFederationPort {
   setSiteEventHandler(handler: ((payload: unknown) => void) | null): void;
   requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
+  /** 拠点ロールで本社へ繋ぐ設定があるか (本社自身・連合なしでは映さない)。 */
+  isSiteRole(): boolean;
+  requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
+}
+
+/** 映す投稿の題名。 作業内容 → プロジェクト → 作業フォルダ名の順。 */
+export function mirrorTitleOf(session: { id: string; current_task?: string | null; repo_path?: string | null; metadata: string | null }): string {
+  let project: unknown = null;
+  try {
+    project = (JSON.parse(session.metadata ?? "{}") as Record<string, unknown>).project;
+  } catch {
+    project = null;
+  }
+  const folder = session.repo_path?.split(/[\\/]/).filter(Boolean).pop();
+  const base = session.current_task?.trim() || (typeof project === "string" && project.trim()) || folder || "セッション";
+  return Array.from(base.replace(/\s+/g, " ")).slice(0, 90).join("");
 }
 
 export const SITE_REMOTE_THREADS_KEY = "federation.site.remote_threads";
@@ -67,12 +84,28 @@ export function startRemoteSessionSite(input: {
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) });
     },
     requestEgress: (request) => input.federation.requestEgress(request),
+    mirror: {
+      store: createSessionMirrorStore(input.settings, SITE_SESSION_MIRRORS_KEY),
+      sourceOf: (sessionId) => {
+        const session = input.sessions.findSession(sessionId);
+        const channelId = readSourceChannel(session?.metadata ?? null);
+        return session && channelId ? { channelId, title: mirrorTitleOf(session) } : null;
+      },
+      isActive: (sessionId) => input.sessions.findAllActive().some((session) => session.id === sessionId),
+      requestOpen: (request) => input.federation.requestMirrorOpen(request),
+    },
     log: input.log,
   });
   input.federation.setSiteEventHandler((payload) => {
     void site.handleEvent(payload).catch((error) => input.log.warn(`remote session event failed: ${String(error)}`));
   });
   const unsubscribe = eventBus.subscribe((event) => {
+    if (event.type === "session.started") {
+      if (!input.federation.isSiteRole()) return;
+      void site.mirrorSession(event.session_id)
+        .catch((error) => input.log.warn(`remote session mirror failed: ${String(error)}`));
+      return;
+    }
     if (event.type !== "session.message" || event.op !== "create") return;
     void site.relaySessionMessage({
       sessionId: event.target_session_id,

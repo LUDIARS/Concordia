@@ -298,6 +298,8 @@ export interface DiscordBotDeps {
   spawnSites?: import("./command-port.js").SpawnSitePort;
   resolveForumSiteTags?: () => Promise<readonly string[]>;
   setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
+  /** 拠点のセッションを映す Session フォーラム投稿の口 (SPEC-FED-SITE-SESSION-MIRROR)。 */
+  setFederationMirrorPostOpener?: (opener: ((input: { title: string; text: string }) => Promise<{ guildId: string; channelId: string }>) | null) => void;
   /**
    * ドメインレビュー投稿口を Cc core へ渡す (federation egress と同型の遅延束縛)。
    * 投稿には guild ハンドルが要るので、 ready 後に Bot 側から登録する。
@@ -1026,6 +1028,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
   let federationEgressRegistered = false;
+  let federationMirrorRegistered = false;
   let domainReviewPosterRegistered = false;
   let gatewayClosed = false;
   let reconcileRunning = false;
@@ -1309,6 +1312,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           send: (client, options) => webhooks!.send(client, options),
           log,
         }));
+      }
+      const setMirrorOpener = deps.setFederationMirrorPostOpener;
+      if (!deps.subsidiary && setMirrorOpener) {
+        federationMirrorRegistered = true;
+        // 拠点で起動したセッションを Session フォーラムへ映す投稿 (SPEC-FED-SITE-SESSION-MIRROR)。
+        // Bot が立てた投稿は forum 起動の対象外なので、本社では起動しない。
+        setMirrorOpener(async ({ title, text }) => {
+          const forumId = layout?.forumMode ? layout.sessionForumId : "";
+          if (!forumId) throw new Error("Session forum is not configured");
+          const forum = await guild.channels.fetch(forumId);
+          if (!forum || forum.type !== ChannelType.GuildForum) throw new Error("Session forum not found");
+          const post = await forum.threads.create({ name: title, message: { content: text, allowedMentions: { parse: [] } } });
+          return { guildId: guild.id, channelId: post.id };
+        });
       }
       if (env.applicationId) {
         try {
@@ -3379,6 +3396,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (federationEgressRegistered) {
         federationEgressRegistered = false;
         deps.setFederationEgressExecutor?.(null);
+      }
+      if (federationMirrorRegistered) {
+        federationMirrorRegistered = false;
+        deps.setFederationMirrorPostOpener?.(null);
       }
       if (domainReviewPosterRegistered) {
         domainReviewPosterRegistered = false;

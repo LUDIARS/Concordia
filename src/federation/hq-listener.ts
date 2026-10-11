@@ -26,7 +26,7 @@ import {
   type FederationErrorCode,
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame } from "./protocol.js";
+import type { FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
 
 const log = createChildLogger("federation/hq");
@@ -77,6 +77,8 @@ export interface FederationListenerDeps {
   /** 拠点からのワンショット調査依頼 / 結果 (SPEC-FED-INQUIRY)。 振り分けは runtime が持つ。 */
   handleInquiryRequest?: (siteId: string, request: FederationInquiryRequestFrame) => void;
   handleInquiryResult?: (siteId: string, result: FederationInquiryResultFrame) => void;
+  /** 拠点で起動したセッションを本社の Session フォーラムへ映す投稿を立てる (SPEC-FED-SITE-SESSION-MIRROR)。 */
+  handleMirrorOpen?: (siteId: string, request: FederationMirrorOpenRequestFrame) => Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
   /**
    * 接続元を受け付けるか (CC-FED-T2)。既定は loopback / tailnet だけ (transport-policy.ts)。
    * env CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1 のとき runtime が「全て許可」を渡す。
@@ -310,6 +312,26 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         })().catch((e) => {
           log.warn({ siteId, err: (e as Error).message }, "federation egress request failed");
           send(siteId!, { type: "egress-result", request_id: frame.request_id, ok: false, error: "HQ egress failed" });
+        });
+        return;
+      }
+
+      if (frame.type === "mirror-open-request") {
+        void (async () => {
+          const result = deps.handleMirrorOpen
+            ? await deps.handleMirrorOpen(siteId!, frame)
+            : { ok: false, error: "HQ session mirror is unavailable" };
+          send(siteId!, {
+            type: "mirror-open-result",
+            request_id: frame.request_id,
+            ok: result.ok,
+            ...(result.guildId ? { guild_id: result.guildId } : {}),
+            ...(result.channelId ? { channel_id: result.channelId } : {}),
+            ...(result.error ? { error: result.error } : {}),
+          });
+        })().catch((e) => {
+          log.warn({ siteId, err: (e as Error).message }, "federation mirror open failed");
+          send(siteId!, { type: "mirror-open-result", request_id: frame.request_id, ok: false, error: "HQ session mirror failed" });
         });
         return;
       }

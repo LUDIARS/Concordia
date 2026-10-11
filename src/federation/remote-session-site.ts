@@ -9,6 +9,10 @@
  */
 import { parseSiteEventPayload, type RemoteIngressPayload, type RemoteSpawnOptions, type RemoteSpawnPayload } from "./remote-session-payload.js";
 import type { RemoteThreadRegistry } from "./remote-thread-registry.js";
+import type { SessionMirrorStore } from "./session-mirror-store.js";
+
+/** 映した投稿の最初の本文。 */
+export const SITE_MIRROR_STARTER = "拠点のフォーラムで起動したセッションを映しています。この投稿への返信はそのセッションに届きます。";
 
 /** egress 本文の 1 通あたりの文字数 (Discord 2000 と protocol の 8000 に余白を残す)。 */
 export const REMOTE_RELAY_CHUNK = 1800;
@@ -24,6 +28,15 @@ export interface RemoteSessionSiteDeps {
   channelOfSession(sessionId: string): string | null;
   inject(input: { sessionId: string; text: string; source: string }): void;
   requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
+  /** 拠点のセッションを映す投稿 (SPEC-FED-SITE-SESSION-MIRROR)。 未注入なら映さない。 */
+  mirror?: {
+    store: SessionMirrorStore;
+    /** 映す題名。 起動元スレッドを持たないセッションは null (映さない)。 */
+    sourceOf(sessionId: string): { channelId: string; title: string } | null;
+    isActive(sessionId: string): boolean;
+    requestOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
+    now?: () => number;
+  };
   log: { info(message: string): void; warn(message: string): void };
 }
 
@@ -31,6 +44,12 @@ export interface RemoteSessionSite {
   handleEvent(payload: unknown): Promise<void>;
   /** canonical session.message (AI 発言) を本社スレッドへ返す。 */
   relaySessionMessage(input: { sessionId: string; authorType: string; content: string }): Promise<void>;
+  /**
+   * 拠点自身のフォーラムで起動したセッションを本社の Session フォーラムへ映す
+   * (2026-10-11 neco「MELPOT側のフォーラムでspawnしていた。本社側でも投稿できるようにしてほしい」)。
+   * 本社から渡されたスレッドで起動したセッションは、すでに本社に投稿があるので映さない。
+   */
+  mirrorSession(sessionId: string): Promise<void>;
 }
 
 export function splitForRelay(text: string, size = REMOTE_RELAY_CHUNK): string[] {
@@ -41,9 +60,25 @@ export function splitForRelay(text: string, size = REMOTE_RELAY_CHUNK): string[]
 }
 
 export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSessionSite {
+  const mirrorInFlight = new Map<string, Promise<void>>();
   const notify = async (guildId: string, channelId: string, text: string): Promise<void> => {
     const result = await deps.requestEgress({ guildId, channelId, text }).catch((error: unknown) => ({ ok: false, error: String(error) }));
     if (!result.ok) deps.log.warn(`remote session egress failed channel=${channelId}: ${result.error ?? "unknown"}`);
+  };
+
+  /** 発言を返す本社の投稿。 本社から起動したスレッド → 映した投稿の順に引く。 */
+  const relayTargetOf = (sessionId: string): { guildId: string; channelId: string } | null => {
+    const channelId = deps.channelOfSession(sessionId);
+    const entry = channelId ? deps.registry.find(channelId) : null;
+    if (channelId && entry) return { guildId: entry.guildId, channelId };
+    const mirrored = deps.mirror?.store.find(sessionId);
+    return mirrored ? { guildId: mirrored.guildId, channelId: mirrored.channelId } : null;
+  };
+
+  /** 映した投稿への返信を受けるセッション (稼働中だけ)。 */
+  const mirroredSessionOf = (channelId: string): string | null => {
+    const sessionId = deps.mirror?.store.keyOfChannel(channelId) ?? null;
+    return sessionId && deps.mirror?.isActive(sessionId) ? sessionId : null;
   };
 
   const spawn = async (payload: RemoteSpawnPayload): Promise<void> => {
@@ -73,7 +108,7 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
     if (!deps.registry.find(payload.channel_id)) return; // この拠点で起動したスレッドだけを扱う。
     // forum の最初の投稿 (message id == thread id) は spawn 側が本文として渡している。
     if (payload.message_id === payload.channel_id) return;
-    const sessionId = deps.findSessionByChannel(payload.channel_id);
+    const sessionId = mirroredSessionOf(payload.channel_id) ?? deps.findSessionByChannel(payload.channel_id);
     if (!sessionId) {
       await notify(payload.guild_id, payload.channel_id, "拠点のセッションがまだ準備中か、終了しています。少し待ってから送り直してください。");
       return;
@@ -90,10 +125,37 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
     },
     async relaySessionMessage(message) {
       if (message.authorType !== "assistant") return;
-      const channelId = deps.channelOfSession(message.sessionId);
-      const entry = channelId ? deps.registry.find(channelId) : null;
-      if (!channelId || !entry) return;
-      for (const chunk of splitForRelay(message.content)) await notify(entry.guildId, channelId, chunk);
+      const target = relayTargetOf(message.sessionId);
+      if (!target) return;
+      for (const chunk of splitForRelay(message.content)) await notify(target.guildId, target.channelId, chunk);
+    },
+    async mirrorSession(sessionId) {
+      const mirror = deps.mirror;
+      if (!mirror || mirror.store.find(sessionId)) return;
+      const pending = mirrorInFlight.get(sessionId);
+      if (pending) return pending;
+      const operation = (async (): Promise<void> => {
+        const source = mirror.sourceOf(sessionId);
+        // 本社から渡されたスレッドで起動したものは本社に投稿がある。
+        if (!source || deps.registry.find(source.channelId)) return;
+        const result = await mirror.requestOpen({ sessionId, title: source.title, text: SITE_MIRROR_STARTER })
+          .catch((error: unknown) => ({ ok: false, error: String(error) } as { ok: boolean; guildId?: string; channelId?: string; error?: string }));
+        if (!result.ok || !result.guildId || !result.channelId) {
+          deps.log.warn(`site session mirror failed session=${sessionId}: ${result.error ?? "no post returned"}`);
+          return;
+        }
+        const at = (mirror.now ?? Date.now)();
+        mirror.store.record(sessionId, { guildId: result.guildId, channelId: result.channelId, at });
+        // 本社からの返信 (ingress) をこの拠点の扱いとして受けるため、スレッド台帳にも載せる。
+        deps.registry.record(result.channelId, { guildId: result.guildId, siteId: null, at });
+        deps.log.info(`site session mirrored session=${sessionId} channel=${result.channelId}`);
+      })();
+      mirrorInFlight.set(sessionId, operation);
+      try {
+        await operation;
+      } finally {
+        if (mirrorInFlight.get(sessionId) === operation) mirrorInFlight.delete(sessionId);
+      }
     },
   };
 }

@@ -1894,6 +1894,7 @@ export async function startBackend(): Promise<BackendHandle> {
       route: (input) => federation.routeSiteSpawn(input),
     },
     setFederationEgressExecutor: federation.setEgressExecutor,
+    setFederationMirrorPostOpener: federation.setMirrorPostOpener,
     setDomainReviewPoster: (poster) => { domainReviewPoster = poster; },
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
     // 「fetch failed」でユーザに何も返らない事故になるため使わない)。

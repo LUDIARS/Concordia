@@ -10,7 +10,10 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { parseSpawnBranch } from "../control/spawn-target.js";
 import type { DailyGoal, EvidenceItem, EvidenceSnapshot } from "./domain.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:a65ddcaa */
+import augurContract_38dc75bb from './evidence-git-args.contract.js'; /* augur-inject:contract-predicate:5eed0e14 */
 
 export interface EvidencePort {
   /** since (epoch ms) 以降の証跡を累積で返す。 */
@@ -65,6 +68,16 @@ export function prEvidence(prs: readonly EvidencePr[], since: number): EvidenceI
   return items;
 }
 
+/** Validate the stored branch before constructing a read-only Git revision argument. */
+export function evidenceGitArgs(branch: string, since: number): string[] | null {
+  const parsed = parseSpawnBranch(branch);
+  if (!parsed.ok || !parsed.branch || parsed.branch !== branch
+    || branch.split("/").some((part) => part.startsWith("."))) return null;
+  return ["log", "--since=@" + Math.floor(since / 1000), "--format=%H%x09%ct%x09%s", "-n", "200", "--end-of-options", branch, "--"];
+}
+// @ts-expect-error augur-inject
+evidenceGitArgs = contract(evidenceGitArgs, { ...augurContract_38dc75bb, contractId: 'C-17', mode: 'observe', sample: 1, where: 'src/daily-goal-run/evidence.ts:70', rule: 'contract-wrap', id: '38dc75bb' }); /* augur-inject:contract-wrap:38dc75bb */
+
 export function createEvidenceAdapter(deps: EvidenceAdapterDeps): EvidencePort {
   const git = deps.git ?? runGit;
   return {
@@ -75,7 +88,9 @@ export function createEvidenceAdapter(deps: EvidenceAdapterDeps): EvidencePort {
       const session = goal.sessionId ? deps.session(goal.sessionId) : null;
       if (session?.branch) {
         try {
-          const out = await git(session.repo_path, ["log", `--since=@${Math.floor(since / 1000)}`, "--format=%H%x09%ct%x09%s", "-n", "200", session.branch, "--"]);
+          const args = evidenceGitArgs(session.branch, since);
+          if (!args) throw new Error("Invalid evidence branch");
+          const out = await git(session.repo_path, args);
           items.push(...parseCommitLog(out));
         } catch { unavailable.push("git"); }
       } else if (goal.sessionId) unavailable.push("git");

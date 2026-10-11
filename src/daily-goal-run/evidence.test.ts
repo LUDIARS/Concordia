@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createEvidenceAdapter, parseCommitLog, prEvidence } from "./evidence.js";
 import type { DailyGoal } from "./domain.js";
 
@@ -24,10 +24,29 @@ describe("evidence collection (CC-DG-INV-03 / CC-DG-INV-08)", () => {
       git: async (cwd, args) => { calls.push([cwd, ...args]); return "deadbee\t1700000000\tfix\n"; },
     });
     const snap = await port.collect(goal, 1_000);
-    expect(calls[0]?.slice(0, 3)).toEqual(["E:/wt", "log", "--since=@1"]);
+    expect(calls).toEqual([["E:/wt", "log", "--since=@1", "--format=%H%x09%ct%x09%s", "-n", "200", "--end-of-options", "feat/x", "--"]]);
     expect(snap.items.map((i) => i.key)).toEqual(["commit:deadbee", "pr:o#1:open", "revisor:r1:open:test_ok", "actio:t1:done"]);
     expect(snap.taskStatuses).toEqual({ t1: "done", t2: "pending" });
     expect(snap.unavailable).toEqual([]);
+  });
+
+  it.each(["--output=outside.txt", "-n1", "--all", "feat/../x", "feat//x", "feat/x.lock", "feat/.hidden", "feat/x.", " feat/x", "feat/x ", "   ", ""])("rejects invalid Git branch %j without suppressing other sources", async (branch) => {
+    const git = vi.fn(async () => "deadbee\t1700000000\tunexpected\n");
+    const revisorByBranch = vi.fn(async () => null);
+    const port = createEvidenceAdapter({
+      session: () => ({ repo_path: "E:/wt", repo_origin: "https://x/o.git", branch }),
+      prsBySession: () => [{ repo_origin: "o", number: 1, state: "open", review_state: "none", updated_at: 9_999_999_999, title: "t" }],
+      revisorByBranch,
+      taskStatus: async () => ({ status: "done" }),
+      git,
+    });
+    const snap = await port.collect(goal, 1_000);
+    expect(git).not.toHaveBeenCalled();
+    expect(snap.unavailable).toEqual(["git"]);
+    expect(snap.items.map((item) => item.key)).toEqual(["pr:o#1:open", "actio:t1:done", "actio:t2:done"]);
+    expect(snap.taskStatuses).toEqual({ t1: "done", t2: "done" });
+    if (branch) expect(revisorByBranch).toHaveBeenCalledWith("https://x/o.git", branch);
+    else expect(revisorByBranch).not.toHaveBeenCalled();
   });
 
   it("reports unreadable sources instead of an empty success", async () => {

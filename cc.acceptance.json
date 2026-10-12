@@ -564,6 +564,26 @@
       "contracts": []
     },
     {
+      "source": "src/work-submission/github-pr-submit.ts",
+      "tests": ["src/work-submission/github-pr-submit.test.ts", "src/work-submission/service.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/work-submission/github-pr-content.ts",
+      "tests": ["src/work-submission/github-pr-content.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/work-submission/main-checkout.ts",
+      "tests": ["src/work-submission/main-checkout.test.ts", "src/work-submission/service.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/work-submission/route-consistency.ts",
+      "tests": ["src/work-submission/route-consistency.test.ts", "src/work-submission/service.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/work-submission/commit-worktree.ts",
       "tests": [
         "src/delegation/commit-broker.test.ts",

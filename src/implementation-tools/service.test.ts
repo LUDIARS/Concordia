@@ -135,3 +135,36 @@ describe("ImplementationToolsService project-code binding", () => {
     }
   });
 });
+
+describe("ImplementationToolsService.submitWork routes", () => {
+  const session = { id: "session-1", status: "active", repo_path: "E:/Work/Game", repo_origin: "https://github.com/Org/Game.git", branch: "feat/x" };
+  const make = (route: string) => {
+    const submitGithubPr = vi.fn(async () => ({ submitted: true as const, prUrl: "https://github.com/Org/Game/pull/1", created: true }));
+    const submitLocalPr = vi.fn();
+    const service = new ImplementationToolsService({
+      sessions: { findSession: () => session } as never,
+      claims: {} as never,
+      excubitor: {} as never,
+      submitLocalPr,
+      projectCodes: { list: () => [] } as never,
+      work: { routeForRepo: () => ({ route }), submitGithubPr } as never,
+      resolveWorkspaceRoots: () => ["E:/Work"],
+    });
+    return { service, submitGithubPr, submitLocalPr };
+  };
+
+  it("submits a GitHub Workflow project through push + GitHub PR, not the Revisor local PR", async () => {
+    const { service, submitGithubPr, submitLocalPr } = make("github-pr");
+    expect(await service.submitWork("session-1")).toMatchObject({ route: { route: "github-pr" }, submitted: true, created: true });
+    expect(submitGithubPr).toHaveBeenCalledWith(session);
+    expect(submitLocalPr).not.toHaveBeenCalled();
+  });
+
+  it("still returns the route without submitting for direct-main and unregistered", async () => {
+    for (const route of ["direct-main", "unregistered"]) {
+      const { service, submitGithubPr } = make(route);
+      expect(await service.submitWork("session-1")).toEqual({ submitted: false, route: { route } });
+      expect(submitGithubPr).not.toHaveBeenCalled();
+    }
+  });
+});

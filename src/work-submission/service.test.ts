@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { WorkSubmissionService } from "./service.js";
 
@@ -49,6 +49,60 @@ describe("WorkSubmissionService.routeForRepo", () => {
     expect(tools.routeForRepo("E:/Document/Ars/Concordia").route).toBe("unregistered");
     rows.push(row({ revisor_workflow: "revisor" }));
     expect(tools.routeForRepo("E:/Document/Ars/Concordia").route).toBe("revisor-local-pr");
+  });
+});
+
+describe("WorkSubmissionService.routeForRepo — worktree と許可リスト", () => {
+  it("routes a linked worktree by its main checkout's registration", () => {
+    const tools = new WorkSubmissionService({
+      projectCodes: { list: () => [row({ revisor_workflow: "revisor" })] } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      mainCheckout: (path) => (path.endsWith("Concordia-fix-x") ? "E:/Document/Ars/Concordia" : path),
+    });
+    expect(tools.routeForRepo("E:/Document/Ars/Concordia-fix-x")).toMatchObject({ route: "revisor-local-pr", project_code: "Cc" });
+  });
+
+  // 2 つの設定がすれ違うと「push は通るのに提出は PR を要求する」。 その組み合わせだけを警告する。
+  it("warns when a main-push allowlisted repository is not on direct-main", () => {
+    const allowlisted = (directMainRepos: string[]) => new WorkSubmissionService({
+      projectCodes: { list: () => [row({ code: "Ag", repo_path: "C:/repos/AlphaGame", revisor_workflow: "github" })] } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      directMainRepos: () => directMainRepos,
+      mainPushAllowlist: () => ["AlphaGame"],
+    }).routeForRepo("C:/repos/AlphaGame");
+    expect(allowlisted([]).consistency_warning).toContain("github-pr");
+    expect(allowlisted(["C:/repos/AlphaGame"])).not.toHaveProperty("consistency_warning");
+  });
+
+  it("does not warn for Castra / Villa style direct-main without the allowlist", () => {
+    const tools = service([], ["E:/Document/Ars/Villa"]);
+    expect(tools.routeForRepo("E:/Document/Ars/Villa")).not.toHaveProperty("consistency_warning");
+  });
+});
+
+describe("WorkSubmissionService.submitGithubPr", () => {
+  const github = () => ({
+    pusher: { push: vi.fn(async () => undefined) },
+    github: { findPullRequestByHead: vi.fn(async () => null), createPullRequest: vi.fn(async () => "https://github.com/Org/Game/pull/1") },
+    baseBranch: () => "main",
+  });
+  const session = { id: "s1", repo_path: "E:/Work/Game", repo_origin: "https://github.com/Org/Game.git", branch: "feat/x" };
+
+  it("submits with a title and body built from the branch commits", async () => {
+    const deps = github();
+    const tools = new WorkSubmissionService({ projectCodes: { list: () => [] } as never, resolveWorkspaceRoots: () => [],
+      githubPr: deps, readPrContent: async () => ({ title: "feat: x", body: "b" }) });
+    expect(await tools.submitGithubPr(session)).toMatchObject({ submitted: true, created: true });
+    expect(deps.github.createPullRequest).toHaveBeenCalledWith(expect.objectContaining({ title: "feat: x", body: "b", head: "feat/x" }));
+  });
+
+  it("stops before pushing when the branch has no commits or GitHub is not wired", async () => {
+    const deps = github();
+    const empty = new WorkSubmissionService({ projectCodes: { list: () => [] } as never, resolveWorkspaceRoots: () => [],
+      githubPr: deps, readPrContent: async () => null });
+    expect(await empty.submitGithubPr(session)).toMatchObject({ submitted: false, reason: "no_commits" });
+    expect(deps.pusher.push).not.toHaveBeenCalled();
+    expect(await service([]).submitGithubPr(session)).toMatchObject({ submitted: false, reason: "github_pr_unavailable" });
   });
 });
 

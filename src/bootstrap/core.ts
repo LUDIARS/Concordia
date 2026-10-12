@@ -1516,6 +1516,9 @@ export async function startBackend(): Promise<BackendHandle> {
   const workSubmission = new WorkSubmissionService({
     projectCodes: projectCodesRepo,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    // GitHub Workflow の提出: 送出は revisor push (認可は Revisor)、PR は gh CLI。Issue 公開と同じ部品を使う。
+    githubPr: { pusher: githubBranchPusher, github: githubGateway, baseBranch: () => githubWorkflowConfig.baseBranch() },
+    mainPushAllowlist: () => adminState.getHarnessMainPushAllowlist(),
   });
   const implementationTools = new ImplementationToolsService({
     resolveActioBinding: (repoPath, subsidiaryId) => taskStore.binding(repoPath, subsidiaryId),

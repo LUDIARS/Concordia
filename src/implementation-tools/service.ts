@@ -173,11 +173,15 @@ export class ImplementationToolsService {
   }
 
   /**
-   * 経路に沿って成果を提出する。 Revisor Workflow だけが自動で提出でき、
-   * それ以外は「この経路では何をすべきか」を返して人間 / セッションに返す。
+   * 経路に沿って成果を提出する。 Revisor Workflow は local PR、GitHub Workflow は
+   * push と GitHub PR。 それ以外は「この経路では何をすべきか」を返して人間 / セッションに返す。
    */
   async submitWork(sessionId: string, { fastLane = false } = {}) {
     const route = this.submissionRoute(sessionId);
+    if (route.route === "github-pr") {
+      const result = await this.deps.work.submitGithubPr(this.requireSession(sessionId));
+      return { route, ...result };
+    }
     if (route.route !== "revisor-local-pr") {
       return { submitted: false as const, route };
     }

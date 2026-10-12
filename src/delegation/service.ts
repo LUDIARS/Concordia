@@ -694,6 +694,17 @@ export class DelegationService {
         cwd: cwd ?? null,
         manual: manualContent,
       });
+    } else if (manualKind === IMPLEMENTATION_MANUAL_KIND && this.deps.taskStore
+      && input.task_binding === "caller" && typeof input.args.taskflow_reference !== "string") {
+      // 呼び出し元が追跡を持ち、Actio task を指定しなかった (デイリーゴールの Actio task は任意)。
+      // 新しい task は封印せず、Memoria タスクも作らずに本文をそのまま渡す。
+      promptSection = buildImplementationInject({
+        overrideTemplate: resolveMajorInjectContent("delegation.implementation_inject", this.deps.majorInject),
+        runId, title: def.title, task: renderedPrompt, why: resolveWhy({ args: input.args ?? {}, title: def.title }),
+        memoria: null, memoriaError: "呼び出し元が追跡を持つため Actio / Memoria タスクを作成しない",
+        repoPath: cwd ?? null, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? "",
+        augurCli: augurCliPath ? augurCliCommand(augurCliPath) : null,
+      });
     } else if (manualKind === IMPLEMENTATION_MANUAL_KIND && this.deps.taskStore) {
       const reference = input.args.taskflow_reference;
       if (typeof reference !== "string" || !cwd) return { ok: false, error: "Actio task reference required" };

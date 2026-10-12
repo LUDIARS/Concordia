@@ -789,6 +789,48 @@ describe("DelegationService.invoke", () => {
     }
   });
 
+  // デイリーゴールの Actio task は任意 (spec/feature/daily-goal-run.md)。 呼び出し元が追跡を持ち
+  // task を指定しないときは、 task を作らず参照も要求せずに起動する。
+  it("launches a caller-bound implementation run without an Actio task reference", async () => {
+    const created: unknown[] = [];
+    const reads: string[] = [];
+    const taskStore = {
+      create: async (input: unknown) => { created.push(input); throw new Error("must not create"); },
+      read: async (_repo: string, reference: string) => { reads.push(reference); return {}; },
+    };
+    let spawned = 0;
+    const sealed = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => { spawned += 1; return { ok: true, pid: 1, command: ["stub"] }; },
+      taskStore: () => taskStore as never,
+      concordiaUrl: "http://127.0.0.1:11111",
+    });
+    const cwd = mkdtempSync(join(tmpdir(), "deleg-binding-none-"));
+    repo.createTemplate({
+      call_name: "binding-none-impl",
+      title: "実装委託 (binding none)",
+      target_provider: "claude",
+      prompt_template: "goal ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: cwd,
+    });
+    try {
+      const r = await sealed.invoke({
+        call_name: "binding-none-impl",
+        args: { task: "daily goal brief" },
+        task_binding: "caller",
+      });
+      expect(r.ok).toBe(true);
+      expect(created).toEqual([]);
+      expect(reads).toEqual([]);
+      expect(spawned).toBe(1);
+      if (r.ok) expect(JSON.parse(r.run.args_json).taskflow_reference).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   // CC-AT-TEAM-02 C-1 / C-4: a seal failure is classified, and no run is created.
   it("returns the classified seal failure with candidate teams and creates no run", async () => {
     const created: Array<{ teamId?: string | null }> = [];

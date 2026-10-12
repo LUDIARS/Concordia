@@ -73,6 +73,8 @@ export interface FederationSiteEgressInput {
   avatarUrl?: string;
   mentionRequester?: boolean;
   question?: FederationEgressQuestion;
+  /** 本社メッセージに ✅ を付けてもらう (投稿はしない)。 */
+  ackMessageId?: string;
 }
 
 export interface FederationSiteClientHandle {
@@ -320,6 +322,7 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
             ...(input.avatarUrl ? { avatar_url: input.avatarUrl } : {}),
             ...(input.mentionRequester ? { mention_requester: true } : {}),
             ...(input.question ? { question: input.question } : {}),
+            ...(input.ackMessageId ? { ack_message_id: input.ackMessageId } : {}),
           }));
         } catch (e) {
           pendingEgress.delete(requestId);

@@ -71,7 +71,30 @@ describe("site relay looks like a normal session at HQ", () => {
     await h.site.relaySessionMessage({ sessionId: "sess-1", authorType: "user", content: "続けて", authorPlatform: "discord", authorLabel: "neco", injectSource: `discord:${USER}:${MESSAGE}` });
     await h.site.relaySessionMessage({ sessionId: "sess-1", authorType: "user", content: "拠点から", authorPlatform: "discord", authorLabel: "kuzu", injectSource: `discord:${USER}:555555555555555555` });
     await h.site.relaySessionMessage({ sessionId: "sess-1", authorType: "user", content: "端末入力", authorPlatform: null, authorLabel: "user", injectSource: null });
-    expect(h.egress).toEqual([{ guildId: GUILD, channelId: THREAD, text: "拠点から", username: "kuzu (melpot)" }]);
+    expect(h.egress).toEqual([
+      { guildId: GUILD, channelId: THREAD, text: "✅", ackMessageId: MESSAGE },
+      { guildId: GUILD, channelId: THREAD, text: "拠点から", username: "kuzu (melpot)" },
+    ]);
+  });
+});
+
+describe("HQ replies get ✅ once the site session takes them", () => {
+  const hqEcho = { sessionId: "sess-1", authorType: "user", content: "続けて", authorPlatform: "discord", authorLabel: "neco", injectSource: `discord:${USER}:${MESSAGE}` };
+
+  it("does not ack on arrival, only when the session reads the reply, and only once", async () => {
+    const h = await spawned();
+    await h.site.handleEvent(reply());
+    expect(h.egress).toEqual([]);
+    await h.site.relaySessionMessage(hqEcho);
+    await h.site.relaySessionMessage(hqEcho);
+    expect(h.egress).toEqual([{ guildId: GUILD, channelId: THREAD, text: "✅", ackMessageId: MESSAGE }]);
+  });
+
+  it("does not ack question answers, which are not injected as text", async () => {
+    const h = await spawned();
+    await h.site.handleEvent(reply({ answer: { question_id: 5, option_indexes: [0] } }));
+    await h.site.relaySessionMessage(hqEcho);
+    expect(h.egress.filter((e) => e.ackMessageId)).toEqual([]);
   });
 });
 

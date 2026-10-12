@@ -26,6 +26,8 @@ export interface RemoteEgressRequest {
   avatarUrl?: string;
   mentionRequester?: boolean;
   question?: FederationEgressQuestion;
+  /** 本社メッセージに ✅ を付けてもらう (投稿はしない)。 */
+  ackMessageId?: string;
 }
 
 /** 本社の質問カードで選ばれた回答を拠点の質問へ渡した結果。 */
@@ -101,9 +103,17 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
   const mirrorInFlight = new Map<string, Promise<void>>();
   /** 本社からの返信を注入したときの source。 拠点の Discord で書かれた発言だけを本社へ映すために区別する。 */
   const hqInjectSources = new Set<string>();
-  const rememberHqInject = (source: string): void => {
+  /**
+   * 本社で書かれた返信のうち、 まだ ✅ を付けていないもの (inject source → 本社メッセージ)。
+   * セッションがその返信を読み込んだ (canonical の user 発言になった) ときに本社へ ✅ を頼む。
+   * 通常セッションの inject ✅ (discord/inject-ack.ts) と同じく、 届いただけでは付けない。
+   */
+  const pendingHqAcks = new Map<string, { guildId: string; channelId: string; messageId: string }>();
+  const rememberHqInject = (source: string, ack: { guildId: string; channelId: string; messageId: string }): void => {
     hqInjectSources.add(source);
+    pendingHqAcks.set(source, ack);
     if (hqInjectSources.size > HQ_INJECT_SOURCE_LIMIT) hqInjectSources.delete(hqInjectSources.values().next().value!);
+    if (pendingHqAcks.size > HQ_INJECT_SOURCE_LIMIT) pendingHqAcks.delete(pendingHqAcks.keys().next().value!);
   };
   const send = async (request: RemoteEgressRequest): Promise<void> => {
     const result = await deps.requestEgress(request).catch((error: unknown) => ({ ok: false, error: String(error) }));
@@ -173,7 +183,7 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
       return;
     }
     const source = `discord:${payload.author_id}:${payload.message_id}`;
-    rememberHqInject(source);
+    rememberHqInject(source, { guildId: payload.guild_id, channelId: payload.channel_id, messageId: payload.message_id });
     deps.inject({ sessionId, text: payload.text, source });
     // 本社で書かれた返信を拠点のフォーラム投稿にも残し、 両方で同じ会話に見せる。
     deps.echoToSiteSurface?.({ sessionId, authorLabel: payload.author_label, text: payload.text });
@@ -192,6 +202,13 @@ export function createRemoteSessionSite(deps: RemoteSessionSiteDeps): RemoteSess
       if (message.authorType === "assistant") {
         const identity = identityFields(message.sessionId);
         for (const chunk of splitForRelay(message.content)) await send({ ...target, text: chunk, ...identity });
+        return;
+      }
+      // 本社から届いた返信をセッションが読み込んだ → 本社のメッセージに ✅ (写しは本社へ戻さない)。
+      const ack = message.injectSource ? pendingHqAcks.get(message.injectSource) : undefined;
+      if (ack && message.injectSource) {
+        pendingHqAcks.delete(message.injectSource);
+        await send({ guildId: ack.guildId, channelId: ack.channelId, text: "✅", ackMessageId: ack.messageId });
         return;
       }
       // 拠点の Discord で人が書いた発言も本社へ映す (本社から届いた返信の写しは除く)。

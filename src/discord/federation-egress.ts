@@ -33,6 +33,8 @@ export interface FederationEgressDeps<W> {
   fetchChannel(channelId: string): Promise<EgressChannel | null>;
   getWebhook(channelId: string): Promise<W | null>;
   send(client: W, options: EgressSendOptions): Promise<unknown>;
+  /** 本社メッセージへリアクションを付ける (拠点セッションが返信を読み込んだ ✅)。 未注入なら ack は失敗にする。 */
+  react?(channelId: string, messageId: string, emoji: string): Promise<boolean>;
   log: { warn(message: string): void };
 }
 
@@ -45,6 +47,8 @@ export interface FederationEgressRequest {
   /** 本社が台帳で選んだ起動者 (拠点の申告ではない)。 */
   mention_user_id?: string;
   question?: FederationQuestionCard;
+  /** 指定があれば投稿せず、 このメッセージに ✅ を付ける。 */
+  ack_message_id?: string;
 }
 
 export type FederationEgressResult = { ok: true } | { ok: false; error: string };
@@ -90,6 +94,12 @@ export function createFederationEgressExecutor<W>(deps: FederationEgressDeps<W>)
     if (request.guild_id !== deps.guildId) return fail(request, "destination guild is not this Discord runtime");
     const channel = await deps.fetchChannel(request.channel_id).catch(() => null);
     if (!channel || channel.guildId !== deps.guildId) return fail(request, "destination channel is not in the requested guild");
+    if (request.ack_message_id) {
+      if (!SNOWFLAKE.test(request.ack_message_id)) return fail(request, "ack message id is invalid");
+      if (!deps.react) return fail(request, "Discord reaction is unavailable");
+      const reacted = await deps.react(request.channel_id, request.ack_message_id, "✅").catch(() => false);
+      return reacted ? { ok: true } : fail(request, "Discord reaction failed");
+    }
     const target = resolveEgressTarget(request.channel_id, channel);
     if (!target) return fail(request, "destination thread has no parent channel");
     const webhook = await deps.getWebhook(target.webhookChannelId);

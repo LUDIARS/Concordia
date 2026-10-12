@@ -97,6 +97,12 @@ const egressRequestSchema = z.object({
   /** 起動した人へのメンションを求める。 誰をメンションするかは本社が自分の台帳で決める (拠点は ID を渡さない)。 */
   mention_requester: z.boolean().optional(),
   question: egressQuestionSchema.optional(),
+  /**
+   * 本社で書かれた返信を拠点のセッションが読み込んだ印 (通常セッションの inject ✅ と同じ)。
+   * 指定があれば本社は text を投稿せず、 この本社メッセージに ✅ を付ける。
+   * 古い本社は読み捨てて text ("✅") を投稿する。
+   */
+  ack_message_id: z.string().regex(/^\d{17,20}$/).optional(),
 }).passthrough();
 
 const egressResultSchema = z.object({
@@ -334,7 +340,7 @@ export type FederationFrameInput =
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
   | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number; applied_tag_names?: readonly string[] }
-  | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string; username?: string; avatar_url?: string; mention_requester?: boolean; question?: FederationEgressQuestion }
+  | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string; username?: string; avatar_url?: string; mention_requester?: boolean; question?: FederationEgressQuestion; ack_message_id?: string }
   | { type: "egress-result"; request_id: string; ok: boolean; error?: string }
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
   | { type: "config-update"; snapshot: FederationConfigSnapshot }

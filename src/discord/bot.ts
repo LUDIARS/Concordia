@@ -1318,6 +1318,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           getWebhook: (channelId) => webhooks!.getForChannel(channelId),
           // 質問カードの embeds / components は Discord API の生 JSON で組む (連合の描画は SDK の builder を使わない)。
           send: (client, options) => webhooks!.send(client, options as WebhookMessageCreateOptions),
+          react: async (channelId, messageId, emoji) => {
+            const channel = await guild.channels.fetch(channelId);
+            if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return false;
+            const message = await channel.messages.fetch(messageId);
+            await message.react(emoji);
+            return true;
+          },
           log,
         }));
       }

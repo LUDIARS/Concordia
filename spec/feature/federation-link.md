@@ -312,17 +312,20 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
     拠点で起動して映した投稿は起動者を持たないので、 本社ではメンションしない。
   - 本社で書かれた返信は、 拠点のセッションに注入すると同時に、 拠点のフォーラム投稿へ「<名前> (本社)」で出る。
     拠点の Discord で書かれた人の発言は「<名前> (<拠点>)」で本社へ出る。 本社から届いた返信の写しは本社へ送り返さない (注入 source で区別)。
+  - 本社で書かれた返信には、 拠点のセッションがそれを読み込んだ (注入 source を持つ user 発言になった) 時点で、 本社のメッセージに ✅ が付く
+    (通常セッションの inject ✅ と同じく、 届いただけでは付けない。 2026-10-12 neco「本社からメッセージ投稿した際にチェックマークがつかない」)。
+    拠点は egress の `ack_message_id` で頼み、 本社は投稿せずにリアクションだけ付ける。 質問への回答 (ボタン) は対象外。
 
 | 責務 | 実装 |
 |---|---|
-| egress の任意項目 (`username` / `avatar_url` / `mention_requester` / `question`)・ingress の `answer` | `src/federation/protocol.ts` / `site-client.ts` / `remote-session-payload.ts` |
+| egress の任意項目 (`username` / `avatar_url` / `mention_requester` / `question` / `ack_message_id`)・ingress の `answer` | `src/federation/protocol.ts` / `site-client.ts` / `remote-session-payload.ts` |
 | 本社: 起動者の記録とメンション先の決定 | `src/federation/runtime.ts` / `remote-thread-registry.ts` (`requesterMentionFor`) |
 | 本社: 名前・アイコン・メンション・質問カードの描画 | `src/discord/federation-egress.ts` / `federation-question.ts` |
 | 本社: カードの回答を拠点へ返す | `src/discord/federation-question-interaction.ts` |
 | 拠点: 名前付き発言・質問・人の発言の転送、 回答と本社返信の受け取り | `src/federation/remote-session-site.ts` / `remote-session-wiring.ts` / `remote-question.ts` |
 | 拠点: 名前・回答・返信表示の注入 | `src/bootstrap/core.ts` |
 
-復旧: 本社・拠点のどちらかが古い版でも、 知らない項目は読み捨てて従来の文字だけの中継に戻る。 両方を更新すれば揃う。
+復旧: 本社・拠点のどちらかが古い版でも、 知らない項目は読み捨てて従来の文字だけの中継に戻る。 両方を更新すれば揃う。 ただし拠点だけ新しいと、 古い本社は `ack_message_id` を読み捨てて "✅" を文字として投稿する (本社を先に更新する)。
 
 ### 本社の社員名簿の役職を拠点へ配る (2026-10-12 neco 指示) {#SPEC-FED-STAFF-ROLES}
 

@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { makeSqliteBlackBox } from "@ludiars/blackbox";
 import { makeTestDb } from "../../tests/helpers/db.js";
-import { createHarnessBlackbox, HARNESS_BLACKBOX_DOMAINS } from "./blackbox-engine.js";
+import { createHarnessBlackbox, HARNESS_BLACKBOX_DOMAINS, resolveGateVerdict } from "./blackbox-engine.js";
 import { withMainPushAllowlist, type HarnessAction } from "./predicates.js";
 import { evaluateAction } from "./session-gate.js";
 
@@ -85,6 +85,76 @@ describe("harness blackbox gate — main push 許可リスト", () => {
     const { verdict } = await decide(service, action, ALLOWLIST);
     expect(verdict.decision).toBe("deny");
     expect(verdict.hits.map((h) => h.rule)).toContain("no-main-push");
+  });
+});
+
+describe("harness blackbox gate — 学習ルールの理由文", () => {
+  const staleHit = {
+    rule: "outside-scope",
+    decision: "warn" as const,
+    reason: "作業対象 (Concordia) 外のリポで編集しています (wt-uf-clio @ feat/musa-clio)",
+  };
+
+  /** 過去の別 action から学習された outside-scope ルール (保存 output に古い repo 名を含む)。 */
+  function seedLearnedOutsideScope(db: ReturnType<typeof makeTestDb>): string {
+    const box = makeSqliteBlackBox(db, { reviewLlmDecisions: false });
+    return box.engine.addRule({
+      domain: GATE,
+      description: "Observed harness gate: outside-scope",
+      when: {
+        op: "and",
+        clauses: [
+          { op: "cmp", feature: "deterministic_rule", cmp: "==", value: "outside-scope" },
+          { op: "cmp", feature: "deterministic_decision", cmp: "==", value: "warn" },
+        ],
+      },
+      output: { decision: "warn", hits: [staleHit], blocked: false, reason: `[outside-scope] ${staleHit.reason}` },
+      confidence: 0.9,
+      state: "auto",
+      source: "llm",
+      priority: 40,
+    }).id;
+  }
+
+  const action: HarnessAction = { tool: "Write", filePath: "E:/Document/Ars/.wt-ex-catalog/x.ts", branch: "chore/excubitor-catalog" };
+  const currentHit = {
+    rule: "outside-scope",
+    decision: "warn" as const,
+    reason: "作業対象 (Concordia) 外のリポで編集しています (.wt-ex-catalog @ chore/excubitor-catalog)",
+  };
+  const current = { decision: "warn" as const, hits: [currentHit], blocked: false, reason: `[outside-scope] ${currentHit.reason}` };
+
+  it("rule 一致時も理由文と hits は今回の判定から作る (保存済みの repo 名を出さない)", async () => {
+    const db = makeTestDb();
+    const service = createHarnessBlackbox(db);
+    const ruleId = seedLearnedOutsideScope(db);
+    const { verdict, meta } = await service.decideGate({ action, editedRepos: [], verdict: current });
+    expect(meta.engine_source).toBe("rule");
+    expect(meta.rule_id).toBe(ruleId);
+    expect(verdict.decision).toBe("warn");
+    expect(verdict.reason).toBe(current.reason);
+    expect(verdict.reason).not.toContain("wt-uf-clio");
+    expect(verdict.hits).toEqual([currentHit]);
+  });
+
+  it("resolveGateVerdict: 今回に無い hit (シードの固定文) だけはルール側から足し、decision はルールに従う", () => {
+    const ruleOutput = {
+      decision: "deny",
+      hits: [staleHit, { rule: "no-main-push", decision: "deny", reason: "Direct push blocked." }],
+      blocked: true,
+      reason: "stale",
+    };
+    const resolved = resolveGateVerdict(ruleOutput, current);
+    expect(resolved.decision).toBe("deny");
+    expect(resolved.blocked).toBe(true);
+    expect(resolved.hits.map((h) => h.reason)).toEqual([currentHit.reason, "Direct push blocked."]);
+    expect(resolved.reason).toBe(`${current.reason} / [no-main-push] Direct push blocked.`);
+  });
+
+  it("resolveGateVerdict: 今回の hit が無ければルールの hits と reason を使う", () => {
+    const empty = { decision: "allow" as const, hits: [], blocked: false, reason: "none" };
+    const ruleOutput = { decision: "warn", hits: [], blocked: false, reason: "[max-repos] too many" };
+    expect(resolveGateVerdict(ruleOutput, empty)).toEqual({ decision: "warn", hits: [], blocked: false, reason: "[max-repos] too many" });
   });
 });
 

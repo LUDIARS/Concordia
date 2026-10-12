@@ -24,6 +24,8 @@ import {
 } from "./predicates.js";
 import type { PromptIntentVerdict } from "./prompt-intent.js";
 import type { GateVerdict } from "./session-gate.js";
+import { contract } from './reliability/ontime-runtime.js'; /* augur-inject:import:7ea5741d */
+import augurContract_7bec8f96 from './blackbox-engine.contract.js'; /* augur-inject:contract-predicate:a5b328b9 */
 
 export const HARNESS_BLACKBOX_DOMAINS = {
   gate: "concordia.harness.gate",
@@ -257,6 +259,30 @@ function sanitizeGateVerdict(value: unknown, fallback: GateVerdict): GateVerdict
   };
 }
 
+/**
+ * Combine a stored rule output with the current deterministic verdict. A rule (learned or seeded)
+ * only decides the severity; its saved hit text and reason describe the action it was learned
+ * from (e.g. another repo/branch), so hits the current verdict has are taken from the current
+ * verdict, and only hits the current verdict lacks (static seed text) are kept from the rule.
+ */
+export function resolveGateVerdict(ruleOutput: unknown, current: GateVerdict): GateVerdict {
+  const rule = sanitizeGateVerdict(ruleOutput, current);
+  const currentRules = new Set(current.hits.map((h) => h.rule));
+  const ruleOnly = rule.hits.filter((h) => !currentRules.has(h.rule));
+  const reasons = [
+    ...(current.hits.length > 0 ? [current.reason] : []),
+    ...ruleOnly.map((h) => `[${h.rule}] ${h.reason}`),
+  ];
+  return {
+    decision: rule.decision,
+    hits: [...current.hits, ...ruleOnly],
+    blocked: rule.decision === "deny",
+    reason: reasons.length > 0 ? reasons.join(" / ") : rule.reason,
+  };
+}
+// @ts-expect-error augur-inject
+resolveGateVerdict = contract(resolveGateVerdict, { ...augurContract_7bec8f96, contractId: 'harness-stale-reason-C-1', mode: 'observe', sample: 1, where: 'src/harness/blackbox-engine.ts:266', rule: 'contract-wrap', id: '7bec8f96' }); /* augur-inject:contract-wrap:7bec8f96 */
+
 function safetyScore(level: PromptAnalysis["safety"]["level"]): number {
   if (level === "danger") return 2;
   if (level === "caution") return 1;
@@ -353,7 +379,7 @@ export class HarnessBlackboxService {
       llmFallback,
     );
     return {
-      verdict: sanitizeGateVerdict(decision.output, input.verdict),
+      verdict: resolveGateVerdict(decision.output, input.verdict),
       meta: this.meta(domain, decision, decisionId),
     };
   }

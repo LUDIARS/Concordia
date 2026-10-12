@@ -120,6 +120,16 @@
       "contracts": ["SPEC-REAPER-SHELL-WRAPPER"]
     },
     {
+      "source": "src/harness/blackbox-engine.ts",
+      "tests": ["src/harness/blackbox-engine.test.ts"],
+      "contracts": ["harness-stale-reason-C-1"]
+    },
+    {
+      "source": "src/harness/blackbox-engine.contract.ts",
+      "tests": ["src/harness/blackbox-engine.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/agent-process-classify.contract.ts",
       "tests": ["src/control/agent-process-classify.test.ts"],
       "contracts": []

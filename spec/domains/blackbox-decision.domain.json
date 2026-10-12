@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/harness/blackbox-engine(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/harness/blackbox-engine(\\.test|\\.contract)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/taskflow/(completion|residual)-blackbox(\\.test)?\\.ts$"

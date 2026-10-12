@@ -95,6 +95,7 @@
     {"id":"dg-C-11","criterion":"C-11 guardExtraction(text, raw): 残した項目はすべて本文に引用の根拠があり、根拠の無い許可は不可にする","symbol":"guardExtraction","file":"src/daily-goal-run/extraction-guard.ts","module":"src/daily-goal-run/guard-extraction.contract.ts","mode":"observe","sample":1},
     {"id":"wm-C-1","criterion":"C-1 withWorkMode(metadata, next): 別の方式が active なセッションへ別の方式を記録しない","symbol":"withWorkMode","file":"src/work-modes/work-mode.ts","module":"src/work-modes/work-mode.contract.ts","mode":"observe","sample":1},
     {"id":"C-17","criterion":"C-17 evidenceGitArgs(branch, since): 不正な branch は null、受理した branch は --end-of-options 直後の単一 revision として返す","symbol":"evidenceGitArgs","file":"src/daily-goal-run/evidence.ts","module":"src/daily-goal-run/evidence-git-args.contract.ts","mode":"observe","sample":1},
-    {"id":"reaper-node-only-C-1","criterion":"C-1 classifyKind(cmd, imageName): 実行ファイル (先頭トークン、取れる場合は image 名) が node 系でなければ lictor / agent-client に分類しない","symbol":"classifyKind","file":"src/control/agent-process-classify.ts","module":"src/control/agent-process-classify.contract.ts","mode":"observe","sample":1}
+    {"id":"reaper-node-only-C-1","criterion":"C-1 classifyKind(cmd, imageName): 実行ファイル (先頭トークン、取れる場合は image 名) が node 系でなければ lictor / agent-client に分類しない","symbol":"classifyKind","file":"src/control/agent-process-classify.ts","module":"src/control/agent-process-classify.contract.ts","mode":"observe","sample":1},
+    {"id":"harness-stale-reason-C-1","criterion":"C-1 resolveGateVerdict(ruleOutput, current): ルール出力からは decision だけを採り、今回の判定にある hit と reason は今回の入力の文面で返す (保存済みの理由文で上書きしない)","symbol":"resolveGateVerdict","file":"src/harness/blackbox-engine.ts","module":"src/harness/blackbox-engine.contract.ts","mode":"observe","sample":1}
   ]
 }

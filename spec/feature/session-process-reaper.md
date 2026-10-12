@@ -119,7 +119,17 @@ shell ラッパ (`cmd.exe`) のコマンドラインにも `lictor.mjs` が現�
 control worker が動いた瞬間に作業中のセッションが子ごと tree-kill される。
 ラッパ自体は本体を tree-kill すれば子の終了に伴って自然終了するので、追跡しない。
 
-判定材料は Excubitor snapshot の `name` (image 名) とコマンドラインの `/c` / `-c` 委譲形。
+判定は **許可リスト**: コマンドラインの先頭トークン (実行ファイル、引用符対応) の
+basename が `node` / `node.exe` / `nodejs` の時だけ Lictor / agent-client として分類し、
+Excubitor snapshot の `name` (image 名) が取れる場合はそれも node 系であることを必須にする。
+`reaper.ts` の `parseWindowsProcLine` / `parsePosixProcLine` も `classifyKind` 経由で同じ判定に従う。
+
+経緯 (2026-10-12, actio:63563682-f261-44af-8e81-0c4647377a69): Cc は
+`wt --window 0 new-tab ... cmd /d /s /c node ...lictor.mjs ...` でセッションを開くため、
+Windows Terminal が 1 つも開いていない状態で spawn すると WindowsTerminal.exe 自体が
+起動命令をコマンドラインに持つ。shell ラッパだけを除外する拒否リストではこれを孤児 Lictor と
+誤判定し、同じウィンドウの稼働中セッションを丸ごと tree-kill した。起動子の種類は増え続けるので
+拒否リストへの追加ではなく許可リストで塞ぐ。
 snapshot の取得・age 算出は `agent-process-scan.ts`、分類は
 `agent-process-classify.ts` に分離し、session-end 回収も同じ検証済みプロセス情報を使う。
 

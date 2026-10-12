@@ -10,21 +10,42 @@
  * 起動子は起動されるプロセスではない。ここでは shell ラッパを分類対象から外し、
  * agent プロセス本体 (node / codex ランタイム) だけを `AgentKind` として扱う。
  * ラッパは本体を tree-kill すれば子の終了に伴って自然終了する。
+ *
+ * 2026-10-12: Cc は `wt --window 0 new-tab ... cmd /d /s /c node ...lictor.mjs ...` で
+ * セッションを開く。Windows Terminal が 1 つも開いていない状態で spawn すると
+ * WindowsTerminal.exe 自体がこの起動命令をコマンドラインに持ち、reaper が
+ * 「lictor_pid に無い孤児 Lictor」と誤判定して tree-kill し、同じウィンドウの稼働中
+ * セッションが全部落ちた (Excubitor 5db1541 でサービスが窓を開かなくなり常態化)。
+ * 起動子は wt / OpenConsole / 将来のランチャと増え続けるため、拒否リストに足すのではなく
+ * 許可リストにする: 実行ファイル (コマンドラインの先頭トークン、および取れる場合は
+ * image 名) が node 系の時だけ分類する。
  */
 
 export type AgentKind = "lictor" | "agent-client";
 
-/** shell ラッパの image 名 (snapshot の `name` が取れる場合の判定に使う)。 */
-const SHELL_IMAGE_NAMES = new Set([
-  "cmd.exe",
-  "cmd",
-  "sh",
-  "bash",
-  "dash",
-  "zsh",
-  "powershell.exe",
-  "pwsh.exe",
-]);
+/** agent プロセス本体として認める実行ファイル名 (basename、小文字)。 */
+const NODE_EXECUTABLE_NAMES = new Set(["node", "node.exe", "nodejs"]);
+
+/**
+ * コマンドラインの先頭トークン (実行ファイル) を返す。`"..."` で囲まれていれば中身を返す。
+ *
+ * 例: `"C:\Program Files\nodejs\node.exe" x.mjs` → `C:\Program Files\nodejs\node.exe`
+ *     `/usr/bin/node bin/lictor.mjs`               → `/usr/bin/node`
+ */
+export function commandExecutable(cmd: string): string {
+  const trimmed = cmd.trimStart();
+  if (trimmed.startsWith('"')) {
+    const end = trimmed.indexOf('"', 1);
+    return end < 0 ? trimmed.slice(1) : trimmed.slice(1, end);
+  }
+  return trimmed.match(/^\S+/)?.[0] ?? "";
+}
+
+/** パス (Windows / POSIX 区切り両対応) の basename が node 系かを判定する。 */
+function isNodeExecutable(path: string): boolean {
+  const base = path.split(/[\\/]/).pop() ?? "";
+  return NODE_EXECUTABLE_NAMES.has(base.toLowerCase());
+}
 
 /**
  * コマンドラインが shell への `-c` / `/c` 委譲かを判定する。
@@ -51,12 +72,15 @@ export function isShellWrapperCommand(cmd: string): boolean {
  * 孤児が絶えたと確認できるまで消さないこと。
  *
  * @param cmd プロセスのコマンドライン。
+ * 実行ファイルが node 系でないプロセス (shell ラッパ、Windows Terminal 等の起動子) は、
+ * コマンドラインに `lictor.mjs` を含んでいても対象外 (null) にする。
+ *
  * @param imageName 取得できる場合の image 名 (Excubitor snapshot の `name`)。
- *   コマンドラインの形に依存しない shell ラッパ判定の補強に使う。
+ *   取れた場合はこれも node 系であることを必須にする。
  */
 export function classifyKind(cmd: string, imageName?: string | null): AgentKind | null {
-  if (imageName && SHELL_IMAGE_NAMES.has(imageName.toLowerCase())) return null;
-  if (isShellWrapperCommand(cmd)) return null;
+  if (imageName && !isNodeExecutable(imageName)) return null;
+  if (!isNodeExecutable(commandExecutable(cmd))) return null;
   if (/concordia-agent-client/i.test(cmd)) return "agent-client";
   if (/lictor\.mjs/i.test(cmd)) return "lictor";
   return null;

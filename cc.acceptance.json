@@ -96,6 +96,16 @@
       "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]
     },
     {
+      "source": "src/control/agent-process-classify.ts",
+      "tests": ["src/control/agent-process-classify.test.ts", "tests/reaper.test.ts"],
+      "contracts": ["SPEC-REAPER-SHELL-WRAPPER"]
+    },
+    {
+      "source": "src/control/agent-process-classify.contract.ts",
+      "tests": ["src/control/agent-process-classify.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/session-end-process.ts",
       "tests": ["tests/session-end-process.test.ts", "src/control/expired-session-end-reaper.test.ts"],
       "contracts": ["SPEC-SESSION-END-BOUNDED-RECOVERY"]

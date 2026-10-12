@@ -55,6 +55,11 @@ const ingressSchema = z.object({
   author_label: z.string(),
   text: z.string(),
   ts: z.number().int(),
+  /** 本社の質問カードで選ばれた回答 (SPEC-FED-SITE-FORUM-PARITY)。 text は選んだ選択肢の表示文。 */
+  answer: z.object({
+    question_id: z.number().int().positive(),
+    option_indexes: z.array(z.number().int().nonnegative()).min(1).max(25),
+  }).optional(),
 }).passthrough();
 
 export type RemoteSpawnPayload = z.infer<typeof spawnSchema>;

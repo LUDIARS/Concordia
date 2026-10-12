@@ -7,7 +7,8 @@
 import type { SettingsStore } from "../admin/settings-store.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
-import { createRemoteSessionSite } from "./remote-session-site.js";
+import { createRemoteSessionSite, type RemoteAnswerResult, type RemoteEgressRequest, type RemoteRelayIdentity } from "./remote-session-site.js";
+import { toEgressQuestion } from "./remote-question.js";
 import { remoteSpawnRequestFields, withSiteDefaultCwd } from "./remote-session-payload.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 import { createSessionMirrorStore, SITE_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
@@ -15,7 +16,7 @@ import { createSessionMirrorStore, SITE_SESSION_MIRRORS_KEY } from "./session-mi
 /** runtime.ts を import しないための最小ポート (module-runtime-composition-only)。 */
 export interface RemoteSessionFederationPort {
   setSiteEventHandler(handler: ((payload: unknown) => void) | null): void;
-  requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
+  requestEgress(input: RemoteEgressRequest): Promise<{ ok: boolean; error?: string }>;
   /** 拠点ロールで本社へ繋ぐ設定があるか (本社自身・連合なしでは映さない)。 */
   isSiteRole(): boolean;
   requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
@@ -54,8 +55,16 @@ export function startRemoteSessionSite(input: {
   buildPrompt(title: string, body: string, runtimeRules: readonly string[]): string;
   /** 起動場所の指定が無い依頼の cwd (拠点の主 workspace root)。 */
   workspaceRoot(): string;
+  /** 通常セッションと同じ webhook 名・アイコン (SPEC-FED-SITE-FORUM-PARITY)。 */
+  identityOf?(sessionId: string): RemoteRelayIdentity | null;
+  /** 拠点の表示名 (拠点で書かれた人の発言に添える)。 */
+  siteLabel?(): string;
+  /** 拠点の質問へ回答する (通常の質問カードと同じ回答処理)。 */
+  answerQuestion?(input: { sessionId: string; questionId: number; optionIndexes: number[] }): Promise<RemoteAnswerResult>;
+  /** 本社で書かれた返信を拠点のセッション面に出す。 */
+  echoToSiteSurface?(input: { sessionId: string; authorLabel: string; text: string }): void;
   log: { info(message: string): void; warn(message: string): void };
-}): { stop(): void } {
+}): { stop(): void; isHqLaunched(sessionId: string): boolean } {
   const site = createRemoteSessionSite({
     registry: createRemoteThreadRegistry(input.settings, SITE_REMOTE_THREADS_KEY),
     buildPrompt: input.buildPrompt,
@@ -84,6 +93,10 @@ export function startRemoteSessionSite(input: {
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) });
     },
     requestEgress: (request) => input.federation.requestEgress(request),
+    ...(input.identityOf ? { identityOf: input.identityOf } : {}),
+    ...(input.siteLabel ? { siteLabel: input.siteLabel } : {}),
+    ...(input.answerQuestion ? { answerQuestion: input.answerQuestion } : {}),
+    ...(input.echoToSiteSurface ? { echoToSiteSurface: input.echoToSiteSurface } : {}),
     mirror: {
       store: createSessionMirrorStore(input.settings, SITE_SESSION_MIRRORS_KEY),
       sourceOf: (sessionId) => {
@@ -106,11 +119,23 @@ export function startRemoteSessionSite(input: {
         .catch((error) => input.log.warn(`remote session mirror failed: ${String(error)}`));
       return;
     }
+    if (event.type === "question.posted") {
+      if (!input.federation.isSiteRole()) return;
+      const question = toEgressQuestion(event);
+      if (!question) return;
+      void site.relayQuestion({ sessionId: event.target_session_id, question })
+        .catch((error) => input.log.warn(`remote session question relay failed: ${String(error)}`));
+      return;
+    }
     if (event.type !== "session.message" || event.op !== "create") return;
+    const injectSource = event.message.metadata?.inject_source;
     void site.relaySessionMessage({
       sessionId: event.target_session_id,
       authorType: event.message.author_type,
       content: event.message.content,
+      authorPlatform: event.message.author_platform,
+      authorLabel: event.message.author_label,
+      injectSource: typeof injectSource === "string" ? injectSource : null,
     }).catch((error) => input.log.warn(`remote session relay failed: ${String(error)}`));
   });
   return {
@@ -118,5 +143,6 @@ export function startRemoteSessionSite(input: {
       unsubscribe();
       input.federation.setSiteEventHandler(null);
     },
+    isHqLaunched: (sessionId) => input.federation.isSiteRole() && site.isHqLaunched(sessionId),
   };
 }

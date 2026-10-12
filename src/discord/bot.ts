@@ -1,4 +1,4 @@
-import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
+import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel, type WebhookMessageCreateOptions } from "discord.js";
 import { createDiscordPushWarning } from "./push-warning.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeting-links/discord.js";
@@ -131,6 +131,8 @@ import {
 import { postHumanTodoChange } from "./human-todo-post.js";
 import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-spawn-session.js";
 import { createFederationEgressExecutor } from "./federation-egress.js";
+import { handleFederationQuestionInteraction, isFederationQuestionInteraction } from "./federation-question-interaction.js";
+import { withoutRequesterMention } from "./federation-question.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
@@ -291,7 +293,12 @@ export interface DiscordBotDeps {
    */
   listSubsidiaries?: () => Array<{ id: string; name: string; daily_token_budget: number }>;
   concordiaUrl: string;
-  routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[] }) => boolean;
+  /**
+   * 拠点: 本社から起動したセッションの質問カードでは依頼者をメンションしない (SPEC-FED-SITE-FORUM-PARITY)。
+   * メンションは起動した側 (本社の投稿) にだけ付ける。
+   */
+  suppressQuestionMention?: (sessionId: string) => boolean;
+  routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[]; answer?: { question_id: number; option_indexes: number[] } }) => boolean;
   /** Session forum の拠点タグ付き投稿を拠点での起動へ渡す (federation-link.md §本社からのセッション起動)。 */
   routeRemoteSpawn?: import("./forum-spawn.js").ForumSpawnDeps["routeRemoteSpawn"];
   /** `/spawn site:` の拠点候補と起動の受け渡し (本社 runtime だけが渡す)。 */
@@ -1309,7 +1316,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           guildId: guild.id,
           fetchChannel: (channelId) => guild.channels.fetch(channelId),
           getWebhook: (channelId) => webhooks!.getForChannel(channelId),
-          send: (client, options) => webhooks!.send(client, options),
+          // 質問カードの embeds / components は Discord API の生 JSON で組む (連合の描画は SDK の builder を使わない)。
+          send: (client, options) => webhooks!.send(client, options as WebhookMessageCreateOptions),
           log,
         }));
       }
@@ -2256,6 +2264,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         .catch(() => log.warn("meeting respondent private reply failed"));
       return;
     }
+    if (deps.routeFederationIngress && isFederationQuestionInteraction(interaction)) {
+      void handleFederationQuestionInteraction(interaction, deps.routeFederationIngress, log)
+        .catch((error) => log.warn(`federation question interaction failed: ${String(error)}`));
+      return;
+    }
     if (dailyGoalDiscord?.handlesInteraction(interaction)) {
       void dailyGoalDiscord.interaction(interaction).catch((error) => log.warn(`daily goal interaction failed: ${String(error)}`));
       return;
@@ -3144,7 +3157,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         resolveTeamChannelId: (sessionId) => teamCardChannelForSession(sessionId, "question"),
         recordQuestionMessageId: (sessionId, messageId) =>
           recordQuestionCardMessageId(deps.sessionsRepo, sessionId, messageId, log),
-      }, ev);
+      }, withoutRequesterMention(ev, deps.suppressQuestionMention?.(ev.target_session_id) === true));
       return;
     }
     if (ev.type === "session.permission_request") {

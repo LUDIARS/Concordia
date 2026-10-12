@@ -177,6 +177,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify as promisifyNode } from "node:util";
 const execFileAsync = promisifyNode(execFileCallback);
 import { startRemoteSessionSite } from "../federation/remote-session-wiring.js";
+import { hqEchoUsername, toAnswerBody } from "../federation/remote-question.js";
+import { buildDiscordWebhookIdentity } from "../discord/webhook-identity.js";
 import { createInquiryRunner } from "../federation/inquiry-runner.js";
 import { buildForumSpawnPrompt } from "../discord/forum-spawn.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
@@ -1770,6 +1772,8 @@ export async function startBackend(): Promise<BackendHandle> {
   // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
   // 1 時間応答が無い (transcript 無更新) active セッションに「残作業を確認して続行 / 判断が
   // 要るなら ask で停止」 を inject する。 ask で人間判断待ちのセッションは踏み潰さないよう除外。
+  // 拠点ロールの remote session (post-listen で起動)。 Discord の質問カードがメンションを付けるか判断するのに使う。
+  let remoteSessionSite: ReturnType<typeof startRemoteSessionSite> | null = null;
   const chatReadModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: repo,
@@ -1885,6 +1889,7 @@ export async function startBackend(): Promise<BackendHandle> {
     listSubsidiaries: () =>
       subsidiaryRepo.list().map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget })),
     concordiaUrl: publicUrl,
+    suppressQuestionMention: (sessionId) => remoteSessionSite?.isHqLaunched(sessionId) === true,
     routeFederationIngress: (input) => federation.routeIngress({
       guild_id: input.guildId,
       channel_id: input.channelId,
@@ -1894,6 +1899,7 @@ export async function startBackend(): Promise<BackendHandle> {
       text: input.text,
       ts: input.ts,
       applied_tag_names: input.appliedTagNames,
+      ...(input.answer ? { answer: input.answer } : {}),
     }),
     resolveForumSiteTags: () => federation.listForumSiteTagNames(),
     routeRemoteSpawn: (input) => federation.routeForumSpawn(input),
@@ -2519,15 +2525,62 @@ export async function startBackend(): Promise<BackendHandle> {
     // 拠点間ワンショット調査 (SPEC-FED-INQUIRY): 依頼を受けたら作業ルート配下で読み取り専用の claude -p を 1 回動かす。
     federation.setInquiryRunner(createInquiryRunner({ workspaceRoots: () => adminState.getWorkspaceRoots() }));
     // 拠点ロール: 本社 forum の拠点タグ付き投稿からセッションを起動し、発言を本社スレッドへ返す。
-    trackPostListenHandle(startRemoteSessionSite({
+    remoteSessionSite = startRemoteSessionSite({
       federation,
       sessions: repo,
       settings: new SqliteSettingsStore(db),
       concordiaUrl: publicUrl,
       buildPrompt: (title, body, rules) => buildForumSpawnPrompt(title, body, rules),
       workspaceRoot: () => adminState.getWorkspaceRoot(),
+      // 本社の投稿も通常セッションと同じ見た目・操作にする (SPEC-FED-SITE-FORUM-PARITY)。
+      identityOf: (sessionId) => {
+        const state = chatReadModel.getSessionRelayState(sessionId);
+        if (!state) return null;
+        const identity = buildDiscordWebhookIdentity({
+          model: state.model,
+          provider: state.provider,
+          configuredName: state.webhookName,
+          currentTask: state.currentTask,
+          roleLabel: state.roleLabel,
+          fallbackName: "Concordia",
+          delegationEmoji: state.delegationEmoji,
+        });
+        const avatarUrl = identity.avatarURL || state.webhookAvatarUrl?.trim();
+        return { username: identity.username, ...(avatarUrl ? { avatarUrl } : {}) };
+      },
+      siteLabel: () => federation.siteId() ?? "",
+      answerQuestion: async ({ sessionId, questionId, optionIndexes }) => {
+        const result = await answerPendingQuestion(
+          { sessions: repo, questions: questionStoreFromRepo(pendingQuestions) },
+          sessionId,
+          toAnswerBody(questionId, optionIndexes),
+        );
+        return result.ok ? { ok: true } : { ok: false, error: result.error };
+      },
+      echoToSiteSurface: ({ sessionId, authorLabel, text }) => {
+        const msg = chat.insert({
+          channel: "system",
+          session_id: sessionId,
+          author_label: authorLabel,
+          text,
+          in_reply_to: null,
+          is_actionable: false,
+          metadata: JSON.stringify({ webhook_username: hqEchoUsername(authorLabel) }),
+        });
+        if (!msg) return;
+        eventBus.emit({
+          type: "chat.posted",
+          message_id: msg.id,
+          channel: msg.channel,
+          author_label: msg.author_label,
+          session_id: msg.session_id,
+          ts: msg.ts,
+          is_actionable: false,
+        });
+      },
       log: createChildLogger("federation/remote-session"),
-    }));
+    });
+    trackPostListenHandle(remoteSessionSite);
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

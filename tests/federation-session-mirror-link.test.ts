@@ -58,4 +58,44 @@ describe("federation session mirror over the link", () => {
     expect(result).toMatchObject({ ok: true, guild_id: "111111111111111111", channel_id: "555555555555555555" });
     expect(seen).toEqual([{ siteId: "site-a", sessionId: "sess-9", title: "画面の修正" }]);
   });
+
+  it("carries the session identity, mention request and question card in an egress request (SPEC-FED-SITE-FORUM-PARITY)", async () => {
+    const db = makeTestDb();
+    const sites = makeFederationSitesRepo(db, new SecretBox(Buffer.alloc(32, 7)));
+    const egress: unknown[] = [];
+    const listener = await startFederationListener({
+      host: "127.0.0.1",
+      port: 0,
+      sites,
+      outbox: makeFederationOutboxRepo(db, { maxRows: 100, ttlSec: 3600 }),
+      connections: createFederationConnections(),
+      hqVersion: "test-hq",
+      handleEgressRequest: async (_siteId, request) => {
+        egress.push(request);
+        return { ok: true };
+      },
+    });
+    registerCleanup(() => listener.close());
+
+    const { token } = sites.create({ siteId: "site-b" });
+    const client = startFederationSiteClient({
+      hqUrl: `ws://127.0.0.1:${listener.port}/federation/ws`,
+      siteId: "site-b",
+      token,
+      siteVersion: "test-site",
+      configCachePath: join(makeTestDir("concordia-federation-parity-"), ".federation-config-cache.json"),
+    });
+    registerCleanup(() => client.stop());
+    await waitFor(() => client.isLinked());
+
+    const question = { question_id: 3, prompt: "どれ？", options: [{ label: "A" }] };
+    const result = await client.requestEgress({
+      guildId: "111111111111111111", channelId: "555555555555555555", text: "どれ？",
+      username: "Opus 5.5 · opus-5-5", avatarUrl: "https://example.com/a.png", mentionRequester: true, question,
+    });
+    expect(result.ok).toBe(true);
+    expect(egress).toEqual([expect.objectContaining({
+      text: "どれ？", username: "Opus 5.5 · opus-5-5", avatar_url: "https://example.com/a.png", mention_requester: true, question,
+    })]);
+  });
 });

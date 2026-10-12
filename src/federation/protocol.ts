@@ -66,6 +66,21 @@ const ingressSchema = z.object({
   applied_tag_names: z.array(z.string().min(1).max(100)).max(20).optional(),
 }).passthrough();
 
+/**
+ * 拠点セッションの質問カード (SPEC-FED-SITE-FORUM-PARITY)。 本社はボタン / 選択メニューにして出し、
+ * 押された回答を ingress の `answer` で拠点へ返す。
+ */
+export const egressQuestionSchema = z.object({
+  question_id: z.number().int().positive(),
+  prompt: z.string().min(1).max(2_000),
+  options: z.array(z.object({
+    label: z.string().min(1).max(100),
+    description: z.string().max(100).optional(),
+  })).max(25),
+  multi_select: z.boolean().optional(),
+});
+export type FederationEgressQuestion = z.infer<typeof egressQuestionSchema>;
+
 const egressRequestSchema = z.object({
   v: versionField,
   type: z.literal("egress-request"),
@@ -73,6 +88,15 @@ const egressRequestSchema = z.object({
   guild_id: z.string().min(1).max(100),
   channel_id: z.string().min(1).max(100),
   text: z.string().min(1).max(8_000),
+  /**
+   * 通常セッションと同じ見た目で出すための webhook 名・アイコン (SPEC-FED-SITE-FORUM-PARITY)。
+   * 古い本社は読み捨て、 従来どおり "Concordia" で出す。
+   */
+  username: z.string().min(1).max(80).optional(),
+  avatar_url: z.string().url().max(500).optional(),
+  /** 起動した人へのメンションを求める。 誰をメンションするかは本社が自分の台帳で決める (拠点は ID を渡さない)。 */
+  mention_requester: z.boolean().optional(),
+  question: egressQuestionSchema.optional(),
 }).passthrough();
 
 const egressResultSchema = z.object({
@@ -206,6 +230,8 @@ export type FederationWelcomeFrame = z.infer<typeof welcomeSchema>;
 export type FederationEventFrame = z.infer<typeof eventSchema>;
 export type FederationIngressFrame = z.infer<typeof ingressSchema>;
 export type FederationEgressRequestFrame = z.infer<typeof egressRequestSchema>;
+/** 本社が Discord へ渡す形。 メンション先は本社の台帳で決めた起動者だけ (拠点の申告は使わない)。 */
+export type FederationEgressDelivery = FederationEgressRequestFrame & { mention_user_id?: string };
 export type FederationEgressResultFrame = z.infer<typeof egressResultSchema>;
 export type FederationConfigSnapshot = z.infer<typeof configSnapshotSchema>;
 export type FederationConfigSnapshotFrame = z.infer<typeof configSnapshotFrameSchema>;
@@ -299,7 +325,7 @@ export type FederationFrameInput =
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
   | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number; applied_tag_names?: readonly string[] }
-  | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string }
+  | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string; username?: string; avatar_url?: string; mention_requester?: boolean; question?: FederationEgressQuestion }
   | { type: "egress-result"; request_id: string; ok: boolean; error?: string }
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
   | { type: "config-update"; snapshot: FederationConfigSnapshot }

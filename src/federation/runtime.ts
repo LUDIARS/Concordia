@@ -37,13 +37,14 @@ import { resolveExplicitSite, resolveSiteFromForumTags, resolveSiteFromSiteNameT
 import { createSiteProjectsStore } from "./site-projects.js";
 import type { RemoteSpawnOptions } from "./remote-session-payload.js";
 import { buildRemoteSpawnPayload } from "./remote-session-payload.js";
-import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
+import { createRemoteThreadRegistry, requesterMentionFor } from "./remote-thread-registry.js";
 import { createInquiryService, type InquiryRequestInput } from "./inquiry-service.js";
 import type { InquiryOutcome } from "./inquiry-broker.js";
 import type { InquiryRunner } from "./inquiry-runner.js";
 import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
-import type { FederationEgressRequestFrame } from "./protocol.js";
+import type { FederationEgressDelivery } from "./protocol.js";
+import type { FederationSiteEgressInput } from "./site-client.js";
 import { createHqSessionMirror, type MirrorPostOpener } from "./hq-session-mirror.js";
 import { createSessionMirrorStore, HQ_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
 
@@ -56,6 +57,13 @@ export interface FederationIngressInput {
   text: string;
   ts: number;
   applied_tag_names?: readonly string[];
+  /** 本社の質問カードで選ばれた回答 (SPEC-FED-SITE-FORUM-PARITY)。 拠点は質問へ回答として渡す。 */
+  answer?: FederationIngressAnswer;
+}
+
+export interface FederationIngressAnswer {
+  question_id: number;
+  option_indexes: number[];
 }
 
 const log = createChildLogger("federation/runtime");
@@ -133,11 +141,13 @@ export interface FederationRuntime {
   /** 拠点ロール: 本社から届いた event payload の受け手。 */
   setSiteEventHandler(handler: ((payload: unknown) => void) | null): void;
   /** 拠点ロール: 本社の Discord へ代行投稿を依頼する。 */
-  requestEgress(input: { guildId: string; channelId: string; text: string }): Promise<{ ok: boolean; error?: string }>;
+  requestEgress(input: FederationSiteEgressInput): Promise<{ ok: boolean; error?: string }>;
   /** Discord 実体を bootstrap から渡す egress ポート。 */
-  setEgressExecutor(executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null): void;
+  setEgressExecutor(executor: ((request: FederationEgressDelivery) => Promise<{ ok: boolean; error?: string }>) | null): void;
   /** 拠点ロールで本社へ繋ぐ設定があるか。 */
   isSiteRole(): boolean;
+  /** 拠点ロールの site_id (拠点ロールでなければ null)。 */
+  siteId(): string | null;
   /** 拠点ロール: 拠点のセッションを映す投稿を本社に立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
   requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
   /** 本社: Session フォーラムに投稿を立てる Discord ポート (bot.ts が注入)。 */
@@ -207,7 +217,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     throw new Error("resolved federation listener settings require a port when enabled");
   }
   let siteClient: FederationSiteClientHandle | null = null;
-  let egressExecutor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null = null;
+  let egressExecutor: ((request: FederationEgressDelivery) => Promise<{ ok: boolean; error?: string }>) | null = null;
   let siteEventHandler: ((payload: unknown) => void) | null = null;
   /** 本社: 拠点へ起動を渡したスレッド。 settings 未注入 (テスト) ではプロセス内だけで持つ。 */
   const hqThreads = createRemoteThreadRegistry(opts.settings ?? memorySettings(), "federation.hq.remote_threads");
@@ -326,7 +336,9 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
             return authorized;
           }
           if (!egressExecutor) return { ok: false, error: "HQ Discord egress is unavailable" };
-          return egressExecutor(request);
+          // メンションは起動した側にだけ付ける: 本社から起動したスレッドの依頼者だけを本社が選ぶ。
+          const mentionUserId = requesterMentionFor(thread, request);
+          return egressExecutor({ ...request, ...(mentionUserId ? { mention_user_id: mentionUserId } : {}) });
         },
         handleMirrorOpen: (siteId, request) => sessionMirror.open(siteId, request),
         handleInquiryRequest: (siteId, request) => inquiries.onSiteRequest(siteId, request),
@@ -543,7 +555,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       // 拠点タグが無ければ、 依頼文の名指し (「<拠点>で ...」 / `@<拠点>`) で決める。 タグを優先する。
       const route = resolveForumRoute(input.channelId, input.appliedTagNames) ?? resolveTextRoute(input.channelId, input.title, input.body);
       if (route?.kind !== "site" || !listener) return null;
-      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now() });
+      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: route.siteId, at: Date.now(), ...(input.authorId ? { requesterId: input.authorId } : {}) });
       const { project, ...spawnInput } = input;
       listener.enqueue(route.siteId, buildRemoteSpawnPayload({
         ...spawnInput,
@@ -563,7 +575,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       const resolved = resolveExplicitSite(sites.list(), input.site);
       if (!resolved.ok) return resolved;
       if (!listener) return { ok: false, reason: "listener_unavailable" };
-      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: resolved.siteId, at: Date.now() });
+      hqThreads.record(input.channelId, { guildId: input.guildId, siteId: resolved.siteId, at: Date.now(), ...(input.authorId ? { requesterId: input.authorId } : {}) });
       listener.enqueue(resolved.siteId, buildRemoteSpawnPayload({
         guildId: input.guildId,
         channelId: input.channelId,
@@ -593,6 +605,9 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     },
     isSiteRole() {
       return Boolean(siteClient && siteBinding);
+    },
+    siteId() {
+      return siteClient && siteBinding ? siteBinding.siteId : null;
     },
     async requestMirrorOpen(input) {
       if (!siteClient) return { ok: false, error: "federation site link is not configured" };

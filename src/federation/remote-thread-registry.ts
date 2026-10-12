@@ -18,6 +18,11 @@ export interface RemoteThreadEntry {
   /** 本社側: 渡した拠点。拠点側: null。 */
   siteId: string | null;
   at: number;
+  /**
+   * 本社側: そのスレッドで起動を依頼した人 (SPEC-FED-SITE-FORUM-PARITY)。 起動した側にだけメンションを付けるため、
+   * 本社から起動したスレッドだけが持つ。 拠点で起動して映した投稿は持たない。
+   */
+  requesterId?: string;
 }
 
 export interface RemoteThreadRegistry {
@@ -57,4 +62,12 @@ export function createRemoteThreadRegistry(store: Pick<SettingsStore, "get" | "s
       store.set(key, JSON.stringify(all));
     },
   };
+}
+
+/**
+ * 本社: 拠点の発言に付けるメンション先 (SPEC-FED-SITE-FORUM-PARITY)。 拠点が求めたときだけ、 そのスレッドで
+ * 本社から起動を依頼した人を返す。 拠点で起動して映した投稿には依頼者が無いので付けない (起動した側だけ)。
+ */
+export function requesterMentionFor(entry: RemoteThreadEntry | null, request: { mention_requester?: boolean }): string | undefined {
+  return request.mention_requester && entry?.requesterId ? entry.requesterId : undefined;
 }

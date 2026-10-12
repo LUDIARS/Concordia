@@ -24,7 +24,7 @@ import {
   writeFederationConfigCache,
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressResultFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenResultFrame } from "./protocol.js";
+import type { FederationEgressQuestion, FederationEgressResultFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenResultFrame } from "./protocol.js";
 import { hqUrlTransportError } from "./transport-policy.js";
 
 const log = createChildLogger("federation/site");
@@ -63,11 +63,23 @@ export interface FederationSiteClientDeps {
   configCachePath?: string;
 }
 
+/** 拠点 → 本社の発言依頼。 username 以降は通常セッションと同じ見た目にするための任意項目。 */
+export interface FederationSiteEgressInput {
+  requestId?: string;
+  guildId: string;
+  channelId: string;
+  text: string;
+  username?: string;
+  avatarUrl?: string;
+  mentionRequester?: boolean;
+  question?: FederationEgressQuestion;
+}
+
 export interface FederationSiteClientHandle {
   stop(): void;
   isLinked(): boolean;
   getConfig(): FederationConfigSnapshot | null;
-  requestEgress(input: { requestId?: string; guildId: string; channelId: string; text: string }): Promise<FederationEgressResultFrame>;
+  requestEgress(input: FederationSiteEgressInput): Promise<FederationEgressResultFrame>;
   /** 拠点のセッションを映す投稿を本社の Session フォーラムに立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
   requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<FederationMirrorOpenResultFrame>;
   /** link 中なら本社へ直接フレームを送る (outbox を使わない)。 */
@@ -298,7 +310,17 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         timer.unref?.();
         pendingEgress.set(requestId, { resolve, timer });
         try {
-          ws!.send(serializeFederationFrame({ type: "egress-request", request_id: requestId, guild_id: input.guildId, channel_id: input.channelId, text: input.text }));
+          ws!.send(serializeFederationFrame({
+            type: "egress-request",
+            request_id: requestId,
+            guild_id: input.guildId,
+            channel_id: input.channelId,
+            text: input.text,
+            ...(input.username ? { username: input.username } : {}),
+            ...(input.avatarUrl ? { avatar_url: input.avatarUrl } : {}),
+            ...(input.mentionRequester ? { mention_requester: true } : {}),
+            ...(input.question ? { question: input.question } : {}),
+          }));
         } catch (e) {
           pendingEgress.delete(requestId);
           clearTimeout(timer);

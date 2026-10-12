@@ -293,6 +293,37 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 運用の前提 (人の設定): 本社の listener 有効化 (ポート・待ち受けアドレス)、各拠点 Cc の本社 URL・
 拠点 ID・トークン。拠点側に別の Discord Bot を同じ guild へ繋いでいる構成は想定しない (二重投稿になる)。
 
+### 本社と拠点で同じフォーラム投稿・通常セッションと同じ操作感 (2026-10-12 neco 指示) {#SPEC-FED-SITE-FORUM-PARITY}
+
+「本社と拠点で同じフォーラムとして投稿されるようにしてほしい」「通常のセッションと同じDiscordでの操作感にする」
+「メンションは起動したほうにつける」。`/spawn site:melpot` で起動したセッションの本社スレッドは、 拠点の発言が
+"Concordia" 名義の文字だけで、 質問のボタンが無く、 誰にもメンションされなかった。 拠点のフォーラム投稿には
+本社で書いた返信が出ず、 拠点で書いた返信は本社に出なかった。
+
+- 価値: どちらの Discord から見ても同じ会話として読め、 いつもの操作 (ボタンで回答・返信で指示) ができる。
+- 状態所有者: セッションと質問 (回答済みか) の正本は拠点。 本社は質問を保存せず、 スレッド台帳に起動者だけを持つ。
+- 不変条件:
+  - 拠点の AI 発言と質問は、 通常セッションと同じ webhook 名・アイコン (`buildDiscordWebhookIdentity`) で本社に出る。 名前を送らない古い拠点は従来どおり "Concordia"。
+  - 質問は本社でも埋め込み + 選択肢コード付きボタン (5 択以下) / 選択メニュー (6 択以上・複数選択) のカードになる。
+    押した回答は ingress の `answer` で拠点へ返り、 拠点は通常の回答処理 (`answerPendingQuestion`) で答える (拠点のカードも解決される)。
+    回答済み・閉じた質問は拠点が断り、 本社スレッドへ理由を返す。 自由回答は投稿への返信で行う。 計画承認は送らない。
+  - メンションは起動した側にだけ付く。 本社から起動したスレッドは、 本社がスレッド台帳の起動者 (`requesterId`) を
+    メンションする (拠点はメンションを求めるだけで ID を送らない)。 拠点の Discord の質問カードは、 本社から起動したセッションでは依頼者をメンションしない。
+    拠点で起動して映した投稿は起動者を持たないので、 本社ではメンションしない。
+  - 本社で書かれた返信は、 拠点のセッションに注入すると同時に、 拠点のフォーラム投稿へ「<名前> (本社)」で出る。
+    拠点の Discord で書かれた人の発言は「<名前> (<拠点>)」で本社へ出る。 本社から届いた返信の写しは本社へ送り返さない (注入 source で区別)。
+
+| 責務 | 実装 |
+|---|---|
+| egress の任意項目 (`username` / `avatar_url` / `mention_requester` / `question`)・ingress の `answer` | `src/federation/protocol.ts` / `site-client.ts` / `remote-session-payload.ts` |
+| 本社: 起動者の記録とメンション先の決定 | `src/federation/runtime.ts` / `remote-thread-registry.ts` (`requesterMentionFor`) |
+| 本社: 名前・アイコン・メンション・質問カードの描画 | `src/discord/federation-egress.ts` / `federation-question.ts` |
+| 本社: カードの回答を拠点へ返す | `src/discord/federation-question-interaction.ts` |
+| 拠点: 名前付き発言・質問・人の発言の転送、 回答と本社返信の受け取り | `src/federation/remote-session-site.ts` / `remote-session-wiring.ts` / `remote-question.ts` |
+| 拠点: 名前・回答・返信表示の注入 | `src/bootstrap/core.ts` |
+
+復旧: 本社・拠点のどちらかが古い版でも、 知らない項目は読み捨てて従来の文字だけの中継に戻る。 両方を更新すれば揃う。
+
 ## API (loopback /v1 面のみ)
 
 - `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + 担当担当サーバ +

@@ -8,6 +8,8 @@
  *
  * @implements spec/feature/federation-link.md §本社からのセッション起動
  */
+import { buildFederationQuestionMessage, type FederationQuestionCard } from "./federation-question.js";
+
 /** egress の宛先 channel のうち、 送信先の決定に使う属性だけ。 */
 export interface EgressChannel {
   guildId: string;
@@ -17,9 +19,12 @@ export interface EgressChannel {
 
 /** webhook 送信の中身。 Discord SDK の型へ依存しない (連合層は chat 層を import しない)。 */
 export interface EgressSendOptions {
-  content: string;
+  content?: string;
   username: string;
-  allowedMentions: { parse: [] };
+  avatarURL?: string;
+  allowedMentions: { parse: []; users?: string[] };
+  embeds?: Array<Record<string, unknown>>;
+  components?: Array<Record<string, unknown>>;
   threadId?: string;
 }
 
@@ -35,6 +40,11 @@ export interface FederationEgressRequest {
   guild_id: string;
   channel_id: string;
   text: string;
+  username?: string;
+  avatar_url?: string;
+  /** 本社が台帳で選んだ起動者 (拠点の申告ではない)。 */
+  mention_user_id?: string;
+  question?: FederationQuestionCard;
 }
 
 export type FederationEgressResult = { ok: true } | { ok: false; error: string };
@@ -44,6 +54,28 @@ export function resolveEgressTarget(channelId: string, channel: EgressChannel): 
   if (!channel.isThread()) return { webhookChannelId: channelId };
   if (!channel.parentId) return null;
   return { webhookChannelId: channel.parentId, threadId: channelId };
+}
+
+const SNOWFLAKE = /^\d{17,20}$/;
+
+/**
+ * 拠点の発言を通常セッションと同じ見た目にする (SPEC-FED-SITE-FORUM-PARITY): セッションの webhook 名・アイコン、
+ * 起動した人へのメンション、 質問はボタン付きカード。 名前やアイコンが無い古い拠点は従来どおり "Concordia"。
+ */
+export function buildFederationEgressMessage(request: FederationEgressRequest): Omit<EgressSendOptions, "threadId"> {
+  const mention = request.mention_user_id && SNOWFLAKE.test(request.mention_user_id) ? request.mention_user_id : null;
+  const username = request.username?.trim().slice(0, 80) || "Concordia";
+  const avatarURL = request.avatar_url?.startsWith("https://") ? request.avatar_url : undefined;
+  const allowedMentions: EgressSendOptions["allowedMentions"] = mention ? { parse: [], users: [mention] } : { parse: [] };
+  const identity = { username, ...(avatarURL ? { avatarURL } : {}), allowedMentions };
+  if (request.question) {
+    return {
+      ...identity,
+      content: mention ? `<@${mention}> 確認をお願いします` : "確認をお願いします",
+      ...buildFederationQuestionMessage(request.question),
+    };
+  }
+  return { ...identity, content: mention ? `<@${mention}> ${request.text}` : request.text };
 }
 
 export function createFederationEgressExecutor<W>(deps: FederationEgressDeps<W>) {
@@ -63,9 +95,7 @@ export function createFederationEgressExecutor<W>(deps: FederationEgressDeps<W>)
     const webhook = await deps.getWebhook(target.webhookChannelId);
     if (!webhook) return fail(request, "Discord webhook is unavailable for destination channel");
     const sent = await deps.send(webhook, {
-      content: request.text,
-      username: "Concordia",
-      allowedMentions: { parse: [] },
+      ...buildFederationEgressMessage(request),
       ...(target.threadId ? { threadId: target.threadId } : {}),
     });
     return sent ? { ok: true } : fail(request, "Discord send failed");

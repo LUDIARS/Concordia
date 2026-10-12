@@ -324,6 +324,29 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 
 復旧: 本社・拠点のどちらかが古い版でも、 知らない項目は読み捨てて従来の文字だけの中継に戻る。 両方を更新すれば揃う。
 
+### 本社の社員名簿の役職を拠点へ配る (2026-10-12 neco 指示) {#SPEC-FED-STAFF-ROLES}
+
+「MELPOTのDiscordで権限が無いといわれるが権限はあるはず」→「本社の名簿を配る」。拠点の名簿は拠点の Discord に
+触れた人を「ヒラ社員」で記録するだけなので、本社で管理職の人も拠点では `/end-session` が `session_end` 不足で拒否された。
+
+- 状態所有者: 役職の正本は本社の社員名簿 (`staff_members`)。拠点は受け取った写しを `schema_meta` の
+  `federation.site.hq_staff_roles` に置く (本体・chat worker・Discord のどのプロセスの `StaffRepo` からも読める)。
+- 不変条件:
+  - 本社は設定 (config-snapshot / config-update) に、役職を持つ人 (管理職・役員) の platform・ID・役職だけを載せる (`staff_roles`)。
+    名前・メモ・アクセス時刻は渡さない。ヒラ社員は送らない (拠点の既定と同じ)。
+  - 拠点の権限判定 (`StaffRepo.roleOf`) は、拠点の名簿と本社の役職の高いほうを使う。拠点の名簿で上げた役職は下げない。
+    壊れた値・形の違う行は捨て、権限を与える側に倒さない。
+  - 本社は名簿の役職が変わったら、つながっている有効な拠点へ設定を配り直す (設定の監視周期、既定 10 秒)。
+    拠点はつながった時点で最新の設定を受け取り、オフライン起動時は前回の設定 (キャッシュ) の役職を使う。
+  - 拠点ロールを外したら、本社の役職は権限判定に使わない (空にする)。
+- 互換: 古い本社は `staff_roles` を送らず、拠点は本社の役職なし (従来どおり) で判定する。古い拠点は `staff_roles` を含む設定を
+  形の違う設定として読み捨て (warn)、前回の設定のまま動く。両方を更新すれば揃う。
+
+| 責務 | 実装 |
+|---|---|
+| 設定の `staff_roles` | `src/federation/protocol.ts` / `config-snapshot.ts` (`readHqStaffRoles`) / `config-cache.ts` |
+| 本社: 変更時の配り直し・拠点: 受け取った役職の保存 | `src/federation/runtime.ts` |
+| 役職の写しの読み書き・高いほうの判定 | `src/staff/hq-staff-roles.ts` / `src/db/staff-repo.ts` (`roleOf`) |
 ## API (loopback /v1 面のみ)
 
 - `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + 担当担当サーバ +

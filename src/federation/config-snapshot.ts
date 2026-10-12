@@ -51,7 +51,21 @@ export function createFederationConfigSnapshot(
     });
     return { id: resolved.id, call_name: resolved.call_name, title: resolved.title, target_provider: resolved.target_provider, model: resolved.model };
   });
-  return { discord, templates };
+  return { discord, templates, staff_roles: readHqStaffRoles(db) };
+}
+
+/**
+ * 本社の名簿で役職を持つ人だけ (SPEC-FED-STAFF-ROLES)。 名前・メモ・最終アクセスは渡さない。
+ * ヒラ社員は拠点の既定と同じなので送らない。
+ */
+export function readHqStaffRoles(db: Database.Database): NonNullable<FederationConfigSnapshot["staff_roles"]> {
+  const rows = db.prepare(
+    `SELECT platform, platform_user_id, role FROM staff_members
+     WHERE role IN ('manager', 'executive') AND platform IN ('discord', 'slack')
+     ORDER BY platform, platform_user_id
+     LIMIT 1000`,
+  ).all() as Array<{ platform: "discord" | "slack"; platform_user_id: string; role: "manager" | "executive" }>;
+  return rows.map((row) => ({ platform: row.platform, user_id: row.platform_user_id, role: row.role }));
 }
 
 function readScopedDiscordConfig(

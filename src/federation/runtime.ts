@@ -29,7 +29,8 @@ import {
   type FederationListenerConfig,
 } from "./listener-settings.js";
 import { createFederationConnections } from "./hq-connections.js";
-import { createFederationConfigSnapshot } from "./config-snapshot.js";
+import { createFederationConfigSnapshot, readHqStaffRoles } from "./config-snapshot.js";
+import { HQ_STAFF_ROLES_KEY, serializeHqStaffRoles, type HqStaffRole } from "../staff/hq-staff-roles.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
 import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
@@ -412,6 +413,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         platform: process.platform === "win32" || process.platform === "darwin" ? process.platform : undefined,
         // 本社からの spawn / ingress (Phase 4)。 受け手未登録なら読み捨てる (ack は返す)。
         onEvent: (payload) => siteEventHandler?.(payload),
+        // 本社の名簿の役職を拠点の権限判定へ渡す (SPEC-FED-STAFF-ROLES)。 古い本社は送らないので空になる。
+        onConfig: (config) => storeHqStaffRoles(config.staff_roles ?? []),
         onInquiryRequest: (request) => inquiries.onHqRequest(request),
         onInquiryResult: (result) => inquiries.onHqResult(result),
         onUnlinked: () => inquiries.failAll("HQ link closed before the inquiry completed"),
@@ -426,11 +429,42 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     }
   }
 
+  /**
+   * 本社: 名簿の役職が変わったら、つながっている拠点へ設定を配り直す (SPEC-FED-STAFF-ROLES)。
+   * 拠点はつながった時点で最新の設定を受け取るので、ここで送るのは変化があったときだけ。
+   */
+  let staffRolesSignature: string | null = null;
+  function redistributeOnStaffRoleChange(): void {
+    if (!listener) {
+      staffRolesSignature = null;
+      return;
+    }
+    const signature = JSON.stringify(readHqStaffRoles(opts.db));
+    const previous = staffRolesSignature;
+    staffRolesSignature = signature;
+    if (previous === null || previous === signature) return;
+    for (const site of sites.list()) {
+      if (site.status === "active" && listener.sendConfigUpdate(site.site_id)) {
+        log.info(`federation staff roles redistributed site=${site.site_id}`);
+      }
+    }
+  }
+
+  function storeHqStaffRoles(roles: readonly HqStaffRole[]): void {
+    try {
+      opts.settings?.set(HQ_STAFF_ROLES_KEY, serializeHqStaffRoles(roles));
+    } catch (error) {
+      log.warn({ err: (error as Error).message }, "federation staff roles store failed");
+    }
+  }
+
   function stopSiteClient(): void {
     if (!siteClient) return;
     siteClient.stop();
     siteClient = null;
     siteBinding = null;
+    // 本社とのつながりを外したら、本社の役職も権限判定に使わない。
+    storeHqStaffRoles([]);
     log.info("federation site client stopped");
   }
 
@@ -538,6 +572,11 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
             syncSiteClient();
           } catch (error) {
             log.error({ err: (error as Error).message }, "federation site settings sync failed");
+          }
+          try {
+            redistributeOnStaffRoleChange();
+          } catch (error) {
+            log.warn({ err: (error as Error).message }, "federation staff roles redistribution failed");
           }
         }, opts.settingsPollMs ?? 10_000);
         listenerPoll.unref?.();

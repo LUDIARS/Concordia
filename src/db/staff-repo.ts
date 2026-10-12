@@ -18,6 +18,7 @@ import {
   type StaffCapability,
   type StaffRole,
 } from "../staff/roles.js";
+import { HQ_STAFF_ROLES_KEY, higherRole, hqRoleOf, parseHqStaffRoles } from "../staff/hq-staff-roles.js";
 
 export type StaffPlatform = "discord" | "slack";
 
@@ -91,9 +92,20 @@ export class StaffRepo {
     ).get(platform, userId) as Record<string, unknown> | undefined);
   }
 
-  /** 権限判定の唯一の入口。 未登録は null (= ヒラ社員相当) を返す。 */
+  /**
+   * 権限判定の唯一の入口。 未登録は null (= ヒラ社員相当) を返す。
+   * 拠点では本社から配られた役職 (SPEC-FED-STAFF-ROLES) と比べて高いほうを返す。
+   */
   roleOf(platform: StaffPlatform, platformUserId: string): StaffRole | null {
-    return this.find(platform, platformUserId)?.role ?? null;
+    const local = this.find(platform, platformUserId)?.role ?? null;
+    return higherRole(local, hqRoleOf(this.hqStaffRoles(), platform, platformUserId.trim()));
+  }
+
+  /** 本社から配られた役職 (拠点だけが持つ。 本社自身・連合なしでは空)。 */
+  private hqStaffRoles() {
+    const row = this.db.prepare(`SELECT value FROM schema_meta WHERE key = ?`).get(HQ_STAFF_ROLES_KEY) as
+      { value: string } | undefined;
+    return parseHqStaffRoles(row?.value);
   }
 
   list(options: { platform?: StaffPlatform } = {}): StaffMemberRow[] {

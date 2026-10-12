@@ -172,6 +172,15 @@ const configSnapshotSchema = z.object({
     target_provider: z.string(),
     model: z.string().nullable(),
   }).strict()),
+  /**
+   * 本社の社員名簿のうち役職を持つ人 (管理職以上) (SPEC-FED-STAFF-ROLES)。 拠点は自分の名簿と比べて
+   * 高いほうの役職で権限を判定する。 名前やメモは渡さない (ID と役職だけ)。 古い本社は送らない。
+   */
+  staff_roles: z.array(z.object({
+    platform: z.enum(["discord", "slack"]),
+    user_id: z.string().min(1).max(100),
+    role: z.enum(["manager", "executive"]),
+  }).strict()).max(1_000).optional(),
 }).strict();
 
 const configSnapshotFrameSchema = z.object({

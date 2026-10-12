@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { FederationConfigSnapshot } from "./protocol.js";
+import { parseHqStaffRoles } from "../staff/hq-staff-roles.js";
 
 export function defaultFederationConfigCachePath(cwd = process.cwd()): string {
   return resolve(cwd, ".federation-config-cache.json");
@@ -28,9 +29,12 @@ function parseFederationConfigCache(value: unknown): FederationConfigSnapshot | 
   const discord = Object.entries(candidate.discord);
   if (!discord.every(([key, item]) => typeof key === "string" && typeof item === "string")) return null;
   if (!candidate.templates.every(isTemplate)) return null;
+  const staffRoles = (value as { staff_roles?: unknown }).staff_roles;
   return {
     discord: Object.fromEntries(discord) as Record<string, string>,
     templates: candidate.templates,
+    // 本社の役職 (SPEC-FED-STAFF-ROLES)。 壊れた行は捨て、 権限を与える側に倒さない。
+    ...(Array.isArray(staffRoles) ? { staff_roles: parseHqStaffRoles(JSON.stringify(staffRoles)) } : {}),
   };
 }
 

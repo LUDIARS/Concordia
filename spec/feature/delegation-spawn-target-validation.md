@@ -126,6 +126,24 @@ egress は `allowedMentions: { parse: [] }` を付けて送るため、 本文�
 見て子へ inject する。 こちらは *終わった* run が居座っていないかを見てプロセスだけを
 対象にする。 run の status は書き換えない。
 
+### 2.5 worktree add の非 0 終了 (`src/control/worktree-add-failure.ts`)
+
+`git worktree add` は checkout を終えてから post-checkout フックを走らせる。 フック
+(例: core.hooksPath から呼ばれる git-lfs が PATH に無い) が失敗すると、 worktree と
+branch は出来ているのに終了コードは非 0 になる。 従来はこれを `failed to create
+worktree` で返し、 作りかけの worktree と branch を残していた (#32、 2026-10-03 Cernere)。
+
+非 0 終了時は終了コードではなく git が登録した状態で判定する
+(`decideWorktreeAddFailure`、 純関数)。
+
+| 状態 | 扱い |
+|---|---|
+| 対象パスに要求 branch の worktree が登録済み、 かつ branch ref がある | 成功扱い (`created`)。 応答の `warning` に git のエラーを載せ、 ログに警告を出す |
+| それ以外 | 失敗 (`failed to create worktree`)。 登録済みの worktree は `worktree remove --force`、 今回の add で新規に出来た branch だけを `branch -D` で片付ける |
+
+パス比較はスラッシュ区切りへ正規化し、 Windows では大文字小文字を区別しない。 add 前から
+あった branch は消さない。
+
 ## 3. 設定 (AdminState)
 
 | キー | 既定 | 意味 |

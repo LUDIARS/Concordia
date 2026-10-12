@@ -12,9 +12,12 @@ import { dirname, join, basename } from "node:path";
 import { promisify } from "node:util";
 import { retryTransientGit as retryGitWorktreeAdd } from "./retry-transient-git-error.js";
 import { validateSpawnCwd } from "./spawn-cwd.js";
+import { decideWorktreeAddFailure } from "./worktree-add-failure.js";
+import { createChildLogger } from "../shared/logger.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
 
+const log = createChildLogger("spawn-target");
 const execFileAsync = promisify(execFile);
 const GIT_BIN = process.platform === "win32" ? "git.exe" : "git";
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
@@ -58,6 +61,8 @@ export interface SpawnTargetOk {
   worktree_path: string | null;
   worktree_created: boolean;
   worktree_state: SpawnWorktreeState;
+  /** Set when the worktree was adopted although `git worktree add` exited non-zero. */
+  warning?: string;
 }
 
 export interface SpawnTargetErr {
@@ -204,10 +209,25 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     : remoteBranch
       ? ["worktree", "add", "-b", branch, worktreePath, `origin/${branch}`]
       : ["worktree", "add", "-b", branch, worktreePath, input.baseRef ?? "main"];
+  let warning: string | undefined;
   try {
     await retryGitWorktreeAdd(() => git(repoRoot, args));
   } catch (err) {
-    return { ok: false, error: `failed to create worktree: ${messageOf(err)}` };
+    // A failing post-checkout hook exits non-zero after the worktree is complete
+    // (#32): adopt what git registered, otherwise remove the half-made state.
+    const decision = decideWorktreeAddFailure({
+      worktrees: await listWorktrees(git, repoRoot),
+      worktreePath,
+      branch,
+      branchExists: await refExists(git, repoRoot, `refs/heads/${branch}`),
+      branchExistedBefore: localBranch,
+    });
+    if (decision.kind === "cleanup") {
+      await cleanupFailedWorktree(git, repoRoot, worktreePath, branch, decision.deleteBranch, decision.removeWorktree);
+      return { ok: false, error: `failed to create worktree: ${messageOf(err)}` };
+    }
+    warning = `worktree created but git worktree add exited non-zero: ${messageOf(err)}`;
+    log.warn({ worktree_path: worktreePath, branch, error: messageOf(err) }, "worktree adopted after non-zero git worktree add");
   }
 
   const resourceError = await placeProjectResources(projectResources, configSourceRoot, worktreePath);
@@ -224,6 +244,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     worktree_path: worktreePath,
     worktree_created: true,
     worktree_state: "created",
+    ...(warning ? { warning } : {}),
   };
 }
 
@@ -251,11 +272,14 @@ async function cleanupFailedWorktree(
   worktreePath: string,
   branch: string,
   branchCreated: boolean,
+  removeWorktree = true,
 ): Promise<void> {
-  try {
-    await git(repoRoot, ["worktree", "remove", "--force", worktreePath]);
-  } catch {
-    // The failed preparation is already reported; cleanup remains best-effort.
+  if (removeWorktree) {
+    try {
+      await git(repoRoot, ["worktree", "remove", "--force", worktreePath]);
+    } catch {
+      // The failed preparation is already reported; cleanup remains best-effort.
+    }
   }
   if (!branchCreated) return;
   try {

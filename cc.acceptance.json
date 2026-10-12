@@ -4743,6 +4743,9 @@
     {"source":"src/db/schema.ts","tests":["src/db/migration-ledger.test.ts","src/db/project-code-renames.test.ts"],"contracts":["CC-PCR-RENAME-01"]},
     {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts"],"contracts":["CC-PCR-RENAME-01"]},
     {"source":"src/projects/project-code-case.ts","tests":["src/projects/project-code-case.test.ts"],"contracts":["CC-PCR-CASE-01"]},
-    {"source":"src/api/project-codes.ts","tests":["src/api/project-codes-sync.test.ts","src/api/project-codes.test.ts","src/api/project-codes-admin.test.ts"],"contracts":["CC-PCR-RENAME-01","CC-PCR-CASE-01"]}
+    {"source":"src/api/project-codes.ts","tests":["src/api/project-codes-sync.test.ts","src/api/project-codes.test.ts","src/api/project-codes-admin.test.ts"],"contracts":["CC-PCR-RENAME-01","CC-PCR-CASE-01"]},
+    {"source":"src/control/worktree-add-failure.ts","tests":["src/control/worktree-add-failure.test.ts","src/control/spawn-target.test.ts"],"contracts":["wtadd-C-1"]},
+    {"source":"src/control/worktree-add-failure.contract.ts","tests":["src/control/worktree-add-failure.test.ts"],"contracts":["wtadd-C-1"]},
+    {"source":"src/control/ontime-runtime.ts","tests":["src/control/worktree-add-failure.test.ts"],"contracts":["wtadd-C-1"]}
   ]
 }

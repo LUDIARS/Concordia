@@ -222,6 +222,80 @@ describe("spawn target branch/worktree", () => {
     }
   });
 
+  it("adopts a worktree that git registered although a post-checkout hook failed (#32)", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-hook-"));
+    const created = join(tmpdir(), branchWorktreeName(repo, "feat/hook"));
+    let added = false;
+    const calls: string[][] = [];
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      calls.push(args);
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") {
+        const lines = [`worktree ${repo}`, "branch refs/heads/main", ""];
+        // git prints forward slashes; the requested path uses the platform separator.
+        if (added) lines.push(`worktree ${created.replace(/\\/g, "/")}`, "branch refs/heads/feat/hook", "");
+        return lines.join("\n");
+      }
+      if (args[0] === "show-ref") {
+        if (added && args[3] === "refs/heads/feat/hook") return "";
+        throw new Error("missing ref");
+      }
+      if (args[0] === "worktree" && args[1] === "add") {
+        added = true;
+        throw new Error("Command failed: git-lfs was not found on your path (post-checkout hook)");
+      }
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/hook", git, projectResources: noProjectResources });
+      expect(result).toMatchObject({ ok: true, cwd: created, worktree_created: true, worktree_state: "created" });
+      if (!result.ok) return;
+      expect(result.warning).toContain("git-lfs was not found");
+      expect(calls.some((args) => args[0] === "worktree" && args[1] === "remove")).toBe(false);
+      expect(calls.some((args) => args[0] === "branch" && args[1] === "-D")).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the half-made worktree and new branch when the failed add left them inconsistent (#32)", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-halfmade-"));
+    const created = join(tmpdir(), branchWorktreeName(repo, "feat/half"));
+    let added = false;
+    const calls: string[][] = [];
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      calls.push(args);
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") {
+        const lines = [`worktree ${repo}`, "branch refs/heads/main", ""];
+        // Registered but detached: checkout never reached the requested branch.
+        if (added) lines.push(`worktree ${created}`, "detached", "");
+        return lines.join("\n");
+      }
+      if (args[0] === "show-ref") {
+        if (added && args[3] === "refs/heads/feat/half") return "";
+        throw new Error("missing ref");
+      }
+      if (args[0] === "worktree" && args[1] === "add") {
+        added = true;
+        throw new Error("fatal: could not checkout");
+      }
+      if (args[0] === "worktree" && args[1] === "remove") return "";
+      if (args[0] === "branch" && args[1] === "-D") return "";
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/half", git, projectResources: noProjectResources });
+      expect(result).toMatchObject({ ok: false, error: "failed to create worktree: fatal: could not checkout" });
+      expect(calls).toContainEqual(["worktree", "remove", "--force", created]);
+      expect(calls).toContainEqual(["branch", "-D", "feat/half"]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("allows retry delays to be stubbed in isolated retry tests", async () => {
     const sleepCalls: number[] = [];
     let calls = 0;

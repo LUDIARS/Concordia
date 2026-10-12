@@ -8,6 +8,7 @@ import {
   DELEGATION_WATCHDOG_SOURCE,
   startDelegationRunWatchdog,
   type DelegationRunWatchdogOptions,
+  buildChildNudgeText,
 } from "./run-watchdog.js";
 
 const NOW_MS = 1_800_000_000_000;
@@ -288,5 +289,17 @@ describe("startDelegationRunWatchdog", () => {
     const actions = await runOnceWith(options);
     expect(actions).toEqual([]);
     expect(runsRepo.recordWatchdogCheck).not.toHaveBeenCalled();
+  });
+});
+
+// 自動確認は status の送信要求ではない。 本文未確認の委託先が終端状態を送って誤確定させた
+// (2026-09-15) ため、 照会 (GET) と終端報告 (POST、 訂正不能) を分けて案内する。
+describe("buildChildNudgeText", () => {
+  it("separates the status query from the one-shot terminal report", () => {
+    const text = buildChildNudgeText({ id: "run-1", prompt_file_path: "E:/prompts/run-1.md" } as DelegationRunRow, 32);
+    expect(text).toContain("status の送信を求めていません");
+    expect(text).toContain("E:/prompts/run-1.md");
+    expect(text).toContain("GET /v1/delegation/runs/run-1/status");
+    expect(text).toContain("訂正できません");
   });
 });

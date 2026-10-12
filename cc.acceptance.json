@@ -4749,6 +4749,14 @@
     {"source":"src/api/project-codes.ts","tests":["src/api/project-codes-sync.test.ts","src/api/project-codes.test.ts","src/api/project-codes-admin.test.ts"],"contracts":["CC-PCR-RENAME-01","CC-PCR-CASE-01"]},
     {"source":"src/control/worktree-add-failure.ts","tests":["src/control/worktree-add-failure.test.ts","src/control/spawn-target.test.ts"],"contracts":["wtadd-C-1"]},
     {"source":"src/control/worktree-add-failure.contract.ts","tests":["src/control/worktree-add-failure.test.ts"],"contracts":["wtadd-C-1"]},
-    {"source":"src/control/ontime-runtime.ts","tests":["src/control/worktree-add-failure.test.ts"],"contracts":["wtadd-C-1"]}
+    {"source":"src/control/ontime-runtime.ts","tests":["src/control/worktree-add-failure.test.ts"],"contracts":["wtadd-C-1"]},
+    {"source":"src/delegation/status-report-policy.ts","tests":["src/delegation/status-report-policy.test.ts","src/api/delegation-completion-evidence.test.ts"],"contracts":["dsr-C-1","dsr-C-2"]},
+    {"source":"src/delegation/status-report-policy.contract.ts","tests":["src/delegation/status-report-policy.test.ts"],"contracts":["dsr-C-1"]},
+    {"source":"src/delegation/completion-evidence-policy.contract.ts","tests":["src/delegation/status-report-policy.test.ts"],"contracts":["dsr-C-2"]},
+    {"source":"src/delegation/completion-evidence.ts","tests":["src/delegation/completion-evidence.test.ts","src/api/delegation-completion-evidence.test.ts"],"contracts":["dsr-C-2"]},
+    {"source":"src/api/delegation.ts","tests":["src/api/delegation-completion-evidence.test.ts"],"contracts":["dsr-C-1","dsr-C-2"]},
+    {"source":"src/delegation/run-watchdog.ts","tests":["src/delegation/run-watchdog.test.ts"],"contracts":["dsr-C-1"]},
+    {"source":"src/delegation/unstarted-run.ts","tests":["src/delegation/unstarted-run.test.ts"],"contracts":["dsr-C-1"]},
+    {"source":"src/delegation/persona-context.ts","tests":["src/delegation/persona-context.test.ts"],"contracts":["dsr-C-1"]}
   ]
 }

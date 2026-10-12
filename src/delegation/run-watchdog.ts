@@ -23,6 +23,7 @@
 
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { SessionRow } from "../shared/types.js";
+import { buildStatusReportGuidance } from "./status-report-policy.js";
 import { isAwaitingHumanInput, readSessionTranscriptTail, shouldNudge } from "../control/stalled-session-nudge.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -82,8 +83,10 @@ export function buildChildNudgeText(run: DelegationRunRow, idleMinutes: number):
   return [
     `[delegation:${run.id}] [自動確認] 委託元へ状況報告が ${idleMinutes} 分以上届いていません。`,
     "",
-    "- 現在の進捗と残作業を 1〜3 行で整理してください。",
-    `- 作業が続くなら継続し、完了/失敗なら POST /v1/delegation/runs/${run.id}/status で報告してください。`,
+    "- 現在の進捗と残作業を 1〜3 行で整理してください。 この確認は status の送信を求めていません。",
+    ...(run.prompt_file_path ? [`- 依頼内容が手元に無ければ、 先に委託本文 \`${run.prompt_file_path}\` を読んでください。`] : []),
+    "- 作業が続くなら継続してください。",
+    ...buildStatusReportGuidance(`/v1/delegation/runs/${run.id}/status`),
     "- 詰まっている場合は原因を 1 行で報告し、人間の判断が必要なら ask マーカーで質問してください。",
   ].join("\n");
 }

@@ -186,6 +186,7 @@ run の `completed` は decision verdict `ok`、`failed` は `ng` として返�
 | POST   | /v1/delegation/invoke | none | テンプレ resolve + spawn |
 | GET    | /v1/delegation/runs | none | 直近 run 一覧 (既定 100 件)。 `?limit=` は `src/db/list-limit.ts` の `clampListLimit` で 1..500 に丸め、 `?status=` は `DELEGATION_RUN_STATUSES` の語彙のみ受け、 未知値は無言で全件へ倒さず 400 (`invalid_status`)。 `?parent_session=` と併用可。 一覧では重量フィールド (`rendered_prompt` / `args_json`) を返さず、 リンク session の metadata も縮小する (全文は `GET /v1/delegation/runs/:id`)。 |
 | POST   | /v1/delegation/runs/:id/commit | none | コミット代行 (§14)。 run が所有する worktree のみ |
+| GET    | /v1/delegation/runs/:id/status | none | 状態照会専用 (読み取りのみ)。 `{run_id, status, terminal, correctable, prompt_file_path, note}` を返す (§14「状態照会と終端報告の分離」) |
 
 mutating endpoint も bearer token を要求しない。 Concordia は loopback
 (既定 127.0.0.1:11111) 限定で動き、 `/v1/admin/*` と同じ信頼境界に乗る。
@@ -785,6 +786,19 @@ git commit しなくてよい)」 節を足す。 **知らなければ仕組み�
 `completed_without_evidence` を返す。checkout を持たない run は対象外として従来どおり
 完了できる。partial と failed の status 処理はこの検証を通らない。
 
+**completed は全委託で証跡検査を通す** (2026-10-12、 Actio `actio:c503eeb2-5e3b-4afe-8e18-db25f99a9fff`)。
+以前はパートタイマー (`category: parttimer`) を検査ごと素通りさせていたが、 category と
+`review_only` が変えるのは「何を証跡にするか」だけにした (`resolveCompletionEvidencePolicy`)。
+
+- 実装委託 (上記以外の全 category、 category 不明を含む) — 従来どおり branch + commit 証跡。
+- パートタイマー / `review_only` テンプレ — branch 証跡は免除し、 成果の記述
+  (`result` または `detail` の非空) を要求する (`verifyBranchExemptCompletion`)。 記述の無い
+  completed は本文を読まずに送られた報告と区別できないので 409 `completed_without_evidence`
+  (`retryable: true`) で拒否する。 この拒否は **run を書き換えない** (後から追加した検査なので、
+  既存の定時 run が一度の送り方の違いで failed に確定しないようにする)。 `acceptance_report`
+  を自己申告した場合だけ Augur の集計と突合する。 契約ファイルはリポジトリに常設されているため、
+  申告の無い定時 run まで突合すると従来の完了が全部落ちる。
+
 ただし、自身の feature branch を持たず実装を直下の子セッションへ委託した run は、
 記録済みの `child_session_id` が著者である merged PR を一件以上確認できれば完了できる。
 この代替証跡は `spawn_branch` がない run にだけ適用し、孫以降のセッションは探索しない。
@@ -803,6 +817,29 @@ feature branch を記録した run は、子 PR の有無にかかわらず上�
 証跡を要求する側へ倒す。
 実行中に宣言を書き換えて検証を迂回できないよう、そのテンプレートを参照する未完了 run が
 ある間は `review_only` の変更を拒否する。
+
+### 状態照会と終端報告の分離
+
+**Requirement ID: `SPEC-DELEGATION-STATUS-QUERY`**
+
+終端状態 (completed / failed) は一度だけ受理され、 後から訂正できない (再送は
+`duplicate: true` で無視される)。 照会口が POST /status しか無く、 自動確認を受けた委託先が
+委託本文を読む前に status を送って誤確定させていた (2026-09-15 curiosity-walk ほか)。
+
+- 照会は `GET /v1/delegation/runs/:id/status` (読み取りのみ、 run を一切書き換えない)。
+  `terminal` / `correctable` と委託本文の `prompt_file_path` を返す (`describeRunStatusForQuery`)。
+  詳細 (rendered_prompt / args) は従来どおり `GET /v1/delegation/runs/:id`。
+- 終端報告は `POST /v1/delegation/runs/:id/status`。 status の無い body は 400 `invalid_body`
+  で何も書かず、 応答の `query_hint` に照会口を示す。 終端済み run への再送応答は
+  `terminal: true, correctable: false` を含める。
+- 案内文は `src/delegation/status-report-policy.ts` の `buildStatusReportGuidance` を正本にし、
+  初期プロンプトの protocol 節 (`persona-context.ts`)、 無応答の自動確認 (`run-watchdog.ts`)、
+  未着手の再送 (`unstarted-run.ts`) で同じ文面を使う。 自動確認は「status の送信を求めていない」
+  と明記し、 依頼内容が手元に無ければ委託本文を先に読ませる。
+
+互換性: status enum・既存 run の状態遷移・テンプレート定義は変えない。 実装委託の completed /
+すべての failed / partial の受理条件は従来どおり。 変わるのはパートタイマー / review_only の
+completed が成果の記述を要するようになった点だけで、 不足時も run は書き換わらず再送できる。
 
 ### status 報告の UTF-8 検証
 

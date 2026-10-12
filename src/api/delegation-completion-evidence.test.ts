@@ -81,7 +81,7 @@ describe("delegation completed evidence", () => {
     if (!template) throw new Error("expected template");
     repo.updateTemplate(template.id, { category: "employee" });
 
-    const response = await postStatus(app, { status: "completed" });
+    const response = await postStatus(app, { status: "completed", result: "mail sweep: 3 件取り込み" });
 
     expect(response.status).toBe(200);
     expect(repo.findRun("source-run")?.status).toBe("completed");
@@ -251,7 +251,7 @@ describe("delegation completed evidence", () => {
   it("accepts completed from a review-only template even without a feature branch", async () => {
     const { app, repo } = makeAppWithTemplate(process.cwd(), null, { review_only: true });
 
-    const response = await postStatus(app, { status: "completed" });
+    const response = await postStatus(app, { status: "completed", detail: "Review/ へ保存した" });
 
     expect(response.status).toBe(200);
     expect(repo.findRun("source-run")?.status).toBe("completed");
@@ -282,6 +282,58 @@ describe("delegation completed evidence", () => {
     expect(repo.findTemplate(templateId)?.review_only).toBe(0);
     expect(completionResponse.status).toBe(409);
     expect(repo.findRun("source-run")?.status).toBe("failed");
+  });
+
+  // completed の証跡検査は全委託に掛かる。 branch を免除した run も成果の記述を要求し、
+  // 本文を読まずに送った completed を受け付けない (新しい検査なので run は書き換えない)。
+  it.each([
+    ["parttimer", false],
+    ["employee", true],
+  ] as const)("rejects a branch-exempt completed without an outcome and keeps it reportable (%s)", async (category, reviewOnly) => {
+    const { app, repo } = reviewOnly
+      ? makeAppWithTemplate(process.cwd(), null, { review_only: true })
+      : makeApp(process.cwd(), null, category, category);
+
+    const rejected = await postStatus(app, { status: "completed" });
+    const body = await rejected.json() as { error: string; retryable: boolean };
+
+    expect(rejected.status).toBe(409);
+    expect(body).toMatchObject({ error: "completed_without_evidence", retryable: true });
+    expect(repo.findRun("source-run")?.status).toBe("running");
+
+    const accepted = await postStatus(app, { status: "completed", result: "報告を投稿した" });
+    expect(accepted.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  });
+
+  // 2026-09-15 の誤確定の再現: 本文を読む前に failed を送ると、 後から completed を送っても
+  // 訂正できない。 照会口 (GET) は状態を書かず、 終端後の再送は訂正不能であることを応答で返す。
+  it("separates the read-only status query from the one-shot terminal report", async () => {
+    const { app, repo } = makeApp(null, null);
+
+    const query = await app.request("/v1/delegation/runs/source-run/status");
+    expect(query.status).toBe(200);
+    expect(await query.json()).toMatchObject({ run_id: "source-run", status: "running", terminal: false, correctable: true });
+    expect(repo.findRun("source-run")?.status).toBe("running");
+
+    const probe = await postStatus(app, {});
+    expect(probe.status).toBe(400);
+    expect(await probe.json()).toMatchObject({ error: "invalid_body" });
+    expect(repo.findRun("source-run")?.status).toBe("running");
+
+    await postStatus(app, { status: "failed", detail: "タスク未割当" });
+    const retry = await postStatus(app, { status: "completed", result: "実は完了していた" });
+    expect(await retry.json()).toMatchObject({ duplicate: true, terminal: true, correctable: false });
+    expect(repo.findRun("source-run")?.status).toBe("failed");
+
+    const after = await app.request("/v1/delegation/runs/source-run/status");
+    expect(await after.json()).toMatchObject({ status: "failed", terminal: true, correctable: false });
+  });
+
+  it("returns 404 when querying the status of an unknown run", async () => {
+    const { app } = makeApp(null, null);
+    const response = await app.request("/v1/delegation/runs/missing/status");
+    expect(response.status).toBe(404);
   });
 
   // テンプレが削除された run は宣言を確認できない。 証跡を要求する側へ倒す。

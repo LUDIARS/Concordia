@@ -57,7 +57,8 @@ import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/com
 import { createChildLogger } from "../shared/logger.js";
 import { findGarbledReportFields, GARBLED_REPORT_HINT } from "../delegation/report-encoding.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
-import { requiresCompletionEvidence, verifyCompletionEvidence } from "../delegation/completion-evidence.js";
+import { verifyBranchExemptCompletion, verifyCompletionEvidence, type CompletionEvidenceVerdict } from "../delegation/completion-evidence.js";
+import { describeRunStatusForQuery, resolveCompletionEvidencePolicy } from "../delegation/status-report-policy.js";
 import { continuationAnswerContext } from "../delegation/continuation-answers.js";
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import { guardSidecarInvoke, recordSidecarLaunch, type SidecarInvokeGuardPorts } from "../delegation/sidecar/invoke-guard.js";
@@ -531,6 +532,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     return c.json({ run: serializeRun(row, sessionReadModel.linkedSessions(row, args)) });
   });
 
+  /**
+   * 状態照会専用の読み取り口。 POST /runs/:id/status (終端報告) と分け、 照会のつもりで
+   * 終端状態が書き込まれないようにする (spec/feature/delegation.md#状態照会と終端報告の分離)。
+   */
+  app.get("/runs/:id/status", (c) => {
+    const row = deps.repo.findRun(c.req.param("id"));
+    if (!row) return c.json({ error: "not_found" }, 404);
+    return c.json(describeRunStatusForQuery(row));
+  });
+
   app.get("/options", (c) => {
     const provider = c.req.query("provider") ?? "";
     const model = c.req.query("model") ?? null;
@@ -885,7 +896,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!row) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = StatusSchema.safeParse(body);
-    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json({ error: "invalid_body", detail: parsed.error.flatten(), query_hint: `状態の確認は GET /v1/delegation/runs/${id}/status を使う` }, 400);
+    }
     const resident = row.parent_session_id ? deps.residents?.residents.findByParent(row.parent_session_id) : null;
     if (resident && resident.current_run_id === row.id
       && parsed.data.resident_generation !== undefined && parsed.data.resident_generation !== resident.generation) {
@@ -900,7 +913,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       parsed.data.detail = [parsed.data.detail?.trim(), ...review.lines].filter(Boolean).join("\n").slice(0, 4000);
     }
     if (row.status === "completed" || row.status === "failed") {
-      return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
+      // 終端状態は訂正できない。 再送が無視されたことを応答で明示する。
+      return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true, terminal: true, correctable: false });
     }
     // 化けた本文は復元できない。 残作業は spec/tasks の md → Memoria タスクへ永続化
     // されるので、 台帳に入る前にここで落として送り直させる (report-encoding.ts)。
@@ -909,27 +923,40 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       statusLogger.warn({ run_id: id, fields: garbledFields }, "delegation status report is garbled; rejected");
       return c.json({ error: "garbled_report", fields: garbledFields, detail: GARBLED_REPORT_HINT }, 400);
     }
-    // パートタイマーは成果が feature branch ではない (報告・取り込み・投稿)。
-    // テンプレを後から編集・削除しても判定が動かないよう、 起動時 snapshot の category を使う。
-    if (status === "completed" && requiresCompletionEvidence(row.category)) {
-      // レビュー専用テンプレは feature branch を作らないのが正常なので、 テンプレ定義の
-      // 宣言を見てガードを外す。 テンプレが消えている run は宣言が確認できないため、
-      // 従来どおり branch 証跡を要求する側へ倒す。
-      const reviewOnly = row.template_id !== null
-        && deps.repo.findTemplate(row.template_id)?.review_only === 1;
-      // 契約書式の受け入れ条件を置いた委託は、 自己申告 `met` を Augur の集計と突合する
-      // (spec/feature/task-workflow.md §5)。 契約ファイルが無い run は従来どおり branch 証跡のみ。
-      const evidence = await verifyCompletionEvidence(row, {
-        reviewOnly,
-        acceptanceReport: parsed.data.acceptance_report ?? null,
-        workspaceRoots: deps.workspaceRoots?.() ?? [],
-      });
+    const recordEvidence = (evidence: CompletionEvidenceVerdict) => {
       for (const sessionId of new Set([row.child_session_id, row.parent_session_id].filter((value): value is string => !!value))) {
         deps.sessions?.appendEvent({ session_id: sessionId, ts: nowSec(), kind: "completion.evidence",
           payload: { run_id: row.id, ok: evidence.ok, checked: evidence.ok ? evidence.checked : true,
             acceptance: evidence.ok ? evidence.acceptance ?? "not_checked" : "rejected", reason: evidence.ok ? null : evidence.reason } });
         eventBus.emit({ type: "session.event", session_id: sessionId, kind: "completion.evidence", ts: nowSec() });
       }
+    };
+    // completed は全委託で証跡検査に通す。 category / review_only が変えるのは「何を証跡に
+    // するか」だけ。 テンプレを後から編集・削除しても判定が動かないよう、 category は起動時
+    // snapshot を使う。 テンプレが消えている run は review_only を確認できないため、
+    // branch 証跡を要求する側へ倒す。
+    const reviewOnly = status === "completed" && row.template_id !== null
+      && deps.repo.findTemplate(row.template_id)?.review_only === 1;
+    const evidencePolicy = status === "completed" ? resolveCompletionEvidencePolicy({ category: row.category, reviewOnly }) : null;
+    if (evidencePolicy && !evidencePolicy.branchRequired) {
+      // パートタイマーとレビュー専用テンプレは成果が branch ではない。 成果の記述が無い
+      // completed は本文未確認の報告と区別できないので拒否するが、 新しい検査なので
+      // run は書き換えず再送できる形で返す。
+      const evidence = await verifyBranchExemptCompletion(row, parsed.data, {
+        acceptanceReport: parsed.data.acceptance_report ?? null,
+        workspaceRoots: deps.workspaceRoots?.() ?? [],
+      });
+      recordEvidence(evidence);
+      if (!evidence.ok) return c.json({ error: "completed_without_evidence", reason: evidence.reason, retryable: true }, 409);
+    }
+    if (evidencePolicy?.branchRequired) {
+      // 契約書式の受け入れ条件を置いた委託は、 自己申告 `met` を Augur の集計と突合する
+      // (spec/feature/task-workflow.md §5)。 契約ファイルが無い run は従来どおり branch 証跡のみ。
+      const evidence = await verifyCompletionEvidence(row, {
+        acceptanceReport: parsed.data.acceptance_report ?? null,
+        workspaceRoots: deps.workspaceRoots?.() ?? [],
+      });
+      recordEvidence(evidence);
       const hasMergedChildPr = !evidence.ok
         && evidence.reason === "spawned checkout has no recorded feature branch"
         && !row.spawn_branch

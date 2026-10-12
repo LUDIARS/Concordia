@@ -11,6 +11,7 @@ import {
 } from "./augur-acceptance.js";
 import { formatUnmetAcceptance, reconcileAcceptance, type ReportedAcceptanceItem } from "./acceptance-reconcile.js";
 import { readAcceptanceManifest, type AcceptanceManifest } from "./acceptance-manifest.js";
+import { hasCompletionOutcome } from "./status-report-policy.js";
 
 export interface CompletionEvidenceRun {
   spawn_cwd?: string | null;
@@ -18,21 +19,6 @@ export interface CompletionEvidenceRun {
   spawn_branch?: string | null;
   /** 委託開始時刻 (epoch-ms)。 Augur 集計の `--since` に使う。 */
   created_at?: number | null;
-}
-
-/**
- * feature branch を成果物として要求してよい run か。
- *
- * パートタイマー (定時起動) は成果がコードではない — メール取り込み、カタログ更新、
- * 依存点検の報告、朝礼投稿。 テンプレ本文が「commit も push も PR もしない」と明記して
- * いるものすらある。 それでも default_cwd に対象リポを持つので、 このガードが
- * 「spawned checkout has no recorded feature branch」で completed を failed に落として
- * いた (2026-09-02〜03 の quaestor-mail-sweep / kaizen-daily / deps-sweep-daily /
- * vulnerability-response-daily の failed は全部これ)。 実装委託の自己申告を疑うための
- * ガードなので、 実装委託でない run は対象外にする。
- */
-export function requiresCompletionEvidence(category: string | null | undefined): boolean {
-  return category !== "parttimer";
 }
 
 export interface CompletionEvidenceOptions {
@@ -58,7 +44,7 @@ export interface CompletionEvidenceOptions {
 
 export type CompletionEvidenceVerdict =
   | { ok: true; checked: false; acceptance?: "not_checked" }
-  | { ok: true; checked: true; acceptance?: "verified" | "not_configured" }
+  | { ok: true; checked: true; acceptance?: "verified" | "not_configured" | "not_checked" }
   | { ok: false; reason: string };
 
 const execFileAsync = promisify(execFile);
@@ -134,6 +120,30 @@ export async function verifyCompletionEvidence(
   }
   if (await countCommitsSinceBase(cwd) < 1) {
     return { ok: false, reason: "spawned feature branch has no commit beyond main or develop" };
+  }
+  return verifyContractAcceptance(cwd, run, options);
+}
+
+/**
+ * branch 証跡を免除された run (パートタイマー / レビュー専用テンプレ) の completed 検査。
+ *
+ * 成果が branch ではないので Git は見ないが、 検査そのものは外さない
+ * (spec/feature/delegation.md#completed-報告の成果証跡)。 成果の記述 (result / detail) が
+ * 無い completed は、 本文を読まずに送られた報告と区別できないので受け付けない。
+ * 受け入れ条件を自己申告した場合だけ、 その申告を Augur の集計と突合する — 契約ファイルは
+ * リポジトリに常設されているので、 申告の無い定時 run まで突合すると従来の完了が全部落ちる。
+ */
+export async function verifyBranchExemptCompletion(
+  run: CompletionEvidenceRun,
+  report: { result?: string | null; detail?: string | null },
+  options: CompletionEvidenceOptions = {},
+): Promise<CompletionEvidenceVerdict> {
+  if (!hasCompletionOutcome(report)) {
+    return { ok: false, reason: "branch-exempt completion has no outcome in result or detail" };
+  }
+  const cwd = run.spawn_worktree_path ?? run.spawn_cwd;
+  if (!options.acceptanceReport?.length || !cwd || !existsSync(cwd)) {
+    return { ok: true, checked: true, acceptance: "not_checked" };
   }
   return verifyContractAcceptance(cwd, run, options);
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
-  requiresCompletionEvidence,
+  verifyBranchExemptCompletion,
   verifyCompletionEvidence,
   verifyContractAcceptance,
 } from "./completion-evidence.js";
@@ -19,20 +19,35 @@ import { reconcileAcceptance } from "./acceptance-reconcile.js";
 // vulnerability-response-daily の completed が
 // "no completion evidence (spawned checkout has no recorded feature branch)" で
 // failed へ落ちていた。 どれも本文が「commit も push も PR もしない」タスクである。
-describe("requiresCompletionEvidence", () => {
-  it("パートタイマーは feature branch を成果物として要求しない", () => {
-    expect(requiresCompletionEvidence("parttimer")).toBe(false);
+// branch 証跡は免除するが、 検査自体は外さず成果の記述を要求する。
+describe("verifyBranchExemptCompletion", () => {
+  const run = { spawn_cwd: process.cwd(), spawn_worktree_path: null, spawn_branch: null, created_at: Date.now() };
+
+  it("成果の記述 (result / detail) が無い completed は拒否する", async () => {
+    expect(await verifyBranchExemptCompletion(run, {})).toEqual({
+      ok: false,
+      reason: "branch-exempt completion has no outcome in result or detail",
+    });
+    expect(await verifyBranchExemptCompletion(run, { result: "  ", detail: "" })).toMatchObject({ ok: false });
   });
 
-  it("実装が成果になる雇用形態は引き続きガードする", () => {
-    expect(requiresCompletionEvidence("employee")).toBe(true);
-    expect(requiresCompletionEvidence("freelancer")).toBe(true);
-    expect(requiresCompletionEvidence("test-qa")).toBe(true);
+  it("feature branch が無くても成果の記述があれば通す", async () => {
+    expect(await verifyBranchExemptCompletion(run, { detail: "朝礼を投稿した" })).toEqual({
+      ok: true, checked: true, acceptance: "not_checked",
+    });
   });
 
-  it("category 不明 (テンプレ削除済みの run) はガードする側に倒す", () => {
-    expect(requiresCompletionEvidence(null)).toBe(true);
-    expect(requiresCompletionEvidence(undefined)).toBe(true);
+  it("受け入れ条件を自己申告した場合だけ契約と突合する", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cc-exempt-"));
+    try {
+      const verdict = await verifyBranchExemptCompletion({ ...run, spawn_cwd: dir }, { result: "done" }, {
+        acceptanceReport: [{ criterion: "C-1 x(): y", met: true }],
+        hasContract: () => false,
+      });
+      expect(verdict).toEqual({ ok: false, reason: "acceptance report supplied but its Augur contract is missing" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

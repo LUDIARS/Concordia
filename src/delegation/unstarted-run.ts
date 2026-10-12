@@ -20,6 +20,7 @@
  */
 
 import type { DelegationRunRow } from "../db/delegation-repo.js";
+import { buildStatusReportGuidance } from "./status-report-policy.js";
 
 /** 未着手とみなすまでの既定待ち時間 (秒)。 起動 + 初回描画 + inject 遅延の合計に余裕を見る。 */
 export const DEFAULT_UNSTARTED_SEC = 300;
@@ -64,6 +65,8 @@ export function buildUnstartedInjectText(run: DelegationRunRow): string {
       `1. \`${run.prompt_file_path}\` を読み、 その本文を依頼の全文として扱ってください。`,
       "2. 本文に書かれた手順だけを実行し、 書かれていない手順を足さないでください。",
       `3. 完了・失敗いずれの場合も POST /v1/delegation/runs/${run.id}/status で報告してから終わってください。`,
+      "",
+      ...buildStatusReportGuidance(`/v1/delegation/runs/${run.id}/status`),
     ]
     : [
       "委託プロンプトのファイルが残っていません。 現在の状況を 1 行で報告し、",

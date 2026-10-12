@@ -8,6 +8,7 @@
 
 import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
 import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
+import { buildStatusReportGuidance } from "./status-report-policy.js";
 
 /** 協調コンテキストへ差し込む kind 別の作業マニュアル (inject_manuals 由来)。 */
 export interface DelegationManual {
@@ -114,6 +115,7 @@ function delegationContextTemplate(
     "- The spawn environment includes CONCORDIA_DELEGATION_RUN_ID. When the task is completed or failed, you MUST call:",
     `  POST ${apiUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
     '  with JSON {"status":"completed","detail":"...","result":"...","acceptance_report":[]} or {"status":"partial","remaining":[{"title":"...","note":"...","scope_dirs":[]}]} or {"status":"failed","detail":"..."} before ending.',
+    ...buildStatusReportGuidance(`${apiUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`),
     "- If approval or clarification is needed, ask the parent session through the delegation status/inject flow, not directly in Discord.",
     // 質問の作法は taskflow/task-instructions.ts が正本 (実装 inject の受け入れ条件節と共用)。
     // 経路ごとに書くと片方だけ古くなり、 対話 picker で止まる事故が戻る (2026-09-05 問題ログ)。

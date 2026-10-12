@@ -38,6 +38,8 @@ describe("buildUnstartedInjectText", () => {
     const text = buildUnstartedInjectText(run({ prompt_file_path: "E:/prompts/run-9.md" }));
     expect(text).toContain("E:/prompts/run-9.md");
     expect(text).toContain("/v1/delegation/runs/run-9/status");
+    expect(text).toContain("GET /v1/delegation/runs/run-9/status");
+    expect(text).toContain("訂正できません");
   });
 
   it("asks for a failure report when the prompt file is gone", () => {

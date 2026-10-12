@@ -24,6 +24,8 @@ export interface MigrationProject {
   project: string;
   teams: string[];
   renamed_from: string[];
+  /** M5 の作り先 (Actio binding) を repo から引くのに使う。 */
+  repo_path?: string | null;
 }
 
 /** Cc taskflow_task_state の 1 行。 */
@@ -33,6 +35,9 @@ export interface MigrationStateRow {
   status: string;
   actio_task_id: string | null;
   delegation_run_id: string | null;
+  /** 最後に状態が書かれた時刻 (epoch ms)。0 / 省略は不明 (移行 INSERT のまま)。 */
+  updated_at?: number;
+  subsidiary_id?: string | null;
 }
 
 /** Cc delegation_runs のうち task に結びついたもの。 */

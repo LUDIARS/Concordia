@@ -3,13 +3,14 @@
  *
  * 書き込みは Actio API (PATCH /api/tasks/:id) だけで、DB へ直接書かない。計画を作った後に
  * task が動いていることがあるので、更新の直前に読んだ現在値から PATCH の本文を作る。
- * 対象は M1〜M4。M5 (旧 md の作成) は §7 の判断が要るので含めない。M6 は照合ジョブが直す。
+ * ここで PATCH に変えるのは M1〜M4。M5 (旧 md の作成と archive) は作成と Cc の状態行の参照置換を伴うので
+ * sync-migration-legacy-apply.ts が適用する。M6 は照合ジョブが直す。
  */
 import type { SyncMigrationPlan } from "./sync-migration-plan.js";
 import type { MigrationActioTask } from "./sync-migration-types.js";
 
-export type ApplyStep = "M1" | "M2" | "M3" | "M4";
-export const APPLY_STEPS: readonly ApplyStep[] = ["M1", "M2", "M3", "M4"];
+export type ApplyStep = "M1" | "M2" | "M3" | "M4" | "M5";
+export const APPLY_STEPS: readonly ApplyStep[] = ["M1", "M2", "M3", "M4", "M5"];
 
 export type MigrationOperation =
   | { step: "M1"; task: string; op: "supersede"; superseded_by: string }

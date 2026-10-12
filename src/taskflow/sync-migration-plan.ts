@@ -17,6 +17,12 @@ export interface SyncMigrationInput {
   runs: readonly MigrationRun[];
   manualRenames: ReadonlyMap<string, string>;
   generatedAt: string;
+  /** M5 の直近の日数・git 最終コミット時刻と、作り先と題名を決める手順 (sync-migration-legacy-describe.ts)。 */
+  legacy?: {
+    recentDays?: number;
+    commitTimes?: ReadonlyMap<string, number>;
+    describe?: (plan: LegacyTaskPlan) => LegacyTaskPlan;
+  };
 }
 
 export interface SyncMigrationPlan {
@@ -36,7 +42,10 @@ export function buildSyncMigrationPlan(input: SyncMigrationInput): SyncMigration
   const M2 = planRenamedCodes(input.tasks, input.projects, input.manualRenames);
   const M3 = planTeamAssignments(input.tasks, input.projects);
   const M4 = planMemoriaProjects(input.tasks, input.projects);
-  const M5 = planLegacyTasks(input.stateRows);
+  const legacy = planLegacyTasks(input.stateRows, {
+    now: new Date(input.generatedAt), recentDays: input.legacy?.recentDays, commitTimes: input.legacy?.commitTimes,
+  });
+  const M5 = input.legacy?.describe ? input.legacy.describe(legacy) : legacy;
   const M6 = planStatusDrift(input.stateRows, input.tasks);
   return {
     generated_at: input.generatedAt, dry_run: true,
@@ -47,7 +56,7 @@ export function buildSyncMigrationPlan(input: SyncMigrationInput): SyncMigration
       M2: { moves: M2.moves.length, unresolved: M2.unresolved.length },
       M3: { assign: M3.assign.length, choose: M3.choose.length },
       M4: { assign: M4.assign.length, unresolved: M4.unresolved.length },
-      M5: { create: M5.create.length, archive: M5.archive.length },
+      M5: { create: M5.create.length, archive: M5.archive.length, unbound: M5.unbound.length },
       M6: { drift: M6.drift.length, missing_in_actio: M6.missing_in_actio.length },
     },
     M1, M2, M3, M4, M5, M6,

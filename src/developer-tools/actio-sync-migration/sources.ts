@@ -19,6 +19,7 @@ const Project = z.object({
   code: z.string(), project: z.string(),
   teams: z.array(z.object({ id: z.string() })).default([]),
   renamed_from: z.array(z.string()).default([]),
+  repo_path: z.string().nullable().optional(),
 });
 
 export type HttpGet = (url: string) => Promise<unknown>;
@@ -35,13 +36,13 @@ export async function readActioTask(get: HttpGet, actioUrl: string, id: string):
 export async function readCcProjects(get: HttpGet, ccUrl: string): Promise<MigrationProject[]> {
   const entries = z.object({ entries: z.array(Project) }).parse(await get(`${ccUrl}/v1/project-codes/admin`)).entries;
   return entries.map((entry) => ({ code: entry.code, project: entry.project,
-    teams: entry.teams.map((team) => team.id), renamed_from: entry.renamed_from }));
+    teams: entry.teams.map((team) => team.id), renamed_from: entry.renamed_from, repo_path: entry.repo_path ?? null }));
 }
 
 export function readCcState(dbPath: string): { stateRows: MigrationStateRow[]; runs: MigrationRun[] } {
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    const stateRows = db.prepare(`SELECT repo_path, task_path, status, actio_task_id, delegation_run_id
+    const stateRows = db.prepare(`SELECT repo_path, task_path, status, actio_task_id, delegation_run_id, updated_at, subsidiary_id
       FROM taskflow_task_state`).all() as MigrationStateRow[];
     const runs = (db.prepare(`SELECT id, args_json, spawn_branch, created_at FROM delegation_runs
       WHERE args_json LIKE '%taskflow_reference%'`).all() as Array<{ id: string; args_json: string; spawn_branch: string | null; created_at: number }>)

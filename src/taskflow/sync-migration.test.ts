@@ -87,15 +87,39 @@ describe("M4 Memoria projects", () => {
 });
 
 describe("M5 legacy md tasks", () => {
-  it("creates pending and delegated md tasks once by work key and lists the rest for archive", () => {
+  it("creates only recent pending and delegated md tasks by work key and lists the rest for archive", () => {
+    const repo = "e:/document/ars/concordia";
+    const now = new Date("2026-10-12T00:00:00Z");
+    const recent = Date.parse("2026-10-01T00:00:00Z");
+    const old = Date.parse("2026-08-01T00:00:00Z");
     expect(planLegacyTasks([
-      { repo_path: "e:/document/ars/concordia", task_path: "spec\\tasks\\a.md", status: "pending", actio_task_id: null, delegation_run_id: null },
-      { repo_path: "e:/document/ars/concordia", task_path: "spec/tasks/b.md", status: "done", actio_task_id: null, delegation_run_id: null },
-      { repo_path: "e:/document/ars/concordia", task_path: "actio:x", status: "pending", actio_task_id: "x", delegation_run_id: null },
-    ])).toEqual({
-      create: [{ repo_path: "e:/document/ars/concordia", task_path: "spec/tasks/a.md", status: "pending", source_ref: "work:e:/document/ars/concordia:spec/tasks/a.md" }],
-      archive: [{ repo_path: "e:/document/ars/concordia", task_path: "spec/tasks/b.md", status: "done" }],
+      { repo_path: repo, task_path: "spec\\tasks\\a.md", status: "pending", actio_task_id: null, delegation_run_id: null, updated_at: recent },
+      { repo_path: repo, task_path: "spec/tasks/b.md", status: "done", actio_task_id: null, delegation_run_id: null, updated_at: recent },
+      { repo_path: repo, task_path: "spec/tasks/c.md", status: "delegated", actio_task_id: null, delegation_run_id: null, updated_at: 0 },
+      { repo_path: repo, task_path: "spec/tasks/d.md", status: "pending", actio_task_id: null, delegation_run_id: null, updated_at: old },
+      { repo_path: repo, task_path: "spec/tasks/e.md", status: "pending", actio_task_id: null, delegation_run_id: null, updated_at: 0 },
+      { repo_path: repo, task_path: "actio:x", status: "pending", actio_task_id: "x", delegation_run_id: null },
+    ], { now, commitTimes: new Map([[`${repo}\0spec/tasks/c.md`, recent]]) })).toEqual({
+      recent_days: 30, recent_since: "2026-09-12T00:00:00.000Z",
+      create: [
+        { repo_path: repo, task_path: "spec/tasks/a.md", status: "pending", source_ref: `work:${repo}:spec/tasks/a.md`,
+          subsidiary_id: null, activity_at: "2026-10-01T00:00:00.000Z", activity_basis: "state" },
+        { repo_path: repo, task_path: "spec/tasks/c.md", status: "delegated", source_ref: `work:${repo}:spec/tasks/c.md`,
+          subsidiary_id: null, activity_at: "2026-10-01T00:00:00.000Z", activity_basis: "git" },
+      ],
+      archive: [
+        { repo_path: repo, task_path: "spec/tasks/b.md", status: "done", reason: "closed", activity_at: "2026-10-01T00:00:00.000Z" },
+        { repo_path: repo, task_path: "spec/tasks/d.md", status: "pending", reason: "inactive", activity_at: "2026-08-01T00:00:00.000Z" },
+        { repo_path: repo, task_path: "spec/tasks/e.md", status: "pending", reason: "no_activity", activity_at: null },
+      ],
+      unbound: [],
     });
+  });
+
+  it("takes the recent window in days from the caller", () => {
+    const rows = [{ repo_path: "r", task_path: "spec/tasks/d.md", status: "pending", actio_task_id: null, delegation_run_id: null,
+      updated_at: Date.parse("2026-08-01T00:00:00Z") }];
+    expect(planLegacyTasks(rows, { now: new Date("2026-10-12T00:00:00Z"), recentDays: 90 }).create).toHaveLength(1);
   });
 });
 
@@ -129,7 +153,9 @@ describe("plan and apply", () => {
       { step: "M1", task: "actio:old", op: "supersede", superseded_by: "actio:new1" },
       { step: "M3", task: "actio:t", op: "set_team", team: "team-cc" },
     ]);
-    expect(() => parseApplySteps("M5")).toThrow("unsupported apply step");
+    // M5 は PATCH ではなく sync-migration-legacy-apply.ts が適用する。
+    expect(migrationOperations(plan, parseApplySteps("M5"))).toEqual([]);
+    expect(() => parseApplySteps("M6")).toThrow("unsupported apply step");
   });
 
   it("builds the patch from the current task and skips when the plan's premise changed", () => {

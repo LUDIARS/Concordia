@@ -133,7 +133,7 @@ A を選ぶ理由: タスクの本文と状態は、すでに Actio が正本に
 | M2 | `LwP` → `LP` | タスク 2 件の `projectId` を付け替える | 2 |
 | M3 | プロジェクトにチームがあるのに team-less のタスク | チームが 1 つならそのチームに付ける。複数チーム (Cr、KD) のものは一覧にして人が選ぶ | 246 (複数チームは 53) |
 | M4 | Memoria 由来で `projectId` が空のタスク | `category` の語を code・プロジェクト名と完全一致で突き合わせて候補を出す。決まらないものは一覧にする。done / cancelled は移行しない | open / in_progress 1,007 件のうち、自動で決まるのは一部。残りは人が判定する |
-| M5 | 旧 md タスク (pending 715 / delegated 8) | 明示的な移行スクリプトで Actio に作成する (`sourceRef = work:<repo>:<path>` で一度だけ作る)。移行し終えた行は `task_path` を `actio:<id>` に置き換える。不要なものは archive する | 723 |
+| M5 | 旧 md タスク (pending 715 / delegated 8) | 明示的な移行スクリプトで Actio に作成する (`sourceRef = work:<repo>:<path>` で一度だけ作る)。対象は最終活動が直近 (既定 30 日、`--legacy-recent-days`) の pending / delegated だけ (§7)。移行し終えた行は `task_path` を `actio:<id>` に置き換える。残りは archive する (`task_path` を `archived:<path>` に置き換える) | 723 |
 | M6 | 状態の写しのずれ | 照合ジョブを 1 回走らせ、Cc の status を Actio に合わせる | 181 |
 
 順番は M1 → M2 → M3 を先にします (小さく、すぐ効く)。その後に 4.1 の再利用ロジックを入れて、新しい重複の発生を止めます。M4 と M5 は件数が多く人の判断が要るので、最後に進めます。
@@ -160,4 +160,10 @@ A を選ぶ理由: タスクの本文と状態は、すでに Actio が正本に
 
 - M1 で古い task を `cancelled` にするか、それとも `done` に合流させるか。
 - M4 で `category` から決まらないタスクをどう扱うか (プロジェクト無しのまま残すか、人が振り分けるか)。
-- M5 の旧 md タスクを全件移すか、pending のうち直近のものに絞るか。
+
+決まったこと:
+
+- M5 は pending のうち直近のものだけを Actio に移し、残りは archive する (neco 判断 2026-10-12「おすすめで適用」)。
+  直近は、taskflow の状態行の最新の更新時刻 (`updated_at`、無ければ md ファイルの git 最終コミット時刻) が
+  実行日から 30 日以内 (`--legacy-recent-days` で変更可) の pending / delegated とする。直近でない pending / delegated
+  とそれ以外の状態は archive する。手順の詳細は `spec/feature/task-workflow-v3.md` CC-TF-SYNC-06。

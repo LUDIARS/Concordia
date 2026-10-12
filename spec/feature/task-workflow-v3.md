@@ -298,12 +298,22 @@ task のタイトルはテンプレートの題名ではなく、依頼の要約
 | M2 | Cc の `renamed_from` と `--rename` で、消えた code を指すタスクを新しい code へ | 計画時の code のままのものだけ |
 | M3 | チームが 1 つのプロジェクトは team-less タスクをそのチームへ。複数チームは候補だけ並べる | 1 チームの分だけ |
 | M4 | Memoria 由来で `projectId` が空の未完了タスクを、`category` の語と code / プロジェクト名の完全一致で 1 つに決まるものだけ候補にする | 決まったものだけ |
-| M5 | 旧 md タスクの pending / delegated を `work:<repoKey>:<path>` で作る案。ほかは archive 候補 | 対象外 (§7 の判断待ち) |
+| M5 | 旧 md タスクのうち直近 (下記) の pending / delegated を `work:<repoKey>:<path>` で作る案。作り先と題名を添える。ほかは archive 候補。作り先が決まらないものは `unbound` | 作成 + 参照の置換、archive |
 | M6 | Cc の status と Actio の status の食い違い | 照合ジョブが直す |
 
-実装: 計画は `src/taskflow/sync-migration-types.ts`、`src/taskflow/sync-migration-duplicates.ts` (M1)、`src/taskflow/sync-migration-renamed-codes.ts` (M2)、`src/taskflow/sync-migration-teams.ts` (M3)、`src/taskflow/sync-migration-memoria.ts` (M4)、`src/taskflow/sync-migration-legacy.ts` (M5)、`src/taskflow/sync-migration-status.ts` (M6)、`src/taskflow/sync-migration-plan.ts`、適用は `src/taskflow/sync-migration-apply.ts`。CLI は `tools/actio-sync-migration.mjs` が入口で、引数は `src/developer-tools/actio-sync-migration/args.ts`、読み取り (Actio と Cc の GET、Cc DB の readonly) は `src/developer-tools/actio-sync-migration/sources.ts`、実行は `src/developer-tools/actio-sync-migration/run.ts`。
+実装: 計画は `src/taskflow/sync-migration-types.ts`、`src/taskflow/sync-migration-duplicates.ts` (M1)、`src/taskflow/sync-migration-renamed-codes.ts` (M2)、`src/taskflow/sync-migration-teams.ts` (M3)、`src/taskflow/sync-migration-memoria.ts` (M4)、`src/taskflow/sync-migration-legacy.ts` (M5)、`src/taskflow/sync-migration-legacy-recency.ts` (M5 の直近)、`src/taskflow/sync-migration-legacy-describe.ts` (M5 の作り先と題名)、`src/taskflow/sync-migration-status.ts` (M6)、`src/taskflow/sync-migration-plan.ts`、適用は `src/taskflow/sync-migration-apply.ts` と `src/taskflow/sync-migration-legacy-apply.ts` (M5)。M5 の I/O は `src/developer-tools/actio-sync-migration/legacy-activity.ts` (git)、`legacy-documents.ts` (md)、`legacy-actio.ts` (Actio)、`legacy-state.ts` (Cc の状態行)、`legacy-ports.ts`、`legacy-io.ts`。CLI は `tools/actio-sync-migration.mjs` が入口で、引数は `src/developer-tools/actio-sync-migration/args.ts`、読み取り (Actio と Cc の GET、Cc DB の readonly) は `src/developer-tools/actio-sync-migration/sources.ts`、実行は `src/developer-tools/actio-sync-migration/run.ts`。
 
-適用は人が計画を確認した後だけ、`--apply M1,M2,M3,M4 --plan <dry-run の出力>` で行う。更新は Actio API (`PATCH /api/tasks/:id`) だけで、DB へ直接書かない。更新の直前に task を読み直し、計画の前提が崩れたもの (完了済み・移動済み・チーム設定済み) は飛ばして結果ファイルに残す。
+適用は人が計画を確認した後だけ、`--apply M1,M2,M3,M4,M5 --plan <dry-run の出力>` で行う。M1〜M4 の更新は Actio API (`PATCH /api/tasks/:id`) だけで、DB へ直接書かない。更新の直前に task を読み直し、計画の前提が崩れたもの (完了済み・移動済み・チーム設定済み) は飛ばして結果ファイルに残す。
+
+M5 (旧 md タスク、neco 判断 2026-10-12):
+
+- 直近: 状態行の `updated_at` (0 なら md ファイルの git 最終コミット時刻) が実行日から `--legacy-recent-days` 日 (既定 30) 以内。時刻が分からないものは直近に数えない。
+- 作り先: 委託と同じ Actio binding の規則 (明示の binding、無ければ repo のプロジェクトコードと Actio の登録 `GET /api/projects/cc` の完全一致。チームは 1 つならそれ、複数なら team-less)。その repo の本社 binding が 1 つに決まらないもの・子会社の行・md が読めないものは `unbound` に回し、作らず archive もしない。
+- 題名: CC-TF-SYNC-04 と同じ規則で md の見出し (無ければ frontmatter の `task`、本文の 1 行目) から作る。本文・`kind`・`memory_links` は md を引き継ぐ。
+- 作成: `ActioWorkflowClient.create` (`reuseExisting`) で作る。同じ作業単位のキーの task が既にあればそれを使う。接続は `ActioTransport` (毎回 `/api/auth/me` で身元を確かめる) で、`--actio-url` は loopback のみ。
+- 参照の置換: 作った行は `taskflow_task_state.task_path` を `actio:<id>` に、`actio_task_id` を同じ id に置き換える (実行時の `registerActioReference` と同じ組)。置き換え先の行が既にあれば置き換えない。
+- archive: Cc の taskflow に archive の仕組みは無かったので、`task_path` を `archived:<元の path>` に置き換える。旧 md の行としても Actio 参照としても読まれなくなり、接頭辞を外せば戻せる。
+- Cc の DB に直接書くのはこの `task_path` の置換 (と組になる `actio_task_id`) だけ。Actio へは API だけ。適用の直前に行と binding を読み直し、状態が変わった行・作り先が変わった行は飛ばして結果ファイルに残す。
 
 - 復旧: 照合ジョブと引き継ぎ判定は該当 PR の revert で止まる。run の記録 (`runs[]`) と本文への追記は Actio に残るが、読む側は未知の項目を無視する。移行の適用結果は結果ファイルに task ごとに残るので、その一覧から Actio で戻す。
-- 検証: `src/delegation/work-key.test.ts`、`task-title.test.ts`、`handoff-task.test.ts`、`actio-task.test.ts`、`task-run-end.test.ts`、`src/db/delegation-task-runs.test.ts`、`src/taskflow/task-runs.test.ts`、`state-store-actio.test.ts`、`actio-task-client-runs.test.ts`、`state-reconcile.test.ts`、`sync-migration.test.ts`、`src/developer-tools/actio-sync-migration/args.test.ts`。
+- 検証: `src/delegation/work-key.test.ts`、`task-title.test.ts`、`handoff-task.test.ts`、`actio-task.test.ts`、`task-run-end.test.ts`、`src/db/delegation-task-runs.test.ts`、`src/taskflow/task-runs.test.ts`、`state-store-actio.test.ts`、`actio-task-client-runs.test.ts`、`state-reconcile.test.ts`、`sync-migration.test.ts`、`sync-migration-legacy.test.ts`、`src/developer-tools/actio-sync-migration/args.test.ts`、`run.test.ts`、`legacy-io.test.ts`。

@@ -650,6 +650,7 @@
       "source": "src/api/taskflow.ts",
       "tests": [
         "src/api/taskflow-failure.test.ts",
+        "src/api/taskflow-failure-log.test.ts",
         "src/api/taskflow-actio.test.ts",
         "tests/app-routes.test.ts",
         "src/taskflow/task-session-flow.test.ts",
@@ -856,6 +857,8 @@
         "CC-ACTIO-PR-GOAL-02"
       ]
     },
+    {"source":"src/taskflow/failure-diagnostics.contract.ts","tests":["src/taskflow/failure-diagnostics.test.ts"],"contracts":["tf-diag-C-1"]},
+    {"source":"src/taskflow/failure-diagnostics.ts","tests":["src/taskflow/failure-diagnostics.test.ts","src/api/taskflow-failure-log.test.ts"],"contracts":["CC-TF-DIAG-01","tf-diag-C-1"]},
     {"source":"src/taskflow/failure.ts","tests":["src/delegation/seal-failure.test.ts","src/taskflow/failure.test.ts","src/api/taskflow-failure.test.ts","src/taskflow/task-session-flow.test.ts","src/api/taskflow-project-scope.test.ts"],"contracts":["CC-AT-TEAM-02","CC-TF-DIAG-01","CC-AT-DISCOVERY-01","CC-TF-SESSION-01","CC-AT-SCOPE-01"]},
     {
       "source": "src/taskflow/goal-machine.ts",

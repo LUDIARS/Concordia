@@ -139,6 +139,14 @@ goal evaluation. A failed Revisor lookup stops evaluation with a dedicated code.
 HTTP and runtime boundaries classify known failures into fixed reason codes.
 Unknown exceptions are internal failures, not Actio outages. Logs and notifications
 must not include raw exception messages, request queries, bodies or credentials.
+For unclassified exceptions (`taskflow_internal_error`) the HTTP boundary
+(`src/api/taskflow.ts` onError) additionally logs a diagnostic built by
+`src/taskflow/failure-diagnostics.ts`: the exception name, the message after
+secret redaction, URL-query and absolute-path stripping (single line, at most
+200 characters), the first application stack frame as a repository-relative
+`path:line:col`, and the cause's name and identifier-shaped code (for example
+`UND_ERR_CONNECT_TIMEOUT`). These fields are log-only; the API response keeps the
+fixed `reason` code and its shape does not change (Actio task e705cc7d, #27).
 Existing human-response confirmation deduplication remains in force. API clients
 receive a safe reason code and a status distinguishing conflicts, upstream failures,
 unavailability and internal errors. Retries retain the original task identity.

@@ -15,6 +15,7 @@ import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "../taskflow/failure.js";
+import { taskflowFailureLogFields } from "../taskflow/failure-diagnostics.js";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import {
   matchesTaskflowOrganizationScope,
@@ -56,7 +57,8 @@ export function taskflowRouter(input: {
   const app = new Hono();
   app.onError((error, c) => {
     const failure = describeTaskflowFailure(error);
-    log.warn({ reason: failure.code, status: failure.status }, "taskflow request failed");
+    // Unclassified exceptions also log their type / redacted message / throw site; the response is unchanged.
+    log.warn(taskflowFailureLogFields(failure, error), "taskflow request failed");
     c.header("Cache-Control", "no-store");
     return c.json({ error: "taskflow_actio_unavailable_or_invalid_scope", reason: failure.code }, failure.status);
   });

@@ -108,3 +108,8 @@ review/*
 
 # プロジェクトを持たない相談部署の作業ディレクトリ (spec/feature/tech-consultation.md §6)
 /consult-workspaces/
+
+# runtime artifacts (未追跡のまま残ると Excubitor の update / deploy が dirty_check で止まる)
+log-archive/
+spec/data/generated/
+spec/data/domain-map/

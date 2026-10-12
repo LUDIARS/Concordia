@@ -2,13 +2,13 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync, realpathSync, existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { request } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { evaluateAction, type GateVerdict } from "./session-gate.js";
 import type { HarnessAction } from "./predicates.js";
 import { evaluateCachedAction, recoveryAllowed, usableSnapshot } from "./supervisor-policy.js";
 import { needsDddEvidence, DDD_INSTRUCTION } from "./project-policy.js";
 import { hasDddEvidence } from "./ddd-evidence.js";
+import { queryGate } from "./supervisor-online.js";
 
 interface Config {
   catalog: string;
@@ -27,35 +27,6 @@ function catalogPort(path: string): number {
   const port = Number(section?.match(/^    port: (\d+)\s*$/m)?.[1]);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Concordia port missing from Excubitor catalog");
   return port;
-}
-
-async function online(port: number, payload: unknown): Promise<{ status: number; body: unknown } | null> {
-  return new Promise((done) => {
-    let settled = false;
-    const finish = (value: { status: number; body: unknown } | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      done(value);
-    };
-    const req = request({ host: "127.0.0.1", port, path: "/v1/harness/gate", method: "POST", agent: false,
-      headers: { "content-type": "application/json" } }, (response) => {
-      let text = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk: string) => {
-        text += chunk;
-        if (text.length > 1_000_000) { finish({ status: 502, body: null }); req.destroy(); }
-      });
-      response.on("error", () => finish(null));
-      response.on("end", () => {
-        try { finish({ status: response.statusCode ?? 502, body: JSON.parse(text) }); }
-        catch { finish({ status: response.statusCode ?? 502, body: null }); }
-      });
-    });
-    const timer = setTimeout(() => { finish(null); req.destroy(); }, 2000);
-    req.on("error", () => finish(null));
-    req.end(JSON.stringify(payload));
-  });
 }
 
 function reject(reason: string): GateVerdict {
@@ -112,7 +83,8 @@ async function main(): Promise<void> {
   }
   const cacheKey = createHash("sha256").update(`${root}\n${origin}\n${sessionId}`).digest("hex");
   const cachePath = join(config.stateDir, `${cacheKey}.json`);
-  const response = await online(port, { action, session_id: sessionId, hook: "supervisor" });
+  const outcome = await queryGate(port, { action, session_id: sessionId, hook: "supervisor" });
+  const response = outcome.kind === "online" ? outcome.response : null;
   let mode = "online";
   let verdict: GateVerdict;
   if (response && response.status < 500) {
@@ -171,9 +143,14 @@ async function main(): Promise<void> {
       mode = "recovery";
       verdict = reject("Cached policy does not match this session/branch or has expired. Reconnect to Cc to refresh it.");
     } else {
-      mode = "recovery";
+      // /health が応答しているのにゲートが上限内に返らない場合は「停止」ではなく「遅延」。
+      // 権限は復旧範囲のまま広げず、 再試行で通りうることを区別して伝える。
+      mode = outcome.kind === "slow" ? "slow" : "recovery";
       verdict = recoveryAllowed(action, config.recoveryRoots.map((path) => realpathSync(path)), config.recoveryCommands)
-        ? evaluateAction(action) : reject("Cc unavailable and no current policy cache. Only configured recovery roots and commands are permitted.");
+        ? evaluateAction(action)
+        : reject(outcome.kind === "slow"
+          ? "Cc is running (/health OK) but the gate did not answer in time and no policy cache exists for this repo. Retry the command."
+          : "Cc unavailable and no current policy cache. Only configured recovery roots and commands are permitted.");
     }
   }
   // No command text, file contents, or prompt payload in the offline audit.

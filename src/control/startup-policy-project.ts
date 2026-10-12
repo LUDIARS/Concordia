@@ -1,14 +1,25 @@
 // @spec 最後に登録した作業プロジェクト
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
+import { isWorkspaceRootCwd } from "./session-work-policy.js";
 
 const pathKey = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+/** Directory names a worktree is created under inside its repository (e.g. `Concordia/.wt-x`, `Concordia/.claude/worktrees/x`). */
+const NESTED_WORKTREE_SEGMENT = /^(?:\.wt-|wt-|\.worktree-|\.worktrees$|\.claude$)/i;
 
-/** The latest registered work target is authoritative; an unknown target must not select the startup repository. */
+/**
+ * The repository the session actually works in decides the project; an explicit target only fills in
+ * when the checkout is not a registered repository (or its worktree), e.g. the Castra workspace root.
+ * An unknown target must not select the startup repository.
+ */
 export function selectStartupPolicyProject(
   rows: readonly ProjectCodeRow[],
   session: { target_project?: string | null; repo_path: string; repo_origin: string | null },
+  workspaceRoots: readonly string[] = [],
 ): ProjectCodeRow | null {
+  const atWorkspaceRoot = isWorkspaceRootCwd(session.repo_path, workspaceRoots);
+  const byRepo = atWorkspaceRoot ? null : projectForRepoPath(rows, session.repo_path);
+  if (byRepo) return byRepo;
   const target = session.target_project?.trim();
   if (target) {
     return rows.find((row) => row.code === target)
@@ -20,4 +31,27 @@ export function selectStartupPolicyProject(
   return (origin ? rows.find((row) => normalizeRepoOrigin(row.repo_origin ?? "").toLowerCase() === origin) : null)
     ?? rows.find((row) => pathKey(row.repo_path) === pathKey(session.repo_path))
     ?? null;
+}
+
+/** Registered repository whose checkout or worktree is `repoPath`: exact path, nested worktree, then sibling `<repo>.wt-*` / `<repo>-*`. */
+export function projectForRepoPath(rows: readonly ProjectCodeRow[], repoPath: string): ProjectCodeRow | null {
+  const path = pathKey(repoPath);
+  if (!path) return null;
+  const exact = rows.find((row) => pathKey(row.repo_path) === path);
+  if (exact) return exact;
+  const byLongestRoot = rows.slice().sort((a, b) => pathKey(b.repo_path).length - pathKey(a.repo_path).length);
+  const nested = byLongestRoot.find((row) => {
+    const root = pathKey(row.repo_path);
+    if (!root || !path.startsWith(`${root}/`)) return false;
+    return NESTED_WORKTREE_SEGMENT.test(path.slice(root.length + 1).split("/")[0] ?? "");
+  });
+  if (nested) return nested;
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  const leaf = path.slice(path.lastIndexOf("/") + 1);
+  return byLongestRoot.find((row) => {
+    const root = pathKey(row.repo_path);
+    const rootLeaf = root.slice(root.lastIndexOf("/") + 1);
+    return !!rootLeaf && root.slice(0, root.lastIndexOf("/")) === parent
+      && (leaf.startsWith(`${rootLeaf}.`) || leaf.startsWith(`${rootLeaf}-`));
+  }) ?? null;
 }

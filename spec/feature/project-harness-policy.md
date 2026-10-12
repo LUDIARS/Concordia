@@ -48,3 +48,7 @@ Ccへ再接続できたら最新の方針へ戻す。オフライン判定と復
 該当する手だけを出す。注入は手順の提示であり、ゲート判定や実行許可を置き換えない。
 ゲートの条件 (spec/ux 非空、specRefs 付きドメインの membership 一致) も同じ文で示す。
 実装は `src/control/process-guidance.ts`。
+手順が指す資料 (spec/ux、spec/domains、`cc.acceptance.json`) のプロジェクトは、セッションの
+`repo_path` (登録repo またはその worktree) から選ぶ。`target_project` は repo_path が登録repoに
+当たらないときの補助で、cwd を別リポへ移した後に前の対象の資料を指し続けない
+(`src/control/startup-policy-project.ts`、詳細は shared-startup-context.md「最後に登録した作業プロジェクト」)。

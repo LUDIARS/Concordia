@@ -22,8 +22,8 @@ const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/,
 
 export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<SessionRow, "repo_path" | "repo_origin" | "branch" | "provider"> & Partial<Pick<SessionRow, "target_project" | "metadata">>, requestedBranch: string | null = null, includeSearch = true): ReturnType<typeof buildStartupPolicy> {
   const projects = deps.projectCodes?.list() ?? [];
-  const project = selectStartupPolicyProject(projects, session);
   const roots = deps.resolveWorkspaceRoots?.() ?? [];
+  const project = selectStartupPolicyProject(projects, session, roots);
   const confirmedRepo = project && !isWorkspaceRootCwd(session.repo_path, roots)
     && createProjectResolver(projects).codeForRepo(session.repo_path) === project.code;
   const contextPresence = !!(confirmedRepo && hasConfirmedContextPresence({ ...session, metadata: session.metadata ?? null }, project.code));

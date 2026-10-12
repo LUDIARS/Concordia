@@ -306,6 +306,11 @@
       ]
     },
     {
+      "source": "src/control/startup-policy-project.ts",
+      "tests": ["src/control/startup-policy-project.test.ts", "src/api/sessions/startup-policy-check.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/startup-policy.ts",
       "tests": ["src/control/startup-policy.test.ts"],
       "contracts": []

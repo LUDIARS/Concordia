@@ -47,7 +47,7 @@ export function projectRulesTargets(
 ): ProjectRulesTarget[] {
   const targets = new Map<string, ProjectRulesTarget>();
   const resolver = createProjectResolver(projects);
-  const primary = selectStartupPolicyProject(projects, session);
+  const primary = selectStartupPolicyProject(projects, session, workspaceRoots);
   // 起動直後の workspace root (Castra) は「登録が終わった」状態ではない。
   if (primary && !isWorkspaceRootCwd(session.repo_path, workspaceRoots)
     && resolver.codeForRepo(session.repo_path) === primary.code) {

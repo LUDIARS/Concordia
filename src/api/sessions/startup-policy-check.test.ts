@@ -111,6 +111,33 @@ it("selects the last registered work project over the startup repository", async
   expect(lookups).toEqual([]);
 });
 
+it("follows repo_path over a stale target_project and reports the changed project in the delta", async () => {
+  const { deps, repo } = fixture();
+  deps.projectCodes.register({ code: "An", project: "Anatomia", repoPath: "E:/fixture/Anatomia",
+    repoOrigin: null, addedBy: "fixture" });
+  deps.projectCodes.register({ code: "Cc", project: "Concordia", repoPath: "E:/fixture/Concordia",
+    repoOrigin: null, addedBy: "fixture" });
+  deps.projectCodes.update("An", { testsRequired: true });
+  deps.projectCodes.update("Cc", { testsRequired: true, contractEnabled: true });
+  repo.patchSession("policy-fixture", { target_project: "An", repo_path: "E:/fixture/Anatomia/.wt-task" });
+  await refreshStartupPolicy(deps, "policy-fixture");
+  const before = readStartupPolicy(repo.findSession("policy-fixture")!.metadata)!;
+  expect(before.fields).toMatchObject({ projectCode: "An", projectRoot: "E:/fixture/Anatomia" });
+
+  repo.patchSession("policy-fixture", { repo_path: "E:/fixture/Concordia" });
+  expect((await refreshStartupPolicy(deps, "policy-fixture")).changed).toBe(true);
+  const after = readStartupPolicy(repo.findSession("policy-fixture")!.metadata)!;
+  expect(after.fields).toMatchObject({ repo: "E:/fixture/Concordia", projectCode: "Cc", projectRoot: "E:/fixture/Concordia" });
+  expect(after.fields.requirements).toContain("workContract=true");
+  expect(after.fields.process).toContain("E:/fixture/Concordia");
+  expect(after.fields.process).not.toContain("E:/fixture/Anatomia");
+  const update = repo.recentEvents("policy-fixture", 10).map((event) => JSON.stringify(event.payload))
+    .find((payload) => payload.includes("[Cc policy update]")) ?? "";
+  expect(update).toContain("projectRoot: E:/fixture/Concordia");
+  expect(update).toContain("projectCode: Cc");
+  expect(update).toContain("process: ");
+});
+
 it("does not fall back to the startup workflow for an unresolved explicit target", async () => {
   const { deps, repo } = fixture();
   repo.patchSession("policy-fixture", { target_project: "missing-code" });

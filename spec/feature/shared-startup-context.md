@@ -99,10 +99,12 @@ review-failed/merge-confirmation/review-wait/delegation-wait/task-active/task-bl
 ### 最後に登録した作業プロジェクト
 
 実装: `src/control/startup-policy-project.ts`、`src/control/startup-policy.ts`、`src/api/sessions/startup-policy-check.ts`、`src/api/sessions/lifecycle.ts`、`src/api/implementation-tools.ts`、`src/api/register-core.ts`。
-回帰確認: `src/api/sessions/startup-policy-check.test.ts`、`src/api/implementation-tools.test.ts`。
+回帰確認: `src/api/sessions/startup-policy-check.test.ts`、`src/control/startup-policy-project.test.ts`、`src/api/implementation-tools.test.ts`。
 
-Inject の必須設定・本体資料は、session の最新 `target_project` を project-code registry の code・本体path・project名で解決した同じ登録から決める。workflow は Inject に含めない。
+Inject の必須設定・本体資料 (projectRoot / projectCode / requirements / process) は、session の `repo_path` が登録repoの本体path またはその worktree (`<repo>/.wt-*`・`<repo>/.claude/worktrees/*`・兄弟の `<repo>.wt-*` / `<repo>-*`) と一致すればその登録から決める。
+`repo_path` が登録repoに当たらない (Castra の workspace root、未登録 checkout) ときだけ、最新 `target_project` を code・本体path・project名で解決して補う。cwd を別リポへ移した後に古い `target_project` の手順が残らない (2026-10-12 #99)。workflow は Inject に含めない。
 起動時の Castra repo より最新の作業登録を優先する。明示対象が未登録なら unknown とし、起動repoへ戻して推測しない。
+`repo_path` の変更で projectRoot が変わったら、版の差分 (`[Cc policy update]`) に projectRoot / projectCode / process を含めて前版の対象固有案内を無効化する。
 対象未指定の旧sessionだけは登録repo/originで解決する。実checkoutのrepo/branchとCastra操作ガードは維持する（UX-CC-W1、UX-CC-W4、CC-INV-01、CC-INV-02）。
 実装bind成功とtarget変更で非同期に再照合し、target変更前の古い応答は破棄する。版にはproject codeを含め、配送確認済みとは扱わない（CC-INV-06）。
 

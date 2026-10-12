@@ -6,6 +6,7 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import {
   DELEGATION_WATCHDOG_SOURCE,
+  ORPHAN_CHILD_ENDED_ERROR,
   startDelegationRunWatchdog,
   type DelegationRunWatchdogOptions,
   buildChildNudgeText,
@@ -177,6 +178,25 @@ describe("startDelegationRunWatchdog", () => {
     expect(runsRepo.recordWatchdogEscalation).toHaveBeenCalledWith("run-1", NOW_MS);
     expect(sessionsRepo.appendEvent).toHaveBeenCalledWith(expect.objectContaining({ session_id: "parent-1" }));
     expect(capture.events.some((ev) => ev.type === "delegation.mirror")).toBe(true);
+  });
+
+  it("closes a parentless run as failed when its child ended without a status report", async () => {
+    const { runsRepo, options } = makeDeps({
+      runs: [run({ parent_session_id: null })],
+      sessions: { "child-1": session({ status: "ended" }) },
+    });
+    const updateRunStatus = vi.fn();
+    options.runs = { ...runsRepo, updateRunStatus };
+    expect(await runOnceWith(options)).toEqual([{ runId: "run-1", action: "escalated" }]);
+    expect(updateRunStatus).toHaveBeenCalledWith("run-1", "failed", ORPHAN_CHILD_ENDED_ERROR);
+  });
+
+  it("leaves a run with a parent running for the parent to decide", async () => {
+    const { runsRepo, options } = makeDeps({ sessions: { "child-1": session({ status: "ended" }) } });
+    const updateRunStatus = vi.fn();
+    options.runs = { ...runsRepo, updateRunStatus };
+    await runOnceWith(options);
+    expect(updateRunStatus).not.toHaveBeenCalled();
   });
 
   it("escalates only once — the conditional DB update is the single guard", async () => {

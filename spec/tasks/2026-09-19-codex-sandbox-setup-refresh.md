@@ -32,3 +32,11 @@ helper_unknown_error: setup refresh had errors") }`)。worktree でも本体チ�
 - `src/delegation/`
 - `src/api/delegation.ts`
 - `spec/tasks/`、`spec/knowledge/problems/`
+
+## 進捗 (2026-10-13)
+
+- 親の無い run: 子が status 報告なしに終わったら watchdog が `failed` (`child_ended_without_status_report`) で閉じる
+  (`src/delegation/run-watchdog.ts`)。親がいる run は従来どおり親へエスカレーションし、判断を親に残す。
+- 空の local PR 自動提出: `src/pr/local-pr-submission.ts` の `no_commits` 判定で既に止まる (head が base から進んでいない場合)。追加変更なし。
+- 未着手: `setup refresh had errors` の原因特定 (Codex CLI の Windows sandbox 側。Cc の外) と、長い依頼文が途中で切れる件の再現。
+  回避策は記録済みの運用 (Opus/Sonnet へ切替、依頼文はファイル渡し)。

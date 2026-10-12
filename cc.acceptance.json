@@ -635,6 +635,11 @@
       "contracts": []
     },
     {
+      "source": "src/delegation/run-watchdog.ts",
+      "tests": ["src/delegation/run-watchdog.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/control/lictor-proxy.ts",
       "tests": [
         "src/control/lictor-proxy.test.ts"

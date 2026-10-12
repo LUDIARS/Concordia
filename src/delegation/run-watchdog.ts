@@ -44,7 +44,12 @@ export interface RunWatchdogRunsRepo {
   recordWatchdogCheck(id: string, nowMs: number): void;
   recordWatchdogNudge(id: string, nowMs: number, lastActivityMs: number): void;
   recordWatchdogEscalation(id: string, nowMs: number): boolean;
+  /** 親の無い run の終端記録に使う (DelegationRepo.updateRunStatus)。 */
+  updateRunStatus?(id: string, status: "failed", error: string): unknown;
 }
+
+/** 親の無い run で子が status 報告なしに終わったときの終端理由。 */
+export const ORPHAN_CHILD_ENDED_ERROR = "child_ended_without_status_report";
 
 export interface RunWatchdogSessionsRepo {
   findSession(id: string): SessionRow | null;
@@ -199,7 +204,12 @@ export function startDelegationRunWatchdog(
       }
       if (child.status !== "active") {
         // completed/failed の status 報告なしに子だけが終了した = 放置された委託。
-        if (escalate(run, "child_not_active", nowMs)) actions.push({ runId: run.id, action: "escalated" });
+        if (escalate(run, "child_not_active", nowMs)) {
+          actions.push({ runId: run.id, action: "escalated" });
+          // 親が無ければ通知は誰にも届かず、run は running のまま残り続ける。
+          // 引き取り手がいないので、ここで失敗として閉じる (子は既に終わっており再開しない)。
+          if (!run.parent_session_id) opts.runs.updateRunStatus?.(run.id, "failed", ORPHAN_CHILD_ENDED_ERROR);
+        }
         continue;
       }
 

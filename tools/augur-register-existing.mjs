@@ -31,11 +31,21 @@ export function registerTestFile(file) {
 registerTestFile = contract(registerTestFile, { ...augurContract_1bc1c2f6, contractId: 'C-9', mode: 'observe', sample: 1, where: 'tools/augur-register-existing.mjs:19', rule: 'contract-wrap', id: '1bc1c2f6' }); /* augur-inject:contract-wrap:1bc1c2f6 */
 
 export function registerExistingTests() {
-  for (const root of ["src", "tests"]) {
+  // 登録済みのファイルは触らない (id と実行履歴を保つ。再登録は台帳の書き換えを増やすだけ)。
+  const registered = registeredFiles();
+  for (const root of ["src", "tests", "tools"]) {
     const directory = resolve(repo, root);
     if (!existsSync(directory)) continue;
-    for (const file of listFiles(directory).filter(isTestFile)) registerTestFile(file);
+    for (const file of listFiles(directory).filter(isTestFile)) {
+      if (!registered.has(relative(repo, file).split(sep).join("/"))) registerTestFile(file);
+    }
   }
+}
+
+function registeredFiles() {
+  const ledger = resolve(repo, ".augur/tests.jsonl");
+  if (!existsSync(ledger)) return new Set();
+  return new Set(readFileSync(ledger, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line).file));
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -99,7 +109,8 @@ function normalizePath(path) {
 }
 
 function isTestFile(file) {
-  return /\.(test|spec)\.tsx?$/.test(file);
+  // tools/ の Node 製テストは .test.mjs。ルートの vitest が同じく収集する。
+  return /\.(test|spec)\.(?:tsx?|mjs)$/.test(file);
 }
 
 function listFiles(dir) {

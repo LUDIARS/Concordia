@@ -569,7 +569,8 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     note: "高速。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-fable-5-1",
     emoji: "🦸",
-    sortOrder: 10,
+    // 2026-10-14 neco 指示: Opus を先頭、Fable を 5 番目 (Opus 5 → Astra 12/13 → Sol 20 → Fable 25)。
+    sortOrder: 25,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
   // GPT-6 Astra (2026-09 追加)。 Codex 側の最上位プロファイル。
@@ -594,7 +595,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     note: "設計判断や難所の実装向き。effort は medium から始め、作業中に上げ下げできる。",
     model: "claude-opus-5-5",
     emoji: "🧙‍♂️",
-    sortOrder: 30,
+    sortOrder: 5,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
   implementationTemplate({

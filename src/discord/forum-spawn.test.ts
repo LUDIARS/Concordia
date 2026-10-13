@@ -293,6 +293,13 @@ describe("forum spawn", () => {
       "thread-1",
       expect.stringMatching(/^🦸 Cc がセッションを起動しました/),
     );
+    // 起動の通知より先に、依頼のタイトルと本文を投稿し直す (2026-10-13 依頼)。
+    const posts = postToThread.mock.calls.map((call) => String((call as unknown[])[1]));
+    const recapIndex = posts.findIndex((text) => text.startsWith("📝 **依頼内容**"));
+    expect(recapIndex).toBeGreaterThanOrEqual(0);
+    expect(posts[recapIndex]).toContain("**タイトル**: [Cc] Implement Phase 2");
+    expect(posts[recapIndex]).toContain("Build spawn-by-post");
+    expect(recapIndex).toBeLessThan(posts.findIndex((text) => text.includes("セッションを起動しました")));
   });
 
   it("rechecks fresh tags immediately before invoke and yields to explicit /spawn", async () => {

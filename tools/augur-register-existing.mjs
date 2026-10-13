@@ -37,7 +37,11 @@ export function registerExistingTests() {
     const directory = resolve(repo, root);
     if (!existsSync(directory)) continue;
     for (const file of listFiles(directory).filter(isTestFile)) {
-      if (!registered.has(relative(repo, file).split(sep).join("/"))) registerTestFile(file);
+      if (registered.has(relative(repo, file).split(sep).join("/"))) continue;
+      // node:test のファイルを vitest で回すと "No test suite found" で落ちる。
+      // CLI は command runner の実行コマンドを受けないので、台帳へ runner "command" で手登録する。
+      if (usesNodeTestRunner(file)) continue;
+      registerTestFile(file);
     }
   }
 }
@@ -109,8 +113,13 @@ function normalizePath(path) {
 }
 
 function isTestFile(file) {
-  // tools/ の Node 製テストは .test.mjs。ルートの vitest が同じく収集する。
+  // tools/ の Node 製テストは .test.mjs。vitest 製はルートの vitest が収集する (node:test 製は usesNodeTestRunner で除く)。
   return /\.(test|spec)\.(?:tsx?|mjs)$/.test(file);
+}
+
+/** import 文で node:test を読むファイル。文字列の中の "node:test" は数えない。 */
+export function usesNodeTestRunner(file) {
+  return /^\s*import\s[^;]*?from\s+["']node:test["']/m.test(readFileSync(file, "utf8"));
 }
 
 function listFiles(dir) {

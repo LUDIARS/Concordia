@@ -106,6 +106,15 @@ describe("handleConsultModalSubmit", () => {
     // 権限者は表示も通知もしない (2026-10-02)。 メンションは相談者本人だけ。
     expect(String(ctx.sent[0]!.content)).not.toContain("<@900>");
     expect(ctx.sent[0]!.allowedMentions).toEqual({ users: ["111"] });
+    // 2 通目に相談内容 (部署・オプション・知りたいこと) を残す。 メンションは鳴らさない (2026-10-13 依頼)。
+    const recap = String(ctx.sent[1]!.content);
+    expect(recap.startsWith("📝 **相談内容**")).toBe(true);
+    expect(recap).toContain(`**部署**: ${ctx.department.name}`);
+    expect(recap).toContain("**技術レベル**: 初級");
+    expect(recap).toContain("**役職**: マネージャー");
+    expect(recap).toContain("**目的**: 未入力");
+    expect(recap).toContain("評価の伝え方");
+    expect(ctx.sent[1]!.allowedMentions).toEqual({ parse: [] });
     expect(String(replies.at(-1)?.content)).toContain("セッションを起動しました");
   });
 

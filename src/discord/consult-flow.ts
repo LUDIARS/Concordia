@@ -36,6 +36,7 @@ import {
 } from "./private-channel-discord.js";
 import { buildConsultApprovalRow, buildConsultClosedRow, parseConsultApproval, parseConsultLifecycle, readConsultModal } from "./consult-modal.js";
 import type { PublicationInteractionDeps } from "./consult-publication.js";
+import { formatConsultRequestRecap } from "./request-recap.js";
 
 export interface ConsultSpawnInput {
   consultation: PrivateConsultationRow;
@@ -130,7 +131,7 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
     return;
   }
   await interaction.deferReply({ ephemeral: true });
-  const { consultation, members, needsApproval } = started;
+  const { consultation, members, needsApproval, departmentName } = started;
   let channel: TextChannel;
   try {
     const categoryId = await ensurePrivateCategory(guild, deps.categoryStore);
@@ -159,6 +160,12 @@ export async function handleConsultModalSubmit(interaction: ModalSubmitInteracti
     // 権限者 (執行役員) は表示も通知もしない (2026-10-02 neco 指示)。 通知するのは相談者本人だけ。
     allowedMentions: { users: [consultation.requester_user_id] },
   });
+  // 相談内容はモーダルの中にしか無いので、チャンネルの最初に残す (2026-10-13 依頼)。 投稿できなくても相談は続ける。
+  await channel.send({
+    content: formatConsultRequestRecap({ departmentName, intake: deps.service.intakeOf(consultation) }),
+    allowedMentions: { parse: [] },
+  }).catch((error: unknown) =>
+    deps.log.warn(`consult request recap failed consultation=${consultation.id}: ${(error as Error).message}`));
   if (!needsApproval) {
     const launched = await launch(deps, consultation.id, guild, channel.id, interaction.user.displayName ?? null);
     if (!launched.ok) {

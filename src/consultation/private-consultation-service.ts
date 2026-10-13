@@ -65,6 +65,8 @@ export interface StartedConsultation {
   members: PrivateConsultationMemberRow[];
   /** 本人に起動権限が無く、 権限者の承認を待つ。 */
   needsApproval: boolean;
+  /** 相談先の部署名 (チャンネルへ相談内容を投稿し直すときの見出し)。 */
+  departmentName: string;
 }
 
 export class PrivateConsultationService {
@@ -113,6 +115,7 @@ export class PrivateConsultationService {
       consultation: this.ports.store.find(consultation.id)!,
       members: this.ports.store.members(consultation.id),
       needsApproval: !launchable,
+      departmentName: checked.department.name,
     };
   }
 

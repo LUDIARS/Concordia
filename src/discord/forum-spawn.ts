@@ -40,6 +40,7 @@ import {
 import type { SpawnSitePort } from "./command-port.js";
 import { siteSpawnFailureMessage } from "./commands/spawn-site.js";
 import { markSiteTitle } from "../federation/forum-site-routing.js";
+import { formatForumRequestRecap } from "./request-recap.js";
 import {
   buildConsultIntakeQuestion,
   resolveConsultIntake,
@@ -618,6 +619,10 @@ export async function executeForumSpawn(
       deps.log.warn(`forum-spawn thread rename failed thread=${thread.id}: ${(error as Error).message}`);
     }
   }
+  // スレッド名は変わり、本文は会話に流れるので、起動時に依頼内容を投稿し直す (2026-10-13 依頼)。
+  // 投稿に失敗しても起動は成立しているので、起動の通知は続ける。
+  await deps.postToThread(thread.id, formatForumRequestRecap({ title, body })).catch((error: unknown) =>
+    deps.log.warn(`forum-spawn request recap failed thread=${thread.id}: ${(error as Error).message}`));
   await reply(
     deps,
     thread,

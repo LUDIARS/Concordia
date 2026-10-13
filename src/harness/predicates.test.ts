@@ -5,6 +5,7 @@ import {
   withMainPushAllowlist,
   DEFAULT_PREDICATES,
   branchBeforeEdit,
+  commonRootOf,
   maxReposWarn,
   outsideScope,
   privateTeamPublication,
@@ -283,6 +284,32 @@ describe("outsideScope", () => {
     expect(
       outsideScope({ tool: "Bash", command: "ls", cwd: "/x/Memoria", targetProject: "Lictor" }),
     ).toBeNull();
+  });
+
+  it("同じリポの linked worktree は本体 root で照合して素通し", () => {
+    expect(outsideScope({
+      tool: "Edit", cwd: "/work/Concordia-fix-x", isWorktree: true,
+      repoCommonRoot: "/work/Concordia", targetProject: "/work/Concordia",
+    })).toBeNull();
+  });
+
+  it("別リポの worktree は本体名も食い違うので warn のまま", () => {
+    const hit = outsideScope({
+      tool: "Edit", cwd: "/work/Memoria-fix-x", isWorktree: true,
+      repoCommonRoot: "/work/Memoria", targetProject: "/work/Concordia",
+    });
+    expect(hit?.rule).toBe("outside-scope");
+  });
+});
+
+describe("commonRootOf", () => {
+  it("<root>/.git から本体 root を返す", () => {
+    expect(commonRootOf("/work/Concordia/.git")).toBe("/work/Concordia");
+    expect(commonRootOf("work\\Concordia\\.git\\")).toBe("work\\Concordia");
+  });
+  it(".git で終わらない (bare 等) / 未解決は undefined", () => {
+    expect(commonRootOf("/srv/repo.git")).toBeUndefined();
+    expect(commonRootOf(undefined)).toBeUndefined();
   });
 });
 

@@ -62,6 +62,7 @@ const ActionSchema = z.object({
   branch: z.string().max(256).optional(),
   editedRepos: z.array(z.string().max(4096)).max(200).optional(),
   isWorktree: z.boolean().optional(),
+  repoCommonRoot: z.string().max(4096).optional(),
 });
 
 const GateSchema = z.object({

@@ -16,6 +16,14 @@ DDD適用時はUX・ドメイン・不変条件を定義してから実装する
 確認する入口であり、設計品質を保証するものではない。契約適用時はセッション契約の確定と
 指定された承認・編集スコープをゲートで確認する。
 
+## 作業対象外の警告 (outside-scope)
+
+編集中のリポ名と作業対象の末尾名を比べ、食い違えば warn する。linked worktree
+(例 `Concordia-fix-x`) は末尾名が本体と違うため、フックが `git rev-parse --git-common-dir`
+から本体 checkout root を `repoCommonRoot` として渡し、その末尾名が作業対象と一致すれば警告しない。
+判定は純関数のまま、git 呼び出しは action を組み立てる supervisor-cli に置く。
+別リポの worktree は本体名も食い違うので従来どおり warn する。
+
 ## 障害時の監督処理
 
 ## コード実装の受入条件

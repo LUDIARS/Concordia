@@ -8,7 +8,9 @@ import {isAutomaticContinuationSource} from "../control/automatic-continuation-p
 
 interface MockSocket extends EventEmitter {readyState:number;send:ReturnType<typeof vi.fn>}
 interface MockServer {clients:Set<MockSocket>;emit:(type:string,...args:unknown[])=>void}
-const transport=vi.hoisted(()=>({server:null as MockServer | null}));
+// The registered suite shares its module cache (isolate: false). If another file already loaded
+// ./ws.js with the real "ws", the mock below would not apply; reload so ws.js binds to the mock.
+const transport=vi.hoisted(()=>{vi.resetModules();return {server:null as MockServer | null};});
 vi.mock("ws",()=>({
   WebSocket:{OPEN:1},
   WebSocketServer:class {

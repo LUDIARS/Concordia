@@ -4,7 +4,7 @@ import { resolve, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { evaluateAction, type GateVerdict } from "./session-gate.js";
-import type { HarnessAction } from "./predicates.js";
+import { commonRootOf, type HarnessAction } from "./predicates.js";
 import { evaluateCachedAction, recoveryAllowed, usableSnapshot } from "./supervisor-policy.js";
 import { needsDddEvidence, DDD_INSTRUCTION } from "./project-policy.js";
 import { hasDddEvidence } from "./ddd-evidence.js";
@@ -70,8 +70,10 @@ async function main(): Promise<void> {
   while (!existsSync(existingProbe)) existingProbe = dirname(existingProbe);
   const root = realpathSync(git(existingProbe, ["rev-parse", "--show-toplevel"]));
   const branch = git(root, ["branch", "--show-current"]);
+  const commonDir = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   const action: HarnessAction = { tool: hook.tool_name, command: hook.tool_input?.command, filePath: target,
-    cwd: root, branch, isWorktree: git(root, ["rev-parse", "--git-dir"]) !== git(root, ["rev-parse", "--git-common-dir"]) };
+    cwd: root, branch, isWorktree: git(root, ["rev-parse", "--git-dir"]) !== git(root, ["rev-parse", "--git-common-dir"]),
+    repoCommonRoot: commonRootOf(commonDir) };
   const sessionId = process.env.LICTOR_SESSION_ID ?? "";
   mkdirSync(config.stateDir, { recursive: true });
   let origin: string;

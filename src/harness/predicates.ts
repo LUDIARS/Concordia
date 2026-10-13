@@ -39,6 +39,11 @@ export interface HarnessAction {
   targetProject?: string;
   /** cwd が linked worktree と解決できた場合 true。未解決なら省略。 */
   isWorktree?: boolean;
+  /**
+   * cwd が属するリポの本体 checkout root (`git rev-parse --git-common-dir` の親)。
+   * linked worktree でも本体を指すので、worktree を同じプロジェクトとして扱える。未解決なら省略。
+   */
+  repoCommonRoot?: string;
   /** session 登録情報由来の provider/model 識別子。未解決なら省略。 */
   sessionModel?: string;
   /** 人間承認により当該 session の強推論モデル実装ゲートを解除済み。 */
@@ -102,6 +107,13 @@ export function repoLeaf(pathOrName?: string): string {
   const slash = trimmed.lastIndexOf("/");
   const back = trimmed.lastIndexOf("\\");
   return trimmed.slice(Math.max(slash, back) + 1).toLowerCase();
+}
+
+/** 絶対パスの git common dir (`<root>/.git`) から本体 checkout root を返す。bare 等で `.git` で終わらなければ undefined。 */
+export function commonRootOf(commonDir?: string): string | undefined {
+  if (!commonDir) return undefined;
+  const trimmed = commonDir.trim().replace(/[/\\]+$/, "");
+  return /[/\\]\.git$/i.test(trimmed) ? trimmed.slice(0, -5) : undefined;
 }
 
 /** main/master を直接更新する Git push か。blackbox 特徴量もこの判定を共有する。 */
@@ -202,6 +214,8 @@ export const outsideScope: Predicate = (a) => {
   const current = repoLeaf(a.cwd ?? a.filePath);
   if (!current) return null; // 現在リポ不明 → 強制しない
   if (current === target) return null;
+  // linked worktree (例: Concordia-fix-x) は本体 checkout と同じリポ。別リポなら本体名も食い違う。
+  if (repoLeaf(a.repoCommonRoot) === target) return null;
   return {
     rule: "outside-scope",
     decision: "warn",

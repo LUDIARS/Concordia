@@ -264,3 +264,26 @@ describe("/v1/harness route", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("/v1/harness gate — linked worktree の作業対象照合", () => {
+  beforeEach(() => {
+    process.env.CONCORDIA_PROMPT_ANALYZER = "off";
+    process.env.CONCORDIA_PROMPT_RESEARCH = "0";
+  });
+  const action = {
+    tool: "Edit", filePath: "/work/Concordia-fix-x/src/a.ts", cwd: "/work/Concordia-fix-x",
+    project: "/work/Concordia", branch: "fix/x",
+  };
+  const outsideScopeHit = async (body: Record<string, unknown>) => {
+    const v = await readJson(await post(makeApp().app, "/v1/harness/gate", { action: body, session_id: "wt-1" }));
+    return v.hits.some((h: { rule: string }) => h.rule === "outside-scope");
+  };
+
+  it("repoCommonRoot が作業対象の本体なら outside-scope を出さない", async () => {
+    expect(await outsideScopeHit({ ...action, isWorktree: true, repoCommonRoot: "/work/Concordia" })).toBe(false);
+  });
+
+  it("repoCommonRoot が無ければ従来どおり outside-scope", async () => {
+    expect(await outsideScopeHit(action)).toBe(true);
+  });
+});

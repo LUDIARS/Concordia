@@ -33,7 +33,7 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   daily: "日次レビュー / cron スケジューラ",
   morning: "朝タスク (morning-tasks の自動起動)",
   cost: "コスト集計・予算通知",
-  director: "Director 巡回 (休止中 — 2026-09-01 neco 指示で散歩セッションへ置換)",
+  director: "Director 巡回 (休止中 — 2026-09-01 の指示で散歩セッションへ置換)",
   curiosity: "散歩セッション (ランダムなタイミングで 2 素材を並べて 1 問だけつぶやく)",
   inbox: "承認インボックスの朝夕ダイジェストと放置催促",
   github: "GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)",

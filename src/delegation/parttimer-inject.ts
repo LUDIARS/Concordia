@@ -125,7 +125,7 @@ function parttimerTemplate(input: ParttimerInjectInput, values: Record<string, s
     "     ファイルに書いて `curl.exe --data-binary @<file>` で送ります。",
     "3. **退勤する。** 記録まで済んだら、 自セッションの Lictor sidecar へ",
     "   `POST http://127.0.0.1:$LICTOR_PORT/v1/shutdown` を送ってセッションを終了します",
-    "   (port は環境変数 `LICTOR_PORT`)。 **判断・確認・許可は要りません** (2026-09-01 neco 指示)。",
+    "   (port は環境変数 `LICTOR_PORT`)。 **判断・確認・許可は要りません** (2026-09-01 指示)。",
     "",
     "2 と 3 は結果にかかわらず必ず実行します。 やることが無かった / 設定が未投入 / 途中で失敗した —",
     "どの場合でも「その事実を報告 → status を送る → 退勤」で閉じてください。 次のタスクを自分で",

@@ -389,7 +389,7 @@ const VULTUS_REPO_PATH = "E:\\Document\\Ars\\Vultus";
 const VULTUS_CATALOG_TEMPLATES: CreateTemplateInput[] = [{
   call_name: "vultus-catalog-refresh-daily",
   title: "Vultus 女優カタログ日次更新",
-  description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。2026-08-20 neco指示でパートタイマーからHaikuを除外 (auto-mode不可・処理能力不足) しSonnet 5へ変更。",
+  description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。2026-08-20 指示でパートタイマーからHaikuを除外 (auto-mode不可・処理能力不足) しSonnet 5へ変更。",
   target_provider: "claude",
   model: "claude-sonnet-5-5",
   category: "parttimer",
@@ -709,7 +709,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "ludiars-review-weekly",
     title: "週次レビュー",
-    description: "Tier 1 リポの週次レビュー。単一オーケストレータ (Claude) が AIFormat に沿ってレビューし、Review/<repo>/<date>/ に保存する。ludiars-review-daily-dual (ちょいつよ版、Sol Ultra 突合) は手動起動用に残る。2026-08-08 neco 指示で毎日 → 週次 (毎週月曜) へ変更。",
+    description: "Tier 1 リポの週次レビュー。単一オーケストレータ (Claude) が AIFormat に沿ってレビューし、Review/<repo>/<date>/ に保存する。ludiars-review-daily-dual (ちょいつよ版、Sol Ultra 突合) は手動起動用に残る。2026-08-08 指示で毎日 → 週次 (毎週月曜) へ変更。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -724,7 +724,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "vulnerability-response-daily",
     title: "脆弱性対応 (毎朝)",
-    description: "Tier 1 リポを AIFormat REVIEW_VULNERABILITY.md の観点だけで毎朝スキャンし、安全カテゴリの指摘は Codex に自動修正委託して Revisor のマージ完了まで継続、Critical/High は自動修正せず管理者へメンションして報告する。2026-08-08 neco 指示で新設 (デイリーレビュー廃止で空いた 5:10 枠を引き継ぐ)。",
+    description: "Tier 1 リポを AIFormat REVIEW_VULNERABILITY.md の観点だけで毎朝スキャンし、安全カテゴリの指摘は Codex に自動修正委託して Revisor のマージ完了まで継続、Critical/High は自動修正せず管理者へメンションして報告する。2026-08-08 指示で新設 (デイリーレビュー廃止で空いた 5:10 枠を引き継ぐ)。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -741,7 +741,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "kaizen-daily",
     title: "カイゼン (毎朝)",
-    description: "前日のログとメモリから機械化できる改善を探し、Astraが難易度を判断する。高難度は自身で実装、低難度は適した実装モデルへ委託。判断に困るものはタスク化して人間判断に委ね、その回を終了する。2026-09-08 neco 指示。",
+    description: "前日のログとメモリから機械化できる改善を探し、Astraが難易度を判断する。高難度は自身で実装、低難度は適した実装モデルへ委託。判断に困るものはタスク化して人間判断に委ね、その回を終了する。2026-09-08 指示。",
     target_provider: "codex-sdk",
     model: "gpt-6-astra",
     runtime_options: { model_reasoning_effort: "medium" },
@@ -757,7 +757,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "team-standup-daily",
     title: "チーム朝礼 (毎朝)",
-    description: "チームごとの稼働状況と対応状況をまとめ、チームの 目標 面へカードとして投稿する。証跡で裏付けられる完了だけを Memoria タスク / director case step へ毎日反映する (2026-08-20 neco 裁定)。2026-08-17 neco 指示で新設。",
+    description: "チームごとの稼働状況と対応状況をまとめ、チームの 目標 面へカードとして投稿する。証跡で裏付けられる完了だけを Memoria タスク / director case step へ毎日反映する (2026-08-20 裁定)。2026-08-17 指示で新設。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -775,7 +775,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "team-review-regular",
     title: "チーム定例 (週2回・人間同席)",
-    description: "チームのタスクを棚卸しする定例。議題を提示して neco の返信を待ち、Memoria タスクと director case step へ反映するまでを 1 回とする。火・金 13:00。2026-08-17 neco 指示で新設。",
+    description: "チームのタスクを棚卸しする定例。議題を提示して 管理者の返信を待ち、Memoria タスクと director case step へ反映するまでを 1 回とする。火・金 13:00。2026-08-17 指示で新設。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -794,7 +794,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "director-task-pull",
     title: "関連未完了タスク取得 (Memoria)",
-    description: "Memoria から topic (プロジェクトコード/カテゴリ/キーワード) に関連する未完了タスクを引き、正規化した一覧を報告する読み取り専用の部品。タスク整理 (director-task-organize) が同じ手順定義を使う。2026-08-20 neco 指示で新設。",
+    description: "Memoria から topic (プロジェクトコード/カテゴリ/キーワード) に関連する未完了タスクを引き、正規化した一覧を報告する読み取り専用の部品。タスク整理 (director-task-organize) が同じ手順定義を使う。2026-08-20 指示で新設。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -810,7 +810,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "director-task-organize",
     title: "ディレクター タスク整理 (チーム毎日 10:00)",
-    description: "チームの関連未完了タスクを Memoria から引き、実行可能なものを director case の step へ落とし、証跡ある完了を反映し、判断待ち・浮いているタスクを人間へ提示する。毎日 10:00 にチームごとへ fanout。2026-08-20 neco 指示で新設。",
+    description: "チームの関連未完了タスクを Memoria から引き、実行可能なものを director case の step へ落とし、証跡ある完了を反映し、判断待ち・浮いているタスクを人間へ提示する。毎日 10:00 にチームごとへ fanout。2026-08-20 指示で新設。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -829,7 +829,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "director-issue-scout",
     title: "ディレクター 課題スカウト (チーム週次)",
-    description: "チームの blocked step・停滞 case・レビュー成果物・人間の判断前例から、根拠を持つ課題仮説だけを最大5件、タスクボードへ進言する。case / step は作成も更新もしない。毎週月曜11:00にチームへfanout。2026-08-25 neco 指示で新設。",
+    description: "チームの blocked step・停滞 case・レビュー成果物・人間の判断前例から、根拠を持つ課題仮説だけを最大5件、タスクボードへ進言する。case / step は作成も更新もしない。毎週月曜11:00にチームへfanout。2026-08-25 指示で新設。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -879,7 +879,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "steam-persona-daily",
     title: "Steam 横断レビュアー収集 (毎朝)",
-    description: "Discutere の steam-persona パイプライン (新作レビュー定期取得 → 横断投稿者検出 → 集中収集、spec/feature/crawler/STEAM-PERSONA.md) を日次で 1 周回す。Timer Delegation が毎朝 7:40 JST に invoke する。2026-08-13 neco 指示で新設。2026-08-20 neco 指示でパートタイマーから Haiku を除外 (auto-mode 不可・処理能力不足) し Sonnet 5 へ変更。",
+    description: "Discutere の steam-persona パイプライン (新作レビュー定期取得 → 横断投稿者検出 → 集中収集、spec/feature/crawler/STEAM-PERSONA.md) を日次で 1 周回す。Timer Delegation が毎朝 7:40 JST に invoke する。2026-08-13 指示で新設。2026-08-20 指示でパートタイマーから Haiku を除外 (auto-mode 不可・処理能力不足) し Sonnet 5 へ変更。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",
@@ -911,7 +911,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "ai-note-biweekly-review",
     title: "AIノート記事 隔週レビュー",
-    description: `${resolvePartnerDisplayName(identifiers.partnerDisplayName)}「AIノート」配下の記事を隔週でレビューし、執筆時期と現行実装・現行仕様の乖離を内容・文体・構成を変えずに現行化する (neco 発案 2026-07-22)。evergreen はスキップ、mutable かつ 14 日以上前のものを対象にする。手順とキャッシュの正本は E:\\\\Document\\\\Ars\\\\fable\\\\ai-note-review。`,
+    description: `${resolvePartnerDisplayName(identifiers.partnerDisplayName)}「AIノート」配下の記事を隔週でレビューし、執筆時期と現行実装・現行仕様の乖離を内容・文体・構成を変えずに現行化する (発案 2026-07-22)。evergreen はスキップ、mutable かつ 14 日以上前のものを対象にする。手順とキャッシュの正本は E:\\\\Document\\\\Ars\\\\fable\\\\ai-note-review。`,
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",

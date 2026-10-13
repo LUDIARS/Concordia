@@ -875,14 +875,14 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).not.toContain("\f");
   });
 
-  // 定例は人間同席が前提で、 neco の返信を台帳へ反映するところまでが 1 回分。 待機を
+  // 定例は人間同席が前提で、 管理者の返信を台帳へ反映するところまでが 1 回分。 待機を
   // 完全に消すと手順 4-5 が死ぬので、 待つこと自体は残し「上限つき + 必ず終わる」で縛る。
   it("チーム定例は上限つきで返信を待ち、来なければ未実施として閉じる", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
     const prompt = repo.findTemplateByCallName("team-review-regular")?.prompt_template ?? "";
-    expect(prompt).toContain("neco の返信を待つ (最大 3 時間)");
+    expect(prompt).toContain("管理者の返信を待つ (最大 3 時間)");
     expect(prompt).toContain("3 時間待っても返信が来なければ、 そこで待つのをやめる");
     expect(prompt).toContain("「未実施 (返信待ち)」と報告");
     expect(prompt).toContain("無期限に待たない");

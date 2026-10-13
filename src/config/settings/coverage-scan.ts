@@ -67,6 +67,8 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   VITEST: "vitest が立てるフラグ。 テスト時のみ",
   COMSPEC: "Windows のシェルパス (OS 提供)",
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
+  USERPROFILE: "Windows のユーザーホーム (OS 提供)。 claude.exe の既定の置き場所を探すときに読むだけで、 Concordia の設定ではない",
+  HOME: "POSIX のユーザーホーム (OS 提供)。 USERPROFILE が無い環境で claude.exe の既定の置き場所を探すときに読む",
   PATH: "実行ファイルの探索パス (OS 提供)。 repo 検索のツール検出で読むだけで、 Concordia の設定ではない",
   EXCUBITOR_SERVICE_VERSION: "Excubitor が稼働プロセスへ注入する配備バージョン。 Concordia の設定ではない",
   VESTIGIUM_LOGS_DIR: "Vestigium が所有する共有ログ出力先。独立した migration-preflight CLI の観測先として読む外部サービスの設定",

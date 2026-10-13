@@ -111,7 +111,7 @@ export function Management() {
     <section className="space-y-3">
       <div className="flex justify-between items-end gap-3">
         <h2 className="font-semibold">依頼</h2>
-        <label className="text-sm">操作者名<input aria-label="操作者名" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="例: neco" className="ml-2 rounded border border-border bg-surface p-1" /></label>
+        <label className="text-sm">操作者名<input aria-label="操作者名" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="例: 山田" className="ml-2 rounded border border-border bg-surface p-1" /></label>
       </div>
       {requests.length === 0 && <p className="text-subtle text-sm">依頼はまだありません。</p>}
       {requests.map((r) => <article key={r.id} className="border border-border rounded p-3 space-y-1">

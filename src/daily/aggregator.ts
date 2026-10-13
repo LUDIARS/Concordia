@@ -7,6 +7,7 @@
 
 import type { SessionRow } from "../shared/types.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { SiteDayBullets } from "./site-activity.js";
 
 export interface DayBullets {
   date_iso: string;
@@ -30,6 +31,8 @@ export interface DayBullets {
     status: string;
     event_total: number;
   }>;
+  /** 本社の日報だけが持つ拠点ごとの欄 (SPEC-FED-SITE-ACTIVITY)。 本社の集計値には含めない。 */
+  sites?: SiteDayBullets[];
 }
 
 export function dayRange(date: Date): { startTs: number; endTs: number; iso: string } {

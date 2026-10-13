@@ -26,7 +26,7 @@ import {
   type FederationErrorCode,
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
+import type { FederationActivityReportFrame, FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
 
 const log = createChildLogger("federation/hq");
@@ -79,6 +79,8 @@ export interface FederationListenerDeps {
   handleInquiryResult?: (siteId: string, result: FederationInquiryResultFrame) => void;
   /** 拠点で起動したセッションを本社の Session フォーラムへ映す投稿を立てる (SPEC-FED-SITE-SESSION-MIRROR)。 */
   handleMirrorOpen?: (siteId: string, request: FederationMirrorOpenRequestFrame) => Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
+  /** 拠点のその日の作業記録を受け取る (SPEC-FED-SITE-ACTIVITY)。 応答は返さない。 */
+  handleActivityReport?: (siteId: string, report: FederationActivityReportFrame) => void;
   /**
    * 接続元を受け付けるか (CC-FED-T2)。既定は loopback / tailnet だけ (transport-policy.ts)。
    * env CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1 のとき runtime が「全て許可」を渡す。
@@ -333,6 +335,17 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           log.warn({ siteId, err: (e as Error).message }, "federation mirror open failed");
           send(siteId!, { type: "mirror-open-result", request_id: frame.request_id, ok: false, error: "HQ session mirror failed" });
         });
+        return;
+      }
+
+      if (frame.type === "activity-report") {
+        deps.sites.touchSeen(siteId);
+        deps.connections.touch(siteId, nowSec());
+        try {
+          deps.handleActivityReport?.(siteId, frame);
+        } catch (e) {
+          log.warn({ siteId, err: (e as Error).message }, "federation activity report handling failed");
+        }
         return;
       }
 

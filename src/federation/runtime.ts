@@ -47,6 +47,8 @@ import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressDelivery } from "./protocol.js";
 import type { FederationSiteEgressInput } from "./site-client.js";
 import { createHqSessionMirror, type MirrorPostOpener } from "./hq-session-mirror.js";
+import { createSiteActivityStore } from "./site-activity-store.js";
+import type { SiteActivityEntry, SiteDayActivity } from "../daily/site-activity.js";
 import { createSessionMirrorStore, HQ_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
 
 export interface FederationIngressInput {
@@ -149,6 +151,10 @@ export interface FederationRuntime {
   isSiteRole(): boolean;
   /** 拠点ロールの site_id (拠点ロールでなければ null)。 */
   siteId(): string | null;
+  /** 拠点ロール: その日の作業記録を本社へ送る (SPEC-FED-SITE-ACTIVITY)。 link 中でなければ false。 */
+  sendActivityReport(report: SiteDayActivity): boolean;
+  /** 本社: 拠点から受け取った指定日の作業記録 (有効な拠点だけ)。 */
+  siteActivityFor(dateIso: string): SiteActivityEntry[];
   /** 拠点ロール: 拠点のセッションを映す投稿を本社に立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
   requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
   /** 本社: Session フォーラムに投稿を立てる Discord ポート (bot.ts が注入)。 */
@@ -236,6 +242,12 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     opener: () => mirrorPostOpener,
     log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
   });
+  /** 本社: 拠点から受け取ったその日の作業記録 (SPEC-FED-SITE-ACTIVITY)。 */
+  const siteActivity = createSiteActivityStore(opts.settings ?? memorySettings());
+  const activeSiteName = (siteId: string): string | null => {
+    const site = sites.find(siteId);
+    return site?.status === "active" ? site.name || site.site_id : null;
+  };
   let inquiryRunner: InquiryRunner | null = null;
   const inquiries = createInquiryService({
     role: () => listener ? { kind: "hq" } : siteClient && siteBinding ? { kind: "site", siteId: siteBinding.siteId } : { kind: "none" },
@@ -342,6 +354,21 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           return egressExecutor({ ...request, ...(mentionUserId ? { mention_user_id: mentionUserId } : {}) });
         },
         handleMirrorOpen: (siteId, request) => sessionMirror.open(siteId, request),
+        handleActivityReport: (siteId, report) => {
+          // 失効・停止中の拠点の記録は日報に載せない。
+          const siteName = activeSiteName(siteId);
+          if (!siteName) {
+            log.warn(`federation activity report ignored for inactive site=${siteId}`);
+            return;
+          }
+          siteActivity.record(siteId, siteName, {
+            date_iso: report.date_iso,
+            generated_at: report.generated_at,
+            session_count: report.session_count,
+            sessions: report.sessions,
+          });
+          log.info(`federation activity report received site=${siteId} date=${report.date_iso} sessions=${report.session_count}`);
+        },
         handleInquiryRequest: (siteId, request) => inquiries.onSiteRequest(siteId, request),
         handleInquiryResult: (siteId, result) => inquiries.onSiteResult(siteId, result),
       });
@@ -647,6 +674,19 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     },
     siteId() {
       return siteClient && siteBinding ? siteBinding.siteId : null;
+    },
+    sendActivityReport(report) {
+      if (!siteClient || !siteBinding) return false;
+      return siteClient.send({
+        type: "activity-report",
+        date_iso: report.date_iso,
+        generated_at: report.generated_at,
+        session_count: report.session_count,
+        sessions: report.sessions,
+      });
+    },
+    siteActivityFor(dateIso) {
+      return siteActivity.listForDate(dateIso).filter((entry) => activeSiteName(entry.site_id) !== null);
     },
     async requestMirrorOpen(input) {
       if (!siteClient) return { ok: false, error: "federation site link is not configured" };

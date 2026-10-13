@@ -30,6 +30,8 @@ export interface CronSchedulerDeps {
    * 呼び出し側 (bootstrap) が渡す。 resolver が無い戦略のジョブは起動しない。
    */
   fanoutResolvers?: Partial<Record<CronJobFanout, () => CronFanoutTarget[]>>;
+  /** 拠点ロールなら `hqOnly` のジョブを発火しない。 発火時点で判定する (連合設定は再起動なしで変わる)。 */
+  isSiteRole?: () => boolean;
 }
 
 export interface CronSchedulerHandle {
@@ -57,6 +59,10 @@ export function startCronScheduler(
   }
 
   async function runJob(job: CronJobDefinition): Promise<void> {
+    if (job.hqOnly && deps.isSiteRole?.()) {
+      log.info({ job: job.name }, "cron job is HQ-only; skipping on a site");
+      return;
+    }
     const targets = resolveTargets(job);
     if (!targets) return;
     if (targets.length === 0) {

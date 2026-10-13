@@ -9,6 +9,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DayReportRow } from "../db/day-reports-repo.js";
 import { aggregateDay, dayRange, type DayBullets } from "./aggregator.js";
+import { summarizeSiteActivity, type SiteActivityEntry } from "./site-activity.js";
 import { isClaudeDisabled } from "../config/claude-availability.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -18,11 +19,15 @@ const log = createChildLogger("daily-report");
 export async function generateDayReport(
   date_iso: string,
   sessionsRepo: SessionsRepo,
+  siteActivity: readonly SiteActivityEntry[] = [],
 ): Promise<DayReportRow> {
   const date = parseISODate(date_iso);
   const range = dayRange(date);
   const sessions = sessionsRepo.listSessionsInRange(range.startTs, range.endTs);
   const bullets = aggregateDay(date_iso, sessions, sessionsRepo);
+  // 拠点の作業は本社の日報に拠点ごとの欄として載せる (SPEC-FED-SITE-ACTIVITY)。
+  const sites = summarizeSiteActivity(siteActivity);
+  if (sites.length) bullets.sites = sites;
 
   let summary_md: string | null = null;
   if (!isClaudeDisabled()) {
@@ -44,7 +49,7 @@ export async function generateDayReport(
 }
 
 async function narrativeViaCli(b: DayBullets): Promise<string | null> {
-  if (b.session_count === 0) {
+  if (b.session_count === 0 && !b.sites?.length) {
     return `${b.date_iso} は active な session がありませんでした。`;
   }
   const prompt = [
@@ -56,6 +61,7 @@ async function narrativeViaCli(b: DayBullets): Promise<string | null> {
     "- ハイライト (今日うまくいったこと、 ファイル / branch / 機能で何が動いたか)",
     "- 引っかかったこと / lost セッション / 解決待ち",
     "- 明日への手筋 / 引継ぎメモ",
+    "- 入力データに sites があれば、本社とは別に拠点ごとの段落を設けて、その拠点でやったことを書く (拠点の作業を本社の作業と混ぜない)",
     "",
     "## トーン",
     "- AI 同士の対話前提なので人間配慮不要",
@@ -93,6 +99,15 @@ function templateSummary(b: DayBullets): string {
   }
   if (Object.keys(b.roles).length) {
     lines.push(`- roles: ${Object.entries(b.roles).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  }
+  for (const site of b.sites ?? []) {
+    lines.push("");
+    lines.push(`## 拠点: ${site.site_name}`);
+    lines.push(`- session: ${site.session_count} 件 / 合計時間: ${formatDuration(site.total_duration_sec)}`);
+    if (site.repos.length) lines.push(`- repos: ${site.repos.join(", ")}`);
+    for (const s of site.sessions) {
+      lines.push(`- ${s.title ?? s.id} (${s.status}${s.branch ? `, ${s.branch}` : ""})`);
+    }
   }
   return lines.join("\n");
 }

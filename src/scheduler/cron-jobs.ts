@@ -38,6 +38,11 @@ export interface CronJobDefinition {
    * 対象が 0 件なら 1 度も invoke しない。
    */
   fanout?: CronJobFanout;
+  /**
+   * 本社だけで発火する (拠点ロールの Cc では起動しない)。 日報は本社だけで更新する
+   * (2026-10-14 neco 指示、 SPEC-FED-SITE-ACTIVITY)。
+   */
+  hqOnly?: boolean;
 }
 
 /** LUDIARS の全リポジトリを横断するジョブの作業ディレクトリ (Ars root)。 */
@@ -122,6 +127,7 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     cron: LUDIARS_STATUS_DAILY_CRON,
     call_name: "ludiars-status-daily",
     buildArgs: () => ({ date: todayIso() }),
+    hqOnly: true,
 }, {
     name: "ludiars-review-weekly",
     cron: WEEKLY_REVIEW_CRON,

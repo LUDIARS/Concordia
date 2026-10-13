@@ -9,6 +9,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DayReportsRepo } from "../db/day-reports-repo.js";
 import { generateDayReport } from "./generator.js";
+import type { SiteActivityEntry } from "./site-activity.js";
 import { dayRange } from "./aggregator.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
@@ -20,6 +21,13 @@ const FRESHNESS_SEC = 4 * 3600;
 export interface SchedulerDeps {
   sessions: SessionsRepo;
   dayReports: DayReportsRepo;
+  /**
+   * 拠点ロールなら日報を作らない (日報は本社だけが作る、 2026-10-14 neco 指示)。
+   * 拠点の作業は site-activity-reporter が本社へ送る。 周期ごとに見る (連合設定は再起動なしで変わる)。
+   */
+  isSiteRole?: () => boolean;
+  /** 本社: 拠点から受け取った指定日の作業記録 (SPEC-FED-SITE-ACTIVITY)。 */
+  siteActivity?: (dateIso: string) => SiteActivityEntry[];
 }
 
 export interface SchedulerHandle {
@@ -39,13 +47,14 @@ export function startDailyScheduler(deps: SchedulerDeps): SchedulerHandle {
 
   async function ensureFresh(date_iso: string): Promise<void> {
     if (stopped) return;
+    if (deps.isSiteRole?.()) return;
     const existing = deps.dayReports.find(date_iso);
     const ageSec = existing
       ? Math.floor(Date.now() / 1000) - existing.generated_at
       : Infinity;
     if (ageSec < FRESHNESS_SEC) return; // 十分新しい
     try {
-      const report = await generateDayReport(date_iso, deps.sessions);
+      const report = await generateDayReport(date_iso, deps.sessions, deps.siteActivity?.(date_iso) ?? []);
       deps.dayReports.upsert(report);
       log.info(
         { date: date_iso, sessions: report.session_count, regenerated: !!existing },

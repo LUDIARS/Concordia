@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVITY_REPORT_MAX_SESSIONS,
   FEDERATION_PROTOCOL_VERSION,
   parseFederationFrame,
   serializeFederationFrame,
@@ -22,6 +23,27 @@ describe("federation protocol", () => {
       expect(parsed.ok, frame.type).toBe(true);
       if (parsed.ok) expect(parsed.frame.type).toBe(frame.type);
     }
+  });
+
+  it("accepts a site activity report and rejects one over the session cap", () => {
+    const session = {
+      id: "s-1", title: "日報", repo: "Concordia", branch: "main", provider: "claude-code",
+      status: "ended", started_at: 1, ended_at: 2, duration_sec: 1,
+    };
+    const ok = parseFederationFrame(serializeFederationFrame({
+      type: "activity-report", date_iso: "2026-10-14", generated_at: 3, session_count: 1, sessions: [session],
+    }));
+    expect(ok.ok).toBe(true);
+    const tooMany = parseFederationFrame(JSON.stringify({
+      v: 1, type: "activity-report", date_iso: "2026-10-14", generated_at: 3, session_count: 81,
+      sessions: Array.from({ length: ACTIVITY_REPORT_MAX_SESSIONS + 1 }, (_, i) => ({ ...session, id: `s-${i}` })),
+    }));
+    expect(tooMany.ok).toBe(false);
+    const extraField = parseFederationFrame(JSON.stringify({
+      v: 1, type: "activity-report", date_iso: "2026-10-14", generated_at: 3, session_count: 1,
+      sessions: [{ ...session, metadata: "{}" }],
+    }));
+    expect(extraField.ok).toBe(false);
   });
 
   it("rejects unsupported protocol versions", () => {

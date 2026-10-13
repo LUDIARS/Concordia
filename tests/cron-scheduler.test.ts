@@ -38,6 +38,31 @@ describe("startCronScheduler", () => {
     handle = null;
   });
 
+  // 日報は本社だけで更新する (2026-10-14 neco 指示、 SPEC-FED-SITE-ACTIVITY)。
+  it("skips HQ-only jobs on a site and runs them at HQ", async () => {
+    const invoke = vi.fn(async () => okResult());
+    let site = true;
+    handle = startCronScheduler(
+      { delegationService: fakeDelegationService(invoke), isSiteRole: () => site },
+      [
+        { name: "hq-only", cron: NEVER_FIRES, call_name: "ludiars-status-daily", buildArgs: () => ({}), hqOnly: true },
+        { name: "everywhere", cron: NEVER_FIRES, call_name: "kaizen-daily", buildArgs: () => ({}) },
+      ],
+    );
+
+    await handle.triggerNow();
+    expect(invoke.mock.calls.map(([input]) => (input as { call_name: string }).call_name)).toEqual(["kaizen-daily"]);
+
+    site = false;
+    invoke.mockClear();
+    await handle.triggerNow();
+    expect(invoke.mock.calls.map(([input]) => (input as { call_name: string }).call_name)).toEqual(["ludiars-status-daily", "kaizen-daily"]);
+  });
+
+  it("marks the LUDIARS dashboard daily report as HQ-only", () => {
+    expect(CRON_JOBS.find((job) => job.name === "ludiars-status-daily")?.hqOnly).toBe(true);
+  });
+
   it("triggerNow invokes the job's delegation with its built args", async () => {
     const invoke = vi.fn(async () => okResult());
     handle = startCronScheduler(

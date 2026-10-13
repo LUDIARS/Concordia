@@ -198,6 +198,7 @@ import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
+import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
 import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
@@ -1719,7 +1720,14 @@ export async function startBackend(): Promise<BackendHandle> {
     key: "daily",
     name: "daily-report-scheduler",
     start: () => {
-      dailyScheduler = startDailyScheduler({ sessions: repo, dayReports });
+      // 日報は本社だけが作る。 拠点ロールでは生成せず、 本社は拠点から届いた作業記録を載せる
+      // (2026-10-14 neco 指示、 SPEC-FED-SITE-ACTIVITY)。
+      dailyScheduler = startDailyScheduler({
+        sessions: repo,
+        dayReports,
+        isSiteRole: () => federation.isSiteRole(),
+        siteActivity: (dateIso) => federation.siteActivityFor(dateIso),
+      });
       return {
         stop: () => {
           dailyScheduler?.stop();
@@ -1727,6 +1735,16 @@ export async function startBackend(): Promise<BackendHandle> {
         },
       };
     },
+  });
+  // 拠点ロールのとき、 その日の作業記録を本社へ送る (日報の代わり)。 本社では何もしない。
+  workflowBindings.register({
+    key: "daily",
+    name: "site-activity-reporter",
+    start: () => startSiteActivityReporter({
+      isSiteRole: () => federation.isSiteRole(),
+      listSessionsInRange: (startTs, endTs) => repo.listSessionsInRange(startTs, endTs),
+      send: (report) => federation.sendActivityReport(report),
+    }),
   });
   // GitHub Issue ワークフローの常駐部 (進行中 run の追跡 + 取りこぼしポーリング)。
   // webhook の受け口は API 側にあり、 このトグルとは独立に署名検証で閉じている。
@@ -2826,6 +2844,8 @@ export async function startBackend(): Promise<BackendHandle> {
         // 本社 scheduler は本社チームだけを fanout する。子会社チームは子会社所有の
         // delegation から起動し、subsidiary_id と default team を一緒に運ぶ。
         fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActiveForSubsidiary(null)) },
+        // LUDIARS ダッシュボードの日報 (hqOnly) は拠点では発火しない。
+        isSiteRole: () => federation.isSiteRole(),
       }),
     });
     workflowBindings.register({

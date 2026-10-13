@@ -293,6 +293,31 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 運用の前提 (人の設定): 本社の listener 有効化 (ポート・待ち受けアドレス)、各拠点 Cc の本社 URL・
 拠点 ID・トークン。拠点側に別の Discord Bot を同じ guild へ繋いでいる構成は想定しない (二重投稿になる)。
 
+### 日報は本社だけで更新し、拠点の作業は本社へ送る (2026-10-14 neco 指示) {#SPEC-FED-SITE-ACTIVITY}
+
+「日報は本社のみで更新する / 各拠点がやったことは別途本社に送る処理を追加」「AとB両方」。拠点も本社と同じ Cc を動かしており、
+日報の生成と LUDIARS ダッシュボードの日報 cron が拠点でも走っていた (拠点ごとに重複した PR、本社の日報に拠点の作業が載らない)。
+
+| 責務 | 実装 |
+|---|---|
+| A: LUDIARS ダッシュボードの日報 (`ludiars-status-daily`) を拠点で発火しない | `src/scheduler/cron-jobs.ts` (`hqOnly`) / `cron-scheduler.ts` (`isSiteRole`) |
+| B: 拠点では Cc の日報 (day_reports) を生成しない | `src/daily/scheduler.ts` (`isSiteRole`) |
+| 拠点の作業記録の組み立て・本社の拠点欄の要約 (純関数) | `src/daily/site-activity.ts` |
+| 送信フレーム (`activity-report`、拠点 → 本社、応答なし) | `src/federation/protocol.ts` / `hq-listener.ts` |
+| 拠点: 今日・昨日の記録を 30 分ごとに送る | `src/federation/site-activity-reporter.ts` |
+| 本社: 拠点・日付ごとの台帳 (後着で上書き、`federation.hq.site_activity`) | `src/federation/site-activity-store.ts` / `runtime.ts` |
+| 本社の日報に拠点ごとの欄 (`bullets.sites`) | `src/daily/generator.ts` / `aggregator.ts` |
+
+1. 拠点ロールかどうかは周期・発火のたびに見る (連合の設定は再起動なしで変わる)。拠点ロールでない Cc (本社・単独運用) の動作は変えない。
+2. 拠点は今日と昨日のセッションを、新しい順に最大 80 件、題名・リポジトリ・ブランチ・provider・状態・開始/終了・時間だけ送る。総数は別に送る。
+   metadata・イベント本文・transcript は送らない。連合リンクが切れていれば送らず、次の周期で送り直す。
+3. 本社は有効な拠点からの記録だけを保存し、同じ拠点・日付は後着で上書きする。失効・停止中の拠点の記録は日報に載せない。
+4. 本社の日報は本社のセッションの集計とは別に、拠点ごとの欄を持つ (本社の session_count 等に拠点の数を混ぜない)。
+   日報の再生成は従来どおり 4 時間の鮮度判定に従うので、拠点の記録が日報に入るまで最大 4 時間かかる。
+5. 古い本社は `activity-report` を認証後の未知フレームとして読み捨てる (接続は切らない)。本社を先に更新する。
+
+未確定: 送る項目に提出した PR を含めるか。
+
 ### 本社と拠点で同じフォーラム投稿・通常セッションと同じ操作感 (2026-10-12 neco 指示) {#SPEC-FED-SITE-FORUM-PARITY}
 
 「本社と拠点で同じフォーラムとして投稿されるようにしてほしい」「通常のセッションと同じDiscordでの操作感にする」

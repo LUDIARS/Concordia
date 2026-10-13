@@ -15,6 +15,7 @@
  *   site → hq : ack { seq }              (seq 以下を受領済みとして outbox から削除)
  *   hq → site : error { code, message }  (close 直前の理由通知)
  *   双方向    : inquiry-request / inquiry-result (拠点間ワンショット調査、本社が中継)
+ *   site → hq : activity-report { date_iso, sessions } (拠点のその日の作業記録、応答なし)
  *
  * 死活は WS プロトコルレベルの ping/pong (ws ライブラリ) で行い、
  * アプリフレームには持ち込まない。
@@ -137,6 +138,35 @@ const mirrorOpenResultSchema = z.object({
 }).passthrough();
 
 /**
+ * 拠点のその日の作業記録 (SPEC-FED-SITE-ACTIVITY、2026-10-14 neco 指示「日報は本社のみで更新する /
+ * 各拠点がやったことは別途本社に送る」)。 拠点 → 本社の一方向。 同じ拠点・日付は後着で上書きするので
+ * 応答は返さず、 拠点は定期的に送り直す。 古い本社は認証後の未知フレームとして読み捨てる。
+ */
+export const ACTIVITY_REPORT_MAX_SESSIONS = 80;
+export const activitySessionSchema = z.object({
+  id: z.string().min(1).max(200),
+  title: z.string().max(200).nullable(),
+  repo: z.string().max(300).nullable(),
+  branch: z.string().max(200).nullable(),
+  provider: z.string().min(1).max(50),
+  status: z.string().min(1).max(30),
+  started_at: z.number().int().nonnegative(),
+  ended_at: z.number().int().nonnegative().nullable(),
+  duration_sec: z.number().int().nonnegative(),
+}).strict();
+export type FederationActivitySession = z.infer<typeof activitySessionSchema>;
+
+const activityReportSchema = z.object({
+  v: versionField,
+  type: z.literal("activity-report"),
+  date_iso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  generated_at: z.number().int().nonnegative(),
+  /** その日のセッション総数 (sessions が上限で切られていても総数は分かる)。 */
+  session_count: z.number().int().nonnegative(),
+  sessions: z.array(activitySessionSchema).max(ACTIVITY_REPORT_MAX_SESSIONS),
+}).passthrough();
+
+/**
  * 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 本社 ⇄ 拠点の双方向。 拠点同士は本社が中継する。
  * target / origin は site_id か本社を表す "hq"。
  */
@@ -238,6 +268,7 @@ const frameSchemas = {
   "inquiry-result": inquiryResultSchema,
   "mirror-open-request": mirrorOpenRequestSchema,
   "mirror-open-result": mirrorOpenResultSchema,
+  "activity-report": activityReportSchema,
 } as const;
 
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
@@ -257,6 +288,7 @@ export type FederationInquiryRequestFrame = z.infer<typeof inquiryRequestSchema>
 export type FederationInquiryResultFrame = z.infer<typeof inquiryResultSchema>;
 export type FederationMirrorOpenRequestFrame = z.infer<typeof mirrorOpenRequestSchema>;
 export type FederationMirrorOpenResultFrame = z.infer<typeof mirrorOpenResultSchema>;
+export type FederationActivityReportFrame = z.infer<typeof activityReportSchema>;
 export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
@@ -271,7 +303,8 @@ export type FederationFrame =
   | FederationInquiryRequestFrame
   | FederationInquiryResultFrame
   | FederationMirrorOpenRequestFrame
-  | FederationMirrorOpenResultFrame;
+  | FederationMirrorOpenResultFrame
+  | FederationActivityReportFrame;
 
 export type FederationFrameType = FederationFrame["type"];
 
@@ -349,7 +382,8 @@ export type FederationFrameInput =
   | { type: "inquiry-request"; request_id: string; origin: string; target: string; prompt: string; project?: string; timeout_sec: number }
   | { type: "inquiry-result"; request_id: string; ok: boolean; output?: string; error?: string; executed_by: string; duration_ms?: number }
   | { type: "mirror-open-request"; request_id: string; session_id: string; title: string; text: string }
-  | { type: "mirror-open-result"; request_id: string; ok: boolean; guild_id?: string; channel_id?: string; error?: string };
+  | { type: "mirror-open-result"; request_id: string; ok: boolean; guild_id?: string; channel_id?: string; error?: string }
+  | { type: "activity-report"; date_iso: string; generated_at: number; session_count: number; sessions: readonly FederationActivitySession[] };
 
 export function serializeFederationFrame(frame: FederationFrameInput): string {
   return JSON.stringify({ ...frame, v: FEDERATION_PROTOCOL_VERSION });

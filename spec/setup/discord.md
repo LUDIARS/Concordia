@@ -118,7 +118,9 @@ bot が要求する Gateway intents (`src/discord/bot.ts:73`):
 
 | command | 動作 |
 |---------|------|
-| `/spawn provider [cwd]` | 新 session を spawn (`provider` = claude/codex/gemini)。 Gateway が認証した user ID の役職 (管理職以上) を社員名簿で確認後、loopback 内部 API を呼ぶ ([spawn.md](spawn.md))。 |
+| `/spawn template [site] [project]` | Delegation テンプレートから新 session を spawn。 指定は template → site → project の 3 つだけで、 provider / model / effort / 既定 cwd はテンプレート、 起動先は拠点、 作業場所は project の設定から決める。 テンプレートの prompt は注入しない (2026-10-14 neco 指示)。 |
+| `/spawn-plain provider [model] [effort] [prompt] [project] [team] [task] [branch] [cwd] [site]` | provider (claude/codex/gemini) と model を直接指定して spawn。 |
+| (共通) | Gateway が認証した user ID の役職 (管理職以上) を社員名簿で確認後、loopback 内部 API を呼ぶ ([spawn.md](spawn.md))。 |
 | `/enter` | 対象 session に改行 (Enter キー) だけを inject (`/v1/sessions/:id/inject`)。 |
 | `/stat` | 現在の Concordia stat を表示。 |
 | `/end-session` | 対象 session を終了 (管理職以上)。 |
@@ -129,7 +131,7 @@ session 対応 channel ↔ session の双方向は [`spec/discord-lictor-relay.m
 
 Concordia 本体は loopback 内部 API。Discord Gateway が認証した発火 user ID を、設定画面 /
 社員名簿 (`staff_members` / Web UI「社員」ページ) の役職と照合してから spawn / delegation を
-呼ぶ。`/spawn`・`ctrl:spawn*`・forum spawn と `/end-session` は管理職以上、`/ex-run`・
+呼ぶ。`/spawn`・`/spawn-plain`・`ctrl:spawn*`・forum spawn と `/end-session` は管理職以上、`/ex-run`・
 `/ex-reboot` (キルスイッチ) は執行役員のみ。ID 欠落・未登録・役職不足・判定関数の未注入は
 全拒否 (fail-closed) で、service token は使用しない。詳細は
 [staff-roster.md](../feature/staff-roster.md)。

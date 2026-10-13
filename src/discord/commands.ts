@@ -4,6 +4,7 @@ import {
   Routes,
 } from "discord.js";
 import spawnCommand from "./commands/spawn.js";
+import spawnPlainCommand from "./commands/spawn-plain.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
 import rvPrsCommand from "./commands/rv-prs.js";
@@ -74,6 +75,7 @@ export interface CommandRegistrationOptions {
 // User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
+  spawnPlainCommand,
   statCommand,
   prsCommand,
   rvPrsCommand,
@@ -420,6 +422,7 @@ const PRIVILEGED_PROJECT_BINDING: PrivilegedInteraction = {
 const KILL_SWITCH_COMMANDS = new Set(["ex-run", "ex-reboot"]);
 /** 新セッションを起動して旧セッションを終了するため、両 capability が必要。 */
 const SESSION_SUCCESSION_COMMANDS = new Set(["co-relictor", "co-handover"]);
+const SESSION_SPAWN_COMMANDS = new Set(["spawn", "spawn-plain"]);
 
 /**
  * そのコマンドが「無効なワークフロー」に属していれば、 そのワークフローキーを返す。
@@ -434,12 +437,12 @@ function disabledWorkflowForCommand(name: string, deps: DiscordCommandDeps): Wor
 
 function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInteraction | null {
   if (interaction.isAutocomplete()) {
-    // `/spawn` choices include Memoria task titles. Apply the same fail-closed
+    // `/spawn-plain` choices include Memoria task titles. Apply the same fail-closed
     // authorization as execution so autocomplete cannot become a read bypass.
-    return interaction.commandName === "spawn" ? PRIVILEGED_SESSION_SPAWN : null;
+    return SESSION_SPAWN_COMMANDS.has(interaction.commandName) ? PRIVILEGED_SESSION_SPAWN : null;
   }
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
+    if (SESSION_SPAWN_COMMANDS.has(interaction.commandName)) return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
     // effort は費用に直結するので、 起動とは別に管理職以上の運用権限を要求する。
     if (interaction.commandName === "co-effort") return PRIVILEGED_EFFORT_CHANGE;

@@ -82,101 +82,56 @@ describe("/spawn Forum marker", () => {
   });
 });
 
-// 2026-09-01 neco 指示 1: 子会社でも /spawn は使えるが、起動先は関係プロジェクトに閉じる
-// (spec/feature/subsidiary-delegation.md §3.4)。 起動者の役職判定は dispatchInteraction 側。
-describe("/spawn 子会社の担当プロジェクト", () => {
+// 2026-10-14 neco 指示: /spawn は Delegation テンプレート起動専用。 指定は template → site → project の 3 つだけ。
+describe("/spawn Delegation 起動", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  /**
-   * spawn 後の待受は新しいセッションチャンネルが現れるまで最大 12 秒ポーリングする。
-   * 起動が通る経路のテストでは 1 回目 (knownIds 収集) の後に行が現れる形にする。
-   */
-  function makeSpawningDeps(patch: Partial<DiscordCommandDeps> = {}): DiscordCommandDeps {
-    return {
-      ...makeDeps(),
-      sessionChannelsRepo: {
-        listActive: vi.fn()
-          .mockReturnValueOnce([])
-          .mockReturnValue([{ session_id: "s-new", channel_id: "c-new" }]),
-      } as unknown as DiscordCommandDeps["sessionChannelsRepo"],
-      ...patch,
-    };
-  }
-
-  /** template ではなく provider + project 指定の経路 (子会社の想定操作)。 */
-  function makeSubsidiaryInteraction(options: Record<string, string | null>) {
+  function makeChannelInteraction(options: Record<string, string | null>) {
     return {
       channelId: "channel-1",
       channel: { isThread: () => false, parentId: null },
-      guildId: "guild-sub",
+      guildId: "guild-1",
       user: { id: "123456789" },
-      options: {
-        getString: (name: string) => options[name] ?? null,
-        getBoolean: () => null,
-      },
+      options: { getString: (name: string) => options[name] ?? null, getBoolean: () => null },
       deferReply: vi.fn(async () => undefined),
       editReply: vi.fn(async () => undefined),
       reply: vi.fn(async (_payload: { content?: string; ephemeral?: boolean }) => undefined),
     };
   }
 
-  it("子会社では Memoria task 候補を列挙しない", async () => {
-    const listOpenTasks = vi.fn();
-    const respond = vi.fn(async () => undefined);
-
-    await spawnCommand.autocomplete?.({
-      guildId: "guild-sub",
-      channelId: "channel-1",
-      options: { getFocused: () => ({ name: "task", value: "" }) },
-      respond,
-    } as never, {
-      ...makeDeps(),
-      subsidiaryId: "sub-1",
-      memoria: { listOpenTasks },
-    });
-
-    expect(listOpenTasks).not.toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith([]);
+  it("指定は template (必須) → site → project の 3 つだけ", () => {
+    const json = spawnCommand.builder.toJSON() as { options?: Array<{ name: string; required?: boolean }> };
+    expect(json.options?.map((o) => o.name)).toEqual(["template", "site", "project"]);
+    expect(json.options?.[0]?.required).toBe(true);
   });
 
-  it("子会社の team 候補は同じ子会社の行だけを使う", async () => {
-    const respond = vi.fn(async () => undefined);
-    const list = vi.fn(() => [{ id: "head", name: "Head", slug: "head" }]);
-    const listForSubsidiary = vi.fn(() => [{ id: "sub-team", name: "Subsidiary", slug: "sub" }]);
-
-    await spawnCommand.autocomplete?.({
-      guildId: "guild-sub",
-      channelId: "channel-1",
-      options: { getFocused: () => ({ name: "team", value: "" }) },
-      respond,
-    } as never, {
-      ...makeDeps(),
-      subsidiaryId: "sub-1",
-      teams: { list, listForSubsidiary } as unknown as DiscordCommandDeps["teams"],
-    });
-
-    expect(list).not.toHaveBeenCalled();
-    expect(listForSubsidiary).toHaveBeenCalledWith("sub-1");
-    expect(respond).toHaveBeenCalledWith([{ name: "Subsidiary (sub)", value: "sub-team" }]);
-  });
-
-  it("担当プロジェクトなら起動まで進む", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 42 }), { status: 200 }));
+  it("テンプレートの prompt を注入せず、 template と project だけで起動を依頼する", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => String(input).endsWith("/v1/admin/spawn-session")
+      ? new Response(JSON.stringify({ ok: true, pid: 3 }), { status: 200 })
+      : new Response(JSON.stringify({ templates: [{ call_name: "opus-5-5", title: "Opus", target_provider: "claude", is_active: true }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({ provider: "claude", project: "Concordia" });
+    const interaction = makeChannelInteraction({ template: "opus-5-5", project: "Concordia" });
 
-    await spawnCommand.execute(interaction as never, makeSpawningDeps({
-      subsidiaryId: "sub-1",
-      resolveSubsidiaryProjects: () => ["Concordia"],
-    }));
+    await spawnCommand.execute(interaction as never, {
+      ...makeDeps(),
+      sessionChannelsRepo: {
+        listActive: vi.fn().mockReturnValueOnce([]).mockReturnValue([{ session_id: "s-new", channel_id: "c-new" }]),
+      } as unknown as DiscordCommandDeps["sessionChannelsRepo"],
+    });
 
-    expect(fetchMock).toHaveBeenCalled();
+    const call = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/v1/admin/spawn-session"));
+    const body = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ template: "opus-5-5", inject_prompt: false, project: "Concordia" });
+    expect(body).not.toHaveProperty("prompt");
+    expect(body).not.toHaveProperty("model");
+    expect(body).not.toHaveProperty("options");
+    expect(body).not.toHaveProperty("memoria_task_id");
   });
 
-  it("担当外の project は起動せず、許可集合も対象名も返さない", async () => {
+  it("子会社の担当外 project は起動しない", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({ provider: "claude", project: "Cernere" });
+    const interaction = makeChannelInteraction({ template: "opus-5-5", project: "Cernere" });
 
     await spawnCommand.execute(interaction as never, {
       ...makeDeps(),
@@ -185,73 +140,6 @@ describe("/spawn 子会社の担当プロジェクト", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    const content = String(interaction.reply.mock.calls[0]?.[0]?.content ?? "");
-    expect(content).toContain("担当範囲外");
-    expect(content).not.toContain("Concordia");
-    expect(content).not.toContain("Cernere");
-  });
-
-  it("cwd の直接指定は受け付けない (project 集合と突き合わせられない)", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({
-      provider: "claude",
-      project: "Concordia",
-      cwd: "C:/workspace/Cernere",
-    });
-
-    await spawnCommand.execute(interaction as never, {
-      ...makeDeps(),
-      subsidiaryId: "sub-1",
-      resolveSubsidiaryProjects: () => ["Concordia"],
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
-  });
-
-  it("scope resolver 未配線の子会社は本社相当にせず fail-closed", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({ provider: "claude", project: "Concordia" });
-
-    await spawnCommand.execute(interaction as never, { ...makeDeps(), subsidiaryId: "sub-1" });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining("担当プロジェクト設定を確認できない"),
-    }));
-  });
-
-  it("子会社では scope の無い Memoria task を指定できない", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({
-      provider: "claude",
-      project: "Concordia",
-      task: "1737",
-    });
-
-    await spawnCommand.execute(interaction as never, {
-      ...makeDeps(),
-      subsidiaryId: "sub-1",
-      resolveSubsidiaryProjects: () => ["Concordia"],
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining("`task`"),
-      ephemeral: true,
-    }));
-  });
-
-  it("本社 (subsidiaryId 無し) は従来どおり cwd 指定で起動できる", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 7 }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const interaction = makeSubsidiaryInteraction({ provider: "claude", cwd: "C:/workspace/Cernere" });
-
-    await spawnCommand.execute(interaction as never, makeSpawningDeps());
-
-    expect(fetchMock).toHaveBeenCalled();
+    expect(String(interaction.reply.mock.calls[0]?.[0]?.content ?? "")).toContain("担当範囲外");
   });
 });

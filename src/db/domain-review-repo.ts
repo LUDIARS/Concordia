@@ -88,6 +88,35 @@ export interface DomainReviewAnswerRow {
   created_at: number;
 }
 
+/**
+ * domain-note を Anatomia の review-notes へ渡す状態 (spec §4.2)。
+ *  - `awaiting_choice`: どのドメインの話か決まらず、選択ダイアログの回答待ち
+ *  - `sending`: 送信を始めた (二重クリック・再配送での二重送信を止める占有)
+ *  - `sent`: Anatomia が下書き提案を作った (proposal_id)
+ *  - `rejected`: Anatomia が受け取りを拒んだ (reason)
+ *  - `failed`: ドメイン一覧が取れない・送信できない (reason)。再試行できる
+ */
+export type DomainReviewNoteDeliveryStatus = "awaiting_choice" | "sending" | "sent" | "rejected" | "failed";
+
+export interface DomainReviewNoteDeliveryRow {
+  answer_id: number;
+  status: DomainReviewNoteDeliveryStatus;
+  domain_id: string | null;
+  project_wide: number;
+  proposal_id: string | null;
+  reason: string | null;
+  chosen_by: string | null;
+  attempts: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface DomainReviewNoteTargetInput {
+  domainId: string | null;
+  projectWide: boolean;
+  chosenBy: string | null;
+}
+
 export class DomainReviewRepo {
   constructor(private readonly db: Database.Database) {}
 
@@ -207,6 +236,105 @@ export class DomainReviewRepo {
 
   markAnswerPlanAppended(id: number): void {
     this.db.prepare("UPDATE domain_review_answers SET plan_appended = 1 WHERE id = ?").run(id);
+  }
+
+  findAnswerById(id: number): DomainReviewAnswerRow | null {
+    return (this.db.prepare("SELECT * FROM domain_review_answers WHERE id = ?")
+      .get(id) as DomainReviewAnswerRow | undefined) ?? null;
+  }
+
+  findNoteDelivery(answerId: number): DomainReviewNoteDeliveryRow | null {
+    return (this.db.prepare("SELECT * FROM domain_review_note_deliveries WHERE answer_id = ?")
+      .get(answerId) as DomainReviewNoteDeliveryRow | undefined) ?? null;
+  }
+
+  /**
+   * 送信を占有する。 現在の行 (無ければ null) を `claimable` が許したときだけ
+   * `sending` にして true を返す。 判定と更新を BEGIN IMMEDIATE の中で行うので、
+   * 同じ回答への二重クリック・再配送・別 process の同時実行でも送信は 1 回になる。
+   */
+  claimNoteDelivery(
+    answerId: number,
+    target: DomainReviewNoteTargetInput,
+    claimable: (current: DomainReviewNoteDeliveryRow | null) => boolean,
+  ): boolean {
+    const claim = this.db.transaction((): boolean => {
+      const current = this.findNoteDelivery(answerId);
+      if (!claimable(current)) return false;
+      this.upsertNoteDelivery(answerId, {
+        status: "sending",
+        domainId: target.domainId,
+        projectWide: target.projectWide,
+        proposalId: null,
+        reason: null,
+        chosenBy: target.chosenBy ?? current?.chosen_by ?? null,
+        countAttempt: true,
+      });
+      return true;
+    });
+    return claim.immediate();
+  }
+
+  /** 送信の結果・選択待ち・失敗理由を残す。 */
+  saveNoteDelivery(answerId: number, input: {
+    status: DomainReviewNoteDeliveryStatus;
+    domainId?: string | null;
+    projectWide?: boolean;
+    proposalId?: string | null;
+    reason?: string | null;
+  }): DomainReviewNoteDeliveryRow {
+    const current = this.findNoteDelivery(answerId);
+    this.upsertNoteDelivery(answerId, {
+      status: input.status,
+      domainId: input.domainId === undefined ? current?.domain_id ?? null : input.domainId,
+      projectWide: input.projectWide === undefined ? current?.project_wide === 1 : input.projectWide,
+      proposalId: input.proposalId ?? null,
+      reason: input.reason ?? null,
+      chosenBy: current?.chosen_by ?? null,
+      countAttempt: false,
+    });
+    return this.findNoteDelivery(answerId)!;
+  }
+
+  private upsertNoteDelivery(answerId: number, input: {
+    status: DomainReviewNoteDeliveryStatus;
+    domainId: string | null;
+    projectWide: boolean;
+    proposalId: string | null;
+    reason: string | null;
+    chosenBy: string | null;
+    countAttempt: boolean;
+  }): void {
+    const now = Date.now();
+    const attempt = input.countAttempt ? 1 : 0;
+    this.db.prepare(`
+      INSERT INTO domain_review_note_deliveries(
+        answer_id, status, domain_id, project_wide, proposal_id, reason, chosen_by,
+        attempts, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(answer_id) DO UPDATE SET
+        status = excluded.status,
+        domain_id = excluded.domain_id,
+        project_wide = excluded.project_wide,
+        proposal_id = excluded.proposal_id,
+        reason = excluded.reason,
+        chosen_by = excluded.chosen_by,
+        attempts = domain_review_note_deliveries.attempts + ?,
+        updated_at = excluded.updated_at
+    `).run(
+      answerId,
+      input.status,
+      input.domainId,
+      input.projectWide ? 1 : 0,
+      input.proposalId,
+      input.reason,
+      input.chosenBy,
+      attempt,
+      now,
+      now,
+      attempt,
+    );
   }
 
   listAnswers(postId: number): DomainReviewAnswerRow[] {

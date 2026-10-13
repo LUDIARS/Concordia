@@ -329,7 +329,7 @@ describe("DomainReviewService.recordReply", () => {
     expect(answers[0]!.answer_text).toBe("説明はこう直したい");
   });
 
-  it("plan を伴わない投稿への返信は台帳にだけ残る", async () => {
+  it("plan を伴わない投稿への返信は台帳に残り、ドメインが決まらなければ選択待ちになる", async () => {
     const { service, posts } = makeService({ repoPath });
     await service.request({ trigger: "manual", code: "Cc" });
 
@@ -340,9 +340,64 @@ describe("DomainReviewService.recordReply", () => {
       text: "境界がおかしい",
       source: "discord:c/m",
     });
-    expect(result).toMatchObject({ handled: true, kind: "domain-note", planAppended: false });
+    expect(result).toMatchObject({
+      handled: true,
+      kind: "domain-note",
+      planAppended: false,
+      noteDelivery: { status: "awaiting_choice" },
+    });
     const post = posts.findPostByMessage("discord", "msg-1")!;
-    expect(posts.listAnswers(post.id)).toHaveLength(1);
+    const answers = posts.listAnswers(post.id);
+    expect(answers).toHaveLength(1);
+    expect(posts.findNoteDelivery(answers[0]!.id)?.status).toBe("awaiting_choice");
+  });
+
+  it("先頭指定のある domain-note は Anatomia の review-notes へ送り、選択でも送れる", async () => {
+    const submitReviewNotes = vi.fn(async () => ({
+      ok: true,
+      data: { proposals: [{ proposalId: "p-1", affectedDomainIds: ["governance"] }], rejected: [] },
+    }));
+    const { service, posts } = makeService({ repoPath, anatomia: stubAnatomia({ submitReviewNotes }) });
+    await service.request({ trigger: "manual", code: "Cc" });
+
+    const direct = await service.recordReply({
+      platform: "discord",
+      messageId: "msg-1",
+      authorId: "42",
+      text: "Governance：承認は二段階",
+      source: "discord:c/direct",
+    });
+    expect(direct).toMatchObject({ noteDelivery: { status: "sent", domainId: "governance", proposalId: "p-1" } });
+
+    const pending = await service.recordReply({
+      platform: "discord",
+      messageId: "msg-1",
+      authorId: "42",
+      text: "全体の命名が揺れている",
+      source: "discord:c/pending",
+    });
+    const answerId = pending.handled && pending.authorized ? pending.noteDelivery?.answerId : undefined;
+    expect(answerId).toBeDefined();
+    expect(await service.chooseNoteDomain({ answerId: answerId!, choice: "*", platform: "discord", actorId: "42" }))
+      .toMatchObject({ ok: true, outcome: { status: "sent", domainId: null } });
+    expect(submitReviewNotes).toHaveBeenCalledTimes(2);
+    expect(posts.findNoteDelivery(answerId!)?.project_wide).toBe(1);
+  });
+
+  it("plan 起点の返信は review-notes へ送らない (既存挙動を変えない)", async () => {
+    const submitReviewNotes = vi.fn();
+    const { service } = makeService({ repoPath, anatomia: stubAnatomia({ submitReviewNotes }) });
+    await service.request({ trigger: "plan", code: "Cc" });
+
+    const result = await service.recordReply({
+      platform: "discord",
+      messageId: "msg-1",
+      authorId: "42",
+      text: "governance: plan への回答",
+      source: "discord:c/plan",
+    });
+    expect(result).toMatchObject({ kind: "plan-question", noteDelivery: null });
+    expect(submitReviewNotes).not.toHaveBeenCalled();
   });
 
   it("空白だけの返信は回答として扱わない", async () => {

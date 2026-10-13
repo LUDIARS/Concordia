@@ -12,7 +12,7 @@
  * SRP: 手順の組み立てだけ。 取得は anatomia-client、 変換は report、
  * 描画と送信は poster (chat-platform 側の実装)。
  *
- * @implements spec/feature/domain-review-discord.md §2, §4
+ * @implements spec/feature/domain-review-discord.md §2, §4, §4.2
  */
 
 import type { ProjectCodeRow, ProjectCodesRepo } from "../db/project-codes-repo.js";
@@ -20,6 +20,7 @@ import type { DomainReviewAnswerKind, DomainReviewRepo } from "../db/domain-revi
 import { AnatomiaDomainClient, type AnatomiaRawDomain } from "./anatomia-client.js";
 import { captureLayerDiagram, type CaptureLayerDiagramInput, type CapturedDiagram } from "./graph-image.js";
 import { renderLayerDiagramHtml } from "./layer-diagram.js";
+import { DomainReviewNoteDelivery, type NoteChoiceResult, type NoteDeliveryOutcome } from "./note-delivery.js";
 import { appendPlanReviewAnswer, readLatestPlan, readPlan } from "./plan-file.js";
 import { buildDomainReviewReport, type DomainReviewPlanInput } from "./report.js";
 import type { DomainReviewReport, DomainReviewTarget, DomainReviewTrigger } from "./types.js";
@@ -85,11 +86,18 @@ export interface DomainReviewServiceDeps {
 
 export class DomainReviewService {
   private readonly anatomia: AnatomiaDomainClient;
+  private readonly notes: DomainReviewNoteDelivery;
   /** 同じ投稿への再配送と同時返信を直列化し、台帳・plan の lost update を防ぐ。 */
   private readonly replyQueues = new Map<number, Promise<void>>();
 
   constructor(private readonly deps: DomainReviewServiceDeps) {
     this.anatomia = deps.anatomia ?? new AnatomiaDomainClient();
+    this.notes = new DomainReviewNoteDelivery({
+      posts: deps.posts,
+      anatomia: this.anatomia,
+      log: deps.log,
+      isReplyAuthorAllowed: deps.isReplyAuthorAllowed,
+    });
   }
 
   /** 1 契機ぶんのドメインレビュー投稿。 */
@@ -211,9 +219,10 @@ export class DomainReviewService {
    * ドメインレビュー投稿への返信を回答として取り込む (§8.2 C-6)。
    *
    * plan 起点の投稿への返信は `.anatomia/plan/<hash>.json` の `reviewAnswers[]` へ
-   * 追記する。 それ以外 (ドメイン説明の修正・紐付け指示) は Cc の台帳に残すだけ —
-   * Anatomia 側に自由文を受ける authoring 口が無く、 Gate A は「審査済み提案一式 +
-   * expectedHead」しか受け付けないため、 偽の配線を作らない。
+   * 追記する。 それ以外 (ドメイン説明の修正・紐付け指示 = domain-note) は台帳に残したうえで
+   * Anatomia の review-notes へ渡す (§4.2)。 Anatomia はドメイン定義を書き換えず、
+   * Gate A 承認待ちの下書き提案を作るだけ。 どのドメインの話か決まらなければ
+   * `noteDelivery.status = "awaiting_choice"` と選択肢を返し、 chat 側が選択ダイアログを出す。
    */
   async recordReply(input: {
     platform: string;
@@ -224,7 +233,15 @@ export class DomainReviewService {
   }): Promise<
     | { handled: false }
     | { handled: true; authorized: false; code: string }
-    | { handled: true; authorized: true; kind: DomainReviewAnswerKind; planAppended: boolean; code: string }
+    | {
+      handled: true;
+      authorized: true;
+      kind: DomainReviewAnswerKind;
+      planAppended: boolean;
+      code: string;
+      /** domain-note だけ。 plan-question では null。 */
+      noteDelivery: NoteDeliveryOutcome | null;
+    }
   > {
     const post = this.deps.posts.findPostByMessage(input.platform, input.messageId);
     if (!post) return { handled: false };
@@ -252,12 +269,15 @@ export class DomainReviewService {
             source: existing.source,
           })
           : existing.plan_appended === 1;
+        // 再配送は未送信の指摘を再試行する口を兼ねる (終端済み・送信中なら送らない)。
+        const noteDelivery = kind === "domain-note" ? await this.notes.deliver(post, existing) : null;
         return {
           handled: true,
           authorized: true,
           kind,
           planAppended,
           code: post.code,
+          noteDelivery,
         };
       }
 
@@ -286,8 +306,28 @@ export class DomainReviewService {
       const storedKind: DomainReviewAnswerKind = answer.kind === "plan-question"
         ? "plan-question"
         : "domain-note";
-      return { handled: true, authorized: true, kind: storedKind, planAppended, code: post.code };
+      const noteDelivery = storedKind === "domain-note" ? await this.notes.deliver(post, answer) : null;
+      return { handled: true, authorized: true, kind: storedKind, planAppended, code: post.code, noteDelivery };
     });
+  }
+
+  /** 選択ダイアログの回答 (§4.2)。 同じ投稿の返信と直列化する。 */
+  async chooseNoteDomain(input: {
+    answerId: number;
+    choice: string;
+    platform: string;
+    actorId: string;
+  }): Promise<NoteChoiceResult> {
+    const postId = this.deps.posts.findAnswerById(input.answerId)?.post_id;
+    if (postId === undefined) return { ok: false, reason: "answer_not_found" };
+    return this.enqueueReply(postId, () => this.notes.choose(input));
+  }
+
+  /** 未送信の指摘の再試行 (§4.2)。 */
+  async retryNoteDelivery(answerId: number): Promise<NoteChoiceResult> {
+    const postId = this.deps.posts.findAnswerById(answerId)?.post_id;
+    if (postId === undefined) return { ok: false, reason: "answer_not_found" };
+    return this.enqueueReply(postId, () => this.notes.retry(answerId));
   }
 
   private async appendStoredPlanAnswer(

@@ -228,3 +228,45 @@ describe("project_codes.domain_review", () => {
     expect(renamed?.domain_review).toBe(0);
   });
 });
+
+describe("DomainReviewRepo note deliveries", () => {
+  function noteAnswer(repo: DomainReviewRepo) {
+    const post = repo.recordPost(postInput({ planTaskHash: null, triggerKind: "manual" }));
+    return repo.recordAnswer({
+      postId: post.id,
+      kind: "domain-note",
+      answeredBy: "discord:42",
+      answerText: "境界がおかしい",
+      source: "discord:c/note",
+      planAppended: false,
+    });
+  }
+
+  it("占有は claimable が許したときだけ sending にし、試行回数を数える", () => {
+    const repo = new DomainReviewRepo(makeTestDb());
+    const answer = noteAnswer(repo);
+    const target = { domainId: "combat", projectWide: false, chosenBy: "discord:42" };
+
+    expect(repo.claimNoteDelivery(answer.id, target, (current) => current === null)).toBe(true);
+    expect(repo.claimNoteDelivery(answer.id, target, (current) => current === null)).toBe(false);
+    expect(repo.findNoteDelivery(answer.id)).toMatchObject({
+      status: "sending",
+      domain_id: "combat",
+      chosen_by: "discord:42",
+      attempts: 1,
+    });
+  });
+
+  it("結果の保存は宛先と選択者を保ったまま状態と理由を更新する", () => {
+    const repo = new DomainReviewRepo(makeTestDb());
+    const answer = noteAnswer(repo);
+    repo.claimNoteDelivery(answer.id, { domainId: null, projectWide: true, chosenBy: "discord:42" }, () => true);
+
+    const failed = repo.saveNoteDelivery(answer.id, { status: "failed", reason: "anatomia_unreachable" });
+    expect(failed).toMatchObject({ status: "failed", reason: "anatomia_unreachable", project_wide: 1, chosen_by: "discord:42" });
+
+    const sent = repo.saveNoteDelivery(answer.id, { status: "sent", proposalId: "p-1" });
+    expect(sent).toMatchObject({ status: "sent", proposal_id: "p-1", reason: null, attempts: 1 });
+    expect(repo.findAnswerById(answer.id)?.answer_text).toBe("境界がおかしい");
+  });
+});

@@ -133,6 +133,12 @@ import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-sp
 import { createFederationEgressExecutor } from "./federation-egress.js";
 import { handleFederationQuestionInteraction, isFederationQuestionInteraction } from "./federation-question-interaction.js";
 import { withoutRequesterMention } from "./federation-question.js";
+import {
+  buildDomainReviewNoteComponents,
+  domainReviewNoteReplyText,
+  type NoteDeliveryView,
+} from "./domain-review-note-choice.js";
+import { handleDomainReviewNoteInteraction, isDomainReviewNoteInteraction } from "./domain-review-note-interaction.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
@@ -1906,6 +1912,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             authorized?: boolean;
             kind?: string;
             plan_appended?: boolean;
+            note_delivery?: NoteDeliveryView;
           }>(
             deps.concordiaUrl,
             "POST",
@@ -1925,14 +1932,23 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               reply: "このユーザーにはレビュー回答の記録権限がありません (管理職以上が必要)。",
             };
           }
-          return {
-            handled: true,
-            reply: result.kind === "plan-question"
-              ? (result.plan_appended
+          if (result.kind === "plan-question") {
+            return {
+              handled: true,
+              reply: result.plan_appended
                 ? "回答を plan の突合資料に追記しました。"
-                : "回答を記録しました (plan ファイルへの追記はできませんでした)。")
-              : "ドメインへの指摘を記録しました。",
-          };
+                : "回答を記録しました (plan ファイルへの追記はできませんでした)。",
+            };
+          }
+          // domain-note: Anatomia の review-notes への受け渡し結果。ドメインが決まらなければ
+          // 返信先に選択ダイアログを出す (spec domain-review-discord §4.2)。
+          return result.note_delivery
+            ? {
+              handled: true,
+              reply: domainReviewNoteReplyText(result.note_delivery),
+              components: buildDomainReviewNoteComponents(result.note_delivery),
+            }
+            : { handled: true, reply: "ドメインへの指摘を記録しました。" };
         },
         handlePlanReply: async (sessionId, text, authorId) => {
           const match = text.match(/^\s*\[([ABC])\](?:\s+([\s\S]+))?\s*$/i);
@@ -2269,6 +2285,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (isMeetingLinkInteraction(interaction)) {
       void handleMeetingLinkInteraction(interaction, meetingLinks)
         .catch(() => log.warn("meeting respondent private reply failed"));
+      return;
+    }
+    if (isDomainReviewNoteInteraction(interaction)) {
+      void handleDomainReviewNoteInteraction(interaction, async (input) => {
+        const result = await callConcordia<{ note_delivery: NoteDeliveryView }>(
+          deps.concordiaUrl,
+          "POST",
+          `/v1/domain-review/answers/${input.answerId}/note-domain`,
+          { platform: "discord", actor_id: input.actorId, choice: input.choice },
+        );
+        return "error" in result ? { error: String(result.error) } : result;
+      }, log).catch((error) => log.warn(`domain-review note choice failed: ${String(error)}`));
       return;
     }
     if (deps.routeFederationIngress && isFederationQuestionInteraction(interaction)) {

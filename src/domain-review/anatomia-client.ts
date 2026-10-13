@@ -20,6 +20,9 @@ import { anatomiaBaseUrl } from "../config/service-urls.js";
 /** prepared view の異常膨張で Concordia process のメモリを使い切らないための上限。 */
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
+/** review-notes は Anatomia 側で下書き提案を作るので、読み取りより長く待つ。 */
+const REVIEW_NOTES_TIMEOUT_MS = 15_000;
+
 /** 未 prepare は 409。 404 は未登録。 それ以外の失敗は unreachable に畳む。 */
 export type AnatomiaFetch<T> =
   | { ok: true; data: T }
@@ -37,6 +40,20 @@ export interface AnatomiaRawDomain {
   implementorCount: number;
   conforms: boolean;
   violationCount: number;
+}
+
+/** review-notes へ渡す指摘 1 件。 domainId 無し = プロジェクト全体への指摘。 */
+export interface AnatomiaReviewNoteInput {
+  domainId?: string;
+  note: string;
+  reviewRef: string;
+  kind?: "description" | "assignment" | "other";
+}
+
+/** review-notes の応答のうち Cc が台帳に残す部分。 形の合わない要素は落とす。 */
+export interface AnatomiaReviewNotesResult {
+  proposals: Array<{ proposalId: string; affectedDomainIds: string[] }>;
+  rejected: Array<{ index: number; reviewRef: string | null; reason: string }>;
 }
 
 export interface AnatomiaDomainClientOptions {
@@ -113,8 +130,33 @@ export class AnatomiaDomainClient {
       });
   }
 
+  /**
+   * ドメインへの指摘を Anatomia の review-notes へ渡す。 Anatomia はドメイン定義を
+   * 書き換えず、 Gate A 承認待ちの下書き提案を返すだけ。 知らない domainId は rejected。
+   */
+  submitReviewNotes(
+    projectId: string,
+    notes: readonly AnatomiaReviewNoteInput[],
+  ): Promise<AnatomiaFetch<AnatomiaReviewNotesResult>> {
+    const path = `/api/projects/${encodeURIComponent(projectId)}/domain-organization/proposals/review-notes`;
+    return this.requestJson<unknown>("POST", path, { notes }, REVIEW_NOTES_TIMEOUT_MS).then((result) => {
+      if (!result.ok) return result;
+      return { ok: true as const, data: parseReviewNotesResult(result.data) };
+    });
+  }
+
   private getJson<T>(path: string): Promise<AnatomiaFetch<T>> {
+    return this.requestJson<T>("GET", path, null, this.timeoutMs);
+  }
+
+  private requestJson<T>(
+    method: "GET" | "POST",
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<AnatomiaFetch<T>> {
     const url = `${this.baseUrl}${path}`;
+    const payload = body === null ? null : JSON.stringify(body);
     return new Promise((resolve) => {
       let settled = false;
       const finish = (value: AnatomiaFetch<T>) => { if (!settled) { settled = true; resolve(value); } };
@@ -131,8 +173,11 @@ export class AnatomiaDomainClient {
             hostname: parsed.hostname,
             port: parsed.port,
             path: parsed.pathname + parsed.search,
-            method: "GET",
+            method,
             agent: false,
+            ...(payload === null
+              ? {}
+              : { headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } }),
           },
           (res) => {
             const status = res.statusCode ?? 0;
@@ -162,9 +207,9 @@ export class AnatomiaDomainClient {
             });
           },
         );
-        req.setTimeout(this.timeoutMs, () => { req.destroy(); finish({ ok: false, reason: "unreachable" }); });
+        req.setTimeout(timeoutMs, () => { req.destroy(); finish({ ok: false, reason: "unreachable" }); });
         req.on("error", () => finish({ ok: false, reason: "unreachable" }));
-        req.end();
+        req.end(payload ?? undefined);
       } catch {
         finish({ ok: false, reason: "unreachable" });
       }
@@ -192,6 +237,31 @@ export function matchProjectId(
     if (!best || depth > best.depth) best = { id: project.id, depth };
   }
   return best?.id ?? null;
+}
+
+/** review-notes の応答を信頼できない入力として絞り込む。 */
+export function parseReviewNotesResult(value: unknown): AnatomiaReviewNotesResult {
+  const record = isRecord(value) ? value : {};
+  const proposals = Array.isArray(record["proposals"]) ? record["proposals"] : [];
+  const rejected = Array.isArray(record["rejected"]) ? record["rejected"] : [];
+  return {
+    proposals: proposals.flatMap((entry) => {
+      if (!isRecord(entry) || typeof entry["proposalId"] !== "string" || !entry["proposalId"]) return [];
+      const affected = Array.isArray(entry["affectedDomainIds"]) ? entry["affectedDomainIds"] : [];
+      return [{
+        proposalId: entry["proposalId"],
+        affectedDomainIds: affected.filter((id): id is string => typeof id === "string"),
+      }];
+    }),
+    rejected: rejected.flatMap((entry) => {
+      if (!isRecord(entry)) return [];
+      return [{
+        index: numberOr(entry["index"], -1),
+        reviewRef: typeof entry["reviewRef"] === "string" ? entry["reviewRef"] : null,
+        reason: typeof entry["reason"] === "string" && entry["reason"] ? entry["reason"] : "unknown",
+      }];
+    }),
+  };
 }
 
 function normalizePath(value: string): string {

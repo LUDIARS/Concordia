@@ -7,7 +7,7 @@
     { "pathPattern": "(^|/)src/domain-review(?:/.*)?$" },
     { "pathPattern": "(^|/)src/db/domain-review-(repo|seed)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/domain-review(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/discord/domain-review-(post|embeds)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/domain-review-(post|embeds|note-choice|note-interaction)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/discord/embed-limits(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/discord/commands/domain-review(\\.test)?\\.ts$" }
   ],
@@ -21,7 +21,8 @@
     "optional-diagram-capture",
     "manager-authorized-reply-as-review-answer",
     "idempotent-reply-ingest",
-    "atomic-plan-append"
+    "atomic-plan-append",
+    "review-note-delivery-with-domain-choice"
   ],
   "specRefs": [
     "spec/feature/domain-review-discord.md"

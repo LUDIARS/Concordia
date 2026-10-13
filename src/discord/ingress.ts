@@ -1,4 +1,4 @@
-import { ChannelType, type Message } from "discord.js";
+import { ChannelType, type Message, type MessageReplyOptions } from "discord.js";
 import type { ChatChannel, ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
@@ -123,7 +123,12 @@ export interface IngressDeps {
     authorId: string;
     text: string;
     source: string;
-  }) => Promise<{ handled: boolean; reply?: string }>;
+  }) => Promise<{
+    handled: boolean;
+    reply?: string;
+    /** 返信に付ける Discord API の生 JSON 部品 (ドメインの選択ダイアログ、§4.2)。 */
+    components?: Array<Record<string, unknown>>;
+  }>;
   /**
    * Astra With Sidecar の論理会話の受付 (backend 経由)。 未配線なら従来どおり
    * 結び付いたセッションへ直接 inject する。
@@ -189,8 +194,19 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     if (outcome.handled) {
       deps.log.info(`ingress: domain-review reply recorded message=${msg.id} ref=${domainReviewRefId}`);
       if (outcome.reply) {
-        await msg.reply({ content: outcome.reply, allowedMentions: { parse: [], repliedUser: false } })
-          .catch(() => { /* ack は best-effort */ });
+        await msg.reply({
+          content: outcome.reply,
+          allowedMentions: { parse: [], repliedUser: false },
+          ...(outcome.components?.length
+            ? { components: outcome.components as unknown as NonNullable<MessageReplyOptions["components"]> }
+            : {}),
+        }).catch((e) => {
+          // ack は best-effort。ただし選択ダイアログを出せなかったことはログに残す
+          // (回答は台帳に awaiting_choice で残り、retry で選択肢を取り直せる)。
+          if (outcome.components?.length) {
+            deps.log.warn(`ingress: domain-review choice dialog failed message=${msg.id}: ${(e as Error).message}`);
+          }
+        });
       }
       return;
     }

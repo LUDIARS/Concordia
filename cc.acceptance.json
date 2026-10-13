@@ -1333,6 +1333,50 @@
       "contracts": []
     },
     {
+      "source": "src/domain-review/anatomia-client.ts",
+      "tests": [
+        "src/domain-review/anatomia-client.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/domain-review/note-domain.ts",
+      "tests": [
+        "src/domain-review/note-domain.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/domain-review/note-delivery.ts",
+      "tests": [
+        "src/domain-review/note-delivery.test.ts",
+        "src/domain-review/service.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/domain-review-note-choice.ts",
+      "tests": [
+        "src/discord/domain-review-note-choice.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/domain-review-note-interaction.ts",
+      "tests": [
+        "src/discord/domain-review-note-interaction.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/discord/bot.ts",
+      "tests": [
+        "src/discord/domain-review-note-choice.test.ts",
+        "src/discord/domain-review-note-interaction.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/api/register-chat.ts",
       "tests": [
         "src/api/chat.test.ts"

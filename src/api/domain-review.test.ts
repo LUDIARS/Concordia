@@ -122,6 +122,42 @@ describe("POST /v1/domain-review/replies", () => {
     expect(await res.json()).toEqual({ handled: true, authorized: false, code: "Cc" });
   });
 
+  it("domain-note は Anatomia への受け渡し結果 (選択待ちなら選択肢) を返す", async () => {
+    const recordReply = vi.fn(async () => ({
+      handled: true as const,
+      authorized: true as const,
+      kind: "domain-note" as const,
+      planAppended: false,
+      code: "Cc",
+      noteDelivery: {
+        status: "awaiting_choice" as const,
+        answerId: 5,
+        choices: [{ value: "combat", label: "combat" }, { value: "*", label: "どのドメインでもない (プロジェクト全体)" }],
+        omitted: 0,
+      },
+    }));
+    const { app } = router({ recordReply } as unknown as Partial<DomainReviewService>);
+    const res = await post(app, "/replies", {
+      message_id: "msg-1",
+      author_id: "42",
+      text: "境界がおかしい",
+      source: "discord:c/m",
+    });
+    expect(await res.json()).toEqual({
+      handled: true,
+      authorized: true,
+      kind: "domain-note",
+      plan_appended: false,
+      code: "Cc",
+      note_delivery: {
+        status: "awaiting_choice",
+        answer_id: 5,
+        choices: [{ value: "combat", label: "combat" }, { value: "*", label: "どのドメインでもない (プロジェクト全体)" }],
+        omitted: 0,
+      },
+    });
+  });
+
   it("対象外の message は handled: false", async () => {
     const recordReply = vi.fn(async () => ({ handled: false as const }));
     const { app } = router({ recordReply } as unknown as Partial<DomainReviewService>);
@@ -132,6 +168,43 @@ describe("POST /v1/domain-review/replies", () => {
       source: "discord:c/m",
     });
     expect(await res.json()).toEqual({ handled: false });
+  });
+});
+
+describe("POST /v1/domain-review/answers/:id/note-domain", () => {
+  it("選択を service へ渡し、送信結果を返す", async () => {
+    const chooseNoteDomain = vi.fn(async () => ({
+      ok: true as const,
+      outcome: { status: "sent" as const, answerId: 5, domainId: null, proposalId: "p-1" },
+    }));
+    const { app } = router({ chooseNoteDomain } as unknown as Partial<DomainReviewService>);
+    const res = await post(app, "/answers/5/note-domain", { actor_id: "42", choice: "*" });
+    expect(res.status).toBe(200);
+    expect(chooseNoteDomain).toHaveBeenCalledWith({ answerId: 5, choice: "*", platform: "discord", actorId: "42" });
+    expect(await res.json()).toEqual({
+      note_delivery: { status: "sent", answer_id: 5, domain_id: null, proposal_id: "p-1" },
+    });
+  });
+
+  it("権限の無い選択は 403、不正な id は 400", async () => {
+    const chooseNoteDomain = vi.fn(async () => ({ ok: false as const, reason: "forbidden" as const }));
+    const { app } = router({ chooseNoteDomain } as unknown as Partial<DomainReviewService>);
+    expect((await post(app, "/answers/5/note-domain", { actor_id: "x", choice: "combat" })).status).toBe(403);
+    expect((await post(app, "/answers/abc/note-domain", { actor_id: "x", choice: "combat" })).status).toBe(400);
+  });
+});
+
+describe("POST /v1/domain-review/answers/:id/note-delivery/retry", () => {
+  it("未送信の理由を返す (無言で捨てない)", async () => {
+    const retryNoteDelivery = vi.fn(async () => ({
+      ok: true as const,
+      outcome: { status: "failed" as const, answerId: 5, reason: "domains_unavailable:unreachable" },
+    }));
+    const { app } = router({ retryNoteDelivery } as unknown as Partial<DomainReviewService>);
+    const res = await post(app, "/answers/5/note-delivery/retry", {});
+    expect(await res.json()).toEqual({
+      note_delivery: { status: "failed", answer_id: 5, reason: "domains_unavailable:unreachable" },
+    });
   });
 });
 

@@ -29,13 +29,27 @@ PR #1405 の範囲とした。本タスクはその続き。
 
 ## 完了条件
 
-- [ ] 前提: Anatomia 側に「自由文の指摘を提案の下書きへ変換する」または「指摘をドメイン定義の
-      レビュー材料として受け取る」口があること。**無ければこのタスクは着手せず、
-      Anatomia 側の作業として起票し直す** (Cc 側で推測して埋めない)。
-- [ ] `kind: "domain-note"` の回答が Anatomia へ渡り、Gate A の承認待ち提案として人間が見られること。
-- [ ] 渡せなかった回答は Cc の台帳に残り、理由がログから追えること (無言で捨てない)。
-- [ ] `spec/feature/domain-review-discord.md` §4 の「配線しない理由」を実装後の姿に書き換える。
-- [ ] 追加・変更したテストのみ実行して緑。
+Actio: actio:d972ca17-ff30-4bfe-b223-e107dce0ce15 (a1118ba2)。設計: `spec/feature/domain-review-discord.md` §4.2。
+
+- [x] 前提: Anatomia 側に「指摘をドメイン定義のレビュー材料として受け取る」口がある
+      (`POST /api/projects/:id/domain-organization/proposals/review-notes`。domainId 省略 =
+      プロジェクト全体は Anatomia #2849、マージ待ち)。
+- [x] `kind: "domain-note"` の回答が Anatomia へ渡り、Gate A の承認待ち提案として人間が見られること
+      (`src/domain-review/note-delivery.ts`。先頭指定 `ドメイン名: 本文` で宛先が決まる)。
+- [x] 宛先ドメインが決まらなければ Discord の返信先に選択ダイアログ (ドメイン 24 件 + プロジェクト全体) を出す。
+      選べるのは返信者本人か回答権限のある人だけ。
+- [x] 渡せなかった回答は Cc の台帳 (`domain_review_note_deliveries`、migration 134) に理由付きで残り、
+      ログから追えること (無言で捨てない)。再配送と `POST /v1/domain-review/answers/:id/note-delivery/retry` で再試行できる。
+- [x] 二重クリック・再配送で二重送信しない (台帳の `sending` 占有と `sent` / `rejected` の終端)。
+- [x] plan 起点 (`plan-question`) の既存挙動は変えない。
+- [x] `spec/feature/domain-review-discord.md` §4 の「配線しない理由」を実装後の姿に書き換える。
+- [ ] 追加・変更したテストのみ実行して緑 (テスト実行は人の許可待ち。PR 時点では型チェックのみ)。
+
+## スコープ外に触れた理由
+
+- 選択ダイアログのため `src/discord/domain-review-note-{choice,interaction}.ts` を新設し、
+  `src/discord/bot.ts` / `src/discord/ingress.ts` に配線した (返信への応答に部品を載せる口と interaction の振り分け)。
+- 台帳のため `src/db/schema.ts` / `src/db/migration-ledger.ts` に migration 134 を追加した。
 
 ## 関連 (このタスクではやらない)
 

@@ -15,7 +15,7 @@ related:
   - feature/discord-ui.md
   - feature/revisor-local-pr-submission.md
   - feature/inquiry.md
-updated: 2026-09-26
+updated: 2026-10-13
 ---
 
 # Discord でのドメインレビュー
@@ -119,11 +119,60 @@ API は上記いずれでも `200 { "posted": false, "reason": … }` を返す�
   plan は一時ファイルから原子的に置き換えて、同時返信による lost update や途中書込みを防ぐ。
 - `.anatomia` / `plan` / 対象 JSON が symlink / junction の場合は読み書きしない。
   リポジトリ外のファイルを plan として読み出したり上書きしたりしないため。
-- **ドメイン説明の修正・紐付け指示は Anatomia へ配線しない。** Anatomia の authoring は
-  Gate A (`POST /api/projects/:id/domain-organization/gate-a`) だけが入口で、
-  `DomainProposal[]` 一式 + `expectedHead` + snapshot id を要求する承認ゲートである。
-  自由文の指摘を受ける口が無く、 Cc は LLM を内包しないので機械的に翻訳もできない。
-  受け口ができるまでは Cc の台帳に残すところまでとし、 偽の配線を作らない。
+- **ドメイン説明の修正・紐付け指示 (`kind: "domain-note"`) は台帳に残したうえで Anatomia の
+  review-notes へ渡す** (§4.2)。 Anatomia はドメイン定義を書き換えず、 Gate A 承認待ちの
+  下書き提案を返すだけなので、 Cc が自由文を提案へ翻訳する必要は無い (Cc は LLM を内包しない)。
+  承認は従来どおり人間が Gate A (`POST /api/projects/:id/domain-organization/gate-a`) で行う。
+- plan 起点の投稿への返信 (`kind: "plan-question"`) は review-notes へ送らない (既存挙動のまま)。
+
+### 4.2 ドメインへの指摘を Anatomia へ渡す {#SPEC-DOMAIN-REVIEW-NOTE-DELIVERY}
+
+> タスク: actio:d972ca17-ff30-4bfe-b223-e107dce0ce15 (Actio a1118ba2)。
+> 受け口: Anatomia `POST /api/projects/:id/domain-organization/proposals/review-notes`。
+
+1. **どのドメインの話かを決める** (`src/domain-review/note-domain.ts`、純関数)。
+   本文の先頭が既知ドメインの名前か id で、 直後が `:` / `：` ならそのドメイン
+   (例「combat: ダメージ計算は武器側」)。 大小・前後空白・全角コロンを吸収し、 送る本文からは
+   先頭指定を外す。 複数のドメインに一致する指定は推測せず未決にする。
+   ドメイン一覧は `GET /api/projects/:id/domains` (id = 名前)。
+2. **決まらなければ選択ダイアログを出す。** 返信への応答として同じスレッド/チャンネルに
+   StringSelect (`custom_id = drn:<answer_id>`) を出す。 選択肢はドメイン (名前順) +
+   「どのドメインでもない (プロジェクト全体)」(値 `*`)。
+   - Discord の上限は 25 件なので、 ドメインは**先頭 24 件**まで。 超えた件数は応答文に明示し、
+     該当する場合は本文先頭に `ドメイン名: ` を付けて返信し直すよう案内する
+     (返信し直しは別 source の新しい回答として取り込まれる)。 value 上限 100 文字を超える id も出さない。
+   - 選べるのは返信者本人か、 `isReplyAuthorAllowed` (社員名簿の `session_control`) を満たす人だけ。
+     それ以外は押した本人にだけ理由を返し、 ダイアログは残す。
+   - Anatomia への送信は Discord の 3 秒の応答期限を超えうるので、 選択は先に `deferUpdate` で受ける。
+3. **決まったら送る。** 「プロジェクト全体」は `domainId` 無しで送る。 `reviewRef` は
+   `cc-domain-review-answer:<answer_id>`、 `kind` は `other` (Cc は分類しない)。
+4. **結果を台帳に残す** (`domain_review_note_deliveries`、 migration 134、 回答 1 件に 1 行)。
+
+   | status | 意味 |
+   |---|---|
+   | `awaiting_choice` | 選択待ち |
+   | `sending` | 送信中 (占有) |
+   | `sent` | Anatomia が下書き提案を作った (`proposal_id`) |
+   | `rejected` | Anatomia が拒否した (`reason`、 例: 知らない domainId)。 再送しない |
+   | `failed` | ドメイン一覧が取れない (`domains_unavailable:<reason>`)・送信できない (`anatomia_<reason>`) |
+
+   ドメイン一覧が取れないときは**ダイアログを出さず、 全体として送ることもしない**。
+   `failed` と理由を残し、 応答文とログに再試行の口を書く。
+5. **二重送信しない。** 送信前に台帳を `sending` で占有する (BEGIN IMMEDIATE で判定と更新を 1 つにする)。
+   `sent` / `rejected` は再送しない。 二重クリックは後着が占有に負けて送らない。
+   `sending` のまま 5 分を超えた行 (送信中の process 停止) だけを再試行で取り戻す。
+6. **再試行。** 同じ返信の再配送 (`POST /v1/domain-review/replies` に同じ source) は未送信の指摘を
+   再試行する (plan 追記の再試行と同じ仕組み)。 明示の再試行は
+   `POST /v1/domain-review/answers/:id/note-delivery/retry`。 選択済みの宛先はそのまま再送し、
+   先頭指定・未決は照合からやり直す (未決なら選択肢を返す)。
+7. 監査: `GET /v1/domain-review/posts/:id` の各回答に `note_delivery` (status / domain_id /
+   project_wide / proposal_id / reason / attempts) を載せる。
+
+| 入口 | 内容 |
+|---|---|
+| `POST /v1/domain-review/replies` | 応答に `note_delivery` (domain-note のときだけ。 選択待ちなら `choices` / `omitted`) |
+| `POST /v1/domain-review/answers/:id/note-domain` | `{ platform, actor_id, choice }`。 403 権限無し / 404 回答無し / 409 domain-note でない / 400 不正な選択 |
+| `POST /v1/domain-review/answers/:id/note-delivery/retry` | 未送信の再試行。 終端済みなら記録を返すだけ |
 
 ### 4.1 plan ファイルへの追記 {#SPEC-DOMAIN-REVIEW-PLAN-FILE}
 
@@ -169,6 +218,10 @@ Anatomia の応答も plan も**信頼できない外部入力**として扱い�
 6. `/domain-review <code>` は未 prepare でも簡易表示で投稿し、 prepare を促す。
 7. `GET /v1/domain-review/posts` は投稿を `posted_at` 降順・上限 100 件で返し、
    レポート本文・画像・Discord message 本文を 1 項目も含めない (§8)。
+8. 先頭指定のある domain-note は Anatomia の review-notes へ渡り、 `proposal_id` が台帳に残る (§4.2)。
+9. 先頭指定の無い domain-note には選択ダイアログが出て、 選ぶと送られる。 プロジェクト全体は
+   domainId 無しで送られる。 二重クリック・再配送で二重送信しない (§4.2)。
+10. Anatomia 停止中の domain-note は送られず、 `failed` と理由が台帳に残り、 再試行で送れる (§4.2)。
 
 ## 7. 実装の配置
 
@@ -177,7 +230,7 @@ Discord 送信経路まで壊れる。 責務の割り当ては次のとおり�
 
 | ファイル | 責務 |
 |---|---|
-| `src/db/domain-review-repo.ts` | `domain_review_posts` / `domain_review_answers` の読み書き (§8 の `listByCode` を含む) |
+| `src/db/domain-review-repo.ts` | `domain_review_posts` / `domain_review_answers` / `domain_review_note_deliveries` の読み書き (§8 の `listByCode` を含む) |
 | `src/db/domain-review-seed.ts` | 新規登録時の `domain_review` 既定値判定 (§1)。migration 91 は同時点の方針を自身に凍結 |
 | `src/domain-review/anatomia-client.ts` | Anatomia loopback API の取得と project 解決 |
 | `src/domain-review/report.ts` | Anatomia の応答 → 投稿用レポートへの形変換 (§2.3) |
@@ -186,9 +239,13 @@ Discord 送信経路まで壊れる。 責務の割り当ては次のとおり�
 | `src/domain-review/layer-diagram.ts` | 層図の自己完結 HTML 生成 (§3) |
 | `src/domain-review/graph-image.ts` | headless Edge による層図の PNG 化 (§3、 任意) |
 | `src/domain-review/service.ts` | 3 契機の受け口・投稿可否の判断・返信の取り込み |
+| `src/domain-review/note-domain.ts` | domain-note の宛先ドメインの照合と選択肢 (§4.2、純関数) |
+| `src/domain-review/note-delivery.ts` | domain-note を review-notes へ渡す手順・選択・再試行 (§4.2) |
+| `src/discord/domain-review-note-choice.ts` | 選択ダイアログの部品・custom_id・応答文 (§4.2) |
+| `src/discord/domain-review-note-interaction.ts` | 選択ダイアログの interaction を backend へ渡す (§4.2) |
 | `src/domain-review/post-listing.ts` | 投稿一覧の読み取り (件数上限と、本文を含めない要約への射影、§8) |
 | `src/domain-review/ontime-runtime.ts` | §8 の Augur observe 契約が使う runtime の再公開 |
-| `src/api/domain-review.ts` | `POST /v1/domain-review`・`POST /v1/domain-review/replies`・`GET /v1/domain-review/posts` |
+| `src/api/domain-review.ts` | `POST /v1/domain-review`・`POST /v1/domain-review/replies`・`POST /v1/domain-review/answers/:id/{note-domain,note-delivery/retry}`・`GET /v1/domain-review/posts` |
 | `src/discord/domain-review-embeds.ts` | レポート → Discord embed |
 | `src/discord/embed-limits.ts` | embed 上限への適合とメンション無害化 (§2.5) |
 | `src/discord/domain-review-post.ts` | Bot 側の投稿口 (`DomainReviewPostPort`) |

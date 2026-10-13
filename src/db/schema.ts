@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Concordia SQLite schema. spec/service-schema.md §2 に準拠.
  */
 
@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 133;
+export const SCHEMA_VERSION = 134;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3402,6 +3402,32 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         renamed_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_project_code_renames_to ON project_code_renames(to_code);
+    `);
+  },
+},
+{
+  version: 134,
+  name: "domain-review-note-deliveries",
+  source: "domain_review_note_deliveries v1 (spec/feature/domain-review-discord.md §4.2)",
+  up(db) {
+    // domain-note を Anatomia の review-notes へ渡した結果。回答 1 件につき 1 行で、
+    // 選択待ち・送信中・送信済み (proposal_id)・拒否・失敗 (理由) を残す。無言で捨てないため。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS domain_review_note_deliveries (
+        answer_id      INTEGER PRIMARY KEY REFERENCES domain_review_answers(id) ON DELETE CASCADE,
+        status         TEXT NOT NULL
+          CHECK(status IN ('awaiting_choice', 'sending', 'sent', 'rejected', 'failed')),
+        domain_id      TEXT,
+        project_wide   INTEGER NOT NULL DEFAULT 0,
+        proposal_id    TEXT,
+        reason         TEXT,
+        chosen_by      TEXT,
+        attempts       INTEGER NOT NULL DEFAULT 0,
+        created_at     INTEGER NOT NULL,
+        updated_at     INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_domain_review_note_deliveries_status
+        ON domain_review_note_deliveries(status, updated_at);
     `);
   },
 },

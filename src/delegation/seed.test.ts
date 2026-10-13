@@ -429,11 +429,11 @@ describe("seedDelegationTemplates", () => {
       model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-5-1")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
-    // Astra は claude 既定の implementationTemplate を codex provider で使う。
+    // Astra は claude 既定の implementationTemplate を codex provider で使う (相談の起動テンプレートでもあり、閉じ込め引数は codex にしか無い)。
     // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-6-astra",
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。

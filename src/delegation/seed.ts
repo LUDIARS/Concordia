@@ -578,7 +578,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     label: "Astra / mid",
     note: "GPT-6。高速。軽量〜中規模タスク向き。",
     model: "gpt-6-astra",
-    provider: "codex-sdk",
+    // codex のまま。 相談 (consult-model.ts) が astra-mid を起動テンプレートに使い、 閉じ込め引数
+    // (confinementArgsFor) は codex にしか無い。 codex-sdk にすると相談の Astra が起動できない。
+    provider: "codex",
     emoji: "🌟",
     sortOrder: 12,
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。

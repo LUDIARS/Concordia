@@ -322,8 +322,10 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     call_name: "forum-codex-session",
     title: "Codex起動",
     description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
-    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codexTemplate のコメント参照。
-    target_provider: "codex",
+    // 2026-10-14: 対話の forum セッションも Satelles (codex-sdk、satelles serve) へ移す。
+    // 枠なし (danger-full-access) は forum_tag の Cc 起動にだけ spawner が渡し、
+    // 閉じ込めが必要な相談はターミナルの codex で起動する (forum-session-launch.ts)。
+    target_provider: "codex-sdk",
     model: SOL_MODEL,
     runtime_options: { model_reasoning_effort: "high" },
     prompt_template: FORUM_SESSION_PROMPT,

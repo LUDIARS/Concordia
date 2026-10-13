@@ -113,6 +113,7 @@ import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.
 import type { DelegationService } from "../delegation/service.js";
 import type { DelegationQueue } from "../delegation/queue.js";
 import { refreshDelegationIdentifierTemplates } from "../delegation/seed.js";
+import { forumLaunchProvider, forumSessionHostAccess } from "../delegation/forum-session-launch.js";
 import { substituteVars } from "../delegation/service.js";
 import {
   forgetPendingDelegationSpawnBySpawnId,
@@ -1441,14 +1442,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       if (tpl.target_provider === "gemma4-12" && (modelInput ?? "").trim().toLowerCase() === "auto") {
         modelInput = GEMMA4_12_DEFAULT_MODEL;
       }
+      // Satelles には相談の閉じ込めが無いので、閉じ込めた相談はターミナルの codex で起動する。
+      const launchProvider = forumLaunchProvider({ targetProvider: tpl.target_provider, consultConfined });
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
-      const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
+      const spawn = resolveDelegationSpawn(launchProvider, modelInput);
       const effectiveRuntimeOptions = resolveEffectiveDelegationRuntimeOptions(
-        tpl.target_provider,
+        launchProvider,
         runtimeOptions,
         spawn.effectiveModel,
       );
-      const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
+      const runtimeArgs = resolveDelegationRuntimeArgs(launchProvider, effectiveRuntimeOptions);
       // 閉じ込められない provider では子会社の相談を起動しない。
       const consultArgs = consultArgsFor(spawn.provider);
       if (consultArgs === null) return c.json({ error: "projectless_consult_requires_confinable_provider" }, 400);
@@ -1500,11 +1503,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         env: {
           ...(spawn.env ?? {}),
           ...(consultConfinement ? { ...consultConfinement.env, CONCORDIA_URL: concordiaBaseUrl() } : {}),
-          ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
+          ...resolveDelegationRuntimeEnv(launchProvider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
           ...interactiveSpawnEnvironment(spawn.provider, startupPromptPath),
         },
         spawnId,
+        // 相談 (consultConfinement あり) には閉じ込めの有無に関わらず枠なしを渡さない。
+        forumSessionHostAccess: forumSessionHostAccess({
+          targetProvider: spawn.provider,
+          forumTag: tpl.forum_tag,
+          consultConfined: consultConfinement !== null,
+        }),
       });
       if (!result.ok) {
         forgetPendingDelegationSpawnBySpawnId(spawnId);

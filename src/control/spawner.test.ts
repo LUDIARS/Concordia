@@ -233,6 +233,30 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
+  it("codex-sdk + native forum session: 内部フラグがあれば danger-full-access を許可する", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk", forumSessionHostAccess: true },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "native",
+        SATELLES_CODEX_SANDBOX: "danger-full-access",
+      } as unknown as NodeJS.ProcessEnv,
+      "spawn-forum-1",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("danger-full-access");
+  });
+
+  it("codex-sdk + runtime=wsl: forum session でも danger-full-access は workspace-write に下げる", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk", forumSessionHostAccess: true },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl",
+        SATELLES_CODEX_SANDBOX: "danger-full-access",
+      } as unknown as NodeJS.ProcessEnv,
+      "spawn-forum-wsl",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
+  });
+
   it("codex-sdk + runtime=wsl: delegation でも danger-full-access は workspace-write に下げる", () => {
     const environment = buildSessionSpawnEnvironment(
       {

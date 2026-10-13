@@ -62,6 +62,12 @@ export interface SpawnRequest {
   env?: Record<string, string>;
   /** pending spawn と SessionStart を cwd ではなく一意に結ぶ相関 ID。 */
   spawnId?: string;
+  /**
+   * Internal only: set by the forum template launch in /v1/admin/spawn-session,
+   * never taken from HTTP/env input. Lets a Cc-managed forum Satelles session
+   * receive the operator's danger-full-access sandbox like a delegation run.
+   */
+  forumSessionHostAccess?: boolean;
 }
 
 export interface SpawnResultOk {
@@ -542,10 +548,11 @@ export function buildMacTerminalSpawnArgs(shellCommand: string): string[] {
 }
 
 /**
- * Host-wide Codex access is reserved for trusted native delegation runs. The
- * operator setting is inherited by Concordia, but request env cannot set a
- * SATELLES_* key; requiring the internally supplied run marker to match the
- * spawn identity prevents admin/ad-hoc Satelles spawns from inheriting the
+ * Host-wide Codex access is reserved for trusted native delegation runs and
+ * Cc-managed forum template sessions. The operator setting is inherited by
+ * Concordia, but request env cannot set a SATELLES_* key; requiring the
+ * internally supplied run marker to match the spawn identity (or the internal
+ * forum flag) prevents other admin/ad-hoc Satelles spawns from inheriting the
  * elevated policy.
  */
 function currentSatellesSandboxEnv(
@@ -560,7 +567,8 @@ function currentSatellesSandboxEnv(
 
   const runId = req.env?.CONCORDIA_DELEGATION_RUN_ID?.trim();
   const isDelegationRun = Boolean(runId && runId === spawnId);
-  if (isDelegationRun && currentSatellesCodexRuntime(env) === "native") {
+  const isTrusted = isDelegationRun || req.forumSessionHostAccess === true;
+  if (isTrusted && currentSatellesCodexRuntime(env) === "native") {
     return { SATELLES_CODEX_SANDBOX: "danger-full-access" };
   }
   return { SATELLES_CODEX_SANDBOX: "workspace-write" };

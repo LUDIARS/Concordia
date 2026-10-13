@@ -327,7 +327,7 @@ describe("seedDelegationTemplates", () => {
     });
     expect(codex).toMatchObject({
       title: "Codex起動",
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       is_active: 1,
       forum_tag: 1,
     });

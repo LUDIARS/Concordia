@@ -4827,6 +4827,7 @@
     {"source":"src/delegation/run-watchdog.ts","tests":["src/delegation/run-watchdog.test.ts"],"contracts":["dsr-C-1"]},
     {"source":"src/delegation/unstarted-run.ts","tests":["src/delegation/unstarted-run.test.ts"],"contracts":["dsr-C-1"]},
     {"source":"src/delegation/persona-context.ts","tests":["src/delegation/persona-context.test.ts"],"contracts":["dsr-C-1"]},
-    {"source":"src/discord/request-recap.ts","tests":["src/discord/request-recap.test.ts","src/discord/forum-spawn.test.ts","src/discord/consult-flow.test.ts"],"contracts":["SPEC-CONSULT-PRIVATE"]}
+    {"source":"src/discord/request-recap.ts","tests":["src/discord/request-recap.test.ts","src/discord/forum-spawn.test.ts","src/discord/consult-flow.test.ts"],"contracts":["SPEC-CONSULT-PRIVATE"]},
+    {"source":"src/delegation/forum-session-launch.ts","tests":["src/delegation/forum-session-launch.test.ts","src/control/spawner.test.ts","src/delegation/seed.test.ts"],"contracts":["SPEC-DELEGATION-FORUM-SATELLES"]}
   ]
 }

@@ -118,8 +118,6 @@ function codexTemplate(opts: {
   sort_order: number;
   /** Satelles が Codex へ渡す model_reasoning_effort。 ultra は Sol 限定。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
-  /** 既定は Satelles (codex-sdk)。 Astra With Sidecar の子 (sol-6-1) だけ profile に合わせて codex。 */
-  provider?: "codex" | "codex-sdk";
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
@@ -130,7 +128,7 @@ function codexTemplate(opts: {
     // node_repl は LICTOR_PORT を継承しないため local PR 提出前で止まっていた。
     // 2026-08-25 に native ターミナルへ戻した理由 (WSL 経路の lsass クラッシュ) は
     // runtime=native + SATELLES_CODEX_SANDBOX=danger-full-access で踏まない。
-    target_provider: opts.provider ?? "codex-sdk",
+    target_provider: "codex-sdk",
     model: initialRoleModel(opts.modelName),
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
@@ -167,7 +165,7 @@ function codexTemplate(opts: {
 
 const CODEX_TEMPLATES: CreateTemplateInput[] = [
   // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
-  codexTemplate({ callName: "sol-6-1", modelName: "sol", label: "Sol 6.1", emoji: "☀️", sort_order: 20, reasoning: "medium", provider: "codex" }),
+  codexTemplate({ callName: "sol-6-1", modelName: "sol", label: "Sol 6.1", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
   codexTemplate({ callName: "terra-xhigh", modelName: "luna", label: "Luna / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
   codexTemplate({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "xhigh" }),
 ];
@@ -580,9 +578,9 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     label: "Astra / mid",
     note: "GPT-6。高速。軽量〜中規模タスク向き。",
     model: "gpt-6-astra",
-    // codex のまま。 相談 (consult-model.ts) が astra-mid を起動テンプレートに使い、 閉じ込め引数
-    // (confinementArgsFor) は codex にしか無い。 codex-sdk にすると相談の Astra が起動できない。
-    provider: "codex",
+    // Satelles (codex-sdk)。 相談 (consult-model.ts) も astra-mid で起動するが、 閉じ込めた相談は
+    // forumLaunchProvider (forum-session-launch.ts) がターミナルの codex へ戻すので閉じ込めは維持される。
+    provider: "codex-sdk",
     emoji: "🌟",
     sortOrder: 12,
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
@@ -1140,7 +1138,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5-5`",
-      "- Reviewer B: Cc の `sol-6-1` Delegation (`codex` / Windows native ターミナル) — model " + SOL_MODEL + ", effort `${sol_effort:xhigh}`",
+      "- Reviewer B: Cc の `sol-6-1` Delegation (`codex-sdk` / Satelles) — model " + SOL_MODEL + ", effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",

@@ -9,15 +9,15 @@ const child = ASTRA_WITH_SIDECAR_PROFILE.child;
 const matching = {
   call_name: "sol-mid",
   is_active: 1,
-  target_provider: "codex",
+  target_provider: "codex-sdk",
   model: "gpt-6.1-sol",
   runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
 };
 
 describe("Astra With Sidecar profile", () => {
-  it("pins the parent to Astra medium and the child to Sol medium with one concurrent child", () => {
-    expect(ASTRA_WITH_SIDECAR_PROFILE.parent).toMatchObject({ provider: "codex", model: "gpt-6-astra", effort: "medium" });
-    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-6-1", model: "gpt-6.1-sol", effort: "medium" });
+  it("pins the parent to Astra medium and the child to Sol medium on Satelles with one concurrent child", () => {
+    expect(ASTRA_WITH_SIDECAR_PROFILE.parent).toMatchObject({ provider: "codex-sdk", model: "gpt-6-astra", effort: "medium" });
+    expect(ASTRA_WITH_SIDECAR_PROFILE.child).toMatchObject({ call_name: "sol-6-1", provider: "codex-sdk", model: "gpt-6.1-sol", effort: "medium" });
     expect(ASTRA_WITH_SIDECAR_PROFILE.maxConcurrentChildren).toBe(1);
   });
 
@@ -29,6 +29,7 @@ describe("Astra With Sidecar profile", () => {
     [null, "sidecar_template_missing"],
     [{ ...matching, is_active: 0 }, "sidecar_template_inactive"],
     [{ ...matching, target_provider: "claude" }, "sidecar_provider_mismatch"],
+    [{ ...matching, target_provider: "codex" }, "sidecar_provider_mismatch"],
     [{ ...matching, model: "gpt-6-astra" }, "sidecar_model_mismatch"],
     [{ ...matching, runtime_options_json: JSON.stringify({ model_reasoning_effort: "xhigh" }) }, "sidecar_effort_mismatch"],
     [{ ...matching, runtime_options_json: "not json" }, "sidecar_effort_mismatch"],

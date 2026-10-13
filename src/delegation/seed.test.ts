@@ -429,11 +429,11 @@ describe("seedDelegationTemplates", () => {
       model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-5-1")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
-    // Astra は claude 既定の implementationTemplate を codex provider で使う (相談の起動テンプレートでもあり、閉じ込め引数は codex にしか無い)。
-    // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
+    // Astra は claude 既定の implementationTemplate を Satelles (codex-sdk) で使う。 ターミナルの codex は
+    // sandbox 準備の失敗で LICTOR_PORT を失うため戻さない。 閉じ込めた相談だけ forumLaunchProvider が codex へ戻す。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       model: "gpt-6-astra",
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
@@ -442,13 +442,13 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
     // Astra With Sidecar: 親は Astra medium。 起動側 (sidecar/profile.ts) と同じ値でなければならない。
     const sidecarParent = repo.findTemplateByCallName("astra-with-sidecar");
-    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
+    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex-sdk", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
     expect(JSON.parse(sidecarParent?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(sidecarParent?.prompt_template).toContain("/v1/delegation/sidecar/route");
     expect(sidecarParent?.prompt_template).toContain("args.sidecar_packet");
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       model: "gpt-6.1-sol",
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
@@ -510,7 +510,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).toContain("gpt-6.1-sol");
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("sol-6-1");
-    expect(duo?.prompt_template).toContain("Windows native");
+    expect(duo?.prompt_template).toContain("`codex-sdk` / Satelles");
     expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
     expect(duo?.prompt_template).toContain("worktree の生成・ブランチ切り替えは行わない");

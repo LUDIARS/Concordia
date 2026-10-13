@@ -50,7 +50,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     const template = repo.findTemplateByCallName("kaizen-daily");
     expect(template).toMatchObject({
-      id: old.id, target_provider: "codex", model: "gpt-6-astra", category: "parttimer", call_only: 1,
+      id: old.id, target_provider: "codex-sdk", model: "gpt-6-astra", category: "parttimer", call_only: 1,
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(template?.prompt_template).toContain("高難度はこの Astra セッション自身が実装");
@@ -69,7 +69,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       model: "gpt-6.1-sol",
       is_active: 1,
     });
@@ -433,7 +433,7 @@ describe("seedDelegationTemplates", () => {
     // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       model: "gpt-6-astra",
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
@@ -495,7 +495,7 @@ describe("seedDelegationTemplates", () => {
     }
 
     const terra = repo.findTemplateByCallName("terra-xhigh");
-    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex" });
+    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex-sdk" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
@@ -896,7 +896,7 @@ describe("seedDelegationTemplates", () => {
 
     const template = repo.findTemplateByCallName("ci-failure-fix");
     expect(template).toMatchObject({
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       category: "parttimer",
       call_only: 1,
       default_cwd: "${target_repo}",

@@ -23,7 +23,7 @@ const packet: SidecarPacket = {
 const solMid = {
   call_name: "sol-mid",
   is_active: 1,
-  target_provider: "codex-sdk",
+  target_provider: "codex",
   model: "gpt-6.1-sol",
   runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
 };

@@ -4880,6 +4880,7 @@
     {"source":"src/delegation/persona-context.ts","tests":["src/delegation/persona-context.test.ts"],"contracts":["dsr-C-1"]},
     {"source":"src/discord/request-recap.ts","tests":["src/discord/request-recap.test.ts","src/discord/forum-spawn.test.ts","src/discord/consult-flow.test.ts"],"contracts":["SPEC-CONSULT-PRIVATE"]},
     {"source":"src/delegation/forum-session-launch.ts","tests":["src/delegation/forum-session-launch.test.ts","src/control/spawner.test.ts","src/delegation/seed.test.ts"],"contracts":["SPEC-DELEGATION-FORUM-SATELLES"]},
+    {"source":"src/control/spawner.ts","tests":["src/control/spawner.test.ts","src/delegation/seed.test.ts","src/delegation/sidecar/profile.test.ts","src/delegation/forum-session-launch.test.ts"],"contracts":["SPEC-DELEGATION-CODEX-TERMINAL-HOST-ACCESS"]},
     {"source": "src/bounty/triage-prompt.ts", "tests": ["src/bounty/triage-prompt.test.ts", "src/bounty/flow.test.ts"], "contracts": ["CC-BOUNTY-INV-01"]},
     {"source": "src/bounty/triage-prompt.contract.ts", "tests": ["src/bounty/triage-prompt.test.ts"], "contracts": []},
     {"source": "src/bounty/triage-result.ts", "tests": ["src/bounty/triage-result.test.ts", "src/bounty/flow.test.ts"], "contracts": ["CC-BOUNTY-INV-04"]},

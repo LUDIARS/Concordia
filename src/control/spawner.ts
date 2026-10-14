@@ -64,8 +64,9 @@ export interface SpawnRequest {
   spawnId?: string;
   /**
    * Internal only: set by the forum template launch in /v1/admin/spawn-session,
-   * never taken from HTTP/env input. Lets a Cc-managed forum Satelles session
-   * receive the operator's danger-full-access sandbox like a delegation run.
+   * never taken from HTTP/env input. Lets a Cc-managed forum Codex session
+   * (terminal `codex` or Satelles) receive the operator's danger-full-access
+   * sandbox like a delegation run.
    */
   forumSessionHostAccess?: boolean;
 }
@@ -462,14 +463,16 @@ export function buildSessionSpawnEnvironment(
   }
   const satellesSandboxEnv = currentSatellesSandboxEnv(req, inheritedEnv, spawnId);
   const satellesWslEnv = currentSatellesWslEnv(req.provider, inheritedEnv);
+  const lictorCodexSandboxEnv = currentLictorCodexSandboxEnv(req, inheritedEnv, spawnId);
   // Windows environment-variable names are case-insensitive. Remove any
   // differently-cased inherited copy before adding the validated values. This
-  // also prevents an ambient danger-full-access sandbox from reaching a
-  // non-delegation or non-Satelles child.
+  // also prevents an ambient or request-supplied danger-full-access sandbox
+  // from reaching a non-delegation child (req.env passes LICTOR_* keys).
   for (const key of Object.keys(env)) {
     const normalized = key.toUpperCase();
     if (
       normalized === "SATELLES_CODEX_SANDBOX"
+      || normalized === LICTOR_CODEX_SANDBOX_ENV
       || Object.hasOwn(satellesWslEnv, normalized)
     ) delete env[key];
   }
@@ -479,6 +482,7 @@ export function buildSessionSpawnEnvironment(
     ...currentConcordiaAddressEnv(),
     ...satellesSandboxEnv,
     ...satellesWslEnv,
+    ...lictorCodexSandboxEnv,
   };
 }
 
@@ -506,9 +510,13 @@ export function buildSpawnEnvDelta(
   }
   for (const key of Object.keys(env)) {
     const normalized = key.toUpperCase();
-    if (normalized === "CONCORDIA_REVISOR_WORKFLOW_TOKEN" || normalized === "CONCORDIA_REVISOR_TOKEN") delete env[key];
+    if (
+      normalized === "CONCORDIA_REVISOR_WORKFLOW_TOKEN"
+      || normalized === "CONCORDIA_REVISOR_TOKEN"
+      || normalized === LICTOR_CODEX_SANDBOX_ENV
+    ) delete env[key];
   }
-  return env;
+  return { ...env, ...currentLictorCodexSandboxEnv(req, inheritedEnv, spawnId) };
 }
 
 const POSIX_UNSAFE_RE = /[\0\r\n]/u;
@@ -565,13 +573,42 @@ function currentSatellesSandboxEnv(
   if (!configured) return {};
   if (configured !== "danger-full-access") return { SATELLES_CODEX_SANDBOX: configured };
 
-  const runId = req.env?.CONCORDIA_DELEGATION_RUN_ID?.trim();
-  const isDelegationRun = Boolean(runId && runId === spawnId);
-  const isTrusted = isDelegationRun || req.forumSessionHostAccess === true;
-  if (isTrusted && currentSatellesCodexRuntime(env) === "native") {
+  if (isTrustedCodexHostLaunch(req, spawnId) && currentSatellesCodexRuntime(env) === "native") {
     return { SATELLES_CODEX_SANDBOX: "danger-full-access" };
   }
   return { SATELLES_CODEX_SANDBOX: "workspace-write" };
+}
+
+/** Lictor が読む terminal Codex の sandbox 指定 (Lictor `codex-launch-policy.ts`)。 */
+export const LICTOR_CODEX_SANDBOX_ENV = "LICTOR_CODEX_SANDBOX";
+
+/**
+ * A delegation run whose internally supplied run id matches the spawn identity,
+ * or a Cc-managed forum template launch. Request env cannot forge either.
+ */
+function isTrustedCodexHostLaunch(req: SpawnRequest, spawnId: string): boolean {
+  const runId = req.env?.CONCORDIA_DELEGATION_RUN_ID?.trim();
+  const isDelegationRun = Boolean(runId && runId === spawnId);
+  return isDelegationRun || req.forumSessionHostAccess === true;
+}
+
+/**
+ * Terminal Codex (`codex` via Lictor) on Windows cannot prepare its shell
+ * sandbox under workspace-write / read-only ("setup refresh had errors") and
+ * falls back to the node_repl MCP, which never receives LICTOR_PORT. Trusted
+ * launches therefore get the operator's host-access sandbox (the same
+ * `SATELLES_CODEX_SANDBOX=danger-full-access` setting Satelles used), and Lictor
+ * also disables node_repl for them. Other launches keep the user's Codex config.
+ */
+function currentLictorCodexSandboxEnv(
+  req: SpawnRequest,
+  env: NodeJS.ProcessEnv,
+  spawnId: string,
+): Record<string, string> {
+  if (req.provider !== "codex") return {};
+  if (env.SATELLES_CODEX_SANDBOX?.trim() !== "danger-full-access") return {};
+  if (!isTrustedCodexHostLaunch(req, spawnId)) return {};
+  return { [LICTOR_CODEX_SANDBOX_ENV]: "danger-full-access" };
 }
 
 /**

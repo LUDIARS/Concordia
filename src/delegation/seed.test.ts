@@ -50,7 +50,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     const template = repo.findTemplateByCallName("kaizen-daily");
     expect(template).toMatchObject({
-      id: old.id, target_provider: "codex-sdk", model: "gpt-6-astra", category: "parttimer", call_only: 1,
+      id: old.id, target_provider: "codex", model: "gpt-6-astra", category: "parttimer", call_only: 1,
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(template?.prompt_template).toContain("高難度はこの Astra セッション自身が実装");
@@ -69,7 +69,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-6.1-sol",
       is_active: 1,
     });
@@ -173,7 +173,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       call_only: 1,
       category: "parttimer",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-6.1-sol",
       default_cwd: "E:\\Document\\Ars\\LUDIARS",
     });
@@ -327,7 +327,7 @@ describe("seedDelegationTemplates", () => {
     });
     expect(codex).toMatchObject({
       title: "Codex起動",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       is_active: 1,
       forum_tag: 1,
     });
@@ -365,7 +365,7 @@ describe("seedDelegationTemplates", () => {
     const tpl = repo.findTemplateByCallName("ludiars-review-daily-dual");
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
-    expect(tpl?.target_provider).toBe("codex-sdk");
+    expect(tpl?.target_provider).toBe("codex");
     expect(tpl?.model).toBe("gpt-6.1-sol");
     expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
@@ -429,11 +429,11 @@ describe("seedDelegationTemplates", () => {
       model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-5-1")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
-    // Astra は claude 既定の implementationTemplate を Satelles (codex-sdk) で使う。 ターミナルの codex は
-    // sandbox 準備の失敗で LICTOR_PORT を失うため戻さない。 閉じ込めた相談だけ forumLaunchProvider が codex へ戻す。
+    // Astra は claude 既定の implementationTemplate をターミナルの codex (Lictor) で使う (2026-10-15 に
+    // Satelles から戻した)。 sandbox 準備の失敗で LICTOR_PORT を失う問題は spawner の LICTOR_CODEX_SANDBOX で塞ぐ。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-6-astra",
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
@@ -442,13 +442,13 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
     // Astra With Sidecar: 親は Astra medium。 起動側 (sidecar/profile.ts) と同じ値でなければならない。
     const sidecarParent = repo.findTemplateByCallName("astra-with-sidecar");
-    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex-sdk", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
+    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "gpt-6-astra", title: "Astra With Sidecar", forum_tag: 0 });
     expect(JSON.parse(sidecarParent?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(sidecarParent?.prompt_template).toContain("/v1/delegation/sidecar/route");
     expect(sidecarParent?.prompt_template).toContain("args.sidecar_packet");
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-6.1-sol",
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
@@ -495,7 +495,7 @@ describe("seedDelegationTemplates", () => {
     }
 
     const terra = repo.findTemplateByCallName("terra-xhigh");
-    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex-sdk" });
+    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
@@ -510,7 +510,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).toContain("gpt-6.1-sol");
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("sol-6-1");
-    expect(duo?.prompt_template).toContain("`codex-sdk` / Satelles");
+    expect(duo?.prompt_template).toContain("`codex` / Lictor");
     expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
     expect(duo?.prompt_template).toContain("worktree の生成・ブランチ切り替えは行わない");
@@ -896,7 +896,7 @@ describe("seedDelegationTemplates", () => {
 
     const template = repo.findTemplateByCallName("ci-failure-fix");
     expect(template).toMatchObject({
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       category: "parttimer",
       call_only: 1,
       default_cwd: "${target_repo}",

@@ -278,8 +278,9 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     section: "session",
     label: "Satelles Codex sandbox",
     description:
-      "codex-sdk (Satelles) が起動する Codex セッションの sandbox 制約。" +
-      " danger-full-access は native delegation にだけ許可する。",
+      "Cc が起動する Codex セッションの sandbox 制約。 codex-sdk (Satelles) にはそのまま、" +
+      " ターミナルの codex (Lictor) には danger-full-access のときだけ LICTOR_CODEX_SANDBOX として渡す。" +
+      " danger-full-access は委託と forum テンプレート起動にだけ許可する。",
     kind: "enum",
     envName: "SATELLES_CODEX_SANDBOX",
     dbKey: null,

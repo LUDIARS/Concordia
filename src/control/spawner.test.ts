@@ -22,6 +22,7 @@ import {
   currentSatellesWslUser,
   HEADLESS_SPAWN_PROVIDERS,
   isInteractiveSpawnPlatformSupported,
+  LICTOR_CODEX_SANDBOX_ENV,
   resolveSpawnCwd,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
@@ -279,6 +280,66 @@ describe("buildSessionSpawnEnvironment", () => {
       "spawn-claude",
     );
     expect(environment).not.toHaveProperty("SATELLES_CODEX_SANDBOX");
+  });
+
+  it("codex (terminal) delegation: LICTOR_CODEX_SANDBOX=danger-full-access を渡す", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex", env: { CONCORDIA_DELEGATION_RUN_ID: "run-9" } },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "run-9",
+    );
+    expect(environment[LICTOR_CODEX_SANDBOX_ENV]).toBe("danger-full-access");
+    expect(environment).not.toHaveProperty("SATELLES_CODEX_SANDBOX");
+  });
+
+  it("codex (terminal) forum session: 内部フラグがあれば LICTOR_CODEX_SANDBOX を渡す", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex", forumSessionHostAccess: true },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "spawn-forum-codex",
+    );
+    expect(environment[LICTOR_CODEX_SANDBOX_ENV]).toBe("danger-full-access");
+  });
+
+  it("codex (terminal): 信頼できない起動・operator 未設定では渡さず、request / ambient の値も消す", () => {
+    const adHoc = buildSessionSpawnEnvironment(
+      { provider: "codex", env: { LICTOR_CODEX_SANDBOX: "danger-full-access", CONCORDIA_DELEGATION_RUN_ID: "run-1" } },
+      {
+        SATELLES_CODEX_SANDBOX: "danger-full-access",
+        lictor_codex_sandbox: "danger-full-access",
+      } as unknown as NodeJS.ProcessEnv,
+      "another-spawn",
+    );
+    expect(Object.keys(adHoc).filter((k) => k.toUpperCase() === LICTOR_CODEX_SANDBOX_ENV)).toEqual([]);
+
+    const notConfigured = buildSessionSpawnEnvironment(
+      { provider: "codex", env: { CONCORDIA_DELEGATION_RUN_ID: "run-2" } },
+      { SATELLES_CODEX_SANDBOX: "workspace-write" } as unknown as NodeJS.ProcessEnv,
+      "run-2",
+    );
+    expect(notConfigured).not.toHaveProperty(LICTOR_CODEX_SANDBOX_ENV);
+
+    const otherProvider = buildSessionSpawnEnvironment(
+      { provider: "claude", forumSessionHostAccess: true },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "spawn-claude-forum",
+    );
+    expect(otherProvider).not.toHaveProperty(LICTOR_CODEX_SANDBOX_ENV);
+  });
+
+  it("codex (terminal) on macOS: env delta も同じ判定で LICTOR_CODEX_SANDBOX を決める", () => {
+    const trusted = buildSpawnEnvDelta(
+      { provider: "codex", env: { CONCORDIA_DELEGATION_RUN_ID: "run-mac" } },
+      "run-mac",
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+    );
+    expect(trusted[LICTOR_CODEX_SANDBOX_ENV]).toBe("danger-full-access");
+    const forged = buildSpawnEnvDelta(
+      { provider: "codex", env: { LICTOR_CODEX_SANDBOX: "danger-full-access" } },
+      "spawn-mac",
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+    );
+    expect(forged).not.toHaveProperty(LICTOR_CODEX_SANDBOX_ENV);
   });
 
   it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", () => {

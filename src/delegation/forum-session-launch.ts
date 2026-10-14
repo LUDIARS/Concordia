@@ -1,12 +1,13 @@
 /**
- * Forum template launch policy for Codex on Satelles (codex-sdk).
+ * Forum template launch policy for Codex.
  *
  * - Satelles has no consult confinement lane (`confinementArgsFor` only knows
- *   `claude` / `codex`), so a projectless consult keeps the terminal `codex`
- *   lane with its read-only confinement instead of being refused.
- * - A Cc-managed forum template launched on Satelles may receive the
- *   operator's danger-full-access sandbox, like a delegation run. Consult
- *   launches never do.
+ *   `claude` / `codex`), so a projectless consult on a legacy `codex-sdk`
+ *   template keeps the terminal `codex` lane with its read-only confinement
+ *   instead of being refused.
+ * - A Cc-managed forum template launched on a Codex lane (terminal `codex`
+ *   via Lictor, or legacy `codex-sdk`) may receive the operator's
+ *   danger-full-access sandbox, like a delegation run. Consult launches never do.
  *
  * @implements spec/feature/delegation.md §4
  */
@@ -26,9 +27,10 @@ export function forumLaunchProvider(input: Pick<ForumSessionLaunchInput, "target
   return input.targetProvider;
 }
 
-/** Whether the launch may receive the elevated Satelles sandbox. */
+/** Whether the launch may receive the elevated Codex sandbox. */
 export function forumSessionHostAccess(input: ForumSessionLaunchInput): boolean {
   if (input.consultConfined) return false;
   if (!(input.forumTag === true || input.forumTag === 1)) return false;
-  return forumLaunchProvider(input) === "codex-sdk";
+  const provider = forumLaunchProvider(input);
+  return provider === "codex" || provider === "codex-sdk";
 }

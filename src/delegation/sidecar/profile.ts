@@ -14,16 +14,16 @@ export const ASTRA_WITH_SIDECAR_TITLE = "Astra With Sidecar";
 
 export interface SidecarModelSpec {
   call_name: string;
-  provider: "codex-sdk";
+  provider: "codex";
   model: string;
   effort: "medium";
 }
 
-// 親子とも Satelles (codex-sdk)。 ターミナルの codex は Windows sandbox の準備失敗で node_repl へ退避し、
-// node_repl は LICTOR_PORT を継承しないため Cc へ報告できなかった (2026-10-14)。
+// 親子ともターミナルの codex (Lictor)。 Satelles 起動は会話が届かずコンソールごと落ちることがあった
+// (2026-10-15)。 node_repl 退避は spawner の LICTOR_CODEX_SANDBOX と Lictor の node_repl 無効化で塞ぐ。
 export const ASTRA_WITH_SIDECAR_PROFILE = {
-  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex-sdk", model: "gpt-6-astra", effort: "medium" },
-  child: { call_name: "sol-6-1", provider: "codex-sdk", model: initialRoleModel("sol"), effort: "medium" },
+  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: "gpt-6-astra", effort: "medium" },
+  child: { call_name: "sol-6-1", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
   /** 初期同時実行数。親子の同じファイルへの同時編集を避けるため 1 から始める。 */
   maxConcurrentChildren: 1,
   /** 同じ依頼 (task_reference + request_version) を子へ出し直せる回数の上限。 */

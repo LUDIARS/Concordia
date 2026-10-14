@@ -26,9 +26,15 @@ describe("forumSessionHostAccess", () => {
     expect(forumSessionHostAccess({ targetProvider: "codex-sdk", forumTag: 1, consultConfined: true })).toBe(false);
   });
 
+  it("grants the elevated sandbox to a forum template on the terminal Codex lane", () => {
+    expect(forumSessionHostAccess({ targetProvider: "codex", forumTag: 1, consultConfined: false })).toBe(true);
+    expect(forumSessionHostAccess({ targetProvider: "codex", forumTag: 1, consultConfined: true })).toBe(false);
+  });
+
   it("does not grant it to non-forum templates or other providers", () => {
     expect(forumSessionHostAccess({ targetProvider: "codex-sdk", forumTag: 0, consultConfined: false })).toBe(false);
     expect(forumSessionHostAccess({ targetProvider: "codex-sdk", forumTag: null, consultConfined: false })).toBe(false);
-    expect(forumSessionHostAccess({ targetProvider: "codex", forumTag: 1, consultConfined: false })).toBe(false);
+    expect(forumSessionHostAccess({ targetProvider: "codex", forumTag: 0, consultConfined: false })).toBe(false);
+    expect(forumSessionHostAccess({ targetProvider: "claude", forumTag: 1, consultConfined: false })).toBe(false);
   });
 });

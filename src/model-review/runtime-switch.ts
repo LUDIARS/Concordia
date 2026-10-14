@@ -1,12 +1,14 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import { fetchFromLictor, resolveLictorTarget } from "../control/lictor-proxy.js";
+import { fetchFromLictor } from "../control/lictor-proxy.js";
+import { resolveRuntimeSwitchTarget } from "../control/runtime-switch-target.js";
 import type { RuntimeModelReviewApplyResult } from "./contracts.js";
 
 export async function applyRuntimeModelReview(
   sessions: SessionsRepo,
   input: { sessionId: string; model: string; effort: string },
 ): Promise<RuntimeModelReviewApplyResult> {
-  const target = resolveLictorTarget(sessions, input.sessionId);
+  // Lictor (lictor_port) と Satelles (satelles_sidecar_port) の両方の sidecar に届ける。
+  const target = resolveRuntimeSwitchTarget(sessions, input.sessionId);
   if ("error" in target) return { ok: false, message: `切替できません: ${target.error}` };
   try {
     const response = await fetchFromLictor(target.port, "/v1/runtime/model-effort", {

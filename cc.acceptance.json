@@ -657,6 +657,8 @@
       "tests": ["src/delegation/run-watchdog.test.ts"],
       "contracts": []
     },
+    {"source":"src/control/runtime-switch-target.ts","tests":["src/control/runtime-switch-target.test.ts"],"contracts":[]},
+    {"source":"src/model-review/runtime-switch.ts","tests":["src/control/runtime-switch-target.test.ts"],"contracts":[]},
     {
       "source": "src/control/lictor-proxy.ts",
       "tests": [

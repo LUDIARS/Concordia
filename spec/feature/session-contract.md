@@ -42,6 +42,12 @@ updated: 2026-08-13
    (スコープ逸脱 deny。vibes でもテスト隔離ルールは常時適用)、 testing claim 自動取得、
    決定論終了の判定は、
    それぞれ独自に推測せず `session_contract` を参照する。 条件の正本を 1 箇所にする。
+   ただし契約の model / effort は親セッションの provider 向けの値なので、delegation invoke は
+   親セッションと委託先 (overrides.provider、無ければテンプレートの target_provider) が同じ
+   provider 系統 (claude 同士 / codex 同士、`modelReviewProvider` で正規化) のときだけ適用する。
+   系統が違う・判定できない委託には呼び出し側の指定 (無ければテンプレート既定) を使う
+   (Claude 親から Codex テンプレートへ `--model claude-opus-5-5` が渡り 400 で止まった、Actio 042b0e71。
+   `src/contract/delegation-model-scope.ts`、**Requirement ID: `SPEC-CONTRACT-MODEL-SAME-PROVIDER`**)。
 5. Cc は LLM を内包しない原則を維持する。 judge は既存 model-review の小型 judge 経路
    (黒箱側) を使い、 Cc 本体は seed 判定・スキーマ検証・質問カードの取り次ぎだけを行う。
 

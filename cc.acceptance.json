@@ -5013,6 +5013,7 @@
     {"source": "src/db/schema.ts", "tests": ["src/db/taskflow-actio-instructions.test.ts", "src/db/migration-ledger.test.ts"], "contracts": []},
     {"source": "src/db/migration-ledger.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": []},
     {"source": "src/taskflow/task-instructions.ts", "tests": ["src/taskflow/plan-approved-instruction.test.ts"], "contracts": []},
-    {"source": "src/bootstrap/core.ts", "tests": ["src/taskflow/plan-approved-instruction.test.ts"], "contracts": []}
+    {"source": "src/bootstrap/core.ts", "tests": ["src/taskflow/plan-approved-instruction.test.ts"], "contracts": []},
+    {"source":"src/contract/delegation-model-scope.ts","tests":["src/contract/delegation-model-scope.test.ts"],"contracts":["SPEC-CONTRACT-MODEL-SAME-PROVIDER"]}
   ]
 }

@@ -1261,7 +1261,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         managementDiscord?.stop();
         managementDiscord = await startManagementDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
-        // バグ報告はカテゴリ「場所」の中 (2026-10-14 neco 指示)。
+        // バグ報告はカテゴリを持たないチャンネル (2026-10-14 neco 指示「バグ報告はトップレベルで良い」)。
         await ensureBountyReportChannel({ guild, config: configRepo, log })
           .catch((error) => log.warn(`bounty report channel unavailable: ${String(error)}`));
       }

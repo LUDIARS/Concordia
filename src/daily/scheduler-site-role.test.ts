@@ -42,4 +42,21 @@ describe("daily report on HQ and sites", () => {
     expect(report.summary_md).toContain("## 拠点: Mac");
     expect(report.summary_md).toContain("拠点の作業");
   });
+
+  it("拠点の欄に拠点のセッションが提出した PR を載せる", async () => {
+    const pr = { source: "github" as const, repo: "LUDIARS/Concordia", number: 42, title: "拠点の PR", state: "open", url: "https://github.com/LUDIARS/Concordia/pull/42" };
+    const report = await generateDayReport("2026-10-14", sessions, [{
+      site_id: "mac",
+      site_name: "Mac",
+      received_at: 1,
+      report: buildSiteDayActivity("2026-10-14", [{
+        id: "s-1", provider: "claude-code", repo_path: "Concordia", repo_origin: null, branch: "feat/a", host: "mac",
+        started_at: 0, ended_at: 60, status: "ended", last_seen_at: 60, current_task: "拠点の作業", transcript_path: null,
+        metadata: null, ws_clients: 0, target_project: null,
+      }], 100, undefined, () => [pr]),
+    }]);
+    const bullets = JSON.parse(report.bullets) as { sites?: Array<{ prs: unknown[] }> };
+    expect(bullets.sites?.[0]?.prs).toEqual([pr]);
+    expect(report.summary_md).toContain("LUDIARS/Concordia #42 拠点の PR [open]");
+  });
 });

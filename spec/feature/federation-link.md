@@ -309,14 +309,49 @@ Session forum の起動 (`executeForumSpawn`) も、拠点タグ・名指しで�
 | 本社の日報に拠点ごとの欄 (`bullets.sites`) | `src/daily/generator.ts` / `aggregator.ts` |
 
 1. 拠点ロールかどうかは周期・発火のたびに見る (連合の設定は再起動なしで変わる)。拠点ロールでない Cc (本社・単独運用) の動作は変えない。
-2. 拠点は今日と昨日のセッションを、新しい順に最大 80 件、題名・リポジトリ・ブランチ・provider・状態・開始/終了・時間だけ送る。総数は別に送る。
+2. 拠点は今日と昨日のセッションを、新しい順に最大 80 件、題名・リポジトリ・ブランチ・provider・状態・開始/終了・時間と、提出した PR (下記) だけ送る。総数は別に送る。
    metadata・イベント本文・transcript は送らない。連合リンクが切れていれば送らず、次の周期で送り直す。
 3. 本社は有効な拠点からの記録だけを保存し、同じ拠点・日付は後着で上書きする。失効・停止中の拠点の記録は日報に載せない。
 4. 本社の日報は本社のセッションの集計とは別に、拠点ごとの欄を持つ (本社の session_count 等に拠点の数を混ぜない)。
    日報の再生成は従来どおり 4 時間の鮮度判定に従うので、拠点の記録が日報に入るまで最大 4 時間かかる。
 5. 古い本社は `activity-report` を認証後の未知フレームとして読み捨てる (接続は切らない)。本社を先に更新する。
 
-未確定: 送る項目に提出した PR を含めるか。
+#### 提出した PR を含める (2026-10-14 neco 指示「拠点から送る記録に PR を含めますが、公開情報にする場合はチェックをかけます」)
+
+上の未確定事項 (送る項目に提出した PR を含めるか) への回答。タスク: Actio `actio:1f93d2a7-733a-423d-9b97-492f8e0e660a`。
+
+| 責務 | 実装 |
+|---|---|
+| セッションと PR の対応付け (純関数) | `src/daily/site-activity-prs.ts` (`indexSessionPrs`) |
+| PR の項目・件数とバイトの上限 | `src/federation/protocol.ts` (`activityPrSchema` / `ACTIVITY_SESSION_MAX_PRS` / `ACTIVITY_REPORT_MAX_PRS` / `ACTIVITY_REPORT_MAX_BYTES`) / `src/daily/site-activity.ts` (`buildSiteDayActivity`) |
+| 拠点: 送信時に PR を引く | `src/federation/site-activity-reporter.ts` (`listSessionPrs`) / `src/bootstrap/core.ts` |
+| 本社: 拠点欄の PR (同じ PR は 1 件) | `src/daily/site-activity.ts` (`summarizeSiteActivity`) / `src/daily/generator.ts` |
+| 受け入れ契約 (observe、Augur `site-activity-prs-C-1` / `C-2`) | `src/daily/site-activity-prs.contract.ts` / `site-activity-build.contract.ts` / `ontime-runtime.ts` |
+
+1. 各セッションに、そのセッションが提出した PR を `prs` として載せる。項目は出所 (`local` = Revisor の local PR / `github` = Cc の PR 記録)・
+   リポジトリ・番号・題名 (150 文字)・状態・URL (http(s) だけ。local PR は持たない) だけ。本文・差分・審査理由・CI の詳細は送らない。
+2. セッションと PR の対応は Cc の既存の記録だけから取る。local PR は Revisor の提出元 `sessionId`、GitHub PR は `pr_records.author_session_id`。
+   提出元が分からない PR は載せない。同じ PR (出所・リポジトリ・番号) は 1 件にし、新しい順にセッションあたり 5 件まで。
+3. 上限: セッションあたり 5 件・1 報告あたり 120 件 (本社の検証で超えたら報告ごと拒否)。直列化した報告が 48KB を超えるときは、拠点が古いセッションから落として送る
+   (本社の受信上限 64KB を超えると連合リンクごと切れるため。総数は `session_count` に残る)。
+4. PR の取得に失敗したとき (Revisor 停止など) は PR なしで送る。作業記録の送信は止めない。
+5. 後方互換: `prs` は任意項目。旧版の拠点 (PR を送らない) の報告も受け付け、拠点欄の PR は空になる。
+   旧版の本社はセッションの未知項目を拒否するので、新しい拠点の報告は警告とともに読み捨てられる (接続は切れない)。本社を先に更新する。
+6. 本社の日報の拠点欄 (`bullets.sites[].prs`) に、その拠点のセッションの PR を重複なしで載せる。template 版の日報にも PR の行を出す。
+
+#### 公開時のチェック {#SPEC-FED-SITE-ACTIVITY-PUBLIC}
+
+2026-10-14 時点の調査では、日報と拠点の記録が Cc の外へ公開される経路は無い。日報は `day_reports` に保存され、
+loopback の `/v1/daily-reports` と Web UI だけが読む (Discord・Tabula・Memoria への投稿や公開 API は無い。Memoria・Tabula の
+リポジトリにも `/v1/daily-reports` の利用は無い)。日報の本文生成で入力を claude CLI に渡すのは公開ではない。
+`ludiars-status-daily` (LUDIARS ダッシュボードの日報) は Cc の日報・拠点の記録を読まない。
+
+規則: 日報・拠点の記録 (特に拠点の PR) を Cc の外へ公開する経路を新たに作るときは、出す前に次を必須とする。
+
+- 既存の漏洩チェック (公開リーク監査の登録語 = 秘匿語辞書 `.claude/state/confidential-terms.json`、AIFormat leak-checker と同じ形式) を
+  題名・リポジトリ名・ブランチ名に通し、引っかかった項目は伏せる。
+- 非公開リポジトリの PR は公開経路に出さない (公開かどうかを判定できないリポジトリも出さない)。
+- 公開経路の実装は、この節に経路と判定の実装を追記してから行う。
 
 ### 本社と拠点で同じフォーラム投稿・通常セッションと同じ操作感 (2026-10-12 neco 指示) {#SPEC-FED-SITE-FORUM-PARITY}
 

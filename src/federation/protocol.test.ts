@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVITY_REPORT_MAX_PRS,
   ACTIVITY_REPORT_MAX_SESSIONS,
+  ACTIVITY_SESSION_MAX_PRS,
   FEDERATION_PROTOCOL_VERSION,
   parseFederationFrame,
   serializeFederationFrame,
@@ -44,6 +46,32 @@ describe("federation protocol", () => {
       sessions: [{ ...session, metadata: "{}" }],
     }));
     expect(extraField.ok).toBe(false);
+  });
+
+  it("accepts sessions with submitted PRs, keeps PR-less (old site) reports, and enforces the PR caps", () => {
+    const session = {
+      id: "s-1", title: "日報", repo: "Concordia", branch: "main", provider: "claude-code",
+      status: "ended", started_at: 1, ended_at: 2, duration_sec: 1,
+    };
+    const pr = { source: "github", repo: "LUDIARS/Concordia", number: 1, title: "PR", state: "open", url: "https://github.com/LUDIARS/Concordia/pull/1" };
+    const frame = (sessions: unknown[]) => parseFederationFrame(JSON.stringify({
+      v: 1, type: "activity-report", date_iso: "2026-10-14", generated_at: 3, session_count: sessions.length, sessions,
+    }));
+    expect(frame([{ ...session, prs: [pr, { ...pr, source: "local", number: 2, url: null }] }]).ok).toBe(true);
+    // 旧版の拠点は prs を送らない。
+    expect(frame([session]).ok).toBe(true);
+    // PR の余計な項目 (本文など) は拒否する。
+    expect(frame([{ ...session, prs: [{ ...pr, body: "secret" }] }]).ok).toBe(false);
+    expect(frame([{ ...session, prs: [{ ...pr, source: "gitlab" }] }]).ok).toBe(false);
+    expect(frame([{ ...session, prs: [{ ...pr, title: "x".repeat(151) }] }]).ok).toBe(false);
+    // セッションあたりの上限。
+    const perSession = Array.from({ length: ACTIVITY_SESSION_MAX_PRS + 1 }, (_, i) => ({ ...pr, number: i + 1 }));
+    expect(frame([{ ...session, prs: perSession }]).ok).toBe(false);
+    // 報告全体の上限。
+    const full = Array.from({ length: ACTIVITY_SESSION_MAX_PRS }, (_, i) => ({ ...pr, number: i + 1 }));
+    const sessionsAtCap = Array.from({ length: ACTIVITY_REPORT_MAX_PRS / ACTIVITY_SESSION_MAX_PRS }, (_, i) => ({ ...session, id: `s-${i}`, prs: full }));
+    expect(frame(sessionsAtCap).ok).toBe(true);
+    expect(frame([...sessionsAtCap, { ...session, id: "over", prs: [pr] }]).ok).toBe(false);
   });
 
   it("rejects unsupported protocol versions", () => {

@@ -143,6 +143,27 @@ const mirrorOpenResultSchema = z.object({
  * 応答は返さず、 拠点は定期的に送り直す。 古い本社は認証後の未知フレームとして読み捨てる。
  */
 export const ACTIVITY_REPORT_MAX_SESSIONS = 80;
+/** 1 セッションに載せる PR の上限と、 1 報告全体の PR の上限。 */
+export const ACTIVITY_SESSION_MAX_PRS = 5;
+export const ACTIVITY_REPORT_MAX_PRS = 120;
+/**
+ * 1 報告の直列化後の上限 (UTF-8 バイト)。 本社の受信上限 (hq-listener の 64KB、 超えると接続ごと落ちる) より
+ * 狭く取り、 拠点は超える分を古いセッションから落として送る。
+ */
+export const ACTIVITY_REPORT_MAX_BYTES = 48 * 1024;
+/**
+ * セッションが提出した PR (2026-10-14 neco「拠点から送る記録に PR を含めます」)。
+ * `local` は Revisor の local PR、 `github` は Cc の PR 記録 (pr_records)。 本文・差分・審査理由は送らない。
+ */
+export const activityPrSchema = z.object({
+  source: z.enum(["local", "github"]),
+  repo: z.string().min(1).max(200),
+  number: z.number().int().positive(),
+  title: z.string().max(150),
+  state: z.string().min(1).max(30),
+  url: z.string().max(300).nullable(),
+}).strict();
+export type FederationActivityPr = z.infer<typeof activityPrSchema>;
 export const activitySessionSchema = z.object({
   id: z.string().min(1).max(200),
   title: z.string().max(200).nullable(),
@@ -153,6 +174,8 @@ export const activitySessionSchema = z.object({
   started_at: z.number().int().nonnegative(),
   ended_at: z.number().int().nonnegative().nullable(),
   duration_sec: z.number().int().nonnegative(),
+  /** そのセッションが提出した PR。 旧版の拠点は送らない (後方互換)。 */
+  prs: z.array(activityPrSchema).max(ACTIVITY_SESSION_MAX_PRS).optional(),
 }).strict();
 export type FederationActivitySession = z.infer<typeof activitySessionSchema>;
 
@@ -164,7 +187,10 @@ const activityReportSchema = z.object({
   /** その日のセッション総数 (sessions が上限で切られていても総数は分かる)。 */
   session_count: z.number().int().nonnegative(),
   sessions: z.array(activitySessionSchema).max(ACTIVITY_REPORT_MAX_SESSIONS),
-}).passthrough();
+}).passthrough().refine(
+  (frame) => frame.sessions.reduce((total, s) => total + (s.prs?.length ?? 0), 0) <= ACTIVITY_REPORT_MAX_PRS,
+  { message: `activity-report carries more than ${ACTIVITY_REPORT_MAX_PRS} PRs`, path: ["sessions"] },
+);
 
 /**
  * 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 本社 ⇄ 拠点の双方向。 拠点同士は本社が中継する。

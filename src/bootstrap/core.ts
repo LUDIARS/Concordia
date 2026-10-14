@@ -203,6 +203,7 @@ import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
+import { indexSessionPrs } from "../daily/site-activity-prs.js";
 import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
@@ -1797,6 +1798,15 @@ export async function startBackend(): Promise<BackendHandle> {
     start: () => startSiteActivityReporter({
       isSiteRole: () => federation.isSiteRole(),
       listSessionsInRange: (startTs, endTs) => repo.listSessionsInRange(startTs, endTs),
+      // セッションと PR の対応は既存の記録から取る: Revisor の local PR の提出元と、 PR 記録の作成セッション。
+      listSessionPrs: async (sessionIds) => {
+        const localPrs = await revisorClient.listLocalPrs().catch((e: unknown) => {
+          log.warn({ err: (e as Error).message }, "site activity: Revisor local PR lookup failed");
+          return [];
+        });
+        const githubPrs = sessionIds.flatMap((id) => prs.list({ author_session_id: id, limit: 20 }));
+        return indexSessionPrs(sessionIds, localPrs, githubPrs);
+      },
       send: (report) => federation.sendActivityReport(report),
     }),
   });

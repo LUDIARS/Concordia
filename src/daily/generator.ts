@@ -62,6 +62,7 @@ async function narrativeViaCli(b: DayBullets): Promise<string | null> {
     "- 引っかかったこと / lost セッション / 解決待ち",
     "- 明日への手筋 / 引継ぎメモ",
     "- 入力データに sites があれば、本社とは別に拠点ごとの段落を設けて、その拠点でやったことを書く (拠点の作業を本社の作業と混ぜない)",
+    "- 拠点の prs (その拠点のセッションが提出した PR) があれば、その拠点の段落でリポジトリ・番号・題名・状態を挙げる",
     "",
     "## トーン",
     "- AI 同士の対話前提なので人間配慮不要",
@@ -107,6 +108,13 @@ function templateSummary(b: DayBullets): string {
     if (site.repos.length) lines.push(`- repos: ${site.repos.join(", ")}`);
     for (const s of site.sessions) {
       lines.push(`- ${s.title ?? s.id} (${s.status}${s.branch ? `, ${s.branch}` : ""})`);
+    }
+    if (site.prs.length) {
+      lines.push(`- PR: ${site.prs.length} 件`);
+      for (const pr of site.prs) {
+        const label = `${pr.repo}${pr.source === "local" ? " (local)" : ""} #${pr.number}`;
+        lines.push(`  - ${label} ${pr.title || "(無題)"} [${pr.state}]${pr.url ? ` ${pr.url}` : ""}`);
+      }
     }
   }
   return lines.join("\n");

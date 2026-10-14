@@ -2,13 +2,15 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { PrivateConsultationMemberRow, PrivateConsultationRow } from "../db/private-consultations-repo.js";
 import type { DriveTransferConfig } from "./drive-transfer-config.js";
-import { DriveTransferError, type DriveFile, type DriveTransferPort } from "./drive-transfer-port.js";
+import { DriveTransferError, type DriveFile, type DriveFolderInfo, type DriveTransferPort } from "./drive-transfer-port.js";
 import { DriveTransferService, type TransferFiles } from "./drive-transfer-service.js";
 
 const DATA_DIR = join("C:", "Consult", "designer", "11111");
 const INCOMING = join(DATA_DIR, "transfer", "incoming");
 const OUTGOING = join(DATA_DIR, "transfer", "outgoing");
-const CONFIG = { parentFolderId: "parent123456", serviceAccount: { clientEmail: "a@b.c", privateKey: "k", tokenUri: "u" } } as DriveTransferConfig;
+const CONFIG = { serviceAccount: { clientEmail: "cc@project.iam.gserviceaccount.com", privateKey: "k", tokenUri: "u" } } as DriveTransferConfig;
+const FOLDER_ID = "1AbCdEfGhIjKlMnOp";
+const FOLDER_URL = `https://drive.google.com/drive/folders/${FOLDER_ID}?usp=sharing`;
 
 const consultation = {
   id: "pc_abcdef123456", requester_user_id: "11111", session_id: "sess-1", status: "open",
@@ -21,11 +23,17 @@ const members: PrivateConsultationMemberRow[] = [
   { consultation_id: consultation.id, platform_user_id: "44444", reason: "approver", added_by: "11111", added_at: 0, removed_at: 5 },
 ];
 
-function fakeDrive(remote: DriveFile[] = [], options: { folder?: boolean } = {}) {
+function sharedFolder(overrides: Partial<DriveFolderInfo> = {}): DriveFolderInfo {
+  return {
+    id: FOLDER_ID, url: "https://drive/shared", mimeType: "application/vnd.google-apps.folder",
+    trashed: false, canAddChildren: true, appProperties: {}, ...overrides,
+  };
+}
+
+function fakeDrive(remote: DriveFile[] = [], options: { folder?: boolean; shared?: DriveFolderInfo | null; linked?: Array<{ id: string; url: string }> } = {}) {
   const port: DriveTransferPort = {
-    findFolder: vi.fn(async () => (options.folder === false ? null : { id: "folder1", url: "https://drive/folder1" })),
-    createFolder: vi.fn(async () => ({ id: "folder-new", url: "https://drive/folder-new" })),
-    share: vi.fn(async () => undefined),
+    getFolder: vi.fn(async () => (options.shared === undefined ? sharedFolder() : options.shared)),
+    findFolders: vi.fn(async () => options.linked ?? (options.folder === false ? [] : [{ id: "folder1", url: "https://drive/folder1" }])),
     listFiles: vi.fn(async () => remote),
     download: vi.fn(async () => new Uint8Array([7, 7])),
     setAppProperties: vi.fn(async () => undefined),
@@ -57,14 +65,13 @@ function makeService(options: {
   const drive = options.drive ?? fakeDrive();
   const service = new DriveTransferService({
     consultations: {
-      find: (id) => (id === consultation.id ? consultation : null),
+      find: (id) => (id === consultation.id ? consultation : id === "pc_other" ? ({ ...consultation, id, requester_user_id: "99999" }) : null),
       members: () => members,
     },
     config: () => (options.config === undefined ? CONFIG : options.config),
     drive: () => drive,
     dataDir: () => (options.dataDir === undefined ? DATA_DIR : options.dataDir),
     files: options.files ?? fakeFiles().files,
-    now: () => new Date("2026-10-14T00:00:00Z"),
   });
   return { service, drive };
 }
@@ -73,44 +80,73 @@ const remoteFile = (overrides: Partial<DriveFile>): DriveFile => ({
   id: "r1", name: "chara.fbx", mimeType: "application/octet-stream", size: 100, appProperties: {}, ...overrides,
 });
 
-describe("DriveTransferService.open", () => {
-  it("creates the consultation folder with its id as an app property and shares it to the requester", async () => {
-    const drive = fakeDrive([], { folder: false });
-    const { service } = makeService({ drive });
-    const result = await service.open({ consultationId: consultation.id, actorUserId: "11111", email: "me@example.com" });
-    expect(result).toEqual({ ok: true, folder: { id: "folder-new", url: "https://drive/folder-new" }, created: true });
-    expect(drive.createFolder).toHaveBeenCalledWith("parent123456", "相談-20261014-abcdef", { ccConsultationId: consultation.id });
-    expect(drive.share).toHaveBeenCalledWith("folder-new", { type: "user", role: "writer", emailAddress: "me@example.com" });
+describe("DriveTransferService.guide", () => {
+  it("tells the requester which address to share their folder with", () => {
+    expect(makeService().service.guide({ consultationId: consultation.id, actorUserId: "11111" }))
+      .toEqual({ ok: true, serviceAccountEmail: "cc@project.iam.gserviceaccount.com" });
   });
 
-  it("reuses an existing folder", async () => {
-    const { service, drive } = makeService();
-    const result = await service.open({ consultationId: consultation.id, actorUserId: "11111", email: "me@example.com" });
-    expect(result).toMatchObject({ ok: true, created: false });
-    expect(drive.createFolder).not.toHaveBeenCalled();
-  });
-
-  it("is only for the requester and fails closed without configuration", async () => {
-    expect(await makeService().service.open({ consultationId: consultation.id, actorUserId: "22222", email: "x@example.com" }))
-      .toEqual({ ok: false, error: "not_requester" });
-    const unconfigured = makeService({ config: null });
-    expect(await unconfigured.service.open({ consultationId: consultation.id, actorUserId: "11111", email: "x@example.com" }))
+  it("is only for the requester and says unconfigured without the key", () => {
+    expect(makeService().service.guide({ consultationId: consultation.id, actorUserId: "22222" })).toEqual({ ok: false, error: "not_requester" });
+    expect(makeService({ config: null }).service.guide({ consultationId: consultation.id, actorUserId: "11111" }))
       .toEqual({ ok: false, error: "drive_not_configured" });
-    expect(unconfigured.drive.findFolder).not.toHaveBeenCalled();
+    expect(makeService({ dataDir: null }).service.guide({ consultationId: consultation.id, actorUserId: "11111" }))
+      .toEqual({ ok: false, error: "transfer_unavailable" });
+  });
+});
+
+describe("DriveTransferService.link", () => {
+  it("checks the shared folder and links it with the consultation id as an app property, without creating or sharing", async () => {
+    const drive = fakeDrive([], { linked: [] });
+    const { service } = makeService({ drive });
+    const result = await service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_URL });
+    expect(result).toEqual({ ok: true, folder: { id: FOLDER_ID, url: "https://drive/shared" }, relinked: false });
+    expect(drive.getFolder).toHaveBeenCalledWith(FOLDER_ID);
+    expect(drive.setAppProperties).toHaveBeenCalledTimes(1);
+    expect(drive.setAppProperties).toHaveBeenCalledWith(FOLDER_ID, { ccConsultationId: consultation.id });
   });
 
-  it("refuses consultations without a data folder and bad addresses", async () => {
-    expect(await makeService({ dataDir: null }).service.open({ consultationId: consultation.id, actorUserId: "11111", email: "x@example.com" }))
-      .toEqual({ ok: false, error: "transfer_unavailable" });
-    expect(await makeService().service.open({ consultationId: consultation.id, actorUserId: "11111", email: "nope" }))
-      .toEqual({ ok: false, error: "invalid_email" });
+  it("moves the link off a folder linked earlier to the same consultation (the folder itself is kept)", async () => {
+    const drive = fakeDrive([], { linked: [{ id: "old-folder", url: "https://drive/old" }, { id: FOLDER_ID, url: "https://drive/shared" }] });
+    const { service } = makeService({ drive });
+    expect(await service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
+      .toMatchObject({ ok: true, relinked: true });
+    expect(drive.setAppProperties).toHaveBeenCalledWith("old-folder", { ccConsultationId: null });
+    expect(drive.setAppProperties).toHaveBeenLastCalledWith(FOLDER_ID, { ccConsultationId: consultation.id });
+  });
+
+  it("does not link a folder Cc cannot reach, a viewer-only share or another requester's folder", async () => {
+    const unreachable = makeService({ drive: fakeDrive([], { shared: null }) });
+    expect(await unreachable.service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
+      .toEqual({ ok: false, error: "folder_unreachable" });
+    const viewer = makeService({ drive: fakeDrive([], { shared: sharedFolder({ canAddChildren: false }) }) });
+    expect(await viewer.service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
+      .toEqual({ ok: false, error: "folder_read_only" });
+    expect(viewer.drive.setAppProperties).not.toHaveBeenCalled();
+    const taken = makeService({ drive: fakeDrive([], { shared: sharedFolder({ appProperties: { ccConsultationId: "pc_other" } }) }) });
+    expect(await taken.service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
+      .toEqual({ ok: false, error: "folder_linked_elsewhere" });
+    expect(taken.drive.setAppProperties).not.toHaveBeenCalled();
+  });
+
+  it("is only for the requester, needs a readable folder reference and fails closed without the key", async () => {
+    expect(await makeService().service.link({ consultationId: consultation.id, actorUserId: "22222", folder: FOLDER_ID }))
+      .toEqual({ ok: false, error: "not_requester" });
+    const bad = makeService();
+    expect(await bad.service.link({ consultationId: consultation.id, actorUserId: "11111", folder: "https://example.com/x" }))
+      .toEqual({ ok: false, error: "invalid_folder" });
+    expect(bad.drive.getFolder).not.toHaveBeenCalled();
+    const unconfigured = makeService({ config: null });
+    expect(await unconfigured.service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
+      .toEqual({ ok: false, error: "drive_not_configured" });
+    expect(unconfigured.drive.getFolder).not.toHaveBeenCalled();
   });
 
   it("returns drive_failed with the code when Drive refuses", async () => {
-    const drive = fakeDrive();
-    vi.mocked(drive.share).mockRejectedValueOnce(new DriveTransferError("unauthorized", 403));
+    const drive = fakeDrive([], { linked: [] });
+    vi.mocked(drive.setAppProperties).mockRejectedValueOnce(new DriveTransferError("unauthorized", 403));
     const { service } = makeService({ drive });
-    expect(await service.open({ consultationId: consultation.id, actorUserId: "11111", email: "me@example.com" }))
+    expect(await service.link({ consultationId: consultation.id, actorUserId: "11111", folder: FOLDER_ID }))
       .toEqual({ ok: false, error: "drive_failed", detail: "unauthorized" });
   });
 });
@@ -176,9 +212,9 @@ describe("DriveTransferService.sync", () => {
     expect(await service.sync({ consultationId: "pc_none", actorUserId: "11111" })).toEqual({ ok: false, error: "consultation_not_found" });
   });
 
-  it("needs the folder to be opened first and the configuration to be set", async () => {
+  it("needs a linked folder and the configuration to be set", async () => {
     expect(await makeService({ drive: fakeDrive([], { folder: false }) }).service.sync({ consultationId: consultation.id, actorUserId: "11111" }))
-      .toEqual({ ok: false, error: "folder_not_opened" });
+      .toEqual({ ok: false, error: "folder_not_linked" });
     expect(await makeService({ config: null }).service.sync({ consultationId: consultation.id, actorUserId: "11111" }))
       .toEqual({ ok: false, error: "drive_not_configured" });
   });

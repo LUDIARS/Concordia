@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { PrivateConsultationRow } from "../db/private-consultations-repo.js";
-import { createConsultationDrive, DRIVE_PARENT_FOLDER_SETTING, DRIVE_SERVICE_ACCOUNT_SETTING } from "./consultation-drive-runtime.js";
+import { createConsultationDrive, DRIVE_SERVICE_ACCOUNT_SETTING } from "./consultation-drive-runtime.js";
 
 const ROOT = join("E:", "Document", "Consult");
 /** A key generated per run, so no key material is committed with the fixture. */
@@ -23,17 +23,24 @@ function runtime(options: { settings?: Record<string, string>; repoPath?: string
 }
 
 describe("createConsultationDrive", () => {
-  it("reads the key and the parent folder from the settings screen values on each call and fails closed without them", async () => {
+  it("reads only the key from the settings screen values on each call and fails closed without it", async () => {
     const { drive, readSetting } = runtime({ settings: {} });
     expect(await drive.sync({ consultationId: "pc_1", actorUserId: "11111" })).toEqual({ ok: false, error: "drive_not_configured" });
-    expect(readSetting).toHaveBeenCalledWith(DRIVE_SERVICE_ACCOUNT_SETTING);
-    expect(readSetting).toHaveBeenCalledWith(DRIVE_PARENT_FOLDER_SETTING);
+    expect(drive.guide({ consultationId: "pc_1", actorUserId: "11111" })).toEqual({ ok: false, error: "drive_not_configured" });
+    expect(readSetting.mock.calls.every(([key]) => key === DRIVE_SERVICE_ACCOUNT_SETTING)).toBe(true);
+  });
+
+  it("guides the requester to share with the service account address once the key is set", () => {
+    const settings = {
+      [DRIVE_SERVICE_ACCOUNT_SETTING]: JSON.stringify({ type: "service_account", client_email: "cc@b.iam.gserviceaccount.com", private_key: throwawayPrivateKey() }),
+    };
+    expect(runtime({ settings }).drive.guide({ consultationId: "pc_1", actorUserId: "11111" }))
+      .toEqual({ ok: true, serviceAccountEmail: "cc@b.iam.gserviceaccount.com" });
   });
 
   it("refuses sessions that do not run in the consult workspace", async () => {
     const settings = {
       [DRIVE_SERVICE_ACCOUNT_SETTING]: JSON.stringify({ type: "service_account", client_email: "a@b.iam.gserviceaccount.com", private_key: throwawayPrivateKey() }),
-      [DRIVE_PARENT_FOLDER_SETTING]: "parent123456",
     };
     const { drive } = runtime({ settings, repoPath: join("E:", "Document", "Ars", "Concordia") });
     expect(await drive.sync({ consultationId: "pc_1", actorUserId: "11111" })).toEqual({ ok: false, error: "transfer_unavailable" });

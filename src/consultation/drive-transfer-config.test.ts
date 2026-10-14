@@ -13,9 +13,8 @@ const KEY = JSON.stringify({
 });
 
 describe("readDriveTransferConfig", () => {
-  it("returns the config only when both the key and the parent folder are set", () => {
-    expect(readDriveTransferConfig({ serviceAccountJson: KEY, parentFolderId: "0AbCdEfGhIjK" })).toEqual({
-      parentFolderId: "0AbCdEfGhIjK",
+  it("returns the config from the key alone (no parent folder: the requester shares their own folder)", () => {
+    expect(readDriveTransferConfig({ serviceAccountJson: KEY })).toEqual({
       serviceAccount: {
         clientEmail: "cc-consult@project.iam.gserviceaccount.com",
         privateKey: PRIVATE_KEY,
@@ -24,11 +23,10 @@ describe("readDriveTransferConfig", () => {
     });
   });
 
-  it("fails closed when either value is missing or unreadable", () => {
-    expect(readDriveTransferConfig({ serviceAccountJson: null, parentFolderId: "0AbCdEfGhIjK" })).toBeNull();
-    expect(readDriveTransferConfig({ serviceAccountJson: KEY, parentFolderId: null })).toBeNull();
-    expect(readDriveTransferConfig({ serviceAccountJson: KEY, parentFolderId: "bad id!" })).toBeNull();
-    expect(readDriveTransferConfig({ serviceAccountJson: "{not json", parentFolderId: "0AbCdEfGhIjK" })).toBeNull();
+  it("fails closed when the key is missing or unreadable", () => {
+    expect(readDriveTransferConfig({ serviceAccountJson: null })).toBeNull();
+    expect(readDriveTransferConfig({ serviceAccountJson: "  " })).toBeNull();
+    expect(readDriveTransferConfig({ serviceAccountJson: "{not json" })).toBeNull();
   });
 });
 

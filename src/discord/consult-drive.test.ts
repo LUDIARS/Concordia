@@ -5,6 +5,7 @@ import type { PrivateConsultationRow } from "../db/private-consultations-repo.js
 import {
   DRIVE_NOT_CONFIGURED_TEXT,
   formatSessionNotice,
+  formatShareGuide,
   formatSyncSummary,
   handleConsultFiles,
   handleConsultFilesSync,
@@ -13,7 +14,7 @@ import {
 
 const consultation = { id: "pc_1", requester_user_id: "11111", session_id: "sess-1", status: "open" } as PrivateConsultationRow;
 
-function interaction(options: { userId?: string; email?: string; channelId?: string } = {}) {
+function interaction(options: { userId?: string; folder?: string | null; channelId?: string } = {}) {
   const reply = vi.fn(async () => undefined);
   const deferReply = vi.fn(async () => undefined);
   const editReply = vi.fn(async () => undefined);
@@ -21,7 +22,7 @@ function interaction(options: { userId?: string; email?: string; channelId?: str
   const value = {
     channelId: options.channelId ?? "chan-1",
     user: { id: options.userId ?? "11111", displayName: "相談者" },
-    options: { getString: () => options.email ?? "me@example.com" },
+    options: { getString: () => (options.folder === undefined ? "https://drive.google.com/drive/folders/1AbCdEfGhIjK" : options.folder) },
     reply, deferReply, editReply, followUp,
   } as unknown as ChatInputCommandInteraction;
   return { value, reply, deferReply, editReply, followUp };
@@ -30,7 +31,8 @@ function interaction(options: { userId?: string; email?: string; channelId?: str
 function deps(overrides: Partial<ConsultDriveDeps> = {}): ConsultDriveDeps {
   return {
     findByChannel: (channelId) => (channelId === "chan-1" ? consultation : null),
-    open: vi.fn(async () => ({ ok: true as const, folderUrl: "https://drive/f", created: true })),
+    guide: vi.fn(async () => ({ ok: true as const, serviceAccountEmail: "cc@p.iam.gserviceaccount.com" })),
+    link: vi.fn(async () => ({ ok: true as const, folderUrl: "https://drive/f", relinked: false })),
     sync: vi.fn(async () => ({ ok: true as const, folderUrl: "https://drive/f", imported: [], delivered: [], skipped: [] })),
     notifySession: vi.fn(async () => undefined),
     ...overrides,
@@ -38,27 +40,41 @@ function deps(overrides: Partial<ConsultDriveDeps> = {}): ConsultDriveDeps {
 }
 
 describe("handleConsultFiles", () => {
-  it("shares the folder and posts its link to the channel without the email address", async () => {
+  it("without a folder, shows the requester how to share their folder with the service account", async () => {
+    const ctx = interaction({ folder: null });
+    const d = deps();
+    await handleConsultFiles(ctx.value, d);
+    expect(d.guide).toHaveBeenCalledWith({ consultationId: "pc_1", actorUserId: "11111" });
+    expect(d.link).not.toHaveBeenCalled();
+    expect(ctx.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(ctx.editReply).toHaveBeenCalledWith({ content: formatShareGuide("cc@p.iam.gserviceaccount.com") });
+    expect(ctx.followUp).not.toHaveBeenCalled();
+  });
+
+  it("links the shared folder and posts its link to the channel", async () => {
     const ctx = interaction();
     const d = deps();
     await handleConsultFiles(ctx.value, d);
-    expect(d.open).toHaveBeenCalledWith({ consultationId: "pc_1", actorUserId: "11111", email: "me@example.com" });
+    expect(d.link).toHaveBeenCalledWith({ consultationId: "pc_1", actorUserId: "11111", folder: "https://drive.google.com/drive/folders/1AbCdEfGhIjK" });
     const posted = (ctx.followUp.mock.calls[0] as unknown as [{ content: string }])[0].content;
     expect(posted).toContain("https://drive/f");
-    expect(posted).not.toContain("me@example.com");
   });
 
   it("tells the channel that the transfer is not configured", async () => {
-    const ctx = interaction();
-    await handleConsultFiles(ctx.value, deps({ open: vi.fn(async () => ({ ok: false as const, error: "drive_not_configured" })) }));
+    const ctx = interaction({ folder: null });
+    await handleConsultFiles(ctx.value, deps({ guide: vi.fn(async () => ({ ok: false as const, error: "drive_not_configured" })) }));
     expect(ctx.followUp).toHaveBeenCalledWith(expect.objectContaining({ content: DRIVE_NOT_CONFIGURED_TEXT }));
   });
 
-  it("answers other failures only to the operator", async () => {
-    const ctx = interaction({ userId: "22222" });
-    await handleConsultFiles(ctx.value, deps({ open: vi.fn(async () => ({ ok: false as const, error: "not_requester" })) }));
-    expect(ctx.followUp).not.toHaveBeenCalled();
-    expect(ctx.editReply).toHaveBeenCalledWith({ content: "フォルダの共有は相談者本人だけが行えます。" });
+  it("answers other failures (not the requester, viewer-only share) only to the operator", async () => {
+    const other = interaction({ userId: "22222" });
+    await handleConsultFiles(other.value, deps({ link: vi.fn(async () => ({ ok: false as const, error: "not_requester" })) }));
+    expect(other.followUp).not.toHaveBeenCalled();
+    expect(other.editReply).toHaveBeenCalledWith({ content: "受け渡しフォルダの設定は相談者本人だけが行えます。" });
+    const viewer = interaction();
+    await handleConsultFiles(viewer.value, deps({ link: vi.fn(async () => ({ ok: false as const, error: "folder_read_only" })) }));
+    expect(viewer.followUp).not.toHaveBeenCalled();
+    expect(viewer.editReply).toHaveBeenCalledWith({ content: expect.stringContaining("編集者") });
   });
 
   it("refuses outside a consultation channel", async () => {
@@ -66,7 +82,17 @@ describe("handleConsultFiles", () => {
     const d = deps();
     await handleConsultFiles(ctx.value, d);
     expect(ctx.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
-    expect(d.open).not.toHaveBeenCalled();
+    expect(d.guide).not.toHaveBeenCalled();
+    expect(d.link).not.toHaveBeenCalled();
+  });
+});
+
+describe("formatShareGuide", () => {
+  it("names the service account address, the editor role and the folder option", () => {
+    const text = formatShareGuide("cc@p.iam.gserviceaccount.com");
+    expect(text).toContain("cc@p.iam.gserviceaccount.com");
+    expect(text).toContain("編集者");
+    expect(text).toContain("/consult files folder:");
   });
 });
 

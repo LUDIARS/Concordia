@@ -1,7 +1,7 @@
 /**
  * 相談のファイル受け渡し (Google Drive) の判断 (spec/feature/tech-consultation.md §6.4)。
  *
- * 受け渡すファイルの種類 (3D モデル・音声)・大きさ・名前、 Drive フォルダの共有の権限、 フォルダ名、 取り込み先を決める。
+ * 受け渡すファイルの種類 (3D モデル・音声)・大きさ・名前、 相談者が渡したフォルダの URL / ID の読み方と結び付けてよいか、 取り込み先を決める。
  * 副作用を持たない。 Drive の呼び出しは drive-transfer-service.ts、 REST は google-drive-client.ts が持つ。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
@@ -10,7 +10,8 @@
 import { basename, join } from "node:path";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:6a57947e */
 import augurContract_993c08f1 from './drive-transfer-file.contract.js'; /* augur-inject:contract-predicate:61a70fb7 */
-import augurContract_5c3d2eda from './drive-transfer-permission.contract.js'; /* augur-inject:contract-predicate:848409c7 */
+import augurContract_7780be15 from './drive-folder-ref.contract.js'; /* augur-inject:contract-predicate:848409c7 */
+import augurContract_2abb14e7 from './drive-folder-link.contract.js'; /* augur-inject:contract-predicate:a204739e */
 
 export const DRIVE_TRANSFER_MODEL_EXTENSIONS: readonly string[] = Object.freeze([
   ".fbx", ".obj", ".glb", ".gltf", ".blend", ".vrm", ".stl", ".dae", ".3ds", ".usdz", ".usd", ".ply", ".abc", ".max", ".ma", ".mb",
@@ -29,6 +30,7 @@ export const DRIVE_PROP_IMPORTED = "ccImported";
 export const DRIVE_PROP_KIND = "ccKind";
 export const DRIVE_PROP_SOURCE_NAME = "ccSourceName";
 export const DRIVE_KIND_ANSWER = "answer";
+export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 
 export type TransferFileKind = "model" | "audio";
 export type TransferFileRejection = "unsupported_type" | "too_large" | "invalid_name";
@@ -75,32 +77,60 @@ export function sanitizeTransferFileName(name: string): string | null {
   return cleaned.length > 200 ? null : cleaned;
 }
 
-export interface DriveFolderPermission {
-  type: "user";
-  role: "writer";
-  emailAddress: string;
-}
+const DRIVE_FOLDER_ID = /^[A-Za-z0-9_-]{10,200}$/;
 
 /**
- * 相談フォルダの共有。 相談者の Google アカウントへの編集者だけで、 リンク共有 (anyone) やドメイン共有は作らない。
- * メールアドレスとして読めなければ null (共有しない)。
+ * 相談者が渡したフォルダの URL か ID から、 Drive のフォルダ ID を取り出す。
+ * 受け付けるのは ID そのものと drive.google.com のフォルダの URL (`/drive/folders/<id>`、 `/drive/u/<n>/folders/<id>`、 `open?id=<id>`) だけ。
+ * それ以外 (他のホスト・ファイルの URL・使えない文字) は null。
  */
-export function driveFolderPermission(email: string): DriveFolderPermission | null {
-  const address = email.trim();
-  if (address.length > 254 || !/^[^\s@<>()",;:]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(address)) {
+export function parseDriveFolderId(input: string): string | null {
+  const text = input.trim();
+  if (DRIVE_FOLDER_ID.test(text)) return text;
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
     return null;
   }
-  return { type: "user", role: "writer", emailAddress: address };
+  if (url.protocol !== "https:" || url.hostname !== "drive.google.com") return null;
+  const match = /^\/drive(?:\/u\/\d+)?\/folders\/([^/]+)\/?$/.exec(url.pathname);
+  const id = match ? match[1] : url.pathname === "/open" ? url.searchParams.get("id") : null;
+  return id && DRIVE_FOLDER_ID.test(id) ? id : null;
 }
 // @ts-expect-error augur-inject
-driveFolderPermission = contract(driveFolderPermission, { ...augurContract_5c3d2eda, contractId: 'consult-drive-C-2', mode: 'observe', sample: 1, where: 'src/consultation/drive-transfer-policy.ts:83', rule: 'contract-wrap', id: '5c3d2eda' }); /* augur-inject:contract-wrap:5c3d2eda */
+parseDriveFolderId = contract(parseDriveFolderId, { ...augurContract_7780be15, contractId: 'consult-drive-C-2', mode: 'observe', sample: 1, where: 'src/consultation/drive-transfer-policy.ts:85', rule: 'contract-wrap', id: '7780be15' }); /* augur-inject:contract-wrap:7780be15 */
 
-/** Drive のフォルダ名。 内容を含めない (`相談-<日付>-<短い id>`、 チャンネル名と同じ形)。 */
-export function consultDriveFolderName(now: Date, consultationId: string): string {
-  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const suffix = consultationId.replace(/^pc_/, "").slice(0, 6);
-  return `相談-${date}-${suffix}`;
+export interface DriveFolderAccess {
+  mimeType: string;
+  trashed: boolean;
+  /** フォルダに中身を足せるか (Drive の capabilities.canAddChildren。 編集者以上で true)。 */
+  canAddChildren: boolean;
+  /** 既に結び付いている相談 (アプリのプロパティ ccConsultationId)。 無ければ null。 */
+  linkedConsultationId: string | null;
 }
+
+export type DriveFolderLinkRejection = "not_a_folder" | "folder_read_only" | "folder_linked_elsewhere";
+
+/**
+ * サービスアカウントから見えたフォルダを相談に結び付けてよいか。 フォルダで、 ゴミ箱になく、 編集者として届いていて、
+ * 他の相談者の相談に結び付いていないときだけ通す。 同じ相談者の別の相談に結び付いていれば付け替えてよい。
+ */
+export function decideDriveFolderLink(
+  folder: DriveFolderAccess,
+  target: { consultationId: string; requesterUserId: string },
+  requesterOf: (consultationId: string) => string | null,
+): { ok: true } | { ok: false; reason: DriveFolderLinkRejection } {
+  if (folder.mimeType !== DRIVE_FOLDER_MIME || folder.trashed) return { ok: false, reason: "not_a_folder" };
+  if (!folder.canAddChildren) return { ok: false, reason: "folder_read_only" };
+  const linked = folder.linkedConsultationId;
+  if (linked && linked !== target.consultationId && requesterOf(linked) !== target.requesterUserId) {
+    return { ok: false, reason: "folder_linked_elsewhere" };
+  }
+  return { ok: true };
+}
+// @ts-expect-error augur-inject
+decideDriveFolderLink = contract(decideDriveFolderLink, { ...augurContract_2abb14e7, contractId: 'consult-drive-C-4', mode: 'observe', sample: 1, where: 'src/consultation/drive-transfer-policy.ts:115', rule: 'contract-wrap', id: '2abb14e7' }); /* augur-inject:contract-wrap:2abb14e7 */
 
 /** 相談者のデータフォルダの中の受け渡し先。 */
 export function consultTransferDirs(dataDir: string): { incoming: string; outgoing: string } {

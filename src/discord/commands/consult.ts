@@ -14,7 +14,8 @@ import { handleConsultFiles, handleConsultFilesSync, type ConsultDriveDeps } fro
  * - `start department:<部署>`: 事前ヒアリングのモーダルを開く。 送信で閉じたチャンネルを作る (consult-flow.ts)。
  * - `invite user:@x` / `remove user:@x`: 相談チャンネル内で閲覧者を足し引きする (相談者本人と権限者のみ)。
  * - `wrap`: 相談の区切りで、 セッションに公開候補 (書き直した要約) づくりを依頼する (§5)。
- * - `files email:<Google アカウント>` / `files-sync`: Google Drive でのファイル受け渡し (§6.4、 consult-drive.ts)。
+ * - `files [folder:<URL か ID>]` / `files-sync`: Google Drive でのファイル受け渡し (§6.4、 consult-drive.ts)。
+ *   相談者が自分のフォルダを Cc のサービスアカウントへ編集者で共有し、 その URL を渡して結び付ける。
  *
  * 本社 guild と、 子会社 guild (その会社のプロジェクトを持たない相談部署だけ、 tech-consultation.md §6) に出す。
  * 子会社では wrap (公開候補) を使えない (Bot が requestProposal を配線しない)。
@@ -52,8 +53,8 @@ const consultCommand: DiscordCommandSpec = {
       .setDescription("この相談から全体に共有できる知見の公開候補を作ってもらう (相談者本人と権限者のみ)"))
     .addSubcommand((sub) => sub
       .setName("files")
-      .setDescription("3D モデル・音声の受け渡しフォルダ (Google Drive) を作って自分に共有する (相談者本人のみ)")
-      .addStringOption((o) => o.setName("email").setDescription("共有する Google アカウントのメールアドレス").setRequired(true).setMaxLength(254)))
+      .setDescription("3D モデル・音声の受け渡しフォルダ (自分の Google Drive) の共有手順を見る・結び付ける (相談者本人のみ)")
+      .addStringOption((o) => o.setName("folder").setDescription("Cc に編集者で共有したフォルダの URL か ID (省略すると共有の手順を表示)").setRequired(false).setMaxLength(500)))
     .addSubcommand((sub) => sub
       .setName("files-sync")
       .setDescription("受け渡しフォルダのファイルを相談へ取り込み、回答のファイルを置く (相談者本人と権限者のみ)")),

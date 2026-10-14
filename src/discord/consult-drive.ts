@@ -1,12 +1,13 @@
 /**
  * 相談のファイル受け渡し (Google Drive) の Discord コマンド (spec/feature/tech-consultation.md §6.4)。
  *
- * - `/consult files email:<Google アカウント>`: 相談者本人が Drive フォルダを作って自分に共有する。
+ * - `/consult files`: 相談者本人に、 自分の Drive のフォルダを Cc のサービスアカウントへ編集者で共有する手順を返す。
+ * - `/consult files folder:<URL か ID>`: 相談者本人が共有したフォルダを相談に結び付ける (Cc が編集者として届くかを確かめる)。
  * - `/consult files-sync`: 相談者本人か権限者が、 受け取り (相談者 → 相談) と回答 (相談 → 相談者) を同期する。
  *
  * 判断と Drive の呼び出しは Cc の API (`/v1/consultations/:id/drive/*`) が持ち、 Bot は鍵を持たない。
  * 未設定なら相談チャンネルで「ファイル受け渡しは未設定」と伝えて終わる (相談は従来どおり続ける)。
- * 入力されたメールアドレスはチャンネルに出さない。
+ * Cc はフォルダを作らず、 相談者のメールアドレスも聞かない (共有の権限は相談者が Drive で持つ)。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
  */
@@ -17,14 +18,16 @@ import type { PrivateConsultationRow } from "../db/private-consultations-repo.js
 import type { DriveSyncResult, DriveTransferErrorCode } from "../consultation/drive-transfer-service.js";
 import { transferRejectionText } from "../consultation/drive-transfer-policy.js";
 
-export type ConsultDriveOpenResult = { ok: true; folderUrl: string; created: boolean } | { ok: false; error: string };
+export type ConsultDriveGuideResult = { ok: true; serviceAccountEmail: string } | { ok: false; error: string };
+export type ConsultDriveLinkResult = { ok: true; folderUrl: string; relinked: boolean } | { ok: false; error: string };
 export type ConsultDriveSyncResult =
   | ({ ok: true; folderUrl: string } & Pick<DriveSyncResult, "imported" | "delivered" | "skipped">)
   | { ok: false; error: string };
 
 export interface ConsultDriveDeps {
   findByChannel(channelId: string): PrivateConsultationRow | null;
-  open(input: { consultationId: string; actorUserId: string; email: string }): Promise<ConsultDriveOpenResult>;
+  guide(input: { consultationId: string; actorUserId: string }): Promise<ConsultDriveGuideResult>;
+  link(input: { consultationId: string; actorUserId: string; folder: string }): Promise<ConsultDriveLinkResult>;
   sync(input: { consultationId: string; actorUserId: string }): Promise<ConsultDriveSyncResult>;
   /** 取り込んだファイルの場所をセッションへ伝える (inject)。 失敗しても同期の結果は返す。 */
   notifySession?(input: { sessionId: string; text: string; actorUserId: string; actorLabel: string }): Promise<void>;
@@ -34,12 +37,16 @@ export const DRIVE_NOT_CONFIGURED_TEXT = "ファイル受け渡しは未設定�
 
 const ERROR_TEXT: Readonly<Record<DriveTransferErrorCode, string>> = {
   consultation_not_found: "この相談が見つかりません。",
-  not_requester: "フォルダの共有は相談者本人だけが行えます。",
+  not_requester: "受け渡しフォルダの設定は相談者本人だけが行えます。",
   not_allowed: "ファイルの同期は相談者本人か権限者だけが行えます。",
   transfer_unavailable: "この相談ではファイル受け渡しを使えません (相談窓口のセッションが動いていません)。",
   drive_not_configured: DRIVE_NOT_CONFIGURED_TEXT,
-  invalid_email: "Google アカウントのメールアドレスとして読めませんでした。",
-  folder_not_opened: "まだ受け渡しフォルダがありません。相談者本人が `/consult files email:<Google アカウント>` で作ってください。",
+  invalid_folder: "Google Drive のフォルダの URL か ID として読めませんでした。フォルダを開いたときのアドレス (https://drive.google.com/drive/folders/…) を貼ってください。",
+  folder_unreachable: "そのフォルダに Cc から届きませんでした。`/consult files` で案内したアドレスへ共有されているか確かめてください。",
+  not_a_folder: "それはフォルダではありません (またはゴミ箱にあります)。フォルダの URL を貼ってください。",
+  folder_read_only: "Cc が閲覧者として共有されています。共有の権限を「編集者」にしてからもう一度実行してください。",
+  folder_linked_elsewhere: "そのフォルダは別の方の相談に結び付いています。自分で用意したフォルダを使ってください。",
+  folder_not_linked: "まだ受け渡しフォルダが結び付いていません。相談者本人が `/consult files` の案内に沿って共有し、`/consult files folder:<URL>` で結び付けてください。",
   drive_failed: "Google Drive の操作に失敗しました。時間をおいてもう一度お試しください。",
 };
 
@@ -52,34 +59,60 @@ function errorReply(error: string): { content: string; ephemeral: boolean } {
   return { content: consultDriveErrorText(error), ephemeral: error !== "drive_not_configured" };
 }
 
+/** 相談者が自分のフォルダを共有する手順 (操作者にだけ返す)。 */
+export function formatShareGuide(serviceAccountEmail: string): string {
+  return [
+    "📁 ファイル受け渡しの準備 (相談者のあなただけに表示しています)",
+    "1. 自分の Google Drive に、この相談用のフォルダを作ります。",
+    `2. フォルダを「共有」し、次のアドレスを **編集者** で追加します: \`${serviceAccountEmail}\``,
+    "3. フォルダの URL をコピーし、このチャンネルで `/consult files folder:<URL>` を実行します。",
+    "見てほしい 3D モデル・音声をフォルダに置いて `/consult files-sync` を実行すると相談に取り込まれます。",
+    "フォルダは相談が終わってもあなたの Drive に残ります (Cc は消しません)。不要になったら共有を外すか削除してください。",
+  ].join("\n");
+}
+
 export async function handleConsultFiles(interaction: ChatInputCommandInteraction, deps: ConsultDriveDeps): Promise<void> {
   const consultation = interaction.channelId ? deps.findByChannel(interaction.channelId) : null;
   if (!consultation) {
     await interaction.reply({ content: "このチャンネルはプライベート相談のチャンネルではありません。", ephemeral: true });
     return;
   }
-  const email = interaction.options.getString("email", true);
+  const folder = interaction.options.getString("folder", false)?.trim() ?? "";
   await interaction.deferReply({ ephemeral: true });
-  const result = await deps.open({ consultationId: consultation.id, actorUserId: interaction.user.id, email });
-  if (!result.ok) {
-    const reply = errorReply(result.error);
-    if (reply.ephemeral) {
-      await interaction.editReply({ content: reply.content });
-    } else {
-      await interaction.editReply({ content: "ファイル受け渡しは未設定です。" });
-      await interaction.followUp({ content: reply.content, allowedMentions: { parse: [] } });
+  const actor = { consultationId: consultation.id, actorUserId: interaction.user.id };
+  if (!folder) {
+    const guide = await deps.guide(actor);
+    if (!guide.ok) {
+      await replyFailure(interaction, guide.error);
+      return;
     }
+    await interaction.editReply({ content: formatShareGuide(guide.serviceAccountEmail) });
     return;
   }
-  await interaction.editReply({ content: "共有しました。Google から招待のメールが届きます。" });
+  const result = await deps.link({ ...actor, folder });
+  if (!result.ok) {
+    await replyFailure(interaction, result.error);
+    return;
+  }
+  await interaction.editReply({ content: "フォルダを結び付けました。" });
   await interaction.followUp({
     content: [
-      result.created ? "📁 この相談のファイル受け渡しフォルダを作りました。" : "📁 この相談のファイル受け渡しフォルダです。",
+      result.relinked ? "📁 この相談のファイル受け渡しフォルダを付け替えました。" : "📁 この相談のファイル受け渡しフォルダを結び付けました。",
       `<${result.folderUrl}>`,
-      "相談者のアカウントだけに共有しています。見てほしい 3D モデル・音声をこのフォルダに置いて `/consult files-sync` を実行してください。",
+      "相談者が共有したフォルダです。見てほしい 3D モデル・音声をこのフォルダに置いて `/consult files-sync` を実行してください。",
     ].join("\n"),
     allowedMentions: { parse: [] },
   });
+}
+
+async function replyFailure(interaction: ChatInputCommandInteraction, error: string): Promise<void> {
+  const reply = errorReply(error);
+  if (reply.ephemeral) {
+    await interaction.editReply({ content: reply.content });
+    return;
+  }
+  await interaction.editReply({ content: "ファイル受け渡しは未設定です。" });
+  await interaction.followUp({ content: reply.content, allowedMentions: { parse: [] } });
 }
 
 export async function handleConsultFilesSync(interaction: ChatInputCommandInteraction, deps: ConsultDriveDeps): Promise<void> {

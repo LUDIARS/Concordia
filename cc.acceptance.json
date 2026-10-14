@@ -2982,7 +2982,7 @@
       ],
       "contracts": []
     },
-    { "source": "src/consultation/drive-transfer-policy.ts", "tests": ["src/consultation/drive-transfer-policy.test.ts", "src/consultation/drive-transfer-service.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER", "consult-drive-C-1", "consult-drive-C-2"] },
+    { "source": "src/consultation/drive-transfer-policy.ts", "tests": ["src/consultation/drive-transfer-policy.test.ts", "src/consultation/drive-transfer-service.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER", "consult-drive-C-1", "consult-drive-C-2", "consult-drive-C-4"] },
     { "source": "src/consultation/drive-transfer-config.ts", "tests": ["src/consultation/drive-transfer-config.test.ts", "src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER", "consult-drive-C-3"] },
     { "source": "src/consultation/drive-transfer-port.ts", "tests": ["src/consultation/drive-transfer-service.test.ts", "src/consultation/google-drive-client.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
     { "source": "src/consultation/drive-transfer-service.ts", "tests": ["src/consultation/drive-transfer-service.test.ts", "src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },

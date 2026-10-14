@@ -5,11 +5,18 @@
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
  */
 
-import type { DriveFolderPermission } from "./drive-transfer-policy.js";
-
 export interface DriveFolder {
   id: string;
   url: string;
+}
+
+/** 相談者が共有したフォルダを、 サービスアカウントから見た姿。 */
+export interface DriveFolderInfo extends DriveFolder {
+  mimeType: string;
+  trashed: boolean;
+  /** フォルダに中身を足せるか (capabilities.canAddChildren)。 閲覧者・閲覧者 (コメント可) では false。 */
+  canAddChildren: boolean;
+  appProperties: Readonly<Record<string, string>>;
 }
 
 export interface DriveFile {
@@ -30,14 +37,14 @@ export class DriveTransferError extends Error {
 }
 
 export interface DriveTransferPort {
-  /** 親フォルダの中で、 アプリのプロパティが一致するフォルダ (ゴミ箱を除く)。 */
-  findFolder(parentId: string, property: { key: string; value: string }): Promise<DriveFolder | null>;
-  createFolder(parentId: string, name: string, appProperties: Readonly<Record<string, string>>): Promise<DriveFolder>;
-  /** 共有を足す (招待メールは Google が送る)。 */
-  share(folderId: string, permission: DriveFolderPermission): Promise<void>;
+  /** サービスアカウントから届くファイル・フォルダ。 届かない (共有されていない・無い) ときは null。 */
+  getFolder(folderId: string): Promise<DriveFolderInfo | null>;
+  /** アプリのプロパティが一致するフォルダ (サービスアカウントから届くもの、 ゴミ箱を除く)。 */
+  findFolders(property: { key: string; value: string }): Promise<DriveFolder[]>;
   /** フォルダ直下のファイル (ゴミ箱を除く)。 */
   listFiles(folderId: string): Promise<DriveFile[]>;
   download(fileId: string): Promise<Uint8Array>;
-  setAppProperties(fileId: string, appProperties: Readonly<Record<string, string>>): Promise<void>;
+  /** アプリのプロパティを足す・書き換える。 値が null の鍵は外す。 */
+  setAppProperties(fileId: string, appProperties: Readonly<Record<string, string | null>>): Promise<void>;
   upload(folderId: string, input: { name: string; bytes: Uint8Array; appProperties: Readonly<Record<string, string>> }): Promise<{ id: string }>;
 }

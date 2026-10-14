@@ -1,15 +1,15 @@
 /**
  * Google Drive REST v3 によるファイル受け渡しのポートの実装 (spec/feature/tech-consultation.md §6.4)。
  *
- * 共有ドライブの中の親フォルダを使う前提なので、 全ての呼び出しに `supportsAllDrives=true` を付ける。
+ * フォルダは相談者が自分の Drive (共有ドライブのこともある) に用意してサービスアカウントへ共有したものなので、
+ * 全ての呼び出しに `supportsAllDrives=true` を付ける。 フォルダを作る・共有する呼び出しは持たない。
  * 失敗時の例外には応答本文を載せない (トークン・相談のファイル名をログへ流さない)。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
  */
 
 import { randomUUID } from "node:crypto";
-import type { DriveFolderPermission } from "./drive-transfer-policy.js";
-import { DriveTransferError, type DriveFile, type DriveFolder, type DriveTransferPort } from "./drive-transfer-port.js";
+import { DriveTransferError, type DriveFile, type DriveFolder, type DriveFolderInfo, type DriveTransferPort } from "./drive-transfer-port.js";
 import type { AccessTokenSource, FetchLike } from "./google-service-account-token.js";
 
 const API = "https://www.googleapis.com/drive/v3";
@@ -24,6 +24,12 @@ export function driveQueryLiteral(value: string): string {
 
 export function createGoogleDriveClient(tokens: AccessTokenSource, fetchImpl: FetchLike = fetch): DriveTransferPort {
   const call = async (url: string, init: RequestInit = {}): Promise<Response> => {
+    const response = await send(url, init);
+    if (response.status === 404) throw new DriveTransferError("rejected", 404);
+    return response;
+  };
+  /** 404 をそのまま返す (届かないフォルダを null で表すため)。 */
+  const send = async (url: string, init: RequestInit = {}): Promise<Response> => {
     const token = await tokens.token();
     let response: Response;
     try {
@@ -32,7 +38,7 @@ export function createGoogleDriveClient(tokens: AccessTokenSource, fetchImpl: Fe
       throw new DriveTransferError("unreachable", null);
     }
     if (response.status === 401 || response.status === 403) throw new DriveTransferError("unauthorized", response.status);
-    if (!response.ok) throw new DriveTransferError("rejected", response.status);
+    if (!response.ok && response.status !== 404) throw new DriveTransferError("rejected", response.status);
     return response;
   };
   const json = async <T>(response: Response): Promise<T> => {
@@ -48,32 +54,27 @@ export function createGoogleDriveClient(tokens: AccessTokenSource, fetchImpl: Fe
   };
 
   return {
-    async findFolder(parentId, property) {
+    async getFolder(folderId): Promise<DriveFolderInfo | null> {
+      const response = await send(`${API}/files/${encodeURIComponent(folderId)}?${query({ fields: "id,webViewLink,mimeType,trashed,capabilities(canAddChildren),appProperties" })}`);
+      if (response.status === 404) return null;
+      const body = await json<{ mimeType?: unknown; trashed?: unknown; capabilities?: { canAddChildren?: unknown }; appProperties?: unknown; id?: unknown; webViewLink?: unknown }>(response);
+      return {
+        ...toFolder(body, response.status),
+        mimeType: typeof body.mimeType === "string" ? body.mimeType : "",
+        trashed: body.trashed === true,
+        canAddChildren: body.capabilities?.canAddChildren === true,
+        appProperties: body.appProperties && typeof body.appProperties === "object" ? body.appProperties as Record<string, string> : {},
+      };
+    },
+    async findFolders(property) {
       const q = [
-        `${driveQueryLiteral(parentId)} in parents`,
         `mimeType = '${FOLDER_MIME}'`,
         `appProperties has { key=${driveQueryLiteral(property.key)} and value=${driveQueryLiteral(property.value)} }`,
         "trashed = false",
       ].join(" and ");
-      const response = await call(`${API}/files?${query({ q, fields: "files(id,webViewLink)", includeItemsFromAllDrives: "true", pageSize: "10" })}`);
+      const response = await call(`${API}/files?${query({ q, fields: "files(id,webViewLink)", corpora: "allDrives", includeItemsFromAllDrives: "true", pageSize: "10" })}`);
       const body = await json<{ files?: Array<{ id?: unknown; webViewLink?: unknown }> }>(response);
-      const first = body.files?.[0];
-      return first ? toFolder(first, response.status) : null;
-    },
-    async createFolder(parentId, name, appProperties) {
-      const response = await call(`${API}/files?${query({ fields: "id,webViewLink" })}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId], appProperties }),
-      });
-      return toFolder(await json(response), response.status);
-    },
-    async share(folderId, permission: DriveFolderPermission) {
-      await call(`${API}/files/${encodeURIComponent(folderId)}/permissions?${query({ sendNotificationEmail: "true" })}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(permission),
-      });
+      return (body.files ?? []).map((file) => toFolder(file, response.status));
     },
     async listFiles(folderId) {
       const files: DriveFile[] = [];

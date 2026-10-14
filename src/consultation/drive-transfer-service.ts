@@ -1,12 +1,14 @@
 /**
  * 相談のファイル受け渡し (Google Drive) の手順 (spec/feature/tech-consultation.md §6.4)。
  *
- * - open: 相談 1 件ごとの Drive フォルダを作り (あれば使い回す)、 相談者の Google アカウントにだけ共有する。 相談者本人だけ。
+ * - guide: 相談者が自分の Drive のフォルダを共有する相手 (Cc のサービスアカウントのメールアドレス) を返す。 相談者本人だけ。
+ * - link: 相談者が共有したフォルダ (URL か ID) に Cc が編集者として届くかを確かめ、 相談に結び付ける。 相談者本人だけ。
+ *   フォルダは作らず、 共有もしない (共有の権限は相談者が Drive で持つ)。
  * - sync: 相談者のファイルを相談者のデータフォルダの transfer/incoming/ へ取り込み、 transfer/outgoing/ の回答を同じフォルダへ置く。
  *   相談者本人と権限者。
  *
- * 設定 (サービスアカウントの鍵・親フォルダ) が無ければ drive_not_configured を返す (fail closed、 相談は止めない)。
- * 状態は Drive のアプリのプロパティが持ち、 Cc の DB は増やさない。
+ * 設定 (サービスアカウントの鍵) が無ければ drive_not_configured を返す (fail closed、 相談は止めない)。
+ * 結び付けと状態は Drive のアプリのプロパティが持ち、 Cc の DB は増やさない (フォルダ ID 以外の個人情報を保存しない)。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
  */
@@ -16,15 +18,17 @@ import type { PrivateConsultationRow, PrivateConsultationsRepo } from "../db/pri
 import type { DriveTransferConfig } from "./drive-transfer-config.js";
 import {
   classifyTransferFile,
-  consultDriveFolderName,
   consultTransferDirs,
-  driveFolderPermission,
+  decideDriveFolderLink,
+  DRIVE_FOLDER_MIME,
   DRIVE_KIND_ANSWER,
   DRIVE_PROP_CONSULTATION,
   DRIVE_PROP_IMPORTED,
   DRIVE_PROP_KIND,
   DRIVE_PROP_SOURCE_NAME,
   DRIVE_TRANSFER_MAX_BYTES,
+  parseDriveFolderId,
+  type DriveFolderLinkRejection,
   type TransferFileKind,
   type TransferFileRejection,
 } from "./drive-transfer-policy.js";
@@ -36,8 +40,10 @@ export type DriveTransferErrorCode =
   | "not_allowed"
   | "transfer_unavailable"
   | "drive_not_configured"
-  | "invalid_email"
-  | "folder_not_opened"
+  | "invalid_folder"
+  | "folder_unreachable"
+  | DriveFolderLinkRejection
+  | "folder_not_linked"
   | "drive_failed";
 
 export type DriveTransferFailure = { ok: false; error: DriveTransferErrorCode; detail?: DriveTransferError["code"] };
@@ -69,16 +75,28 @@ export interface DriveTransferServiceDeps {
   /** 相談者のデータフォルダ (相談の置き場所で動くセッションだけ)。 求まらなければ null。 */
   dataDir(consultation: PrivateConsultationRow): string | null;
   files: TransferFiles;
-  now?: () => Date;
 }
-
-const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 export class DriveTransferService {
   constructor(private readonly deps: DriveTransferServiceDeps) {}
 
-  async open(input: { consultationId: string; actorUserId: string; email: string }): Promise<
-    { ok: true; folder: DriveFolder; created: boolean } | DriveTransferFailure
+  /** 共有の案内に使うサービスアカウントのメールアドレス (相談者本人だけ)。 */
+  guide(input: { consultationId: string; actorUserId: string }): { ok: true; serviceAccountEmail: string } | DriveTransferFailure {
+    const consultation = this.deps.consultations.find(input.consultationId);
+    if (!consultation) return { ok: false, error: "consultation_not_found" };
+    if (consultation.requester_user_id !== input.actorUserId) return { ok: false, error: "not_requester" };
+    const config = this.deps.config();
+    if (!config) return { ok: false, error: "drive_not_configured" };
+    if (!this.deps.dataDir(consultation)) return { ok: false, error: "transfer_unavailable" };
+    return { ok: true, serviceAccountEmail: config.serviceAccount.clientEmail };
+  }
+
+  /**
+   * 相談者が共有したフォルダを相談に結び付ける。 届かない・フォルダでない・閲覧者のみ・他の相談者の相談に結び付いているなら
+   * 理由を返して結び付けない。 同じ相談に前に結び付けたフォルダがあれば、 そちらの印を外して付け替える (フォルダ自体は消さない)。
+   */
+  async link(input: { consultationId: string; actorUserId: string; folder: string }): Promise<
+    { ok: true; folder: DriveFolder; relinked: boolean } | DriveTransferFailure
   > {
     const consultation = this.deps.consultations.find(input.consultationId);
     if (!consultation) return { ok: false, error: "consultation_not_found" };
@@ -86,19 +104,23 @@ export class DriveTransferService {
     const config = this.deps.config();
     if (!config) return { ok: false, error: "drive_not_configured" };
     if (!this.deps.dataDir(consultation)) return { ok: false, error: "transfer_unavailable" };
-    const permission = driveFolderPermission(input.email);
-    if (!permission) return { ok: false, error: "invalid_email" };
+    const folderId = parseDriveFolderId(input.folder);
+    if (!folderId) return { ok: false, error: "invalid_folder" };
     return this.guard(async () => {
       const drive = this.deps.drive(config);
-      const property = { key: DRIVE_PROP_CONSULTATION, value: consultation.id };
-      let folder = await drive.findFolder(config.parentFolderId, property);
-      const created = !folder;
-      if (!folder) {
-        const name = consultDriveFolderName((this.deps.now ?? (() => new Date()))(), consultation.id);
-        folder = await drive.createFolder(config.parentFolderId, name, { [DRIVE_PROP_CONSULTATION]: consultation.id });
-      }
-      await drive.share(folder.id, permission);
-      return { ok: true as const, folder, created };
+      const info = await drive.getFolder(folderId);
+      if (!info) return { ok: false as const, error: "folder_unreachable" as const };
+      const decision = decideDriveFolderLink(
+        { mimeType: info.mimeType, trashed: info.trashed, canAddChildren: info.canAddChildren, linkedConsultationId: info.appProperties[DRIVE_PROP_CONSULTATION] ?? null },
+        { consultationId: consultation.id, requesterUserId: consultation.requester_user_id },
+        (id) => this.deps.consultations.find(id)?.requester_user_id ?? null,
+      );
+      if (!decision.ok) return { ok: false as const, error: decision.reason };
+      const previous = (await drive.findFolders({ key: DRIVE_PROP_CONSULTATION, value: consultation.id }))
+        .filter((folder) => folder.id !== info.id);
+      for (const folder of previous) await drive.setAppProperties(folder.id, { [DRIVE_PROP_CONSULTATION]: null });
+      await drive.setAppProperties(info.id, { [DRIVE_PROP_CONSULTATION]: consultation.id });
+      return { ok: true as const, folder: { id: info.id, url: info.url }, relinked: previous.length > 0 };
     });
   }
 
@@ -114,13 +136,13 @@ export class DriveTransferService {
     if (!dataDir) return { ok: false, error: "transfer_unavailable" };
     return this.guard(async () => {
       const drive = this.deps.drive(config);
-      const folder = await drive.findFolder(config.parentFolderId, { key: DRIVE_PROP_CONSULTATION, value: consultation.id });
-      if (!folder) return { ok: false as const, error: "folder_not_opened" as const };
+      const [folder] = await drive.findFolders({ key: DRIVE_PROP_CONSULTATION, value: consultation.id });
+      if (!folder) return { ok: false as const, error: "folder_not_linked" as const };
       const dirs = consultTransferDirs(dataDir);
       const result: DriveSyncResult = { ok: true, folder, imported: [], delivered: [], skipped: [] };
       const remote = await drive.listFiles(folder.id);
       for (const file of remote) {
-        if (file.mimeType === FOLDER_MIME) continue;
+        if (file.mimeType === DRIVE_FOLDER_MIME) continue;
         if (file.appProperties[DRIVE_PROP_KIND] === DRIVE_KIND_ANSWER) continue;
         if (file.appProperties[DRIVE_PROP_IMPORTED] === "1") continue;
         // 大きさを持たない Google ドキュメント等は種類の判定で落ちる。

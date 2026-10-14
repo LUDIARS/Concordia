@@ -45,9 +45,12 @@ describe("/consult", () => {
   });
 
   it("registers the file transfer subcommands and routes them to the drive handlers", async () => {
-    const json = consultCommand.builder.toJSON() as { options?: Array<{ name: string }> };
+    const json = consultCommand.builder.toJSON() as { options?: Array<{ name: string; options?: Array<{ name: string; required?: boolean }> }> };
     const names = (json.options ?? []).map((option) => option.name);
     expect(names).toEqual(expect.arrayContaining(["files", "files-sync"]));
+    // The requester passes their own shared folder; no email address is asked for.
+    const files = (json.options ?? []).find((option) => option.name === "files");
+    expect(files?.options?.map((option) => [option.name, option.required ?? false])).toEqual([["folder", false]]);
     const reply = vi.fn(async () => undefined);
     const findByChannel = vi.fn(() => null);
     const interaction = {
@@ -56,7 +59,7 @@ describe("/consult", () => {
       options: { getSubcommand: () => "files-sync" },
       reply,
     } as unknown as ChatInputCommandInteraction;
-    const deps = { ...consultDeps(), drive: { findByChannel, open: vi.fn(), sync: vi.fn() } } as unknown as ConsultCommandDeps;
+    const deps = { ...consultDeps(), drive: { findByChannel, guide: vi.fn(), link: vi.fn(), sync: vi.fn() } } as unknown as ConsultCommandDeps;
     await consultCommand.execute(interaction, { consult: deps } as unknown as DiscordCommandDeps);
     expect(findByChannel).toHaveBeenCalledWith("chan-1");
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));

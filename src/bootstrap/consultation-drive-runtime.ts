@@ -1,7 +1,7 @@
 /**
  * 相談のファイル受け渡し (spec/feature/tech-consultation.md §6.4) の組み立て。
  *
- * 設定 (サービスアカウントの鍵・親フォルダ) は呼ぶたびに設定画面の値 (schema_meta、 復号済み) から読む。 鍵ごとにアクセストークンを
+ * 設定 (サービスアカウントの鍵) は呼ぶたびに設定画面の値 (schema_meta、 復号済み) から読む。 鍵ごとにアクセストークンを
  * 使い回す。 相談者のデータフォルダは、 セッションの作業フォルダが相談の置き場所の中にあるときだけ求める。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
@@ -16,7 +16,6 @@ import { consultPersonalDataDir, isInConsultWorkspace } from "../consultation/pr
 import { nodeTransferFiles } from "../consultation/transfer-files-node.js";
 
 export const DRIVE_SERVICE_ACCOUNT_SETTING = "services.google_drive_service_account";
-export const DRIVE_PARENT_FOLDER_SETTING = "services.google_drive_parent_folder_id";
 
 export interface ConsultationDriveRuntimeDeps {
   consultations: Pick<PrivateConsultationsRepo, "find" | "members">;
@@ -36,10 +35,7 @@ export function createConsultationDrive(deps: ConsultationDriveRuntimeDeps): Dri
   };
   return new DriveTransferService({
     consultations: deps.consultations,
-    config: () => readDriveTransferConfig({
-      serviceAccountJson: deps.readSetting(DRIVE_SERVICE_ACCOUNT_SETTING),
-      parentFolderId: deps.readSetting(DRIVE_PARENT_FOLDER_SETTING),
-    }),
+    config: () => readDriveTransferConfig({ serviceAccountJson: deps.readSetting(DRIVE_SERVICE_ACCOUNT_SETTING) }),
     drive: (config) => createGoogleDriveClient(tokenSource(config.serviceAccount)),
     dataDir: (consultation) => {
       const session = consultation.session_id ? deps.findSession(consultation.session_id) : null;

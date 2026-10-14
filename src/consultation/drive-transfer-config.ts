@@ -3,8 +3,9 @@ import augurContract_5fc229f0 from './drive-transfer-config.contract.js'; /* aug
 /**
  * 相談のファイル受け渡しの設定 (spec/feature/tech-consultation.md §6.4)。
  *
- * サービスアカウントの鍵 (JSON) と親フォルダの id は Cc の設定画面 (schema_meta、 secret-box で暗号化) から復号済みで渡される。
- * どちらかが無い・鍵が読めないときは null (受け渡しを使わない、 fail closed)。 env からは読まない。
+ * サービスアカウントの鍵 (JSON) は Cc の設定画面 (schema_meta、 secret-box で暗号化) から復号済みで渡される。
+ * 無い・読めないときは null (受け渡しを使わない、 fail closed)。 env からは読まない。 フォルダは相談者が自分の Drive に用意して
+ * サービスアカウントに共有するので、 Cc 側に親フォルダの設定は持たない。
  *
  * @implements SPEC-CONSULT-DRIVE-TRANSFER
  */
@@ -17,22 +18,16 @@ export interface ServiceAccountKey {
 
 export interface DriveTransferConfig {
   serviceAccount: ServiceAccountKey;
-  parentFolderId: string;
 }
 
 const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
-export function readDriveTransferConfig(input: {
-  serviceAccountJson: string | null;
-  parentFolderId: string | null;
-}): DriveTransferConfig | null {
-  const parentFolderId = input.parentFolderId?.trim() ?? "";
-  if (!/^[A-Za-z0-9_-]{10,200}$/.test(parentFolderId)) return null;
+export function readDriveTransferConfig(input: { serviceAccountJson: string | null }): DriveTransferConfig | null {
   const serviceAccount = parseServiceAccountKey(input.serviceAccountJson);
-  return serviceAccount ? { serviceAccount, parentFolderId } : null;
+  return serviceAccount ? { serviceAccount } : null;
 }
 // @ts-expect-error augur-inject
-readDriveTransferConfig = contract(readDriveTransferConfig, { ...augurContract_5fc229f0, contractId: 'consult-drive-C-3', mode: 'observe', sample: 1, where: 'src/consultation/drive-transfer-config.ts:23', rule: 'contract-wrap', id: '5fc229f0' }); /* augur-inject:contract-wrap:5fc229f0 */
+readDriveTransferConfig = contract(readDriveTransferConfig, { ...augurContract_5fc229f0, contractId: 'consult-drive-C-3', mode: 'observe', sample: 1, where: 'src/consultation/drive-transfer-config.ts:22', rule: 'contract-wrap', id: '5fc229f0' }); /* augur-inject:contract-wrap:5fc229f0 */
 
 /** Google Cloud のサービスアカウント鍵 (type=service_account) から署名に要る項目だけを取り出す。 */
 export function parseServiceAccountKey(json: string | null): ServiceAccountKey | null {

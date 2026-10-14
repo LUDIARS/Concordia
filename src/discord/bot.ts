@@ -762,12 +762,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // ファイル受け渡し (tech-consultation.md §6.4)。 Drive の鍵は Cc 本体だけが持つので Cc の API を呼ぶ。 子会社の相談窓口でも使う。
     drive: {
       findByChannel: (channelId) => privateConsultationsRepo.findByChannel(channelId),
-      open: async ({ consultationId, actorUserId, email }) => {
-        const result = await callConcordia<{ folder_url: string; created: boolean }>(
-          deps.concordiaUrl, "POST", `/v1/consultations/${encodeURIComponent(consultationId)}/drive/open`,
-          { actor_user_id: actorUserId, email },
+      guide: async ({ consultationId, actorUserId }) => {
+        const result = await callConcordia<{ service_account_email: string }>(
+          deps.concordiaUrl, "POST", `/v1/consultations/${encodeURIComponent(consultationId)}/drive/guide`,
+          { actor_user_id: actorUserId },
         );
-        return "error" in result ? { ok: false, error: result.error } : { ok: true, folderUrl: result.folder_url, created: result.created };
+        return "error" in result ? { ok: false, error: result.error } : { ok: true, serviceAccountEmail: result.service_account_email };
+      },
+      link: async ({ consultationId, actorUserId, folder }) => {
+        const result = await callConcordia<{ folder_url: string; relinked: boolean }>(
+          deps.concordiaUrl, "POST", `/v1/consultations/${encodeURIComponent(consultationId)}/drive/link`,
+          { actor_user_id: actorUserId, folder },
+        );
+        return "error" in result ? { ok: false, error: result.error } : { ok: true, folderUrl: result.folder_url, relinked: result.relinked };
       },
       sync: async ({ consultationId, actorUserId }) => {
         const result = await callConcordia<{ folder_url: string } & Pick<DriveSyncResult, "imported" | "delivered" | "skipped">>(

@@ -322,14 +322,12 @@ describe("更新の検証", () => {
     ]);
   });
 
-  it("相談のファイル受け渡しの鍵と親フォルダを schema_meta に書く (store 側で暗号化される)", () => {
+  it("相談のファイル受け渡しの鍵を schema_meta に書き (store 側で暗号化される)、 親フォルダの設定は持たない", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("services.google_drive_service_account", "{\"type\":\"service_account\"}", writer).ok).toBe(true);
-    expect(applySettingUpdate("services.google_drive_parent_folder_id", "0AbCdEfGhIjK", writer).ok).toBe(true);
-    expect(applySettingUpdate("services.google_drive_parent_folder_id", "../x", writer).ok).toBe(false);
+    expect(applySettingUpdate("services.google_drive_parent_folder_id", "0AbCdEfGhIjK", writer).ok).toBe(false);
     expect(writer.calls).toEqual([
       ["writeMeta", "services.google_drive_service_account", "{\"type\":\"service_account\"}"],
-      ["writeMeta", "services.google_drive_parent_folder_id", "0AbCdEfGhIjK"],
     ]);
   });
 

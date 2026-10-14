@@ -322,6 +322,17 @@ describe("更新の検証", () => {
     ]);
   });
 
+  it("相談のファイル受け渡しの鍵と親フォルダを schema_meta に書く (store 側で暗号化される)", () => {
+    const writer = recordingWriter();
+    expect(applySettingUpdate("services.google_drive_service_account", "{\"type\":\"service_account\"}", writer).ok).toBe(true);
+    expect(applySettingUpdate("services.google_drive_parent_folder_id", "0AbCdEfGhIjK", writer).ok).toBe(true);
+    expect(applySettingUpdate("services.google_drive_parent_folder_id", "../x", writer).ok).toBe(false);
+    expect(writer.calls).toEqual([
+      ["writeMeta", "services.google_drive_service_account", "{\"type\":\"service_account\"}"],
+      ["writeMeta", "services.google_drive_parent_folder_id", "0AbCdEfGhIjK"],
+    ]);
+  });
+
   it("session-end 回収猶予を DB 上書き可能な設定として書く", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("session.reaper_session_end_grace_sec", 180, writer).ok).toBe(true);

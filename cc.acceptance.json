@@ -2982,6 +2982,21 @@
       ],
       "contracts": []
     },
+    { "source": "src/consultation/drive-transfer-policy.ts", "tests": ["src/consultation/drive-transfer-policy.test.ts", "src/consultation/drive-transfer-service.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER", "consult-drive-C-1", "consult-drive-C-2"] },
+    { "source": "src/consultation/drive-transfer-config.ts", "tests": ["src/consultation/drive-transfer-config.test.ts", "src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER", "consult-drive-C-3"] },
+    { "source": "src/consultation/drive-transfer-port.ts", "tests": ["src/consultation/drive-transfer-service.test.ts", "src/consultation/google-drive-client.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/consultation/drive-transfer-service.ts", "tests": ["src/consultation/drive-transfer-service.test.ts", "src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/consultation/google-drive-client.ts", "tests": ["src/consultation/google-drive-client.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/consultation/google-service-account-token.ts", "tests": ["src/consultation/google-service-account-token.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/consultation/transfer-files-node.ts", "tests": ["src/consultation/transfer-files-node.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/bootstrap/consultation-drive-runtime.ts", "tests": ["src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/api/consultation-drive.ts", "tests": ["src/api/consultation-drive.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/discord/consult-drive.ts", "tests": ["src/discord/consult-drive.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/discord/commands/consult.ts", "tests": ["src/discord/commands/consult.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/discord/bot.ts", "tests": ["src/discord/consult-drive.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/bootstrap/consultation-drive-runtime.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/api/register-core.ts", "tests": ["src/api/consultation-drive.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
+    { "source": "src/config/settings/definitions/platform.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": ["SPEC-CONSULT-DRIVE-TRANSFER"] },
     {
       "source": "src/db/consultation-publications-repo.ts",
       "tests": [

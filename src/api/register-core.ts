@@ -133,7 +133,9 @@ import type { RequesterProfilesRepo } from "../db/requester-profiles-repo.js";
 import type { ConsultationIntakesRepo } from "../db/consultation-intakes-repo.js";
 import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
+import type { DriveTransferService } from "../consultation/drive-transfer-service.js";
 import { consultationsRouter } from "./consultations.js";
+import { consultationDriveRouter } from "./consultation-drive.js";
 import type { BountyIntakeService } from "../bounty/intake-service.js";
 import { mountBountyRoutes, type BountyFlowRoutesDeps } from "./bounty-routes.js";
 import type { BountyOperatorVerifier } from "./bounty-actor.js";
@@ -327,6 +329,8 @@ export interface CoreDelegationDeps {
   };
   /** プライベート相談の公開候補 (spec/feature/tech-consultation.md §5)。 未注入なら /v1/consultations は生えない。 */
   consultationPublications?: ConsultationPublicationService;
+  /** 相談のファイル受け渡し (spec/feature/tech-consultation.md §6.4)。 未注入なら /v1/consultations/:id/drive は生えない。 */
+  consultationDrive?: DriveTransferService;
   /** 削除済み相談チャンネルの復元 API が相談を引くのに使う。 */
   privateConsultations?: Pick<import("../db/private-consultations-repo.js").PrivateConsultationsRepo, "find">;
   /** バグ報告の受付 (spec/feature/bug-bounty.md §3)。 未注入なら /v1/bounty は生えない。 */
@@ -912,6 +916,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ...(deps.privateConsultations ? { consultations: deps.privateConsultations } : {}),
       emit: (event) => eventBus.emit(event),
     }));
+  }
+  if (deps.consultationDrive) {
+    app.route("/v1/consultations", consultationDriveRouter({ drive: deps.consultationDrive }));
   }
   if (deps.bountyIntake) {
     mountBountyRoutes(app, {

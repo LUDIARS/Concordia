@@ -375,6 +375,66 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
   本文はセッション id と場所、再ログインのコマンド (`consultClaudeReloginCommand`) だけで、相談の内容は含めない。
   codex (Astra) は transcript を SessionStart フックで報告する別経路なので対象外。
 
+### 6.4 モデル・サウンドのファイル受け渡し (Google Drive)
+
+**Requirement ID: `SPEC-CONSULT-DRIVE-TRANSFER`**
+
+> 2026-10-01〜02 neco 指示 (Pf フラグメント 01M3XVA8BKK0JEYDSGFP1E9DM6):「Ccの相談で『モデルを見て欲しい』『サウンドを見て欲しい』を
+> する時、セキュアなデータ送信領域を作成してSynergosを使って送受信する。通信できない場合はGoogle Driveを使う。修正した内容を画像で
+> 可視化できる場合はサマリー画像を用意してDiscordで転送する。」 2026-10-14 neco 判断:「いったん Google Drive でいい」。
+
+- 価値: デザイナー・サウンドの相談者が、Discord の添付の上限や公開リンクに頼らずに 3D モデル・音声を相談へ渡し、
+  直したファイルを受け取れる。失うと困る利用者の状態: 相談者が見てほしいファイルを渡す手段が「リンクを知っている全員」の
+  公開リンクしかなく、相談のためにファイルを公開しないといけない。
+- Pf フラグメントの要件との対応:
+
+  | 要件 | 状態 |
+  |---|---|
+  | セキュアなデータ送信領域を作る | 相談 1 件ごとの Drive フォルダ。相談者のアカウントと Cc のサービスアカウントだけが触れる (下記) |
+  | Synergos で送受信する | **作らない。当面は Google Drive のみ (2026-10-14 neco)** |
+  | 通信できない場合は Google Drive | Google Drive を唯一の経路にする |
+  | 修正内容のサマリー画像を Discord で転送 | **未実装・今後** (この節の対象外) |
+
+- 対象: プライベート相談 (§4) で、セッションが相談の置き場所 (§6 の役職フォルダ) で動く相談だけ。相談者のデータフォルダ
+  (`<役職>/<Discord ID>/`) をセッションの作業フォルダ (`sessions.repo_path`) と相談者の Discord ID から求め、求まらない相談
+  (プロジェクトの作業領域で動く相談・未起動) は「この相談ではファイル受け渡しを使えません」と返す。部署フォーラムの相談は対象外。
+- 使い方 (相談チャンネルの中):
+  - `/consult files email:<Google アカウント>` (相談者本人だけ): Drive に相談のフォルダを作り (既にあれば使い回す)、そのアカウントに
+    編集者として共有して、フォルダのリンクをチャンネルへ出す。リンク共有 (「リンクを知っている全員」) は使わない。共有の招待メールは
+    Google から相談者に届く。メールアドレスは Cc に保存しない (共有の権限は Drive が持つ)。
+  - `/consult files-sync` (相談者本人と権限者): 双方向に同期して結果をチャンネルへ出す。
+    - 受け取り: フォルダ直下の相談者のファイルのうち、3D モデル (`.fbx .obj .glb .gltf .blend .vrm .stl .dae .3ds .usdz .usd .ply .abc .max .ma .mb`)
+      と音声 (`.wav .mp3 .ogg .flac .aif .aiff .m4a .opus`) で 200 MB 以下のものを、データフォルダの `transfer/incoming/` へ取り込む。
+      名前はファイル名部分だけを使い、パスの文字を落とす。同じ名前があれば上書きしない (Drive 側に取り込み済みの印を付け、2 回目は取らない)。
+      対象外の種類・大きすぎるもの・名前が使えないものは取らずに理由を返す。取り込んだらセッションが動いていれば場所を inject で伝える。
+    - 回答: データフォルダの `transfer/outgoing/` にあるファイル (同じ種類・大きさの制限) を同じ Drive フォルダへ置き、
+      チャンネルで相談者に知らせる (メンション)。Drive 側に回答の印 (`ccKind=answer`) と元の名前を付け、同じ名前は 2 回置かない。
+      回答のファイルは受け取りの対象にしない。
+- 認証情報: Google Drive のサービスアカウントの鍵 (JSON) を `services.google_drive_service_account`、相談フォルダを作る親フォルダの
+  id を `services.google_drive_parent_folder_id` として Cc の設定画面 (DB) で持つ。鍵は既存の秘密 (Tabula の取り込みトークン、§5) と
+  同じ 1 系統で、secret-box で暗号化して `schema_meta` に置き、API には実値を返さない。env からは読まない。秘密は Cc 本体だけが
+  持ち、Bot へは渡さない (Bot は Cc の API `POST /v1/consultations/:id/drive/{open|sync}` を呼ぶ)。
+  - 方式はサービスアカウント: Cc に既存の Google 連携 (OAuth のクライアント・トークン) が無いため (2026-10-14 実装時の判断)。
+    サービスアカウントは自分の Drive に保存容量を持たないので、親フォルダは共有ドライブの中に作り、サービスアカウントだけを
+    メンバーにする (他のメンバーは全相談のフォルダが見えてしまう)。これは運用の前提で、Cc は確かめない。
+  - fail closed: 鍵か親フォルダが未設定・鍵が読めない・復号できないときは受け渡しを使わず、相談チャンネルで
+    「ファイル受け渡しは未設定」と伝えて、相談は従来どおり続ける。Drive の呼び出しに失敗したときも理由を返すだけで相談は止めない。
+    例外にアクセストークン・鍵・Drive の応答本文を載せない。
+- 状態は Drive が持つ: 相談のフォルダはアプリのプロパティ `ccConsultationId=<相談 id>` で探し、取り込み済み (`ccImported=1`)・
+  回答 (`ccKind=answer`、`ccSourceName`) もファイルのプロパティに持つ。Cc の DB は増やさない (migration なし)。
+  フォルダ名は内容を含めない (`相談-<日付>-<短い id>`)。
+- 閉じ込めとの関係 (CC-CONSULT-INV-07 は変えない): 取り込み先はデータフォルダの中なので相談セッションの作業フォルダの下にあるが、
+  ツール制限のある相談 (`consult_tools: restricted`) は Read もシェルも持たないため、ファイルを開けない。ファイルを読み書きできるのは
+  ツール制限を外した部署 (`consult_tools: all`) の相談だけ。制限のある相談に相談者ごとの読み取りを許すかは判断が要る (未対応)。
+- 後始末 (§7): チャンネルを残す規則に合わせ、**Drive のフォルダも残す** (削除しない・共有も外さない)。消したいときは相談者か
+  運用担当が Drive で消す。後から自動で消すか (例: チャンネル削除・一定期間後) は判断が要る (未対応)。
+- 未実装・今後: 修正内容のサマリー画像 (Discord への転送)、Synergos の経路、制限のある相談からの読み取り、フォルダの自動削除。
+
+状態所有者: 受け渡しの判断 (種類・大きさ・名前・共有の権限・設定) = `src/consultation/drive-transfer-policy.ts` /
+`drive-transfer-config.ts`、手順 = `drive-transfer-service.ts`、Drive の REST = `google-drive-client.ts` (ポート
+`drive-transfer-port.ts`、認証 `google-service-account-token.ts`)、API = `src/api/consultation-drive.ts`、
+Discord のコマンド = `src/discord/consult-drive.ts`。
+
 ## 7. 相談チャンネルの後始末
 
 **Requirement ID: `SPEC-CONSULT-CLOSURE`**
@@ -454,3 +514,4 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 | 5 | Cc | 子会社の相談窓口 (プロジェクトを持たない相談) | `spec/tasks/2026-10-01-subsidiary-consult-desk.md` |
 | 6 | Cc | 相談課の後始末と出力の絞り込み | `spec/tasks/2026-10-02-consult-closure.md` |
 | 7 | Cc | 相談の「終了」と相談ログ | `spec/tasks/2026-10-03-consult-log-end.md` |
+| 8 | Cc | モデル・サウンドのファイル受け渡し (Google Drive) | `spec/tasks/2026-10-14-consult-drive-transfer.md` |

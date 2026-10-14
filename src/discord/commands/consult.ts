@@ -1,10 +1,12 @@
 // @implements SPEC-CONSULT-PRIVATE
 // @implements SPEC-CONSULT-MEMBERS
+// @implements SPEC-CONSULT-DRIVE-TRANSFER
 import { SlashCommandBuilder } from "discord.js";
 import type { ConsultIntakeDefaults } from "../../dialogue/intake.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { handleConsultMembership, handleConsultWrap, type ConsultFlowDeps } from "../consult-flow.js";
 import { buildConsultModal } from "../consult-modal.js";
+import { handleConsultFiles, handleConsultFilesSync, type ConsultDriveDeps } from "../consult-drive.js";
 
 /**
  * /consult — プライベート相談 (spec/feature/tech-consultation.md §4)。
@@ -12,6 +14,7 @@ import { buildConsultModal } from "../consult-modal.js";
  * - `start department:<部署>`: 事前ヒアリングのモーダルを開く。 送信で閉じたチャンネルを作る (consult-flow.ts)。
  * - `invite user:@x` / `remove user:@x`: 相談チャンネル内で閲覧者を足し引きする (相談者本人と権限者のみ)。
  * - `wrap`: 相談の区切りで、 セッションに公開候補 (書き直した要約) づくりを依頼する (§5)。
+ * - `files email:<Google アカウント>` / `files-sync`: Google Drive でのファイル受け渡し (§6.4、 consult-drive.ts)。
  *
  * 本社 guild と、 子会社 guild (その会社のプロジェクトを持たない相談部署だけ、 tech-consultation.md §6) に出す。
  * 子会社では wrap (公開候補) を使えない (Bot が requestProposal を配線しない)。
@@ -21,6 +24,8 @@ export interface ConsultCommandDeps extends ConsultFlowDeps {
   privateDepartments(): ReadonlyArray<{ id: string; name: string }>;
   /** モーダルの既定値 (依頼者メモの技術レベル・役職)。 */
   requesterDefaults(userId: string): ConsultIntakeDefaults | null;
+  /** ファイル受け渡し (tech-consultation.md §6.4)。 未配線なら使えないと返す。 */
+  drive?: ConsultDriveDeps;
 }
 
 /** Discord の autocomplete は 25 件まで。 */
@@ -44,7 +49,14 @@ const consultCommand: DiscordCommandSpec = {
       .addUserOption((o) => o.setName("user").setDescription("外す人").setRequired(true)))
     .addSubcommand((sub) => sub
       .setName("wrap")
-      .setDescription("この相談から全体に共有できる知見の公開候補を作ってもらう (相談者本人と権限者のみ)")),
+      .setDescription("この相談から全体に共有できる知見の公開候補を作ってもらう (相談者本人と権限者のみ)"))
+    .addSubcommand((sub) => sub
+      .setName("files")
+      .setDescription("3D モデル・音声の受け渡しフォルダ (Google Drive) を作って自分に共有する (相談者本人のみ)")
+      .addStringOption((o) => o.setName("email").setDescription("共有する Google アカウントのメールアドレス").setRequired(true).setMaxLength(254)))
+    .addSubcommand((sub) => sub
+      .setName("files-sync")
+      .setDescription("受け渡しフォルダのファイルを相談へ取り込み、回答のファイルを置く (相談者本人と権限者のみ)")),
   async execute(interaction, deps) {
     const consult = deps.consult;
     if (!consult) {
@@ -54,6 +66,14 @@ const consultCommand: DiscordCommandSpec = {
     const sub = interaction.options.getSubcommand();
     if (sub === "wrap") {
       await handleConsultWrap(interaction, consult);
+      return;
+    }
+    if (sub === "files" || sub === "files-sync") {
+      if (!consult.drive) {
+        await interaction.reply({ content: "ファイル受け渡しはこの Bot で使えません。", ephemeral: true });
+        return;
+      }
+      await (sub === "files" ? handleConsultFiles(interaction, consult.drive) : handleConsultFilesSync(interaction, consult.drive));
       return;
     }
     if (sub === "invite" || sub === "remove") {

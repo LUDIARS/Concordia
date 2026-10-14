@@ -193,6 +193,7 @@ import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { createPrivateChannelProvisioner, type PrivateChannelProvisioner } from "./private-channel-provisioner.js";
 import { bindPrivateConsultSession, privateConsultPrompt } from "./consult-session.js";
 import { ConsultationPublicationsRepo, type ConsultationPublicationRow } from "../db/consultation-publications-repo.js";
+import type { DriveSyncResult } from "../consultation/drive-transfer-service.js";
 import { buildProposalRequest } from "../consultation/proposal-request.js";
 import { buildPublicationCard } from "./consult-publication.js";
 import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
@@ -758,6 +759,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return profile ? { skill_level: profile.skill_level, role_title: profile.role_title } : null;
     },
     ...headOfficePublication,
+    // ファイル受け渡し (tech-consultation.md §6.4)。 Drive の鍵は Cc 本体だけが持つので Cc の API を呼ぶ。 子会社の相談窓口でも使う。
+    drive: {
+      findByChannel: (channelId) => privateConsultationsRepo.findByChannel(channelId),
+      open: async ({ consultationId, actorUserId, email }) => {
+        const result = await callConcordia<{ folder_url: string; created: boolean }>(
+          deps.concordiaUrl, "POST", `/v1/consultations/${encodeURIComponent(consultationId)}/drive/open`,
+          { actor_user_id: actorUserId, email },
+        );
+        return "error" in result ? { ok: false, error: result.error } : { ok: true, folderUrl: result.folder_url, created: result.created };
+      },
+      sync: async ({ consultationId, actorUserId }) => {
+        const result = await callConcordia<{ folder_url: string } & Pick<DriveSyncResult, "imported" | "delivered" | "skipped">>(
+          deps.concordiaUrl, "POST", `/v1/consultations/${encodeURIComponent(consultationId)}/drive/sync`,
+          { actor_user_id: actorUserId },
+        );
+        return "error" in result
+          ? { ok: false, error: result.error }
+          : { ok: true, folderUrl: result.folder_url, imported: result.imported, delivered: result.delivered, skipped: result.skipped };
+      },
+      notifySession: async ({ sessionId, text, actorUserId, actorLabel }) => {
+        await callConcordia(deps.concordiaUrl, "POST", `/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
+          text,
+          source: `discord:${actorUserId}:consult-files`,
+          author_label: actorLabel,
+        });
+      },
+    },
     log,
   };
   // バグバウンティの報告 (bug-bounty.md §3)。 受付は Cc の API (台帳へ書いてから応答) を通す。

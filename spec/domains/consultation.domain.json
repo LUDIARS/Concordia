@@ -1,6 +1,6 @@
 {
   "name": "consultation",
-  "description": "技術相談のプライベート相談と公開: 閉じたチャンネルでの相談 (作成・閲覧者・招待/除外・終了時のロック)、共有面への不出力、相談から書き直した公開候補の本人承認と Tabula への投稿を持つ。事前ヒアリングの項目と起動ブロックは dialogue-context、部署設定は governance が持つ。",
+  "description": "技術相談のプライベート相談と公開: 閉じたチャンネルでの相談 (作成・閲覧者・招待/除外・終了時のロック)、共有面への不出力、相談から書き直した公開候補の本人承認と Tabula への投稿、Google Drive でのモデル・音声のファイル受け渡しを持つ。事前ヒアリングの項目と起動ブロックは dialogue-context、部署設定は governance が持つ。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
@@ -15,6 +15,12 @@
     },
     {
       "pathPattern": "(^|/)src/api/consultations(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/consultation-drive(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/bootstrap/consultation-drive-runtime(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/discord/consult-[^/]+$"

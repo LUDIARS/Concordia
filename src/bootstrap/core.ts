@@ -147,6 +147,7 @@ import { roleAtLeast } from "../staff/roles.js";
 import { matchProjectRow } from "../deploy/service-code-match.js";
 import { PublicationService } from "../consultation/publication-service.js";
 import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
+import { createConsultationDrive } from "./consultation-drive-runtime.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
@@ -806,6 +807,13 @@ export async function startBackend(): Promise<BackendHandle> {
       token: readMetaSetting("services.tabula_import_token"),
     }),
     importPage: (connection, input) => importSharedPage(connection, input),
+  });
+  // 相談のファイル受け渡し (tech-consultation.md §6.4)。 Drive の鍵と親フォルダは設定画面で schema_meta に置く (Tabula と同じ 1 系統)。
+  const consultationDrive = createConsultationDrive({
+    consultations: new PrivateConsultationsRepo(db),
+    readSetting: readMetaSetting,
+    findSession: (id) => repo.findSession(id),
+    workspaceRoot: consultWorkspaceRoot,
   });
   // 相談ログ (tech-consultation.md §6.2): 相談者の発言と最終回答を相談者のデータフォルダの logs/ へ追記する。
   const isConsultDepartmentId = (departmentId: string): boolean => {
@@ -2256,6 +2264,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // (2026-10-02 neco 指示)。 Concordia はワークスペース直下 (E:/Document/Ars/Concordia) で動くので 2 つ上に置く。
     consultWorkspaceRoot,
     consultationPublications,
+    consultationDrive,
     privateConsultations: new PrivateConsultationsRepo(db),
     publishedConsultations: consultationPublicationsRepo,
     usageBudgets: {

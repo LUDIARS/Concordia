@@ -44,6 +44,31 @@ describe("/consult", () => {
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({ content: "プライベート相談はこの Bot で使えません。" }));
   });
 
+  it("registers the file transfer subcommands and routes them to the drive handlers", async () => {
+    const json = consultCommand.builder.toJSON() as { options?: Array<{ name: string }> };
+    const names = (json.options ?? []).map((option) => option.name);
+    expect(names).toEqual(expect.arrayContaining(["files", "files-sync"]));
+    const reply = vi.fn(async () => undefined);
+    const findByChannel = vi.fn(() => null);
+    const interaction = {
+      channelId: "chan-1",
+      user: { id: "111" },
+      options: { getSubcommand: () => "files-sync" },
+      reply,
+    } as unknown as ChatInputCommandInteraction;
+    const deps = { ...consultDeps(), drive: { findByChannel, open: vi.fn(), sync: vi.fn() } } as unknown as ConsultCommandDeps;
+    await consultCommand.execute(interaction, { consult: deps } as unknown as DiscordCommandDeps);
+    expect(findByChannel).toHaveBeenCalledWith("chan-1");
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+  });
+
+  it("says the file transfer is unavailable where the drive deps are not wired", async () => {
+    const reply = vi.fn(async () => undefined);
+    const interaction = { user: { id: "111" }, options: { getSubcommand: () => "files" }, reply } as unknown as ChatInputCommandInteraction;
+    await consultCommand.execute(interaction, { consult: consultDeps() } as unknown as DiscordCommandDeps);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ content: "ファイル受け渡しはこの Bot で使えません。" }));
+  });
+
   it("completes departments by name", async () => {
     const respond = vi.fn(async () => undefined);
     const interaction = { options: { getFocused: () => "人事" }, respond } as unknown as AutocompleteInteraction;

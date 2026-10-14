@@ -80,6 +80,22 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "secret", envName: null, dbKey: "services.tabula_import_token",
     defaultValue: null, editable: true,
   },
+  // 技術相談のファイル受け渡し (spec/feature/tech-consultation.md §6.4)。 秘密は env から読まず DB + 設定画面の 1 系統。
+  {
+    key: "services.google_drive_service_account", section: "services",
+    label: "Google Drive サービスアカウント鍵",
+    description: "技術相談のファイル受け渡しに使うサービスアカウントの鍵 (JSON をそのまま貼る)。 schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。 未設定なら受け渡しを使わない。",
+    kind: "secret", envName: null, dbKey: "services.google_drive_service_account",
+    defaultValue: null, editable: true,
+  },
+  {
+    key: "services.google_drive_parent_folder_id", section: "services",
+    label: "Google Drive 相談フォルダの親",
+    description: "相談ごとのフォルダを作る親フォルダの id。 共有ドライブの中に置き、 サービスアカウントだけをメンバーにする。 未設定なら受け渡しを使わない。",
+    kind: "string", envName: null, dbKey: "services.google_drive_parent_folder_id",
+    defaultValue: null, editable: true,
+    stringPattern: "^[A-Za-z0-9_-]{10,200}$", stringPatternDescription: "Drive のフォルダ id (英数字・-・_)",
+  },
   envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
     "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),
   // 会議の回答者リンク (CC-MEETING-LINK-01, src/meeting-links/config.ts)。 起動時に env から読む。

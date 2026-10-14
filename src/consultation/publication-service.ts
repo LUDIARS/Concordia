@@ -7,9 +7,12 @@
  * - 公開・公開しないを決められるのは相談者本人だけ。 権限者は取り下げだけできる (CC-CONSULT-INV-04)。
  * - 公開は Tabula にメンバー共有ページを作ってから published にする。 投稿に失敗したら proposed のまま
  *   理由を残し、 もう一度押せば再試行できる。 Tabula が未設定なら公開できない (黙って成功にしない)。
+ * - published にできたら、 相談者へ種類 `tabula` の報奨を personal-ai-budget の port に依頼する (根拠は候補の id)。
+ *   報奨が付かなくても・依頼が失敗しても公開は取り消さない。 二重の公開は markPublished の条件付き更新で 1 回に絞る。
  *
  * @implements SPEC-CONSULT-PUBLISH
  * @implements SPEC-CONSULT-TABULA
+ * @implements SPEC-PBUDGET-REWARD
  */
 
 import type {
@@ -17,6 +20,7 @@ import type {
   ConsultationPublicationsRepo,
 } from "../db/consultation-publications-repo.js";
 import type { PrivateConsultationRow, PrivateConsultationsRepo } from "../db/private-consultations-repo.js";
+import { publicationRewardRequest, type ConsultationRewardPort } from "./publication-reward.js";
 import type { TabulaConnection, TabulaImportInput, TabulaImportResult } from "./tabula-client.js";
 
 export const MAX_PUBLICATION_TITLE_CHARS = 200;
@@ -46,7 +50,10 @@ export interface PublicationPorts {
   departmentName(departmentId: string): string | null;
   tabulaConnection(): TabulaConnection | null;
   importPage(connection: TabulaConnection, input: TabulaImportInput): Promise<TabulaImportResult>;
+  /** 公開の報奨の口。 個人の AI 予算を組み立てないプロセスでは null。 */
+  rewards?: () => ConsultationRewardPort | null;
   now?: () => number;
+  log?: { warn: (message: string) => void };
 }
 
 export class PublicationService {
@@ -131,7 +138,9 @@ export class PublicationService {
     }, this.now())) {
       return { ok: false, error: "not_proposed" };
     }
-    return { ok: true, publication: this.ports.publications.find(target.publication.id)! };
+    const publication = this.ports.publications.find(target.publication.id)!;
+    this.requestReward(publication, target.consultation);
+    return { ok: true, publication };
   }
 
   /** 本人が「公開しない」を選ぶ。 */
@@ -154,6 +163,18 @@ export class PublicationService {
 
   setCardMessage(publicationId: string, messageId: string): void {
     this.ports.publications.setCardMessage(publicationId, messageId, this.now());
+  }
+
+  /** 公開の報奨を依頼する。 失敗しても公開は確定のまま (CC-INV-06)。 */
+  private requestReward(publication: ConsultationPublicationRow, consultation: PrivateConsultationRow): void {
+    const request = publicationRewardRequest(publication, consultation);
+    const rewards = this.ports.rewards?.() ?? null;
+    if (!request || !rewards) return;
+    try {
+      rewards.requestReward(request);
+    } catch (error) {
+      this.ports.log?.warn(`consultation publication reward failed publication=${publication.id}: ${(error as Error).message.slice(0, 200)}`);
+    }
   }
 
   private close(publicationId: string, status: "declined" | "withdrawn", actorUserId: string):

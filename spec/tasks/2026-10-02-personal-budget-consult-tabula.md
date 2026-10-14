@@ -19,9 +19,9 @@ memory_links: []
 
 ## 完了条件
 
-- [ ] 公開候補を本人が承認し Tabula への投稿が成功した時点で、相談者へ種類 `tabula` の報奨を依頼する。根拠は公開候補の id。
+- [x] 公開候補を本人が承認し Tabula への投稿が成功した時点で、相談者へ種類 `tabula` の報奨を依頼する。根拠は公開候補の id。
       投稿の失敗・公開しない・取り下げでは依頼しない。
-- [ ] 報奨は personal-ai-budget の port へ依頼するだけにし、consultation から台帳を直接書かない。
+- [x] 報奨は personal-ai-budget の port へ依頼するだけにし、consultation から台帳を直接書かない。
 - [ ] 子会社の相談で `/consult wrap` を使えるようにする。候補は Cc が相談の記録から作る (相談セッションへは依頼しない。
       CC-CONSULT-INV-07 を変えない)。書き直した要約で、会話の転載・個人・社内固有・秘密を含めない。
 - [ ] 公開・公開しないを決められるのは相談者本人だけ (CC-CONSULT-INV-04)。承認前の候補は相談チャンネルの外へ出さない。
@@ -32,3 +32,9 @@ memory_links: []
 
 - `src/consultation/`、`src/discord/consult-*`、`src/discord/commands/consult.ts`、`src/api/consultations.ts`、`src/bootstrap/core.ts` (port の組み立て)
 - `tests/`、`cc.acceptance.json`、`spec/feature/tech-consultation.md`、`spec/feature/personal-ai-budget.md`
+
+## 進捗
+
+- 2026-10-14 (Actio `e00ef9eb-015a-4193-924d-bc767367060f`): 公開時の `tabula` 報奨の依頼を実装した
+  (`src/consultation/publication-reward.ts`・`publication-service.ts`・`src/bootstrap/core.ts`、personal-ai-budget.md §15)。
+  子会社の `/consult wrap` (候補を Cc が相談の記録から作る) と tech-consultation.md §6 の書き換えは未着手。

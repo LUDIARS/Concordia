@@ -11,7 +11,8 @@
 
 A (台帳・消費・払い出しの判定・`/budget`・`/reward`・WebUI) は実装済みで、実装時に確定したことは §13 に書く。
 当初はテスト未実行。2026-10-03 の統合・許可された検証の記録は §14 に追記する。
-画面と Discord の実機確認・人間による UX 評価は未実施。B (Tabula 公開の報奨) は未実装。
+画面と Discord の実機確認・人間による UX 評価は未実施。B のうち Tabula 公開の報奨 (§4 の `tabula`) は 2026-10-14 に実装した (§15)。
+子会社の公開候補 (§4.1) は未実装。
 金額の既定値 (§5) は提案値で、neco の確認を受けていない。
 [バグバウンティ](bug-bounty.md) §7 の「個人残高」は本書の「報酬分」に置き換える (台帳は本書が持つ)。
 
@@ -329,3 +330,23 @@ Augur台帳lint valid、PB登録22filesの存在と対応を静的照合。独�
 ログ名: cc-pb-migration / policies / db-api / gates / discord-settings / web-test-env / followup.log (実行環境TEMP)。
 テスト基盤全域の変更・timeout延長・回帰削除・risk hold手動解除は行っていない。
 実DB、実画面、実Discord/Slack配達、サービスbuild/restart、稼働への反映は子では未実施。
+
+## 15. B の実装で確定したこと (2026-10-14)
+
+> 2026-10-14 neco「このへんやる」(Pf フラグメント 01M4VTCSKWCXN1SEPGK5XYDC29、Actio `e00ef9eb-015a-4193-924d-bc767367060f`)。
+
+- 付与の呼び出しは公開の use case `PublicationService.publish` (`src/consultation/publication-service.ts`) が持つ。
+  Tabula への投稿が成功し、候補を条件付き更新 (`proposed` → `published`) で published にできた 1 回だけ依頼する。
+  投稿の失敗・Tabula 未設定・本人以外の操作・公開しない・取り下げ・期限切れでは依頼しない。
+- 依頼の中身は純関数 `publicationRewardRequest` (`src/consultation/publication-reward.ts`) が作る: 種類 `tabula`、
+  根拠は公開候補の id、受取人は相談者 (Discord のユーザー id と相談の所属会社 `subsidiary_id`)。
+- consultation は報奨の口 `ConsultationRewardPort` (reward-service の `PersonalBudgetRewardPort` と同じ形) へ依頼するだけで、
+  台帳を直接書かない。加算量・一意性 (CC-PBUDGET-INV-04)・本社所属と個人不明の見送り (CC-PBUDGET-INV-07) は
+  `PersonalBudgetRewards.requestReward` が既存の規則のまま決める。本社の相談 (`subsidiary_id` が null) は理由付きで見送られる。
+- 報奨が付かなくても・依頼が例外で失敗しても公開は取り消さない (CC-INV-06)。失敗はログに残すだけで再試行しない。
+  付与の通知は台帳の通知待ちとして既存の配達 (`PersonalBudgetNotifications`、本人への DM) に乗る。
+- 組み立ては `src/bootstrap/core.ts`。公開の use case は個人の AI 予算より先に作られるので、口は公開時に遅延して参照する。
+- 「Tabula の取り込み」の報奨は、相談の公開 (Tabula の取り込み API への投稿) と同じ 1 か所で付ける。
+  相談以外の経路で Tabula へ取り込んだもの (AI ノートの公開など) は対象にしていない。
+- 未実装のまま残すもの: 子会社の相談で `/consult wrap` と判断カードを出すこと (§4.1、`spec/tasks/2026-10-02-personal-budget-consult-tabula.md`)。
+  これが入るまで、子会社の相談者は公開候補を得られないため、実運用で `tabula` の報奨が付く人はまだ居ない。

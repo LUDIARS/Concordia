@@ -146,6 +146,7 @@ import { createBountyRuntime, type BountyRuntime } from "./bounty-runtime.js";
 import { roleAtLeast } from "../staff/roles.js";
 import { matchProjectRow } from "../deploy/service-code-match.js";
 import { PublicationService } from "../consultation/publication-service.js";
+import type { ConsultationRewardPort } from "../consultation/publication-reward.js";
 import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
 import { createConsultationDrive } from "./consultation-drive-runtime.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
@@ -800,6 +801,8 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   };
   const consultationPublicationsRepo = new ConsultationPublicationsRepo(db);
+  // 公開の報奨 (personal-ai-budget.md §4 の `tabula`) は個人の AI 予算の後で組み立てるので、 公開時に遅延して参照する。
+  let consultationRewards: ConsultationRewardPort | null = null;
   const consultationPublications = new PublicationService({
     publications: consultationPublicationsRepo,
     consultations: new PrivateConsultationsRepo(db),
@@ -809,6 +812,8 @@ export async function startBackend(): Promise<BackendHandle> {
       token: readMetaSetting("services.tabula_import_token"),
     }),
     importPage: (connection, input) => importSharedPage(connection, input),
+    rewards: () => consultationRewards,
+    log,
   });
   // 相談のファイル受け渡し (tech-consultation.md §6.4)。 Drive の鍵と親フォルダは設定画面で schema_meta に置く (Tabula と同じ 1 系統)。
   const consultationDrive = createConsultationDrive({
@@ -1625,6 +1630,7 @@ export async function startBackend(): Promise<BackendHandle> {
     readSetting: readMetaSetting,
     log,
   });
+  consultationRewards = personalBudget.rewards;
   const personalBudgetConsumption = new PersonalBudgetConsumption({
     sessions: () => repo
       .listSessionsSeenSince(Math.floor(Date.now() / 1000) - PERSONAL_BUDGET_SESSION_WINDOW_SEC)

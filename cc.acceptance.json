@@ -2980,6 +2980,10 @@
       ],
       "contracts": []
     },
+    { "source": "src/consultation/publication-service.ts", "tests": ["src/consultation/publication-service.test.ts"], "contracts": ["SPEC-PBUDGET-REWARD", "consult-reward-C-1"] },
+    { "source": "src/consultation/publication-reward.ts", "tests": ["src/consultation/publication-reward.test.ts", "src/consultation/publication-service.test.ts"], "contracts": ["SPEC-PBUDGET-REWARD", "consult-reward-C-1"] },
+    { "source": "src/consultation/publication-reward.contract.ts", "tests": ["src/consultation/publication-reward.test.ts"], "contracts": ["consult-reward-C-1"] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/consultation/publication-service.test.ts"], "contracts": ["SPEC-PBUDGET-REWARD"] },
     {
       "source": "src/consultation/tabula-client.ts",
       "tests": [

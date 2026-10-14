@@ -13,6 +13,8 @@ import { inspectImplementationRepo } from "../implementation-tools/repo-context.
 
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
+import { readWebSsoConfig } from "../web-sso/config.js";
+import { createWebSsoGate } from "../web-sso/http-gate.js";
 import { basename, dirname, join, normalize, resolve } from "node:path";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
@@ -2195,7 +2197,12 @@ export async function startBackend(): Promise<BackendHandle> {
   const managementRemote = startManagementRemote(process.env, managementRuntime.service);
   const actioChatSharedSecret = readActioChatSecret(process.env);
   const chatDestinations = readChatDestinations(process.env);
+  // 公開ホスト (spec/feature/web-sso.md)。設定が欠けていれば readWebSsoConfig が投げて起動を止める。
+  const webSsoConfig = readWebSsoConfig(process.env);
+  const webSso = webSsoConfig ? createWebSsoGate(webSsoConfig) : null;
+  if (webSsoConfig) log.info({ publicHost: webSsoConfig.publicHost }, "public host requires a Cernere enterprise session");
   const app = buildApp({
+    webSso,
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
@@ -2463,7 +2470,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // `?session=<id>` で接続された WS は sessions.ws_clients をインクリメント →
   // 切断でデクリメント. sweeper の lost 判定からは ws_clients > 0 の session が除外される.
   // serve() は Http2Server | http.Server union を返すが Concordia は HTTP/1.1 で起動するので http.Server.
-  const ws = attachWsServer(server as unknown as HttpServer, "/ws", repo);
+  const ws = attachWsServer(server as unknown as HttpServer, "/ws", repo, webSso);
 
   // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
   // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
@@ -3247,6 +3254,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("subsidiary bots", () => subsidiaryManager.stopAll());
   resources.own("managed processes", () => processManager.stopAll());
   resources.own("websocket server", () => ws.close());
+  resources.own("web sso", () => webSso?.close());
 
   // 連合 (マルチ拠点) の起動 — opt-in。listener は /v1 とは別ポート・別 origin の
   // 専用面 (Phase 0 信頼境界。既定 host は 127.0.0.1、外部公開はトンネル前提)。

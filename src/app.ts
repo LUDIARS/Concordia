@@ -17,6 +17,7 @@ import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
 import { listHaltedLoops } from "./shared/loop-bulkhead.js";
 import { beginRequest, endRequest } from "./shared/inflight-requests.js";
+import { webSsoMiddleware, type WebSsoGate } from "./web-sso/http-gate.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -39,6 +40,8 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
   inboxItemState?: InboxApiDeps["itemState"];
   chatRoutes?: ChatDeps | null;
   costRoutes?: CostDeps | null;
+  /** 公開ホストの SSO ゲート (spec/feature/web-sso.md)。無ければ公開ホストは無い。 */
+  webSso?: WebSsoGate | null;
 };
 
 export function buildApp(deps: AppDeps): Hono {
@@ -105,6 +108,8 @@ export function buildApp(deps: AppDeps): Hono {
       perfLog.warn(requestDetails, "http request exceeded perf threshold");
     }
   });
+  // 応答キャッシュより前に置く。公開ホストの要求がキャッシュから返らないように。
+  if (deps.webSso) app.use("*", webSsoMiddleware(deps.webSso));
   app.use("*", httpCacheMiddleware());
 
   app.get("/health", (c) =>

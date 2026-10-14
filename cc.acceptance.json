@@ -1,6 +1,14 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/web-sso/config.ts", "tests": ["src/web-sso/config.test.ts"], "contracts": ["CC-SSO-INV-01"] },
+    { "source": "src/web-sso/policy.ts", "tests": ["src/web-sso/policy.test.ts"], "contracts": ["CC-SSO-INV-03", "CC-SSO-INV-04"] },
+    { "source": "src/web-sso/cernere-project-channel.ts", "tests": ["src/web-sso/cernere-project-channel.test.ts"], "contracts": ["CC-SSO-INV-01"] },
+    { "source": "src/web-sso/enterprise-session-client.ts", "tests": ["src/web-sso/enterprise-session-client.test.ts"], "contracts": ["CC-SSO-INV-02"] },
+    { "source": "src/web-sso/gate.ts", "tests": ["src/web-sso/gate.test.ts"], "contracts": ["CC-SSO-INV-01", "CC-SSO-INV-02", "CC-SSO-INV-03", "CC-SSO-INV-04"] },
+    { "source": "src/web-sso/http-gate.ts", "tests": ["src/web-sso/http-gate.test.ts"], "contracts": ["CC-SSO-INV-01"] },
+    { "source": "src/app.ts", "tests": ["src/web-sso/http-gate.test.ts"], "contracts": ["CC-SSO-INV-01"] },
+    { "source": "src/api/ws.ts", "tests": ["src/web-sso/http-gate.test.ts", "src/api/ws-claim-rejection.test.ts"], "contracts": ["CC-SSO-INV-01"] },
     {
       "source": "src/control/remaining-work-guidance.ts",
       "tests": ["src/control/remaining-work-guidance.test.ts", "src/control/goal-and-go.test.ts", "src/control/session-followup-state.test.ts"],
@@ -10,7 +18,7 @@
     { "source": "src/discord/egress.ts", "tests": ["src/discord/egress-artifact.test.ts", "src/discord/egress.test.ts"], "contracts": ["CC-EXPLICIT-ARTIFACT-01"] },
     { "source": "src/discord/bot.ts", "tests": ["src/meeting-links/discord.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/api/register-chat.ts", "tests": ["src/meeting-links/routes.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
-    { "source": "src/bootstrap/core.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/routes.test.ts", "src/control/session-followup-snapshot.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/routes.test.ts", "src/control/session-followup-snapshot.test.ts", "src/web-sso/config.test.ts"], "contracts": ["CC-MEETING-LINK-01", "CC-SSO-INV-01"] },
     { "source": "src/meeting-links/store.ts", "tests": ["src/meeting-links/store.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/meeting-links/policy.ts", "tests": ["src/meeting-links/store.test.ts", "src/meeting-links/redeem.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },
     { "source": "src/meeting-links/config.ts", "tests": ["src/meeting-links/config.test.ts"], "contracts": ["CC-MEETING-LINK-01"] },

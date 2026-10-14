@@ -19,6 +19,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/event-schema.js";
 import { reviveIfLost } from "./sessions/shared.js";
 import { secureValuesMatch } from "../shared/secure-compare.js";
+import { webSsoAllowsUpgrade, type WebSsoGate } from "../web-sso/http-gate.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -135,8 +136,20 @@ export function attachWsServer(
   httpServer: HttpServer,
   pathName = "/ws",
   sessionsRepo?: SessionsRepo,
+  webSso?: WebSsoGate | null,
 ): WsHandle {
-  const wss = new WebSocketServer({ server: httpServer, path: pathName });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: pathName,
+    // 公開ホストからの upgrade は HTTP と同じ判定を通す (spec/feature/web-sso.md)。
+    ...(webSso ? {
+      verifyClient: (info: { req: IncomingMessage }, done: (ok: boolean, code?: number) => void) => {
+        webSsoAllowsUpgrade(webSso, info.req)
+          .then((result) => (result.ok ? done(true) : done(false, result.status)))
+          .catch(() => done(false, 503));
+      },
+    } : {}),
+  });
 
   // ws は server オプション指定時に httpServer の 'error' を wss へ転送する。
   // wss 側にハンドラが無いと、 その転送された 'error' (例: listen EADDRINUSE) が

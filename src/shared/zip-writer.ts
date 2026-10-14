@@ -13,7 +13,10 @@
  * SRP: バイト列の組み立てのみ。 ファイル I/O も対象データの選定も呼び出し側。
  */
 
-import { deflateRawSync } from "node:zlib";
+import { deflateRaw } from "node:zlib";
+import { promisify } from "node:util";
+
+const deflateRawAsync = promisify(deflateRaw);
 
 export interface ZipEntry {
   /** アーカイブ内のパス。 `/` 区切り、 先頭 `/` や `..` は入れない。 */
@@ -78,7 +81,7 @@ function assertSafeEntryName(name: string): void {
  * エントリを 1 つの zip バッファへまとめる。 圧縮しても縮まないデータでも deflate の
  * まま入れる (格納方式を混ぜず、 書き出しの分岐を増やさない)。
  */
-export function buildZip(entries: readonly ZipEntry[], now: Date = new Date()): Buffer {
+export async function buildZip(entries: readonly ZipEntry[], now: Date = new Date()): Promise<Buffer> {
   const { time, date } = toDosDateTime(now);
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
@@ -87,7 +90,7 @@ export function buildZip(entries: readonly ZipEntry[], now: Date = new Date()): 
   for (const entry of entries) {
     assertSafeEntryName(entry.name);
     const nameBytes = Buffer.from(entry.name, "utf8");
-    const compressed = deflateRawSync(entry.data);
+    const compressed = await deflateRawAsync(entry.data);
     if (entry.data.length > MAX_ZIP32_BYTES || compressed.length > MAX_ZIP32_BYTES) {
       throw new Error(`zip entry exceeds the 4GB zip32 limit: ${entry.name}`);
     }

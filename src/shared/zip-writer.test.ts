@@ -25,9 +25,9 @@ function readSingleEntry(zip: Buffer): { name: string; data: Buffer } {
 }
 
 describe("buildZip", () => {
-  it("produces an archive a normal reader can open", () => {
+  it("produces an archive a normal reader can open", async () => {
     const payload = Buffer.from(`${JSON.stringify({ ts: 1, text: "ログ行" })}\n`, "utf8");
-    const entry = readSingleEntry(buildZip([{ name: "transcript_logs.jsonl", data: payload }]));
+    const entry = readSingleEntry(await buildZip([{ name: "transcript_logs.jsonl", data: payload }]));
 
     expect(entry.name).toBe("transcript_logs.jsonl");
     expect(entry.data.toString("utf8")).toBe(payload.toString("utf8"));
@@ -38,9 +38,9 @@ describe("buildZip", () => {
     expect(crc32(Buffer.from("123456789", "utf8"))).toBe(0xcbf4_3926);
   });
 
-  it("refuses entry names that would escape the archive root", () => {
+  it("refuses entry names that would escape the archive root", async () => {
     const data = Buffer.from("x", "utf8");
-    expect(() => buildZip([{ name: "../escape.jsonl", data }])).toThrow(/Unsafe zip entry name/);
-    expect(() => buildZip([{ name: "/abs.jsonl", data }])).toThrow(/Unsafe zip entry name/);
+    await expect(buildZip([{ name: "../escape.jsonl", data }])).rejects.toThrow(/Unsafe zip entry name/);
+    await expect(buildZip([{ name: "/abs.jsonl", data }])).rejects.toThrow(/Unsafe zip entry name/);
   });
 });

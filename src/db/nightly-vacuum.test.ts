@@ -31,12 +31,12 @@ describe("nightly vacuum", () => {
     expect(NIGHTLY_VACUUM_CRON).toBe("0 3 * * *");
   });
 
-  it("reclaims freed pages on runOnce", () => {
+  it("reclaims freed pages on runOnce", async () => {
     const { db, dbPath } = makeBloatedDatabase();
     const handle = startNightlyVacuum({ db, dbPath });
     try {
       const before = statSync(dbPath).size;
-      handle.runOnce();
+      await handle.runOnce();
       const after = statSync(dbPath).size;
       expect(after).toBeLessThan(before);
       // VACUUM 後も DB は開いたまま使える
@@ -47,12 +47,12 @@ describe("nightly vacuum", () => {
     }
   });
 
-  it("keeps the process alive-safe when vacuum fails", () => {
+  it("keeps the process alive-safe when vacuum fails", async () => {
     const { db, dbPath } = makeBloatedDatabase();
     const handle = startNightlyVacuum({ db, dbPath });
     try {
       db.close(); // 閉じたハンドルで VACUUM を失敗させる
-      expect(() => handle.runOnce()).not.toThrow();
+      await expect(handle.runOnce()).resolves.toBeUndefined();
     } finally {
       handle.stop();
     }

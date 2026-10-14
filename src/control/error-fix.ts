@@ -107,9 +107,10 @@ export function startErrorFixDispatcher(deps: ErrorFixDispatcherDeps): ErrorFixD
     const now = nowSec();
     if (now - lastSpawnAt < SPAWN_COOLDOWN_SEC) return null;
     lastSpawnAt = now;
-    const r = spawnSession({ provider: "codex", mode: "tab", cwd: fixerCwd, title: "[error-fixer]" });
-    if (r.ok) log.info(`spawned error-fixer Codex at ${fixerCwd} (pid=${r.pid})`);
-    else log.warn(`error-fixer spawn failed: ${r.error}`);
+    void spawnSession({ provider: "codex", mode: "tab", cwd: fixerCwd, title: "[error-fixer]" }).then((r) => {
+      if (r.ok) log.info(`spawned error-fixer Codex at ${fixerCwd} (pid=${r.pid})`);
+      else log.warn(`error-fixer spawn failed: ${r.error}`);
+    }, (err: unknown) => log.warn(`error-fixer spawn failed: ${(err as Error).message}`));
     return null; // 起動直後は未登録. 次の drain で拾う.
   }
 

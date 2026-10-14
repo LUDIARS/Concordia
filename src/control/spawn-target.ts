@@ -7,7 +7,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { promisify } from "node:util";
 import { retryTransientGit as retryGitWorktreeAdd } from "./retry-transient-git-error.js";
@@ -15,6 +15,7 @@ import { validateSpawnCwd } from "./spawn-cwd.js";
 import { decideWorktreeAddFailure } from "./worktree-add-failure.js";
 import { worktreeBaseDirFor } from "./worktree-base-dir.js";
 import { createChildLogger } from "../shared/logger.js";
+import { pathExists } from "../shared/fs-async.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
 
@@ -175,9 +176,9 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
 
   const baseDir = input.worktreeBaseDir?.trim() || worktreeBaseDirFor(repoRoot);
   const worktreePath = join(baseDir, branchWorktreeName(repoRoot, branch));
-  if (existsSync(worktreePath)) {
+  if (await pathExists(worktreePath)) {
     try {
-      if (!statSync(worktreePath).isDirectory()) {
+      if (!(await stat(worktreePath)).isDirectory()) {
         return { ok: false, error: `worktree path exists and is not a directory: ${worktreePath}` };
       }
       const targetBranch = (await git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();

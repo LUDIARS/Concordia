@@ -84,46 +84,76 @@ Memoria task id 526/527/528/538 の統合対応 (本 md 群) の一環として 
   メモ化 (`resolveGitBashPath`) に変更し、以後の呼び出しでは fs I/O 自体を行わない。
   `src/rules/claude-runner.test.ts` を新規追加 (3 tests)。
 
-### 残した同期 fs 呼び出し (理由つき列挙)
+### 2026-07-19 時点の残件一覧
 
-**B: boot 時のみ (対象外)**
-- `src/bootstrap/core.ts` `loadDotEnv` (existsSync/readFileSync, `.env` 起動時読み込み)
-- `src/shared/config.ts` `loadConfig` (existsSync/readFileSync, 設定ファイル起動時読み込み)
-- `src/shared/secret-box.ts` `loadSecretBox` (existsSync/readFileSync/openSync/writeSync/
-  closeSync — 起動時 1 回の secret key 生成/読取。wx 排他生成の原子性のため意図的に同期)
-- `src/db/index.ts` (mkdirSync, DB ディレクトリ作成は openDb 起動時 1 回)
-- `src/control/token.ts` (トークンキャッシュファイル — 認証初期化時のみ、リクエスト
-  ホットパスではない)
-- `src/api/skills.ts` / `src/api/setup.ts` (readFileSync だが module 内メモ化済みの
-  スキル md 読み込み — 初回のみ、以後はメモリ上のキャッシュを返す)
-- `src/platform/reaction-workflow-loader.ts` (existsSync — RWF プラグイン有無判定、
-  bot 起動時の `initReactionWorkflow` 1 回のみ)
+2026-10-14 追記の一覧で置き換えた (spawn 経路と release 系は非同期化済み)。
 
-**C: CLI / 別プロセスの worker エントリポイント (対象外)**
-- `src/cost-worker.ts` / `src/workflow-worker.ts` / `src/chat-worker.ts` の
-  `loadDotEnv` (各 worker プロセス起動時 1 回、main イベントループとは別プロセス)
-- `src/drop-obsolete-excubitor.ts` (DB 移行 CLI スクリプト)
-- `src/release/build.ts` / `src/release/clone-paths.ts` (confirm/release フローの
-  npm build 判定・clone path 解決。ユーザ起動の確認テストごと 1 回の軽量 existsSync/
-  JSON 読みで、10 分周期 tick のような繰り返しホットパスではない。A-3 完了条件に
-  明示された対象 [reaction-workflow/discord egress/mcp readers/session-logs
-  reader/delegation service/codex-cli] には含まれない)
+## 実装状況 (2026-10-14 追記 — 再確認で見つかった残りの非同期化)
 
-**A-5 (余力、未対応分の残件報告): spawn 経路**
-- `src/control/spawner.ts` (`existsSync`/`statSync` — workspace root 解決・cwd
-  検証。spawn リクエストごとに数回の単発 stat で、事故実績のあった「数千ファイル
-  の全量 walk」とは性質が異なる。呼び出しチェーンが `resolveAgentHomeCwd` 等
-  複数箇所から同期関数として呼ばれており、async 化は型シグネチャの連鎖変更を
-  伴うため本 PR では見送り、残件として報告する)
-- `src/control/spawn-target.ts` (`existsSync`/`statSync` — worktree path 検証。
-  spawner.ts と同じ理由で残件)
-- `src/work/repo-scan.ts` (`existsSync`/`statSync` — admin の repo 一覧/scan
-  機能。ユーザ起動のオンデマンド操作であり、interval tick や spawn の主経路
-  ではないため優先度を下げて残件とする)
+Pf フラグメント 01M4VTCS9JY3E7P8B3NSPXA59T の再確認 (main 72bf9409) で、 #357 の後に入った
+リクエスト経路の同期 fs (`src/api/register-web.ts` の web-hosts GET/PUT、
+`src/api/sessions/lifecycle.ts` の `existsSync(input.repo_path)`) と、 前回 A-5 で残件とした
+spawn 経路が残っていた。 本追記の PR で次を非同期化した (挙動・エラー時の応答・順序は変えない)。
 
-**D: テスト (対象外)**
-- 各 `*.test.ts` のフィクスチャ準備 (`mkdtempSync`/`writeFileSync`/`rmSync` 等)。
-  テストプロセス内のみで完結し、本番ランタイムには含まれない。
+- リクエスト経路: web-hosts の読み書き / セッション登録の repo_path 確認 / work-submission の
+  本体 checkout 解決 (`mainCheckoutPath` → `routeForRepo` → `/v1/implementation-tools/submission-route`) /
+  バグバウンティ Bot の内部トークン読み (要求ごと) / setup のスキル md 読み (一度だけ読みメモ化) /
+  ハーネスの DDD 証跡・受入検査 (`hasDddEvidenceAsync` / `checkCodeAcceptance`) / pre-compact の
+  augur.contracts.json 読み (`ReliabilityHookService.handle` を async 化) / delegation の完了証跡検査
+  (`verifyCompletionEvidence` の checkout 確認・契約ファイル検出・Augur CLI 解決・マニフェスト読み) /
+  委託 prompt の別リポ md 同梱 (`buildExternalDocBundle`) / Augur CLI 解決 (`AugurTools.cli`) /
+  claude 起動先の解決 (`resolveClaudeLaunch` / `claudeLaunch`) / Test Forum QA の clone 解決 /
+  domain-review の Edge 解決 / 相談の CODEX_HOME 準備 / deploy・release 確認の clone 解決と build 判定。
+- spawn 経路 (前回 A-5 残件): `spawnSession` を Promise 化し、 cwd 検証 (`validateCwd` /
+  `resolveSpawnCwd` / `resolveAgentHomeCwd`)、 内部 Agent プラグインと session Git hooks の書き出し、
+  Lictor launcher の解決 (`resolveLictorLauncher`、 spawn ごとに 1 回だけ解決して各起動方式へ渡す)、
+  `spawn-target` / `spawn-cwd` の stat、 process 起動のログ dir 作成を非同期化した。 呼び出し元
+  (spawn API / relictor・handover / fork / chores / management / delegation launcher / budget resume /
+  error-fix) はすべて await する。 error-fix は従来どおり「起動直後は null を返して次の drain で拾う」。
+- interval tick / イベント処理: WAL guard の WAL サイズ取得、 nightly vacuum の前後サイズ計測、
+  ログ退避 zip の圧縮 (`buildZip` を `zlib.deflateRaw` の非同期版に)、 director 巡回の対象 clone 解決、
+  federation の設定キャッシュ書き込み (到着順を保つため Promise チェーンで直列化し、 書き込み後に
+  `onConfig` を呼ぶ順序を維持)、 admin の repo 走査 (`scanRepos`)。
 
-**better-sqlite3 (対象外、明記どおり)**
-- ネイティブアドオンの同期 API はライブラリ設計上の制約であり本タスクの対象外。
+再発防止: `tests/runtime-sync-io.test.ts` が `src/` (テスト・契約を除く) をコメント除去後に走査し、
+同期 fs / child_process / zlib の呼び出しが下の許可リスト外のファイルにあるか、 許可リストの件数を
+超えたら落ちる。 許可リストが実数より多い (不要になった許可が残っている) 場合も落とす。
+共通の非同期プローブは `src/shared/fs-async.ts` の `pathExists` (existsSync と同じ判定)。
+
+### 残した同期 fs 呼び出し (理由つき列挙、 2026-10-14 時点)
+
+`tests/runtime-sync-io.test.ts` の許可リストと同じ内容。 件数はファイルごとの上限。
+
+**B: boot 時のみ**
+- `src/bootstrap/core.ts` (2) `loadDotEnv` — `.env` の起動時読み込み
+- `src/shared/config.ts` (1) `loadConfig` — 設定ファイルの起動時読み込み
+- `src/shared/secret-box.ts` (5) `loadSecretBox` — 起動時 1 回の secret key 生成/読取 (wx 排他生成の原子性のため同期)
+- `src/db/index.ts` (1) `openDb` の DB ディレクトリ作成
+- `src/control/token.ts` (7) spawn トークンファイル — 認証初期化時のみ
+- `src/api/skills.ts` (1) スキル md — 初回だけ読みモジュール内でメモ化
+- `src/api/register-web.ts` (2) `web/dist/index.html` — ルート登録時に 1 回だけ読む (web-hosts の読み書きは非同期化済み)
+- `src/bounty/operator-credentials.ts` (5) `ensureBountyOperatorToken` — 起動時に 1 回 (Bot の要求ごとの読みは非同期)
+- `src/federation/config-cache.ts` (1) オフライン設定キャッシュの読み — site client 起動時に 1 回 (書き込みは非同期)
+- `src/processes/manager.ts` (1) logs dir 作成 — ProcessManager の構築 (起動時 1 回)。 起動ごとの dir 作成は非同期
+- `src/shared/log-file-rotation.ts` (6) logger のモジュール初期化時、 pino が open する前に 1 回だけ世代交代
+- `src/platform/reaction-workflow-loader.ts` — 前回一覧から削除 (現行コードに同期呼び出しが無い)
+
+**C: CLI / 別プロセスの worker エントリポイント**
+- `src/chat-worker.ts` / `src/cost-worker.ts` / `src/workflow-worker.ts` (各 2) worker プロセス起動時の `loadDotEnv`
+- `src/drop-obsolete-excubitor.ts` (4) DB 移行 CLI
+- `src/harness/supervisor-cli.ts` (17) hook ごとに起動する短命の supervisor CLI
+- `src/harness/ddd-evidence.ts` (4) 同期版 `hasDddEvidence` は supervisor-cli 専用。 サービス内は `hasDddEvidenceAsync`
+- `src/control/inject-source-apply.ts` (2) `dist/control/inject-source-apply.js` CLI
+- `src/developer-tools/migration-preflight/git.ts` (1) / `ontime-runtime.ts` (2) migration-preflight CLI
+- `src/developer-tools/actio-sync-migration/run.ts` (3) / `legacy-documents.ts` (1) / `legacy-activity.ts` (1) actio-sync-migration CLI
+
+前回 C に入れていた `src/release/build.ts` / `src/release/clone-paths.ts` は director 巡回 (interval tick)
+と deploy・release 確認 (リクエスト) から呼ばれていたので非同期化した。
+
+**D: テスト**
+- 各 `*.test.ts` のフィクスチャ準備 (検査の対象外)
+- `src/config/settings/coverage-scan.ts` (3) 設定カバレッジのテストだけが使う静的ソース走査
+
+**better-sqlite3 (対象外)**
+- ネイティブアドオンの同期 API はライブラリ設計上の制約であり本タスクの対象外
+  (`transcript-logs-repo.flushSync` 等の名前は DB 書き込みで fs ではない)。

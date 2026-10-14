@@ -14,11 +14,11 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
-import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pathExists } from "../shared/fs-async.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:bbf0f8a1 */
 import augurContract_60647eba from './consult-codex-hooks.contract.js'; /* augur-inject:contract-predicate:cc8d95c4 */
 import augurContract_fb28aee3 from './consult-codex-config.contract.js'; /* augur-inject:contract-predicate:b3fbc0ea */
@@ -74,11 +74,11 @@ export async function listUserCodexSkillFiles(home = homedir()): Promise<string[
   const root = join(home, ".agents", "skills");
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    return entries
+    const candidates = entries
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .map((entry) => join(root, entry.name, "SKILL.md"))
-      .filter((file) => existsSync(file))
-      .sort();
+      .map((entry) => join(root, entry.name, "SKILL.md"));
+    const present = await Promise.all(candidates.map((file) => pathExists(file)));
+    return candidates.filter((_, index) => present[index]).sort();
   } catch {
     return [];
   }
@@ -125,5 +125,5 @@ export async function prepareConsultCodexHome(
     `${JSON.stringify(consultCodexHooks(options.hookScript ?? CONSULT_CODEX_HOOK_SCRIPT), null, 2)}\n`, "utf8");
   // config.toml は codex が信頼の記録を書くので触らない。 Cc の設定はプロファイルに分ける。
   await writeFile(join(codexHome, `${CONSULT_CODEX_PROFILE}.config.toml`), consultCodexConfigToml(skills), "utf8");
-  return existsSync(join(codexHome, "auth.json"));
+  return pathExists(join(codexHome, "auth.json"));
 }

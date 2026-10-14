@@ -39,6 +39,11 @@ vi.mock("../cost/one-shot-recorder.js", () => ({
   recordLocalOneShot: vi.fn(),
 }));
 
+// Launch resolution probes PATH asynchronously; keep it out of the access() call counts below.
+vi.mock("./claude-launch.js", () => ({
+  resolveClaudeLaunch: async () => ({ file: "claude.exe", prefixArgs: [] }),
+}));
+
 describe("resolveGitBashPath (via runClaude on win32)", () => {
   const originalPlatform = process.platform;
 

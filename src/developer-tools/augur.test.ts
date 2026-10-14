@@ -5,7 +5,7 @@ describe("Augur result semantics", () => {
   function fixture(stdout: string, code = 0) {
     const runner = vi.fn(async () => ({ stdout, code }));
     const tools = new AugurTools(() => [], runner);
-    vi.spyOn(tools, "cli").mockReturnValue("/Augur/bin/augur.mjs");
+    vi.spyOn(tools, "cli").mockResolvedValue("/Augur/bin/augur.mjs");
     return { tools, runner };
   }
   it("does not mistake exit zero with failed tests for a pass", async () => {

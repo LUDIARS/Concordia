@@ -19,11 +19,11 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { pathExists } from "../shared/fs-async.js";
 
 /** 撮影の打ち切り。 これを超えたら諦めてリストだけ投稿する。 */
 const CAPTURE_TIMEOUT_MS = 20_000;
@@ -49,7 +49,7 @@ export interface CapturedDiagram {
 export async function captureLayerDiagram(
   input: CaptureLayerDiagramInput,
 ): Promise<CapturedDiagram | null> {
-  const edge = resolveEdgeBinary();
+  const edge = await resolveEdgeBinary();
   if (!edge) {
     input.log?.info("domain-review: headless Edge が見つからないため画像を省略");
     return null;
@@ -95,7 +95,7 @@ export async function captureLayerDiagram(
 }
 
 /** Edge の実行ファイル。 env で明示指定でき、 無ければ既知の場所 → PATH。 */
-function resolveEdgeBinary(): string | null {
+async function resolveEdgeBinary(): Promise<string | null> {
   const configured = process.env.CONCORDIA_EDGE_PATH?.trim();
   if (configured) return configured;
   if (process.platform !== "win32") return null;
@@ -106,7 +106,7 @@ function resolveEdgeBinary(): string | null {
   ]) {
     if (!root) continue;
     const candidate = path.join(root, "Microsoft", "Edge", "Application", "msedge.exe");
-    if (existsSync(candidate)) return candidate;
+    if (await pathExists(candidate)) return candidate;
   }
   // 既知の場所に無ければ PATH に賭ける。 外れたら spawn の error で「撮れなかった」。
   return "msedge.exe";

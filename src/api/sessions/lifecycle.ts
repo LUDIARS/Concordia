@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { sessionCategory } from "./category.js";
-import { existsSync } from "node:fs";
+import { pathExists } from "../../shared/fs-async.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { DelegationRunRow } from "../../db/delegation-repo.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
@@ -283,7 +283,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     // FS / spawn を伴うので失敗は飲み込んで session 登録は完了させる.
     let processStartup: Awaited<ReturnType<ProcessManager["startFromRepo"]>> | null = null;
     const canStartProcesses =
-      !isWorkspaceRootCwd(input.repo_path, workspaceRoots) && existsSync(input.repo_path);
+      !isWorkspaceRootCwd(input.repo_path, workspaceRoots) && await pathExists(input.repo_path);
     if (canStartProcesses) {
       try {
         processStartup = await deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
@@ -545,7 +545,7 @@ app.post("/:id/fork", async (c) => {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const cwd = parsed.data.cwd ?? parent.repo_path;
     const mode = parsed.data.mode ?? "tab";
-    const result = spawnSession({
+    const result = await spawnSession({
       provider: "claude",
       mode,
       cwd,

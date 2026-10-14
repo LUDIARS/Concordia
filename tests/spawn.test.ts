@@ -38,22 +38,22 @@ describe("spawn token", () => {
     else process.env.CONCORDIA_SPAWN_TOKEN_PATH = savedEnv;
   });
 
-  it("spawnTokenPath defaults to cwd/.spawn.token", () => {
+  it("spawnTokenPath defaults to cwd/.spawn.token", async () => {
     expect(spawnTokenPath(cwd)).toBe(join(cwd, ".spawn.token"));
   });
 
-  it("CONCORDIA_SPAWN_TOKEN_PATH overrides location", () => {
+  it("CONCORDIA_SPAWN_TOKEN_PATH overrides location", async () => {
     process.env.CONCORDIA_SPAWN_TOKEN_PATH = "C:/tmp/other.token";
     expect(spawnTokenPath(cwd)).toBe("C:/tmp/other.token");
   });
 
-  it("ensureSpawnToken generates 64-hex on first call, idempotent on next", () => {
+  it("ensureSpawnToken generates 64-hex on first call, idempotent on next", async () => {
     const a = ensureSpawnToken(cwd);
     expect(a).toMatch(/^[a-f0-9]{64}$/);
     expect(ensureSpawnToken(cwd)).toBe(a);
   });
 
-  it("ensureSpawnToken rotates corrupt files", () => {
+  it("ensureSpawnToken rotates corrupt files", async () => {
     ensureSpawnToken(cwd);
     writeFileSync(spawnTokenPath(cwd), "garbage", "utf8");
     const rotated = ensureSpawnToken(cwd);
@@ -61,14 +61,14 @@ describe("spawn token", () => {
     expect(rotated).not.toBe("garbage");
   });
 
-  it("readSpawnToken returns null when missing or corrupt", () => {
+  it("readSpawnToken returns null when missing or corrupt", async () => {
     expect(readSpawnToken(cwd)).toBeNull();
     ensureSpawnToken(cwd);
     writeFileSync(spawnTokenPath(cwd), "not-hex", "utf8");
     expect(readSpawnToken(cwd)).toBeNull();
   });
 
-  it("tokenMatches rejects mismatches", () => {
+  it("tokenMatches rejects mismatches", async () => {
     // 実装は timingSafeEqual を使っているが timing 特性はテストで検証不能。
     // ここでは機能 (一致/不一致の判定) のみを確認する。
     const a = "a".repeat(64);
@@ -80,7 +80,7 @@ describe("spawn token", () => {
     expect(tokenMatches(a, null)).toBe(false);
   });
 
-  it("extractBearer parses Authorization Bearer and X-Concordia-Token", () => {
+  it("extractBearer parses Authorization Bearer and X-Concordia-Token", async () => {
     expect(extractBearer((h) => (h === "authorization" ? "Bearer abc" : null))).toBe("abc");
     expect(extractBearer((h) => (h === "authorization" ? "bearer xyz" : null))).toBe("xyz");
     expect(extractBearer((h) => (h === "x-concordia-token" ? "tok" : null))).toBe("tok");
@@ -93,7 +93,7 @@ describe("spawn arg builder", () => {
   // provider/args トークンは CWE-78 (cmd.exe メタ文字インジェクション) 対策の
   // escapeCmdArg で個別にエスケープしてから結合される (継続レビュー指摘)。
   // 期待値も同じ関数で組み立て、 エスケープ形式そのものへの依存を避ける。
-  it("default tab mode", () => {
+  it("default tab mode", async () => {
     expect(buildWtArgs({ provider: "claude" })).toEqual([
       "--window",
       "0",
@@ -106,7 +106,7 @@ describe("spawn arg builder", () => {
     ]);
   });
 
-  it("window mode + codex + title + cwd + extra args", () => {
+  it("window mode + codex + title + cwd + extra args", async () => {
     expect(
       buildWtArgs({
         provider: "codex",
@@ -131,7 +131,7 @@ describe("spawn arg builder", () => {
     ]);
   });
 
-  it("gemini provider produces `lictor gemini` argv", () => {
+  it("gemini provider produces `lictor gemini` argv", async () => {
     expect(buildWtArgs({ provider: "gemini", mode: "tab" })).toEqual([
       "--window",
       "0",
@@ -144,36 +144,36 @@ describe("spawn arg builder", () => {
     ]);
   });
 
-  it("validateCwd accepts undefined + existing dir, rejects missing", () => {
-    expect(validateCwd(undefined)).toBeNull();
+  it("validateCwd accepts undefined + existing dir, rejects missing", async () => {
+    expect(await validateCwd(undefined)).toBeNull();
     const tmp = mkdtempSync(join(tmpdir(), "concordia-spawn-cwd-"));
-    expect(validateCwd(tmp)).toBeNull();
+    expect(await validateCwd(tmp)).toBeNull();
     rmSync(tmp, { recursive: true, force: true });
     const missing = join(tmpdir(), "concordia-nope-" + Date.now());
-    expect(validateCwd(missing)).toMatch(/does not exist/);
+    expect(await validateCwd(missing)).toMatch(/does not exist/);
   });
 
   describe("buildConcordiaAddressEnv", () => {
-    it("stamps CONCORDIA_HOST / CONCORDIA_PORT from the listen address", () => {
+    it("stamps CONCORDIA_HOST / CONCORDIA_PORT from the listen address", async () => {
       expect(buildConcordiaAddressEnv("127.0.0.1", 11111)).toEqual({
         CONCORDIA_HOST: "127.0.0.1",
         CONCORDIA_PORT: "11111",
       });
     });
 
-    it("maps wildcard bind hosts to loopback (Lictor is same-host)", () => {
+    it("maps wildcard bind hosts to loopback (Lictor is same-host)", async () => {
       expect(buildConcordiaAddressEnv("0.0.0.0", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
       expect(buildConcordiaAddressEnv("::", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
     });
 
-    it("trims host and keeps explicit non-loopback hosts", () => {
+    it("trims host and keeps explicit non-loopback hosts", async () => {
       expect(buildConcordiaAddressEnv("  10.0.0.5  ", 18000)).toEqual({
         CONCORDIA_HOST: "10.0.0.5",
         CONCORDIA_PORT: "18000",
       });
     });
 
-    it("omits empty host / non-positive port", () => {
+    it("omits empty host / non-positive port", async () => {
       expect(buildConcordiaAddressEnv("", 11111)).toEqual({ CONCORDIA_PORT: "11111" });
       expect(buildConcordiaAddressEnv("127.0.0.1", 0)).toEqual({ CONCORDIA_HOST: "127.0.0.1" });
       expect(buildConcordiaAddressEnv("127.0.0.1", Number.NaN)).toEqual({
@@ -183,68 +183,68 @@ describe("spawn arg builder", () => {
   });
 
   describe("resolveSpawnCwd", () => {
-    it("prefers requested cwd when it's a non-empty string", () => {
+    it("prefers requested cwd when it's a non-empty string", async () => {
       const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
-      expect(resolveSpawnCwd(tmp, "/some/default")).toBe(tmp);
+      expect(await resolveSpawnCwd(tmp, "/some/default")).toBe(tmp);
       rmSync(tmp, { recursive: true, force: true });
     });
 
-    it("trims whitespace from requested cwd", () => {
+    it("trims whitespace from requested cwd", async () => {
       const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
-      expect(resolveSpawnCwd(`  ${tmp}  `, "")).toBe(tmp);
+      expect(await resolveSpawnCwd(`  ${tmp}  `, "")).toBe(tmp);
       rmSync(tmp, { recursive: true, force: true });
     });
 
-    it("falls back to default when requested is empty/undefined and default exists", () => {
+    it("falls back to default when requested is empty/undefined and default exists", async () => {
       const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
-      expect(resolveSpawnCwd(undefined, tmp)).toBe(tmp);
-      expect(resolveSpawnCwd("", tmp)).toBe(tmp);
-      expect(resolveSpawnCwd("   ", tmp)).toBe(tmp);
-      expect(resolveSpawnCwd(null, tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd(undefined, tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd("", tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd("   ", tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd(null, tmp)).toBe(tmp);
       rmSync(tmp, { recursive: true, force: true });
     });
 
-    it("returns undefined when default points at a missing dir", () => {
+    it("returns undefined when default points at a missing dir", async () => {
       const missing = join(tmpdir(), "concordia-resolve-missing-" + Date.now());
-      expect(resolveSpawnCwd(undefined, missing)).toBeUndefined();
+      expect(await resolveSpawnCwd(undefined, missing)).toBeUndefined();
     });
 
-    it("returns undefined when default is empty/whitespace", () => {
-      expect(resolveSpawnCwd(undefined, "")).toBeUndefined();
-      expect(resolveSpawnCwd(undefined, "   ")).toBeUndefined();
-      expect(resolveSpawnCwd(undefined, undefined)).toBeUndefined();
+    it("returns undefined when default is empty/whitespace", async () => {
+      expect(await resolveSpawnCwd(undefined, "")).toBeUndefined();
+      expect(await resolveSpawnCwd(undefined, "   ")).toBeUndefined();
+      expect(await resolveSpawnCwd(undefined, undefined)).toBeUndefined();
     });
 
-    it("requested non-string types are treated as missing", () => {
+    it("requested non-string types are treated as missing", async () => {
       const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
-      expect(resolveSpawnCwd(42, tmp)).toBe(tmp);
-      expect(resolveSpawnCwd({}, tmp)).toBe(tmp);
-      expect(resolveSpawnCwd([], tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd(42, tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd({}, tmp)).toBe(tmp);
+      expect(await resolveSpawnCwd([], tmp)).toBe(tmp);
       rmSync(tmp, { recursive: true, force: true });
     });
   });
 
   describe("resolveAgentHomeCwd", () => {
-    it("does not infer workspace/Castra for Claude or Codex", () => {
+    it("does not infer workspace/Castra for Claude or Codex", async () => {
       const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
       const castra = join(root, "Castra");
       mkdirSync(castra);
       try {
         expect(resolveCastraDefaultCwd(root)).toBe("");
-        expect(resolveAgentHomeCwd("claude", undefined, root)).toBeUndefined();
-        expect(resolveAgentHomeCwd("codex", undefined, root)).toBeUndefined();
+        expect(await resolveAgentHomeCwd("claude", undefined, root)).toBeUndefined();
+        expect(await resolveAgentHomeCwd("codex", undefined, root)).toBeUndefined();
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     });
 
-    it("keeps explicit cwd and rejects missing cwd for every provider", () => {
+    it("keeps explicit cwd and rejects missing cwd for every provider", async () => {
       const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
       const requested = mkdtempSync(join(tmpdir(), "concordia-requested-"));
       mkdirSync(join(root, "Castra"));
       try {
-        expect(resolveAgentHomeCwd("claude", requested, root)).toBe(requested);
-        expect(resolveAgentHomeCwd("gemini", undefined, root)).toBeUndefined();
+        expect(await resolveAgentHomeCwd("claude", requested, root)).toBe(requested);
+        expect(await resolveAgentHomeCwd("gemini", undefined, root)).toBeUndefined();
       } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(requested, { recursive: true, force: true });

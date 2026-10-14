@@ -2,7 +2,7 @@
  * Test Forum 投稿ごとのテスト・QA セッション (delegation `test-qa`) の起動と後始末。
  * @implements spec/feature/revisor-test-forum-sync.md — テスト・QA delegation
  */
-import { existsSync } from "node:fs";
+import { pathExists } from "../shared/fs-async.js";
 import { join } from "node:path";
 import { callConcordia } from "./commands/_util.js";
 import type { TestForumCandidate, TestForumQaHooks } from "./test-forum-reconcile.js";
@@ -22,15 +22,15 @@ export interface TestForumQaDeps {
 const REPO_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 /** `org/name` の name をワークスペースルート群から探す。 見つからなければ null。 */
-export function resolveCandidateRepoPath(
+export async function resolveCandidateRepoPath(
   roots: readonly string[],
   repoOrigin: string,
-): string | null {
+): Promise<string | null> {
   const name = repoOrigin.split("/").pop();
   if (!name || name === "." || name === ".." || !REPO_NAME_RE.test(name)) return null;
   for (const root of roots) {
     const path = join(root, name);
-    if (existsSync(path)) return path;
+    if (await pathExists(path)) return path;
   }
   return null;
 }
@@ -56,7 +56,7 @@ function detailSummary(candidate: TestForumCandidate): string {
 export function createTestForumQaHooks(deps: TestForumQaDeps): TestForumQaHooks {
   return {
     async start(candidate, threadId) {
-      const targetRepo = resolveCandidateRepoPath(deps.workspaceRoots, candidate.repoOrigin);
+      const targetRepo = await resolveCandidateRepoPath(deps.workspaceRoots, candidate.repoOrigin);
       const result = await callConcordia<{
         ok: boolean;
         run: { id: string };

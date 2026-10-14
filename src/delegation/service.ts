@@ -679,7 +679,7 @@ export class DelegationService {
     let bundledDocs: string[] = [];
     // Augur CLI は PATH に居ない。 端末ごとに違う絶対パスなので実行時に解決し、
     // 解決できた場合だけ集計コマンドを本文へ載せる。
-    const augurCliPath = resolveAugurCliPath({
+    const augurCliPath = await resolveAugurCliPath({
       env: process.env,
       workspaceRoots: this.deps.workspaceRoots?.() ?? [],
     });
@@ -749,7 +749,7 @@ export class DelegationService {
     // 別リポの正本はパスを書いても子は読めない (cwd の外)。 明示された参照だけ本文を
     // 同梱する (spec/feature/task-workflow.md §3.2)。 パートタイマーは本文が全文なので対象外。
     if (!isParttimer) {
-      const bundle = buildExternalDocBundle({
+      const bundle = await buildExternalDocBundle({
         refs: collectExternalDocRefs({ args: input.args ?? null, memoryLinks: input.memory_links ?? null }),
         spawnCwd: cwd ?? null,
         spawnRepoPath: cwd ? this.deps.resolveRepoForPath?.(cwd)?.repo_path ?? null : null,
@@ -794,7 +794,7 @@ ${bundle.section}`;
     let status: DelegationRunRow["status"] = "pending";
     let spawnError: string | null = null;
     if (shouldSpawn) {
-      const result = launchDelegationProcess({
+      const result = await launchDelegationProcess({
         runId,
         definition: def,
         invocation: input,

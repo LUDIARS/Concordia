@@ -18,7 +18,7 @@ import { layerSessionRules, type DepartmentRuleSource } from "../departments/rul
 import { evaluateAction } from "../harness/session-gate.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
 import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
-import { hasDddEvidence } from "../harness/ddd-evidence.js";
+import { hasDddEvidenceAsync } from "../harness/ddd-evidence.js";
 import { buildProcessGuidance } from "../control/process-guidance.js";
 import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
@@ -288,7 +288,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       deterministic.hits.push({ rule: "code-acceptance-requirements", decision: "warn", reason: `提出までに必要: ${acceptance.join("、")}; 実行結果は別途検証する。` });
       if (deterministic.decision === "allow") deterministic.decision = "warn";
     }
-    if (needsDddEvidence(action, policy) && !hasDddEvidence(action.cwd!, action.filePath!)) {
+    if (needsDddEvidence(action, policy) && !(await hasDddEvidenceAsync(action.cwd!, action.filePath!))) {
       deterministic.hits.push({ rule: "ddd-evidence", decision: "deny", reason: DDD_INSTRUCTION });
       deterministic.decision = "deny";
       deterministic.blocked = true;

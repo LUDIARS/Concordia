@@ -27,7 +27,7 @@ export function createChoresRuntime(db: Database, workspaceRoot: () => string, i
         ].join("\n\n"), "utf8");
       } catch (error) { return { ok: false, error: String(error) }; }
       recordPendingDelegationSpawn({ cwd: run.cwd, spawnId: run.spawn_id, callName: "chore-continue" });
-      const result = spawnSession({ provider: run.provider, cwd: run.cwd, cwdProvided: true,
+      const result = await spawnSession({ provider: run.provider, cwd: run.cwd, cwdProvided: true,
         spawnId: run.spawn_id, title: "雑務の続き", args: ["continuation.mdを読み、元の雑務の続きを進めてください。"] });
       if (!result.ok) forgetPendingDelegationSpawnBySpawnId(run.spawn_id);
       return result.ok ? { ok: true } : result;

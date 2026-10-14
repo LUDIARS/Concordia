@@ -7,7 +7,8 @@
  * 連合のワンショット調査が動かなかった)。 shim の中身から起動先を読み、 `.js` なら Node で、
  * `.exe` ならそのまま起動する。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { pathExists } from "../shared/fs-async.js";
 import { delimiter, join } from "node:path";
 
 export interface ClaudeLaunch {
@@ -19,8 +20,8 @@ export interface ClaudeLaunch {
 export interface ClaudeLaunchDeps {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
-  exists?: (path: string) => boolean;
-  readText?: (path: string) => string;
+  exists?: (path: string) => boolean | Promise<boolean>;
+  readText?: (path: string) => string | Promise<string>;
   nodePath?: string;
 }
 
@@ -38,30 +39,30 @@ function pathDirs(env: NodeJS.ProcessEnv): string[] {
   return raw.split(delimiter).map((dir) => dir.trim().replace(/^"|"$/g, "")).filter(Boolean);
 }
 
-export function resolveClaudeLaunch(deps: ClaudeLaunchDeps = {}): ClaudeLaunch {
+export async function resolveClaudeLaunch(deps: ClaudeLaunchDeps = {}): Promise<ClaudeLaunch> {
   const platform = deps.platform ?? process.platform;
   if (platform !== "win32") return { file: "claude", prefixArgs: [] };
   const env = deps.env ?? process.env;
-  const exists = deps.exists ?? existsSync;
-  const readText = deps.readText ?? ((path: string) => readFileSync(path, "utf8"));
+  const exists = deps.exists ?? pathExists;
+  const readText = deps.readText ?? ((path: string) => readFile(path, "utf8"));
   const dirs = pathDirs(env);
 
   for (const dir of dirs) {
     const exe = join(dir, "claude.exe");
-    if (exists(exe)) return { file: exe, prefixArgs: [] };
+    if (await exists(exe)) return { file: exe, prefixArgs: [] };
   }
   for (const dir of dirs) {
     const shim = join(dir, "claude.cmd");
-    if (!exists(shim)) continue;
+    if (!(await exists(shim))) continue;
     let target: string | null = null;
     try {
-      target = npmShimTarget(readText(shim));
+      target = npmShimTarget(await readText(shim));
     } catch {
       target = null;
     }
     if (!target) continue;
     const resolved = join(dir, target);
-    if (!exists(resolved)) continue;
+    if (!(await exists(resolved))) continue;
     if (/\.exe$/i.test(resolved)) return { file: resolved, prefixArgs: [] };
     return { file: deps.nodePath ?? process.execPath, prefixArgs: [resolved] };
   }
@@ -69,7 +70,7 @@ export function resolveClaudeLaunch(deps: ClaudeLaunchDeps = {}): ClaudeLaunch {
   const home = env.USERPROFILE ?? env.HOME;
   if (home) {
     const native = join(home, ".local", "bin", "claude.exe");
-    if (exists(native)) return { file: native, prefixArgs: [] };
+    if (await exists(native)) return { file: native, prefixArgs: [] };
   }
   // 見つからなければ従来どおり名前で起動する (ENOENT がそのまま原因を示す)。
   return { file: "claude.exe", prefixArgs: [] };

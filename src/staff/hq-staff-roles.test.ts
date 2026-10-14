@@ -69,9 +69,9 @@ describe("site authorization with HQ roles", () => {
 });
 
 describe("offline cache keeps the HQ roles", () => {
-  it("round-trips staff_roles and drops malformed rows", () => {
+  it("round-trips staff_roles and drops malformed rows", async () => {
     const path = join(makeTestDir("concordia-staff-roles-cache-"), ".federation-config-cache.json");
-    writeFederationConfigCache(path, {
+    await writeFederationConfigCache(path, {
       discord: {}, templates: [], staff_roles: [{ platform: "discord", user_id: NECO, role: "manager" }],
     });
     expect(readFederationConfigCache(path)?.staff_roles).toEqual([{ platform: "discord", user_id: NECO, role: "manager" }]);

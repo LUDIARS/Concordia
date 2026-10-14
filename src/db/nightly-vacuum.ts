@@ -7,7 +7,7 @@
  * drop-obsolete-excubitor CLI の quiet-hours ガードと同じ理由で禁止する。
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { Cron } from "croner";
 import type Database from "better-sqlite3";
 import { createChildLogger } from "../shared/logger.js";
@@ -28,20 +28,20 @@ export interface NightlyVacuumOptions {
 export interface NightlyVacuumHandle {
   stop: () => void;
   /** テスト・手動実行用。 cron を待たずに 1 回 VACUUM する。 */
-  runOnce: () => void;
+  runOnce: () => Promise<void>;
 }
 
-function fileSizeBytes(path: string): number | null {
+async function fileSizeBytes(path: string): Promise<number | null> {
   try {
-    return statSync(path).size;
+    return (await stat(path)).size;
   } catch {
     return null; // in-memory DB などパスが実在しない場合はサイズ計測だけ諦める
   }
 }
 
 export function startNightlyVacuum(opts: NightlyVacuumOptions): NightlyVacuumHandle {
-  function runOnce(): void {
-    const before = fileSizeBytes(opts.dbPath);
+  async function runOnce(): Promise<void> {
+    const before = await fileSizeBytes(opts.dbPath);
     const startedAt = Date.now();
     try {
       // WAL に溜まった分を先に本体へ書き戻してから領域を回収する。
@@ -51,7 +51,7 @@ export function startNightlyVacuum(opts: NightlyVacuumOptions): NightlyVacuumHan
       log.error({ err: (error as Error).message }, "nightly vacuum failed");
       return;
     }
-    const after = fileSizeBytes(opts.dbPath);
+    const after = await fileSizeBytes(opts.dbPath);
     log.info(
       {
         duration_ms: Date.now() - startedAt,
@@ -63,7 +63,9 @@ export function startNightlyVacuum(opts: NightlyVacuumOptions): NightlyVacuumHan
     );
   }
 
-  const job = new Cron(NIGHTLY_VACUUM_CRON, { timezone: TIMEZONE }, () => runOnce());
+  const job = new Cron(NIGHTLY_VACUUM_CRON, { timezone: TIMEZONE }, () => {
+    runOnce().catch((error: unknown) => log.error({ err: (error as Error).message }, "nightly vacuum failed"));
+  });
   log.info({ cron: NIGHTLY_VACUUM_CRON, timezone: TIMEZONE }, "nightly vacuum scheduled");
 
   return {

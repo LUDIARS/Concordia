@@ -17,9 +17,9 @@ const log = createChildLogger("claude-runner");
 
 /** 見つかった起動先はプロセス内で覚える (高頻度の経路で PATH を毎回探さない)。 見つからない間は毎回探し直す。 */
 let claudeLaunchCache: ClaudeLaunch | null = null;
-export function claudeLaunch(): ClaudeLaunch {
+export async function claudeLaunch(): Promise<ClaudeLaunch> {
   if (claudeLaunchCache) return claudeLaunchCache;
-  const launch = resolveClaudeLaunch();
+  const launch = await resolveClaudeLaunch();
   if (launch.file !== "claude.exe") claudeLaunchCache = launch;
   return launch;
 }
@@ -115,6 +115,9 @@ export async function runClaude(
     if (resolved) env.CLAUDE_CODE_GIT_BASH_PATH = resolved;
   }
 
+  // Shared launch resolution avoids cmd.exe ownership and shell quoting.
+  // npm 版 (claude.cmd のみ) の拠点では shim の起動先を Node で直接起動する。
+  const launch = await claudeLaunch();
   return new Promise((resolve) => {
     let out = "";
     let err = "";
@@ -126,9 +129,6 @@ export async function runClaude(
 
     if (opts.dangerouslySkipPermissions && !opts.conversationOnly) args.push("--dangerously-skip-permissions");
 
-    // Shared launch resolution avoids cmd.exe ownership and shell quoting.
-    // npm 版 (claude.cmd のみ) の拠点では shim の起動先を Node で直接起動する。
-    const launch = claudeLaunch();
     const file = launch.file;
     args.unshift(...launch.prefixArgs);
 

@@ -127,7 +127,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const target = await prepareSpawnTarget({
-      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
+      cwd: await resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
       branch: body.branch,
       worktree: body.worktree,
     });
@@ -155,7 +155,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       teamId: requestedTeam?.id ?? null,
     });
     request.spawnId = id;
-    const result = spawnSession(request);
+    const result = await spawnSession(request);
     if (!result.ok) {
       forgetPendingDelegationSpawnBySpawnId(id);
       return c.json({ error: result.error }, 400);

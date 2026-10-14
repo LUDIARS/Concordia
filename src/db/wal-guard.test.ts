@@ -21,23 +21,23 @@ describe("assessWalHealth", () => {
 });
 
 describe("runWalGuardOnce", () => {
-  it("runs a passive checkpoint and logs a warning when starved", () => {
+  it("runs a passive checkpoint and logs a warning when starved", async () => {
     const db = {
       pragma: vi.fn(() => [{ busy: 0, log: 5000, checkpointed: 100 }]),
     };
     const warn = vi.fn();
     const info = vi.fn();
-    const health = runWalGuardOnce({ db, dbPath: "x.db", walBytes: () => 10, limitBytes: 64, log: { info, warn } });
+    const health = await runWalGuardOnce({ db, dbPath: "x.db", walBytes: () => 10, limitBytes: 64, log: { info, warn } });
     expect(db.pragma).toHaveBeenCalledWith("wal_checkpoint(PASSIVE)");
     expect(health.starved).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(info).not.toHaveBeenCalled();
   });
 
-  it("works against a real WAL database", () => {
+  it("works against a real WAL database", async () => {
     const db = new Database(":memory:");
     db.pragma("journal_mode = WAL");
-    const health = runWalGuardOnce({ db, dbPath: ":memory:", walBytes: () => 0, log: { info: vi.fn(), warn: vi.fn() } });
+    const health = await runWalGuardOnce({ db, dbPath: ":memory:", walBytes: () => 0, log: { info: vi.fn(), warn: vi.fn() } });
     expect(health.oversized).toBe(false);
     db.close();
   });

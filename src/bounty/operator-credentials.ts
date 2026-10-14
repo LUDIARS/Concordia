@@ -12,6 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -27,7 +28,7 @@ export function bountyOperatorTokenPath(cwd: string = process.cwd()): string {
 /** 起動時に Bot の内部トークンを用意する (無い・壊れていれば作り直す)。 */
 export function ensureBountyOperatorToken(cwd: string = process.cwd()): string {
   const path = bountyOperatorTokenPath(cwd);
-  const existing = readBountyOperatorToken(cwd);
+  const existing = readBountyOperatorTokenAtBoot(cwd);
   if (existing) return existing;
   mkdirSync(dirname(path), { recursive: true });
   const fresh = randomBytes(32).toString("hex");
@@ -38,7 +39,18 @@ export function ensureBountyOperatorToken(cwd: string = process.cwd()): string {
   return fresh;
 }
 
-export function readBountyOperatorToken(cwd: string = process.cwd()): string | null {
+/** Bot が要求ごとに読む (実行中の経路なので非同期。 spec/tasks/full-async-io.md)。 */
+export async function readBountyOperatorToken(cwd: string = process.cwd()): Promise<string | null> {
+  try {
+    const token = (await readFile(bountyOperatorTokenPath(cwd), "utf8")).trim();
+    return TOKEN_SHAPE.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 起動時だけ使う同期読み (ensureBountyOperatorToken 用)。 */
+function readBountyOperatorTokenAtBoot(cwd: string): string | null {
   const path = bountyOperatorTokenPath(cwd);
   try {
     if (!existsSync(path)) return null;

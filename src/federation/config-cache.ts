@@ -1,6 +1,7 @@
 /** 拠点がオフライン起動時だけ使う、最後に本社から受け取った設定のキャッシュ。 */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { FederationConfigSnapshot } from "./protocol.js";
 import { parseHqStaffRoles } from "../staff/hq-staff-roles.js";
@@ -9,6 +10,7 @@ export function defaultFederationConfigCachePath(cwd = process.cwd()): string {
   return resolve(cwd, ".federation-config-cache.json");
 }
 
+/** Boot-time only: read once when the site client starts (spec/tasks/full-async-io.md). */
 export function readFederationConfigCache(path: string): FederationConfigSnapshot | null {
   try {
     return parseFederationConfigCache(JSON.parse(readFileSync(path, "utf8")));
@@ -17,8 +19,8 @@ export function readFederationConfigCache(path: string): FederationConfigSnapsho
   }
 }
 
-export function writeFederationConfigCache(path: string, config: FederationConfigSnapshot): void {
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+export async function writeFederationConfigCache(path: string, config: FederationConfigSnapshot): Promise<void> {
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function parseFederationConfigCache(value: unknown): FederationConfigSnapshot | null {

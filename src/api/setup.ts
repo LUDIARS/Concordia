@@ -9,7 +9,7 @@
  */
 
 import { Hono } from "hono";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { workflowSkillInstall } from "./setup-workflow-skills.js";
@@ -19,9 +19,9 @@ const SKILL_PATH = join(__dirname, "..", "skills", "concordia.md");
 
 let cachedSkill: { content: string; version: string } | null = null;
 
-function loadSkill(): { content: string; version: string } {
+async function loadSkill(): Promise<{ content: string; version: string }> {
   if (cachedSkill) return cachedSkill;
-  const content = readFileSync(SKILL_PATH, "utf8");
+  const content = await readFile(SKILL_PATH, "utf8");
   const m = /^version:\s*([\w.\-]+)\s*$/m.exec(content);
   cachedSkill = { content, version: m?.[1] ?? "0.0.0" };
   return cachedSkill;
@@ -35,8 +35,8 @@ export interface SetupApiDeps {
 export function setupRouter(deps: SetupApiDeps): Hono {
   const app = new Hono();
 
-  app.get("/", (c) => {
-    const skill = loadSkill();
+  app.get("/", async (c) => {
+    const skill = await loadSkill();
     const provider = c.req.query("provider") ?? "claude-code";
     const repoPath = c.req.query("repo_path") ?? "";
     const repoOrigin = c.req.query("repo_origin") ?? null;
@@ -74,7 +74,7 @@ export function setupRouter(deps: SetupApiDeps): Hono {
             target_path: targetPath,
             content: skill.content,
           },
-          ...workflowSkillInstall(repoPath, provider),
+          ...(await workflowSkillInstall(repoPath, provider)),
         ],
         settings_merge: {
           hooks: {

@@ -15,17 +15,17 @@ const cachePath = (): string =>
   join(makeTestDir("concordia-federation-cache-"), ".federation-config-cache.json");
 
 describe("federation configuration cache", () => {
-  it("persists the received value and reloads it after restart", () => {
+  it("persists the received value and reloads it after restart", async () => {
     const path = cachePath();
 
-    writeFederationConfigCache(path, cached);
+    await writeFederationConfigCache(path, cached);
 
     expect(readFederationConfigCache(path)).toEqual(cached);
   });
 
   it("site client replaces the cached value after the link is established", async () => {
     const path = cachePath();
-    writeFederationConfigCache(path, cached);
+    await writeFederationConfigCache(path, cached);
     const received: FederationConfigSnapshot[] = [];
     const server = new WebSocketServer({ port: 0 });
     await new Promise<void>((resolve) => server.once("listening", resolve));

@@ -138,7 +138,7 @@ export async function archiveAndPurgeOlderThan(
 
   await mkdir(options.archiveDir, { recursive: true });
   const archivePath = join(options.archiveDir, archiveFileName(spec.table, now));
-  const zip = buildZip(
+  const zip = await buildZip(
     [{ name: `${spec.table}.jsonl`, data: Buffer.from(`${lines.join("\n")}\n`, "utf8") }],
     now,
   );

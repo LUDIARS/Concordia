@@ -62,7 +62,7 @@ export class DeveloperToolsService {
       case "impact_analysis": return this.deps.research.impact(repo, input.task);
       case "tests_list": return this.deps.augur.list(repo);
       case "tests_run": {
-        this.deps.augur.cli();
+        await this.deps.augur.cli();
         assertStaticBundle(await this.deps.augur.list(repo), input.bundle);
         const head = (await (this.deps.git ?? worktreeGit)(repo, ["rev-parse", "HEAD"])).trim();
         if (!/^[a-f0-9]{40,64}$/.test(head)) throw new Error("invalid Git head");

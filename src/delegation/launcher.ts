@@ -16,7 +16,9 @@ const log = createChildLogger("delegation/launcher");
 
 export type DelegationSpawner = (
   req: SpawnRequest,
-) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+) => DelegationSpawnResult | Promise<DelegationSpawnResult>;
+
+type DelegationSpawnResult = { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
 
 export function resolveDelegationSpawner(override?: DelegationSpawner): DelegationSpawner {
   return override ?? spawnSession;
@@ -29,7 +31,7 @@ export interface ProcessLaunchResult {
   error: string | null;
 }
 
-export function launchDelegationProcess(input: {
+export async function launchDelegationProcess(input: {
   runId: string;
   definition: DelegationDefinition;
   invocation: InvokeInput;
@@ -49,7 +51,7 @@ export function launchDelegationProcess(input: {
    */
   startedAt?: string;
   spawner?: DelegationSpawner;
-}): ProcessLaunchResult {
+}): Promise<ProcessLaunchResult> {
   const spawner = resolveDelegationSpawner(input.spawner);
   const request: SpawnRequest = {
     provider: input.spawnProvider,
@@ -97,7 +99,7 @@ export function launchDelegationProcess(input: {
       ? input.invocation.memoria_task_title
       : null,
   });
-  const result = spawner(request);
+  const result = await spawner(request);
   if (result.ok) {
     log.info({
       run_id: input.runId,

@@ -62,9 +62,9 @@ async function terminate(child: ChildProcess): Promise<void> {
   try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
 }
 
-function runClaudeOnce(input: { cwd: string; prompt: string; timeoutMs: number }): Promise<{ ok: boolean; output: string; error: string | null }> {
+async function runClaudeOnce(input: { cwd: string; prompt: string; timeoutMs: number }): Promise<{ ok: boolean; output: string; error: string | null }> {
   // npm 版 (claude.cmd のみ) の拠点でも cmd.exe を挟まずに起動する (2026-10-11 MELPOT)。
-  const launch = claudeLaunch();
+  const launch = await claudeLaunch();
   return new Promise((done) => {
     let output = "";
     let stderr = "";

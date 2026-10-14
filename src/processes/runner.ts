@@ -13,8 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
-import { dirname } from "node:path";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { LogLevel, LogStream } from "../shared/types.js";
@@ -79,8 +78,7 @@ export function spawnProcess(input: RunnerInput): RunnerHandle {
   const ringSize = input.ring_size ?? 1000;
   const ring: LogEntry[] = [];
 
-  // ログファイルの dir を作っておく.
-  try { mkdirSync(dirname(input.log_path), { recursive: true }); } catch { /* swallow */ }
+  // ログファイルの dir は呼び出し側 (ProcessManager.startOne) が非同期に作っておく.
   let logFile: WriteStream | null = null;
   try {
     logFile = createWriteStream(input.log_path, { flags: "a" });

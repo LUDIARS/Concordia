@@ -8,8 +8,8 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdir } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import { pathExists } from "../shared/fs-async.js";
 import { join } from "node:path";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
@@ -66,9 +66,9 @@ function normPath(p: string): string {
  * ディレクトリ、 linked worktree は `gitdir: ...` を書いた **ファイル**。 stat 失敗は
  * worktree でない扱い (best-effort).
  */
-function isLinkedWorktree(repoPath: string): boolean {
+async function isLinkedWorktree(repoPath: string): Promise<boolean> {
   try {
-    return statSync(join(repoPath, ".git")).isFile();
+    return (await stat(join(repoPath, ".git"))).isFile();
   } catch {
     return false;
   }
@@ -192,7 +192,7 @@ async function scanOne(name: string, path: string, allSessions: SessionRow[]): P
     path,
     branch,
     detached,
-    is_worktree: isLinkedWorktree(path),
+    is_worktree: await isLinkedWorktree(path),
     default_branch: defaultBranch,
     on_default_branch: isOnDefaultBranch(branch, defaultBranch),
     worktrees,
@@ -205,7 +205,7 @@ async function scanOne(name: string, path: string, allSessions: SessionRow[]): P
 
 /** rootDir 直下の git リポを走査して RepoStatus[] を返す (名前順). */
 export async function scanRepos(rootDir: string, sessionsRepo: SessionsRepo): Promise<RepoStatus[]> {
-  if (!rootDir || !existsSync(rootDir)) return [];
+  if (!rootDir || !(await pathExists(rootDir))) return [];
   let entries: string[];
   try {
     entries = await readdir(rootDir);
@@ -213,9 +213,9 @@ export async function scanRepos(rootDir: string, sessionsRepo: SessionsRepo): Pr
     return [];
   }
   const allSessions = sessionsRepo.listSessions({});
-  const repoDirs = entries
-    .map((name) => ({ name, path: join(rootDir, name) }))
-    .filter((d) => existsSync(join(d.path, ".git")));
+  const candidates = entries.map((name) => ({ name, path: join(rootDir, name) }));
+  const isRepo = await mapLimit(candidates, SCAN_CONCURRENCY, (d) => pathExists(join(d.path, ".git")));
+  const repoDirs = candidates.filter((_, index) => isRepo[index]);
   const results = await mapLimit(repoDirs, SCAN_CONCURRENCY, (d) => scanOne(d.name, d.path, allSessions));
   // active 2+ を最上位 → 最終更新降順 → 名前順 (compareByActivity)。
   results.sort(compareByActivity);

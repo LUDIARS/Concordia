@@ -88,7 +88,7 @@ export function createManagementRuntime(deps: ManagementRuntimeDeps): Management
       departmentId: mission.department_id,
       startupInjectText: prompt,
     });
-    const result = spawnSession({
+    const result = await spawnSession({
       provider: "claude",
       cwd: project.repo_path,
       cwdProvided: true,

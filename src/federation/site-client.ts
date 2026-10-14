@@ -105,6 +105,7 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
   const configCachePath = deps.configCachePath ?? defaultFederationConfigCachePath();
   let config = readFederationConfigCache(configCachePath);
   if (config) deps.onConfig?.(config);
+  let configWrites: Promise<void> = Promise.resolve();
   let stopped = false;
   let linked = false;
   let backoffMs = BACKOFF_INITIAL_MS;
@@ -196,13 +197,17 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
       }
       if (frame.type === "config-snapshot" || frame.type === "config-update") {
         // link 後は本社の値が唯一の正本。古いオフラインキャッシュを必ず置き換える。
-        config = frame.snapshot;
-        try {
-          writeFederationConfigCache(configCachePath, config);
-        } catch (e) {
-          log.warn({ err: (e as Error).message }, "federation config cache write failed");
-        }
-        deps.onConfig?.(config);
+        const snapshot = frame.snapshot;
+        config = snapshot;
+        // The cache write is async; chain it so snapshots persist and reach onConfig in arrival order.
+        configWrites = configWrites.then(async () => {
+          try {
+            await writeFederationConfigCache(configCachePath, snapshot);
+          } catch (e) {
+            log.warn({ err: (e as Error).message }, "federation config cache write failed");
+          }
+          deps.onConfig?.(snapshot);
+        }).catch((e) => log.warn({ err: (e as Error).message }, "federation onConfig handler failed"));
         return;
       }
       if (frame.type === "egress-result") {

@@ -56,7 +56,7 @@ export interface InquiryRuntimeDeps {
   runs: InquiryRunsPort;
   delegationService: InquiryDelegationPort;
   teamRepos: (teamId: string) => string[];
-  resolveRepo: (origins: readonly string[], directorCase: DirectorCase) => string | null;
+  resolveRepo: (origins: readonly string[], directorCase: DirectorCase) => string | null | Promise<string | null>;
   askCallName: string;
   concordiaUrl: string;
   mentionUserId?: () => string | null;
@@ -225,7 +225,7 @@ export function createInquiryRuntime(deps: InquiryRuntimeDeps): InquiryRuntime {
     const origins = deps.teamRepos(team.id);
     // project を解決できないときに team の別 repo を推測すると、問診へ無関係なソースを
     // 読ませる情報境界違反になる。未解決でも問診自体は user-home から起動できる。
-    const targetRepo = deps.resolveRepo(origins, view.case);
+    const targetRepo = await deps.resolveRepo(origins, view.case);
     const latestRun = step?.delegation_run_id
       ? toRunView(deps.runs.findRun(step.delegation_run_id))
       : null;

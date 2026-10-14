@@ -13,15 +13,15 @@
  * 必須パスが空なら auto (= bare `lictor`) にフォールバックする。
  */
 
-import { existsSync } from "node:fs";
+import { pathExists } from "../shared/fs-async.js";
 import { join } from "node:path";
 import type { AdminState } from "../admin/state.js";
 
 /** AdminState の Lictor 設定から launcher トークン列を解決する。 */
-export function resolveLictorLauncher(
+export async function resolveLictorLauncher(
   admin: AdminState,
   platform: NodeJS.Platform = process.platform,
-): string[] {
+): Promise<string[]> {
   const mode = admin.getLictorMode();
   if (mode === "prod") {
     const exe = admin.getLictorProdExe().trim();
@@ -36,7 +36,7 @@ export function resolveLictorLauncher(
     // shell PATH for Node itself.
     const devPath = admin.getLictorDevPath().trim();
     const entrypoint = devPath ? join(devPath, "bin", "lictor.mjs") : "";
-    if (entrypoint && existsSync(entrypoint)) return [process.execPath, entrypoint];
+    if (entrypoint && await pathExists(entrypoint)) return [process.execPath, entrypoint];
   }
   return ["lictor"];
 }

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { pathExists } from "../shared/fs-async.js";
 
 import {
   collectAugurAcceptance,
@@ -35,11 +35,11 @@ export interface CompletionEvidenceOptions {
   /** Augur 実行の差し替え (テスト用)。 */
   augurRunner?: AugurRunner;
   /** 契約ファイル検出の差し替え (テスト用)。 */
-  hasContract?: (dir: string) => boolean;
+  hasContract?: (dir: string) => boolean | Promise<boolean>;
   /** Augur CLI パス解決の差し替え (テスト用)。 null = 解決不能。 */
-  resolveAugurCli?: (workspaceRoots: readonly string[]) => string | null;
+  resolveAugurCli?: (workspaceRoots: readonly string[]) => string | null | Promise<string | null>;
   env?: NodeJS.ProcessEnv;
-  readManifest?: (cwd: string) => AcceptanceManifest;
+  readManifest?: (cwd: string) => AcceptanceManifest | Promise<AcceptanceManifest>;
 }
 
 export type CompletionEvidenceVerdict =
@@ -97,7 +97,7 @@ export async function verifyCompletionEvidence(
   if (reviewOnly) return { ok: true, checked: false };
   const cwd = run.spawn_worktree_path ?? run.spawn_cwd;
   if (!cwd) return { ok: true, checked: false };
-  if (!existsSync(cwd) || !existsSync(join(cwd, ".git"))) {
+  if (!(await pathExists(cwd)) || !(await pathExists(join(cwd, ".git")))) {
     return { ok: false, reason: "spawned checkout is missing or is not a Git worktree" };
   }
   if (!run.spawn_branch) {
@@ -142,7 +142,7 @@ export async function verifyBranchExemptCompletion(
     return { ok: false, reason: "branch-exempt completion has no outcome in result or detail" };
   }
   const cwd = run.spawn_worktree_path ?? run.spawn_cwd;
-  if (!options.acceptanceReport?.length || !cwd || !existsSync(cwd)) {
+  if (!options.acceptanceReport?.length || !cwd || !(await pathExists(cwd))) {
     return { ok: true, checked: true, acceptance: "not_checked" };
   }
   return verifyContractAcceptance(cwd, run, options);
@@ -170,15 +170,15 @@ export async function verifyContractAcceptance(
   options: CompletionEvidenceOptions = {},
 ): Promise<CompletionEvidenceVerdict> {
   const hasContract = options.hasContract ?? hasAcceptanceContract;
-  if (!hasContract(cwd)) {
+  if (!(await hasContract(cwd))) {
     if (options.acceptanceReport?.length) return { ok: false, reason: "acceptance report supplied but its Augur contract is missing" };
     return { ok: true, checked: true, acceptance: "not_configured" };
   }
 
   const workspaceRoots = options.workspaceRoots ?? [];
   const cliPath = options.resolveAugurCli
-    ? options.resolveAugurCli(workspaceRoots)
-    : resolveAugurCliPath({ env: options.env ?? process.env, workspaceRoots });
+    ? await options.resolveAugurCli(workspaceRoots)
+    : await resolveAugurCliPath({ env: options.env ?? process.env, workspaceRoots });
   if (!cliPath) {
     return {
       ok: false,
@@ -210,7 +210,7 @@ export async function verifyContractAcceptance(
   if (aggregated.length === 0) return { ok: false, reason: "acceptance contract present but Augur returned no acceptance evidence for this run" };
   if (!options.acceptanceReport?.length) return { ok: false, reason: "acceptance contract present but acceptance_report is empty" };
   const unmet = reconcileAcceptance(options.acceptanceReport, aggregated);
-  const manifest = (options.readManifest ?? readAcceptanceManifest)(cwd);
+  const manifest = await (options.readManifest ?? readAcceptanceManifest)(cwd);
   if (manifest.status !== "present") return { ok: false, reason: "acceptance manifest is missing, empty or invalid" };
   // Every declared criterion needs evidence, even when both the agent and report omit it.
   unmet.push(...reconcileAcceptance(manifest.criteria.map((criterion) => ({ criterion, met: true })), aggregated.map((item) => ({ ...item, met: true }))));

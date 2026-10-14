@@ -33,22 +33,22 @@ import {
 } from "./spawner.js";
 
 describe("macOS Terminal.app spawn builders", () => {
-  it("quotes POSIX arguments including empty and single-quote values", () => {
+  it("quotes POSIX arguments including empty and single-quote values", async () => {
     expect(escapePosixArg("")).toBe("''");
     expect(escapePosixArg("a'b")).toBe("'a'\\''b'");
   });
-  it("defaults to Terminal and rejects an invalid mode", () => {
+  it("defaults to Terminal and rejects an invalid mode", async () => {
     expect(currentMacSpawnMode({})).toBe("terminal");
     expect(currentMacSpawnMode({ CONCORDIA_MAC_SPAWN: "direct" })).toBe("direct");
     expect(() => currentMacSpawnMode({ CONCORDIA_MAC_SPAWN: "other" })).toThrow("CONCORDIA_MAC_SPAWN");
   });
-  it("builds only the explicit Terminal environment delta", () => {
+  it("builds only the explicit Terminal environment delta", async () => {
     const delta = buildSpawnEnvDelta({ provider: "codex", cwd: "/tmp/repo", env: { LICTOR_X: "yes", NOPE: "no", CONCORDIA_REVISOR_TOKEN: "secret" } }, "spawn-1");
     expect(delta).toMatchObject({ LICTOR_X: "yes", CONCORDIA_SPAWN_ID: "spawn-1", CONCORDIA_SPAWN_CWD_MODE: "provided" });
     expect(delta).not.toHaveProperty("NOPE");
     expect(delta).not.toHaveProperty("CONCORDIA_REVISOR_TOKEN");
   });
-  it("composes title, cwd, environment and launcher", () => {
+  it("composes title, cwd, environment and launcher", async () => {
     const command = buildMacTerminalShellCommand({ provider: "codex", title: "Work", cwd: "/tmp/repo", args: ["--model", "x"] }, ["node", "/tool/lictor.mjs"], { LICTOR_X: "yes" });
     expect(command).toContain("printf '\\033]0;%s\\007' 'Work'");
     expect(command).toContain("cd '/tmp/repo'");
@@ -57,7 +57,7 @@ describe("macOS Terminal.app spawn builders", () => {
     expect(() => buildMacTerminalShellCommand({ provider: "codex", title: "bad\u001b]52;c;payload\u0007" })).toThrow("control character");
     expect(() => buildMacTerminalShellCommand({ provider: "codex" }, ["lictor"], { "BAD-KEY": "x" })).toThrow("environment key");
   });
-  it("passes a fixed AppleScript and shell command as argv", () => {
+  it("passes a fixed AppleScript and shell command as argv", async () => {
     expect(buildMacTerminalSpawnArgs("echo ok")).toEqual(["-e", "on run argv", "-e", "tell application \"Terminal\" to do script (item 1 of argv)", "-e", "tell application \"Terminal\" to activate", "-e", "end run", "echo ok"]);
   });
 });
@@ -67,38 +67,38 @@ describe("resolveSpawnCwd", () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "spawncwd-")); });
   afterEach(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } });
 
-  it("requested の実在文字列をそのまま採用", () => {
-    expect(resolveSpawnCwd(dir, undefined)).toBe(dir);
+  it("requested の実在文字列をそのまま採用", async () => {
+    expect(await resolveSpawnCwd(dir, undefined)).toBe(dir);
   });
 
-  it("未展開の ${var} は無効扱い → defaultCwd (実在) へフォールバック", () => {
+  it("未展開の ${var} は無効扱い → defaultCwd (実在) へフォールバック", async () => {
     // テンプレ default_cwd の展開漏れで "${target_repo}" が来ても wt に渡さない。
-    expect(resolveSpawnCwd("${target_repo}", dir)).toBe(dir);
+    expect(await resolveSpawnCwd("${target_repo}", dir)).toBe(dir);
   });
 
-  it("${var} で defaultCwd も無ければ undefined", () => {
-    expect(resolveSpawnCwd("${target_repo}", undefined)).toBeUndefined();
-    expect(resolveSpawnCwd("C:\\repo\\${name}", "")).toBeUndefined();
+  it("${var} で defaultCwd も無ければ undefined", async () => {
+    expect(await resolveSpawnCwd("${target_repo}", undefined)).toBeUndefined();
+    expect(await resolveSpawnCwd("C:\\repo\\${name}", "")).toBeUndefined();
   });
 
-  it("空/非文字列 requested は defaultCwd へ", () => {
-    expect(resolveSpawnCwd("", dir)).toBe(dir);
-    expect(resolveSpawnCwd(undefined, dir)).toBe(dir);
-    expect(resolveSpawnCwd(null, dir)).toBe(dir);
+  it("空/非文字列 requested は defaultCwd へ", async () => {
+    expect(await resolveSpawnCwd("", dir)).toBe(dir);
+    expect(await resolveSpawnCwd(undefined, dir)).toBe(dir);
+    expect(await resolveSpawnCwd(null, dir)).toBe(dir);
   });
 
-  it("defaultCwd が実在しなければ undefined", () => {
-    expect(resolveSpawnCwd(undefined, join(dir, "does-not-exist"))).toBeUndefined();
+  it("defaultCwd が実在しなければ undefined", async () => {
+    expect(await resolveSpawnCwd(undefined, join(dir, "does-not-exist"))).toBeUndefined();
   });
 });
 
 describe("project cwd three-out guard", () => {
-  it("does not infer Castra from a workspace root", () => {
+  it("does not infer Castra from a workspace root", async () => {
     expect(resolveCastraDefaultCwd("E:/Document/Ars", {})).toBe("");
-    expect(resolveAgentHomeCwd("codex", undefined, "E:/Document/Ars")).toBeUndefined();
+    expect(await resolveAgentHomeCwd("codex", undefined, "E:/Document/Ars")).toBeUndefined();
   });
 
-  it("rejects only an omitted cwd; workspace root (Castra) is an allowed Session cwd", () => {
+  it("rejects only an omitted cwd; workspace root (Castra) is an allowed Session cwd", async () => {
     expect(validateProjectCwd(undefined, ["E:/Document/Ars"])).toContain("project cwd is required");
     // Castra (workspace root) itself is intentionally allowed as a Session cwd —
     // destructive git ops against it are guarded separately (session-work-policy.ts),
@@ -109,7 +109,7 @@ describe("project cwd three-out guard", () => {
 });
 
 describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
-  it("allowlist prefix と Claude thinking の専用 key だけ通す", () => {
+  it("allowlist prefix と Claude thinking の専用 key だけ通す", async () => {
     expect(sanitizeSpawnEnv({ LICTOR_LOCAL_MODEL: "gemma4:12b" })).toEqual({
       LICTOR_LOCAL_MODEL: "gemma4:12b",
     });
@@ -119,7 +119,7 @@ describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
     });
   });
 
-  it("危険な loader/実行系 env は全て捨てる", () => {
+  it("危険な loader/実行系 env は全て捨てる", async () => {
     expect(
       sanitizeSpawnEnv({
         NODE_OPTIONS: "--require=/tmp/evil.js",
@@ -131,20 +131,20 @@ describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
     ).toEqual({});
   });
 
-  it("allowlist key と危険 key の混在 → allowlist のみ残る", () => {
+  it("allowlist key と危険 key の混在 → allowlist のみ残る", async () => {
     expect(
       sanitizeSpawnEnv({ LICTOR_LOCAL_MODEL: "m", NODE_OPTIONS: "--require=x" }),
     ).toEqual({ LICTOR_LOCAL_MODEL: "m" });
   });
 
-  it("undefined / 非文字列値は空または無視", () => {
+  it("undefined / 非文字列値は空または無視", async () => {
     expect(sanitizeSpawnEnv(undefined)).toEqual({});
     expect(sanitizeSpawnEnv({ LICTOR_X: 1 as unknown as string })).toEqual({});
   });
 });
 
 describe("buildSessionSpawnEnvironment", () => {
-  it("never passes Revisor service credentials to an interactive session", () => {
+  it("never passes Revisor service credentials to an interactive session", async () => {
     const inherited = {
       CONCORDIA_REVISOR_WORKFLOW_TOKEN: "workflow-secret",
       CONCORDIA_REVISOR_TOKEN: "trigger-secret",
@@ -174,7 +174,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("concordia_revisor_token");
   });
 
-  it("codex-sdk + runtime既定(native): SATELLES_* を一切注入しない (完全後方互換)", () => {
+  it("codex-sdk + runtime既定(native): SATELLES_* を一切注入しない (完全後方互換)", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },
       { KEEP: "yes" } as unknown as NodeJS.ProcessEnv,
@@ -186,7 +186,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("SATELLES_WSL_CODEX_BINARY");
   });
 
-  it("codex-sdk: operator の sandbox 制約を継承し、request からの権限上書きを拒否する", () => {
+  it("codex-sdk: operator の sandbox 制約を継承し、request からの権限上書きを拒否する", async () => {
     const environment = buildSessionSpawnEnvironment(
       {
         provider: "codex-sdk",
@@ -198,7 +198,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
-  it("codex-sdk + native delegation: operator の danger-full-access を許可する", () => {
+  it("codex-sdk + native delegation: operator の danger-full-access を許可する", async () => {
     const environment = buildSessionSpawnEnvironment(
       {
         provider: "codex-sdk",
@@ -213,7 +213,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("danger-full-access");
   });
 
-  it("codex-sdk: delegation run id と spawn id が違う場合は workspace-write に下げる", () => {
+  it("codex-sdk: delegation run id と spawn id が違う場合は workspace-write に下げる", async () => {
     const environment = buildSessionSpawnEnvironment(
       {
         provider: "codex-sdk",
@@ -225,7 +225,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
-  it("codex-sdk: delegation marker がない danger-full-access は workspace-write に下げる", () => {
+  it("codex-sdk: delegation marker がない danger-full-access は workspace-write に下げる", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },
       { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
@@ -234,7 +234,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
-  it("codex-sdk + native forum session: 内部フラグがあれば danger-full-access を許可する", () => {
+  it("codex-sdk + native forum session: 内部フラグがあれば danger-full-access を許可する", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk", forumSessionHostAccess: true },
       {
@@ -246,7 +246,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("danger-full-access");
   });
 
-  it("codex-sdk + runtime=wsl: forum session でも danger-full-access は workspace-write に下げる", () => {
+  it("codex-sdk + runtime=wsl: forum session でも danger-full-access は workspace-write に下げる", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk", forumSessionHostAccess: true },
       {
@@ -258,7 +258,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
-  it("codex-sdk + runtime=wsl: delegation でも danger-full-access は workspace-write に下げる", () => {
+  it("codex-sdk + runtime=wsl: delegation でも danger-full-access は workspace-write に下げる", async () => {
     const environment = buildSessionSpawnEnvironment(
       {
         provider: "codex-sdk",
@@ -273,7 +273,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
-  it("codex-sdk 以外には ambient SATELLES_CODEX_SANDBOX を渡さない", () => {
+  it("codex-sdk 以外には ambient SATELLES_CODEX_SANDBOX を渡さない", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "claude" },
       { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
@@ -342,7 +342,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(forged).not.toHaveProperty(LICTOR_CODEX_SANDBOX_ENV);
   });
 
-  it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", () => {
+  it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },
       {
@@ -361,7 +361,7 @@ describe("buildSessionSpawnEnvironment", () => {
     }));
   });
 
-  it("codex-sdk + runtime=wsl: 大文字小文字の異なる継承値で明示設定を上書きさせない", () => {
+  it("codex-sdk + runtime=wsl: 大文字小文字の異なる継承値で明示設定を上書きさせない", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },
       {
@@ -375,7 +375,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("satelles_wsl_user");
   });
 
-  it("codex-sdk + runtime=wsl + 既定値: distro/user/binary は既定にフォールバック", () => {
+  it("codex-sdk + runtime=wsl + 既定値: distro/user/binary は既定にフォールバック", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },
       { CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as unknown as NodeJS.ProcessEnv,
@@ -389,7 +389,7 @@ describe("buildSessionSpawnEnvironment", () => {
     }));
   });
 
-  it("codex-sdk 以外の provider は runtime=wsl でも SATELLES_* を混入しない", () => {
+  it("codex-sdk 以外の provider は runtime=wsl でも SATELLES_* を混入しない", async () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "claude" },
       { CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as unknown as NodeJS.ProcessEnv,
@@ -401,7 +401,7 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("SATELLES_WSL_CODEX_BINARY");
   });
 
-  it("不正な CONCORDIA_SATELLES_CODEX_RUNTIME は spawn env 構築時に例外", () => {
+  it("不正な CONCORDIA_SATELLES_CODEX_RUNTIME は spawn env 構築時に例外", async () => {
     expect(() =>
       buildSessionSpawnEnvironment(
         { provider: "codex-sdk" },
@@ -411,7 +411,7 @@ describe("buildSessionSpawnEnvironment", () => {
     ).toThrow(/^invalid CONCORDIA_SATELLES_CODEX_RUNTIME \(expected "native" or "wsl"\)$/);
   });
 
-  it("不正な distro/user/codex binary は spawn env 構築時に例外", () => {
+  it("不正な distro/user/codex binary は spawn env 構築時に例外", async () => {
     expect(() =>
       buildSessionSpawnEnvironment(
         { provider: "codex-sdk" },
@@ -426,14 +426,14 @@ describe("buildSessionSpawnEnvironment", () => {
 });
 
 describe("buildSpawnIdentityEnv", () => {
-  it("marks an intentional cwd as provided", () => {
+  it("marks an intentional cwd as provided", async () => {
     expect(buildSpawnIdentityEnv({ cwd: "E:/Document/Ars/Lictor" }, "spawn-1")).toEqual({
       [CONCORDIA_SPAWN_ID_ENV]: "spawn-1",
       [CONCORDIA_SPAWN_CWD_MODE_ENV]: "provided",
     });
   });
 
-  it("keeps default launcher cwd distinct from a caller-provided cwd", () => {
+  it("keeps default launcher cwd distinct from a caller-provided cwd", async () => {
     expect(
       buildSpawnIdentityEnv(
         { cwd: "E:/Document/Ars/Castra", cwdProvided: false },
@@ -447,7 +447,7 @@ describe("buildSpawnIdentityEnv", () => {
 });
 
 describe("codex-sdk (Satelles headless) spawn plumbing", () => {
-  it("buildSatellesArgs: 委託 env があれば run、無ければ serve", () => {
+  it("buildSatellesArgs: 委託 env があれば run、無ければ serve", async () => {
     expect(
       buildSatellesArgs(
         {
@@ -463,7 +463,7 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     ).toEqual(["satelles", "serve", "--model", "gpt-5.6"]);
   });
 
-  it("currentSatellesLauncher: 既定は PATH の satelles、env でトークン列を差し替え", () => {
+  it("currentSatellesLauncher: 既定は PATH の satelles、env でトークン列を差し替え", async () => {
     expect(currentSatellesLauncher({} as NodeJS.ProcessEnv)).toEqual(["satelles"]);
     expect(
       currentSatellesLauncher({
@@ -475,7 +475,7 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     ).toEqual(["satelles"]);
   });
 
-  it("currentSatellesCodexRuntime: 既定 native、明示 wsl を受理、不正値は例外", () => {
+  it("currentSatellesCodexRuntime: 既定 native、明示 wsl を受理、不正値は例外", async () => {
     expect(currentSatellesCodexRuntime({} as NodeJS.ProcessEnv)).toBe("native");
     expect(
       currentSatellesCodexRuntime({ CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as NodeJS.ProcessEnv),
@@ -485,7 +485,7 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     ).toThrow(/^invalid CONCORDIA_SATELLES_CODEX_RUNTIME \(expected "native" or "wsl"\)$/);
   });
 
-  it("currentSatellesWslDistro/User/CodexBinary: 既定値と危険文字の拒否", () => {
+  it("currentSatellesWslDistro/User/CodexBinary: 既定値と危険文字の拒否", async () => {
     expect(currentSatellesWslDistro({} as NodeJS.ProcessEnv)).toBe("Ubuntu");
     expect(currentSatellesWslUser({} as NodeJS.ProcessEnv)).toBe("ubuntu");
     expect(currentSatellesWslCodexBinary({} as NodeJS.ProcessEnv)).toBe("codex");
@@ -502,7 +502,7 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     ).toThrow(/^unsafe character in CONCORDIA_SATELLES_WSL_CODEX_BINARY$/);
   });
 
-  it("buildHeadlessCmdArgs: wt.exe 経路と同じ escapeCmdArg で cmd.exe へ渡す", () => {
+  it("buildHeadlessCmdArgs: wt.exe 経路と同じ escapeCmdArg で cmd.exe へ渡す", async () => {
     const tokens = ["C:/Program Files/Satelles/satelles.cmd", "run", "--model", "gpt-5.6"];
     const args = buildHeadlessCmdArgs(tokens);
     expect(args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
@@ -512,7 +512,7 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     expect(args[3]?.startsWith('"')).toBe(false);
   });
 
-  it("HEADLESS_SPAWN_PROVIDERS: codex-sdk のみ headless", () => {
+  it("HEADLESS_SPAWN_PROVIDERS: codex-sdk のみ headless", async () => {
     expect(HEADLESS_SPAWN_PROVIDERS.has("codex-sdk")).toBe(true);
     expect(HEADLESS_SPAWN_PROVIDERS.has("codex")).toBe(false);
     expect(SPAWN_PROVIDERS).toContain("codex-sdk");
@@ -520,13 +520,13 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
 });
 
 describe("macOS direct spawn plumbing", () => {
-  it("marks Windows and macOS as supported interactive spawn platforms", () => {
+  it("marks Windows and macOS as supported interactive spawn platforms", async () => {
     expect(isInteractiveSpawnPlatformSupported("win32")).toBe(true);
     expect(isInteractiveSpawnPlatformSupported("darwin")).toBe(true);
     expect(isInteractiveSpawnPlatformSupported("linux")).toBe(false);
   });
 
-  it("keeps launcher, provider, and user args as separate argv tokens", () => {
+  it("keeps launcher, provider, and user args as separate argv tokens", async () => {
     expect(
       buildDirectSpawnCommand(
         { provider: "codex", args: ["--model", "gpt-5.6-sol", "a & b"] },

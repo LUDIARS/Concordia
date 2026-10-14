@@ -18,7 +18,7 @@ function fixture() {
   return { root, put };
 }
 describe("project acceptance requirements", () => {
-  it("preserves independent opt-in flags across partial registry updates", () => {
+  it("preserves independent opt-in flags across partial registry updates", async () => {
     const repo = new ProjectCodesRepo(makeTestDb());
     repo.register({ code: "fixture", project: "fixture", repoPath: "fixture/path", repoOrigin: null, addedBy: "test" });
     expect(repo.findByCode("fixture")?.tests_required).toBe(0);
@@ -26,26 +26,26 @@ describe("project acceptance requirements", () => {
     repo.update("fixture", { dddEnabled: true });
     expect(repo.findByCode("fixture")).toMatchObject({ tests_required: 1, ontime_tests_required: 1, ddd_enabled: 1 });
   });
-  it("requires mapped test implementation but never claims execution passed", () => {
+  it("requires mapped test implementation but never claims execution passed", async () => {
     const f = fixture();
     const policy = { ddd: false, contract: false, testsRequired: true };
-    expect(checkCodeAcceptance(f.root, ["src/run.ts"], policy)).toMatchObject({ ok: true, execution: "not_checked" });
+    expect(await checkCodeAcceptance(f.root, ["src/run.ts"], policy)).toMatchObject({ ok: true, execution: "not_checked" });
     f.put("tests/run.test.ts", "  ");
-    expect(checkCodeAcceptance(f.root, ["src/run.ts"], policy).ok).toBe(false);
+    expect((await checkCodeAcceptance(f.root, ["src/run.ts"], policy)).ok).toBe(false);
   });
-  it("does not count a manifest without instrumentation as on-time implementation", () => {
+  it("does not count a manifest without instrumentation as on-time implementation", async () => {
     const f = fixture();
     f.put("contracts/run.ts", "export default {post: result => result === 1};");
     f.put("augur.contracts.json", { version: 1, contracts: [{ id: "C1", file: "src/run.ts", module: "contracts/run.ts", mode: "observe", sample: 1 }] });
-    expect(checkCodeAcceptance(f.root, ["src/run.ts"], { ddd: false, contract: false, ontimeTestsRequired: true }).ok).toBe(false);
+    expect((await checkCodeAcceptance(f.root, ["src/run.ts"], { ddd: false, contract: false, ontimeTestsRequired: true })).ok).toBe(false);
   });
-  it("does not impose optional requirements on docs or unconfigured projects", () => {
-    expect(checkCodeAcceptance("missing", ["spec/design.md"], { ddd: true, contract: false, testsRequired: true }).ok).toBe(true);
-    expect(checkCodeAcceptance("missing", ["src/run.ts"]).ok).toBe(true);
+  it("does not impose optional requirements on docs or unconfigured projects", async () => {
+    expect((await checkCodeAcceptance("missing", ["spec/design.md"], { ddd: true, contract: false, testsRequired: true })).ok).toBe(true);
+    expect((await checkCodeAcceptance("missing", ["src/run.ts"])).ok).toBe(true);
   });
-  it("rejects an escaped test reference", () => {
+  it("rejects an escaped test reference", async () => {
     const f = fixture();
     f.put("cc.acceptance.json", { version: 1, implementations: [{ source: "src/run.ts", tests: ["../tests/secret.test.ts"] }] });
-    expect(checkCodeAcceptance(f.root, ["src/run.ts"], { ddd: false, contract: false, testsRequired: true }).ok).toBe(false);
+    expect((await checkCodeAcceptance(f.root, ["src/run.ts"], { ddd: false, contract: false, testsRequired: true })).ok).toBe(false);
   });
 });

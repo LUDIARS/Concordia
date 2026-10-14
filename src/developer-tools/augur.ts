@@ -18,20 +18,20 @@ export class AugurTools {
   private readonly controller = new AbortController();
   constructor(private readonly roots: () => string[], private readonly runner: ToolCliRunner = runToolCli) {}
   close(): void { this.controller.abort(); }
-  cli(): string {
-    const path = resolveAugurCliPath({ workspaceRoots: this.roots(), env: process.env });
+  async cli(): Promise<string> {
+    const path = await resolveAugurCliPath({ workspaceRoots: this.roots(), env: process.env });
     if (!path) unavailable("augur_not_installed", "workspace に Augur CLI を準備し、対象 repo のテストを登録してください。HTTP daemon は不要です。");
     return path;
   }
   async list(cwd: string): Promise<unknown> {
-    const result = await this.runner(this.cli(), ["tests", "list", "--repo", cwd, "--json"], cwd, this.controller.signal);
+    const result = await this.runner(await this.cli(), ["tests", "list", "--repo", cwd, "--json"], cwd, this.controller.signal);
     if (result.code !== 0) unavailable("augur_catalog_failed", "Augur のテスト登録と CLI を確認してください。");
     const data: unknown = JSON.parse(result.stdout);
     if (!Array.isArray(data)) throw new Error("invalid Augur catalog");
     return data;
   }
   async run(cwd: string, bundle: string, head: string): Promise<unknown> {
-    const result = await this.runner(this.cli(), ["tests", "run", "--repo", cwd, "--bundle", bundle,
+    const result = await this.runner(await this.cli(), ["tests", "run", "--repo", cwd, "--bundle", bundle,
       "--head", head, "--no-promote", "--json"], cwd, this.controller.signal);
     const data: unknown = JSON.parse(result.stdout);
     if (!data || typeof data !== "object") throw new Error("invalid Augur result");

@@ -40,28 +40,28 @@ describe("npmShimTarget", () => {
 });
 
 describe("resolveClaudeLaunch", () => {
-  it("prefers claude.exe on PATH", () => {
+  it("prefers claude.exe on PATH", async () => {
     const exe = join("C:\\tools", "claude.exe");
     const fs = fsOf({ [exe]: "", [join(NPM_DIR, "claude.cmd")]: NPM_SHIM, [CLI_JS]: "" });
-    expect(resolveClaudeLaunch({ platform: "win32", env: { PATH: `C:\\tools;${NPM_DIR}` }, ...fs }))
+    expect(await resolveClaudeLaunch({ platform: "win32", env: { PATH: `C:\\tools;${NPM_DIR}` }, ...fs }))
       .toEqual({ file: exe, prefixArgs: [] });
   });
 
-  it("runs the npm package's cli.js with Node when only claude.cmd exists (MELPOT)", () => {
+  it("runs the npm package's cli.js with Node when only claude.cmd exists (MELPOT)", async () => {
     const fs = fsOf({ [join(NPM_DIR, "claude.cmd")]: NPM_SHIM, [CLI_JS]: "" });
-    expect(resolveClaudeLaunch({ platform: "win32", env: { Path: NPM_DIR }, nodePath: "C:\\node\\node.exe", ...fs }))
+    expect(await resolveClaudeLaunch({ platform: "win32", env: { Path: NPM_DIR }, nodePath: "C:\\node\\node.exe", ...fs }))
       .toEqual({ file: "C:\\node\\node.exe", prefixArgs: [CLI_JS] });
   });
 
-  it("falls back to the native install location, then to the bare name", () => {
+  it("falls back to the native install location, then to the bare name", async () => {
     const native = join("C:\\Users\\u", ".local", "bin", "claude.exe");
-    expect(resolveClaudeLaunch({ platform: "win32", env: { PATH: "", USERPROFILE: "C:\\Users\\u" }, ...fsOf({ [native]: "" }) }))
+    expect(await resolveClaudeLaunch({ platform: "win32", env: { PATH: "", USERPROFILE: "C:\\Users\\u" }, ...fsOf({ [native]: "" }) }))
       .toEqual({ file: native, prefixArgs: [] });
-    expect(resolveClaudeLaunch({ platform: "win32", env: { PATH: NPM_DIR }, ...fsOf({ [join(NPM_DIR, "claude.cmd")]: "@echo off" }) }))
+    expect(await resolveClaudeLaunch({ platform: "win32", env: { PATH: NPM_DIR }, ...fsOf({ [join(NPM_DIR, "claude.cmd")]: "@echo off" }) }))
       .toEqual({ file: "claude.exe", prefixArgs: [] });
   });
 
-  it("uses the bare name outside Windows", () => {
-    expect(resolveClaudeLaunch({ platform: "darwin" })).toEqual({ file: "claude", prefixArgs: [] });
+  it("uses the bare name outside Windows", async () => {
+    expect(await resolveClaudeLaunch({ platform: "darwin" })).toEqual({ file: "claude", prefixArgs: [] });
   });
 });

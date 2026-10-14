@@ -6,7 +6,8 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
+import { pathExists } from "../shared/fs-async.js";
 import { resolve as resolvePath } from "node:path";
 
 import { readConfiguredWorkspaceRoots } from "../config/workspace-roots.js";
@@ -111,17 +112,17 @@ export function buildSpawnIdentityEnv(
  * server 起動時に AdminState 由来の resolver を注入すると、 dev/prod モードや
  * 明示パスを spawn のたびに反映できる (setLictorLauncherResolver)。
  */
-let lictorLauncherResolver: () => string[] = () => ["lictor"];
+let lictorLauncherResolver: () => string[] | Promise<string[]> = () => ["lictor"];
 
 /** Lictor launcher の解決関数を差し替える (server 起動時に AdminState を束ねて注入)。 */
-export function setLictorLauncherResolver(fn: () => string[]): void {
+export function setLictorLauncherResolver(fn: () => string[] | Promise<string[]>): void {
   lictorLauncherResolver = fn;
 }
 
 /** 現在の launcher トークン列 (空配列は無効とみなし bare `lictor` にフォールバック)。 */
-function currentLictorLauncher(): string[] {
+async function currentLictorLauncher(): Promise<string[]> {
   try {
-    const l = lictorLauncherResolver();
+    const l = await lictorLauncherResolver();
     return Array.isArray(l) && l.length > 0 ? l : ["lictor"];
   } catch {
     return ["lictor"];
@@ -353,10 +354,10 @@ export function currentMacSpawnMode(env: NodeJS.ProcessEnv = process.env): MacSp
  * The "exists on disk" check on the fallback guards against env-var
  * typos that would otherwise propagate into wt.exe and fail there.
  */
-export function resolveSpawnCwd(
+export async function resolveSpawnCwd(
   requested: unknown,
   defaultCwd: string | undefined | null,
-): string | undefined {
+): Promise<string | undefined> {
   // 未展開の `${var}` を含む値は無効扱い (defaultCwd へフォールバック)。 テンプレの
   // default_cwd を展開し忘れた場合に "${target_repo}" がそのまま wt -d に渡って
   // spawn が落ちるのを防ぐ防御 (本来の展開は呼び出し側 substituteVars が行う)。
@@ -365,9 +366,8 @@ export function resolveSpawnCwd(
   }
   const fallback = (defaultCwd ?? "").trim();
   if (!fallback) return undefined;
-  if (!existsSync(fallback)) return undefined;
   try {
-    if (!statSync(fallback).isDirectory()) return undefined;
+    if (!(await stat(fallback)).isDirectory()) return undefined;
   } catch {
     return undefined;
   }
@@ -390,11 +390,11 @@ export function resolveCastraDefaultCwd(
   return "";
 }
 
-export function resolveAgentHomeCwd(
+export async function resolveAgentHomeCwd(
   provider: SpawnProvider,
   requested: unknown,
   defaultCwd: string | undefined | null,
-): string | undefined {
+): Promise<string | undefined> {
   if (typeof requested === "string" && requested.trim()) {
     return resolveSpawnCwd(requested, defaultCwd);
   }
@@ -635,11 +635,11 @@ function currentSatellesWslEnv(
   };
 }
 
-export function validateCwd(cwd: string | undefined): string | null {
+export async function validateCwd(cwd: string | undefined): Promise<string | null> {
   if (!cwd) return null;
   try {
-    if (!existsSync(cwd)) return `cwd does not exist: ${cwd}`;
-    if (!statSync(cwd).isDirectory()) return `cwd is not a directory: ${cwd}`;
+    if (!(await pathExists(cwd))) return `cwd does not exist: ${cwd}`;
+    if (!(await stat(cwd)).isDirectory()) return `cwd is not a directory: ${cwd}`;
     return null;
   } catch (err) {
     return `cwd check failed: ${(err as Error).message}`;
@@ -774,8 +774,8 @@ function spawnHeadlessSession(req: SpawnRequest): SpawnResult {
   return { ok: true, command: tokens, pid: child.pid ?? null };
 }
 
-function spawnDirectSession(req: SpawnRequest): SpawnResult {
-  const command = buildDirectSpawnCommand(req, currentLictorLauncher());
+function spawnDirectSession(req: SpawnRequest, launcher: string[]): SpawnResult {
+  const command = buildDirectSpawnCommand(req, launcher);
   const [file, ...args] = command;
   if (!file) return { ok: false, error: "Lictor launcher is empty" };
 
@@ -808,10 +808,10 @@ function spawnDirectSession(req: SpawnRequest): SpawnResult {
   return { ok: true, command, pid: child.pid ?? null };
 }
 
-function spawnMacTerminalSession(req: SpawnRequest): SpawnResult {
+function spawnMacTerminalSession(req: SpawnRequest, launcher: string[]): SpawnResult {
   let args: string[];
   try {
-    args = buildMacTerminalSpawnArgs(buildMacTerminalShellCommand(req, currentLictorLauncher(), buildSpawnEnvDelta(req)));
+    args = buildMacTerminalSpawnArgs(buildMacTerminalShellCommand(req, launcher, buildSpawnEnvDelta(req)));
   } catch (err) {
     const msg = `Terminal.app spawn command invalid: ${(err as Error).message}`;
     log.error({ err }, msg);
@@ -844,31 +844,32 @@ function spawnMacTerminalSession(req: SpawnRequest): SpawnResult {
   };
 }
 
-export function spawnSession(req: SpawnRequest): SpawnResult {
+export async function spawnSession(req: SpawnRequest): Promise<SpawnResult> {
   const isHeadless = HEADLESS_SPAWN_PROVIDERS.has(req.provider);
   if (!isHeadless && !isInteractiveSpawnPlatformSupported()) {
     return { ok: false, error: "interactive spawn currently requires Windows or macOS" };
   }
   const projectCwdErr = validateProjectCwd(req.cwd);
   if (projectCwdErr) return { ok: false, error: projectCwdErr };
-  const cwdErr = validateCwd(req.cwd);
+  const cwdErr = await validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
   try {
-    req = { ...req, args: withInternalAgentSettings(req.provider, req.args) };
-    req = { ...req, gitHooksDirectory: prepareSessionGitHooks() };
+    req = { ...req, args: await withInternalAgentSettings(req.provider, req.args) };
+    req = { ...req, gitHooksDirectory: await prepareSessionGitHooks() };
   } catch {
     return { ok: false, error: "Session hook preparation failed" };
   }
   if (isHeadless) return spawnHeadlessSession(req);
+  const launcher = await currentLictorLauncher();
   if (process.platform === "darwin") {
     try {
-      return currentMacSpawnMode() === "direct" ? spawnDirectSession(req) : spawnMacTerminalSession(req);
+      return currentMacSpawnMode() === "direct" ? spawnDirectSession(req, launcher) : spawnMacTerminalSession(req, launcher);
     } catch (err) {
       return { ok: false, error: `macOS spawn mode invalid: ${(err as Error).message}` };
     }
   }
 
-  const args = buildWtArgs(req, currentLictorLauncher());
+  const args = buildWtArgs(req, launcher);
   // CWE-78 対策: 外部入力 env を子プロセスへ素通ししない。 公開 spawn API は env を
   // 受け取らない (HTTP ハンドラ側で破棄) ようにしたうえで、 ここでも防御的に
   // Concordia 自身が設定する allowlist key (LICTOR_* / CONCORDIA_*) のみ通す。

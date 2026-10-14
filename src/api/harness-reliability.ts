@@ -147,7 +147,7 @@ export function harnessReliabilityRouter(deps: {
     const parsed = HookSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_hook_event" }, 400);
     try {
-      const result = service.handle(c.req.param("id"), parsed.data);
+      const result = await service.handle(c.req.param("id"), parsed.data);
       eventBus.emit({ type: "session.event", session_id: c.req.param("id"), kind: "reliability.observed", ts: Math.floor(Date.now() / 1000) });
       return c.json(result);
     } catch { return c.json({ error: "hook_observation_or_notification_failed" }, 503); }

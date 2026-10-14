@@ -85,13 +85,13 @@ describe("createBountyPrLookup (SPEC-BOUNTY-FIX-LINK)", () => {
 });
 
 describe("operator credentials (CC-BOUNTY-INV-10)", () => {
-  it("creates the Bot token once and rotates a corrupt one", () => {
+  it("creates the Bot token once and rotates a corrupt one", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bounty-token-"));
     const token = ensureBountyOperatorToken(dir);
     expect(token).toMatch(/^[a-f0-9]{64}$/u);
     expect(ensureBountyOperatorToken(dir)).toBe(token);
     writeFileSync(join(dir, ".bounty-operator.token"), "broken");
-    expect(readBountyOperatorToken(dir)).toBeNull();
+    expect(await readBountyOperatorToken(dir)).toBeNull();
     expect(ensureBountyOperatorToken(dir)).not.toBe(token);
   });
 

@@ -21,7 +21,7 @@ export interface BountyWiringDeps {
   /** Cc の API を呼ぶ (callConcordia)。 失敗は `{ error }` を返す。 */
   callConcordia(method: "POST", path: string, body: unknown, headers?: Record<string, string>): Promise<unknown>;
   /** Cc が起動時に作った Bot の内部トークン。 読めなければ null (操作者の要求は Cc が 403 で断る)。 */
-  operatorToken(): string | null;
+  operatorToken(): Promise<string | null> | string | null;
   registeredProjects(): ReadonlyArray<BountyProject>;
   /** この会社の関係プロジェクト。 本社は null (制限なし)。 */
   companyProjects(): readonly string[] | null;
@@ -33,8 +33,8 @@ const UNREADABLE_RESPONSE = "unreadable_response";
 
 export function createBountyFlowDeps(deps: BountyWiringDeps): BountyFlowDeps {
   const actor = (userId: string) => ({ user_id: userId, subsidiary_id: deps.runtimeSubsidiaryId });
-  const post = (path: string, body: unknown) => {
-    const token = deps.operatorToken();
+  const post = async (path: string, body: unknown) => {
+    const token = await deps.operatorToken();
     return deps.callConcordia("POST", path, body, token ? { [BOUNTY_OPERATOR_HEADER]: token } : {});
   };
   const reportPath = (reportId: string, action: string) => `/v1/bounty/reports/${encodeURIComponent(reportId)}/${action}`;

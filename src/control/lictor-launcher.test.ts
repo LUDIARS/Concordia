@@ -13,16 +13,16 @@ function admin(defaults?: { lictorDevPath?: string }) {
 }
 
 describe("resolveLictorLauncher", () => {
-  it("auto (default) → bare lictor", () => {
-    expect(resolveLictorLauncher(admin(), "win32")).toEqual(["lictor"]);
+  it("auto (default) → bare lictor", async () => {
+    expect(await resolveLictorLauncher(admin(), "win32")).toEqual(["lictor"]);
   });
 
-  it("auto on macOS uses the configured source checkout when available", () => {
+  it("auto on macOS uses the configured source checkout when available", async () => {
     const devPath = mkdtempSync(join(tmpdir(), "lictor-launcher-"));
     try {
       mkdirSync(join(devPath, "bin"));
       writeFileSync(join(devPath, "bin", "lictor.mjs"), "");
-      expect(resolveLictorLauncher(admin({ lictorDevPath: devPath }), "darwin")).toEqual([
+      expect(await resolveLictorLauncher(admin({ lictorDevPath: devPath }), "darwin")).toEqual([
         process.execPath,
         join(devPath, "bin", "lictor.mjs"),
       ]);
@@ -31,31 +31,31 @@ describe("resolveLictorLauncher", () => {
     }
   });
 
-  it("dev → node <devPath>/bin/lictor.mjs", () => {
+  it("dev → node <devPath>/bin/lictor.mjs", async () => {
     const a = admin({ lictorDevPath: "E:\\Document\\Ars\\Lictor" });
     a.setLictorMode("dev");
-    const out = resolveLictorLauncher(a);
+    const out = await resolveLictorLauncher(a);
     expect(out[0]).toBe("node");
     expect(out[1]).toMatch(/Lictor[\\/]bin[\\/]lictor\.mjs$/);
   });
 
-  it("dev with empty path → falls back to bare lictor", () => {
+  it("dev with empty path → falls back to bare lictor", async () => {
     const a = admin();
     a.setLictorMode("dev");
-    expect(resolveLictorLauncher(a)).toEqual(["lictor"]);
+    expect(await resolveLictorLauncher(a)).toEqual(["lictor"]);
   });
 
-  it("prod → configured exe", () => {
+  it("prod → configured exe", async () => {
     const a = admin();
     a.setLictorMode("prod");
     a.setLictorProdExe("C:\\tools\\lictor.exe");
-    expect(resolveLictorLauncher(a)).toEqual(["C:\\tools\\lictor.exe"]);
+    expect(await resolveLictorLauncher(a)).toEqual(["C:\\tools\\lictor.exe"]);
   });
 
-  it("prod with empty exe → falls back to bare lictor", () => {
+  it("prod with empty exe → falls back to bare lictor", async () => {
     const a = admin();
     a.setLictorMode("prod");
-    expect(resolveLictorLauncher(a)).toEqual(["lictor"]);
+    expect(await resolveLictorLauncher(a)).toEqual(["lictor"]);
   });
 });
 

@@ -61,19 +61,19 @@ describe("task branch adapters", () => {
     // Several real Git processes need startup headroom under parallel review (same as conflux.test.ts).
   }, 60_000);
 
-  it("runs the branch check for human ingress, not an automatic followup or duplicate hook", () => {
+  it("runs the branch check for human ingress, not an automatic followup or duplicate hook", async () => {
     const f = makeReliabilityFixture();
     const check = vi.fn(() => "branch warning");
     const service = new ReliabilityHookService({ sessions: f.sessions, messages: f.messages, store: f.store,
       pendingQuestions: () => [], acceptanceManifest: () => null, notify: f.notify, assess: f.assess,
       now: f.now, random: () => 0.9, checkTaskBranch: check });
-    service.handle(f.id, { event: "prompt", event_id: "auto", prompt: "[automatic] continue" });
+    await service.handle(f.id, { event: "prompt", event_id: "auto", prompt: "[automatic] continue" });
     expect(check).not.toHaveBeenCalled();
     f.messages.upsert({ session_id: f.id, ts: f.now() / 1000, author_type: "user", author_label: "human",
       author_platform: "discord", content: "Change UI colors" });
     const input = { event: "prompt" as const, event_id: "human", prompt: "Change UI colors" };
-    expect(service.handle(f.id, input).context).toContain("branch warning");
-    service.handle(f.id, input);
+    expect((await service.handle(f.id, input)).context).toContain("branch warning");
+    await service.handle(f.id, input);
     expect(check).toHaveBeenCalledTimes(1);
   });
 

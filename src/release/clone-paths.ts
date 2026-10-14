@@ -12,7 +12,7 @@
  * spec/feature/develop-confirm-flow.md §1。
  */
 
-import { existsSync } from "node:fs";
+import { pathExists } from "../shared/fs-async.js";
 import { join } from "node:path";
 
 /** develop クローンを収めるサブディレクトリ名。 */
@@ -29,17 +29,17 @@ export interface ClonePaths {
  * リポ名から main / develop クローンのパスを引く。 複数ワークスペースルートがある場合は
  * 先に見つかったものを採る (走査と同じ優先順)。
  */
-export function resolveClonePaths(repoName: string, workspaceRoots: string[]): ClonePaths {
+export async function resolveClonePaths(repoName: string, workspaceRoots: string[]): Promise<ClonePaths> {
   let main: string | null = null;
   let develop: string | null = null;
   for (const root of workspaceRoots) {
     if (!main) {
       const candidate = join(root, repoName);
-      if (existsSync(join(candidate, ".git"))) main = candidate;
+      if (await pathExists(join(candidate, ".git"))) main = candidate;
     }
     if (!develop) {
       const candidate = join(root, DEVELOP_DIR, repoName);
-      if (existsSync(join(candidate, ".git"))) develop = candidate;
+      if (await pathExists(join(candidate, ".git"))) develop = candidate;
     }
     if (main && develop) break;
   }

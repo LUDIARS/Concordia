@@ -59,6 +59,15 @@ async function flushUntil(done: () => boolean, ticks = 50): Promise<void> {
   for (let i = 0; i < ticks && !done(); i += 1) await flush();
 }
 
+/**
+ * 起きうる deploy が全部終わるまで待つ。 deploy はクローン解決で実 I/O を await するので
+ * tick 1 回では control まで届かない。 「起きないこと / 1 回だけ」を確かめる側も
+ * 同じだけ待たないと、 後から来る余計な再起動を見逃す。
+ */
+async function settle(ticks = 50): Promise<void> {
+  await flushUntil(() => false, ticks);
+}
+
 describe("checkout_published の購読", () => {
   it("Revisor inject の checkout 前進で deploy し、1 行残す", async () => {
     const { handle, controls, chatted } = makeWatch();
@@ -82,7 +91,7 @@ describe("checkout_published の購読", () => {
     try {
       inject("checkout_published: Concordia#364 本体 checkout を 1a2b3c4 へ前進させました");
       inject("checkout_published: Concordia#364 本体 checkout を 1a2b3c4 へ前進させました");
-      await flush();
+      await settle();
     } finally {
       handle.stop();
     }
@@ -114,7 +123,7 @@ describe("checkout_published の購読", () => {
         ts: 1,
       });
       inject("🟣 Revisor PR マージ: Concordia#364");
-      await flush();
+      await settle();
     } finally {
       handle.stop();
     }
@@ -125,7 +134,7 @@ describe("checkout_published の購読", () => {
     const { handle, controls } = makeWatch();
     handle.stop();
     inject("checkout_published: Concordia#999 本体 checkout を abcdef1 へ前進させました");
-    await flush();
+    await settle();
     expect(controls).toEqual([]);
   });
 });

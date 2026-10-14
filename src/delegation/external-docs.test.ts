@@ -83,10 +83,10 @@ describe("buildExternalDocBundle", () => {
     { project: "Concordia", repo_path: workRepo },
   ];
 
-  it("別の登録済み repo にある md は本文を同梱し、 run 用ラベルを返す", () => {
+  it("別の登録済み repo にある md は本文を同梱し、 run 用ラベルを返す", async () => {
     const path = join(otherRepo, "spec", "live-contract-testing.md");
     writeFileSync(path, "# 契約テスト\n\n受け入れ条件は契約書式で書く。", "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [path],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -100,10 +100,10 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.labels.join()).not.toContain(root);
   });
 
-  it("上限を超えた md は省略注記付きで切り詰める", () => {
+  it("上限を超えた md は省略注記付きで切り詰める", async () => {
     const path = join(otherRepo, "spec", "huge.md");
     writeFileSync(path, "x".repeat(EXTERNAL_DOC_MAX_BYTES + 100), "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [path],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -115,12 +115,12 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).not.toContain("x".repeat(100));
   });
 
-  it("複数文書でも byte 上限を prompt 全体で共有する", () => {
+  it("複数文書でも byte 上限を prompt 全体で共有する", async () => {
     const first = join(otherRepo, "spec", "first.md");
     const second = join(otherRepo, "spec", "second.md");
     writeFileSync(first, "a".repeat(40), "utf8");
     writeFileSync(second, "b".repeat(40), "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [first, second],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -133,10 +133,10 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).not.toContain("b".repeat(25));
   });
 
-  it("spawn cwd の中にある md は展開しない (子が直接読める)", () => {
+  it("spawn cwd の中にある md は展開しない (子が直接読める)", async () => {
     const path = join(worktree, "spec", "task.md");
     writeFileSync(path, "worktree の中の正本", "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [path],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -147,10 +147,10 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).toContain("作業ディレクトリの中にある");
   });
 
-  it("作業対象と同じ repo の md も展開しない", () => {
+  it("作業対象と同じ repo の md も展開しない", async () => {
     const path = join(workRepo, "spec", "same-repo.md");
     writeFileSync(path, "同じ repo の正本", "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [path],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -160,12 +160,12 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).toContain("作業対象と同じ repo");
   });
 
-  it("未登録ディレクトリの md は読まず、 理由付きの非同梱注記だけを出す", () => {
+  it("未登録ディレクトリの md は読まず、 理由付きの非同梱注記だけを出す", async () => {
     const outside = join(root, "Elsewhere");
     mkdirSync(outside, { recursive: true });
     const path = join(outside, "private.md");
     writeFileSync(path, "登録外の秘密", "utf8");
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [path],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -177,11 +177,11 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).toContain("登録済み repo の外にある");
   });
 
-  it("md 名の symlink でも実体が md でなければ読まない", () => {
+  it("md 名の symlink でも実体が md でなければ読まない", async () => {
     const alias = join(otherRepo, "spec", "alias.md");
     const target = join(otherRepo, "spec", "secret.txt");
     let readCalled = false;
-    const bundle = buildExternalDocBundle({
+    const bundle = await buildExternalDocBundle({
       refs: [alias],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -197,8 +197,8 @@ describe("buildExternalDocBundle", () => {
     expect(bundle.section).toContain("実体が md ではない");
   });
 
-  it("相対パス・URL・md 以外・存在しないパスは同梱しない", () => {
-    const bundle = buildExternalDocBundle({
+  it("相対パス・URL・md 以外・存在しないパスは同梱しない", async () => {
+    const bundle = await buildExternalDocBundle({
       refs: ["spec/relative.md", "https://example.com/a.md", join(otherRepo, "spec", "x.txt"), join(otherRepo, "nope.md")],
       spawnCwd: worktree,
       spawnRepoPath: workRepo,
@@ -213,8 +213,8 @@ describe("buildExternalDocBundle", () => {
     ]);
   });
 
-  it("参照が無ければ節そのものを作らない", () => {
-    const bundle = buildExternalDocBundle({ refs: [], spawnCwd: worktree, repos: repos() });
+  it("参照が無ければ節そのものを作らない", async () => {
+    const bundle = await buildExternalDocBundle({ refs: [], spawnCwd: worktree, repos: repos() });
     expect(bundle.section).toBe("");
     expect(bundle.labels).toEqual([]);
   });

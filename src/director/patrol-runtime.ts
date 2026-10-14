@@ -110,7 +110,7 @@ export interface DirectorPatrolDeps {
   mentionUserId?: () => string | null;
   inquiryLimits?: Partial<InquiryLimits>;
   /** テスト用: 対象リポ解決の差し替え。既定は resolveTargetRepo (clone-paths)。 */
-  resolveRepo?: (origins: readonly string[], directorCase: DirectorCase) => string | null;
+  resolveRepo?: (origins: readonly string[], directorCase: DirectorCase) => string | null | Promise<string | null>;
   limits?: Partial<PatrolLimits>;
   tickMs?: number;
   now?: () => number;
@@ -264,7 +264,7 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
       return true;
     }
 
-    const targetRepo = resolveRepo(deps.teams.repos(team.id), view.case);
+    const targetRepo = await resolveRepo(deps.teams.repos(team.id), view.case);
     if (!targetRepo) {
       // 起動時にしか分からない事由なので、ここで問診の起動候補へ積む。
       // 実際に問診を出すか機械文へ倒すかは inquiry runtime のガードが決める。
@@ -385,11 +385,11 @@ function toRunView(row: PatrolRunRowLike | null): PatrolRunView | null {
  * チームの repos と case.project から対象リポのローカルクローンを解決する (spec §1.2)。
  * repo 1 本ならそれ、複数なら case.project と repo 名の一致 (大文字小文字無視) で選ぶ。
  */
-export function resolveTargetRepo(
+export async function resolveTargetRepo(
   origins: readonly string[],
   directorCase: DirectorCase,
   workspaceRoots: string[],
-): string | null {
+): Promise<string | null> {
   const names = origins.map((origin) => repoNameFromOrigin(origin.replace(/\.git$/i, "")).trim());
   if (names.some((name) => !isSafeRepoName(name))) return null;
   let repoName: string | null = null;
@@ -400,7 +400,7 @@ export function resolveTargetRepo(
     repoName = names.find((name) => name.toLowerCase() === project) ?? null;
   }
   if (!repoName) return null;
-  return resolveClonePaths(repoName, workspaceRoots).main;
+  return (await resolveClonePaths(repoName, workspaceRoots)).main;
 }
 
 /** 実装委託テンプレ (`task` 引数) へ渡す指示本文。 */

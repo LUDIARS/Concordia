@@ -90,7 +90,7 @@ export async function deployAfterCheckoutPublish(
     return { kind: "skipped", reason: "no_service", repository: repoName, serviceCode: null };
   }
 
-  const mainClone = resolveClonePaths(repoName, deps.resolveWorkspaceRoots()).main;
+  const mainClone = (await resolveClonePaths(repoName, deps.resolveWorkspaceRoots())).main;
   if (!mainClone) {
     return { kind: "skipped", reason: "no_main_clone", repository: repoName, serviceCode };
   }

@@ -166,7 +166,7 @@ export class ImplementationToolsService {
   }
 
   /** セッションの repo の提出経路を解く。 */
-  submissionRoute(sessionId: string) {
+  async submissionRoute(sessionId: string) {
     const session = this.requireSession(sessionId);
     if (!session.repo_path) throw new Error("session has no repo_path; bind the session first");
     return this.deps.work.routeForRepo(session.repo_path);
@@ -177,7 +177,7 @@ export class ImplementationToolsService {
    * push と GitHub PR。 それ以外は「この経路では何をすべきか」を返して人間 / セッションに返す。
    */
   async submitWork(sessionId: string, { fastLane = false } = {}) {
-    const route = this.submissionRoute(sessionId);
+    const route = await this.submissionRoute(sessionId);
     if (route.route === "github-pr") {
       const result = await this.deps.work.submitGithubPr(this.requireSession(sessionId));
       return { route, ...result };

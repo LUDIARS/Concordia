@@ -1,5 +1,5 @@
 // @spec ハーネス信頼性の実装境界
-import { readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -7,11 +7,11 @@ import { z } from "zod";
 const Manifest = z.object({ version: z.literal(1), contracts: z.array(z.object({ id: z.string().min(1), criterion: z.string().min(1) })).max(200) });
 export type AcceptanceManifest = { status: "absent" | "invalid"; criteria: string[] } | { status: "present"; criteria: string[] };
 
-export function readAcceptanceManifest(cwd: string): AcceptanceManifest {
+export async function readAcceptanceManifest(cwd: string): Promise<AcceptanceManifest> {
   const path = join(cwd, "augur.contracts.json");
   try {
-    if (statSync(path).size > 1024 * 1024) return { status: "invalid", criteria: [] };
-    const parsed = Manifest.safeParse(JSON.parse(readFileSync(path, "utf8")));
+    if ((await stat(path)).size > 1024 * 1024) return { status: "invalid", criteria: [] };
+    const parsed = Manifest.safeParse(JSON.parse(await readFile(path, "utf8")));
     if (!parsed.success || !parsed.data.contracts.length || new Set(parsed.data.contracts.map((entry) => entry.id)).size !== parsed.data.contracts.length) return { status: "invalid", criteria: [] };
     return { status: "present", criteria: parsed.data.contracts.map((entry) => entry.criterion) };
   } catch (error) {

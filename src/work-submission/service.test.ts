@@ -19,64 +19,64 @@ function service(rows: ProjectCodeRow[], directMainRepos: string[] = []) {
 }
 
 describe("WorkSubmissionService.routeForRepo", () => {
-  it("reads the workflow from the registration and names the project", () => {
-    const resolved = service([row({ revisor_workflow: "revisor" })]).routeForRepo("E:/Document/Ars/Concordia");
+  it("reads the workflow from the registration and names the project", async () => {
+    const resolved = await service([row({ revisor_workflow: "revisor" })]).routeForRepo("E:/Document/Ars/Concordia");
     expect(resolved.route).toBe("revisor-local-pr");
     expect(resolved.project_code).toBe("Cc");
   });
 
-  it("sends a GitHub Workflow project down the GitHub PR route", () => {
-    const resolved = service([row({ code: "Sg", repo_path: "E:/Document/Ars/SampleGame", revisor_workflow: "github" })])
+  it("sends a GitHub Workflow project down the GitHub PR route", async () => {
+    const resolved = await service([row({ code: "Sg", repo_path: "E:/Document/Ars/SampleGame", revisor_workflow: "github" })])
       .routeForRepo("E:/Document/Ars/SampleGame");
     expect(resolved).toMatchObject({ route: "github-pr", allowsGithubPr: true, project_code: "Sg" });
   });
 
-  it("keeps the workspace root and configured repositories on direct-main", () => {
+  it("keeps the workspace root and configured repositories on direct-main", async () => {
     const tools = service([row({ revisor_workflow: "revisor" })], ["E:/Document/Ars/Villa"]);
-    expect(tools.routeForRepo("E:/Document/Ars").route).toBe("direct-main");
-    expect(tools.routeForRepo("E:/Document/Ars/Villa").route).toBe("direct-main");
+    expect((await tools.routeForRepo("E:/Document/Ars")).route).toBe("direct-main");
+    expect((await tools.routeForRepo("E:/Document/Ars/Villa")).route).toBe("direct-main");
   });
 
-  it("does not guess for a repository that has no registration", () => {
-    const resolved = service([]).routeForRepo("E:/Document/Ars/Unknown");
+  it("does not guess for a repository that has no registration", async () => {
+    const resolved = await service([]).routeForRepo("E:/Document/Ars/Unknown");
     expect(resolved).toMatchObject({ route: "unregistered", allowsGithubPr: false, project_code: null });
   });
 
   // 登録は都度読む: 登録直後のセッションが「未登録」と言われないため。
-  it("sees a registration added after construction", () => {
+  it("sees a registration added after construction", async () => {
     const rows: ProjectCodeRow[] = [];
     const tools = service(rows);
-    expect(tools.routeForRepo("E:/Document/Ars/Concordia").route).toBe("unregistered");
+    expect((await tools.routeForRepo("E:/Document/Ars/Concordia")).route).toBe("unregistered");
     rows.push(row({ revisor_workflow: "revisor" }));
-    expect(tools.routeForRepo("E:/Document/Ars/Concordia").route).toBe("revisor-local-pr");
+    expect((await tools.routeForRepo("E:/Document/Ars/Concordia")).route).toBe("revisor-local-pr");
   });
 });
 
 describe("WorkSubmissionService.routeForRepo — worktree と許可リスト", () => {
-  it("routes a linked worktree by its main checkout's registration", () => {
+  it("routes a linked worktree by its main checkout's registration", async () => {
     const tools = new WorkSubmissionService({
       projectCodes: { list: () => [row({ revisor_workflow: "revisor" })] } as never,
       resolveWorkspaceRoots: () => ["E:/Document/Ars"],
       mainCheckout: (path) => (path.endsWith("Concordia-fix-x") ? "E:/Document/Ars/Concordia" : path),
     });
-    expect(tools.routeForRepo("E:/Document/Ars/Concordia-fix-x")).toMatchObject({ route: "revisor-local-pr", project_code: "Cc" });
+    expect(await tools.routeForRepo("E:/Document/Ars/Concordia-fix-x")).toMatchObject({ route: "revisor-local-pr", project_code: "Cc" });
   });
 
   // 2 つの設定がすれ違うと「push は通るのに提出は PR を要求する」。 その組み合わせだけを警告する。
-  it("warns when a main-push allowlisted repository is not on direct-main", () => {
+  it("warns when a main-push allowlisted repository is not on direct-main", async () => {
     const allowlisted = (directMainRepos: string[]) => new WorkSubmissionService({
       projectCodes: { list: () => [row({ code: "Ag", repo_path: "C:/repos/AlphaGame", revisor_workflow: "github" })] } as never,
       resolveWorkspaceRoots: () => ["E:/Document/Ars"],
       directMainRepos: () => directMainRepos,
       mainPushAllowlist: () => ["AlphaGame"],
     }).routeForRepo("C:/repos/AlphaGame");
-    expect(allowlisted([]).consistency_warning).toContain("github-pr");
-    expect(allowlisted(["C:/repos/AlphaGame"])).not.toHaveProperty("consistency_warning");
+    expect((await allowlisted([])).consistency_warning).toContain("github-pr");
+    expect(await allowlisted(["C:/repos/AlphaGame"])).not.toHaveProperty("consistency_warning");
   });
 
-  it("does not warn for Castra / Villa style direct-main without the allowlist", () => {
+  it("does not warn for Castra / Villa style direct-main without the allowlist", async () => {
     const tools = service([], ["E:/Document/Ars/Villa"]);
-    expect(tools.routeForRepo("E:/Document/Ars/Villa")).not.toHaveProperty("consistency_warning");
+    expect(await tools.routeForRepo("E:/Document/Ars/Villa")).not.toHaveProperty("consistency_warning");
   });
 });
 

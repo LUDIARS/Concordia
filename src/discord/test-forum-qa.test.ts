@@ -8,20 +8,20 @@ describe("resolveCandidateRepoPath", () => {
   const parent = dirname(process.cwd());
   const self = basename(process.cwd());
 
-  it("finds the local clone of `org/name` under a workspace root", () => {
-    expect(resolveCandidateRepoPath([parent], `LUDIARS/${self}`)).toBe(join(parent, self));
+  it("finds the local clone of `org/name` under a workspace root", async () => {
+    expect(await resolveCandidateRepoPath([parent], `LUDIARS/${self}`)).toBe(join(parent, self));
   });
 
-  it("returns null when no root holds the repository", () => {
-    expect(resolveCandidateRepoPath([parent], "LUDIARS/no-such-repo-xyz")).toBeNull();
+  it("returns null when no root holds the repository", async () => {
+    expect(await resolveCandidateRepoPath([parent], "LUDIARS/no-such-repo-xyz")).toBeNull();
   });
 
-  it("refuses a repository name that would escape the workspace root", () => {
+  it("refuses a repository name that would escape the workspace root", async () => {
     // 解決結果は spawn する QA セッションの cwd になる。 `..` 等でワークスペース外を
     // 指させない (repository 名は Revisor 由来で Cc は検証していない)。
-    expect(resolveCandidateRepoPath([process.cwd()], "LUDIARS/..")).toBeNull();
-    expect(resolveCandidateRepoPath([process.cwd()], "LUDIARS/.")).toBeNull();
-    expect(resolveCandidateRepoPath([process.cwd()], "LUDIARS/a b")).toBeNull();
+    expect(await resolveCandidateRepoPath([process.cwd()], "LUDIARS/..")).toBeNull();
+    expect(await resolveCandidateRepoPath([process.cwd()], "LUDIARS/.")).toBeNull();
+    expect(await resolveCandidateRepoPath([process.cwd()], "LUDIARS/a b")).toBeNull();
   });
 });
 

@@ -15,7 +15,7 @@
  * 判定は純関数 (assessWalHealth) に分け、 タイマーとログだけをここに置く。
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type Database from "better-sqlite3";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
@@ -58,14 +58,14 @@ export interface WalGuardOptions {
   dbPath: string;
   intervalMs?: number;
   limitBytes?: number;
-  /** テスト用: WAL ファイルサイズの取得口。 既定は fs.statSync(`${dbPath}-wal`)。 */
-  walBytes?: () => number;
+  /** テスト用: WAL ファイルサイズの取得口。 既定は fs/promises の stat(`${dbPath}-wal`)。 */
+  walBytes?: () => number | Promise<number>;
   log?: { info: (obj: object, msg: string) => void; warn: (obj: object, msg: string) => void };
 }
 
-function readWalBytes(dbPath: string): number {
+async function readWalBytes(dbPath: string): Promise<number> {
   try {
-    return statSync(`${dbPath}-wal`).size;
+    return (await stat(`${dbPath}-wal`)).size;
   } catch (error) {
     // WAL がまだ作られていない状態は正常。 権限・I/O エラーまで 0 bytes と見なすと
     // 監視が無言で無効になるため、 それ以外は bulkhead へ伝播して可視化する。
@@ -75,13 +75,13 @@ function readWalBytes(dbPath: string): number {
 }
 
 /** 1 回分の観測 (PASSIVE checkpoint + 判定 + ログ)。 例外は呼び出し側の bulkhead が拾う。 */
-export function runWalGuardOnce(opts: WalGuardOptions): WalHealth {
+export async function runWalGuardOnce(opts: WalGuardOptions): Promise<WalHealth> {
   const logger = opts.log ?? log;
   const limit = opts.limitBytes ?? WAL_JOURNAL_SIZE_LIMIT_BYTES;
   const started = Date.now();
   const rows = opts.db.pragma("wal_checkpoint(PASSIVE)") as WalCheckpointResult[];
   const result = rows[0] ?? { busy: 0, log: 0, checkpointed: 0 };
-  const walBytes = (opts.walBytes ?? (() => readWalBytes(opts.dbPath)))();
+  const walBytes = await (opts.walBytes ?? (() => readWalBytes(opts.dbPath)))();
   const health = assessWalHealth(result, walBytes, limit);
   const fields = {
     ...result,

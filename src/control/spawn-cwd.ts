@@ -22,7 +22,8 @@
  * 止めるため、 ここで重ねて縛らない。
  */
 
-import { statSync } from "node:fs";
+import type { Stats } from "node:fs";
+import { stat as fsStat } from "node:fs/promises";
 
 /** cwd 検証に使う git ランナー。 spawn-target と同じ形にして差し替え可能にする。 */
 export type SpawnCwdGitRunner = (cwd: string, args: string[]) => Promise<string>;
@@ -63,9 +64,9 @@ export async function validateSpawnCwd(input: ValidateSpawnCwdInput): Promise<Sp
   const cwd = input.cwd?.trim() || undefined;
   if (!cwd) return { ok: true, cwd: undefined, repoRoot: null };
 
-  let stat: ReturnType<typeof statSync>;
+  let stat: Stats;
   try {
-    stat = statSync(cwd);
+    stat = await fsStat(cwd);
   } catch {
     return { ok: false, error: `spawn cwd does not exist: ${cwd}` };
   }

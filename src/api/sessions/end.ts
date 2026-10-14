@@ -26,7 +26,7 @@ export function registerEndRoutes(app: Hono, deps: SessionsApiDeps): void {
    * spawn → 旧セッションを ended 化 + force-exit (+保険 kill)。 handoff の作り方だけが
    * 両者の違いなので、 それ以外の機構をここに一本化する。
    */
-  const spawnSuccessorAndEndSession = (
+  const spawnSuccessorAndEndSession = async (
     c: Context,
     input: {
       id: string;
@@ -50,7 +50,7 @@ export function registerEndRoutes(app: Hono, deps: SessionsApiDeps): void {
     });
 
     // 後継セッションを spawn (relictor は最新 Lictor dist を junction 経由で拾う)。
-    const result = spawnSession({
+    const result = await spawnSession({
       provider: spawnProvider,
       cwd: session.repo_path,
       mode: "tab",
@@ -129,7 +129,7 @@ export function registerEndRoutes(app: Hono, deps: SessionsApiDeps): void {
         log.warn({ session_id: id, err: (e as Error).message }, "relictor: handoff post failed");
       }
 
-      return spawnSuccessorAndEndSession(c, {
+      return await spawnSuccessorAndEndSession(c, {
         id, session, spawnProvider, lictorPort, handoff, kind: "relictor",
       });
     } finally {
@@ -196,7 +196,7 @@ export function registerEndRoutes(app: Hono, deps: SessionsApiDeps): void {
         log.warn({ session_id: id, err: (e as Error).message }, "handover: handoff post failed");
       }
 
-      return spawnSuccessorAndEndSession(c, {
+      return await spawnSuccessorAndEndSession(c, {
         id, session, spawnProvider, lictorPort, handoff, kind: "handover",
       });
     } finally {

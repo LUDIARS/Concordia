@@ -28,7 +28,7 @@ export class ReliabilityHookService {
   constructor(private readonly deps: {
     sessions: SessionsRepo; messages: SessionMessagesRepo; store: ReliabilityStore;
     pendingQuestions: (sessionId: string) => unknown;
-    acceptanceManifest: (cwd: string) => unknown;
+    acceptanceManifest: (cwd: string) => unknown;  // may return a Promise; awaited before the checkpoint is built
     notify: (sessionId: string, text: string) => number;
     assess: (sessionId: string, sampleId: string) => void;
     checkTaskBranch?: (sessionId: string, prompt: string) => string;
@@ -38,7 +38,7 @@ export class ReliabilityHookService {
     now: () => number; random: () => number;
   }) {}
 
-  handle(id: string, input: ReliabilityHookInput): { ok: true; context?: string; checkpoint_id?: string } {
+  async handle(id: string, input: ReliabilityHookInput): Promise<{ ok: true; context?: string; checkpoint_id?: string }> {
     const session = this.deps.sessions.findSession(id);
     if (!session) throw new Error("session not found");
     const metadata = session.metadata ? JSON.parse(session.metadata) as Record<string, unknown> : {};
@@ -47,7 +47,7 @@ export class ReliabilityHookService {
       const checkpoint = buildCheckpoint({ session, metadata, id: input.event_id, at, trigger: input.trigger ?? "unknown",
         pendingQuestions: this.deps.pendingQuestions(id),
         recentWork: {
-          augur_contract: this.deps.acceptanceManifest(session.repo_path),
+          augur_contract: await this.deps.acceptanceManifest(session.repo_path),
           messages: this.deps.messages.list(id, { limit: 40 }).filter((message) => ["delegation", "question"].includes(message.author_type)
             || (message.author_type === "user" && !!message.author_platform))
             .slice(-10).map((message) => ({ id: message.id, type: message.author_type, content: redactSecrets(message.content).slice(0, 1500) })),

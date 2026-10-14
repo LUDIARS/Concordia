@@ -432,7 +432,7 @@ export interface CoreRuntimeDeps {
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
   /** Direct interactive session launcher. Tests inject a host-independent stub. */
-  sessionSpawn?: (request: SpawnRequest) => SpawnResult;
+  sessionSpawn?: (request: SpawnRequest) => SpawnResult | Promise<SpawnResult>;
   /** Optional directory for the spawn endpoint token. */
   spawnTokenCwd?: string;
   /** マルチ拠点連合の管理 API。未注入なら /v1/federation は生えない。 */
@@ -905,7 +905,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           if (!plan.ok) return plan;
           const spawnId = randomUUID();
           recordPendingDelegationSpawn({ ...plan.pending, spawnId });
-          const result = sessionSpawn({ ...plan.spawn, spawnId });
+          const result = await sessionSpawn({ ...plan.spawn, spawnId });
           if (!result.ok) {
             forgetPendingDelegationSpawnBySpawnId(spawnId);
             return { ok: false, error: result.error };
@@ -1486,7 +1486,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       const startupPromptPath = startupText
         ? await deps.delegationService.writeAdHocPrompt(startupText)
         : null;
-      const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
+      const spawnCwd = await resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const spawnTarget = await prepareSpawnTarget({
         cwd: spawnCwd,
         branch: requestedBranch,
@@ -1514,7 +1514,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         memoriaTaskId: memoriaTask.task?.id ?? null,
         memoriaTaskTitle: memoriaTask.task?.title ?? null,
       });
-      const result = sessionSpawn({
+      const result = await sessionSpawn({
         provider: spawn.provider,
         mode,
         args: spawnArgs.length > 0 ? spawnArgs : undefined,
@@ -1600,7 +1600,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ?? explicitCwd
       ?? teamCwd
       ?? consultConfinement?.cwd
-      ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
+      ?? await resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
     const directTarget = await prepareSpawnTarget({
       cwd: directCwd,
       branch: requestedBranch,
@@ -1631,7 +1631,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       memoriaTaskId: memoriaTask.task?.id ?? null,
       memoriaTaskTitle: memoriaTask.task?.title ?? null,
     });
-    const result = sessionSpawn({
+    const result = await sessionSpawn({
       provider: resolved.provider,
       mode,
       args: [...resolved.args, ...runtimeArgs, ...userArgs, ...consultDirectArgs],

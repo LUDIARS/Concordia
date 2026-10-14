@@ -18,7 +18,7 @@ export interface WorkSubmissionDeps {
   /** main へ直接コミットする例外リポジトリ。 既定は env CONCORDIA_DIRECT_MAIN_REPOS */
   directMainRepos?: () => string[];
   /** linked worktree から本体 checkout を解く。 既定は Git メタデータを読む {@link mainCheckoutPath} */
-  mainCheckout?: (repoPath: string) => string;
+  mainCheckout?: (repoPath: string) => string | Promise<string>;
   /** GitHub Workflow の提出 (push と PR 作成)。 未配線なら github-pr は手順を返すだけ。 */
   githubPr?: GithubPrSubmitDeps;
   /** PR の題と本文をブランチのコミットから読む。 既定は {@link readGithubPrContent} */
@@ -53,11 +53,11 @@ export class WorkSubmissionService {
   constructor(private readonly deps: WorkSubmissionDeps) {}
 
   /** リポジトリの経路を解く。 フック・セッションの両方がこの結果だけを見る。 */
-  routeForRepo(repoPath: string): SubmissionRoute & { project_code: string | null; consistency_warning?: string } {
+  async routeForRepo(repoPath: string): Promise<SubmissionRoute & { project_code: string | null; consistency_warning?: string }> {
     // 登録直後から効かせるため snapshot を持たず、 都度 DB を読む。
     const rows = this.deps.projectCodes.list();
     // 登録は本体 checkout の repo_path。 worktree からの照会も本体で照合する。
-    const main = (this.deps.mainCheckout ?? mainCheckoutPath)(repoPath);
+    const main = await (this.deps.mainCheckout ?? mainCheckoutPath)(repoPath);
     const target = normalize(main);
     const row = rows.find((candidate) => candidate.repo_path && normalize(candidate.repo_path) === target);
     const route = resolveSubmissionRoute({

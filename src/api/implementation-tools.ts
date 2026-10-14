@@ -114,10 +114,10 @@ export function implementationToolsRouter(deps: { tools: ImplementationToolsServ
     }
   });
   // フックと外部ツール向けの読み取り。 session id を要らない。
-  app.get("/submission-route", (c) => {
+  app.get("/submission-route", async (c) => {
     const repo = c.req.query("repo")?.trim();
     if (!repo) return c.json({ error: "repo_required" }, 400);
-    return c.json(deps.tools.routeForRepo(repo));
+    return c.json(await deps.tools.routeForRepo(repo));
   });
 
   return app;

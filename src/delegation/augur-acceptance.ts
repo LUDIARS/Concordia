@@ -13,7 +13,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { pathExists } from "../shared/fs-async.js";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -42,8 +42,8 @@ const MAX_CRITERION_LENGTH = 1_000;
 const MAX_NOTE_LENGTH = 4_000;
 
 /** 委託先の checkout に契約ファイルが置かれているか。 */
-export function hasAcceptanceContract(dir: string): boolean {
-  return existsSync(join(dir, AUGUR_CONTRACTS_FILE));
+export function hasAcceptanceContract(dir: string): Promise<boolean> {
+  return pathExists(join(dir, AUGUR_CONTRACTS_FILE));
 }
 
 /**
@@ -55,17 +55,21 @@ export function hasAcceptanceContract(dir: string): boolean {
  *
  * どこにも無ければ null。 呼び出し側は「証跡を取れない」として扱う。
  */
-export function resolveAugurCliPath(input: {
+export async function resolveAugurCliPath(input: {
   env?: NodeJS.ProcessEnv;
   workspaceRoots?: readonly string[];
-  exists?: (path: string) => boolean;
-}): string | null {
-  const exists = input.exists ?? existsSync;
+  exists?: (path: string) => boolean | Promise<boolean>;
+}): Promise<string | null> {
+  const exists = input.exists ?? pathExists;
   const explicit = (input.env?.CONCORDIA_AUGUR_DIR ?? "").trim();
   const candidates = explicit
     ? [join(explicit, "bin", "augur.mjs")]
     : (input.workspaceRoots ?? []).map((root) => join(root, "Augur", "bin", "augur.mjs"));
-  return candidates.find((candidate) => exists(candidate)) ?? null;
+  // Probe in order so the first configured location still wins.
+  for (const candidate of candidates) {
+    if (await exists(candidate)) return candidate;
+  }
+  return null;
 }
 
 /** 注入テンプレへ載せる起動コマンド表記 (`node <path>`)。 */

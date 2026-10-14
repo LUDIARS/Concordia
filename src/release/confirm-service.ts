@@ -62,7 +62,7 @@ export class ConfirmService {
     }
 
     const repoName = runs[0].repo_name;
-    const paths = resolveClonePaths(repoName, this.deps.resolveWorkspaceRoots());
+    const paths = await resolveClonePaths(repoName, this.deps.resolveWorkspaceRoots());
     if (!paths.develop) {
       return {
         ok: false,
@@ -128,7 +128,7 @@ export class ConfirmService {
     }
     const approvedSha = [...approvedShas][0]!;
 
-    const paths = resolveClonePaths(runs[0].repo_name, this.deps.resolveWorkspaceRoots());
+    const paths = await resolveClonePaths(runs[0].repo_name, this.deps.resolveWorkspaceRoots());
     const gitCwd = paths.develop ?? paths.main;
     if (!gitCwd) return this.fail(runs, `クローンが見つかりません (${runs[0].repo_name})`);
 

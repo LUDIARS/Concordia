@@ -15,8 +15,8 @@
 
 import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { access } from "node:fs/promises";
-import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { access, mkdir } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { ProcessesRepo } from "../db/processes-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
@@ -58,6 +58,7 @@ export class ProcessManager {
   private handles = new Map<string, RunnerHandle>();
 
   constructor(private readonly deps: ManagerDeps) {
+    // Boot-time only: the manager is constructed once at startup (spec/tasks/full-async-io.md).
     try { mkdirSync(deps.logsDir, { recursive: true }); } catch { /* swallow */ }
   }
 
@@ -144,6 +145,8 @@ export class ProcessManager {
       generation,
     });
 
+    // ログファイルの dir を作っておく (失敗は飲み込み、 書き込み側の error で拾う).
+    await mkdir(dirname(logPath), { recursive: true }).catch(() => { /* swallow */ });
     let handle: RunnerHandle;
     try {
       handle = spawnProcess({

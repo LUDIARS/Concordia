@@ -1,11 +1,11 @@
 // @spec ハーネス信頼性の実装境界
 /** Structural acceptance adapter; execution results and semantic review are separate evidence. */
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { readFile, realpath, stat as fsStat } from "node:fs/promises";
 import { resolve, relative, isAbsolute } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { hasDddEvidence } from "../ddd-evidence.js";
+import { hasDddEvidenceAsync } from "../ddd-evidence.js";
 import type { ProjectHarnessPolicy } from "../project-policy.js";
 
 const run = promisify(execFile);
@@ -16,14 +16,14 @@ const Manifest = z.object({ version: z.literal(1), contracts: z.array(z.object({
   id: z.string(), file: z.string(), module: z.string(), mode: z.string(), sample: z.number(),
 })) });
 
-function localText(root: string, name: string): string {
+async function localText(root: string, name: string): Promise<string> {
   if (isAbsolute(name)) throw new Error("absolute evidence path");
-  const base = realpathSync(root), full = realpathSync(resolve(base, name));
+  const base = await realpath(root), full = await realpath(resolve(base, name));
   const rel = relative(base, full);
   if (rel === ".." || rel.startsWith("..\\") || rel.startsWith("../") || isAbsolute(rel)) throw new Error("evidence outside repository");
-  const stat = statSync(full);
+  const stat = await fsStat(full);
   if (!stat.isFile() || stat.size > 2_000_000) throw new Error("invalid evidence size");
-  const text = readFileSync(full, "utf8").trim();
+  const text = (await readFile(full, "utf8")).trim();
   if (!text) throw new Error("empty evidence");
   return text;
 }
@@ -34,7 +34,7 @@ export function acceptanceRequirements(policy?: ProjectHarnessPolicy): string[] 
 }
 
 /** Callers supply the changed source set; documentation-only changes need no test mapping. */
-export function checkCodeAcceptance(root: string, files: readonly string[], policy?: ProjectHarnessPolicy) {
+export async function checkCodeAcceptance(root: string, files: readonly string[], policy?: ProjectHarnessPolicy) {
   const required = acceptanceRequirements(policy);
   const sources = files.filter(file => /\.(?:[cm]?[jt]sx?|py|cs|go|rs|java)$/i.test(file)
     && !/(?:^|\/)(?:tests?|spec|contracts)\/|\.(?:test|spec|contract)\.[^/]+$/i.test(file));
@@ -43,15 +43,15 @@ export function checkCodeAcceptance(root: string, files: readonly string[], poli
   let mappings: z.infer<typeof Mapping>["implementations"] = [];
   let contracts: z.infer<typeof Manifest>["contracts"] = [];
   if (policy?.testsRequired || policy?.ontimeTestsRequired) {
-    try { mappings = Mapping.parse(JSON.parse(localText(root, "cc.acceptance.json"))).implementations; }
+    try { mappings = Mapping.parse(JSON.parse(await localText(root, "cc.acceptance.json"))).implementations; }
     catch { missing.push("cc.acceptance.json: missing or invalid implementation/test mapping"); }
   }
   if (policy?.ontimeTestsRequired) {
-    try { contracts = Manifest.parse(JSON.parse(localText(root, "augur.contracts.json"))).contracts; }
+    try { contracts = Manifest.parse(JSON.parse(await localText(root, "augur.contracts.json"))).contracts; }
     catch { missing.push("augur.contracts.json: missing or invalid observe contracts"); }
   }
   for (const source of sources) {
-    if (policy?.ddd && !hasDddEvidence(root, source)) missing.push(`${source}: DDD definition/membership missing`);
+    if (policy?.ddd && !(await hasDddEvidenceAsync(root, source))) missing.push(`${source}: DDD definition/membership missing`);
     const entries = mappings.filter(entry => entry.source === source);
     if (policy?.testsRequired || policy?.ontimeTestsRequired) {
       const tests = entries.flatMap(entry => entry.tests);
@@ -59,7 +59,7 @@ export function checkCodeAcceptance(root: string, files: readonly string[], poli
       for (const test of tests) {
         try {
           if (test === source || !/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(test)) throw new Error("not test path");
-          localText(root, test);
+          await localText(root, test);
         } catch { missing.push(`${source}: invalid test evidence ${test}`); }
       }
     }
@@ -70,8 +70,8 @@ export function checkCodeAcceptance(root: string, files: readonly string[], poli
         try {
           const matches = contracts.filter(item => item.id === id && item.file === source);
           if (matches.length !== 1 || matches[0].mode !== "observe" || matches[0].sample !== 1) throw new Error("invalid contract");
-          localText(root, matches[0].module);
-          const code = localText(root, source);
+          await localText(root, matches[0].module);
+          const code = await localText(root, source);
           if (!code.includes("augur-inject:contract-wrap") || !code.includes(id)) throw new Error("instrumentation absent");
         } catch { missing.push(`${source}: missing observe instrumentation/predicate for ${id}`); }
       }

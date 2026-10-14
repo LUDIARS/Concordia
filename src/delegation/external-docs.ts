@@ -16,7 +16,7 @@
  * @implements spec/feature/task-workflow.md §3.2 — 別リポ md は同梱する
  */
 
-import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 
 /** 本文を読み込んでよい file-ref input のキー (allowlist)。 自由文キーは入れない。 */
@@ -54,31 +54,31 @@ export interface ExternalDocBundle {
 
 /** fs アクセスの DI 点 (テストは実ファイルで足りるが、 異常系を作るために開けておく)。 */
 export interface ExternalDocFs {
-  realpath: (path: string) => string;
-  isFile: (path: string) => boolean;
+  realpath: (path: string) => string | Promise<string>;
+  isFile: (path: string) => boolean | Promise<boolean>;
   /** Reads at most maxBytes + 1 so truncation never loads an unbounded file. */
-  read: (path: string, maxBytes: number) => Buffer;
+  read: (path: string, maxBytes: number) => Buffer | Promise<Buffer>;
 }
 
-function readLimited(path: string, maxBytes: number): Buffer {
-  const fd = openSync(path, "r");
+async function readLimited(path: string, maxBytes: number): Promise<Buffer> {
+  const handle = await open(path, "r");
   try {
     const buffer = Buffer.alloc(maxBytes + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.byteLength) {
-      const count = readSync(fd, buffer, bytesRead, buffer.byteLength - bytesRead, bytesRead);
+      const { bytesRead: count } = await handle.read(buffer, bytesRead, buffer.byteLength - bytesRead, bytesRead);
       if (count === 0) break;
       bytesRead += count;
     }
     return buffer.subarray(0, bytesRead);
   } finally {
-    closeSync(fd);
+    await handle.close();
   }
 }
 
 const defaultFs: ExternalDocFs = {
-  realpath: (path) => realpathSync(path),
-  isFile: (path) => statSync(path).isFile(),
+  realpath: (path) => realpath(path),
+  isFile: async (path) => (await stat(path)).isFile(),
   read: readLimited,
 };
 
@@ -108,7 +108,7 @@ export function collectExternalDocRefs(input: {
  * ある `.md` だけ。 cwd 内 / 同じ repo 内の文書は子が自分で読めるので展開しない
  * (prompt を無駄に膨らませない)。
  */
-export function buildExternalDocBundle(input: {
+export async function buildExternalDocBundle(input: {
   refs: readonly string[];
   /** 子の作業ディレクトリ (worktree)。 */
   spawnCwd: string | null;
@@ -118,7 +118,7 @@ export function buildExternalDocBundle(input: {
   fs?: ExternalDocFs;
   maxBytes?: number;
   maxLines?: number;
-}): ExternalDocBundle {
+}): Promise<ExternalDocBundle> {
   const fs = input.fs ?? defaultFs;
   const maxBytes = input.maxBytes ?? EXTERNAL_DOC_MAX_BYTES;
   const maxLines = input.maxLines ?? EXTERNAL_DOC_MAX_LINES;
@@ -134,7 +134,7 @@ export function buildExternalDocBundle(input: {
   let remainingLines = maxLines;
 
   for (const ref of input.refs) {
-    const outcome = resolveRef(ref, { ...input, fs });
+    const outcome = await resolveRef(ref, { ...input, fs });
     if ("reason" in outcome) {
       skipped.push({ ref, reason: outcome.reason });
       continue;
@@ -145,7 +145,7 @@ export function buildExternalDocBundle(input: {
     }
     let raw: Buffer;
     try {
-      raw = fs.read(outcome.realPath, remainingBytes);
+      raw = await fs.read(outcome.realPath, remainingBytes);
     } catch {
       // Filesystem errors can contain private absolute paths. This reason is
       // rendered into a child prompt, so do not relay the original message.
@@ -165,7 +165,7 @@ function contentLineCount(text: string): number {
   return text.length === 0 ? 0 : text.split(/\r?\n/).length;
 }
 
-function resolveRef(
+async function resolveRef(
   ref: string,
   input: {
     spawnCwd: string | null;
@@ -173,15 +173,15 @@ function resolveRef(
     repos: readonly RegisteredRepo[];
     fs: ExternalDocFs;
   },
-): { label: string; realPath: string } | { reason: string } {
+): Promise<{ label: string; realPath: string } | { reason: string }> {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(ref)) return { reason: "URL は同梱しない (子が必要なら自分で取得する)" };
   if (!isAbsolute(ref)) return { reason: "相対パスは基準が定まらないので同梱しない" };
   if (!ref.toLowerCase().endsWith(".md")) return { reason: "md 以外は同梱しない" };
 
   let realPath: string;
   try {
-    realPath = input.fs.realpath(ref);
-    if (!input.fs.isFile(realPath)) return { reason: "ファイルではない" };
+    realPath = await input.fs.realpath(ref);
+    if (!(await input.fs.isFile(realPath))) return { reason: "ファイルではない" };
   } catch {
     return { reason: "パスを解決できない (存在しない / 権限が無い)" };
   }
@@ -190,27 +190,28 @@ function resolveRef(
   if (!realPath.toLowerCase().endsWith(".md")) return { reason: "実体が md ではないので同梱しない" };
 
   // symlink や `..` は realpath 解決後の実体で判定する (解決前のパスで許可しない)。
-  const spawnCwd = resolveKnownPath(input.spawnCwd, input.fs);
+  const spawnCwd = await resolveKnownPath(input.spawnCwd, input.fs);
   if (spawnCwd && isInside(realPath, spawnCwd)) {
     return { reason: "作業ディレクトリの中にあるので子が直接読める" };
   }
-  const repos = input.repos.flatMap((candidate): Array<RegisteredRepo & { real_path: string }> => {
-    const realRoot = resolveKnownPath(candidate.repo_path, input.fs);
+  const realRoots = await Promise.all(input.repos.map((candidate) => resolveKnownPath(candidate.repo_path, input.fs)));
+  const repos = input.repos.flatMap((candidate, index): Array<RegisteredRepo & { real_path: string }> => {
+    const realRoot = realRoots[index];
     return realRoot ? [{ ...candidate, real_path: realRoot }] : [];
   });
   const repo = repos.find((candidate) => isInside(realPath, candidate.real_path));
   if (!repo) return { reason: "登録済み repo の外にあるので読まない" };
-  const spawnRepoPath = resolveKnownPath(input.spawnRepoPath, input.fs);
+  const spawnRepoPath = await resolveKnownPath(input.spawnRepoPath, input.fs);
   if (spawnRepoPath && isInside(realPath, spawnRepoPath)) {
     return { reason: "作業対象と同じ repo なので子が直接読める" };
   }
   return { label: `${repo.project}:${repoRelative(repo.real_path, realPath)}`, realPath };
 }
 
-function resolveKnownPath(path: string | null | undefined, fs: ExternalDocFs): string | null {
+async function resolveKnownPath(path: string | null | undefined, fs: ExternalDocFs): Promise<string | null> {
   if (!path) return null;
   try {
-    return fs.realpath(path);
+    return await fs.realpath(path);
   } catch {
     return null;
   }

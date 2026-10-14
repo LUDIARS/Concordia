@@ -8,7 +8,7 @@
  * spec/feature/develop-confirm-flow.md §9。
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runNpm } from "./npm-runner.js";
 
@@ -25,11 +25,10 @@ export interface BuildResult {
 export type BuildNpmRunner = (cwd: string, args: readonly string[], timeoutMs: number) => Promise<unknown>;
 
 /** package.json に build script があるか。 */
-export function hasBuildScript(repoPath: string): boolean {
+export async function hasBuildScript(repoPath: string): Promise<boolean> {
   const pkgPath = join(repoPath, "package.json");
-  if (!existsSync(pkgPath)) return false;
   try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, string> };
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as { scripts?: Record<string, string> };
     return typeof pkg.scripts?.build === "string" && pkg.scripts.build.trim() !== "";
   } catch {
     return false;
@@ -37,7 +36,7 @@ export function hasBuildScript(repoPath: string): boolean {
 }
 
 export async function buildClone(repoPath: string, npmRunner: BuildNpmRunner = runNpm): Promise<BuildResult> {
-  if (!hasBuildScript(repoPath)) return { ok: true, ran: false };
+  if (!(await hasBuildScript(repoPath))) return { ok: true, ran: false };
   try {
     await npmRunner(repoPath, ["ci"], BUILD_TIMEOUT_MS);
     await npmRunner(repoPath, ["run", "build"], BUILD_TIMEOUT_MS);

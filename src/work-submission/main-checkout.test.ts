@@ -14,7 +14,7 @@ function workspace(): string {
 }
 
 describe("mainCheckoutPath", () => {
-  it("resolves a linked worktree to its main checkout through gitdir + commondir", () => {
+  it("resolves a linked worktree to its main checkout through gitdir + commondir", async () => {
     const root = workspace();
     const main = join(root, "Concordia");
     const metadata = join(main, ".git", "worktrees", "fix-x");
@@ -23,13 +23,13 @@ describe("mainCheckoutPath", () => {
     const worktree = join(root, "Concordia-fix-x");
     mkdirSync(worktree);
     writeFileSync(join(worktree, ".git"), `gitdir: ${metadata}\n`);
-    expect(resolve(mainCheckoutPath(worktree))).toBe(resolve(main));
+    expect(resolve(await mainCheckoutPath(worktree))).toBe(resolve(main));
   });
 
-  it("keeps a main checkout (a .git directory) and unreadable paths as given", () => {
+  it("keeps a main checkout (a .git directory) and unreadable paths as given", async () => {
     const root = workspace();
     mkdirSync(join(root, "Repo", ".git"), { recursive: true });
-    expect(mainCheckoutPath(join(root, "Repo"))).toBe(join(root, "Repo"));
-    expect(mainCheckoutPath(join(root, "missing"))).toBe(join(root, "missing"));
+    expect(await mainCheckoutPath(join(root, "Repo"))).toBe(join(root, "Repo"));
+    expect(await mainCheckoutPath(join(root, "missing"))).toBe(join(root, "missing"));
   });
 });

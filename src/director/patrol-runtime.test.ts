@@ -180,9 +180,11 @@ describe("startDirectorPatrol", () => {
 
     const first = patrol.runOnce();
     const overlapping = patrol.runOnce();
-    expect(invoke).toHaveBeenCalledTimes(1);
+    // Target repo resolution is async, so the first invoke starts a few microtasks later.
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
     finishInvoke();
     await Promise.all([first, overlapping]);
+    expect(invoke).toHaveBeenCalledTimes(1);
     patrol.stop();
   });
 
@@ -225,15 +227,15 @@ describe("startDirectorPatrol", () => {
 });
 
 describe("resolveTargetRepo", () => {
-  it("matches a multi-repo team by case project name (case-insensitive)", () => {
+  it("matches a multi-repo team by case project name (case-insensitive)", async () => {
     // resolveClonePaths は実ファイルシステムを見るので、ここでは名前解決の分岐だけを検証する。
-    const single = resolveTargetRepo(
+    const single = await resolveTargetRepo(
       ["https://github.com/LUDIARS/NoSuchRepoForPatrolTest.git"],
       makeCase("c1"),
       [],
     );
     expect(single).toBeNull(); // クローンが無いので null (名前は解決されている)
-    const unmatched = resolveTargetRepo(
+    const unmatched = await resolveTargetRepo(
       ["LUDIARS/RepoA", "LUDIARS/RepoB"],
       makeCase("c1", { project: "RepoC" }),
       [],
@@ -241,9 +243,9 @@ describe("resolveTargetRepo", () => {
     expect(unmatched).toBeNull();
   });
 
-  it("rejects repository names that escape a workspace root", () => {
-    expect(resolveTargetRepo([".."], makeCase("c1"), [join(process.cwd(), "src")])).toBeNull();
-    expect(resolveTargetRepo(["..\\.."], makeCase("c1"), [join(process.cwd(), "src", "director")]))
+  it("rejects repository names that escape a workspace root", async () => {
+    expect(await resolveTargetRepo([".."], makeCase("c1"), [join(process.cwd(), "src")])).toBeNull();
+    expect(await resolveTargetRepo(["..\\.."], makeCase("c1"), [join(process.cwd(), "src", "director")]))
       .toBeNull();
   });
 });

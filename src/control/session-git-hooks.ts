@@ -1,5 +1,5 @@
 /** @implements spec/feature/shared-startup-context.md — new-session Git hook transport */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,14 +10,13 @@ const HOOKS = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "pre-push", "pre-auto-gc", "post-rewrite", "reference-transaction", "post-index-change", "fsmonitor-watchman"];
 
 /** Reusable wrappers forward existing hooks; no repository/global Git config is edited. */
-export function prepareSessionGitHooks(): string {
+export async function prepareSessionGitHooks(): Promise<string> {
   const runner = fileURLToPath(new URL("../../tools/session-git-hook.mjs", import.meta.url));
   const key = createHash("sha256").update(runner).digest("hex").slice(0, 16);
   const dir = join(tmpdir(), "concordia-session-hooks", key);
-  mkdirSync(dir, { recursive: true });
-  for (const hook of HOOKS) {
-    writeFileSync(join(dir, hook), `#!/bin/sh\nexec node "$CONCORDIA_SESSION_HOOK_RUNNER" ${hook} "$@"\n`, { encoding: "utf8", mode: 0o755 });
-  }
+  await mkdir(dir, { recursive: true });
+  await Promise.all(HOOKS.map((hook) =>
+    writeFile(join(dir, hook), `#!/bin/sh\nexec node "$CONCORDIA_SESSION_HOOK_RUNNER" ${hook} "$@"\n`, { encoding: "utf8", mode: 0o755 })));
   return dir;
 }
 

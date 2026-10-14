@@ -13,7 +13,7 @@ function fixture() {
     actio: { request: vi.fn(async () => ({ taskIds: ["one"] })) },
     research: { anatomyProject: vi.fn(async () => "cc"), specifications: vi.fn(async () => ({})),
       context: vi.fn(async () => ({})), impact: vi.fn(async () => ({})) },
-    augur: { cli: vi.fn(() => "/Augur/bin/augur.mjs"), list: vi.fn(async () => [{ id: "test", runtime: false, status: "active", domains: { business: ["tooling"], program: [] } }]), run: vi.fn(async () => ({})) },
+    augur: { cli: vi.fn(async () => "/Augur/bin/augur.mjs"), list: vi.fn(async () => [{ id: "test", runtime: false, status: "active", domains: { business: ["tooling"], program: [] } }]), run: vi.fn(async () => ({})) },
     jobs: { read: vi.fn(), start: vi.fn() },
     git: vi.fn(async (_cwd: string, args: string[]) => args[0] === "status" ? "" : "a".repeat(40)),
     vulnerability: vi.fn(async () => ({})),

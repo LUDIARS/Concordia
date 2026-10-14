@@ -32,22 +32,27 @@ describe("decideDispatch — spec §3 の表", () => {
   });
 });
 
-describe("decideDispatch — 月間分の上限が 0 (既定) の個人は現状の動きのまま", () => {
-  // 導入前の動き: 子会社の日次 budget が超過していれば止め、そうでなければ通す。全体の budget はこの経路で見ていない。
+describe("decideDispatch — 月間分の上限が 0 (既定) の個人は、全体が超過していない限り現状の動きのまま", () => {
+  // 導入前の動き: 子会社の日次 budget が超過していれば止め、そうでなければ通す。
   it.each([
-    { globalOver: false, subsidiaryOver: false, allow: true },
-    { globalOver: true, subsidiaryOver: false, allow: true },
-    { globalOver: false, subsidiaryOver: true, allow: false },
-    { globalOver: true, subsidiaryOver: true, allow: false },
-  ])("上限 0・報酬分 0: global=$globalOver subsidiary=$subsidiaryOver → allow=$allow", ({ globalOver, subsidiaryOver, allow }) => {
-    const decision = decideDispatch({ globalOver, subsidiaryOver, person: person(0, 5_000_000, 0) });
+    { subsidiaryOver: false, allow: true },
+    { subsidiaryOver: true, allow: false },
+  ])("上限 0・報酬分 0: 全体は余裕 subsidiary=$subsidiaryOver → allow=$allow", ({ subsidiaryOver, allow }) => {
+    const decision = decideDispatch({ globalOver: false, subsidiaryOver, person: person(0, 5_000_000, 0) });
     expect(decision).toEqual(allow
       ? { allow: true, source: "none" }
       : { allow: false, reason: "subsidiary_over", rewardBalance: 0, inEffect: false });
   });
 
-  it("個人を特定できない依頼 (本社・依頼者なし) も同じ動きになる (CC-PBUDGET-INV-07)", () => {
-    expect(decideDispatch({ globalOver: true, subsidiaryOver: false, person: null })).toEqual({ allow: true, source: "none" });
+  it.each([false, true])("全体が超過中は、上限 0・報酬分 0 の個人も止める (subsidiary=%s、 CC-PBUDGET-INV-03)", (subsidiaryOver) => {
+    expect(decideDispatch({ globalOver: true, subsidiaryOver, person: person(0, 5_000_000, 0) }))
+      .toEqual({ allow: false, reason: "global_over", rewardBalance: 0, inEffect: false });
+  });
+
+  it("個人を特定できない依頼 (本社・依頼者なし) も、全体の超過では止まり、それ以外は子会社の日次 budget で決まる (CC-PBUDGET-INV-07)", () => {
+    expect(decideDispatch({ globalOver: true, subsidiaryOver: false, person: null }))
+      .toEqual({ allow: false, reason: "global_over", rewardBalance: 0, inEffect: false });
+    expect(decideDispatch({ globalOver: false, subsidiaryOver: false, person: null })).toEqual({ allow: true, source: "none" });
     expect(decideDispatch({ globalOver: false, subsidiaryOver: true, person: null }))
       .toEqual({ allow: false, reason: "subsidiary_over", rewardBalance: 0, inEffect: false });
   });

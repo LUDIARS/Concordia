@@ -40,6 +40,7 @@
     { "glob": "src/personal-budget/dispatch-policy.ts", "layer": "domain-logic" },
     { "glob": "src/personal-budget/person-resolution.ts", "layer": "domain-logic" },
     { "glob": "src/personal-budget/session-facts.ts", "layer": "domain-logic" },
+    { "glob": "src/personal-budget/requester-inheritance.ts", "layer": "domain-logic" },
     { "glob": "src/personal-budget/reward-settings.ts", "layer": "domain-logic" },
     { "glob": "src/personal-budget/reward-policy.ts", "layer": "domain-logic" },
     { "glob": "src/personal-budget/adjustment-policy.ts", "layer": "domain-logic" },

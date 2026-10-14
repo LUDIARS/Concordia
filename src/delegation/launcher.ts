@@ -82,6 +82,7 @@ export function launchDelegationProcess(input: {
     subsidiaryId: input.invocation.subsidiary_id ?? null,
     project: input.invocation.project ?? null,
     requesterDiscordUserId: input.invocation.requester_discord_user_id ?? null,
+    budgetRequester: input.invocation.budget_requester ?? null,
     startupInjectText: input.startupInjectText,
     sourceDiscordGuildId: input.invocation.source_discord_guild_id ?? null,
     sourceDiscordChannelId: input.invocation.source_discord_channel_id ?? null,

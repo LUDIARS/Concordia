@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveBudgetPerson } from "./person-resolution.js";
-import { consumptionSessionOf } from "./session-facts.js";
+import { budgetRequesterOf, consumptionSessionOf } from "./session-facts.js";
 
 describe("resolveBudgetPerson (CC-PBUDGET-INV-07)", () => {
   it("identifies a subsidiary member by company, platform and user id", () => {
@@ -36,11 +36,44 @@ describe("consumptionSessionOf", () => {
     });
   });
 
+  it("falls back to the requester inherited from the delegating parent", () => {
+    expect(consumptionSessionOf({
+      id: "s2", started_at: 1,
+      metadata: JSON.stringify({ personal_budget_requester: { subsidiary_id: "glab", discord_user_id: "12345" } }),
+    })).toEqual({ id: "s2", subsidiaryId: "glab", requesterPlatform: "discord", requesterUserId: "12345", startedAtMs: 1_000 });
+  });
+
+  it("prefers the session's own requester over an inherited one", () => {
+    const facts = consumptionSessionOf({
+      id: "s3", started_at: 1,
+      metadata: JSON.stringify({
+        subsidiary_id: "glab", discord_requester_user_id: "12345",
+        personal_budget_requester: { subsidiary_id: "other", discord_user_id: "99999" },
+      }),
+    });
+    expect(facts).toMatchObject({ subsidiaryId: "glab", requesterUserId: "12345" });
+  });
+
   it("treats missing or broken metadata as a session without a requester", () => {
     for (const metadata of [null, "{broken", JSON.stringify(["x"]), JSON.stringify({ subsidiary_id: "glab" })]) {
       const facts = consumptionSessionOf({ id: "s1", started_at: 1, metadata });
       expect(facts.requesterUserId).toBeNull();
       expect(facts.requesterPlatform).toBeNull();
     }
+  });
+});
+
+describe("budgetRequesterOf", () => {
+  it("returns the session's own (company, requester) pair first", () => {
+    expect(budgetRequesterOf(JSON.stringify({ subsidiary_id: "glab", discord_requester_user_id: "12345" })))
+      .toEqual({ subsidiaryId: "glab", discordUserId: "12345" });
+  });
+
+  it("returns the inherited pair when the session has no own pair, and null when neither is complete", () => {
+    expect(budgetRequesterOf(JSON.stringify({ personal_budget_requester: { subsidiary_id: "glab", discord_user_id: "12345" } })))
+      .toEqual({ subsidiaryId: "glab", discordUserId: "12345" });
+    expect(budgetRequesterOf(JSON.stringify({ personal_budget_requester: { subsidiary_id: "glab" } }))).toBeNull();
+    expect(budgetRequesterOf(JSON.stringify({ discord_requester_user_id: "12345" }))).toBeNull();
+    expect(budgetRequesterOf(null)).toBeNull();
   });
 });

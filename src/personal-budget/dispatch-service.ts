@@ -51,7 +51,8 @@ export class PersonalBudgetDispatch implements PersonalBudgetDispatchPort {
     });
     if (!resolved.ok) {
       // 本社メンバー・個人を特定できない依頼には個人の予算を適用しない (CC-PBUDGET-INV-07)。
-      return decideDispatch({ globalOver: false, subsidiaryOver: request.subsidiaryOver, person: null });
+      // 全体の停止スイッチだけは全員に効かせる (CC-PBUDGET-INV-03)。
+      return decideDispatch({ globalOver: this.deps.isGlobalOver(), subsidiaryOver: request.subsidiaryOver, person: null });
     }
     const now = this.now();
     // 依頼の時点で個人の行を作る。 これより後に始まるセッションの消費は 0 から数えられる。

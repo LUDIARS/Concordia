@@ -50,7 +50,13 @@ A (台帳・消費・払い出しの判定・`/budget`・`/reward`・WebUI) は�
 - 月間分の上限が 0 の個人は「上限なし」として扱い、報酬分を引かない (既定。現状の動きを変えない)。
 - 子会社の日次 budget が超過中は、月間分が残っていても月間分では通さない。報酬分が正の個人だけ通し、
   その間の消費は報酬分から引く (報奨は「チームが上限でも自分は使える」権利でもある)。
-- 全体の日次 budget が超過中は誰も通さない (CC-PBUDGET-INV-03)。
+- 全体の日次 budget が超過中は誰も通さない (CC-PBUDGET-INV-03)。子会社の受付では、個人の予算が効いているか・
+  個人を特定できるか (本社内 desk・依頼者なし) に関わらず全員に効かせる。`decideDispatch` は表の 1 行目を最初に判定する (§13.2)。
+- 委託の子セッションは、委託の起動 (`/v1/delegation/invoke`) の body に依頼者の指定が無ければ、`parent_session_id` の
+  親セッションの依頼者と所属会社を引き継ぐ。body の指定が優先で、親に依頼者と会社の組が無ければ引き継がない (子も依頼者なし)。
+  孫以降も同じ規則で、親の値をそのまま渡すだけで遡って探索しない (`inheritRequester`、`requester-inheritance.ts`)。
+  引き継いだ組は消費の帰属専用の metadata `personal_budget_requester` に置き、メンションと返信の権限に使う
+  `discord_requester_user_id` には書かない (起動通知などのメンションを新たに飛ばさない、§13.3)。
 
 | 全体 | 子会社の日次 | 月間分の残り | 報酬分 | 払い出し | 引く先 |
 |---|---|---|---|---|---|
@@ -145,10 +151,11 @@ observability の表を直接書かない。
 ## 9. 未確認・未決
 
 - 加算量の既定値 (§5)、月間分の既定値 (子会社ごとに人が設定。既定は上限なし)。
-- 子会社の budget 判定が 1 か所に集まっているか → 実装時に確認した (§13.1)。全体の日次 budget を子会社の受付で
-  全員に適用するかは未決 (§13.2)。
-- 委託の子セッションが親の依頼者を引き継いでいるか → 引き継いでいない (§13.3)。引き継がせるかは未決。
-- 受付チャンネル経由の依頼は依頼者を session に残していない (§13.3)。残すかは未決。
+- 子会社の budget 判定が 1 か所に集まっているか → 実装時に確認した (§13.1)。全体の日次 budget は子会社の受付で
+  全員に適用する (2026-10-02 neco「全体の停止を子会社にも効かせる」、§13.2)。
+- 委託の子セッションの依頼者 → 親の依頼者を帰属専用で引き継ぐ (2026-10-02 neco「委託の子へ依頼者を引き継ぐ」、§13.3)。
+  バグ報告の受取人の解決 (`src/bounty/session-view.ts`) は引き継いだ組をまだ読まない。読ませるかは未決。
+- 受付チャンネル経由の依頼は依頼者を session に残していない (§13.3)。残すかは未決 (本タスクでは扱わない)。
 - 本社メンバーが子会社の guild で依頼した場合の扱い (§13.4)。
 
 ## 10. 失敗・中断からの回復
@@ -179,6 +186,7 @@ A の実装での配置:
 | ファイル | 役割 | 要件 |
 |---|---|---|
 | `src/personal-budget/allocation.ts`、`dispatch-policy.ts`、`person-resolution.ts`、`session-facts.ts` | 割り当て・払い出しの判定・個人の解決 (純関数) | `SPEC-PBUDGET-CONSUME` |
+| `src/personal-budget/requester-inheritance.ts` | 委託の子へ引き継ぐ依頼者の決定 (純関数、C で追加)。配線は `src/api/delegation.ts` → `src/delegation/launcher.ts` → `src/control/pending-delegation-spawns.ts` → `src/api/sessions/lifecycle.ts` | `SPEC-PBUDGET-CONSUME` |
 | `src/personal-budget/reward-policy.ts`、`reward-settings.ts` | 報奨の可否と加算量 (純関数) | `SPEC-PBUDGET-REWARD` |
 | `src/personal-budget/adjustment-policy.ts` | 調整の可否と対象の会社 (純関数) | `SPEC-PBUDGET-ADJUST` |
 | `src/personal-budget/format.ts` | 本人へ見せる文面 (純関数) | `SPEC-PBUDGET-VIEW` |
@@ -216,17 +224,29 @@ budget も見ていない (現状のまま)。ここへ個人の判定を足す�
 
 ### 13.2 全体の日次 budget の適用範囲
 
-子会社の受付は、導入前は全体の日次 budget を見ていなかった。「月間分の上限が 0 の個人では現状の動きを変えない」ため、
-全体の超過で止めるのは個人の予算が効いている人 (月間分の上限が 1 以上、または報酬分が 1 以上) だけにした。
-効いていない人は従来どおり子会社の日次 budget だけで決まる。§3 の表の 1 行目を全員へ適用するには、子会社の受付へ
-全体の停止を足す判断が要る。
+子会社の受付は、導入前は全体の日次 budget を見ていなかった。A では「月間分の上限が 0 の個人では現状の動きを変えない」ため、
+全体の超過で止めるのを個人の予算が効いている人 (月間分の上限が 1 以上、または報酬分が 1 以上) だけにしていた。
+その結果、報酬分を持つ人だけが全体の超過で止まり、持たない人は通っていた (CC-PBUDGET-INV-03 の意図と逆転)。
+
+C (`spec/tasks/2026-10-02-personal-budget-attribution.md`) で、`decideDispatch` が全体の超過を最初に判定し、
+誰であっても止めるようにした。個人を特定できない依頼 (本社内 desk・依頼者なし) も `PersonalBudgetDispatch.admit` が
+全体の状態を渡すので止まる (個人の行は作らない)。止めた理由は「全体のコスト上限」として依頼者へ返し、監査記録
+(`subsidiary_requests`) に `personal budget: global_over` で残す。残高の数字は返信にも監査記録にも載せない (CC-PBUDGET-INV-08)。
+月間分の上限が 0 の個人の動きが変わらないのは、全体が超過していない間に限る。個人の予算の port を配線していない
+受付 (`SubsidiaryGateDeps.personalBudget` 省略) は、従来どおり全体の budget を見ない。
 
 ### 13.3 依頼者の帰属
 
 - 消費を個人へ帰属できるのは、session metadata に `subsidiary_id` と `discord_requester_user_id` の両方があるセッション。
   Session forum の起動 (`forum-spawn.ts`)、`/consult`、`/spawn` はこれを満たす。
-- 委託の子セッションは親の依頼者を引き継がない。`/v1/delegation/invoke` は依頼の body の
-  `requester_discord_user_id` だけを使い、親セッションの metadata を読まない。子の消費は個人へ帰属しない。
+- 委託の子セッションは、C で親の依頼者を引き継ぐようにした。`/v1/delegation/invoke` は body の
+  `requester_discord_user_id` が無ければ親セッションの metadata から依頼者と会社の組 (自分の組、無ければ親が
+  引き継いだ組) を読み、起動入力の `budget_requester` → pending spawn → session.started で子の metadata
+  `personal_budget_requester` へ焼く。消費の計上 (`consumptionSessionOf`) は自分の依頼者が無いときにこれを読む。
+- メンションに使う値 (`discord_requester_user_id`: 起動通知・人の作業依頼のメンション・返信の権限・使用量の起動者) と
+  帰属に使う値を別のキーに分けたので、引き継ぎでメンションは増えない。子の `subsidiary_id` (Bot の可視範囲) も変えない。
+  起動の pending spawn はプロセス内メモリなので、起動から session.started までの間に Cc が再起動すると引き継ぎは失われる
+  (子は帰属しない)。
 - 受付チャンネル経由の依頼 (`processSubsidiaryRequest`) は起動に `requester_discord_user_id` を渡していない。
   払い出しの判定は効くが、その後の消費は個人へ帰属しない。渡すと起動通知で依頼者へメンションが飛ぶようになるため、変えていない。
 - Slack の依頼者は session に残らない (判定は効くが、消費は帰属しない)。

@@ -25,6 +25,11 @@ export interface PendingDelegationSpawn {
   project: string | null;
   /** Discord から起動した利用者。session surface 冒頭の mention / follow 案内に使う。 */
   requesterDiscordUserId: string | null;
+  /**
+   * 委託の親から引き継いだ依頼者。 session.started で metadata.personal_budget_requester へ焼く。
+   * 消費の帰属専用で、 mention には使わない (spec/feature/personal-ai-budget.md §3)。
+   */
+  budgetRequester: { subsidiary_id: string; discord_user_id: string } | null;
   /** 新規 session に渡した初回 prompt。Discord session surface の冒頭にも写す。 */
   startupInjectText: string | null;
   sourceDiscordGuildId: string | null;
@@ -62,6 +67,7 @@ export function recordPendingDelegationSpawn(
     subsidiaryId?: string | null;
     project?: string | null;
     requesterDiscordUserId?: string | null;
+    budgetRequester?: { subsidiary_id: string; discord_user_id: string } | null;
     startupInjectText?: string | null;
     sourceDiscordGuildId?: string | null;
     sourceDiscordChannelId?: string | null;
@@ -87,6 +93,9 @@ export function recordPendingDelegationSpawn(
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
     project: (input.project ?? "").trim() || null,
     requesterDiscordUserId: (input.requesterDiscordUserId ?? "").trim() || null,
+    budgetRequester: input.budgetRequester?.subsidiary_id.trim() && input.budgetRequester.discord_user_id.trim()
+      ? { subsidiary_id: input.budgetRequester.subsidiary_id.trim(), discord_user_id: input.budgetRequester.discord_user_id.trim() }
+      : null,
     startupInjectText: (input.startupInjectText ?? "").trim() || null,
     sourceDiscordGuildId: (input.sourceDiscordGuildId ?? "").trim() || null,
     sourceDiscordChannelId: (input.sourceDiscordChannelId ?? "").trim() || null,

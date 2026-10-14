@@ -68,6 +68,14 @@ import { parseSidecarPacket,sidecarRequestKey } from "../delegation/sidecar/pack
 import { continueResidentSidecar,prepareResidentChild,type ResidentSidecarPorts } from "../delegation/sidecar/resident-service.js";
 import { reconcileResidentSidecars,closeResidentSidecar } from "../delegation/sidecar/resident-runtime.js";
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
+import { inheritRequester } from "../personal-budget/requester-inheritance.js";
+import type { BudgetRequester } from "../personal-budget/session-facts.js";
+import type { InvokeInput } from "../delegation/contracts.js";
+
+/** 引き継いだ依頼者を委託の起動入力の形へ写す。 */
+function budgetRequesterInput(requester: BudgetRequester | null): InvokeInput["budget_requester"] {
+  return requester ? { subsidiary_id: requester.subsidiaryId, discord_user_id: requester.discordUserId } : null;
+}
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { mergeTaskflowReference, TASKFLOW_REFERENCE } from "../delegation/work-key.js";
 
@@ -731,6 +739,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const parentSessionId = resolveParentSessionId(c.req, parsed.data.parent_session_id);
     const residentParent = parentSessionId ? deps.sessions?.findSession(parentSessionId) : null;
     const isResident = residentParent && isSidecarParentMetadata(residentParent.metadata);
+    // body に依頼者が無ければ親の依頼者と会社を子へ引き継ぐ (消費の帰属専用、 mention には使わない)。
+    const budgetRequester = budgetRequesterInput(inheritRequester({
+      bodyRequesterUserId: parsed.data.requester_discord_user_id,
+      parentMetadata: residentParent?.metadata ?? null,
+    }));
     if (isResident && deps.residents) {
       const packet = parseSidecarPacket(parsed.data.args.sidecar_packet);
       if (!packet.ok) return c.json({ error:"sidecar_packet_invalid",issues:packet.issues },400);
@@ -791,7 +804,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
             organization:readSubsidiaryId(residentParent.metadata) ?? "",model:guarded.input.overrides!.model! }); }
           catch (error) { return c.json({ error:error instanceof Error ? error.message : "resident_reservation_failed" },409); }
         }
-        const sidecarResult = await deps.service.invoke({ ...guarded.input,
+        const sidecarResult = await deps.service.invoke({ ...guarded.input, budget_requester: budgetRequester,
           ...(reserved ? { reserved_run_id:reserved.receipt.run_id,
             extra_prompt:`Resident child generation ${reserved.child.generation}: report this run, then remain available; do not end the session after reporting.` } : {}) });
         recordSidecarLaunch(deps.sidecar, {
@@ -842,6 +855,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       department_id: parsed.data.department ?? null,
       project: parsed.data.project ?? null,
       requester_discord_user_id: parsed.data.requester_discord_user_id ?? null,
+      budget_requester: budgetRequester,
       source_discord_guild_id: parsed.data.source_discord_guild_id ?? null,
       source_discord_channel_id: parsed.data.source_discord_channel_id ?? null,
     });

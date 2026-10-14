@@ -3,9 +3,9 @@ import augurContract_56c60ea1 from './dispatch-policy.contract.js'; /* augur-inj
 /**
  * 払い出しの判定 (純関数)。 spec §3 の表をそのまま持つ。
  *
- * 個人の予算が効いていない人 (個人を特定できない、 または月間分の上限が 0 かつ報酬分が 0) は、
- * 導入前と同じく子会社の日次 budget だけで決める。 全体の日次 budget は、 個人の予算が効いている人に
- * ついて個人の予算より先に見る (CC-PBUDGET-INV-03)。
+ * 全体の日次 budget (停止スイッチ) が超過中なら、 個人の予算が効いているかに関わらず全員を止める
+ * (CC-PBUDGET-INV-03、 表の 1 行目)。 それ以外では、 個人の予算が効いていない人 (個人を特定できない、
+ * または月間分の上限が 0 かつ報酬分が 0) は導入前と同じく子会社の日次 budget だけで決める。
  *
  * @implements SPEC-PBUDGET-CONSUME
  * @implements spec/feature/personal-ai-budget.md §3
@@ -48,13 +48,16 @@ export function isPersonalBudgetInEffect(person: DispatchPersonState | null): bo
 
 export function decideDispatch(input: DispatchInput): DispatchDecision {
   const person = input.person;
-  if (!person || !isPersonalBudgetInEffect(person)) {
+  const inEffect = isPersonalBudgetInEffect(person);
+  if (input.globalOver) {
+    return { allow: false, reason: "global_over", rewardBalance: inEffect ? nonNegative(person!.rewardBalance) : 0, inEffect };
+  }
+  if (!person || !inEffect) {
     return input.subsidiaryOver
       ? { allow: false, reason: "subsidiary_over", rewardBalance: 0, inEffect: false }
       : { allow: true, source: "none" };
   }
   const rewardBalance = nonNegative(person.rewardBalance);
-  if (input.globalOver) return { allow: false, reason: "global_over", rewardBalance, inEffect: true };
   if (input.subsidiaryOver) {
     // 月間分が残っていても月間分では通さない。 報酬分が正の個人だけ通す。
     return rewardBalance > 0

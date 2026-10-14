@@ -36,6 +36,7 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
 }
 import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
 import { DECLARED_TASK_METADATA_KEY } from "../../harness/reliability/task-branch-policy.js";
+import { INHERITED_REQUESTER_METADATA_KEY } from "../../personal-budget/session-facts.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -170,6 +171,11 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (claimed?.memoriaTaskId) meta.memoria_task_id = claimed.memoriaTaskId;
       if (claimed?.requesterDiscordUserId) {
         meta.discord_requester_user_id = claimed.requesterDiscordUserId;
+      }
+      // 委託の親から引き継いだ依頼者は帰属専用の別キーへ焼く。 discord_requester_user_id へ
+      // 書くと起動通知などのメンションが飛ぶため混ぜない (spec/feature/personal-ai-budget.md §3)。
+      if (claimed?.budgetRequester) {
+        meta[INHERITED_REQUESTER_METADATA_KEY] = { ...claimed.budgetRequester };
       }
       if (claimed?.sourceDiscordGuildId) {
         meta.discord_source_guild_id = claimed.sourceDiscordGuildId;

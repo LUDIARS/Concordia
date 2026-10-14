@@ -9,7 +9,8 @@ import { processSubsidiaryRequest, type SubsidiaryGateDeps } from "../src/subsid
 import { seedHarnessRules } from "../src/subsidiary/harness-seed.js";
 
 // 子会社ゲートと個人の AI 予算の結合 (spec/feature/personal-ai-budget.md §3)。
-// 月間分の上限が 0 (既定) の個人では、 port を配線しても払い出しの動きが変わらないことを固定する。
+// 月間分の上限が 0 (既定) の個人では、 全体が超過していない限り port を配線しても払い出しの動きが
+// 変わらないこと、 全体の超過 (停止スイッチ) は全員を止めることを固定する。
 
 const ALLOW = '{"decision":"allow","reason":"ok","matched_call_name":"fix-content","violations":[],"lock_user":false}';
 const OVER = { todayTokens: 120_000, budget: 100_000, blocked: true, dateIso: "2026-10-02" };
@@ -82,15 +83,28 @@ beforeEach(() => {
   };
 });
 
-describe("月間分の上限が 0 (既定) の個人 — 払い出しの動きは導入前と同じ", () => {
-  it("子会社の日次 budget 内なら、 port の有無に関わらず通す (全体が超過していても従来どおり)", async () => {
+describe("月間分の上限が 0 (既定) の個人 — 全体が超過していない限り、 払い出しの動きは導入前と同じ", () => {
+  it("子会社の日次 budget 内なら、 port の有無に関わらず通す", async () => {
     const before = await processSubsidiaryRequest(gate(UNDER, false), request());
-    globalOver = true;
     const after = await processSubsidiaryRequest(gate(UNDER, true), request());
     expect(before.outcome).toBe("allowed");
     expect(after.outcome).toBe("allowed");
     expect(after.replyText).toBe(before.replyText);
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("全体が超過中は、 上限 0 の個人もガードを呼ばずに止めて理由を返し、 監査記録に残す (CC-PBUDGET-INV-03)", async () => {
+    globalOver = true;
+    const result = await processSubsidiaryRequest(gate(UNDER, true), request());
+    expect(result.outcome).toBe("budget_exceeded");
+    expect(result.replyText).toContain("全体のコスト上限");
+    expect(result.replyText).not.toMatch(/\d/);
+    expect(runClaude).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    const recorded = subRepo.recentRequests(sub.id)[0]!;
+    expect(recorded).toMatchObject({ decision: "deny", reason: "personal budget: global_over" });
+    expect(recorded.violations_json).toContain("budget_exceeded");
+    expect(subRepo.isLocked(sub.id, "discord", "111")).toBe(false);
   });
 
   it("子会社の日次 budget が超過なら、 port の有無に関わらず同じ文面で止める", async () => {
@@ -158,6 +172,15 @@ describe("本社内 desk の依頼者 (本社メンバー)", () => {
     sub = subRepo.update(sub.id, { mode: "desk", personal_monthly_token_budget: 1 })!;
     const result = await processSubsidiaryRequest(gate(UNDER, true), request());
     expect(result.outcome).toBe("allowed");
+    expect(budget.people.list({ limit: 10, offset: 0 }).total).toBe(0);
+  });
+
+  it("全体が超過中は止める (停止スイッチは本社メンバーにも効く)", async () => {
+    sub = subRepo.update(sub.id, { mode: "desk" })!;
+    globalOver = true;
+    const result = await processSubsidiaryRequest(gate(UNDER, true), request());
+    expect(result.outcome).toBe("budget_exceeded");
+    expect(subRepo.recentRequests(sub.id)[0]!.reason).toBe("personal budget: global_over");
     expect(budget.people.list({ limit: 10, offset: 0 }).total).toBe(0);
   });
 });

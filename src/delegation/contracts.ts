@@ -86,6 +86,11 @@ export interface InvokeInput {
   department_id?: string | null;
   project?: string | null;
   requester_discord_user_id?: string | null;
+  /**
+   * 親セッションから引き継いだ依頼者 (spec/feature/personal-ai-budget.md §3)。 消費の帰属専用で、
+   * `requester_discord_user_id` (メンション・返信の権限) とは別に運ぶ。
+   */
+  budget_requester?: { subsidiary_id: string; discord_user_id: string } | null;
   source_discord_guild_id?: string | null;
   source_discord_channel_id?: string | null;
   /** `/spawn` で選ばれた Memoria タスク。session.started まで pending claim で運ぶ。 */

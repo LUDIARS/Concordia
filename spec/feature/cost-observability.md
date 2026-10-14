@@ -143,10 +143,10 @@ budget 超過時の dispatch 停止は runtime の `costStatus.blocked` を各 c
 
 - 子会社の受付 (`src/subsidiary/gate.ts`) は、子会社の日次 budget の超過と依頼者を個人の予算の port へ渡し、
   「通してよいか・どこから引くか」を受け取る。個人の予算が効いていない依頼者 (月間分の上限が 0 かつ報酬分が 0、
-  本社、依頼者なし) は、従来どおり子会社の日次 budget だけで決まる。
+  本社、依頼者なし) は、全体が超過していない限り従来どおり子会社の日次 budget だけで決まる。
 - 子会社が超過中でも、報酬分が残っている個人は通す。その間の消費は報酬分から引く。
-- 全体の日次 budget (`costStatus.blocked`) は port へ「超過中か」だけを渡す。個人の予算が効いている依頼者は
-  全体が超過中なら通さない。
+- 全体の日次 budget (`costStatus.blocked`) は port へ「超過中か」だけを渡す。全体が超過中なら、個人の予算が
+  効いているかに関わらず全員を通さない (停止スイッチ、CC-PBUDGET-INV-03)。
 - 個人の消費の計上は、本機能と同じ provider ログの累積 (`readSessionUsage`) を読み、baseline は
   個人の予算の側 (`personal_budget_session_seen`) が持つ。
 

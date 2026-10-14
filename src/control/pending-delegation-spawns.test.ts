@@ -68,6 +68,18 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.subsidiaryId).toBe("sub-123");
   });
 
+  it("委託の親から引き継いだ依頼者 (帰属専用) を mention 用の依頼者と分けて round-trip する", () => {
+    recordPendingDelegationSpawn({
+      cwd: "/a", callName: "impl", budgetRequester: { subsidiary_id: " glab ", discord_user_id: " 111111111 " },
+    }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)).toMatchObject({
+      budgetRequester: { subsidiary_id: "glab", discord_user_id: "111111111" },
+      requesterDiscordUserId: null,
+    });
+    recordPendingDelegationSpawn({ cwd: "/b", callName: "impl", budgetRequester: { subsidiary_id: "glab", discord_user_id: " " } }, 1000);
+    expect(claimPendingDelegationSpawn("/b", 1001)?.budgetRequester).toBeNull();
+  });
+
   it("subsidiaryId 未設定は null（本社の通常 spawn）", () => {
     recordPendingDelegationSpawn({ cwd: "/a", emoji: "x", callName: "x" }, 1000);
     expect(claimPendingDelegationSpawn("/a", 1001)?.subsidiaryId).toBeNull();

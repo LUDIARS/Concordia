@@ -35,11 +35,15 @@ describe("PersonalBudgetDispatch.admit", () => {
       .toMatchObject({ display_name: "alice", monthly_token_limit: null });
   });
 
-  it("keeps the pre-existing behaviour for a person without a monthly limit, whatever the global cap says", () => {
-    globalOver = true;
-    expect(budget.dispatch.admit(request)).toEqual({ allow: true, source: "none" });
+  it("keeps the pre-existing behaviour for a person without a monthly limit while the global cap is not exceeded", () => {
     expect(budget.dispatch.admit({ ...request, subsidiaryOver: true }))
       .toEqual({ allow: false, reason: "subsidiary_over", rewardBalance: 0, inEffect: false });
+  });
+
+  it("stops a person without a monthly limit while the global cap is exceeded (CC-PBUDGET-INV-03)", () => {
+    globalOver = true;
+    expect(budget.dispatch.admit(request))
+      .toEqual({ allow: false, reason: "global_over", rewardBalance: 0, inEffect: false });
   });
 
   it("stops a person whose monthly allowance and reward balance are both used up", () => {
@@ -74,8 +78,14 @@ describe("PersonalBudgetDispatch.admit", () => {
   });
 
   it("does not apply the personal budget to head-office requesters and creates no row for them (CC-PBUDGET-INV-07)", () => {
-    globalOver = true;
     expect(budget.dispatch.admit({ ...request, subsidiaryId: null })).toEqual({ allow: true, source: "none" });
+    expect(budget.people.list({ limit: 10, offset: 0 }).total).toBe(0);
+  });
+
+  it("still applies the global stop switch to head-office requesters, without creating a row", () => {
+    globalOver = true;
+    expect(budget.dispatch.admit({ ...request, subsidiaryId: null }))
+      .toEqual({ allow: false, reason: "global_over", rewardBalance: 0, inEffect: false });
     expect(budget.people.list({ limit: 10, offset: 0 }).total).toBe(0);
   });
 });

@@ -31,7 +31,7 @@ export interface SubsidiaryGateDeps {
   budget?: { status: (sub: { id: string; daily_token_budget: number }) => Promise<SubsidiaryBudgetStatus> };
   /**
    * 個人の AI 予算の払い出し判定 (spec/feature/personal-ai-budget.md §3)。 省略時は従来どおり
-   * 子会社の日次 budget だけで決める。 個人の予算が効いていない人も従来どおりになる。
+   * 子会社の日次 budget だけで決める。 全体の日次 budget の停止スイッチもこの port 経由で効く。
    */
   personalBudget?: PersonalBudgetDispatchPort;
   log?: { info: (m: string) => void; warn: (m: string) => void };
@@ -123,7 +123,8 @@ export async function evaluateSubsidiaryRequest(
   //      のでロックはしない。 予算未設定 (0) や budget 未注入なら素通り。
   const budgetStatus = await deps.budget?.status(sub);
   // 1.6) 個人の AI 予算 (月間分 → 報酬分)。 本社内 desk の依頼者は本社メンバーなので対象外
-  //      (CC-PBUDGET-INV-07)。 個人の予算が効いていない人の判定は下の従来の分岐がそのまま行う。
+  //      (CC-PBUDGET-INV-07)。 全体の日次 budget の超過 (停止スイッチ) は誰であっても止める
+  //      (CC-PBUDGET-INV-03)。 それ以外で個人の予算が効いていない人は下の従来の分岐がそのまま決める。
   const personal = deps.personalBudget?.admit({
     subsidiaryId: sub.mode === "desk" ? null : sub.id,
     platform,
@@ -131,7 +132,7 @@ export async function evaluateSubsidiaryRequest(
     userLabel,
     subsidiaryOver: budgetStatus?.blocked === true,
   }) ?? null;
-  if (personal && !personal.allow && personal.inEffect) {
+  if (personal && !personal.allow && (personal.inEffect || personal.reason === "global_over")) {
     deps.subsidiaryRepo.recordRequest({
       subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
       instruction, decision: "deny",

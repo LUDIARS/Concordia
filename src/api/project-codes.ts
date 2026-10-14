@@ -76,6 +76,7 @@ const AssignSubsidiariesSchema = z.object({
 }).strict();
 const RevisorWorkflowSchema = z.object({ workflow: z.enum(["revisor", "github"]) }).strict();
 const GithubIssueWorkflowSchema = z.object({ enabled: z.boolean() }).strict();
+const PublicIssuesSchema = z.object({ enabled: z.boolean() }).strict();
 
 export interface ProjectCodesRouterDeps {
   repo: ProjectCodesRepo;
@@ -180,6 +181,8 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
+          // パブリックイシュー (Actio の認証なしの公開面) に出すか (bug-bounty.md §8)。
+          public_issues: row.public_issues === 1,
           // 改名前の code (新しい順)。Actio の同期が旧 code のタスクを付け替えるのに使う。
           renamed_from: renamedFrom.get(row.code) ?? [],
           teams: teamIds.map((id) => ({ id, name: teamName.get(id) ?? id })),
@@ -373,6 +376,18 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     const updated = deps.repo.setGithubIssueWorkflow(row.code, parsed.data.enabled);
     if (!updated) return c.json({ error: "project_code_not_found" }, 404);
     return c.json({ ok: true, github_issue_workflow: updated.github_issue_workflow === 1 });
+  });
+
+  /**
+   * パブリックイシューに出してよいプロジェクトかを人が切り替える。 GitHub の公開状態からは自動で 1 にしない。
+   * @implements SPEC-BOUNTY-PUBLIC
+   */
+  app.put("/:code/public-issues", async (c) => {
+    const parsed = PublicIssuesSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_public_issues" }, 400);
+    const updated = deps.repo.setPublicIssues(c.req.param("code"), parsed.data.enabled);
+    if (!updated) return c.json({ error: "project_code_not_found" }, 404);
+    return c.json({ ok: true, public_issues: updated.public_issues === 1 });
   });
 
   return app;

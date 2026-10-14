@@ -5,6 +5,7 @@ import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeti
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
+import { ensureBountyReportChannel } from "./bounty-report-channel.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import { startDailyGoalDiscord, type DailyGoalDiscord } from "./daily-goal-discord.js";
 import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
@@ -185,6 +186,7 @@ import { join } from "node:path";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { ConsultCommandDeps } from "./commands/consult.js";
 import { createBountyFlowDeps } from "./bounty-wiring.js";
+import { readBountyOperatorToken } from "../bounty/operator-credentials.js";
 import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
 import { LEGACY_PRIVATE_CATEGORY_KEY, PRIVATE_CATEGORY_KEY } from "./private-channel-discord.js";
 import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
@@ -763,7 +765,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const bountyReportersRepo = new BountyReportersRepo(deps.db);
   const bountyDeps = createBountyFlowDeps({
     runtimeSubsidiaryId: subsidiaryId ?? null,
-    callConcordia: (method, path, body) => callConcordia(deps.concordiaUrl, method, path, body),
+    callConcordia: (method, path, body, headers) => callConcordia(deps.concordiaUrl, method, path, body, undefined, headers),
+    // Cc が起動時に作る内部トークン (CC-BOUNTY-INV-10)。 Bot は同じ作業ディレクトリのファイルを読む。
+    operatorToken: () => readBountyOperatorToken(),
     registeredProjects: () => projectCodesRepo.list().map((row) => ({ code: row.code, project: row.project })),
     companyProjects: () => (deps.subsidiary ? deps.subsidiary.resolveProjects() : null),
     publicNameOf: (userId) => bountyReportersRepo.findByKey({
@@ -1257,6 +1261,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         managementDiscord?.stop();
         managementDiscord = await startManagementDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
+        // バグ報告はカテゴリ「場所」の中 (2026-10-14 neco 指示)。
+        await ensureBountyReportChannel({ guild, config: configRepo, log })
+          .catch((error) => log.warn(`bounty report channel unavailable: ${String(error)}`));
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
       const teams = teamsRepo.listForSubsidiary(subsidiaryId);

@@ -60,3 +60,39 @@ describe("service deployed notification", () => {
     expect(failingDelivery.slack).toHaveBeenCalledOnce();
   });
 });
+
+describe("resolved bug reports section (bug-bounty.md §7)", () => {
+  it("lists the reports this deployment resolved without letting their text mention anyone", async () => {
+    const hq: DeploymentDelivery = { discord: vi.fn(), slack: vi.fn(), ccChannel: vi.fn(), subsidiaryChannel: vi.fn() };
+    const resolvedBountyReports = vi.fn(async () => [{ reportId: "br_1", title: "@everyone スレッドが作られない", reporter: "<@123>" }]);
+    await handleServiceDeployment({
+      event,
+      ledger: { claim: () => true },
+      lookup: {
+        findProject: () => ({ repo_origin: "LUDIARS/Concordia", deploy_notify: [{ kind: "cc-channel", target: "" }] }),
+        changes: async () => ({ from: "a", to: "b", commits: [], pullRequests: [{ number: 42, title: "fix", author: "x", mergedAt: null }], markdown: "", notice: "" }),
+        resolvedBountyReports,
+      },
+      delivery: hq,
+    });
+    expect(resolvedBountyReports).toHaveBeenCalledWith({ code: "Cc", currentHash: "7654321new", pullRequests: [42] });
+    const content = (hq.ccChannel as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(content).toContain("解決したバグ報告:");
+    expect(content).toContain("`br_1`");
+    expect(content).not.toContain("@everyone");
+    expect(content).not.toContain("<@123>");
+  });
+
+  it("does not close reports when Revisor's change list is unavailable", async () => {
+    const resolvedBountyReports = vi.fn(async () => []);
+    const result = await handleServiceDeployment({
+      event,
+      ledger: { claim: () => true },
+      lookup: { findProject: () => ({ repo_origin: "LUDIARS/Concordia", deploy_notify: [] }), changes: async () => null, resolvedBountyReports },
+      delivery,
+    });
+    expect(result.fallback).toBe(true);
+    expect(resolvedBountyReports).not.toHaveBeenCalled();
+    expect(composeDeploymentNotice(event, null, [{ reportId: "br_1", title: "t", reporter: "r" }])).not.toContain("解決したバグ報告");
+  });
+});

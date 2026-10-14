@@ -301,6 +301,20 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
           />
           {entry.github_issue_workflow ? "ON" : "OFF"}
         </label>
+        {/* パブリックイシュー (bug-bounty.md §8)。 GitHub の公開状態からは自動で ON にしない。 */}
+        <label className="flex items-center gap-1 text-[11px] text-subtle mt-1"
+          title="ON にすると、採用済みのバグ報告 (書き直した要約と公開名) とイシューを Actio の認証なしの公開面に出す">
+          <input
+            type="checkbox"
+            checked={entry.public_issues === true}
+            disabled={busy}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              void onAction(entry.code, () => api.projectCodeSetPublicIssues(entry.code, enabled));
+            }}
+          />
+          公開イシュー {entry.public_issues ? "ON" : "OFF"}
+        </label>
       </td>
       <td className="py-1.5 pr-2">
         <select

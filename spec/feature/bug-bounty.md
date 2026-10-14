@@ -29,7 +29,9 @@
 本書は設計であり、人間による UX 評価は未実施。報奨の台帳と加算量は [個人の AI 予算](personal-ai-budget.md) が持つ。
 
 実装の状況: 分割 (§15) の 1 (報告台帳と受付、クラシファイアと起動案内) を実装した。確定した強制箇所と
-設計からの補足は §16。テストは同じ変更で書いたが、このセッションでは実行していない。2〜6 は未実装。
+設計からの補足は §16。2 (仕分け・再審・Actio タスク・hotfix)・3 (反映確認・デプロイ通知・報奨の依頼)・4 の Cc 側
+(公開読み出し API)・5 (WebUI) を実装した (2026-10-14、§17)。4 の Actio 側と 6 (Cocoiru) は未実装。
+企画 (`bounty_events`、§0) は 2026-10-04 の訂正で前提が変わったため未実装 (§17.8)。
 
 ## 0. バグバウンティ企画と通常のバグ報告
 
@@ -381,8 +383,9 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 
 ## 14. 未確認・未決
 
-- Revisor の変更一覧 (`/v1/repositories/:id/changes`) が PR の識別子を返すか。返さなければ、反映確認は
-  §7 の手動クローズだけになる。実装の最初に確認する。
+- ~~Revisor の変更一覧 (`/v1/repositories/:id/changes`) が PR の識別子を返すか。~~ 確認済み (2026-10-14):
+  Revisor の `collectRepositoryChanges` (src/repository-changes.mjs) は範囲内でマージされた local PR を
+  `pullRequests[].number` で返す。反映確認は自動 (§7) と手動クローズの両方を実装した (§17.4)。
 - 子会社の日次 budget の判定が 1 か所に集まっているか。複数経路なら、残高の判定を足す箇所を実装時に洗い出す。
 - Cocoiru 側の報告フォームと通知の形。Cocoiru のコードは本設計では読んでいない。
 - 深刻度ごとの加算量は提案値 ([個人の AI 予算](personal-ai-budget.md) §5)。
@@ -430,7 +433,7 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 | `src/harness/reliability/workflow-guidance.ts` / `src/control/shared-startup-context.ts` | クラシファイアの種別 `bug-bounty`、起動時の共通案内の 1 行 |
 
 データは migration 123 (`bug-bounty-ledger`) の `bounty_reports` / `bounty_report_events` / `bounty_reporters`。
-報奨の台帳は [個人の AI 予算](personal-ai-budget.md) が持つ (本書の表は作らない)。`project_codes.bounty_public` は §8 の実装で足す。
+報奨の台帳は [個人の AI 予算](personal-ai-budget.md) が持つ (本書の表は作らない)。公開の印は §8 の実装で `project_codes.public_issues` として足した (§17.5)。
 
 ### 16.2 受付 API
 
@@ -528,3 +531,147 @@ src/harness/reliability/workflow-guidance.ts  クラシファイアの種別追�
 - 起動時の共通案内 (`session.shared_startup_context` の資料一覧の末尾) に 1 行足した。Castra root を解決できず共通案内自体を
   出せない場合は、この 1 行も出ない。
 - スキル `bug-bounty-report` 本体は Castra 側 (分割 6)。未配置の間、案内はスキル名と `/bug` を示すだけになる。
+
+## 17. 実装で確定したこと (2〜5/5: 仕分け・修正・反映確認・公開読み出し・WebUI)
+
+**Requirement ID: `SPEC-BOUNTY-TRIAGE` / `SPEC-BOUNTY-APPEAL` / `SPEC-BOUNTY-FIX` / `SPEC-BOUNTY-HOTFIX` / `SPEC-BOUNTY-FIX-LINK` /
+`SPEC-BOUNTY-CLOSE` / `SPEC-BOUNTY-REWARD` / `SPEC-BOUNTY-PUBLIC` / `SPEC-BOUNTY-WEBUI`**
+
+2026-10-14、`spec/tasks/2026-10-02-bounty-triage-fix.md`・`-close-reward.md`・`-public.md` (Cc 側)・`-webui.md` の実装で確定した点。
+テストは同じ変更で書き、変更したファイルに対応するテストだけを実行した (全件は未実行)。
+
+### 17.1 配置
+
+| ファイル | 責務 |
+|---|---|
+| `src/bounty/triage-prompt.ts` | 仕分けの依頼文 (`buildBountyTriagePrompt`)。原文は nonce 付きの資料の区切りの中だけ。純関数 |
+| `src/bounty/triage-result.ts` | 仕分け結果の入口の検証 (`validateBountyTriageResult`)、重複の根 (`resolveDuplicateRoot`)。純関数 |
+| `src/bounty/triage-service.ts` | 仕分けの起動・run の照合・結果の受付・3 回失敗で権限者へ (`BountyTriageService`) |
+| `src/bounty/triage-template.ts` | 仕分けの委託テンプレート `bounty-triage-review` (読み取り専用、call_only) |
+| `src/bounty/fix-policy.ts` / `fix-task.ts` / `hotfix-settings.ts` | hotfix の条件 (`decideBountyHotfix`)、Actio タスクの文面と hotfix の依頼文、設定キー。純関数 |
+| `src/bounty/fix-service.ts` | Actio タスクの作成と再試行、hotfix の起動と照合、PR の記録 (`BountyFixService`) |
+| `src/bounty/judgement-service.ts` | 再審の申し出と決定、権限者による判定・深刻度・自己起因の変更 (`BountyJudgementService`) |
+| `src/bounty/close-service.ts` / `reward-decision.ts` | 反映確認 (デプロイ / 手動)、報奨の依頼と取り消し、Actio done の 1 回だけの知らせ |
+| `src/bounty/public-view.ts` / `admin-view.ts` | 公開してよいかの判定 (`decideBountyPublication`) と公開用の形、管理面の一覧・詳細の形 |
+| `src/bounty/operator-auth.ts` / `operator-credentials.ts` | 操作者の経路の鍵の検証 (`verifyBountyOperator`)、Bot の内部トークンと Cocoiru の鍵の置き場所 |
+| `src/bounty/messages.ts` | 報告者・権限者への文 (原文なし、報告由来の文の mention・リンクを無効化) |
+| `src/bounty/ports.ts` / `composition.ts` | 他ドメインの口と、use case 同士のつなぎ・定期の処理の順番 |
+| `src/bounty/actio-adapter.ts` / `notifier-adapter.ts` / `pr-lookup-adapter.ts` | Actio・通知・PR 照会の adapter |
+| `src/bootstrap/bounty-runtime.ts` | 起動配線 (委託・Actio・Discord・報奨・設定の組み立て、2 分ごとの定期処理) |
+| `src/api/bounty-actor.ts` / `bounty-actions.ts` / `bounty-admin.ts` / `bounty-public.ts` / `bounty-routes.ts` | HTTP 境界 |
+| `src/discord/bounty-followup.ts`、`src/discord/commands/bug.ts` | `/bug amend` (モーダル)・`/bug appeal`・`/bug close` |
+| `web/src/pages/Bounty.tsx` / `BountyDetail.tsx` / `BountySettings.tsx` | WebUI (一覧・詳細と権限者の操作・Cocoiru の鍵) |
+
+データは migration 135 (`bug-bounty-triage-to-close`): `bounty_reports` に仕分け (`triage_run_id` / `triage_started_at` /
+`triage_failures` / `triage_escalated_at` / `info_requested_at`)、再審 (`appeal_*`)、Actio の試行 (`actio_task_attempted_at`)、
+hotfix (`hotfix_run_id` / `hotfix_started_at`)、報奨の依頼の結果 (`reward_state` / `reward_note` / `reward_tokens`)、
+Actio done の知らせ (`actio_done_notified_at`) を足し、`project_codes.public_issues` (既定 0) を足した。
+
+### 17.2 仕分け (§5)
+
+- 受付後、定期処理 (2 分ごと) が `received` の報告に仕分けの委託を 1 件ずつ起動する (1 回の処理で 3 件まで)。
+  run id は台帳へ先に予約してから `delegationService.invoke` (`reserved_run_id`) で起動し、起動の応答が失われても次回は
+  run を照会してから増やす (§11)。予約から 10 分 run が見えなければ起動の失敗として数える。
+- 読み取り専用 (CC-BOUNTY-INV-01) は起動引数で強制する: テンプレートの `runtime_options.tool_policy: "read_only"` を
+  provider-preset が `--disallowedTools Bash,PowerShell,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task` に変換する。
+  シェルが無いので、結果は MCP ツール `bounty_triage_result` (concordia-delegation の MCP server) で返す。ツールは
+  `CONCORDIA_SESSION_ID` を付けて `POST /v1/bounty/reports/:id/triage-result` を呼ぶ。
+- 結果を受けるのは「その報告の `triage_run_id` の run の子セッション」だけ。不正な結果は 422 で保存せず、失敗を数える。
+  run が結果を返さずに終わった・起動に失敗したのも失敗として数え、3 回で権限者のチャンネル (§17.7) へ回し、以後は
+  自動で起動し直さない。WebUI の判定の変更で決める。
+- 受付時にプロジェクトが分からない (`project: null`) 報告は、委託の cwd (作業領域) を決められないので権限者へ回す
+  (AI に推定させるための作業領域が無い。人の判断が要る点として PR に書いた)。推定したプロジェクトは登録済み・会社の
+  範囲内のときだけ受け、採用には対象プロジェクトを必須にした (Actio のタスクを作るため)。
+- 情報不足の聞き返しは 1 回の返信にまとめ、`/bug amend` (Discord はモーダル) / `POST /v1/bounty/reports/:id/amend` で
+  書き足すと `received` へ戻り、新しい run で仕分け直す (前の run は結果を受けた時点で外す)。
+- 判定は受付口へ返す。対象外・重複・情報不足には理由を添える (AI が書いた文は mention・リンクを無効化する)。
+- metadata が壊れて所属会社を読めないセッションは本社扱いにせず、対象プロジェクトの範囲を空にし受取人なしにする
+  (`bountySessionView` の `companyUnreadable`)。
+
+### 17.3 修正 (§6)
+
+- 採用で Actio のタスクを作る: `source: "concordia.bounty.v1"` / `sourceRef: <報告 id>` / `kind: "issue"` / `lane: "backlog"` /
+  `executorType: "ai"`。投入先は委託と同じ Actio binding を対象プロジェクトの作業領域で引く。チームが 0 件・複数なら
+  `team_ambiguous`、ローカル運用 (loopback) 以外は既定の責任者を決められないので `assignee_unresolved` として記録し、
+  権限者が WebUI の「再試行」で作り直す。Actio に届かない (`actio_unavailable`) ときだけ 10 分おきに自動で再試行する。
+  作れたら `fix_pending`。Actio 側が `concordia.bounty.v1` と `kind: "issue"` を受けるのは Actio の PR (別の委託) の範囲。
+- hotfix は条件 (§6) を満たすとき、既存の実装委託 `fix-bug` を `task_binding: "caller"` + `taskflow_reference: actio:<id>` で
+  起動する。ブランチは `fix/bounty-<報告 id の先頭 10 文字>`。依頼文の原文は仕分けと同じ区切りの中。1 日の上限は設定
+  `bounty.hotfix_daily_limit` (既定 5、0 で止める、ローカル時刻の 0 時で数え直す)。起動前に `fixing` へ遷移して run id を
+  記録し、失敗・停止 (または 10 分 run が見えない) は `fix_pending` へ戻して権限者へ知らせる。`hotfix_started_at` が残るので
+  同じ報告の hotfix は自動で起動し直さない (CC-INV-03)。
+- 修正の PR: hotfix は run の子セッションが出した PR、バックログはタスクを task-link (`cc_task_links`) で持つセッションが
+  出した PR を、Cc の PR 記録 (`pr_records`) から対象プロジェクトのリポジトリで引き、番号を `fix_pr` に記録して
+  `fix_submitted` にする。PR の提出は反映ではない。
+
+### 17.4 反映確認・報奨 (§7)
+
+- 自動: `service.deployed` の処理が Revisor の変更一覧を取れたときだけ、`pullRequests[].number` を bug-bounty の port
+  (`DeploymentLookup.resolvedBountyReports`) へ渡す。`fix_pr` が当たる `fix_pending` / `fixing` / `fix_submitted` の報告を
+  デプロイの code / hash を証拠に `deployed` にする。同じデプロイは台帳 (code, current_hash) が 1 回しか処理しない。
+- デプロイ通知に「解決したバグ報告:」の節 (報告 id・公開用の題名・公開名、10 件まで) を足す。組み立ては
+  service-deployed-notify (`composeResolvedBountySection`)。題名・公開名の mention・リンクは無効化する。
+- 手動: 権限者が `/bug close id evidence` (Discord、本社の管理職以上) か WebUI で根拠付きで閉じる。`accepted` (タスク未作成) は
+  閉じられない (先にタスクを作る)。Actio のタスクが done になっても閉じず、権限者へ 1 回だけ知らせる。
+- 報奨の依頼は反映確認と同じ流れ。条件 (`decideBountyRewardRequest`): 採用・重複でない・自己起因でない・受取人が居る・
+  受取人が本社所属でない。満たせば個人の AI 予算の `requestReward` (種類 `bounty`・報告 id・深刻度・受取人) を呼び、結果を
+  `reward_state` に記録する。権限者が自己起因・判定を変えて条件を外れたら `revokeReward` を依頼する。Cocoiru の受取人は
+  個人の AI 予算が識別できる経路 (Discord / Slack) でないので予算側が理由付きで見送る。
+- 受付の応答の `has_recipient` は「報奨を受け取れる個人が居るか」に揃え、本社の人では false にした。理由は
+  `reward_ineligible` (`headquarters` / `no_recipient`) と `message` で伝える。
+
+### 17.5 公開読み出し API (§8、Cc 側)
+
+- `project_codes.public_issues` は `/projects` の各行の「公開イシュー」チェックで切り替える (`PUT /v1/project-codes/:code/public-issues`)。
+- `GET /v1/projects/public-issues` の応答の例:
+
+  ```json
+  { "projects": [{ "code": "Cc", "project": "Concordia" }] }
+  ```
+
+- `GET /v1/bounty/public-reports?project=Cc` の応答の例 (返す項目はこれだけ。原文・受付口・プラットフォームの id・判定の
+  内部理由を返さないことをテストで固定した):
+
+  ```json
+  {
+    "project": "Cc",
+    "reports": [{
+      "report_id": "br_5f0c…", "project": "Cc", "title": "スレッドが作られない", "summary": "spawn 後にスレッドが無い",
+      "severity": "s3", "status": "deployed", "reporter": "neco", "reward_tokens": 500000,
+      "received_at": 1791962394000, "deployed_at": 1791999999000, "actio_source_ref": "br_5f0c…"
+    }]
+  }
+  ```
+
+  プロジェクトコードの形でない `project` は 400。未登録・非公開のプロジェクトは存在を区別せず空の一覧を返す。
+
+### 17.6 操作者の経路 (CC-BOUNTY-INV-10)
+
+- 人の名前での操作 (報告・取り下げ・追記・公開名・再審・手動クローズ) はヘッダ `x-concordia-bounty-operator` の鍵が要る。
+  Discord は Cc が起動時に作る内部トークン (作業ディレクトリの `.bounty-operator.token`、Bot は同じファイルを読む)、
+  Cocoiru は WebUI のバグバウンティで設定する鍵 (SecretBox で暗号化して `schema_meta` に置く、env から読まない、16 文字以上)。
+  経路ごとに自分の鍵だけを受ける。鍵が無い・違う要求は 403 `operator_unauthorized`。セッションの経路 (`session_id`) は変えない。
+
+### 17.7 WebUI と権限者 (§8.2)
+
+- 「バグバウンティ」ページ (`/bounty`、ナビの「チーム」): 一覧 (状態 / プロジェクト / 会社で絞り込み、50 件ずつ、原文なし)、
+  行を開くと詳細 (原文・仕分けの根拠・履歴・Actio タスク・PR・反映の証拠・報奨)。権限者の操作は判定・深刻度・自己起因の
+  変更、再審の決定、タスク作成の再試行、手動クローズで、どれも use case の API (`/v1/admin/bounty/...`) を呼ぶ。残高は
+  「個人の AI 予算」ページへリンクする。設定 `bounty.hotfix_daily_limit` は設定画面 (runtime) に出る。
+- 一覧・詳細は `GET /v1/bounty/reports(/:id)`、操作は `/v1/admin/bounty/*` (loopback の管理面)。WebUI からの操作は
+  履歴に `webui-admin` として残る。
+- 権限者への知らせ (仕分けの 3 回失敗・再審の申し出・Actio done・hotfix の失敗) は Discord 設定
+  `discord.bounty_authority_channel_id` のチャンネルへ送る。未設定なら送らず、WebUI の一覧の「要対応」にだけ出る。
+- バグ報告チャンネル (2026-10-14 neco 指示「カテゴリ内場所に『バグ報告』チャンネルを作ろう」、
+  `src/discord/bounty-report-channel.ts`): 本社の bot は起動時に、カテゴリ「場所」の中にテキストチャンネル「バグ報告」を
+  用意する (保存済みの id → カテゴリ内の同名の順で探し、無ければ作る)。権限者の知らせ先が未設定ならこのチャンネルを入れ、
+  人が別の場所を設定していれば上書きしない。カテゴリは人が作るもので、見つからなければ何も作らず警告を残す。
+  カテゴリ外の同名チャンネルは使わない。
+
+### 17.8 扱わなかったもの
+
+- 企画 (`bounty_events`、§0・§8.2 の企画の管理 API と画面): 2026-10-04 の訂正で「報告は常時できる」になり、企画への参加・
+  報奨との対応は「後続の企画実装で整理する」とされたため、企画の表・API・画面は作らなかった。報告の一覧の企画での
+  絞り込みも同じ理由で無い。企画の位置づけが決まった時点で別タスクにする。
+- Cocoiru への結果の返信 (§14 の未確認のまま)。Cocoiru の受付口の報告への返信は「届かなかった」と記録する。
+- 判定カード (Discord のボタンでの再審の決定): 再審の決定は WebUI で行う。

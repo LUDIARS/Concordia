@@ -8,7 +8,7 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 
-export const SCHEMA_VERSION = 134;
+export const SCHEMA_VERSION = 135;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3428,6 +3428,38 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_domain_review_note_deliveries_status
         ON domain_review_note_deliveries(status, updated_at);
+    `);
+  },
+},
+{
+  version: 135,
+  name: "bug-bounty-triage-to-close",
+  source: "bounty_reports triage/appeal/fix/reward columns + project_codes.public_issues (spec/feature/bug-bounty.md §5-§8)",
+  up(db) {
+    // 仕分け (起動した run・失敗の回数・権限者へ回した時刻・聞き返し)、再審、Actio タスク作成の試行、
+    // hotfix (run・起動時刻)、報奨の依頼の結果、Actio done の 1 回だけの知らせを台帳に持つ。
+    // 公開面に出してよいプロジェクトの印は project registry の列 (既定 0 = 出さない)。
+    db.exec(`
+      ALTER TABLE bounty_reports ADD COLUMN triage_run_id TEXT;
+      ALTER TABLE bounty_reports ADD COLUMN triage_started_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN triage_failures INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE bounty_reports ADD COLUMN triage_escalated_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN info_requested_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN appeal_requested_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN appeal_reason TEXT;
+      ALTER TABLE bounty_reports ADD COLUMN appeal_decided_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN actio_task_attempted_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN hotfix_run_id TEXT;
+      ALTER TABLE bounty_reports ADD COLUMN hotfix_started_at INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN reward_state TEXT
+        CHECK(reward_state IS NULL OR reward_state IN ('granted', 'skipped', 'revoked'));
+      ALTER TABLE bounty_reports ADD COLUMN reward_note TEXT;
+      ALTER TABLE bounty_reports ADD COLUMN reward_tokens INTEGER;
+      ALTER TABLE bounty_reports ADD COLUMN actio_done_notified_at INTEGER;
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_triage_run ON bounty_reports(triage_run_id);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_hotfix ON bounty_reports(project_code, hotfix_started_at);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_fix_pr ON bounty_reports(project_code, fix_pr);
+      ALTER TABLE project_codes ADD COLUMN public_issues INTEGER NOT NULL DEFAULT 0;
     `);
   },
 },

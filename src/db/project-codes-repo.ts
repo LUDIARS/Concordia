@@ -28,6 +28,11 @@ export interface ProjectCodeRow {
    * @implements spec/feature/github-issue-workflow.md — 契約
    */
   github_issue_workflow: number;
+  /**
+   * パブリックイシュー (Actio の認証なしの公開面) に出してよいか。 0 / 1、 既定 0。
+   * @implements SPEC-BOUNTY-PUBLIC
+   */
+  public_issues?: number;
   added_by: string;
   created_at: number;
   updated_at: number;
@@ -199,6 +204,24 @@ export class ProjectCodesRepo {
       "UPDATE project_codes SET revisor_workflow = ?, updated_at = ? WHERE code = ? COLLATE BINARY",
     ).run(workflow, Date.now(), code);
     return info.changes === 0 ? null : this.findByCode(code);
+  }
+
+  /**
+   * パブリックイシューに出してよいかを切り替える (spec/feature/bug-bounty.md §8)。
+   * @implements SPEC-BOUNTY-PUBLIC
+   */
+  setPublicIssues(code: string, enabled: boolean): ProjectCodeRow | null {
+    const info = this.db.prepare(
+      "UPDATE project_codes SET public_issues = ?, updated_at = ? WHERE code = ? COLLATE BINARY",
+    ).run(enabled ? 1 : 0, Date.now(), code);
+    return info.changes === 0 ? null : this.findByCode(code);
+  }
+
+  /** パブリックイシューに出してよいプロジェクト。 @implements SPEC-BOUNTY-PUBLIC */
+  listPublicIssues(): ProjectCodeRow[] {
+    return this.db.prepare(
+      "SELECT * FROM project_codes WHERE public_issues = 1 ORDER BY code COLLATE BINARY",
+    ).all() as ProjectCodeRow[];
   }
 
   /** opt-in 済みだけを返す (ポーリングの対象集合)。 */

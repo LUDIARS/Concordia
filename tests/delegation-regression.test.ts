@@ -18,6 +18,8 @@ const EXPECTED_SEED_CALLS = [
   "fable-5-1",
   "claude-sonnet-5-ask",
   "claude-sonnet-5-walk",
+  // バグバウンティの仕分け (読み取り専用、spec/feature/bug-bounty.md §17.2)。 bounty runtime だけが invoke する。
+  "bounty-triage-review",
   "sonnet-5-5",
   "terra-xhigh",
   "haiku",
@@ -86,7 +88,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 20, 25, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 145, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 20, 25, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 145, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-6-1")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");

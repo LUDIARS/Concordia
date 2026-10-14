@@ -24,6 +24,7 @@ import correctCommand from "./commands/correct.js";
 import consultCommand from "./commands/consult.js";
 import bugCommand from "./commands/bug.js";
 import { handleBountyModalSubmit } from "./bounty-flow.js";
+import { BOUNTY_AMEND_MODAL_PREFIX, handleBountyAmendSubmit } from "./bounty-followup.js";
 import { BOUNTY_CUSTOM_ID_PREFIX } from "./bounty-modal.js";
 import budgetCommand from "./commands/budget.js";
 import rewardCommand from "./commands/reward.js";
@@ -290,7 +291,9 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       await interaction.reply({ content: "バグ報告はこの Bot で使えません。", ephemeral: true }).catch(() => { /* best-effort */ });
       return;
     }
-    await handleBountyModalSubmit(interaction, deps.bounty);
+    // 情報不足の報告への追記 (/bug amend) と、新しい報告 (/bug report) のモーダル。
+    if (interaction.customId.startsWith(BOUNTY_AMEND_MODAL_PREFIX)) await handleBountyAmendSubmit(interaction, deps.bounty);
+    else await handleBountyModalSubmit(interaction, deps.bounty);
     return;
   }
   // 公開候補カードのボタン / 直して公開のモーダル (tech-consultation.md §5)。

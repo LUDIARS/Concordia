@@ -7,7 +7,7 @@
  *   POST /v1/bounty/reporters/public-name    公開名を変える (本人だけ)
  *
  * 報告を出せるのは、 有効な `session_id` を持つセッションか、 Bot / Cocoiru が渡す操作者 (`platform` + `actor`)。
- * 操作者の本人確認は Discord の操作者を Bot が渡す形で、 相談の API (consultations.ts) と同じ信頼境界に乗る。
+ * 操作者の経路は Bot の内部トークン / Cocoiru の鍵が要る (CC-BOUNTY-INV-10、 bounty-actor.ts)。
  * 入力の形だけをここで検証し、 権限 (会社の範囲) と保存は受付 use case が行う。 応答に原文を含めない。
  *
  * @implements SPEC-BOUNTY-INTAKE
@@ -21,22 +21,17 @@ import {
   MAX_BOUNTY_PROJECT_CODE_CHARS,
   MAX_BOUNTY_TEXT_CHARS,
 } from "../bounty/intake.js";
-import type { BountyActor, BountyIntakeError, BountyIntakeService, BountyReceipt } from "../bounty/intake-service.js";
-import { MAX_SUBSIDIARY_ID_LENGTH } from "../shared/subsidiary-id.js";
-
-const SNOWFLAKE = /^\d{5,32}$/;
-
-const ActorShape = {
-  /** セッション自身の報告。 */
-  session_id: z.string().trim().min(1).max(200).optional(),
-  /** Bot / Cocoiru が渡す受付口。 セッションは省略できる。 */
-  platform: z.enum(["discord", "session", "cocoiru"]).optional(),
-  /** Bot / Cocoiru が渡す操作者。 */
-  actor: z.object({
-    user_id: z.string().trim().min(1).max(200),
-    subsidiary_id: z.string().trim().min(1).max(MAX_SUBSIDIARY_ID_LENGTH).nullable().optional(),
-  }).strict().optional(),
-};
+import type { BountyIntakeError, BountyIntakeService, BountyReceipt } from "../bounty/intake-service.js";
+import { rewardIneligibilityNotice } from "../bounty/messages.js";
+import { BOUNTY_OPERATOR_HEADER } from "../bounty/operator-auth.js";
+import {
+  ActorShape,
+  OPERATOR_UNAUTHORIZED,
+  SNOWFLAKE,
+  operatorAllowed,
+  readActor,
+  type BountyOperatorVerifier,
+} from "./bounty-actor.js";
 
 const ReportSchema = z.object({
   ...ActorShape,
@@ -98,27 +93,8 @@ export const BOUNTY_NEEDS_INFO_MESSAGE = "受け付けましたが、何が起�
 
 export interface BountyApiDeps {
   intake: BountyIntakeService;
-}
-
-type ActorInput = { session_id?: string; platform?: "discord" | "session" | "cocoiru"; actor?: { user_id: string; subsidiary_id?: string | null } };
-
-/**
- * 報告を出す主体を決める。 `session_id` があればセッション、 無ければ Bot / Cocoiru の操作者。
- * 両方ある・どちらも無い・Discord のユーザー id が snowflake でない入力は受けない。
- */
-function readActor(input: ActorInput): BountyActor | null {
-  if (input.session_id) {
-    if (input.actor || (input.platform && input.platform !== "session")) return null;
-    return { kind: "session", sessionId: input.session_id };
-  }
-  if (!input.actor || !input.platform || input.platform === "session") return null;
-  if (input.platform === "discord" && !SNOWFLAKE.test(input.actor.user_id)) return null;
-  return {
-    kind: "operator",
-    platform: input.platform,
-    companyId: input.actor.subsidiary_id ?? null,
-    platformUserId: input.actor.user_id,
-  };
+  /** 操作者の経路の鍵の検証 (CC-BOUNTY-INV-10)。 未配線なら操作者の経路は 403。 */
+  verifyOperator?: BountyOperatorVerifier;
 }
 
 function receiptBody(receipt: BountyReceipt): Record<string, unknown> {
@@ -129,7 +105,15 @@ function receiptBody(receipt: BountyReceipt): Record<string, unknown> {
     missing: receipt.missing,
     reporter: receipt.reporter,
     has_recipient: receipt.has_recipient,
+    reward_ineligible: receipt.reward_ineligible,
   };
+}
+
+/** 受付の応答の文。 報奨の対象外 (本社所属・受取人なし) はその場で伝える。 */
+function receiptMessage(receipt: BountyReceipt): string {
+  const head = receipt.missing.length > 0 ? BOUNTY_NEEDS_INFO_MESSAGE : BOUNTY_RECEIVED_MESSAGE;
+  const notice = rewardIneligibilityNotice(receipt.reward_ineligible);
+  return notice ? `${head}${notice}` : head;
 }
 
 export function bountyRouter(deps: BountyApiDeps): Hono {
@@ -141,6 +125,7 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_report" }, 400);
     const actor = readActor(parsed.data);
     if (!actor) return c.json({ error: "invalid_actor" }, 400);
+    if (!operatorAllowed(actor, (name) => c.req.header(name), deps.verifyOperator)) return c.json(OPERATOR_UNAUTHORIZED, 403);
     const result = deps.intake.submit({
       actor,
       clientKey: parsed.data.client_key ?? null,
@@ -154,7 +139,7 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
     return c.json({
       ...receiptBody(result.receipt),
       created: result.created,
-      message: result.receipt.missing.length > 0 ? BOUNTY_NEEDS_INFO_MESSAGE : BOUNTY_RECEIVED_MESSAGE,
+      message: receiptMessage(result.receipt),
     }, result.created ? 201 : 200);
   });
 
@@ -162,6 +147,7 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
     const parsed = ChangeSchema.safeParse(await c.req.json().catch(() => null));
     const actor = parsed.success ? readActor(parsed.data) : null;
     if (!actor) return c.json({ error: "invalid_actor" }, 400);
+    if (!operatorAllowed(actor, (name) => c.req.header(name), deps.verifyOperator)) return c.json(OPERATOR_UNAUTHORIZED, 403);
     const result = deps.intake.withdraw({ reportId: c.req.param("id"), actor });
     if (!result.ok) return c.json(refuse(result.error), STATUS[result.error]);
     return c.json(receiptBody(result.receipt));
@@ -172,6 +158,7 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_amendment" }, 400);
     const actor = readActor(parsed.data);
     if (!actor) return c.json({ error: "invalid_actor" }, 400);
+    if (!operatorAllowed(actor, (name) => c.req.header(name), deps.verifyOperator)) return c.json(OPERATOR_UNAUTHORIZED, 403);
     const result = deps.intake.amend({
       reportId: c.req.param("id"),
       actor,
@@ -187,6 +174,9 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_public_name_request" }, 400);
     if (parsed.data.platform === "discord" && !SNOWFLAKE.test(parsed.data.actor.user_id)) {
       return c.json({ error: "invalid_actor" }, 400);
+    }
+    if (!deps.verifyOperator?.(parsed.data.platform, c.req.header(BOUNTY_OPERATOR_HEADER) ?? null)) {
+      return c.json(OPERATOR_UNAUTHORIZED, 403);
     }
     const result = deps.intake.setPublicName({
       companyId: parsed.data.actor.subsidiary_id ?? null,

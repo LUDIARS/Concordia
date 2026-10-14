@@ -269,3 +269,15 @@ describe("codex-sdk (Satelles headless) preset", () => {
     expect(effort?.choices?.some((c) => c.value === "ultra")).toBe(true);
   });
 });
+
+describe("tool_policy read_only (bug-bounty.md §5, CC-BOUNTY-INV-01)", () => {
+  it("blocks editing, the shell, fetching and sub-agents for a read-only Claude delegation", async () => {
+    const { resolveDelegationRuntimeArgs, claudeToolPolicyArgs } = await import("./provider-preset.js");
+    const args = resolveDelegationRuntimeArgs("claude", { effort: "medium", tool_policy: "read_only" });
+    expect(args.slice(0, 2)).toEqual(["--effort", "medium"]);
+    expect(args[2]).toBe("--disallowedTools");
+    for (const tool of ["Bash", "Edit", "Write", "WebFetch", "Agent"]) expect(args[3]!.split(",")).toContain(tool);
+    expect(claudeToolPolicyArgs(undefined)).toEqual([]);
+    expect(claudeToolPolicyArgs("anything-else")).toEqual([]);
+  });
+});

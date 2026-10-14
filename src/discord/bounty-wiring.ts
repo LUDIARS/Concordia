@@ -1,14 +1,17 @@
 /**
- * Discord の `/bug` を Cc の受付 API へつなぐ adapter (spec/feature/bug-bounty.md §3 §4)。
+ * Discord の `/bug` を Cc の受付 API へつなぐ adapter (spec/feature/bug-bounty.md §3 §4 §5 §7)。
  *
- * 報告・公開名・取り下げはどれも Cc の API (`/v1/bounty/...`) を通す。 Bot は台帳を直接書かない
- * (状態の所有者は受付 use case)。 操作者は Discord のユーザー id と、 この Bot の会社で渡す。
- * API の応答の形はここで確かめ、 読めない応答を成功として扱わない。
+ * 報告・公開名・取り下げ・追記・再審・手動クローズはどれも Cc の API (`/v1/bounty/...`) を通す。 Bot は台帳を
+ * 直接書かない (状態の所有者は use case)。 操作者は Discord のユーザー id と、この Bot の会社で渡し、Cc が起動時に
+ * 作った内部トークンをヘッダに付ける (CC-BOUNTY-INV-10)。 API の応答の形はここで確かめ、読めない応答を成功として
+ * 扱わない。
  *
  * @implements SPEC-BOUNTY-INTAKE
  * @implements SPEC-BOUNTY-REPORTER
+ * @implements SPEC-BOUNTY-APPEAL
  */
 
+import { BOUNTY_OPERATOR_HEADER } from "../bounty/operator-auth.js";
 import { bountyProjectsInScope, type BountyProject } from "../bounty/project-scope.js";
 import type { BountyApiResult, BountyFlowDeps, BountyReceiptView } from "./bounty-flow.js";
 
@@ -16,7 +19,9 @@ export interface BountyWiringDeps {
   /** この Bot (論理 runtime) の会社。 本社なら null。 */
   runtimeSubsidiaryId: string | null;
   /** Cc の API を呼ぶ (callConcordia)。 失敗は `{ error }` を返す。 */
-  callConcordia(method: "POST", path: string, body: unknown): Promise<unknown>;
+  callConcordia(method: "POST", path: string, body: unknown, headers?: Record<string, string>): Promise<unknown>;
+  /** Cc が起動時に作った Bot の内部トークン。 読めなければ null (操作者の要求は Cc が 403 で断る)。 */
+  operatorToken(): string | null;
   registeredProjects(): ReadonlyArray<BountyProject>;
   /** この会社の関係プロジェクト。 本社は null (制限なし)。 */
   companyProjects(): readonly string[] | null;
@@ -28,10 +33,15 @@ const UNREADABLE_RESPONSE = "unreadable_response";
 
 export function createBountyFlowDeps(deps: BountyWiringDeps): BountyFlowDeps {
   const actor = (userId: string) => ({ user_id: userId, subsidiary_id: deps.runtimeSubsidiaryId });
+  const post = (path: string, body: unknown) => {
+    const token = deps.operatorToken();
+    return deps.callConcordia("POST", path, body, token ? { [BOUNTY_OPERATOR_HEADER]: token } : {});
+  };
+  const reportPath = (reportId: string, action: string) => `/v1/bounty/reports/${encodeURIComponent(reportId)}/${action}`;
   return {
     runtimeSubsidiaryId: deps.runtimeSubsidiaryId,
     submit: async ({ clientKey, userId, guildId, channelId, values }) => {
-      const result = await deps.callConcordia("POST", "/v1/bounty/reports", {
+      const result = await post("/v1/bounty/reports", {
         platform: "discord",
         actor: actor(userId),
         client_key: clientKey,
@@ -47,7 +57,7 @@ export function createBountyFlowDeps(deps: BountyWiringDeps): BountyFlowDeps {
       return { ok: true, receipt: receipt.receipt, created: (result as { created?: unknown }).created === true };
     },
     setPublicName: async ({ userId, publicName }) => {
-      const result = await deps.callConcordia("POST", "/v1/bounty/reporters/public-name", {
+      const result = await post("/v1/bounty/reporters/public-name", {
         platform: "discord",
         actor: actor(userId),
         public_name: publicName,
@@ -57,13 +67,26 @@ export function createBountyFlowDeps(deps: BountyWiringDeps): BountyFlowDeps {
       const display = (result as { display?: unknown }).display;
       return typeof display === "string" ? { ok: true, display } : { ok: false, error: UNREADABLE_RESPONSE };
     },
-    withdraw: async ({ reportId, userId }) => {
-      const result = await deps.callConcordia("POST", `/v1/bounty/reports/${encodeURIComponent(reportId)}/withdraw`, {
-        platform: "discord",
-        actor: actor(userId),
-      });
-      return readReceipt(result);
-    },
+    withdraw: async ({ reportId, userId }) => readReceipt(await post(reportPath(reportId, "withdraw"), {
+      platform: "discord",
+      actor: actor(userId),
+    })),
+    amend: async ({ reportId, userId, whatHappened, reproSteps }) => readReceipt(await post(reportPath(reportId, "amend"), {
+      platform: "discord",
+      actor: actor(userId),
+      what_happened: whatHappened,
+      repro_steps: reproSteps,
+    })),
+    appeal: async ({ reportId, userId, reason }) => readOk(await post(reportPath(reportId, "appeal"), {
+      platform: "discord",
+      actor: actor(userId),
+      reason,
+    })),
+    close: async ({ reportId, userId, evidence }) => readOk(await post(reportPath(reportId, "close"), {
+      platform: "discord",
+      actor: actor(userId),
+      evidence,
+    })),
     projects: () => bountyProjectsInScope(deps.registeredProjects(), deps.companyProjects()),
     currentPublicName: (userId) => deps.publicNameOf(userId),
     log: deps.log,
@@ -74,6 +97,12 @@ function readError(result: unknown): string | null {
   if (!result || typeof result !== "object") return UNREADABLE_RESPONSE;
   const error = (result as { error?: unknown }).error;
   return typeof error === "string" ? error : null;
+}
+
+function readOk(result: unknown): BountyApiResult<object> {
+  const failure = readError(result);
+  if (failure) return { ok: false, error: failure };
+  return (result as { ok?: unknown }).ok === true ? { ok: true } : { ok: false, error: UNREADABLE_RESPONSE };
 }
 
 function readReceipt(result: unknown): BountyApiResult<{ receipt: BountyReceiptView }> {

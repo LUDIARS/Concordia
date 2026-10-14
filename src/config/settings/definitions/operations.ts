@@ -8,6 +8,7 @@
 
 import type { SettingDefinition } from "../types.js";
 import { REWARD_SETTINGS, type RewardTier } from "../../../personal-budget/reward-settings.js";
+import { BOUNTY_HOTFIX_DAILY_LIMIT_KEY, DEFAULT_BOUNTY_HOTFIX_DAILY_LIMIT } from "../../../bounty/hotfix-settings.js";
 
 const REWARD_TIER_LABEL: Record<RewardTier, string> = {
   "bounty.s1": "バグ報告の報奨 (s1)",
@@ -445,6 +446,20 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
   // 個人の AI 予算の報奨の加算量 (spec/feature/personal-ai-budget.md §5)。 既定は提案値。
   // 変更は以後の付与にだけ効き、 付与済みのぶんは遡って変えない。
   ...personalBudgetRewardSettings(),
+  // バグ報告の hotfix (spec/feature/bug-bounty.md §6)。 プロジェクトごとの 1 日の起動上限。 0 で hotfix を止める。
+  {
+    key: BOUNTY_HOTFIX_DAILY_LIMIT_KEY,
+    section: "runtime",
+    label: "バグ報告の hotfix の 1 日の上限",
+    description: "採用したバグ報告から修正の委託を自動で起動する数の、プロジェクトごとの 1 日の上限。0 で hotfix を起動しない。",
+    kind: "integer",
+    envName: null,
+    dbKey: BOUNTY_HOTFIX_DAILY_LIMIT_KEY,
+    defaultValue: DEFAULT_BOUNTY_HOTFIX_DAILY_LIMIT,
+    editable: true,
+    minValue: 0,
+    maxValue: 100,
+  },
   {
     key: "runtime.head_office_max_sessions",
     section: "runtime",

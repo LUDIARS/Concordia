@@ -217,6 +217,20 @@ function resolveClaudeThinkingEnabled(value: unknown, model: string | null | und
   return normalized.includes("opus") ? false : null;
 }
 
+/**
+ * 読み取り専用の委託 (バグ報告の仕分け、spec/feature/bug-bounty.md §5 CC-BOUNTY-INV-01) で塞ぐ道具。
+ * 編集・シェル (push を含む)・外部への取得・子エージェントを持たせない。 結果は MCP ツールで返す。
+ */
+export const READ_ONLY_DISALLOWED_TOOLS = [
+  "Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task",
+] as const;
+
+/** `tool_policy` の起動引数。 未知の値は何も足さない (既定の委託と同じ)。 */
+export function claudeToolPolicyArgs(policy: unknown): string[] {
+  if (policy !== "read_only") return [];
+  return ["--disallowedTools", READ_ONLY_DISALLOWED_TOOLS.join(",")];
+}
+
 /** @implements spec/feature/delegation.md — 13.2 codex-sdk (`SPEC-DELEGATION-CODEX-SDK`) */
 export function resolveDelegationRuntimeArgs(
   provider: string,
@@ -226,7 +240,7 @@ export function resolveDelegationRuntimeArgs(
   if (provider === "claude") {
     const o = isPlainRecord(options) ? options : {};
     const effort = normalizeProviderEffort(provider, o.effort ?? o.reasoning_effort);
-    return effort ? ["--effort", effort] : [];
+    return [...(effort ? ["--effort", effort] : []), ...claudeToolPolicyArgs(o.tool_policy)];
   }
   if (provider === "codex-sdk") {
     // Satelles CLI は `--effort` を直接受ける (内部で -c model_reasoning_effort= に

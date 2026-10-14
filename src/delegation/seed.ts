@@ -9,6 +9,7 @@ import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/
 import { initialRoleModel } from "../model-catalog/role-policy.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
 import { DAILY_GOAL_RUNNER_TEMPLATE } from "./daily-goal-runner-template.js";
+import { BOUNTY_TRIAGE_TEMPLATE } from "../bounty/triage-template.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -1203,6 +1204,8 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   },
   // デイリーゴール自走 (WM-2) の専用セッション。 daily-goal-run の scheduler だけが invoke する。
   DAILY_GOAL_RUNNER_TEMPLATE,
+  // バグ報告の仕分け (読み取り専用)。 bug-bounty の triage-service だけが invoke する (bug-bounty.md §5)。
+  BOUNTY_TRIAGE_TEMPLATE,
   ...VULTUS_CATALOG_TEMPLATES,
   ...GENIUS_INGEST_TEMPLATES,
   ];

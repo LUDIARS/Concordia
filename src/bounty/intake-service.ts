@@ -37,6 +37,7 @@ import {
   type BountyReporterIdentity,
 } from "./reporter.js";
 import { decideBountyTransition, type BountyReportStatus } from "./report-state.js";
+import { bountyRewardIneligibility, type BountyRewardSkip } from "./reward-decision.js";
 
 export interface BountyReportStore {
   create(
@@ -70,6 +71,11 @@ export interface BountySessionView {
   /** 所属会社。 本社は null。 */
   companyId: string | null;
   requesterDiscordUserId: string | null;
+  /**
+   * metadata が壊れていて所属会社を読めない。 本社扱い (制限なし) にせず、対象プロジェクトの範囲を空にし、
+   * 受取人も無しにする (fail closed)。
+   */
+  companyUnreadable?: boolean;
 }
 
 export interface BountyIntakeDeps {
@@ -126,6 +132,12 @@ export interface BountyReceipt {
   reporter: string;
   /** 報奨の受取人が居るか (居なければ報奨なし、 CC-BOUNTY-INV-05)。 */
   has_recipient: boolean;
+  /**
+   * 報奨の対象外の理由 (本社所属・受取人なし)。 対象になりうるなら null。 has_recipient はこれが null のときだけ true
+   * (「報奨を受け取れる個人が居るか」、 本社の人では false)。
+   * @implements SPEC-BOUNTY-REWARD
+   */
+  reward_ineligible: BountyRewardSkip | null;
 }
 
 export type BountySubmitResult =
@@ -146,6 +158,8 @@ interface ResolvedActor {
   /** 報奨の受取人。 特定できなければ null。 */
   recipient: BountyReporterKey | null;
   sessionId: string | null;
+  /** 所属を読めないので範囲を空にする。 */
+  scopeClosed: boolean;
 }
 
 export class BountyIntakeService {
@@ -181,7 +195,9 @@ export class BountyIntakeService {
       code: fields.project,
       registered: this.deps.projects(),
       // 所属会社が登録から消えたセッションは、 本社扱い (制限なし) にせず範囲を空にする (fail closed)。
-      companyProjects: actor.value.companyId === null ? null : this.deps.companyProjects(actor.value.companyId) ?? [],
+      companyProjects: actor.value.scopeClosed
+        ? []
+        : actor.value.companyId === null ? null : this.deps.companyProjects(actor.value.companyId) ?? [],
     });
     if (!project.ok) return { ok: false, error: project.denial };
     const publicName = actor.value.person ? normalizePublicName(input.publicName) : null;
@@ -284,13 +300,16 @@ export class BountyIntakeService {
     // セッションの報告は依頼者 (受取人) の公開名を添える。 人の報告は本人の公開名。
     const named = report.reporter_kind === "person" ? report.reporter_id : report.recipient_reporter_id;
     const publicName = named ? this.deps.reporters.find(named)?.public_name ?? null : null;
+    const recipient = report.recipient_reporter_id ? this.deps.reporters.find(report.recipient_reporter_id) : null;
+    const ineligible = bountyRewardIneligibility(recipient ? { subsidiaryId: recipient.subsidiary_id } : null);
     return {
       id: report.id,
       status: report.status,
       project: report.project_code,
       missing: report.status === "needs_info" ? missingBountyIntakeFields(report) : [],
       reporter: displayPublicName({ kind: report.reporter_kind, publicName }),
-      has_recipient: report.recipient_reporter_id !== null,
+      has_recipient: ineligible === null,
+      reward_ineligible: ineligible,
     };
   }
 
@@ -335,7 +354,7 @@ export class BountyIntakeService {
     if (actor.kind === "session") {
       const session = this.deps.session(actor.sessionId);
       if (!session || !session.active) return { ok: false, error: "invalid_session" };
-      const recipient = resolveSessionRecipient({
+      const recipient = session.companyUnreadable ? null : resolveSessionRecipient({
         requesterDiscordUserId: session.requesterDiscordUserId,
         companyId: session.companyId,
       });
@@ -349,6 +368,7 @@ export class BountyIntakeService {
             ? { subsidiary_id: recipient.companyId, platform: recipient.platform, platform_user_id: recipient.platformUserId }
             : null,
           sessionId: session.id,
+          scopeClosed: session.companyUnreadable === true,
         },
       };
     }
@@ -362,7 +382,7 @@ export class BountyIntakeService {
     };
     return {
       ok: true,
-      value: { companyId: actor.companyId, platform: actor.platform, person, recipient: person, sessionId: null },
+      value: { companyId: actor.companyId, platform: actor.platform, person, recipient: person, sessionId: null, scopeClosed: false },
     };
   }
 }

@@ -33,6 +33,19 @@ export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
+    // バグバウンティの権限者への知らせ (仕分けの失敗・再審・Actio done・hotfix の失敗、spec/feature/bug-bounty.md §5-§7)。
+    key: "discord.bounty_authority_channel_id",
+    section: "discord",
+    label: "バグバウンティの権限者チャンネル",
+    description: "バグ報告で人の判断が要るとき (仕分けの 3 回失敗・再審の申し出・Actio タスクの done・hotfix の失敗) に知らせる本社の Discord チャンネル ID。未設定なら知らせず WebUI の一覧にだけ出る。",
+    kind: "string",
+    envName: null,
+    dbKey: "bounty_authority_channel_id",
+    dbStore: "discord",
+    defaultValue: null,
+    editable: true,
+  },
+  {
     key: "discord.enabled",
     section: "discord",
     label: "Discord bot を有効化",

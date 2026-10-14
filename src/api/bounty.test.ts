@@ -7,6 +7,8 @@ import { BountyReportsRepo } from "../db/bounty-reports-repo.js";
 import { BOUNTY_NEEDS_INFO_MESSAGE, BOUNTY_RECEIVED_MESSAGE, bountyRouter } from "./bounty.js";
 
 const NECO = "905235114026467350";
+const BOT_TOKEN = "bot-token";
+const COCOIRU_KEY = "cocoiru-key-0123456789";
 
 function makeApp() {
   const db = makeTestDb();
@@ -23,12 +25,17 @@ function makeApp() {
     session: (id) => sessions.get(id) ?? null,
     now: () => 5_000,
   });
-  const app = new Hono().route("/v1/bounty", bountyRouter({ intake }));
+  // 操作者の経路は Bot の内部トークンが要る (CC-BOUNTY-INV-10)。 テストでは "bot-token" を正とする。
+  const verifyOperator = (platform: "discord" | "cocoiru", provided: string | null) =>
+    platform === "discord" ? provided === BOT_TOKEN : provided === COCOIRU_KEY;
+  const app = new Hono().route("/v1/bounty", bountyRouter({ intake, verifyOperator }));
   return { app, reports };
 }
 
-const post = (body: unknown): RequestInit => ({
-  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+const post = (body: unknown, operatorKey: string | null = BOT_TOKEN): RequestInit => ({
+  method: "POST",
+  headers: { "content-type": "application/json", ...(operatorKey ? { "x-concordia-bounty-operator": operatorKey } : {}) },
+  body: JSON.stringify(body),
 });
 const discord = { platform: "discord", actor: { user_id: NECO } };
 const text = { project: "Cc", what_happened: "スレッドが作られない", repro_steps: "/spawn を実行する" };
@@ -40,8 +47,10 @@ describe("POST /v1/bounty/reports (bug-bounty.md §3)", () => {
     expect(res.status).toBe(201);
     const body = await res.json() as { report_id: string; created: boolean; message: string };
     expect(body).toMatchObject({
-      status: "received", project: "Cc", missing: [], created: true, has_recipient: true, message: BOUNTY_RECEIVED_MESSAGE,
+      // sess-1 は本社のセッション: 依頼者は居るが本社所属なので報奨の対象外 (has_recipient は false)。
+      status: "received", project: "Cc", missing: [], created: true, has_recipient: false, reward_ineligible: "headquarters",
     });
+    expect(body.message.startsWith(BOUNTY_RECEIVED_MESSAGE)).toBe(true);
     expect(JSON.stringify(body)).not.toContain("スレッドが作られない");
     expect(reports.find(body.report_id)?.reporter_session_id).toBe("sess-1");
 
@@ -65,7 +74,7 @@ describe("POST /v1/bounty/reports (bug-bounty.md §3)", () => {
     const { app, reports } = makeApp();
     const res = await app.request("/v1/bounty/reports", post({
       platform: "cocoiru", actor: { user_id: "coco-user-9" }, client_key: "coco-report-7", ...text,
-    }));
+    }, COCOIRU_KEY));
     expect(res.status).toBe(201);
     const { report_id: id } = await res.json() as { report_id: string };
     expect(reports.find(id)).toMatchObject({ intake_platform: "cocoiru", intake_key: "cocoiru:coco-report-7" });
@@ -75,7 +84,9 @@ describe("POST /v1/bounty/reports (bug-bounty.md §3)", () => {
     const { app } = makeApp();
     const res = await app.request("/v1/bounty/reports", post({ session_id: "sess-1", project: "Cc" }));
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ status: "needs_info", missing: ["what_happened"], message: BOUNTY_NEEDS_INFO_MESSAGE });
+    const body = await res.json() as { status: string; missing: string[]; message: string };
+    expect(body).toMatchObject({ status: "needs_info", missing: ["what_happened"] });
+    expect(body.message.startsWith(BOUNTY_NEEDS_INFO_MESSAGE)).toBe(true);
   });
 
   it("answers 400 with the reason for an unknown project code and accepts project: null", async () => {
@@ -147,5 +158,31 @@ describe("withdraw / amend / public name", () => {
     expect(await invalid.json()).toMatchObject({ error: "public_name_invalid" });
     // セッションは公開名を変えられない (変更は本人だけ)。
     expect((await app.request("/v1/bounty/reporters/public-name", post({ session_id: "sess-1", public_name: "x" }))).status).toBe(400);
+  });
+});
+
+describe("operator route keys (CC-BOUNTY-INV-10)", () => {
+  it("refuses a person report without the Bot token, with another route's key, and keeps the session route open", async () => {
+    const { app, reports } = makeApp();
+    const missing = await app.request("/v1/bounty/reports", post({ ...discord, client_key: "i-1", ...text }, null));
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toMatchObject({ error: "operator_unauthorized" });
+    const wrong = await app.request("/v1/bounty/reports", post({ ...discord, client_key: "i-2", ...text }, COCOIRU_KEY));
+    expect(wrong.status).toBe(403);
+    const cocoiru = await app.request("/v1/bounty/reports", post({ platform: "cocoiru", actor: { user_id: "u-1" }, client_key: "c-1", ...text }, BOT_TOKEN));
+    expect(cocoiru.status).toBe(403);
+    const session = await app.request("/v1/bounty/reports", post({ session_id: "sess-1", client_key: "s-1", ...text }, null));
+    expect(session.status).toBe(201);
+    expect(reports.findByIntakeKey("discord:i-1")).toBeNull();
+  });
+
+  it("tells the reporter at intake that a head-office report earns no reward", async () => {
+    const { app } = makeApp();
+    const res = await app.request("/v1/bounty/reports", post({ ...discord, client_key: "i-hq", ...text }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as { has_recipient: boolean; reward_ineligible: string | null; message: string };
+    expect(body.has_recipient).toBe(false);
+    expect(body.reward_ineligible).toBe("headquarters");
+    expect(body.message).toContain("報奨の対象外");
   });
 });

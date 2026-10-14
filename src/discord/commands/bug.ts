@@ -1,8 +1,11 @@
 // @implements SPEC-BOUNTY-INTAKE
 // @implements SPEC-BOUNTY-REPORTER
+// @implements SPEC-BOUNTY-APPEAL
+// @implements SPEC-BOUNTY-CLOSE
 import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { handleBountyName, handleBountyWithdraw, type BountyFlowDeps } from "../bounty-flow.js";
+import { handleBountyAmendOpen, handleBountyAppeal, handleBountyClose } from "../bounty-followup.js";
 import { buildBountyModal } from "../bounty-modal.js";
 
 /**
@@ -11,6 +14,9 @@ import { buildBountyModal } from "../bounty-modal.js";
  * - `report [project:<コード>]`: 報告のモーダルを開く。 送信で受け付ける (bounty-flow.ts)。
  * - `name [name:<公開名>]`: 公開面に出す名前を変える (本人だけ。 空なら匿名へ戻す)。
  * - `withdraw id:<報告 id>`: 採用前の報告を本人が取り下げる。
+ * - `amend id:<報告 id>`: 情報不足と判定された報告へ本人がモーダルで書き足す。
+ * - `appeal id:<報告 id> reason:<理由>`: 判定に 1 回だけ再審を求める (権限者が決める)。
+ * - `close id:<報告 id> evidence:<根拠>`: 権限者 (本社の管理職以上) が根拠付きで手動クローズする。
  *
  * 本社 guild と子会社 guild の両方に出す。 応答はどれも本人にだけ返す。
  */
@@ -36,7 +42,21 @@ const bugCommand: DiscordCommandSpec = {
     .addSubcommand((sub) => sub
       .setName("withdraw")
       .setDescription("仕分け前の自分の報告を取り下げる")
-      .addStringOption((o) => o.setName("id").setDescription("報告 id").setRequired(true))),
+      .addStringOption((o) => o.setName("id").setDescription("報告 id").setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName("amend")
+      .setDescription("情報不足と判定された自分の報告へ書き足す (入力フォームを開く)")
+      .addStringOption((o) => o.setName("id").setDescription("報告 id").setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName("appeal")
+      .setDescription("自分の報告の判定に再審を求める (1 報告 1 回)")
+      .addStringOption((o) => o.setName("id").setDescription("報告 id").setRequired(true))
+      .addStringOption((o) => o.setName("reason").setDescription("再審を求める理由").setRequired(true).setMaxLength(1000)))
+    .addSubcommand((sub) => sub
+      .setName("close")
+      .setDescription("[権限者] 反映を確認した報告を根拠付きで閉じる")
+      .addStringOption((o) => o.setName("id").setDescription("報告 id").setRequired(true))
+      .addStringOption((o) => o.setName("evidence").setDescription("閉じる根拠 (反映を確認した事実)").setRequired(true).setMaxLength(1000))),
   async execute(interaction, deps) {
     const bounty = deps.bounty;
     if (!bounty) {
@@ -50,6 +70,18 @@ const bugCommand: DiscordCommandSpec = {
     }
     if (sub === "withdraw") {
       await handleBountyWithdraw(interaction, bounty);
+      return;
+    }
+    if (sub === "amend") {
+      await handleBountyAmendOpen(interaction);
+      return;
+    }
+    if (sub === "appeal") {
+      await handleBountyAppeal(interaction, bounty);
+      return;
+    }
+    if (sub === "close") {
+      await handleBountyClose(interaction, bounty);
       return;
     }
     // モーダルは最初の応答でしか出せない (defer しない)。

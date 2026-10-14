@@ -20,13 +20,13 @@ memory_links: []
 
 ## 完了条件 (Cc)
 
-- [ ] `project_codes.public_issues` (0 / 1、既定 0) を migration で足し、`/projects` の画面と API で設定できる。
-- [ ] 公開してよいかの判定を純関数で持つ (公開プロジェクト・採用・機微なら反映済み)。判定できなければ出さない (CC-BOUNTY-INV-07)。
-- [ ] `GET /v1/bounty/public-reports?project=<code>`: 返す項目は spec §8 の一覧だけ。原文・受付口・プラットフォームの id・
+- [x] `project_codes.public_issues` (0 / 1、既定 0) を migration で足し、`/projects` の画面と API で設定できる。
+- [x] 公開してよいかの判定を純関数で持つ (公開プロジェクト・採用・機微なら反映済み)。判定できなければ出さない (CC-BOUNTY-INV-07)。
+- [x] `GET /v1/bounty/public-reports?project=<code>`: 返す項目は spec §8 の一覧だけ。原文・受付口・プラットフォームの id・
       判定の内部理由を返さないことをテストで固定する。対応する Actio タスクの参照 (報告 id) を返す。
-- [ ] `GET /v1/projects/public-issues`: 公開プロジェクトのコード一覧。
-- [ ] バウンティ由来の Actio タスクを種別 `issue` で作る (タスク 2 の作成処理へ 1 項目足す)。
-- [ ] 単体・結合テストを同じ変更で書き、`cc.acceptance.json` に対応付ける。実行は指示があるまでしない。
+- [x] `GET /v1/projects/public-issues`: 公開プロジェクトのコード一覧。
+- [x] バウンティ由来の Actio タスクを種別 `issue` で作る (タスク 2 の作成処理へ 1 項目足す)。
+- [x] 単体・結合テストを同じ変更で書き、`cc.acceptance.json` に対応付ける。実行は指示があるまでしない。
 
 ## 完了条件 (Actio — Actio リポの PR)
 

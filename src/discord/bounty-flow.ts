@@ -40,6 +40,12 @@ export interface BountyFlowDeps {
   }): Promise<BountyApiResult<{ receipt: BountyReceiptView; created: boolean }>>;
   setPublicName(input: { userId: string; publicName: string | null }): Promise<BountyApiResult<{ display: string }>>;
   withdraw(input: { reportId: string; userId: string }): Promise<BountyApiResult<{ receipt: BountyReceiptView }>>;
+  /** 情報不足の報告への追記 (`/bug amend`)。 */
+  amend(input: { reportId: string; userId: string; whatHappened: string; reproSteps: string }): Promise<BountyApiResult<{ receipt: BountyReceiptView }>>;
+  /** 判定への再審の申し出 (`/bug appeal`)。 */
+  appeal(input: { reportId: string; userId: string; reason: string }): Promise<BountyApiResult<object>>;
+  /** 権限者の手動クローズ (`/bug close`)。 */
+  close(input: { reportId: string; userId: string; evidence: string }): Promise<BountyApiResult<object>>;
   /** この会社の範囲で報告できるプロジェクト (補完用)。 */
   projects(): ReadonlyArray<BountyProject>;
   /** 本人の今の公開名 (モーダルの既定値)。 未設定は null。 */
@@ -96,7 +102,8 @@ export async function handleBountyModalSubmit(interaction: ModalSubmitInteractio
     content: [
       `報告 \`${receipt.report_id}\` を受け付けました (対象: ${receipt.project ?? "未特定"})。仕分け結果はこのチャンネルへ返します。`,
       `公開名: ${receipt.reporter}`,
-      receipt.has_recipient ? "" : "この報告は報奨の受取人を特定できていません。",
+      // has_recipient は「報奨を受け取れる個人が居るか」。 本社所属でも false (CC-BOUNTY-INV-05)。
+      receipt.has_recipient ? "" : "この報告は報奨の対象外です (本社所属、または報奨の受取人を特定できていません)。",
       "取り下げは `/bug withdraw`、公開名の変更は `/bug name` でできます。",
     ].filter(Boolean).join("\n"),
   });

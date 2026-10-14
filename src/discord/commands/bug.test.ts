@@ -13,6 +13,9 @@ function bountyDeps(overrides: Partial<BountyCommandDeps> = {}): BountyCommandDe
       ok: true as const,
       receipt: { report_id: "br_abc", status: "withdrawn", project: "Cc", missing: [], reporter: "匿名", has_recipient: true },
     })),
+    amend: vi.fn(),
+    appeal: vi.fn(),
+    close: vi.fn(),
     projects: () => [{ code: "Cc", project: "Concordia" }, { code: "At", project: "Actio" }],
     currentPublicName: () => "neco",
     log: { info: vi.fn(), warn: vi.fn() },
@@ -34,10 +37,10 @@ function command(sub: string, options: Record<string, string | null> = {}) {
 }
 
 describe("/bug (bug-bounty.md §3 §4)", () => {
-  it("declares report, name and withdraw", () => {
+  it("declares report, name, withdraw and the follow-up subcommands (amend / appeal / close)", () => {
     const json = bugCommand.builder.toJSON() as { name: string; options: Array<{ name: string }> };
     expect(json.name).toBe("bug");
-    expect(json.options.map((option) => option.name)).toEqual(["report", "name", "withdraw"]);
+    expect(json.options.map((option) => option.name)).toEqual(["report", "name", "withdraw", "amend", "appeal", "close"]);
   });
 
   it("opens the report modal with the chosen project and the caller's own public name", async () => {

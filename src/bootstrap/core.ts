@@ -142,6 +142,9 @@ import { BountyReportsRepo } from "../db/bounty-reports-repo.js";
 import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
 import { BountyIntakeService } from "../bounty/intake-service.js";
 import { bountySessionView } from "../bounty/session-view.js";
+import { createBountyRuntime, type BountyRuntime } from "./bounty-runtime.js";
+import { roleAtLeast } from "../staff/roles.js";
+import { matchProjectRow } from "../deploy/service-code-match.js";
 import { PublicationService } from "../consultation/publication-service.js";
 import { importSharedPage, readTabulaConnection } from "../consultation/tabula-client.js";
 import { UseCaseService } from "../dialogue/use-case-service.js";
@@ -867,9 +870,13 @@ export async function startBackend(): Promise<BackendHandle> {
   const teamMetricsRepo = new TeamMetricsRepo(db);
   const projectCodesRepo = new ProjectCodesRepo(db);
   // バグ報告の受付 (bug-bounty.md §3)。 台帳へ書いてから応答し、 受付では外部を呼ばない。
+  const bountyReportsRepo = new BountyReportsRepo(db);
+  // 受付より後段は個人の AI 予算の後で組み立てる (デプロイ通知からは遅延して参照する)。
+  let bountyRuntime: BountyRuntime | null = null;
+  const bountyReportersRepo = new BountyReportersRepo(db);
   const bountyIntake = new BountyIntakeService({
-    reports: new BountyReportsRepo(db),
-    reporters: new BountyReportersRepo(db),
+    reports: bountyReportsRepo,
+    reporters: bountyReportersRepo,
     projects: () => projectCodesRepo.list().map((row) => ({ code: row.code, project: row.project })),
     companyProjects: (companyId) => (subsidiaryRepo.find(companyId) ? subsidiaryRepo.listProjects(companyId) : null),
     session: (sessionId) => {
@@ -1207,6 +1214,13 @@ export async function startBackend(): Promise<BackendHandle> {
       return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
     },
     log: createChildLogger("service-deployed"),
+  };
+  // デプロイで反映したバグ報告を閉じ、通知に「解決したバグ報告」の節を載せる (bug-bounty.md §7)。
+  // bug-bounty の組み立ては個人の AI 予算より後なので、ここでは遅延して参照する。
+  serviceDeployed.lookup.resolvedBountyReports = async ({ code, currentHash, pullRequests }) => {
+    const row = projectCodesRepo.findByCode(code) ?? matchProjectRow(projectCodesRepo.list(), code);
+    if (!row || !bountyRuntime) return [];
+    return bountyRuntime.flow.resolveDeployment({ project: row.code, code, hash: currentHash, pullRequests });
   };
   const releasePublished = {
     ledger: new SqliteReleaseNoticeLedger(db),
@@ -1625,6 +1639,38 @@ export async function startBackend(): Promise<BackendHandle> {
     run: () => personalBudgetConsumption.sampleOnce(),
     log,
   });
+  // バグバウンティの受付より後段 (仕分け・再審・修正・反映確認・管理面・公開面、bug-bounty.md §5-§8.2)。
+  bountyRuntime = createBountyRuntime({
+    db,
+    reports: bountyReportsRepo,
+    reporters: bountyReportersRepo,
+    projectCodes: projectCodesRepo,
+    subsidiaryProjects: (companyId) => (subsidiaryRepo.find(companyId) ? subsidiaryRepo.listProjects(companyId) : null),
+    subsidiaryBotTokenEnc: (companyId) => subsidiaryRepo.find(companyId)?.bot_token_enc ?? null,
+    delegation: { invoke: (input) => delegationService.invoke(input), findRun: (runId) => delegationRepo.findRun(runId) },
+    actio: {
+      bindings: createActioBindingReader({ configured: () => readActioBindings(),
+        repositories: () => projectCodesRepo.list(), registered: () => listLocalActioProjects(actioTransport) }),
+      transport: actioTransport,
+    },
+    rewards: personalBudget.rewards,
+    sessions: {
+      find: (id) => repo.findSession(id),
+      inject: (sessionId, text) => {
+        const ts = Math.floor(Date.now() / 1000);
+        repo.appendEvent({ session_id: sessionId, ts, kind: "inject", payload: { text, source: "bug-bounty" } });
+        eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source: "bug-bounty", ts });
+      },
+    },
+    meta: adminState.store,
+    secretBox,
+    hqBotToken: () => resolveDiscordConfig(discordConfig, secretBox).token ?? null,
+    authorityChannel: () => readDiscordSetting(discordConfig, secretBox, "bounty_authority_channel_id"),
+    isAuthority: (platform, userId) => roleAtLeast(staffRepo.roleOf(platform, userId), "manager"),
+    readSetting: readMetaSetting,
+    log: createChildLogger("bug-bounty"),
+  });
+  const bountyLoop = bountyRuntime.start();
 
   // コストサンプリングは workflow.cost に属する。 無効な間は起動しない。
   workflowBindings.register({
@@ -2225,6 +2271,8 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     privateChannels: new PrivateChannelsRepo(db),
     bountyIntake,
+    bountyOperator: bountyRuntime.verifyOperator,
+    bountyFlow: bountyRuntime.routes,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
     domainReview: { service: domainReviewService, posts: domainReviewRepo },
@@ -3158,6 +3206,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("cost runtime", () => costRuntime.stop());
   resources.own("taskflow status reconcile", () => taskStatusReconcile.stop());
   resources.own("personal budget consumption", () => personalBudgetConsumptionLoop.stop());
+  resources.own("bug bounty", () => bountyLoop.stop());
   resources.own("discord restart timer", () => clearDiscordBotAutoRestart());
   resources.own("post-listen startup", () => postListenStartup.catch(() => {}));
   resources.own("discord bot", () => stopDiscordBotManaged());

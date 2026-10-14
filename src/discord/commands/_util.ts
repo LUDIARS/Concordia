@@ -24,9 +24,11 @@ export async function callConcordia<T>(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
+  /** 追加のヘッダ (バグ報告の操作者の鍵など)。 */
+  extraHeaders?: Record<string, string>,
 ): Promise<T | { error: string }> {
   try {
-    const headers: Record<string, string> = { "content-type": "application/json" };
+    const headers: Record<string, string> = { ...extraHeaders, "content-type": "application/json" };
     const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,

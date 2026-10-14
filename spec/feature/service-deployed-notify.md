@@ -36,3 +36,12 @@ HQ 宛先（専用 Discord チャンネルと設定済み Discord/Slack webhook�
 project を関係 project に足すと Test forum 等まで開いてしまうため。`PUT /v1/subsidiaries/:id/deploy-notify-projects`
 `{ "projects": [...] }` で置き換え、子会社詳細に `deploy_notify_projects` を同梱する。未設定 (空) の子会社には
 配送しない。子会社 Bot トークンが未設定の場合は本社 Bot で投稿する (`resolveSubsidiaryBotToken`)。
+
+## 解決したバグ報告の節 (bug-bounty)
+
+Revisor の変更一覧を取れたデプロイでは、変更の PR 番号を bug-bounty の port (`DeploymentLookup.resolvedBountyReports`) へ渡し、
+このデプロイで反映したバグ報告 (報告 id・公開用の題名・公開名) を受け取って本文の末尾に「解決したバグ報告:」の節を足す
+(`composeResolvedBountySection`、10 件まで)。反映確認と報奨は bug-bounty が行い、通知の組み立てはここが持つ。題名・公開名は
+報告由来の文なので mention・リンクを無効化する (本文由来の mention は許可しない既存の規則のまま)。変更一覧を取れなかった
+デプロイでは呼ばない (bug-bounty は手動クローズで閉じる)。port の失敗は通知を止めない (CC-INV-06)。
+詳細は [バグバウンティ](bug-bounty.md) §7・§17.4。

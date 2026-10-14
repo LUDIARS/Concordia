@@ -15,9 +15,10 @@
  *     }
  *   }
  *
- * 2 tools:
+ * 3 tools:
  *   - delegation_list_templates
  *   - delegation_invoke
+ *   - bounty_triage_result (バグ報告の仕分けの結果を返す、 spec/feature/bug-bounty.md §5)
  *
  * Concordia HTTP loopback を直接叩く構造。 DB に直触りしない (Concordia が
  * running していなければ動かない、 でも spawn の責任分界が明確になる).
@@ -142,6 +143,43 @@ async function main(): Promise<void> {
         };
       }
       return { content: [{ type: "text", text: JSON.stringify(r.body, null, 2) }] };
+    },
+  );
+
+  // バグ報告の仕分け (spec/feature/bug-bounty.md §5)。 仕分けの委託はシェルを持たないので、結果はこのツールで返す。
+  // 受け付けるのは、その報告の仕分けとして Cc が起動したセッションだけ (Cc 側で run と session id を照合する)。
+  server.registerTool(
+    "bounty_triage_result",
+    {
+      description:
+        "Return the triage result of one bug-bounty report to Concordia. Only the session Concordia launched to triage that report is accepted. Call it once.",
+      inputSchema: {
+        report_id: z.string().min(1).max(200).describe("Report id (br_...)"),
+        verdict: z.enum(["accepted", "duplicate", "rejected", "needs_info"]),
+        severity: z.enum(["s1", "s2", "s3", "s4"]).nullable().optional(),
+        duplicate_of: z.string().max(200).nullable().optional().describe("Root report id, required for duplicate"),
+        sensitive: z.boolean().optional(),
+        self_inflicted: z.boolean().optional(),
+        hotfix_eligible: z.boolean().optional(),
+        project: z.string().max(64).nullable().optional().describe("Estimated project code when the report had none"),
+        public_title: z.string().max(120).nullable().optional(),
+        public_summary: z.string().max(1000).nullable().optional(),
+        reason: z.string().min(1).max(1000),
+      },
+    },
+    async ({ report_id, ...result }) => {
+      const sessionId = process.env.CONCORDIA_SESSION_ID?.trim();
+      if (!sessionId) {
+        return { isError: true, content: [{ type: "text", text: "CONCORDIA_SESSION_ID is not set; this tool only works inside a Concordia session" }] };
+      }
+      const r = await callConcordia("POST", `/v1/bounty/reports/${encodeURIComponent(report_id)}/triage-result`, {
+        session_id: sessionId,
+        result,
+      });
+      if (!r.ok) {
+        return { isError: true, content: [{ type: "text", text: `concordia rejected the triage result (${r.status}): ${JSON.stringify(r.body)}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(r.body) }] };
     },
   );
 

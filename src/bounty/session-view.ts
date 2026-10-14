@@ -4,10 +4,11 @@
  *
  * 「あらゆるセッションから有効」: 本社・子会社・委託の子・相談を問わず、 終了・消失していない
  * セッションは報告できる。 所属会社と依頼者は session metadata (起動時に Cc が焼いた値) から読み、
- * 壊れた metadata は本社所属・依頼者なしとして扱う。
+ * 壊れた metadata は本社所属として扱わない: 所属を読めない印を立て、受付は範囲を空にする (fail closed)。
  *
  * @implements SPEC-BOUNTY-INTAKE
  * @implements SPEC-BOUNTY-REPORTER
+ * @implements SPEC-BOUNTY-TRIAGE
  */
 
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
@@ -27,7 +28,22 @@ export function bountySessionView(session: {
     active: session.ended_at === null && !INACTIVE_STATUSES.has(session.status),
     companyId: readSubsidiaryId(session.metadata),
     requesterDiscordUserId: readRequesterDiscordUserId(session.metadata),
+    companyUnreadable: isCompanyUnreadable(session.metadata),
   };
+}
+
+/** metadata があるのに所属会社を読めない (JSON でない・object でない・subsidiary_id が文字列でない)。 */
+function isCompanyUnreadable(metadata: string | null): boolean {
+  if (!metadata || !metadata.trim()) return false;
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return true;
+    const value = (parsed as { subsidiary_id?: unknown }).subsidiary_id;
+    if (value === undefined || value === null) return false;
+    return typeof value !== "string" || readSubsidiaryId(metadata) === null;
+  } catch {
+    return true;
+  }
 }
 
 function readRequesterDiscordUserId(metadata: string | null): string | null {

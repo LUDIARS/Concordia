@@ -16,6 +16,8 @@ function setup() {
     ["sess-sub", { id: "sess-sub", active: true, companyId: "sub_a", requesterDiscordUserId: NECO }],
     ["sess-ended", { id: "sess-ended", active: false, companyId: null, requesterDiscordUserId: NECO }],
     ["sess-orphan", { id: "sess-orphan", active: true, companyId: "sub_gone", requesterDiscordUserId: null }],
+    // metadata が壊れていて所属を読めないセッション (bug-bounty 2/5: 本社扱いにしない)。
+    ["sess-broken", { id: "sess-broken", active: true, companyId: null, requesterDiscordUserId: NECO, companyUnreadable: true }],
   ]);
   let now = 1_000;
   const service = new BountyIntakeService({
@@ -42,7 +44,8 @@ describe("BountyIntakeService.submit (bug-bounty.md §3)", () => {
     });
     expect(result).toMatchObject({
       ok: true, created: true,
-      receipt: { status: "received", project: "Cc", missing: [], reporter: "neco", has_recipient: true },
+      // 本社の人は報奨の対象外: has_recipient は「報奨を受け取れる個人が居るか」(bug-bounty 3/5)。
+      receipt: { status: "received", project: "Cc", missing: [], reporter: "neco", has_recipient: false, reward_ineligible: "headquarters" },
     });
     if (!result.ok) throw new Error("unreachable");
     expect(JSON.stringify(result.receipt)).not.toContain("スレッドが作られない");
@@ -147,6 +150,14 @@ describe("BountyIntakeService.submit (bug-bounty.md §3)", () => {
       .toEqual({ ok: false, error: "project_outside_company_scope" });
     expect(service.submit({ actor: session("sess-orphan"), clientKey: "k2", ...report, project: null }))
       .toMatchObject({ ok: true, receipt: { project: null, has_recipient: false } });
+  });
+
+  it("does not treat a session with unreadable metadata as head office (fail closed)", () => {
+    const { service } = setup();
+    expect(service.submit({ actor: session("sess-broken"), clientKey: "b1", ...report }))
+      .toEqual({ ok: false, error: "project_outside_company_scope" });
+    expect(service.submit({ actor: session("sess-broken"), clientKey: "b2", ...report, project: null }))
+      .toMatchObject({ ok: true, receipt: { project: null, has_recipient: false, reward_ineligible: "no_recipient" } });
   });
 
   it("refuses an unknown or ended session", () => {

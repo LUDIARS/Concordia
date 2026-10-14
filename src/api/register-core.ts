@@ -135,7 +135,8 @@ import { readConsultIntakeRequest } from "../dialogue/intake-request.js";
 import type { PublicationService as ConsultationPublicationService } from "../consultation/publication-service.js";
 import { consultationsRouter } from "./consultations.js";
 import type { BountyIntakeService } from "../bounty/intake-service.js";
-import { bountyRouter } from "./bounty.js";
+import { mountBountyRoutes, type BountyFlowRoutesDeps } from "./bounty-routes.js";
+import type { BountyOperatorVerifier } from "./bounty-actor.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
 import type { GuildRoleList } from "../discord/member-roles.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
@@ -330,6 +331,10 @@ export interface CoreDelegationDeps {
   privateConsultations?: Pick<import("../db/private-consultations-repo.js").PrivateConsultationsRepo, "find">;
   /** バグ報告の受付 (spec/feature/bug-bounty.md §3)。 未注入なら /v1/bounty は生えない。 */
   bountyIntake?: BountyIntakeService;
+  /** 操作者の経路の鍵の検証 (CC-BOUNTY-INV-10)。 */
+  bountyOperator?: BountyOperatorVerifier;
+  /** 仕分け・再審・修正・反映確認・管理面・公開面 (bug-bounty.md §5-§8.2)。 */
+  bountyFlow?: BountyFlowRoutesDeps;
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
   publishedConsultations?: { listPublished(limit: number): PublishedConsultation[] };
   /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
@@ -909,7 +914,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }));
   }
   if (deps.bountyIntake) {
-    app.route("/v1/bounty", bountyRouter({ intake: deps.bountyIntake }));
+    mountBountyRoutes(app, {
+      intake: deps.bountyIntake,
+      ...(deps.bountyOperator ? { verifyOperator: deps.bountyOperator } : {}),
+      ...(deps.bountyFlow ? { flow: deps.bountyFlow } : {}),
+    });
   }
   if (deps.departments && deps.departmentService) {
     app.route("/v1/departments", departmentsRouter({

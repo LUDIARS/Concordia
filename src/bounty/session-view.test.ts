@@ -8,13 +8,16 @@ describe("bountySessionView (bug-bounty.md §3 §4)", () => {
     expect(bountySessionView({
       ...base,
       metadata: JSON.stringify({ subsidiary_id: "sub_a", discord_requester_user_id: "905235114026467350" }),
-    })).toEqual({ id: "sess-1", active: true, companyId: "sub_a", requesterDiscordUserId: "905235114026467350" });
+    })).toEqual({ id: "sess-1", active: true, companyId: "sub_a", requesterDiscordUserId: "905235114026467350", companyUnreadable: false });
   });
 
   it("treats a head-office session started from a terminal as having no requester", () => {
-    expect(bountySessionView(base)).toEqual({ id: "sess-1", active: true, companyId: null, requesterDiscordUserId: null });
+    expect(bountySessionView(base)).toEqual({ id: "sess-1", active: true, companyId: null, requesterDiscordUserId: null, companyUnreadable: false });
+    // 壊れた metadata は本社扱いにしない: 所属を読めない印を立てる (受付は範囲を空にする)。
     expect(bountySessionView({ ...base, metadata: "{broken" }))
-      .toMatchObject({ companyId: null, requesterDiscordUserId: null });
+      .toMatchObject({ companyId: null, requesterDiscordUserId: null, companyUnreadable: true });
+    expect(bountySessionView({ ...base, metadata: JSON.stringify({ subsidiary_id: 42 }) }).companyUnreadable).toBe(true);
+    expect(bountySessionView({ ...base, metadata: "[]" }).companyUnreadable).toBe(true);
     expect(bountySessionView({ ...base, metadata: JSON.stringify({ discord_requester_user_id: 42 }) }).requesterDiscordUserId)
       .toBeNull();
   });

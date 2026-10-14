@@ -890,6 +890,11 @@ export const api = {
       `/v1/project-codes/${encodeURIComponent(code)}/github-issue-workflow`,
       { enabled },
     ),
+  projectCodeSetPublicIssues: (code: string, enabled: boolean) =>
+    put<{ ok: boolean; public_issues: boolean }>(
+      `/v1/project-codes/${encodeURIComponent(code)}/public-issues`,
+      { enabled },
+    ),
   githubIssueWorkflowStatus: () => get<GithubIssueWorkflowStatus>("/v1/admin/github"),
   /** repo を渡すとそのリポジトリ専用の secret を発行する (省略時は共通 secret)。 */
   githubIssueWorkflowSetSecret: (options: { secret?: string; repo?: string } = {}) =>
@@ -1189,6 +1194,25 @@ export const api = {
       { monthly_token_limit: monthlyTokenLimit },
     ),
   personalBudgetAdjust: (body: PersonalBudgetAdjustment) => postPersonalBudgetAdjustment(body),
+
+  // ── バグバウンティ (spec/feature/bug-bounty.md §8.2) ──
+  bountyReports: (query: { status?: string; project?: string; company?: string; limit: number; offset: number }) => {
+    const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
+    if (query.status) params.set("status", query.status);
+    if (query.project) params.set("project", query.project);
+    if (query.company) params.set("company", query.company);
+    return get<BountyReportsPage>(`/v1/bounty/reports?${params}`);
+  },
+  bountyReport: (id: string) => get<{ report: BountyReportDetail }>(`/v1/bounty/reports/${encodeURIComponent(id)}`),
+  bountyChangeJudgement: (id: string, body: BountyJudgementChange) =>
+    post<{ ok: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/judgement`, body),
+  bountyDecideAppeal: (id: string, body: { uphold: boolean; verdict?: "accepted" | "duplicate" | "rejected"; duplicate_of?: string | null; reason: string }) =>
+    post<{ ok: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/appeal-decision`, body),
+  bountyRetryTask: (id: string) => post<{ ok: boolean; created: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/retry-task`, {}),
+  bountyClose: (id: string, evidence: string) =>
+    post<{ ok: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/close`, { evidence }),
+  bountyCocoiruKeyStatus: () => get<{ configured: boolean }>("/v1/admin/bounty/cocoiru-key"),
+  bountySetCocoiruKey: (key: string | null) => put<{ configured: boolean }>("/v1/admin/bounty/cocoiru-key", { key }),
 
   // ── チーム (可視化 + ルールスコープ) ──
   teamsList: (subsidiaryId?: string) => get<{ teams: Team[] }>(
@@ -1993,6 +2017,72 @@ export interface ProjectCodeAdminEntry {
   revisor: { registered: boolean; workflow: "revisor" | "github" | null } | null;
   /** GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。 */
   github_issue_workflow: boolean;
+  /** パブリックイシュー (Actio の認証なしの公開面) に出すか (bug-bounty.md §8)。 */
+  public_issues?: boolean;
+}
+
+/** バグバウンティの一覧の 1 行 (原文なし)。 */
+export interface BountyReportSummary {
+  id: string;
+  status: string;
+  project: string | null;
+  company: string | null;
+  severity: string | null;
+  verdict: string | null;
+  reporter: string;
+  recipient: string | null;
+  actio_task_ref: string | null;
+  actio_task_error: string | null;
+  fix_pr: string | null;
+  deployed_at: number | null;
+  received_at: number;
+  public_title: string | null;
+  needs_attention: string | null;
+}
+
+export interface BountyReportsPage {
+  reports: BountyReportSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  hotfix_daily_limit: number;
+}
+
+export interface BountyReportEvent {
+  id: number;
+  kind: string;
+  from_value: string | null;
+  to_value: string | null;
+  actor_kind: "ai" | "human" | "system";
+  actor_id: string | null;
+  created_at: number;
+}
+
+/** バグバウンティの詳細 (原文・仕分けの根拠・履歴を含む。管理面だけ)。 */
+export interface BountyReportDetail extends BountyReportSummary {
+  what_happened: string;
+  repro_steps: string;
+  intake_platform: string;
+  verdict_reason: string | null;
+  sensitive: boolean;
+  self_inflicted: boolean | null;
+  hotfix_eligible: boolean | null;
+  duplicate_of: string | null;
+  public_summary: string | null;
+  deploy: { code: string | null; hash: string | null; evidence: string | null; closed_by: string | null };
+  triage: { run_id: string | null; failures: number; escalated_at: number | null; triaged_at: number | null };
+  appeal: { requested_at: number | null; reason: string | null; decided_at: number | null };
+  hotfix: { run_id: string | null; started_at: number | null };
+  reward: { state: string | null; tokens: number | null; note: string | null };
+  events: BountyReportEvent[];
+}
+
+export interface BountyJudgementChange {
+  verdict?: "accepted" | "duplicate" | "rejected" | "needs_info";
+  severity?: "s1" | "s2" | "s3" | "s4" | null;
+  self_inflicted?: boolean;
+  duplicate_of?: string | null;
+  reason: string;
 }
 
 export interface GithubIssueWorkflowStatus {

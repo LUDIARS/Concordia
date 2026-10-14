@@ -13,6 +13,36 @@ export interface DeploymentLookup {
   changes(repository: string, from: string, to: string): Promise<RevisorChanges | null>;
   /** 本社の無条件宛先。 project registry に行が無いサービスでも本社には反映を知らせる (CC-INV-06)。 */
   hqTargets?(): DeployNotifyTarget[];
+  /**
+   * このデプロイで反映したバグ報告 (bug-bounty の port、 spec/feature/bug-bounty.md §7)。 反映確認と報奨は
+   * 呼ばれた側が行い、 ここは通知に載せる行だけを受け取る。 Revisor の変更一覧を取れたデプロイだけで呼ぶ。
+   */
+  resolvedBountyReports?(input: { code: string; currentHash: string; pullRequests: readonly number[] }): Promise<DeployedBountyReport[]>;
+}
+/** デプロイ通知の「解決したバグ報告」の 1 行。 報告 id・公開用の題名・公開名だけ (原文・受付口を含めない)。 */
+export interface DeployedBountyReport { reportId: string; title: string; reporter: string; }
+/** 通知に載せる「解決したバグ報告」の上限。 */
+const MAX_BOUNTY_LINES = 10;
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
+
+/** 報告由来の文 (題名・公開名) を mention・リンクにならない 1 行へ。 */
+function inertLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 120)
+    .replace(/@/g, `@${ZERO_WIDTH_SPACE}`)
+    .replace(/<(?=[@#:&!])/g, `<${ZERO_WIDTH_SPACE}`)
+    .replace(/https?:\/\//gi, (scheme) => `${scheme.slice(0, -2)}${ZERO_WIDTH_SPACE}//`);
+}
+
+/**
+ * 「解決したバグ報告」の節。 無ければ空文字。
+ * @implements SPEC-BOUNTY-CLOSE
+ */
+export function composeResolvedBountySection(reports: readonly DeployedBountyReport[]): string {
+  if (reports.length === 0) return "";
+  const lines = reports.slice(0, MAX_BOUNTY_LINES).map((report) =>
+    `- \`${report.reportId.replace(/[^A-Za-z0-9_-]/g, "")}\` ${inertLine(report.title)} (報告: ${inertLine(report.reporter)})`);
+  const more = reports.length > MAX_BOUNTY_LINES ? [`- ほか ${reports.length - MAX_BOUNTY_LINES} 件`] : [];
+  return ["解決したバグ報告:", ...lines, ...more].join("\n");
 }
 export interface DeploymentDeliveryResult {
   target: Pick<DeployNotifyTarget, "kind" | "target" | "subsidiaryId">;
@@ -25,11 +55,16 @@ export interface DeploymentOutcome {
   fallback: boolean;
 }
 
-export function composeDeploymentNotice(event: ServiceDeployedEvent, changes: RevisorChanges | null): string {
+export function composeDeploymentNotice(event: ServiceDeployedEvent, changes: RevisorChanges | null, bountyReports: readonly DeployedBountyReport[] = []): string {
   const head = `[${event.code}] デプロイ反映 ${shortHash(event.previousHash)}→${shortHash(event.currentHash)} / ${event.version}`;
   if (!changes) return `${head}\n反映のみ（Revisor の差分情報を取得できませんでした）`;
   const notice = changes.notice.trim().split(/\r?\n/).slice(0, 10).join("\n");
-  return [head, `merged PR ${changes.pullRequests.length} 本`, notice ? `> ${notice.replace(/\n/g, "\n> ")}` : ""].filter(Boolean).join("\n");
+  return [
+    head,
+    `merged PR ${changes.pullRequests.length} 本`,
+    notice ? `> ${notice.replace(/\n/g, "\n> ")}` : "",
+    composeResolvedBountySection(bountyReports),
+  ].filter(Boolean).join("\n");
 }
 
 // @ts-expect-error augur-inject
@@ -68,7 +103,16 @@ export async function handleServiceDeployment(input: { event: ServiceDeployedEve
   }
   let changes: RevisorChanges | null = null;
   if (project.repo_origin) { try { changes = await input.lookup.changes(project.repo_origin, input.event.previousHash, input.event.currentHash); } catch { changes = null; } }
-  const results = await deliverDeploymentNotice({ targets: project.deploy_notify, content: composeDeploymentNotice(input.event, changes), delivery: input.delivery });
+  // 反映確認は Revisor の変更一覧を取れたデプロイだけ。 失敗しても通知は止めない (CC-INV-06)。
+  let bountyReports: DeployedBountyReport[] = [];
+  if (changes && input.lookup.resolvedBountyReports) {
+    try {
+      bountyReports = await input.lookup.resolvedBountyReports({
+        code: input.event.code, currentHash: input.event.currentHash, pullRequests: changes.pullRequests.map((pr) => pr.number),
+      });
+    } catch { bountyReports = []; }
+  }
+  const results = await deliverDeploymentNotice({ targets: project.deploy_notify, content: composeDeploymentNotice(input.event, changes, bountyReports), delivery: input.delivery });
   return { duplicate: false, ...results, fallback: changes === null };
 }
 

@@ -37,6 +37,7 @@ import {
 import { collectPromptResearch } from "../harness/prompt-research.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { workflowGuidance } from "../harness/reliability/workflow-guidance.js";
+import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import type { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { describeSubmittedTask, taskStartWarning } from "../harness/reliability/task-branch-policy.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -152,6 +153,8 @@ export interface HarnessSessionApiDeps {
    */
   mainPushAllowlist?: () => string[];
   mentionUserId?: () => string | null;
+  /** 開催中のバウンティ企画 (bug-bounty.md §18.5)。 未注入なら企画なし。 */
+  openBountyEvents?: () => OpenBountyEventNotice[];
   /**
    * 月次予算の判定 (spec/feature/usage-budgets.md §5.2)。 その時点の消費を引き受ける帰属先の予算が尽きていれば deny。
    * 未注入なら判定しない。 判定の失敗はツールを止めない (集計の不調で全作業を止めない)。
@@ -433,7 +436,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // 決定的に same-task と確定した指示は、分類器の結果で上書きしない。
     const taskRelation = submittedTask?.decided ? "same-task" : analysis.task_relation ?? "unknown";
     if (session_id && !submittedTask?.decided) deps.taskBranches?.classify(session_id, submittedTask, taskRelation);
-    const workflowGuides = workflowGuidance(prompt, analysis.search_tags);
+    const workflowGuides = workflowGuidance(prompt, analysis.search_tags, {
+      openBountyEvents: deps.openBountyEvents?.() ?? [], project: project ?? null,
+    });
     let verdict = analyzed.verdict;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideIntent"]>> | undefined;
     let blackboxError: string | undefined;

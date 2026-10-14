@@ -11,7 +11,8 @@
     { "pathPattern": "(^|/)src/discord/commands/bug(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Bounty[^/]*\\.tsx?$" },
     { "pathPattern": "(^|/)src/bootstrap/bounty-runtime\\.ts$" },
-    { "pathPattern": "(^|/)tests/bounty[^/]*\\.test\\.ts$" }
+    { "pathPattern": "(^|/)tests/bounty[^/]*\\.test\\.ts$" },
+    { "pathPattern": "(^|/)src/shared/bounty-[^/]+\\.ts$" }
   ],
   "cardTemplate": "Summarise the bug-bounty domain: report intake from Discord, sessions and Cocoiru, read-only AI triage that treats report text as data, linking accepted reports to Actio tasks and hotfix delegations, closing on confirmed deployment, granting per-person AI budget once per report, and exposing only rewritten summaries of public projects.",
   "specRefs": [

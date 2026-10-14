@@ -31,6 +31,8 @@ export interface BountyAdminSummary {
   received_at: number;
   public_title: string | null;
   needs_attention: string | null;
+  /** 受付時に紐付いた企画 (§18.2)。 企画外は null。 */
+  event_id: string | null;
 }
 
 export interface BountyAdminDetail extends BountyAdminSummary {
@@ -89,6 +91,7 @@ export function toBountyAdminSummary(row: BountyReportSummaryRow, find: Reporter
     received_at: row.received_at,
     public_title: row.public_title,
     needs_attention: bountyAttention(row),
+    event_id: row.event_id,
   };
 }
 

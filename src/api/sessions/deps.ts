@@ -1,3 +1,4 @@
+import type { OpenBountyEventNotice } from "../../shared/bounty-event-notice.js";
 import type { DepartmentStartupInject } from "../../departments/settings.js";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../../db/participants-repo.js";
@@ -85,6 +86,8 @@ export interface SessionsApiDeps {
   isPrivateConsultation?: (sessionId: string) => boolean;
   syncInstructionFragments?: (input: Parameters<typeof import("../../work/instruction-fragments.js").syncInstructionFragments>[1]) => Promise<import("../../work/instruction-fragments.js").FragmentSyncResult>;
   resolveContextLinks?: (repoPath: string, repoOrigin: string | null) => Promise<ContextLinks>;
+  /** 開催中のバウンティ企画 (起動案内に 1 行ずつ添える、bug-bounty.md §18.5)。 未注入なら企画なし。 */
+  openBountyEvents?: () => OpenBountyEventNotice[];
   taskStore?: () => TaskStore;
   majorInject?: MajorInjectResolver;
   resolveProjectStartupWorkflow?: (repoPath: string, repoOrigin: string | null) => Promise<import("../../control/project-startup-workflow.js").ProjectStartupWorkflow>;

@@ -129,6 +129,8 @@ export interface BountyRewardPort {
     /** 個人の AI 予算が識別できるのは Discord / Slack の人だけ。 それ以外は null で渡し、予算側が理由付きで見送る。 */
     recipient: { subsidiaryId: string | null; platform: "discord" | "slack" | null; platformUserId: string | null };
     severity?: "s1" | "s2" | "s3" | "s4" | null;
+    /** 報告が紐付いた企画の報奨の上書き (bug-bounty.md §18.4)。 無ければ予算側の既定値。 */
+    tokensOverride?: number | null;
   }):
     | { status: "granted" | "existing"; entry: { tokens: number } }
     | { status: "skipped"; reason: string; detail: string };

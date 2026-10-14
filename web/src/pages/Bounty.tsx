@@ -2,8 +2,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api, type BountyReportSummary, type SubsidiarySummary } from "../api.js";
+import { api, type BountyEvent, type BountyReportSummary, type SubsidiarySummary } from "../api.js";
 import { BountyDetailPanel } from "./BountyDetail.js";
+import { BountyEvents } from "./BountyEvents.js";
 import { BountyCocoiruKey } from "./BountySettings.js";
 
 // バグバウンティ (spec/feature/bug-bounty.md §8.2)。 運用担当の管理面: 報告の一覧・詳細・履歴を見て、
@@ -32,6 +33,8 @@ export function Bounty() {
   const [status, setStatus] = useState(ALL);
   const [project, setProject] = useState("");
   const [company, setCompany] = useState(ALL);
+  const [event, setEvent] = useState(ALL);
+  const [events, setEvents] = useState<BountyEvent[]>([]);
   const [offset, setOffset] = useState(0);
   const [reports, setReports] = useState<BountyReportSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -42,11 +45,20 @@ export function Bounty() {
 
   useEffect(() => {
     api.subsidiariesList().then((r) => setSubsidiaries(r.subsidiaries)).catch(() => setSubsidiaries([]));
+    void loadEvents();
   }, []);
+
+  const loadEvents = async () => {
+    try {
+      setEvents((await api.bountyEvents()).events ?? []);
+    } catch {
+      setEvents([]);
+    }
+  };
 
   const refresh = async () => {
     try {
-      const page = await api.bountyReports({ status, project: project.trim(), company, limit: PAGE_SIZE, offset });
+      const page = await api.bountyReports({ status, project: project.trim(), company, event, limit: PAGE_SIZE, offset });
       setReports(page.reports);
       setTotal(page.total);
       setHotfixLimit(page.hotfix_daily_limit);
@@ -56,7 +68,8 @@ export function Bounty() {
     }
   };
 
-  useEffect(() => { void refresh(); }, [status, company, offset]);
+  useEffect(() => { void refresh(); }, [status, company, event, offset]);
+  const eventTitle = (id: string | null | undefined) => (id ? events.find((item) => item.id === id)?.title ?? id : null);
 
   return (
     <div className="space-y-4 max-w-6xl">
@@ -91,6 +104,14 @@ export function Bounty() {
             {subsidiaries.filter((s) => s.mode === "subsidiary").map((s) => (
               <option key={s.id} value={s.id}>{s.display_name || s.name}</option>
             ))}
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-subtle block">企画</span>
+          <select className="foundation-form text-sm" value={event} onChange={(e) => { setOffset(0); setEvent(e.target.value); }}>
+            <option value={ALL}>すべて</option>
+            <option value="none">企画外</option>
+            {events.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select>
         </label>
         <button type="button" className="px-2 py-1 rounded border border-border text-xs" onClick={() => { setOffset(0); void refresh(); }}>
@@ -132,6 +153,7 @@ export function Bounty() {
                     <div className="font-mono">{report.id}</div>
                     <div className="text-subtle">{report.public_title ?? "(未仕分け)"}</div>
                     {report.needs_attention && <div className="text-warn">要対応: {report.needs_attention}</div>}
+                    {report.event_id && <div className="text-subtle">企画: {eventTitle(report.event_id)}</div>}
                   </td>
                   <td className="py-1.5 pr-2">{BOUNTY_STATUS_LABEL[report.status] ?? report.status}</td>
                   <td className="py-1.5 pr-2">{report.project ?? "未特定"}{report.company ? ` @${report.company}` : ""}</td>
@@ -155,6 +177,8 @@ export function Bounty() {
       {selected && (
         <BountyDetailPanel reportId={selected} onChanged={() => void refresh()} onClose={() => setSelected(null)} />
       )}
+
+      <BountyEvents events={events} onChanged={() => void loadEvents()} />
 
       <BountyCocoiruKey />
     </div>

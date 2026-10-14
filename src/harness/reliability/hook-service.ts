@@ -8,6 +8,7 @@ import { sampleDecision } from "./guidance.js";
 import type { PromptSample } from "./state.js";
 import type { ReliabilityStore } from "./store.js";
 import { workflowGuidance, workflowContext } from "./workflow-guidance.js";
+import type { OpenBountyEventNotice } from "../../shared/bounty-event-notice.js";
 import { observeToolFollowup } from "./tool-followup.js";
 
 export interface ReliabilityHookInput {
@@ -32,6 +33,8 @@ export class ReliabilityHookService {
     assess: (sessionId: string, sampleId: string) => void;
     checkTaskBranch?: (sessionId: string, prompt: string) => string;
     observeSubmission?: (sessionId: string, input: ReliabilityHookInput) => void;
+    /** 開催中のバウンティ企画 (bug-bounty.md §18.5)。 未注入なら企画なし。 */
+    openBountyEvents?: () => OpenBountyEventNotice[];
     now: () => number; random: () => number;
   }) {}
 
@@ -135,7 +138,7 @@ export class ReliabilityHookService {
         at, status: "checked", reason: humanKey,
       }; });
     }
-    const routes = workflowGuidance(prompt);
+    const routes = workflowGuidance(prompt, [], { openBountyEvents: this.deps.openBountyEvents?.() ?? [] });
     const routeKey = routes.map((route) => route.kind).join(",");
     this.deps.store.update(id, (state) => {
       const previous = state.observations.workflow_guidance;

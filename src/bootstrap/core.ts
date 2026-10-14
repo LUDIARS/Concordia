@@ -141,6 +141,9 @@ import { PrivateChannelsRepo } from "../db/private-channels-repo.js";
 import { BountyReportsRepo } from "../db/bounty-reports-repo.js";
 import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
 import { BountyIntakeService } from "../bounty/intake-service.js";
+import { BountyEventsRepo } from "../db/bounty-events-repo.js";
+import { BountyEventService } from "../bounty/event-service.js";
+import { openBountyEventNotices } from "../bounty/event-notice.js";
 import { bountySessionView } from "../bounty/session-view.js";
 import { createBountyRuntime, type BountyRuntime } from "./bounty-runtime.js";
 import { roleAtLeast } from "../staff/roles.js";
@@ -889,6 +892,11 @@ export async function startBackend(): Promise<BackendHandle> {
   // 受付より後段は個人の AI 予算の後で組み立てる (デプロイ通知からは遅延して参照する)。
   let bountyRuntime: BountyRuntime | null = null;
   const bountyReportersRepo = new BountyReportersRepo(db);
+  // バウンティ企画 (§0 §18)。 受付の紐付け・報奨の上書き・案内 (クラシファイアと起動案内) が開催中の企画を読む。
+  const bountyEvents = new BountyEventService({
+    events: new BountyEventsRepo(db),
+    projectCodes: () => projectCodesRepo.list().map((row) => row.code),
+  });
   const bountyIntake = new BountyIntakeService({
     reports: bountyReportsRepo,
     reporters: bountyReportersRepo,
@@ -898,6 +906,7 @@ export async function startBackend(): Promise<BackendHandle> {
       const session = repo.findSession(sessionId);
       return session ? bountySessionView(session) : null;
     },
+    events: bountyEvents,
   });
   const domainReviewRepo = new DomainReviewRepo(db);
   // 投稿口は guild ハンドルを持つ Discord Bot が ready 後に登録する (federation egress と同型)。
@@ -1670,6 +1679,7 @@ export async function startBackend(): Promise<BackendHandle> {
       transport: actioTransport,
     },
     rewards: personalBudget.rewards,
+    events: bountyEvents,
     sessions: {
       find: (id) => repo.findSession(id),
       inject: (sessionId, text) => {
@@ -2293,6 +2303,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     privateChannels: new PrivateChannelsRepo(db),
     bountyIntake,
+    openBountyEvents: () => openBountyEventNotices(bountyEvents),
     bountyOperator: bountyRuntime.verifyOperator,
     bountyFlow: bountyRuntime.routes,
     teamMetrics: teamMetricsRepo,

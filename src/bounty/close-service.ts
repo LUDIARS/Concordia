@@ -7,12 +7,14 @@
  *   (CC-BOUNTY-INV-09)。
  * - 反映確認と同じ流れで報奨を依頼する (判定は reward-decision.ts、付与は個人の AI 予算の port)。 判定が覆ったら
  *   取り消しを依頼する。 受付口への返信が届かなくても、反映と報奨は取り消さない (CC-INV-06)。
+ * - 報告がバウンティ企画に紐付いていれば、企画の報奨の上書きを加算量として渡す (§18.4)。
  *
  * @implements SPEC-BOUNTY-CLOSE
  * @implements SPEC-BOUNTY-REWARD
  */
 
 import type { BountyReportRow } from "../db/bounty-reports-repo.js";
+import { bountyEventRewardOverride, type BountyEvent } from "./event-policy.js";
 import { authorityNotice, deployedReplyMessage } from "./messages.js";
 import type {
   BountyActioPort,
@@ -43,6 +45,8 @@ export interface BountyCloseDeps {
   rewards: BountyRewardPort;
   actio: BountyActioPort;
   notifier: BountyNotifierPort;
+  /** 報告が紐付いた企画 (報奨の上書き)。 未配線なら上書きなし。 */
+  events?: { find(id: string): Pick<BountyEvent, "rewardOverride"> | null };
   now?: () => number;
   log?: { info: (message: string) => void; warn: (message: string) => void };
 }
@@ -184,6 +188,10 @@ export class BountyCloseService {
         platformUserId: recipient.platform_user_id,
       },
       severity: report.severity,
+      tokensOverride: bountyEventRewardOverride(
+        report.event_id ? this.deps.events?.find(report.event_id) ?? null : null,
+        report.severity,
+      ),
     });
     if (outcome.status === "skipped") {
       this.deps.ledger.update({

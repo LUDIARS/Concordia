@@ -139,6 +139,7 @@ import { consultationDriveRouter } from "./consultation-drive.js";
 import type { BountyIntakeService } from "../bounty/intake-service.js";
 import { mountBountyRoutes, type BountyFlowRoutesDeps } from "./bounty-routes.js";
 import type { BountyOperatorVerifier } from "./bounty-actor.js";
+import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
 import type { GuildRoleList } from "../discord/member-roles.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
@@ -339,6 +340,8 @@ export interface CoreDelegationDeps {
   bountyOperator?: BountyOperatorVerifier;
   /** 仕分け・再審・修正・反映確認・管理面・公開面 (bug-bounty.md §5-§8.2)。 */
   bountyFlow?: BountyFlowRoutesDeps;
+  /** 開催中のバウンティ企画 (クラシファイアと起動案内の併記、bug-bounty.md §18.5)。 未注入なら企画なし。 */
+  openBountyEvents?: () => OpenBountyEventNotice[];
   /** 公開済みの相談 (重複した相談の近道の候補、 tech-consultation.md §6)。 */
   publishedConsultations?: { listPublished(limit: number): PublishedConsultation[] };
   /** 報告用のプライベートチャンネル (spec/feature/private-channels.md)。 未注入なら API は生えない。 */
@@ -477,7 +480,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
   if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));
   app.route("/v1/harness/reliability", harnessReliabilityRouter({ repo: deps.repo, messages: deps.sessionMessages,
-    questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude }));
+    questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude,
+    ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}) }));
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;
   // Lictor で包んだセッションの通常の終了 (admin stop と予算切れの中断が共有する)。
   const wrappedSessionStopDeps: WrappedSessionStopDeps = {
@@ -541,6 +545,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     resolveContextLinks: deps.resolveContextLinks,
     projectCodes: deps.projectCodes,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+    ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}),
     resolveProjectStartupWorkflow: async (repoPath, repoOrigin) => {
       if (!deps.revisorAdmin) return "unknown";
       return selectProjectStartupWorkflow(await deps.revisorAdmin.listRepositories(), repoPath, repoOrigin);
@@ -958,6 +963,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route(
       "/v1/harness",
       harnessSessionRouter({
+        ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}),
         taskBranches: new TaskBranchService(deps.repo, undefined, (id, action) => conflux.gate(id, action),
           submittedPrStateReader({ revisor: deps.revisorLocalPrs, prs: deps.prs })),
         projectPolicy: async (cwd) => {

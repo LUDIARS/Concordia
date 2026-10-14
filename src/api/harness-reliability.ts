@@ -1,4 +1,5 @@
 // @spec ハーネス信頼性の実装境界
+import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -35,6 +36,8 @@ const HookSchema = z.object({
 export function harnessReliabilityRouter(deps: {
   repo: SessionsRepo; messages: SessionMessagesRepo; questions: DiscordPendingQuestionsRepo;
   projectCodes: ProjectCodesRepo; chat: ChatRepo; run?: RunClaudeFn;
+  /** 開催中のバウンティ企画 (bug-bounty.md §18.5)。 */
+  openBountyEvents?: () => OpenBountyEventNotice[];
 }): Hono {
   const app = new Hono();
   const store = new ReliabilityStore(deps.repo);
@@ -73,6 +76,7 @@ export function harnessReliabilityRouter(deps: {
     },
     pendingQuestions: (id) => deps.questions.listUnanswered(id).map((question) => ({ id: question.id, question: question.question })),
     notify, now: Date.now, random: Math.random,
+    ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}),
     assess: (id, sampleId) => { void advisor.assess(id, sampleId).catch(() => {
       // A failed persistence boundary must not become an unhandled rejection.
       console.error("[harness-reliability] advisory persistence failed");

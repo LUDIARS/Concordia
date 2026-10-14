@@ -87,6 +87,8 @@ export interface BountyReportRow {
   reward_note: string | null;
   reward_tokens: number | null;
   actio_done_notified_at: number | null;
+  /** 受付時に紐付いた企画 (bounty_events)。 企画外は null。 後から付け替えない。 */
+  event_id: string | null;
 }
 
 /** 報奨の依頼の結果。 付与そのものは個人の AI 予算の台帳が持つ。 */
@@ -100,6 +102,8 @@ export interface BountyReportListFilter {
   project?: string | null;
   /** 会社。 本社は `""` で指定する (null / 未指定は絞らない)。 */
   company?: string | null;
+  /** 企画。 企画外は `""` で指定する (null / 未指定は絞らない)。 */
+  event?: string | null;
 }
 
 export interface BountyReportEventRow {
@@ -134,6 +138,8 @@ export interface BountyReportCreateInput {
   intake_key: string;
   intake_ref_json: string;
   status: Extract<BountyReportStatus, "received" | "needs_info">;
+  /** 受付時に紐付けた企画。 企画外は null / 未指定。 */
+  event_id?: string | null;
 }
 
 /** 遷移と同時に (または状態を変えずに) 書ける列。 状態そのものは `to` で渡す。 */
@@ -194,7 +200,7 @@ const SUMMARY_COLUMNS = [
   "deploy_hash", "close_evidence", "closed_by", "received_at", "triaged_at", "deployed_at", "withdrawn_at", "updated_at",
   "triage_run_id", "triage_started_at", "triage_failures", "triage_escalated_at", "info_requested_at",
   "appeal_requested_at", "appeal_reason", "appeal_decided_at", "actio_task_attempted_at", "hotfix_run_id",
-  "hotfix_started_at", "reward_state", "reward_note", "reward_tokens", "actio_done_notified_at",
+  "hotfix_started_at", "reward_state", "reward_note", "reward_tokens", "actio_done_notified_at", "event_id",
 ].join(", ");
 
 /** 修正を進めていて反映を待っている状態。 */
@@ -221,12 +227,12 @@ export class BountyReportsRepo {
       this.db.prepare(`
         INSERT INTO bounty_reports(id, subsidiary_id, project_code, reporter_kind, reporter_id, reporter_session_id,
           recipient_reporter_id, what_happened, repro_steps, intake_platform, intake_key, intake_ref_json, status,
-          received_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          received_at, updated_at, event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, input.subsidiary_id, input.project_code, input.reporter_kind, input.reporter_id, input.reporter_session_id,
         input.recipient_reporter_id, input.what_happened, input.repro_steps, input.intake_platform, input.intake_key,
-        input.intake_ref_json, input.status, now, now,
+        input.intake_ref_json, input.status, now, now, input.event_id ?? null,
       );
       this.insertEvent(id, { ...event, kind: "received", from_value: null, to_value: input.status }, now);
       return { row: this.find(id)!, created: true };
@@ -297,6 +303,10 @@ export class BountyReportsRepo {
     if (filter.company !== undefined && filter.company !== null) {
       if (filter.company === "") where.push("subsidiary_id IS NULL");
       else { where.push("subsidiary_id = ?"); params.push(filter.company); }
+    }
+    if (filter.event !== undefined && filter.event !== null) {
+      if (filter.event === "") where.push("event_id IS NULL");
+      else { where.push("event_id = ?"); params.push(filter.event); }
     }
     const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM bounty_reports ${clause}`).get(...params) as { n: number }).n;

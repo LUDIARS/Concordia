@@ -1196,9 +1196,10 @@ export const api = {
   personalBudgetAdjust: (body: PersonalBudgetAdjustment) => postPersonalBudgetAdjustment(body),
 
   // ── バグバウンティ (spec/feature/bug-bounty.md §8.2) ──
-  bountyReports: (query: { status?: string; project?: string; company?: string; limit: number; offset: number }) => {
+  bountyReports: (query: { status?: string; project?: string; company?: string; event?: string; limit: number; offset: number }) => {
     const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
     if (query.status) params.set("status", query.status);
+    if (query.event) params.set("event", query.event);
     if (query.project) params.set("project", query.project);
     if (query.company) params.set("company", query.company);
     return get<BountyReportsPage>(`/v1/bounty/reports?${params}`);
@@ -1211,6 +1212,11 @@ export const api = {
   bountyRetryTask: (id: string) => post<{ ok: boolean; created: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/retry-task`, {}),
   bountyClose: (id: string, evidence: string) =>
     post<{ ok: boolean }>(`/v1/admin/bounty/reports/${encodeURIComponent(id)}/close`, { evidence }),
+  bountyEvents: () => get<{ events: BountyEvent[] }>("/v1/bounty/events"),
+  bountyCreateEvent: (body: BountyEventInput) => sendBountyEvent("POST", "/v1/admin/bounty/events", body),
+  bountyUpdateEvent: (id: string, body: Partial<BountyEventInput>) =>
+    sendBountyEvent("PATCH", `/v1/admin/bounty/events/${encodeURIComponent(id)}`, body),
+  bountyEndEvent: (id: string) => sendBountyEvent("POST", `/v1/admin/bounty/events/${encodeURIComponent(id)}/end`, {}),
   bountyCocoiruKeyStatus: () => get<{ configured: boolean }>("/v1/admin/bounty/cocoiru-key"),
   bountySetCocoiruKey: (key: string | null) => put<{ configured: boolean }>("/v1/admin/bounty/cocoiru-key", { key }),
 
@@ -1745,6 +1751,14 @@ export interface PersonalBudgetAdjustment {
 }
 
 /** 調整は断られた理由 (理由なし・減額できない等) を人へ見せるので、 応答の message を拾う。 */
+/** 企画の書き込み。 拒否の理由 (error の code) をそのまま投げ、画面が文に直す。 */
+async function sendBountyEvent(method: "POST" | "PATCH", path: string, body: unknown): Promise<{ event: BountyEvent }> {
+  const r = await fetch(`${BASE}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const json = await r.json().catch(() => null) as { error?: unknown; event?: BountyEvent } | null;
+  if (!r.ok || !json?.event) throw new Error(typeof json?.error === "string" ? json.error : `${r.status} ${path}`);
+  return { event: json.event };
+}
+
 async function postPersonalBudgetAdjustment(body: PersonalBudgetAdjustment): Promise<{ person_id: string; reward_balance: number }> {
   const r = await fetch(`${BASE}/v1/personal-budget/adjustments`, {
     method: "POST",
@@ -2038,7 +2052,29 @@ export interface BountyReportSummary {
   received_at: number;
   public_title: string | null;
   needs_attention: string | null;
+  /** 受付時に紐付いた企画 (bug-bounty.md §18.2)。 企画外は null。 */
+  event_id?: string | null;
 }
+
+/** バウンティ企画 (bug-bounty.md §0 §18)。 */
+export interface BountyEvent {
+  id: string;
+  title: string;
+  starts_at: number;
+  ends_at: number;
+  projects: string[];
+  channels: Array<"discord" | "session" | "cocoiru">;
+  guidance: string;
+  reward_override: Partial<Record<"s1" | "s2" | "s3" | "s4", number>> | null;
+  ended_early_at: number | null;
+  ended_by: string | null;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
+  phase: "scheduled" | "open" | "ended";
+}
+
+export type BountyEventInput = Pick<BountyEvent, "title" | "starts_at" | "ends_at" | "projects" | "channels" | "guidance" | "reward_override">;
 
 export interface BountyReportsPage {
   reports: BountyReportSummary[];

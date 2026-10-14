@@ -34,6 +34,12 @@ export function rewardTokens(tier: RewardTier, raw: string | null | undefined): 
   return Math.min(value, MAX_TOKENS_PER_ENTRY);
 }
 
+/** 依頼元の上書き (企画の報奨) を加算量へ。 整数でない・負の値は使わず null (設定の値へ戻す)。 0 は「付けない」として尊重する。 */
+export function overriddenRewardTokens(override: number | null | undefined): number | null {
+  if (override === null || override === undefined || !Number.isInteger(override) || override < 0) return null;
+  return Math.min(override, MAX_TOKENS_PER_ENTRY);
+}
+
 export type RewardSkipReason = PersonSkipReason | "invalid_source" | "unknown_tier" | "zero_amount";
 
 export interface RewardInput {

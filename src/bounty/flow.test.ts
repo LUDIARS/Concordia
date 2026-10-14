@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
+import { BountyEventsRepo } from "../db/bounty-events-repo.js";
 import { BountyReportsRepo } from "../db/bounty-reports-repo.js";
 import { createBountyFlow } from "./composition.js";
 import type { BountyActioPort, BountyRunStatus } from "./ports.js";
@@ -12,6 +13,7 @@ function setup(options: { companyId?: string | null; revisorWorkflow?: string | 
   const db = makeTestDb();
   const reports = new BountyReportsRepo(db);
   const reporters = new BountyReportersRepo(db);
+  const events = new BountyEventsRepo(db);
   const companyId = options.companyId === undefined ? "sub_a" : options.companyId;
   const reporter = reporters.findOrCreate({ subsidiary_id: companyId, platform: "discord", platform_user_id: USER }, 1);
   reporters.setPublicName({ subsidiary_id: companyId, platform: "discord", platform_user_id: USER }, "neco", 1);
@@ -56,14 +58,15 @@ function setup(options: { companyId?: string | null; revisorWorkflow?: string | 
     rewards,
     sessionActive: () => true,
     hotfixDailyLimit: () => options.hotfixLimit ?? 5,
+    events,
   });
-  const submit = (key: string, project: string | null = "Cc") => reports.create({
+  const submit = (key: string, project: string | null = "Cc", eventId: string | null = null) => reports.create({
     subsidiary_id: companyId, project_code: project, reporter_kind: "person", reporter_id: reporter.id,
     reporter_session_id: null, recipient_reporter_id: reporter.id, what_happened: "スレッドが作られない",
     repro_steps: "/spawn", intake_platform: "discord", intake_key: `discord:${key}`,
-    intake_ref_json: JSON.stringify({ channel_id: "55555" }), status: "received",
+    intake_ref_json: JSON.stringify({ channel_id: "55555" }), status: "received", event_id: eventId,
   }, { actor_kind: "human", actor_id: reporter.id }).row;
-  return { db, reports, reporters, reporter, flow, runs, launches, delegation, actio, actioState, prBySession, replies, authority, rewards, submit };
+  return { db, events, reports, reporters, reporter, flow, runs, launches, delegation, actio, actioState, prBySession, replies, authority, rewards, submit };
 }
 
 const acceptedResult = {
@@ -109,6 +112,25 @@ describe("bug-bounty flow: triage → Actio task → hotfix → PR → deploy �
     expect(t.replies.at(-1)!.message).toContain("1,000,000");
     // 同じデプロイの再送では何も起きない。
     expect(await t.flow.resolveDeployment({ project: "Cc", code: "concordia", hash: "abcdef1234567", pullRequests: [42] })).toEqual([]);
+  });
+
+  it("passes the bounty event's reward override for the report's severity (bug-bounty.md §18.4)", async () => {
+    const t = setup();
+    const event = t.events.create({
+      title: "秋のバグ探し", startsAt: 1, endsAt: Date.now() + 3_600_000, projects: ["Cc"], channels: ["discord"], guidance: "",
+      rewardOverride: { s2: 750_000 },
+    }, "webui-admin", 1);
+    const linked = t.submit("ev", "Cc", event.id);
+    await t.flow.tick();
+    await t.flow.triage.acceptResult({ sessionId: "child-1", reportId: linked.id, raw: { ...acceptedResult, hotfix_eligible: false } });
+    expect(await t.flow.close.manualClose({ reportId: linked.id, actor: "webui-admin", evidence: "本番で確認" })).toEqual({ ok: true });
+    expect(t.rewards.requestReward).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRef: linked.id, severity: "s2", tokensOverride: 750_000 }));
+
+    const outside = t.submit("plain");
+    await t.flow.tick();
+    await t.flow.triage.acceptResult({ sessionId: "child-2", reportId: outside.id, raw: { ...acceptedResult, hotfix_eligible: false } });
+    await t.flow.close.manualClose({ reportId: outside.id, actor: "webui-admin", evidence: "本番で確認" });
+    expect(t.rewards.requestReward).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRef: outside.id, tokensOverride: null }));
   });
 
   it("does not grant a reward to a head-office reporter and records why", async () => {

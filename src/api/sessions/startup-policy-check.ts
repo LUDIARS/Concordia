@@ -16,7 +16,7 @@ import { resolveMajorInjectText } from "../../control/major-inject-resolver.js";
 import { selectContextScope } from "../../control/inject-context-scope.js";
 import { deliverProjectRules } from "../../control/project-rules-delivery.js";
 
-export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks" | "departmentStartupInject">;
+export type PolicyDeps = Pick<SessionsApiDeps, "repo" | "projectCodes" | "resolveProjectStartupWorkflow" | "resolveWorkspaceRoots" | "majorInject" | "resolveContextLinks" | "departmentStartupInject" | "openBountyEvents">;
 const log = createChildLogger("startup-policy");
 const samePath = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
@@ -40,6 +40,7 @@ export async function resolveStartupPolicy(deps: PolicyDeps, session: Pick<Sessi
     requirements: project ? { ddd: !!project.ddd_enabled, tests: !!project.tests_required,
       ontime: !!project.ontime_tests_required, workContract: !!project.contract_enabled } : null,
     searchCapabilitiesText, majorInject: deps.majorInject, contextPresence, contextDdd: scope.ddd,
+    openBountyEvents: deps.openBountyEvents?.() ?? [],
     praeformaContext: scope.praeforma ? resolveMajorInjectText("session.context.praeforma", deps.majorInject, { url: scope.praeforma }) : "",
     anatomiaContext: scope.anatomia ? resolveMajorInjectText("session.context.anatomia", deps.majorInject, { url: scope.anatomia }) : "" });
 }

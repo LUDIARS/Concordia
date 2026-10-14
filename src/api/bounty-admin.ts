@@ -1,7 +1,7 @@
 /**
  * バグバウンティの管理面 API (spec/feature/bug-bounty.md §8.2)。 admin (loopback) の配下。
  *
- *   GET  /v1/bounty/reports                           一覧 (状態 / プロジェクト / 会社で絞り込み・ページング・原文なし)
+ *   GET  /v1/bounty/reports                           一覧 (状態 / プロジェクト / 会社 / 企画で絞り込み・ページング・原文なし)
  *   GET  /v1/bounty/reports/:id                       詳細 (原文・仕分けの根拠・履歴・Actio タスク・PR・反映の証拠)
  *   POST /v1/admin/bounty/reports/:id/judgement       判定・深刻度・自己起因の変更
  *   POST /v1/admin/bounty/reports/:id/appeal-decision 再審の決定
@@ -70,6 +70,11 @@ const STATUS: Readonly<Record<string, 400 | 404 | 409>> = {
   state_changed: 409,
 };
 
+function readEventFilter(event: string | undefined): string | null {
+  if (event === undefined || event === "") return null;
+  return event === "none" ? "" : event;
+}
+
 /** 一覧・詳細の読み出し (`/v1/bounty` の配下)。 */
 export function bountyAdminReadRouter(deps: Pick<BountyAdminApiDeps, "reports" | "reporters" | "hotfixDailyLimit">): Hono {
   const app = new Hono();
@@ -86,6 +91,8 @@ export function bountyAdminReadRouter(deps: Pick<BountyAdminApiDeps, "reports" |
       project: c.req.query("project") || null,
       // 本社は "hq" で指定する (company が無い報告)。
       company: company === undefined || company === "" ? null : company === "hq" ? "" : company,
+      // 企画外は "none" で指定する (event が無い報告)。
+      event: readEventFilter(c.req.query("event")),
     }, limit, offset);
     return c.json({
       reports: page.rows.map((row) => toBountyAdminSummary(row, find)),

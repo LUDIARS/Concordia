@@ -12,6 +12,7 @@ import type { BountyIntakeService } from "../bounty/intake-service.js";
 import { bountyActionsRouter, type BountyActionsApiDeps } from "./bounty-actions.js";
 import type { BountyOperatorVerifier } from "./bounty-actor.js";
 import { bountyAdminActionsRouter, bountyAdminReadRouter, type BountyAdminApiDeps } from "./bounty-admin.js";
+import { bountyEventsAdminRouter, bountyEventsReadRouter, type BountyEventsApiDeps } from "./bounty-events.js";
 import { bountyPublicRouter, publicIssuesProjectsRouter, type BountyPublicApiDeps } from "./bounty-public.js";
 import { bountyRouter } from "./bounty.js";
 
@@ -20,7 +21,8 @@ export type BountyFlowRoutesDeps =
   & Omit<BountyActionsApiDeps, "verifyOperator">
   & Omit<BountyAdminApiDeps, "judgement" | "fix" | "close">
   & { fix: BountyAdminApiDeps["fix"] }
-  & Omit<BountyPublicApiDeps, "reports" | "reporters">;
+  & Omit<BountyPublicApiDeps, "reports" | "reporters">
+  & Partial<BountyEventsApiDeps>;
 
 export function mountBountyRoutes(app: Hono, deps: {
   intake: BountyIntakeService;
@@ -35,4 +37,9 @@ export function mountBountyRoutes(app: Hono, deps: {
   app.route("/v1/bounty", bountyPublicRouter(flow));
   app.route("/v1/projects", publicIssuesProjectsRouter(flow));
   app.route("/v1/admin/bounty", bountyAdminActionsRouter(flow));
+  // 企画 (§0 §18.3)。 読み出しは報告の一覧と同じ配下、書き込みは admin の配下。
+  if (flow.events) {
+    app.route("/v1/bounty", bountyEventsReadRouter({ events: flow.events }));
+    app.route("/v1/admin/bounty", bountyEventsAdminRouter({ events: flow.events }));
+  }
 }

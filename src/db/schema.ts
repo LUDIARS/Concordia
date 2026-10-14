@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 136;
+export const SCHEMA_VERSION = 137;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3469,6 +3469,36 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   source: "taskflow — replace every shipped task-file phrasing left after migration 110 (spec/feature/task-workflow-v3.md)",
   up(db) {
     migrateTaskflowActioInstructions(db);
+  },
+},
+{
+  version: 137,
+  name: "bug-bounty-events",
+  source: "bounty_events + bounty_reports.event_id (spec/feature/bug-bounty.md §0 §10 §18)",
+  up(db) {
+    // 企画は報告の受付条件ではなく催し (2026-10-04 訂正を維持)。 開催中の企画に当たる報告だけが受付時に
+    // event_id を持つ。 企画外の報告は NULL のまま受け付ける。 対象プロジェクトと受付口は JSON の配列で持つ。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bounty_events (
+        id                   TEXT PRIMARY KEY,
+        title                TEXT NOT NULL,
+        starts_at            INTEGER NOT NULL,
+        ends_at              INTEGER NOT NULL,
+        projects_json        TEXT NOT NULL,
+        channels_json        TEXT NOT NULL,
+        guidance             TEXT NOT NULL DEFAULT '',
+        reward_override_json TEXT,
+        created_by           TEXT NOT NULL,
+        ended_early_at       INTEGER,
+        ended_by             TEXT,
+        created_at           INTEGER NOT NULL,
+        updated_at           INTEGER NOT NULL,
+        CHECK(starts_at < ends_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bounty_events_window ON bounty_events(ends_at, starts_at);
+      ALTER TABLE bounty_reports ADD COLUMN event_id TEXT REFERENCES bounty_events(id);
+      CREATE INDEX IF NOT EXISTS idx_bounty_reports_event ON bounty_reports(event_id, received_at);
+    `);
   },
 },
 ];

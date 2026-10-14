@@ -2,16 +2,29 @@
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:c33cd10e */
 import augurContract_831c01cb from './contracts/workflow.contract.js'; /* augur-inject:contract-predicate:ddd1de88 */
 import augurContract_4367202b from './contracts/workflow-bug-bounty.contract.js'; /* augur-inject:contract-predicate:14f43760 */
+import { describeBountyEvent, type OpenBountyEventNotice } from "../../shared/bounty-event-notice.js";
+import augurContract_047dfb73 from './contracts/workflow-bug-report.contract.js'; /* augur-inject:contract-predicate:61df0693 */
+
 export interface WorkflowGuidance {
-  kind: "feature-investigation" | "work-management" | "harness-recovery" | "bug-bounty";
+  kind: "feature-investigation" | "work-management" | "harness-recovery" | "bug-report" | "bug-bounty";
   services: string[];
   skill: string;
   advice: string;
   source: "deterministic";
 }
 
+export interface WorkflowGuidanceOptions {
+  /** 開催中のバウンティ企画。 空なら企画の経路 (bug-bounty) は出さない (spec/feature/bug-bounty.md §8.1)。 */
+  openBountyEvents?: readonly OpenBountyEventNotice[];
+  /** 入力の対象プロジェクト (分かる経路だけ)。 渡されたらその対象を含む企画だけを並べる。 */
+  project?: string | null;
+}
+
+/** 通常のバグ報告の経路と節度 (spec/feature/bug-bounty.md §8.1 §18.5)。 */
+export const BUG_REPORT_ADVICE = "作業の範囲外で仕組みの不具合を見つけたなら、bug-report スキルで Actio の対象プロジェクトに登録できる。この案内は経路を示すだけで、報告は自動で出さない。自分の作業で直すものは報告せず、同じ不具合を繰り返し報告せず、報告のために調査範囲を広げない。";
+
 /** Retrieval/workflow assistance only; never changes safety verdicts or the project being edited. */
-export function workflowGuidance(prompt: string, tags: readonly string[] = []): WorkflowGuidance[] {
+export function workflowGuidance(prompt: string, tags: readonly string[] = [], options: WorkflowGuidanceOptions = {}): WorkflowGuidance[] {
   // Quoted code and automatic control packets are not new human workflow requests.
   const text = prompt.replace(/```[\s\S]*?```/g, "").trim();
   if (/^\[(?:自動確認|Cc Session policy|Cc policy update)\]/.test(text)) return [];
@@ -34,12 +47,19 @@ export function workflowGuidance(prompt: string, tags: readonly string[] = []): 
     advice: "cc-harness-recovery で保存済みcheckpointと実観測を確認する。認証の再probeや結果不明のclear再送を自動実行しない。",
   });
   // 不具合の発見・報告先を述べる入力に、報告の経路だけを案内する (spec/feature/bug-bounty.md §8.1)。報告は自動で出さない。
-  if (asksBugBountyRoute(text)) routes.push({
-    kind: "bug-bounty", services: ["Concordia"], skill: "bug-bounty-report", source: "deterministic",
-    advice: "作業の範囲外で仕組みの不具合を見つけたなら、bug-bounty-report スキル (Discord では /bug) で報告できる。この案内は経路を示すだけで、報告は自動で出さない。自分の作業で直すものは報告せず、同じ不具合を繰り返し報告せず、報告のために調査範囲を広げない。",
-  });
+  // 通常のバグ報告 (bug-report) を常に示し、開催中の企画があるときだけ企画の経路 (bug-bounty) を並べる。
+  if (asksBugReportRoute(text)) {
+    routes.push({ kind: "bug-report", services: ["Actio"], skill: "bug-report", source: "deterministic", advice: BUG_REPORT_ADVICE });
+    const events = relevantEvents(options);
+    if (events.length > 0) routes.push({
+      kind: "bug-bounty", services: ["Concordia"], skill: "bug-bounty-report", source: "deterministic",
+      advice: `開催中のバグバウンティ企画 ${events.map(describeBountyEvent).join(" / ")} の対象プロジェクトの不具合は、bug-bounty-report スキル (セッションは POST /v1/bounty/reports、Discord では /bug) で企画へ報告できる。この案内も経路を示すだけで、報告は自動で出さない。`,
+    });
+  }
   return routes;
 }
+// @ts-expect-error augur-inject
+workflowGuidance = contract(workflowGuidance, { ...augurContract_047dfb73, contractId: 'bounty-event-C-4', mode: 'observe', sample: 1, where: 'src/harness/reliability/workflow-guidance.ts:26', rule: 'contract-wrap', id: '047dfb73' }); /* augur-inject:contract-wrap:047dfb73 */
 // @ts-expect-error augur-inject
 workflowGuidance = contract(workflowGuidance, { ...augurContract_4367202b, contractId: 'bounty-intake-C-8', mode: 'observe', sample: 1, where: 'src/harness/reliability/workflow-guidance.ts:13', rule: 'contract-wrap', id: '4367202b' }); /* augur-inject:contract-wrap:4367202b */
 // @ts-expect-error augur-inject
@@ -53,18 +73,26 @@ const BOUNTY_WORK_REQUEST = /(?:直して|直せ|修正して|修正を|実装�
 const BOUNTY_DECLINED = /報告(?:は|を)?(?:しない|しなくて|不要|いらない|要らない)/;
 
 /**
- * バグバウンティの経路を案内する入力か (spec/feature/bug-bounty.md §8.1 §16.6)。
+ * バグ報告の経路を案内する入力か (spec/feature/bug-bounty.md §8.1 §16.6 §18.5)。
  *
  * 「報告」だけでは合図にしない (修正を頼んで結果の報告を求める入力は作業報告で、不具合の報告ではない)。
  * 案内するのは、報告先を尋ねる・報告を望む入力、不具合を見つけたと述べる入力、バウンティを名指しする入力。
  * 修正や実装の依頼では出さない (自分の作業で直すものは報告の対象ではない)。英語の bug は単語として取り、debug に当てない。
  */
-function asksBugBountyRoute(text: string): boolean {
+function asksBugReportRoute(text: string): boolean {
   if (BOUNTY_DECLINED.test(text)) return false;
   const defect = BOUNTY_DEFECT.test(text);
   if (defect && BOUNTY_REPORT_WISH.test(text)) return true;
   if (BOUNTY_WORK_REQUEST.test(text)) return false;
   return BOUNTY_EXPLICIT.test(text) || (defect && BOUNTY_DISCOVERY.test(text));
+}
+
+/** 入力の対象プロジェクトが分かれば、それを含む企画だけ。 分からなければ開催中の企画すべて。 */
+function relevantEvents(options: WorkflowGuidanceOptions): readonly OpenBountyEventNotice[] {
+  const events = options.openBountyEvents ?? [];
+  const project = options.project?.trim().toLowerCase();
+  if (!project) return events;
+  return events.filter((event) => event.projects.some((code) => code.toLowerCase() === project));
 }
 
 export function workflowContext(routes: readonly WorkflowGuidance[]): string {

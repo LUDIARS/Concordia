@@ -8,8 +8,12 @@
  * 判断は純関数 (intake.ts / project-scope.ts / reporter.ts / report-state.ts)、 保存は store の port。
  * 原文は台帳にだけ置き、 結果 (receipt) にもログにも含めない (§10)。
  *
+ * 開催中のバウンティ企画に当たる報告は受付時に企画へ紐付ける (§0 §18.2)。 企画は受付条件ではないので、
+ * 企画に当たらない報告もそのまま受け付ける。
+ *
  * @implements SPEC-BOUNTY-INTAKE
  * @implements SPEC-BOUNTY-REPORTER
+ * @implements SPEC-BOUNTY-EVENT
  */
 
 import type {
@@ -28,6 +32,7 @@ import {
   type BountyIntakeMissingField,
   type BountyIntakePlatform,
 } from "./intake.js";
+import { matchBountyEvent, type BountyEvent } from "./event-policy.js";
 import { checkBountyReportProject, type BountyProject } from "./project-scope.js";
 import {
   decideBountyWithdrawal,
@@ -86,7 +91,15 @@ export interface BountyIntakeDeps {
   /** 会社 (子会社) の関係プロジェクト。 会社が無ければ null。 */
   companyProjects(companyId: string): readonly string[] | null;
   session(sessionId: string): BountySessionView | null;
+  /** バウンティ企画 (§0)。 未配線なら報告は企画に紐付かない。 */
+  events?: BountyEventLookup;
   now?: () => number;
+}
+
+/** 受付が読む企画の口 (event-service.ts の BountyEventService が満たす)。 */
+export interface BountyEventLookup {
+  openAt(now: number): readonly BountyEvent[];
+  find(id: string): Pick<BountyEvent, "id" | "title"> | null;
 }
 
 /** 報告を出す主体。 セッション自身か、 Bot / Cocoiru が渡す操作者 (人)。 */
@@ -105,6 +118,8 @@ export interface BountySubmitInput {
   publicName?: string | null;
   /** 結果を返す先 (Discord のチャンネル、 Cocoiru の通知先)。 セッションは session id を記録する。 */
   replyTo?: Record<string, string>;
+  /** 受付口が選んだ企画。 無ければ開催中の企画から受付が決める (§18.2)。 */
+  eventId?: string | null;
 }
 
 export type BountyIntakeError =
@@ -120,7 +135,8 @@ export type BountyIntakeError =
   | "already_decided"
   | "not_awaiting_info"
   | "amendment_empty"
-  | "state_changed";
+  | "state_changed"
+  | "event_not_applicable";
 
 /** 受付口へ返す内容。 原文を含めない。 */
 export interface BountyReceipt {
@@ -138,6 +154,8 @@ export interface BountyReceipt {
    * @implements SPEC-BOUNTY-REWARD
    */
   reward_ineligible: BountyRewardSkip | null;
+  /** 受付時に紐付いた企画。 企画外は null。 */
+  event: { id: string; title: string } | null;
 }
 
 export type BountySubmitResult =
@@ -200,10 +218,19 @@ export class BountyIntakeService {
         : actor.value.companyId === null ? null : this.deps.companyProjects(actor.value.companyId) ?? [],
     });
     if (!project.ok) return { ok: false, error: project.denial };
+    const now = this.now();
+    // 企画は受付条件ではない: 当たらなければ企画なしで受け付け、 指定した企画が当たらないときだけ拒む。
+    const event = matchBountyEvent({
+      events: this.deps.events?.openAt(now) ?? [],
+      project: project.project?.code ?? null,
+      platform: actor.value.platform,
+      eventId: input.eventId ?? null,
+      now,
+    });
+    if (!event.ok) return { ok: false, error: event.error };
     const publicName = actor.value.person ? normalizePublicName(input.publicName) : null;
     if (publicName && !publicName.ok) return { ok: false, error: publicName.error };
 
-    const now = this.now();
     const person = actor.value.person ? this.deps.reporters.findOrCreate(actor.value.person, now) : null;
     if (actor.value.person && publicName?.ok && publicName.name !== null) {
       this.deps.reporters.setPublicName(actor.value.person, publicName.name, now);
@@ -224,6 +251,7 @@ export class BountyIntakeService {
         ? { session_id: actor.value.sessionId }
         : input.replyTo ?? {}),
       status: initialBountyStatus(fields),
+      event_id: event.event?.id ?? null,
     }, { actor_kind: person ? "human" : "ai", actor_id: person?.id ?? actor.value.sessionId }, now);
     return { ok: true, created, receipt: this.receiptOf(row) };
   }
@@ -310,7 +338,14 @@ export class BountyIntakeService {
       reporter: displayPublicName({ kind: report.reporter_kind, publicName }),
       has_recipient: ineligible === null,
       reward_ineligible: ineligible,
+      event: this.eventOf(report.event_id),
     };
+  }
+
+  private eventOf(eventId: string | null): { id: string; title: string } | null {
+    if (!eventId) return null;
+    const event = this.deps.events?.find(eventId);
+    return { id: eventId, title: event?.title ?? "" };
   }
 
   /** 報告者本人による、 採用前の報告への変更 (取り下げ・追記) の可否。 */

@@ -6,6 +6,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
 import { fileURLToPath } from "node:url";
 import { resolveMajorInjectText, type MajorInjectResolver } from "./major-inject-resolver.js";
+import { describeBountyEvent, type OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 
 interface SharedStartupContextInput {
   workflow?: ProjectStartupWorkflow;
@@ -16,13 +17,20 @@ interface SharedStartupContextInput {
   homeRoot?: string;
   readableFile?: (path: string) => Promise<boolean>;
   majorInject?: MajorInjectResolver;
+  /** 開催中のバウンティ企画。 あれば企画ごとに 1 行添える (spec/feature/bug-bounty.md §8.1 §18.5)。 */
+  openBountyEvents?: readonly OpenBountyEventNotice[];
 }
 
 /**
- * バグバウンティの案内 (spec/feature/bug-bounty.md §8.1)。 経路と節度を示すだけで、 報告を自動で出さず、
+ * 通常のバグ報告の案内 (spec/feature/bug-bounty.md §8.1 §18.5)。 経路と節度を示すだけで、 報告を自動で出さず、
  * 権限も作業対象も変えない。
  */
-export const BUG_BOUNTY_STARTUP_LINE = "- 作業の範囲外で仕組みの不具合を見つけたら `bug-bounty-report` スキルで報告できます (Discord は `/bug`)。自分の作業で直すものは報告せず、同じ不具合を繰り返し報告せず、報告のために調査範囲を広げないでください。";
+export const BUG_REPORT_STARTUP_LINE = "- 作業の範囲外で仕組みの不具合を見つけたら `bug-report` スキルで Actio に登録してください。自分の作業で直すものは報告せず、同じ不具合を繰り返し報告せず、報告のために調査範囲を広げないでください。この案内は経路を示すだけで、報告は自動で出しません。";
+
+/** 開催中のバウンティ企画の 1 行 (企画があるときだけ併記する)。 */
+export function bugBountyEventStartupLine(event: OpenBountyEventNotice): string {
+  return `- 開催中のバグバウンティ企画 ${describeBountyEvent(event).replace(/`/g, "'")}: 対象プロジェクトの不具合は \`bug-bounty-report\` スキル (\`POST /v1/bounty/reports\`、Discord は \`/bug\`) で企画へ報告できます。`;
+}
 
 /** Only known resource names are considered; never enumerate or copy private memories. */
 export async function buildSharedStartupContext(input: SharedStartupContextInput): Promise<string> {
@@ -66,7 +74,8 @@ export async function buildSharedStartupContext(input: SharedStartupContextInput
     lines.push(found ? `- ${resource.label}: ${JSON.stringify(found)}` : `- ${resource.label}: 見つかりません。必要時に場所を確認してください（未読）。`);
   }
   lines.push("- 読み取り拒否・ファイル消失時は不足した資料名を報告し、読了したと扱わないでください。sandbox の範囲はこの案内では変更されません。");
-  lines.push(BUG_BOUNTY_STARTUP_LINE);
+  lines.push(BUG_REPORT_STARTUP_LINE);
+  for (const event of input.openBountyEvents ?? []) lines.push(bugBountyEventStartupLine(event));
   return resolveMajorInjectText("session.shared_startup_context", input.majorInject, {
     castra_root: JSON.stringify(root), resources: lines.join("\n"),
     selection_rule: `資料選択ルール: ${JSON.stringify(fileURLToPath(new URL("../../rule/shared-context.md", import.meta.url)))}`,

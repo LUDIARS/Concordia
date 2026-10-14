@@ -26,6 +26,7 @@ import type { BountyRunStatus } from "../bounty/ports.js";
 import type { BountyFlowRoutesDeps } from "../api/bounty-routes.js";
 import type { BountyOperatorVerifier } from "../api/bounty-actor.js";
 import type { BountyReportsRepo } from "../db/bounty-reports-repo.js";
+import type { BountyEventService } from "../bounty/event-service.js";
 import type { BountyReportersRepo } from "../db/bounty-reporters-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { ActioBinding } from "../taskflow/actio-binding.js";
@@ -55,6 +56,8 @@ export interface BountyRuntimeDeps {
     transport: { request(binding: ActioBinding, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> };
   };
   rewards: PersonalBudgetRewardPort;
+  /** バウンティ企画 (§0 §18)。 報奨の上書きと企画の管理 API が使う。 */
+  events: BountyEventService;
   sessions: {
     find(id: string): { status: string; ended_at: number | null } | null;
     inject(sessionId: string, text: string): void;
@@ -160,6 +163,7 @@ export function createBountyRuntime(deps: BountyRuntimeDeps): BountyRuntime {
     rewards: deps.rewards,
     sessionActive,
     hotfixDailyLimit,
+    events: deps.events,
     log: deps.log,
   });
 
@@ -173,6 +177,7 @@ export function createBountyRuntime(deps: BountyRuntimeDeps): BountyRuntime {
     reporters: deps.reporters,
     cocoiruKey,
     hotfixDailyLimit,
+    events: deps.events,
     projectPublic: (code) => {
       const row = project(code);
       return row ? row.public_issues === 1 : null;

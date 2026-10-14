@@ -49,6 +49,21 @@ describe("PersonalBudgetRewards.requestReward (SPEC-PBUDGET-REWARD)", () => {
     expect(other.status === "granted" && other.entry.tokens).toBe(2_000_000);
   });
 
+  it("uses a bounty event's override over the setting, capped per entry, and keeps a zero override (bug-bounty.md §18.4)", () => {
+    settings.set("personal_budget.reward.bounty.s2", "500000");
+    const overridden = budget.rewards.requestReward({ kind: "bounty", sourceRef: "bug-20", recipient: member, severity: "s2", tokensOverride: 750_000 });
+    expect(overridden.status === "granted" && overridden.entry.tokens).toBe(750_000);
+    const capped = budget.rewards.requestReward({ kind: "bounty", sourceRef: "bug-21", recipient: member, severity: "s2", tokensOverride: 5_000_000_000 });
+    expect(capped.status === "granted" && capped.entry.tokens).toBe(1_000_000_000);
+    const fallback = budget.rewards.requestReward({ kind: "bounty", sourceRef: "bug-22", recipient: member, severity: "s2", tokensOverride: null });
+    expect(fallback.status === "granted" && fallback.entry.tokens).toBe(500_000);
+    const zero = budget.rewards.requestReward({ kind: "bounty", sourceRef: "bug-23", recipient: member, severity: "s2", tokensOverride: 0 });
+    expect(zero).toMatchObject({ status: "skipped", reason: "zero_amount" });
+    // 段 (深刻度) が決まらなければ上書きがあっても付けない。
+    const noTier = budget.rewards.requestReward({ kind: "bounty", sourceRef: "bug-24", recipient: member, tokensOverride: 750_000 });
+    expect(noTier).toMatchObject({ status: "skipped", reason: "unknown_tier" });
+  });
+
   it("does not grant to a head-office recipient or an unidentified one, and records why without creating a row", () => {
     const hq = budget.rewards.requestReward({ kind: "tabula", sourceRef: "pub-2", recipient: { ...member, subsidiaryId: null } });
     expect(hq).toMatchObject({ status: "skipped", reason: "head_office" });

@@ -13,6 +13,7 @@ import { resolveBudgetPerson } from "./person-resolution.js";
 import type { LedgerEntry, LedgerStore, PeopleStore } from "./ports.js";
 import {
   decideReward,
+  overriddenRewardTokens,
   REWARD_SETTINGS,
   REWARD_SKIP_LABEL,
   revokeTokens,
@@ -37,6 +38,11 @@ export interface RewardRequest {
   recipient: RewardRecipient;
   /** `bounty` の加算量の段。 */
   severity?: BountySeverity | null;
+  /**
+   * 依頼元が決めた加算量 (バグバウンティ企画の上書き、bug-bounty.md §18.4)。 段が決まるときだけ使い、
+   * 1 件の上限で頭打ちにする。 null / 未指定は設定の値。
+   */
+  tokensOverride?: number | null;
 }
 
 export type RewardOutcome =
@@ -75,7 +81,9 @@ export class PersonalBudgetRewards implements PersonalBudgetRewardPort {
   requestReward(request: RewardRequest): RewardOutcome {
     const recipient = resolveBudgetPerson(request.recipient);
     const tier = rewardTier(request.kind, request.severity ?? null);
-    const tokens = tier ? rewardTokens(tier, this.deps.readSetting(REWARD_SETTINGS[tier].key)) : null;
+    const tokens = tier
+      ? overriddenRewardTokens(request.tokensOverride) ?? rewardTokens(tier, this.deps.readSetting(REWARD_SETTINGS[tier].key))
+      : null;
     const existing = this.deps.ledger.findBySource("grant", request.kind, request.sourceRef);
     const decision = decideReward({
       kind: request.kind,

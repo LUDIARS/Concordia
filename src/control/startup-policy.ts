@@ -1,4 +1,5 @@
 // @spec 初期ポリシーの版と照合
+import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import { createHash } from "node:crypto";
 import { buildSessionWorkPolicy, type SessionWorkPolicyInput } from "./session-work-policy.js";
 import { buildSharedStartupContext } from "./shared-startup-context.js";
@@ -21,6 +22,8 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
   contextDdd?: boolean;
   praeformaContext?: string;
   anatomiaContext?: string;
+  /** 開催中のバウンティ企画 (共通案内に 1 行ずつ添える、bug-bounty.md §18.5)。 */
+  openBountyEvents?: readonly OpenBountyEventNotice[];
 }): Promise<{ policy: StartupPolicySnapshot; registeredBranch: string | null; branchMismatch: boolean }> {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;

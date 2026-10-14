@@ -10,7 +10,7 @@
  */
 
 import type { BountyReporterKey, BountyReporterRow } from "../db/bounty-reporters-repo.js";
-import { BountyCloseService, type BountyResolvedReport } from "./close-service.js";
+import { BountyCloseService, type BountyCloseDeps, type BountyResolvedReport } from "./close-service.js";
 import { BountyFixService } from "./fix-service.js";
 import { BountyJudgementService } from "./judgement-service.js";
 import type {
@@ -35,6 +35,8 @@ export interface BountyFlowDeps {
   rewards: BountyRewardPort;
   sessionActive(sessionId: string): boolean;
   hotfixDailyLimit(): number;
+  /** バウンティ企画 (報奨の上書き、§18.4)。 */
+  events?: BountyCloseDeps["events"];
   log?: { info: (message: string) => void; warn: (message: string) => void };
 }
 
@@ -66,6 +68,7 @@ export function createBountyFlow(deps: BountyFlowDeps): BountyFlow {
     rewards: deps.rewards,
     actio: deps.actio,
     notifier: deps.notifier,
+    ...(deps.events ? { events: deps.events } : {}),
     ...(deps.log ? { log: deps.log } : {}),
   });
   const triage = new BountyTriageService({

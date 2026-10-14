@@ -22,7 +22,7 @@ import {
   MAX_BOUNTY_TEXT_CHARS,
 } from "../bounty/intake.js";
 import type { BountyIntakeError, BountyIntakeService, BountyReceipt } from "../bounty/intake-service.js";
-import { rewardIneligibilityNotice } from "../bounty/messages.js";
+import { neutralizeReportText, rewardIneligibilityNotice } from "../bounty/messages.js";
 import { BOUNTY_OPERATOR_HEADER } from "../bounty/operator-auth.js";
 import {
   ActorShape,
@@ -40,6 +40,7 @@ const ReportSchema = z.object({
   what_happened: z.string().max(MAX_BOUNTY_TEXT_CHARS).optional(),
   repro_steps: z.string().max(MAX_BOUNTY_TEXT_CHARS).optional(),
   public_name: z.string().max(200).nullable().optional(),
+  event_id: z.string().trim().min(1).max(100).nullable().optional(),
   reply_to: z.object({
     guild_id: z.string().regex(SNOWFLAKE).optional(),
     channel_id: z.string().regex(SNOWFLAKE).optional(),
@@ -75,6 +76,7 @@ const STATUS: Readonly<Record<BountyIntakeError, 400 | 403 | 404 | 409>> = {
   not_awaiting_info: 409,
   amendment_empty: 400,
   state_changed: 409,
+  event_not_applicable: 400,
 };
 
 /** 400 / 403 の理由 (受付口が利用者へそのまま返せる文)。 */
@@ -86,6 +88,7 @@ const REASONS: Readonly<Partial<Record<BountyIntakeError, string>>> = {
   unknown_project: "対象プロジェクトのコードが project registry にありません。分からない場合は project を空にしてください。",
   project_outside_company_scope: "この会社の関係プロジェクトではないため、対象にできません。",
   public_name_invalid: "公開名は 32 文字までで、@ や < > ` 、リンク、改行を含められません。",
+  event_not_applicable: "指定した企画は開催中でないか、この対象プロジェクト・受付口を対象にしていません。event_id を外せば企画なしで受け付けます。",
 };
 
 export const BOUNTY_RECEIVED_MESSAGE = "受け付けました。仕分け結果はこの受付口へ返します。";
@@ -106,14 +109,16 @@ function receiptBody(receipt: BountyReceipt): Record<string, unknown> {
     reporter: receipt.reporter,
     has_recipient: receipt.has_recipient,
     reward_ineligible: receipt.reward_ineligible,
+    event: receipt.event,
   };
 }
 
 /** 受付の応答の文。 報奨の対象外 (本社所属・受取人なし) はその場で伝える。 */
 function receiptMessage(receipt: BountyReceipt): string {
   const head = receipt.missing.length > 0 ? BOUNTY_NEEDS_INFO_MESSAGE : BOUNTY_RECEIVED_MESSAGE;
+  const event = receipt.event ? `バグバウンティ企画「${neutralizeReportText(receipt.event.title, 100)}」の報告として扱います。` : "";
   const notice = rewardIneligibilityNotice(receipt.reward_ineligible);
-  return notice ? `${head}${notice}` : head;
+  return `${head}${event}${notice ?? ""}`;
 }
 
 export function bountyRouter(deps: BountyApiDeps): Hono {
@@ -134,6 +139,7 @@ export function bountyRouter(deps: BountyApiDeps): Hono {
       reproSteps: parsed.data.repro_steps ?? "",
       publicName: parsed.data.public_name,
       replyTo: parsed.data.reply_to,
+      eventId: parsed.data.event_id ?? null,
     });
     if (!result.ok) return c.json(refuse(result.error), STATUS[result.error]);
     return c.json({

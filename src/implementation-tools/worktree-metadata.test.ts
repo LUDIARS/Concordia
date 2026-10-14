@@ -14,7 +14,11 @@ describe("ignored worktree metadata", () => {
     record = { version: 1, owner: "a".repeat(64), projectCode: "El", actioProjectId: "El",
       mainRepo: root, worktree: root, branch: "feat/new", baseCommit: "b".repeat(40) };
   });
-  afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+  // Windows では git の子プロセスが終わった直後も一時フォルダを掴んでいることがあり (EBUSY)、
+  // 負荷の高い審査では 10 秒の既定の上限も超える。 消すのはやり直し、上限を延ばす。
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }, 60_000);
 
   it("writes an ignored reference record, retaining the original base on retry", async () => {
     await keepWorktreeRecord(root, "worktree.json", record, worktreeGit);

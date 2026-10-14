@@ -1,0 +1,10 @@
+{
+  "name": "web-access",
+  "description": "Web UI の入口の信頼境界。Cloudflare Tunnel で公開するホスト宛ての要求に Cernere の企業セッションを要求し、loopback / Tailscale の経路は今の境界のまま残す。利用者の身元・組織ロール・失効の正本は Cernere で、Cc は企業セッション token を Cookie に置くだけ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/web-sso/[^/]+\.ts$" }
+  ],
+  "specRefs": ["spec/feature/web-sso.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/trust-boundaries.md"]
+}

@@ -8,11 +8,12 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { dirname, join, basename } from "node:path";
+import { join, basename } from "node:path";
 import { promisify } from "node:util";
 import { retryTransientGit as retryGitWorktreeAdd } from "./retry-transient-git-error.js";
 import { validateSpawnCwd } from "./spawn-cwd.js";
 import { decideWorktreeAddFailure } from "./worktree-add-failure.js";
+import { worktreeBaseDirFor } from "./worktree-base-dir.js";
 import { createChildLogger } from "../shared/logger.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
@@ -172,7 +173,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     };
   }
 
-  const baseDir = input.worktreeBaseDir?.trim() || dirname(repoRoot);
+  const baseDir = input.worktreeBaseDir?.trim() || worktreeBaseDirFor(repoRoot);
   const worktreePath = join(baseDir, branchWorktreeName(repoRoot, branch));
   if (existsSync(worktreePath)) {
     try {

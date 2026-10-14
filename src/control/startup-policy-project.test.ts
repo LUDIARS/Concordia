@@ -63,4 +63,11 @@ describe("projectForRepoPath", () => {
     expect(projectForRepoPath(rows, "E:/Document/Ars/Revisor")).toBeNull();
     expect(projectForRepoPath(rows, "")).toBeNull();
   });
+
+  it("maps a worktree under the configured worktree root to its repository on another drive", () => {
+    const deployed = rows.map((row) => row.code === "Cc" ? { ...row, repo_path: "C:/Deploy/LUDIARS/Concordia" } : row);
+    expect(projectForRepoPath(deployed, "E:/Work/Concordia-feat-x", "E:/Work/")?.code).toBe("Cc");
+    expect(projectForRepoPath(deployed, "E:/Work/Concordia-feat-x", null)).toBeNull();
+    expect(projectForRepoPath(deployed, "E:/Elsewhere/Concordia-feat-x", "E:/Work")).toBeNull();
+  });
 });

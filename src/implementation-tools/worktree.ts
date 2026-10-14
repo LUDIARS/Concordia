@@ -67,7 +67,7 @@ export async function createImplementationWorktree(input: CreateWorktreeInput, d
   const git = deps.git ?? worktreeGit;
   const record = await reserveWorktree(context, input.sessionId, actio.projectId, git);
   const result = await prepareSpawnTarget({
-    cwd: record.mainRepo, branch: record.branch, worktree: true, worktreeBaseDir: dirname(record.mainRepo),
+    cwd: record.mainRepo, branch: record.branch, worktree: true, worktreeBaseDir: dirname(record.worktree),
     baseRef: record.baseCommit, retainOnResourceFailure: true, git,
     projectResources: (_source, target) => placeWorktreeResources(record, target, deps.workspaceRoots, git),
   });

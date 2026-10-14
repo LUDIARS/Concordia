@@ -2,6 +2,7 @@
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { isWorkspaceRootCwd } from "./session-work-policy.js";
+import { configuredWorktreeRoot } from "./worktree-base-dir.js";
 
 const pathKey = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 /** Directory names a worktree is created under inside its repository (e.g. `Concordia/.wt-x`, `Concordia/.claude/worktrees/x`). */
@@ -33,8 +34,15 @@ export function selectStartupPolicyProject(
     ?? null;
 }
 
-/** Registered repository whose checkout or worktree is `repoPath`: exact path, nested worktree, then sibling `<repo>.wt-*` / `<repo>-*`. */
-export function projectForRepoPath(rows: readonly ProjectCodeRow[], repoPath: string): ProjectCodeRow | null {
+/**
+ * Registered repository whose checkout or worktree is `repoPath`: exact path, nested worktree, then
+ * `<repo>.wt-*` / `<repo>-*` beside the checkout or directly under `CONCORDIA_WORKTREE_ROOT`.
+ */
+export function projectForRepoPath(
+  rows: readonly ProjectCodeRow[],
+  repoPath: string,
+  worktreeRoot: string | null = configuredWorktreeRoot(),
+): ProjectCodeRow | null {
   const path = pathKey(repoPath);
   if (!path) return null;
   const exact = rows.find((row) => pathKey(row.repo_path) === path);
@@ -48,10 +56,12 @@ export function projectForRepoPath(rows: readonly ProjectCodeRow[], repoPath: st
   if (nested) return nested;
   const parent = path.slice(0, path.lastIndexOf("/"));
   const leaf = path.slice(path.lastIndexOf("/") + 1);
+  const sharedRoot = worktreeRoot ? pathKey(worktreeRoot) : null;
   return byLongestRoot.find((row) => {
     const root = pathKey(row.repo_path);
     const rootLeaf = root.slice(root.lastIndexOf("/") + 1);
-    return !!rootLeaf && root.slice(0, root.lastIndexOf("/")) === parent
+    const besideOrShared = root.slice(0, root.lastIndexOf("/")) === parent || parent === sharedRoot;
+    return !!rootLeaf && besideOrShared
       && (leaf.startsWith(`${rootLeaf}.`) || leaf.startsWith(`${rootLeaf}-`));
   }) ?? null;
 }

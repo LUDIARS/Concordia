@@ -144,6 +144,26 @@ worktree` で返し、 作りかけの worktree と branch を残していた (#
 パス比較はスラッシュ区切りへ正規化し、 Windows では大文字小文字を区別しない。 add 前から
 あった branch は消さない。
 
+### 2.6 worktree の置き場所 (`src/control/worktree-base-dir.ts`)
+
+本体 checkout をデプロイ先 (例: C ドライブ) に置き、 作業用 worktree は別ドライブ
+(例: E ドライブ) に作れるようにする (2026-10-14、 ディスク障害に備えた C/E 分散)。
+
+| 環境変数 | 既定 | 意味 |
+|---|---|---|
+| `CONCORDIA_WORKTREE_ROOT` | 空 | worktree を作る親ディレクトリ。 空なら本体の隣 (`dirname(本体)`) |
+
+- 委託 spawn (`prepareSpawnTarget`) と実装ツール (`createImplementationWorktree`) の
+  両方が `worktreeBaseDirFor` を使う。 名前は従来どおり `<リポ名>-<branch slug>`。
+- 実装ツールは置き場所が workspace roots の内側にあることを従来どおり検査する。
+  別ドライブに置くときはその親を workspace roots に含める。
+- 既存 worktree の再利用は `git worktree list` で判定するので、 置き場所を変えても
+  作成済みの worktree はそのまま使われる。
+- パスからプロジェクトを引く `projectForRepoPath` は、 本体の隣に加えて
+  `CONCORDIA_WORKTREE_ROOT` 直下の `<リポ名>-*` / `<リポ名>.*` も同じリポの worktree と
+  みなす。
+- **Requirement ID: `SPEC-WORKTREE-ROOT`**
+
 ## 3. 設定 (AdminState)
 
 | キー | 既定 | 意味 |

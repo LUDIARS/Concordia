@@ -4,6 +4,7 @@ import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { repositoryKey } from "../taskflow/actio-binding.js";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import { branchWorktreeName, parseSpawnBranch } from "../control/spawn-target.js";
+import { worktreeBaseDirFor } from "../control/worktree-base-dir.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
 
@@ -41,7 +42,7 @@ export async function resolveWorktreeContext(
   if (matches.length !== 1) throw new Error("project code is missing or ambiguous");
   const project = matches[0]!;
   const mainRepo = await registeredMain(project, roots);
-  const worktree = join(dirname(mainRepo), branchWorktreeName(mainRepo, branch));
+  const worktree = join(worktreeBaseDirFor(mainRepo), branchWorktreeName(mainRepo, branch));
   if (!await isWithinWorkspace(dirname(worktree), roots)) throw new Error("worktree must remain inside workspace");
   return { project, branch, mainRepo, worktree };
 }

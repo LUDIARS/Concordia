@@ -7,12 +7,12 @@ const goal = (patch: Partial<DailyGoal>): DailyGoal => ({
   id: "g", date: "2026-10-10", project: "p", repoPath: "r", goalText: "x", acceptance: ["a"], actioTaskIds: [],
   permissions: { merge: false, test: false, service: false, deploy: false },
   confirmedBy: { platform: "discord", userId: "u", guildId: "g", channelId: "c" }, confirmedAt: 0,
-  status: "running", launchState: "launched", createdAt: 0, ...patch,
+  status: "running", alertCount: 0, createdAt: 0, ...patch,
 });
 
 describe("deadline (受け入れ基準: 4:00 に走っているゴールが締切で止まり、0:00 では止まらない)", () => {
   it("selects only active goals whose business day has ended", () => {
-    const goals = [goal({ id: "run" }), goal({ id: "conf", status: "confirmed", launchState: "none" }), goal({ id: "done", status: "achieved" }),
+    const goals = [goal({ id: "run" }), goal({ id: "conf", status: "confirmed" }), goal({ id: "done", status: "achieved" }),
       goal({ id: "next", date: "2026-10-11" })];
     expect(goalsPastDeadline(goals, at(11, 0), "04:00")).toEqual([]);
     expect(goalsPastDeadline(goals, at(11, 3, 59), "04:00")).toEqual([]);

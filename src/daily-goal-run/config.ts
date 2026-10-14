@@ -6,7 +6,7 @@
  * 保存先は schema_meta (設定レジストリ `daily_goal.*`)。 env には依存しない。
  */
 
-import { DEFAULT_CHECKPOINT_MINUTES } from "./checkpoint-policy.js";
+import { DEFAULT_CHECKPOINT_MINUTES } from "./judgment-policy.js";
 import { DEFAULT_DAY_BOUNDARY, DEFAULT_REMINDER_TIME, formatClock, parseClock } from "./business-day.js";
 
 export const DAILY_GOAL_SETTING_KEYS = {

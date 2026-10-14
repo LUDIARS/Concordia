@@ -1,5 +1,5 @@
 /**
- * デイリーゴール自走 (WM-2) の業務用語と状態。
+ * デイリーゴール (WM-2) の業務用語と状態。
  *
  * @implements spec/feature/daily-goal-run.md — 用語 / 状態の所有者
  *
@@ -33,12 +33,20 @@ export interface GoalConfirmer {
   messageId?: string;
 }
 
-/** confirmed = 登録済み・起動前。 deadline = 締切 (翌朝の業務日境界) で止めた。 */
+/**
+ * running = 見守り中 (登録した時点から)。 deadline = 締切 (翌朝の業務日境界) で止めた。
+ * confirmed / exhausted / lost は 2026-10-14 より前の旧方式 (専用セッション) の行だけが持つ。
+ */
 export type DailyGoalStatus = "confirmed" | "running" | "achieved" | "exhausted" | "stopped" | "deadline" | "lost";
 
-/** 起動の結果。 unknown は「起動を要求したが結果を確認できていない」 (CC-INV-03)。 */
-export type LaunchState = "none" | "intent" | "launched" | "unknown";
+/** 見守り中として確認・締切の対象にする状態 (旧方式の confirmed を含む)。 */
+export const ACTIVE_GOAL_STATUSES = ["confirmed", "running"] as const satisfies readonly DailyGoalStatus[];
 
+export function isActiveGoal(goal: Pick<DailyGoal, "status">): boolean {
+  return goal.status === "confirmed" || goal.status === "running";
+}
+
+/** exhausted / session_lost は旧方式の記録だけが持つ。 */
 export type StopReason = "goal_reached" | "exhausted" | "human_stop" | "deadline" | "session_lost";
 
 export interface DailyGoal {
@@ -54,20 +62,19 @@ export interface DailyGoal {
   confirmedBy: GoalConfirmer;
   confirmedAt: number;
   status: DailyGoalStatus;
+  /** 旧方式で紐付いた専用セッション。 証跡の branch を引くためだけに読む (新方式では持たない)。 */
   sessionId?: string;
-  runId?: string;
-  launchState: LaunchState;
-  launchedAt?: number;
-  launchError?: string;
-  nextLaunchAt?: number;
   stopReason?: StopReason;
   stoppedBy?: string;
-  /** 「やり切り」で認めた残り。 日のまとめに載せる (翌日のゴールには自動でしない、CC-DG-INV-08)。 */
+  /** 旧方式の「やり切り」で認めた残り。 日のまとめに載せる (翌日のゴールには自動でしない、CC-DG-INV-08)。 */
   remaining?: RemainingItem[];
   /** 登録元の投稿 (message id)。 同じ投稿から 2 件目を作らない (CC-DG-INV-02)。 */
   sourceMessageId?: string;
   /** 受入条件ごとに Cc が実在を確かめた証跡の参照 (到達の照合・締切停止の記録)。 */
   acceptanceProgress?: Record<string, string[]>;
+  /** 不調の続き具合 (CC-DG-INV-12)。 続いている不調の始まりと、 その不調で通知した回数。 */
+  alertStreakSince?: number;
+  alertCount: number;
   createdAt: number;
 }
 
@@ -166,10 +173,50 @@ export interface EvidenceSnapshot {
   unavailable: string[];
 }
 
-/** deadline = 締切で止める直前に集めた最後の証跡。 */
-export type CheckpointKind = "progress" | "completion" | "skipped_waiting" | "deadline";
+/** 判定の状態。 behind / stalled が「不調」 (通知の対象)。 */
+export type ProgressVerdict = "on_track" | "behind" | "stalled";
 
-/** 確認への判断。 go = 続行、 reached / exhausted = 止まる、 waiting = 回答待ち。 */
+export const PROGRESS_VERDICTS = ["on_track", "behind", "stalled"] as const satisfies readonly ProgressVerdict[];
+
+export const VERDICT_LABELS: Record<ProgressVerdict, string> = {
+  on_track: "順調",
+  behind: "遅れ気味",
+  stalled: "停滞",
+};
+
+/** 受入条件ごとの到達見込み。 reached は Cc が集めた証跡の根拠があるときだけ残る。 */
+export type AcceptanceOutlook = "reached" | "likely" | "at_risk" | "unlikely";
+
+export const ACCEPTANCE_OUTLOOKS = ["reached", "likely", "at_risk", "unlikely"] as const satisfies readonly AcceptanceOutlook[];
+
+export const OUTLOOK_LABELS: Record<AcceptanceOutlook, string> = {
+  reached: "到達",
+  likely: "見込みあり",
+  at_risk: "危うい",
+  unlikely: "見込みなし",
+};
+
+export interface AcceptanceJudgment {
+  item: string;
+  outlook: AcceptanceOutlook;
+  /** 根拠の証跡キー。 Cc が集めた証跡に実在するものだけ。 */
+  refs: string[];
+}
+
+/** 1 回限りの判定を正規化したもの。 */
+export interface ProgressJudgment {
+  verdict: ProgressVerdict;
+  reason: string;
+  acceptance: AcceptanceJudgment[];
+}
+
+/**
+ * judgment = ワンショット判定、 judge_failed = 判定できず、 deadline = 締切で止める直前に集めた最後の証跡。
+ * progress / completion / skipped_waiting は旧方式の記録。
+ */
+export type CheckpointKind = "judgment" | "judge_failed" | "deadline" | "progress" | "completion" | "skipped_waiting";
+
+/** 確認への判断。 go = 見守りを続ける、 reached = 到達で止める。 それ以外は旧方式の記録。 */
 export type CheckpointDecision = "go" | "reached" | "exhausted" | "waiting" | "pending" | "deadline";
 
 export interface DailyGoalCheckpoint {
@@ -179,8 +226,11 @@ export interface DailyGoalCheckpoint {
   kind: CheckpointKind;
   evidence: EvidenceSnapshot;
   progress: boolean;
+  /** 旧方式のセッションの報告、 または判定できなかった理由。 */
   report: string | null;
   decision: CheckpointDecision;
+  /** kind=judgment の判定。 */
+  judgment: ProgressJudgment | null;
 }
 
 export type RemainingItem =

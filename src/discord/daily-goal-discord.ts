@@ -1,11 +1,12 @@
 /**
  * デイリーゴールの Discord 面: 入口チャンネル、 カードの配達 (1 ゴール 1 message の編集・9:00 の通知・
- * 4:00 のまとめ) と、 停止・まとめ再送の操作、 投稿の受付 (daily-goal-post-intake)。
+ * 4:00 のまとめ)、 不調の通知の配達、 停止・まとめ再送の操作、 投稿の受付 (daily-goal-post-intake)。
  *
- * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 5. カードの更新 / 6. 人間の停止 / 7. 9:00 の通知 / 8. まとめの投稿と再送 / CC-DG-INV-01
+ * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 4. カードの更新 / 5. 不調の通知 / 6. 人間の停止 / 7. 9:00 の通知 / 8. まとめの投稿と再送 / CC-DG-INV-01 / CC-DG-INV-12
  *
  * 新規投稿は intent を先に保存してから送る。 結果不明は marker で既存投稿を照合し、
  * 見つからない間は同じカードを再送しない (sprint-dialogues の CC-SD-04 と同じ扱い)。
+ * 不調の通知はゴールのスレッドへ (無ければカードへの返信で) 送り、 結果不明は再送しない。
  */
 
 import { createHash } from "node:crypto";
@@ -20,6 +21,7 @@ import {
   cardMarker,
   renderDaySummaryCard,
   renderGoalCard,
+  renderProgressAlert,
   renderReminderCard,
 } from "./daily-goal-card-render.js";
 import { definiteDiscordRejection } from "./sprint-dialogues-surface.js";
@@ -79,6 +81,29 @@ export async function startDailyGoalDiscord(input: {
     }
   };
 
+  /** 不調の通知。 スレッドが無く、 カードもまだ投稿されていなければ次の回まで待つ。 */
+  const deliverAlerts = async (): Promise<void> => {
+    for (const alert of port.alerts.pending(Date.now())) {
+      if (stopped) return;
+      const content = port.alerts.content(alert);
+      if (!content) continue;
+      const thread = content.threadId ? await guild.channels.fetch(content.threadId).catch(() => null) : null;
+      const inThread = !!thread?.isThread();
+      if (!inThread && !content.cardMessageId) continue;
+      if (!port.alerts.claim(alert.id)) continue;
+      const message = renderProgressAlert(content.mentionUserId, content.text);
+      try {
+        const posted = thread?.isThread()
+          ? await thread.send(message)
+          : await (await channel.messages.fetch(content.cardMessageId!)).reply(message);
+        port.alerts.sent(alert.id, posted.id);
+      } catch (error) {
+        if (definiteDiscordRejection(error)) port.alerts.rejected(alert.id, String(error), Date.now());
+        else port.alerts.unknownResult(alert.id, String(error));
+      }
+    }
+  };
+
   const deliver = async (): Promise<void> => {
     if (busy || stopped || !port.isEnabled()) return;
     busy = true;
@@ -104,6 +129,7 @@ export async function startDailyGoalDiscord(input: {
           else port.cards.unknownResult(card.id, String(error));
         }
       }
+      await deliverAlerts();
     } catch (error) {
       if (!stopped) input.log.warn(`daily goal card delivery failed: ${String(error)}`);
     } finally { busy = false; }
@@ -120,7 +146,7 @@ export async function startDailyGoalDiscord(input: {
     async interaction(i) {
       if (stopped || !i.isButton()) return;
       if (!port.isEnabled()) {
-        await i.reply({ content: "デイリーゴール自走は設定で無効です。", ephemeral: true });
+        await i.reply({ content: "デイリーゴールは設定で無効です。", ephemeral: true });
         return;
       }
       if (i.guildId !== guild.id || !i.channelId) return;

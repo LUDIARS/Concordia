@@ -46,7 +46,6 @@ export class DailyGoalPostIntake {
   constructor(
     private readonly deps: DailyGoalServiceDeps,
     private readonly register: (input: RegisterGoalInput) => { goal: DailyGoal; created: boolean },
-    private readonly launchSoon: (now: number) => void,
   ) {}
 
   private serial<T>(key: string, work: () => Promise<T>): Promise<T> {
@@ -150,7 +149,6 @@ export class DailyGoalPostIntake {
       businessDate: draft.businessDate, now,
     });
     this.deps.drafts.markRegistered(draft.id, goal.id, now);
-    this.launchSoon(now);
     return thread(registeredReply(goal, {
       droppedPermissions: capped.dropped,
       deadline: describeDeadline(goal.date, dayBoundary),

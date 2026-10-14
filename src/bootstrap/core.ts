@@ -1921,21 +1921,17 @@ export async function startBackend(): Promise<BackendHandle> {
     returnNotices.mark(noticeKey, nowMs);
   };
 
-  // デイリーゴール自走 (spec/feature/daily-goal-run.md)。 scheduler は workflow.daily_goal に従って張り替える。
+  // デイリーゴール (spec/feature/daily-goal-run.md)。 scheduler は workflow.daily_goal に従って張り替える。
   const dailyGoalRuntime = createDailyGoalRuntime({
     db,
     sessions: repo,
-    delegationRepo,
-    delegationService,
     prs,
     projectCodes: projectCodesRepo,
-    pendingQuestions,
     staff: staffRepo,
     taskStore: () => taskStore,
     revisor: revisorClient,
     settings: adminState.store,
     isEnabled: () => isWorkflowEnabled("daily_goal"),
-    baseUrl: publicUrl,
     log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
   });
   discordBotDeps = {

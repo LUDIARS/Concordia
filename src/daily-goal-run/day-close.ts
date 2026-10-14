@@ -82,8 +82,8 @@ export class DailyGoalDayCloser {
     const goals: SummaryGoalInput[] = this.deps.repo.onDate(date).map((goal) => {
       const checkpoints = this.deps.repo.checkpoints(goal.id);
       const lastEvidence = [...checkpoints].reverse().find((cp) => cp.kind !== "skipped_waiting");
-      const lastReport = [...checkpoints].reverse().find((cp) => cp.report)?.report ?? null;
-      return { goal, evidence: lastEvidence?.evidence.items ?? [], lastReport };
+      const lastJudged = [...checkpoints].reverse().find((cp) => cp.kind === "judgment" || cp.kind === "judge_failed");
+      return { goal, evidence: lastEvidence?.evidence.items ?? [], lastJudgment: lastJudged?.judgment ?? null };
     });
     return { date, goals, drafts: this.deps.drafts.onDate(date, ["open", "expired"]), noGoal: day.noGoalAt !== undefined };
   }

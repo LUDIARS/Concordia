@@ -1,14 +1,15 @@
 /**
  * 人間の操作面 (chat platform) がデイリーゴールに使う口。
  *
- * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 2. 聞き返し / 6. 人間の停止 / 8. まとめの再送 / カード / CC-DG-INV-01
+ * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 2. 聞き返し / 5. 不調の通知 / 6. 人間の停止 / 8. まとめの再送 / カード / CC-DG-INV-01
  *
  * 登録・停止・再送は人間本人の操作からだけ呼ばれる (公開 HTTP は持たない)。 役職の解決は
  * composition root が社員名簿で行い、 操作面は transport の本人性 (user / bot / webhook) を渡す。
- * カードの配達側はここから中身と配達状態の CAS を使う。
+ * カードと不調の通知の配達側はここから中身と配達状態の CAS を使う。
  */
 
-import type { DailyGoalCardContent } from "./service.js";
+import type { DailyGoalAlertContent, DailyGoalCardContent } from "./service.js";
+import type { DailyGoalAlert } from "./alert-repository.js";
 import type { DailyGoal, DailyGoalDay } from "./domain.js";
 import type { DailyGoalCard } from "./repository.js";
 import type { IntakeResult } from "./post-intake.js";
@@ -48,5 +49,14 @@ export interface DailyGoalSurfacePort {
     saved(cardId: string, revision: number, channelId: string, messageId: string): void;
     rejected(cardId: string, error: string, now: number): void;
     unknownResult(cardId: string, error: string): void;
+  };
+  /** 不調の通知の配達。 claim (intent) してから送り、 結果不明は再送しない。 */
+  alerts: {
+    pending(now: number): DailyGoalAlert[];
+    content(alert: DailyGoalAlert): DailyGoalAlertContent | null;
+    claim(alertId: string): boolean;
+    sent(alertId: string, messageId: string): void;
+    rejected(alertId: string, error: string, now: number): void;
+    unknownResult(alertId: string, error: string): void;
   };
 }

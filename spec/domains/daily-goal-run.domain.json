@@ -1,6 +1,6 @@
 {
   "name": "daily-goal-run",
-  "description": "デイリーゴール自走 (WM-2)。人間がデイリーゴールチャンネルに投稿したその日の目標からゴール文・受入条件を読み取り (欠ければ聞き返す)、その場で専用セッションを 1 本起動し、1 時間ごとの確認で証跡・報告・判断点を出しながら Goal & Go で自走させる。止まるのはゴール到達・十分にこなした・人間の停止・翌朝 4:00 の締切の 4 つだけ。4:00 に日のまとめを作り Memoria の日記とノートへ記載し、目標の無い日は 9:00 に通知する。投稿の読み取りと下書き・業務日・証跡による進捗判定・完了確認・止まる条件の照合・確認記録・日のまとめと記載状態を所有する。Actio の task 状態、日記とノートの本文、起動の実体 (agent-delegation)、セッション内の自走継続 (autonomous-continuation) は所有しない。UX-CC-W9; CC-DG-INV-01〜11。",
+  "description": "デイリーゴール (WM-2)。人間がデイリーゴールチャンネルに投稿したその日の目標からゴール文・受入条件を読み取り (欠ければ聞き返す)、登録する。セッションは起動しない (2026-10-14 改訂)。1 時間ごとに証跡を集めてセッションを残さないワンショット判定で「順調 / 遅れ気味 / 停滞」と受入条件ごとの見込みを出してカードを更新し、遅れ気味・停滞のときだけ投稿者に mention で通知する (1 続きの不調につき最初と 3 時間後の 2 回まで)。止まるのはゴール到達・人間の停止・翌朝 4:00 の締切の 3 つだけ。4:00 に日のまとめを作り Memoria の日記とノートへ記載し、目標の無い日は 9:00 に通知する。投稿の読み取りと下書き・業務日・証跡の収集・判定の正規化と到達の照合・不調の通知・確認記録・日のまとめと記載状態を所有する。Actio の task 状態、日記とノートの本文は所有しない。UX-CC-W9; CC-DG-INV-01〜12。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
@@ -17,7 +17,7 @@
       "pathPattern": "(^|/)tests/daily-goal-run[^/]*\\.test\\.ts$"
     }
   ],
-  "cardTemplate": "Explain who posted the daily goal, what was read from the post, which evidence marked progress at each checkpoint, why the run stopped, and whether the day summary reached Memoria.",
+  "cardTemplate": "Explain who posted the daily goal, what was read from the post, which evidence and one-shot judgment each checkpoint produced, whether the poster was alerted, why the goal stopped, and whether the day summary reached Memoria.",
   "specRefs": [
     "spec/feature/daily-goal-run.md",
     "spec/feature/work-modes.md",

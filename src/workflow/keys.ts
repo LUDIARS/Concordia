@@ -37,7 +37,7 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   curiosity: "散歩セッション (ランダムなタイミングで 2 素材を並べて 1 問だけつぶやく)",
   inbox: "承認インボックスの朝夕ダイジェストと放置催促",
   github: "GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)",
-  daily_goal: "デイリーゴール自走 (朝のゴール確定 → 専用セッション → 1 時間ごとの確認)",
+  daily_goal: "デイリーゴール (投稿で登録 → 1 時間ごとのワンショット判定 → 不調時だけ通知)",
 };
 
 /** schema_meta 上の設定キー。 */

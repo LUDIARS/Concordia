@@ -49,7 +49,7 @@ updated: 2026-10-10
 | ID | 方式 | 起点 | ゴールの所有者 | セッションの形 | 確認の周期 | 完了 | 正本 spec / domain | 状態 |
 |---|---|---|---|---|---|---|---|---|
 | WM-1 | 対話 (指示駆動) | 人間の指示 | 人間の指示、明示があればセッション goal (`/co-goal`) | 既存のセッション | 最終回答後 300 秒の Goal & Go | 指示の範囲が終わる | [goal-and-go](goal-and-go.md) / `autonomous-continuation` | 実装済み |
-| WM-2 | デイリーゴール自走 | 人間がデイリーゴールチャンネルにその日の目標を投稿 (「目標なし」も可、9:00 に無ければ通知) | Cc のデイリーゴール (Actio task を参照) | ゴール 1 件につき専用セッション 1 本 | 1 時間ごとの確認 + 確認と確認の間は Goal & Go、翌朝 4:00 に日のまとめ (Memoria の日記・ノート) | ゴール到達 (証跡)、十分にこなした (残りが達成不能か人間判断待ちだけ)、人間の停止、翌朝 4:00 の締切 | [daily-goal-run](daily-goal-run.md) / `daily-goal-run` | 実装済み |
+| WM-2 | デイリーゴール | 人間がデイリーゴールチャンネルにその日の目標を投稿 (「目標なし」も可、9:00 に無ければ通知) | Cc のデイリーゴール (Actio task を参照) | 専用セッションは持たない (2026-10-14 改訂。作業は人間が選んだ方式で進める) | 1 時間ごとのワンショット判定、不調のときだけ投稿者へ通知、翌朝 4:00 に日のまとめ (Memoria の日記・ノート) | ゴール到達 (証跡)、人間の停止、翌朝 4:00 の締切 | [daily-goal-run](daily-goal-run.md) / `daily-goal-run` | 実装済み |
 | WM-3 | 委託 | 親セッションまたは人間が範囲を渡す | 委託 run (依頼文と契約) | 子セッション (spawn) または call_only | run の状態遷移 | run の完了と成果の照合 | [delegation](delegation.md) / `agent-delegation` ほか `delegation-*` | 実装済み |
 | WM-4 | 定期パートタイマー | cron・朝・監視イベント | テンプレートの定型手順 | 短期の委託セッション | なし (1 回で終わる) | 手順の完了報告 | [delegation-parttimer-inject](delegation-parttimer-inject.md) / `parttimer-review-scheduling` | 実装済み |
 | WM-5 | Director 案件 | 人間が案件 (case) を起案 | `director_cases` (case/step/decision) | 工程ごとに委託 | step の遷移 | 全 step 完了 | [director](director.md)・[director-goal-flow](director-goal-flow.md) / `director-patrol` | case 正本は実装済み、自動進行は計画 |
@@ -87,7 +87,7 @@ LUDIARS の進め方としては使わない。
 |---|---|---|
 | CC-WM-INV-01 | 1 セッションは同時に 1 つの方式に属する。方式を移すときは移す前の方式の状態を閉じてから移す | セッション metadata、方式ごとの起動経路 |
 | CC-WM-INV-02 | 方式ごとのゴールの所有者を混ぜない。ある方式のゴールを別の方式の正本へ書き写さない (参照は持ってよい) | goal API / daily goal / director case / Actio sprint |
-| CC-WM-INV-03 | ある方式の安全予算を、別の方式の予算や確認で緩和しない。緩和してよい条件は方式の spec に明記したものだけ | goal-and-go / daily-goal-run / director の予算 |
+| CC-WM-INV-03 | ある方式の安全予算を、別の方式の予算や確認で緩和しない。緩和してよい条件は方式の spec に明記したものだけ | goal-and-go / director の予算 (daily-goal-run の緩和は 2026-10-14 に撤廃) |
 | CC-WM-INV-04 | どの方式も回答待ち (CC-INV-08) と、マージ・テスト・サービス操作の許可境界を変えない | 自動 inject、委託の起動、確認の周期 |
 
 CC-INV-01〜08 は全方式に適用する。
@@ -100,5 +100,5 @@ CC-INV-01〜08 は全方式に適用する。
 - [ ] 方式をまたぐ不変条件が ID 付きで書かれている。
 
 方式をセッションに記録する仕組み (CC-WM-INV-01 の機械的な裏付け) は `src/work-modes/work-mode.ts`
-(セッション metadata の `work_mode`)。WM-2 の専用セッションが最初の利用者で、別の方式が active な
-セッションへは記録しない。ほかの方式の起動経路への適用は、それぞれの方式を変更するときに入れる。
+(セッション metadata の `work_mode`)。WM-2 の専用セッションが最初の利用者だった (2026-10-14 に WM-2 は専用セッションを
+持たなくなり、`daily-goal-run` の値は旧方式の記録として読むだけ)。別の方式が active なセッションへは記録しない。ほかの方式の起動経路への適用は、それぞれの方式を変更するときに入れる。

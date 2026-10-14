@@ -8,7 +8,6 @@ import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "..
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 import { initialRoleModel } from "../model-catalog/role-policy.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
-import { DAILY_GOAL_RUNNER_TEMPLATE } from "./daily-goal-runner-template.js";
 import { BOUNTY_TRIAGE_TEMPLATE } from "../bounty/triage-template.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
@@ -99,6 +98,9 @@ const LEGACY_DELEGATION_CALL_NAMES = [
   // 2026-10-03: neco 指示「Astra の xhigh を消して」。 Astra は astra-mid / astra-with-sidecar の 2 本にする。
   "astra-xhigh",
   "sol-xhigh",
+  // 2026-10-14: デイリーゴールは専用セッションを起動せず、1 時間ごとのワンショット判定にした
+  // (neco 指示、spec/feature/daily-goal-run.md)。
+  "daily-goal-runner",
 ] as const;
 
 /**
@@ -1202,8 +1204,6 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // デイリーゴール自走 (WM-2) の専用セッション。 daily-goal-run の scheduler だけが invoke する。
-  DAILY_GOAL_RUNNER_TEMPLATE,
   // バグ報告の仕分け (読み取り専用)。 bug-bounty の triage-service だけが invoke する (bug-bounty.md §5)。
   BOUNTY_TRIAGE_TEMPLATE,
   ...VULTUS_CATALOG_TEMPLATES,

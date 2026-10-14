@@ -1,9 +1,9 @@
 /**
  * 操作面の口 (DailyGoalSurfacePort) を service と社員名簿から組み立てる。
  *
- * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 2. 聞き返し / 6. 人間の停止 / 8. まとめの再送
+ * @implements spec/feature/daily-goal-run.md — 1. 投稿 / 2. 聞き返し / 5. 不調の通知 / 6. 人間の停止 / 8. まとめの再送
  *
- * 役職は操作のたびに名簿を live 参照する。 登録した直後に起動を試みる (起動時刻の制限は無い)。
+ * 役職は操作のたびに名簿を live 参照する。 登録してもセッションは起動しない。
  */
 
 import { CHANNEL_TOPIC } from "./post-replies.js";
@@ -18,7 +18,7 @@ export function createDailyGoalSurface(service: DailyGoalRunService, opts: {
 }): DailyGoalSurfacePort {
   const now = opts.now ?? Date.now;
   const actor = (input: SurfaceActor): GoalActor => ({ platform: "discord", ...input, role: opts.roleOf(input.userId) });
-  const { repo } = service.deps;
+  const { repo, alerts } = service.deps;
   return {
     isEnabled: opts.isEnabled,
     channelTopic: () => CHANNEL_TOPIC,
@@ -38,6 +38,14 @@ export function createDailyGoalSurface(service: DailyGoalRunService, opts: {
       saved: (cardId, revision, channelId, messageId) => service.cardDelivered(cardId, revision, channelId, messageId, now()),
       rejected: (cardId, error, at) => repo.cardRejected(cardId, error, at),
       unknownResult: (cardId, error) => repo.cardUnknown(cardId, error),
+    },
+    alerts: {
+      pending: (at) => alerts.pending(at),
+      content: (alert) => service.alertContent(alert),
+      claim: (alertId) => alerts.claim(alertId),
+      sent: (alertId, messageId) => alerts.sent(alertId, messageId),
+      rejected: (alertId, error, at) => alerts.rejected(alertId, error, at),
+      unknownResult: (alertId, error) => alerts.unknownResult(alertId, error),
     },
   };
 }

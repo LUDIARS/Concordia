@@ -6,7 +6,7 @@
  * 聞き返しは「何が読み取れて、 何が足りないか」を 1 通で返す。 登録時は読み取り結果を返す。
  */
 
-import { describePermissions } from "./prompts.js";
+import { describePermissions } from "./labels.js";
 import { PERMISSION_LABELS, POST_FIELD_LABELS, type DailyGoal, type ExtractedGoal, type PermissionKey, type PostField } from "./domain.js";
 
 /** 投稿の書き方 (チャンネルの説明・9:00 の通知・読み取り失敗の返信に載せる)。 */
@@ -60,7 +60,7 @@ export function draftReply(input: {
 
 export function registeredReply(goal: DailyGoal, input: { droppedPermissions: readonly PermissionKey[]; deadline: string; nearDeadline: boolean }): string {
   return [
-    `デイリーゴールとして登録しました (${goal.id})。専用セッションをすぐ起動します。`,
+    `デイリーゴールとして登録しました (${goal.id})。1 時間ごとに進み具合を確認し、芳しくないときはこのスレッドでお知らせします。`,
     `- プロジェクト: ${goal.project}`,
     `- ゴール: ${goal.goalText}`,
     "- 受入条件:", ...goal.acceptance.map((item, i) => `  ${i + 1}. ${item}`),

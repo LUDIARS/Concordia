@@ -1,18 +1,26 @@
 /**
- * デイリーゴールのカード表示モデル (純関数)。
+ * デイリーゴールのカードと通知の表示モデル (純関数)。
  *
- * @implements spec/feature/daily-goal-run.md — 5. 確認 (カードには 証跡 / セッションの報告 / 人間判断 を分けて載せる) / 6. カード表示 / 7. 9:00 の通知 / 8. まとめの投稿
+ * @implements spec/feature/daily-goal-run.md — 4. カード (証跡 / 判定 / タイムライン) / 5. 不調の通知 / 6. カード表示 / 7. 9:00 の通知 / 8. まとめの投稿
  *
  * transport に依存しない文字列の束を作る。 Discord への描画と配達は discord/ が持つ。
  */
 
-import { waitingMinutes } from "./checkpoint-policy.js";
 import { deadlineOf, describeDeadline } from "./business-day.js";
 import { isNearDeadline } from "./deadline-policy.js";
 import { RESULT_LABELS } from "./day-summary.js";
 import { reminderText } from "./post-replies.js";
-import { describeActioTasks, describePermissions } from "./prompts.js";
-import type { DailyGoal, DailyGoalCheckpoint, DailyGoalDay, JournalState } from "./domain.js";
+import { describeActioTasks, describePermissions } from "./labels.js";
+import {
+  OUTLOOK_LABELS,
+  VERDICT_LABELS,
+  isActiveGoal,
+  type DailyGoal,
+  type DailyGoalCheckpoint,
+  type DailyGoalDay,
+  type JournalState,
+  type ProgressJudgment,
+} from "./domain.js";
 import type { TimelineEntry } from "./repository.js";
 
 export interface DailyGoalCardView {
@@ -20,22 +28,26 @@ export interface DailyGoalCardView {
   statusLabel: string;
   header: string[];
   evidence: string[];
-  report: string[];
-  humanJudgment: string[];
+  /** 最後の判定 (状態・理由・受入条件ごとの見込み)。 */
+  judgment: string[];
+  /** 締切で残った受入条件、 旧方式のやり切りの残り・喪失。 */
+  remaining: string[];
   timeline: string[];
-  /** 停止ボタンを出すか (確定済み・継続中だけ)。 */
+  /** 停止ボタンを出すか (見守り中だけ)。 */
   stoppable: boolean;
 }
 
-export function statusLabel(goal: DailyGoal, waiting: boolean): string {
+const VERDICT_ICONS = { on_track: "🟢", behind: "🟡", stalled: "🔴" } as const;
+
+export function statusLabel(goal: DailyGoal): string {
   switch (goal.status) {
     case "achieved": return "✅ 達成";
     case "exhausted": return "🏁 やり切り";
     case "stopped": return "⏹️ 停止";
     case "deadline": return "⏰ 締切";
     case "lost": return "⚠️ 喪失";
-    case "confirmed": return goal.launchState === "unknown" ? "❔ 起動結果を照合中" : "🚀 起動中";
-    case "running": return waiting ? "⏳ 回答待ち" : "▶️ 継続中";
+    case "confirmed":
+    case "running": return "👀 見守り中";
   }
 }
 
@@ -44,61 +56,83 @@ function hhmm(at: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** 判定の行 (カードとまとめで共用)。 */
+export function judgmentLines(judgment: ProgressJudgment): string[] {
+  return [
+    `${VERDICT_ICONS[judgment.verdict]} **${VERDICT_LABELS[judgment.verdict]}** — ${judgment.reason}`,
+    ...judgment.acceptance.map((entry, i) => `${i + 1}. ${OUTLOOK_LABELS[entry.outlook]}: ${entry.item}${entry.refs.length ? ` (${entry.refs.join(", ")})` : ""}`),
+  ];
+}
+
 export function buildGoalCard(input: {
   goal: DailyGoal; checkpoints: readonly DailyGoalCheckpoint[]; timeline: readonly TimelineEntry[];
-  waiting: boolean; now: number; dayBoundary: string;
+  now: number; dayBoundary: string;
 }): DailyGoalCardView {
   const { goal } = input;
   const last = [...input.checkpoints].reverse().find((cp) => cp.kind !== "skipped_waiting") ?? null;
-  const firstWait = (() => {
-    let since: number | null = null;
-    for (const cp of input.checkpoints) since = cp.kind === "skipped_waiting" ? (since ?? cp.at) : null;
-    return since;
-  })();
+  const lastJudged = [...input.checkpoints].reverse().find((cp) => cp.kind === "judgment" || cp.kind === "judge_failed") ?? null;
   const evidence = last
     ? [
         ...last.evidence.items.slice(-10).map((item) => `- ${item.summary}`),
+        ...(last.evidence.items.length ? [] : ["- (証跡なし)"]),
         ...(last.evidence.unavailable.length ? [`- (未取得: ${last.evidence.unavailable.join(", ")})`] : []),
       ]
     : ["- まだ確認していません"];
-  const reports = input.checkpoints.filter((cp) => cp.report).slice(-2).map((cp) => `- ${hhmm(cp.at)} ${cp.report!.slice(0, 300)}`);
-  const human: string[] = [];
-  if (goal.status === "running" && input.waiting) {
-    human.push(`- 回答待ちです (${waitingMinutes(firstWait, input.now)} 分経過)。セッションのスレッドで回答してください`);
-  }
+  const judgment = !lastJudged
+    ? ["- まだ判定していません"]
+    : lastJudged.kind === "judge_failed" || !lastJudged.judgment
+      ? [`- ${hhmm(lastJudged.at)} ❔ 判定できず${lastJudged.report ? ` (${lastJudged.report.slice(0, 200)})` : ""}。次の確認でまた試します`]
+      : [`- ${hhmm(lastJudged.at)} の判定`, ...judgmentLines(lastJudged.judgment)];
+  const remaining: string[] = [];
   if (goal.status === "exhausted") {
     for (const item of goal.remaining ?? []) {
-      human.push(item.class === "unachievable"
+      remaining.push(item.class === "unachievable"
         ? `- 達成不能: ${item.item} — ${item.reason}`
         : item.class === "human_judgment" ? `- 決めてほしい点: ${item.item}` : `- ${item.item}`);
     }
   }
   if (goal.status === "deadline") {
     for (const item of goal.acceptance) {
-      if (!(goal.acceptanceProgress?.[item]?.length)) human.push(`- 締切までに証跡の無い受入条件: ${item}`);
+      if (!(goal.acceptanceProgress?.[item]?.length)) remaining.push(`- 締切までに証跡の無い受入条件: ${item}`);
     }
   }
-  if (goal.status === "lost") human.push("- 専用セッションを喪失しました。再開するかは人間が選んでください");
-  const active = goal.status === "confirmed" || goal.status === "running";
+  if (goal.status === "lost") remaining.push("- 旧方式の専用セッションを喪失しました");
+  const active = isActiveGoal(goal);
   const deadline = describeDeadline(goal.date, input.dayBoundary);
   const minutesLeft = Math.max(0, Math.ceil((deadlineOf(goal.date, input.dayBoundary) - input.now) / 60_000));
   return {
     title: `デイリーゴール ${goal.date} / ${goal.project}`,
-    statusLabel: statusLabel(goal, input.waiting),
+    statusLabel: statusLabel(goal),
     header: [
       `**ゴール**: ${goal.goalText}`,
       "**受入条件**:", ...goal.acceptance.map((item, i) => `${i + 1}. ${item}`),
       `**Actio task**: ${describeActioTasks(goal.actioTaskIds)}`,
       `**許可範囲**: ${describePermissions(goal.permissions)}`,
-      `**登録**: <@${goal.confirmedBy.userId}> の投稿${goal.sessionId ? ` / セッション ${goal.sessionId}` : ""}`,
+      `**登録**: <@${goal.confirmedBy.userId}> の投稿`,
       `**締切**: ${deadline}${active && isNearDeadline(goal.date, input.now, input.dayBoundary) ? ` — ⚠️ 締切まであと ${minutesLeft} 分` : ""}`,
     ],
     evidence,
-    report: reports.length ? reports : ["- (報告なし)"],
-    humanJudgment: human.length ? human : ["- なし"],
+    judgment,
+    remaining,
     timeline: input.timeline.slice(-12).map((entry) => `${hhmm(entry.at)} ${entry.text}`),
     stoppable: active,
   };
+}
+
+/**
+ * 不調の通知の本文 (mention は含めない。 配達側が構造化フィールドで投稿者 1 人に付ける)。
+ * 状態・理由・危うい受入条件と、 カードへの案内だけを載せる。
+ */
+export function buildAlertText(goal: DailyGoal, judgment: ProgressJudgment, kind: "first" | "repeat"): string {
+  const risky = judgment.acceptance.filter((entry) => entry.outlook === "at_risk" || entry.outlook === "unlikely");
+  return [
+    kind === "repeat"
+      ? `デイリーゴール「${goal.goalText}」は 3 時間以上 **${VERDICT_LABELS[judgment.verdict]}** が続いています。`
+      : `デイリーゴール「${goal.goalText}」の進み具合が **${VERDICT_LABELS[judgment.verdict]}** です。`,
+    `理由: ${judgment.reason}`,
+    ...(risky.length ? ["危うい受入条件:", ...risky.map((entry) => `- ${OUTLOOK_LABELS[entry.outlook]}: ${entry.item}`)] : []),
+    "詳しくはカードを見てください。止める場合はカードの停止ボタンを押してください。",
+  ].join("\n");
 }
 
 /** 9:00 の通知 (目標の無い日に 1 回)。 */

@@ -1,11 +1,12 @@
 /**
  * 証跡の収集 (port + adapter)。
  *
- * @implements spec/feature/daily-goal-run.md — 5. 1 時間ごとの確認 (証跡を集める) / CC-DG-INV-03 / CC-DG-INV-08
+ * @implements spec/feature/daily-goal-run.md — 4. 1 時間ごとのワンショット確認 (証跡を集める) / CC-DG-INV-03 / CC-DG-INV-08
  *
- * 集めるのは commit (専用セッションの作業 branch)、 PR (Cc の pr_records と Revisor local PR)、
- * Actio task の状態。 Actio へは読み取りだけで書かない。 情報源が読めなかったときは
- * unavailable に残し、 空の成功にしない。
+ * 集めるのは commit、 PR (Cc の pr_records と Revisor local PR)、 Actio task の状態。
+ * 新方式ではゴールのプロジェクトの repo 単位で集める (commit はローカル branch 全体、 PR は repo origin)。
+ * 旧方式で専用セッションが紐付いたゴールだけ、 そのセッションの branch と PR から集める。
+ * Actio へは読み取りだけで書かない。 情報源が読めなかったときは unavailable に残し、 空の成功にしない。
  */
 
 import { execFile } from "node:child_process";
@@ -28,6 +29,11 @@ export interface EvidenceAdapterDeps {
   session(sessionId: string): EvidenceSession | null;
   prsBySession(sessionId: string): EvidencePr[];
   revisorByBranch?(repository: string, branch: string): Promise<EvidenceRevisorPr | null>;
+  /** プロジェクトの repo (repoPath) の origin (owner/repo)。 未登録なら null。 */
+  repoOrigin?(repoPath: string): string | null;
+  prsByRepo?(repoOrigin: string): EvidencePr[];
+  /** Revisor local PR のうち、 その repository のもの。 */
+  revisorByRepository?(repository: string): Promise<EvidenceRevisorPr[]>;
   taskStatus(repoPath: string, reference: string): Promise<{ status: string } | null>;
   /** `git -C <cwd> <args>` を実行して stdout を返す。 省略時は git 実行ファイルをタイムアウト付きで呼ぶ。 */
   git?(cwd: string, args: readonly string[]): Promise<string>;
@@ -78,13 +84,38 @@ export function evidenceGitArgs(branch: string, since: number): string[] | null 
 // @ts-expect-error augur-inject
 evidenceGitArgs = contract(evidenceGitArgs, { ...augurContract_38dc75bb, contractId: 'C-17', mode: 'observe', sample: 1, where: 'src/daily-goal-run/evidence.ts:70', rule: 'contract-wrap', id: '38dc75bb' }); /* augur-inject:contract-wrap:38dc75bb */
 
+/** repo のローカル branch 全体から since 以降の commit を読む引数 (ref 名を外から受けない)。 */
+export function repoEvidenceGitArgs(since: number): string[] {
+  return ["log", "--branches", "--since=@" + Math.floor(since / 1000), "--format=%H%x09%ct%x09%s", "-n", "200", "--"];
+}
+
+function revisorEvidence(pr: EvidenceRevisorPr): EvidenceItem {
+  return { key: `revisor:${pr.id}:${pr.status}:${pr.checkStatus}`, kind: "revisor", summary: `local PR #${pr.number} ${pr.status}/${pr.checkStatus}: ${pr.title}`.slice(0, 200), at: Date.parse(pr.updatedAt) || null };
+}
+
 export function createEvidenceAdapter(deps: EvidenceAdapterDeps): EvidencePort {
   const git = deps.git ?? runGit;
+  /** 新方式: プロジェクトの repo 単位で commit / PR を集める。 */
+  const collectRepo = async (goal: DailyGoal, since: number, items: EvidenceItem[], unavailable: string[]): Promise<void> => {
+    try { items.push(...parseCommitLog(await git(goal.repoPath, repoEvidenceGitArgs(since)))); }
+    catch { unavailable.push("git"); }
+    let origin: string | null = null;
+    try { origin = deps.repoOrigin?.(goal.repoPath) ?? null; } catch { /* treated as unknown origin below */ }
+    if (!origin) { unavailable.push("pr_records"); return; }
+    try { items.push(...prEvidence(deps.prsByRepo?.(origin) ?? [], since)); } catch { unavailable.push("pr_records"); }
+    if (!deps.revisorByRepository) return;
+    try {
+      for (const pr of await deps.revisorByRepository(origin)) {
+        if ((Date.parse(pr.updatedAt) || 0) >= since) items.push(revisorEvidence(pr));
+      }
+    } catch { unavailable.push("revisor"); }
+  };
   return {
     async collect(goal, since) {
       const items: EvidenceItem[] = [];
       const unavailable: string[] = [];
       const taskStatuses: Record<string, string> = {};
+      if (!goal.sessionId) await collectRepo(goal, since, items, unavailable);
       const session = goal.sessionId ? deps.session(goal.sessionId) : null;
       if (session?.branch) {
         try {
@@ -99,7 +130,7 @@ export function createEvidenceAdapter(deps: EvidenceAdapterDeps): EvidencePort {
         if (deps.revisorByBranch && session?.repo_origin && session.branch) {
           try {
             const pr = await deps.revisorByBranch(session.repo_origin, session.branch);
-            if (pr) items.push({ key: `revisor:${pr.id}:${pr.status}:${pr.checkStatus}`, kind: "revisor", summary: `local PR #${pr.number} ${pr.status}/${pr.checkStatus}: ${pr.title}`.slice(0, 200), at: Date.parse(pr.updatedAt) || null });
+            if (pr) items.push(revisorEvidence(pr));
           } catch { unavailable.push("revisor"); }
         }
       }

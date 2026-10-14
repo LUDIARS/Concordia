@@ -6,7 +6,7 @@ const goal = (patch: Partial<DailyGoal>): DailyGoal => ({
   id: "g", date: "2026-10-10", project: "Concordia", repoPath: "r", goalText: "投稿登録を出荷する", acceptance: ["PR がマージされる", "反映を確認"],
   actioTaskIds: ["t-1"], permissions: { merge: false, test: false, service: false, deploy: false },
   confirmedBy: { platform: "discord", userId: "u", guildId: "g", channelId: "c" }, confirmedAt: 0,
-  status: "deadline", launchState: "launched", createdAt: 0, ...patch,
+  status: "deadline", alertCount: 0, createdAt: 0, ...patch,
 });
 const draft: DailyGoalDraft = {
   id: "d", businessDate: "2026-10-10", sourceMessageId: "m", authorUserId: "u", guildId: "g", channelId: "c",
@@ -27,20 +27,30 @@ describe("buildDaySummary (8. 日のまとめ / CC-DG-INV-10)", () => {
     expect(summary.markdown).toContain("受入条件");
   });
 
-  it("separates Cc evidence from the session's own report and shows reach per acceptance item", () => {
+  it("separates Cc evidence from the last judgment and shows reach per acceptance item", () => {
     const summary = buildDaySummary({
       date: "2026-10-10", noGoal: false, drafts: [],
       goals: [{
         goal: goal({ acceptanceProgress: { "PR がマージされる": ["pr:o#1:merged"] } }),
         evidence: [{ key: "pr:o#1:merged", kind: "pr", summary: "PR #1 merged", at: 1 }],
-        lastReport: "反映は未確認です",
+        lastJudgment: {
+          verdict: "behind", reason: "反映の証跡が無い",
+          acceptance: [{ item: "PR がマージされる", outlook: "reached", refs: ["pr:o#1:merged"] }, { item: "反映を確認", outlook: "at_risk", refs: [] }],
+        },
       }],
     })!;
     expect(summary.markdown).toContain("結果: **締切**");
     expect(summary.markdown).toContain("✅ 到達: PR がマージされる (pr:o#1:merged)");
     expect(summary.markdown).toContain("⬜ 未到達: 反映を確認");
     expect(summary.markdown).toContain("## マージされた PR\n- PR #1 merged");
-    expect(summary.markdown).toContain("報告 (セッションの自己申告)\n> 反映は未確認です");
+    expect(summary.markdown).toContain("#### 最後の判定\n- 遅れ気味: 反映の証跡が無い");
+    expect(summary.markdown).toContain("  - 危うい: 反映を確認");
+    expect(summary.markdown).not.toContain("自己申告");
     expect(summary.markdown).toContain("未到達の受入条件: 反映を確認");
+  });
+
+  it("says なし when the goal was never judged", () => {
+    const summary = buildDaySummary({ date: "2026-10-10", noGoal: false, drafts: [], goals: [{ goal: goal({}), evidence: [], lastJudgment: null }] })!;
+    expect(summary.markdown).toContain("#### 最後の判定\n- なし");
   });
 });

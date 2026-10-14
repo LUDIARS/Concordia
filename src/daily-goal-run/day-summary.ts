@@ -3,12 +3,12 @@
  *
  * @implements spec/feature/daily-goal-run.md — 8. 4:00 の締切と日のまとめ / CC-DG-INV-03 / CC-DG-INV-10
  *
- * まとめは Cc が集めた証跡と確認記録から作る。 セッションの自己申告は「報告」として区別して載せる。
+ * まとめは Cc が集めた証跡と確認記録から作る。 判定は「最後の判定」として証跡と区別して載せる。
  * 目標なしの日・ゴールも下書きも無い日は null (記載しない)。 ゴールが無く下書きだけの日は
  * 下書きの一覧だけのまとめにする。
  */
 
-import { POST_FIELD_LABELS, type DailyGoal, type DailyGoalDraft, type EvidenceItem } from "./domain.js";
+import { OUTLOOK_LABELS, POST_FIELD_LABELS, VERDICT_LABELS, type DailyGoal, type DailyGoalDraft, type EvidenceItem, type ProgressJudgment } from "./domain.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:ce1b276b */
 import augurContract_bde6182b from './day-summary.contract.js'; /* augur-inject:contract-predicate:a5771f45 */
 
@@ -16,8 +16,8 @@ export interface SummaryGoalInput {
   goal: DailyGoal;
   /** 最後の確認・締切停止で Cc が集めた証跡。 */
   evidence: readonly EvidenceItem[];
-  /** セッションの最後の報告 (自己申告)。 */
-  lastReport: string | null;
+  /** 最後の判定。 判定が無い・最後が判定できずなら null。 */
+  lastJudgment: ProgressJudgment | null;
 }
 
 export interface DaySummaryInput {
@@ -66,8 +66,11 @@ function goalSection(input: SummaryGoalInput): string[] {
     "#### 証跡 (Cc が確認したもの)",
     ...(input.evidence.length ? input.evidence.slice(-15).map((item) => `- ${item.summary} (\`${item.key}\`)`) : ["- なし"]),
     ...(goal.actioTaskIds.length ? [`- Actio task: ${goal.actioTaskIds.map((id) => `actio:${id}`).join(", ")}`] : []),
-    "#### 報告 (セッションの自己申告)",
-    input.lastReport ? `> ${input.lastReport.replace(/\n/g, "\n> ")}` : "- なし",
+    "#### 最後の判定",
+    ...(input.lastJudgment
+      ? [`- ${VERDICT_LABELS[input.lastJudgment.verdict]}: ${input.lastJudgment.reason}`,
+          ...input.lastJudgment.acceptance.map((entry) => `  - ${OUTLOOK_LABELS[entry.outlook]}: ${entry.item}`)]
+      : ["- なし"]),
     "#### 残り",
     ...[...remainingLines(goal), ...unreached.map((item) => `- 未到達の受入条件: ${item}`)],
     ...(remainingLines(goal).length || unreached.length ? [] : ["- なし"]),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createEvidenceAdapter, parseCommitLog, prEvidence } from "./evidence.js";
+import { createEvidenceAdapter, parseCommitLog, prEvidence, repoEvidenceGitArgs } from "./evidence.js";
 import type { DailyGoal } from "./domain.js";
 
 const goal = { id: "g", sessionId: "s1", repoPath: "E:/repo", actioTaskIds: ["t1", "t2"] } as DailyGoal;
@@ -47,6 +47,38 @@ describe("evidence collection (CC-DG-INV-03 / CC-DG-INV-08)", () => {
     expect(snap.taskStatuses).toEqual({ t1: "done", t2: "done" });
     if (branch) expect(revisorByBranch).toHaveBeenCalledWith("https://x/o.git", branch);
     else expect(revisorByBranch).not.toHaveBeenCalled();
+  });
+
+  it("collects repo-wide commits, repo PRs and Revisor PRs when no session is bound (2026-10-14 方式)", async () => {
+    const calls: string[][] = [];
+    const session = vi.fn(() => null);
+    const port = createEvidenceAdapter({
+      session,
+      prsBySession: () => { throw new Error("not used"); },
+      repoOrigin: (repoPath) => (repoPath === "E:/repo" ? "o/repo" : null),
+      prsByRepo: (origin) => [{ repo_origin: origin, number: 2, state: "merged", review_state: "none", updated_at: 9_999_999_999, title: "t" }],
+      revisorByRepository: async () => [
+        { id: "r1", number: 5, status: "merged", checkStatus: "test_ok", title: "new", updatedAt: "2026-10-10T00:00:00Z" },
+        { id: "r0", number: 4, status: "merged", checkStatus: "test_ok", title: "old", updatedAt: "1970-01-01T00:00:00Z" },
+      ],
+      taskStatus: async () => ({ status: "pending" }),
+      git: async (cwd, args) => { calls.push([cwd, ...args]); return "deadbee\t1700000000\tfix\n"; },
+    });
+    const snap = await port.collect({ ...goal, sessionId: undefined } as DailyGoal, 1_000);
+    expect(session).not.toHaveBeenCalled();
+    expect(calls).toEqual([["E:/repo", ...repoEvidenceGitArgs(1_000)]]);
+    expect(repoEvidenceGitArgs(1_000)).toEqual(["log", "--branches", "--since=@1", "--format=%H%x09%ct%x09%s", "-n", "200", "--"]);
+    expect(snap.items.map((i) => i.key)).toEqual(["commit:deadbee", "pr:o/repo#2:merged", "revisor:r1:merged:test_ok"]);
+    expect(snap.unavailable).toEqual([]);
+  });
+
+  it("marks PR sources unavailable when the project repo has no origin", async () => {
+    const port = createEvidenceAdapter({
+      session: () => null, prsBySession: () => [], repoOrigin: () => null,
+      taskStatus: async () => ({ status: "pending" }), git: async () => "",
+    });
+    const snap = await port.collect({ ...goal, sessionId: undefined, actioTaskIds: [] } as DailyGoal, 0);
+    expect(snap.unavailable).toEqual(["pr_records"]);
   });
 
   it("reports unreadable sources instead of an empty success", async () => {

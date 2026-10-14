@@ -7,7 +7,7 @@ description: 作業・進捗・残件を整理するとき、Actioのタスク�
 
 タスクの対象project、依頼者、求められた操作（確認・登録・更新）を確定する。フックの助言だけでは登録権限を追加しないが、人間が登録・更新を依頼済みなら実行する。
 
-Cc taskflow管理の仕事は `task-workflow` spec 2.1 を優先する。要件は対象repoの `spec/tasks/<YYYY-MM-DD>-<slug>.md` に新規作成し、frontmatterはtask/project/kind/created/memory_linksだけを書く。進行状態はCc DBの `taskflow_task_state` が正本で、Markdownへ書き戻さない。既存のreconcilerによるMemoria登録を独自の新規登録で重複させず、状態変更はCcの `PATCH /v1/taskflow/tasks/state` を使う。下表はCc管理外の仕事や既存外部参照を調べる場合の入口である。
+Cc taskflow管理の仕事は `task-workflow-v3` spec を優先する。タスクはActioに記録し、Ccの `POST /v1/taskflow/tasks` に session_id・固定 request_id(UUID)・title・body・kind・memory_links を送って登録する。応答の `actio:<id>` を参照し、本文は必要時だけ `GET /v1/taskflow/tasks/content?session_id=<自分>&reference=actio:<id>` で読む。タスクをファイルとして対象repoへ保存しない。本文と状態の正本はActioで、状態変更はCcの `PATCH /v1/taskflow/tasks/state` (task_path=actio:<id>) を使う。下表はCc管理外の仕事や既存外部参照を調べる場合の入口である。
 
 | 内容 | 最初の確認先 | 残すもの |
 |---|---|---|

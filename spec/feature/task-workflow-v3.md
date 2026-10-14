@@ -126,6 +126,16 @@ The importer holds the submitted body only for the Actio operation and returns t
 
 Old files, historical Cc records, old prompt files, transcript caches, Memoria records, the separate personal fallback-task API, and legacy non-taskflow integrations are not purged by this release. User-authored manuals may still contain old file instructions; review them before rollout. Backend migration 110 upgrades shipped built-in instructions and adds the Actio confirmation reference; it preserves unrelated custom instructions.
 
+### Runtime instructions (CC-TF-ACTIO-INSTR-01, 2026-10-14)
+
+Source: Pf fragment 01M206XEV4JRC1N3PMEZGGN2P5 recheck (2026-10-14) — the run 6ce15f62 still received "作業 → task md (spec/tasks/) に分解" as its work manual, because migration 110 matched only one shipped wording. Actio task: actio:1df0070f-bf2f-449f-99c5-e3f848271b49.
+
+- Plan approval (`taskflow/task-instructions.ts` `planApprovedInstruction`, sent from `bootstrap/core.ts` `onPlanApproved`) asks the session to register each decomposed task in Actio and work from the returned `actio:<id>`. It does not ask for task Markdown or the reconciler.
+- Backend migration 136 (`db/taskflow-actio-instructions.ts`) replaces every shipped task-file phrasing left in inject manuals and the built-in branch rule by substring, so user-added sentences around them survive. A manual equal to the shipped text without the state sentence becomes the current default. A built-in rule still titled "実装前の task md 分解を必須化" is renamed to the Actio rule, or disabled (not deleted) when the Actio rule already exists.
+- The bundled `cc-work-management` skill tells agents to register and read tasks through Actio.
+- Existing files under `spec/tasks/` are not deleted. Code comments that cite them (`@implements spec/tasks/...`) are references, not runtime instructions, and stay.
+- Not decided here (left to the fragment owner): access control and retrieval scope for Actio task content, and the migration/retention/deletion conditions for existing task files and Memoria data.
+
 ## Validation and rollout
 
 ### Failure diagnostics and local PR evidence (CC-TF-DIAG-01)
@@ -153,7 +163,7 @@ unavailability and internal errors. Retries retain the original task identity.
 Regression checks cover local PR propagation, failed lookup without a PR-missing
 notification, safe diagnostics, and preserving existing confirmation waits.
 
-Production TypeScript compilation is checked without emitting files. Unit coverage accompanies the Actio route: binding validation and repository-key normalization, worktree-to-main-clone identity, transport owner verification and unknown-outcome reporting, ownership scoping and source-identity deduplication in the task client, store binding resolution and one-delegation-per-task claiming, the create/import/content API contract, delegation body sealing, morning grouping, decomposition exactly-once, and migration 110's instruction upgrade. These are offline tests against injected doubles; they do not exercise a live Actio instance. Required later checks against a real service: authenticated owner/team isolation, missing credentials, timeout-after-commit retry, duplicate input conflict, queued-run migration, residual idempotency, task status updates, confirmation completion and an agent fetching its task without a body-bearing prompt file. No startup or runtime test is authorized in this session.
+Production TypeScript compilation is checked without emitting files. Unit coverage accompanies the Actio route: binding validation and repository-key normalization, worktree-to-main-clone identity, transport owner verification and unknown-outcome reporting, ownership scoping and source-identity deduplication in the task client, store binding resolution and one-delegation-per-task claiming, the create/import/content API contract, delegation body sealing, morning grouping, decomposition exactly-once, migration 110's instruction upgrade, migration 136's broadened replacement and the plan-approval instruction. These are offline tests against injected doubles; they do not exercise a live Actio instance. Required later checks against a real service: authenticated owner/team isolation, missing credentials, timeout-after-commit retry, duplicate input conflict, queued-run migration, residual idempotency, task status updates, confirmation completion and an agent fetching its task without a body-bearing prompt file. No startup or runtime test is authorized in this session.
 
 Rollout requires Actio registration (or explicit scoped bindings/credentials), explicit source migration as appropriate, and a separately authorized Excubitor restart from the main clone. Rollback must not silently restore task-file writes: stop task dispatch first and retain Actio references. This PR does not update live configuration, migrate production records, restart services or merge.
 

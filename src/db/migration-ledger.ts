@@ -529,5 +529,9 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     version: 135,
     name: "bug-bounty-triage-to-close",
     checksum: "432a323335f4b00ea9c1cd3222f5f62465adc35c2faa10d4d09742eea9cf0650",
+  },  {
+    version: 136,
+    name: "taskflow-actio-instructions-broaden",
+    checksum: "709895b19054d6570ffa2bf743847f90380c05a29e53a27c0a67964e7729b37e",
   },
 ];

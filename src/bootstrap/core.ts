@@ -348,6 +348,7 @@ import { describeMismatches, resolveModules } from "../modules/resolve.js";
 import { resolveModuleMode } from "../modules/runtime-modes.js";
 import { inboxItems } from "../inbox/read-model.js";
 import { InboxItemStateRepo } from "../db/inbox-item-state-repo.js";
+import { planApprovedInstruction } from "../taskflow/task-instructions.js";
 
 /**
  * transcript / rules / session_stats の保持期間 (日)。 session_events の
@@ -1073,7 +1074,7 @@ export async function startBackend(): Promise<BackendHandle> {
       if (!directorCase.session_id) return;
       const markdown = plan.facts[0] ?? "";
       repo.mergeMetadata(directorCase.session_id, { plan_approved: true, director_case_id: directorCase.id, plan_version: plan.plan_version ?? null, plan_md_ref: plan.plan_md_ref ?? null });
-      const text = [`プランが承認されました。`, `以下の「タスク分解」節を対象リポの spec/tasks/ に task md として保存し、taskflow reconciler に委ねてください。`, markdown].join("\n\n");
+      const text = planApprovedInstruction(markdown);
       const ts = Math.floor(Date.now() / 1000);
       repo.appendEvent({ session_id: directorCase.session_id, ts, kind: "contract", payload: { reason: "plan-approved", case_id: directorCase.id, plan_version: plan.plan_version ?? null } });
       deliverDirectorInstruction({ sessions: repo, sessionId: directorCase.session_id, text, source: `director:${directorCase.id}:plan-approved`, ts });

@@ -7,8 +7,9 @@ import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instructions.js";
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
+import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 135;
+export const SCHEMA_VERSION = 136;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3461,6 +3462,13 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_bounty_reports_fix_pr ON bounty_reports(project_code, fix_pr);
       ALTER TABLE project_codes ADD COLUMN public_issues INTEGER NOT NULL DEFAULT 0;
     `);
+  },
+},{
+  version: 136,
+  name: "taskflow-actio-instructions-broaden",
+  source: "taskflow — replace every shipped task-file phrasing left after migration 110 (spec/feature/task-workflow-v3.md)",
+  up(db) {
+    migrateTaskflowActioInstructions(db);
   },
 },
 ];

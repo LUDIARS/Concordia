@@ -35,6 +35,20 @@ export const TASK_STATE_DB_RULE_SHORT =
   "タスク本文・状態は Actio が正本。Cc は参照と実行関連だけを保持し、タスクファイルを作成しない。";
 
 /**
+ * プラン承認時にセッションへ送る指示。タスク分解節は Actio のタスクとして登録させ、
+ * 対象リポへ task md を書かせない (spec/feature/task-workflow-v3.md — Plan approval)。
+ */
+export function planApprovedInstruction(planMarkdown: string): string {
+  return [
+    "プランが承認されました。",
+    "以下の「タスク分解」節のタスクを 1 件ずつ Actio に登録し、応答の actio:<id> を参照して作業してください。" +
+    "タスクをファイルとして保存しないでください。",
+    TASK_MD_CONTENT_RULE,
+    planMarkdown,
+  ].join("\n\n");
+}
+
+/**
  * 委託先セッションが人へ質問するときの唯一の作法。
  *
  * 2026-09-05 の問題ログ (spec/plan/problem_logs/2026-09-05-delegated-claude-session-used-askuserquestion.md):

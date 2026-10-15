@@ -217,6 +217,28 @@ export interface ChooseInput {
   pendingEventIds: readonly number[];
   followups: ReadonlyArray<{ conversationId: string; eligibility: ReplyEligibility }>;
   tickDue: boolean;
+  /** 新規投稿しない時間帯の中か。 返信だけを行い、 event / 追投稿 / 定期 pick は時間帯明けまで待たせる。 */
+  quiet?: boolean;
+}
+
+/** "HH:MM" を 0 時からの分に。 */
+export function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * 新規投稿しない時間帯 (ローカル時刻) に now が入るか。 start > end は日付をまたぐ (例 22:00〜09:30)。
+ * start == end は時間帯なし。
+ */
+export function inQuietHours(nowSec: number, quiet: { start: string; end: string } | null): boolean {
+  if (!quiet) return false;
+  const d = new Date(nowSec * 1000);
+  const minute = d.getHours() * 60 + d.getMinutes();
+  const start = minutesOf(quiet.start);
+  const end = minutesOf(quiet.end);
+  if (start === end) return false;
+  return start < end ? minute >= start && minute < end : minute >= start || minute < end;
 }
 
 /** 固定優先順位で次の行動を決める。 */
@@ -236,6 +258,8 @@ export function choosePatrolAction(input: ChooseInput): PatrolAction {
       .map((r) => r.inboundId);
     return { kind: "reply", conversationId: head.conversationId, inboundIds: batch };
   }
+  // 返信以外は新規投稿。 時間帯の中は出さない (event は受信箱に残り、 時間帯明けに出る)。
+  if (input.quiet) return { kind: "skip", reason: "quiet hours (新規投稿しない時間帯)" };
   if (input.pendingEventIds.length > 0) return { kind: "event", eventId: input.pendingEventIds[0] };
   const follow = input.followups.find((f) => f.eligibility.ok);
   if (follow) return { kind: "followup", conversationId: follow.conversationId, reason: follow.eligibility.reason };

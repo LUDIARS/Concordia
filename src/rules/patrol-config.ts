@@ -22,6 +22,10 @@ export const PATROL_HARD_CAPS = {
 /** 巡回の投稿先として許す scope。 共通 chat は公開素材だけを受ける。 */
 export const KNOWN_PATROL_SCOPES = ["hq", "public"] as const;
 
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** 新規投稿しない時間帯の既定 (neco 2026-10-15: 深夜帯〜始業は新規投稿しない、 返信はする)。 */
+export const DEFAULT_QUIET_HOURS = { start: "22:00", end: "09:30" } as const;
+
 export const FollowupConfig = z.object({
   reply_enabled: z.boolean().default(true),
   reaction_threshold: z.number().int().min(1).max(100).default(3),
@@ -52,6 +56,14 @@ export const PatrolActionConfig = z.object({
   root_limit_per_day: z.number().int().min(1).max(PATROL_HARD_CAPS.rootLimitPerDay).default(8),
   llm_limit_per_day: z.number().int().min(0).max(PATROL_HARD_CAPS.llmLimitPerDay).default(16),
   followup: FollowupConfig.default({}),
+  /**
+   * 新規投稿しない時間帯 (サーバのローカル時刻、 日付またぎ可)。 この間は返信だけを行う。
+   * 既定は深夜帯〜始業 (22:00〜09:30)。 null で時間帯なし。
+   */
+  quiet_hours: z.object({
+    start: z.string().regex(HHMM, "HH:MM"),
+    end: z.string().regex(HHMM, "HH:MM"),
+  }).strict().nullable().default(DEFAULT_QUIET_HOURS),
   /**
    * 投稿先の Discord channel を個別に指定する (本社・子会社 guild のチャンネル)。 null なら rule.target の meta channel。
    * 指定した投稿は本社の chat 配信 (Discord meta / Slack) に流さず、 このチャンネルへ直接送る。

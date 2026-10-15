@@ -25,6 +25,8 @@ export interface PatrolActionConfig {
     max_age_sec: number;
   };
   renderer: "oneshot" | "template";
+  /** 新規投稿しない時間帯 (サーバのローカル時刻)。 この間は返信だけ。 null で時間帯なし。 */
+  quiet_hours?: { start: string; end: string } | null;
   /** 投稿先の Discord channel を個別指定 (本社・子会社 guild)。 null なら投稿先 (target) の meta channel。 */
   discord_channel_id?: string | null;
   max_chars: number;

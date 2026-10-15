@@ -9,6 +9,7 @@ import { RulesRepo, type RuleRow } from "../db/rules-repo.js";
 import { applyMigrations } from "../db/schema.js";
 import { MaterialSourceRegistry } from "./material-registry.js";
 import { MaterialSourceError, type Material, type MaterialSource } from "./material-types.js";
+import { parseActionConfig } from "./patrol-config.js";
 import { runPatrolCycle } from "./patrol-cycle.js";
 import { acceptInbound } from "./patrol-inbound.js";
 import { reconcileDeliveries, recoverStaleRuns } from "./patrol-maintenance.js";
@@ -28,7 +29,12 @@ function material(id: string): Material {
   };
 }
 
-function harness(opts: { items?: Material[]; sourceError?: MaterialSourceError; render?: (i: RenderInput) => Promise<RenderResult> } = {}) {
+function harness(opts: {
+  items?: Material[];
+  sourceError?: MaterialSourceError;
+  render?: (i: RenderInput) => Promise<RenderResult>;
+  quietHours?: { start: string; end: string };
+} = {}) {
   const db = new Database(":memory:");
   open.push(db);
   applyMigrations(db);
@@ -83,6 +89,8 @@ function harness(opts: { items?: Material[]; sourceError?: MaterialSourceError; 
     action_config: JSON.stringify({
       kind: "material-chat", source_ids: ["fake"], scope_key: "hq",
       followup: { min_wait_sec: 600, reaction_threshold: 2, later_message_threshold: 2 },
+      // 実行環境のタイムゾーンで既定の時間帯に入らないよう、 時間帯の検証は専用のテストで行う
+      quiet_hours: opts.quietHours ?? null,
     }),
   });
   const humanPost = (text: string, inReplyTo: number | null, user = "u1") =>
@@ -274,12 +282,46 @@ describe("patrol replies and followups (CC-PATROL-04/07)", () => {
   });
 });
 
+describe("patrol quiet hours", () => {
+  /** T0 のローカル時刻を含む 2 時間の時間帯 (実行環境のタイムゾーンに依らない)。 */
+  function windowAroundT0(): { start: string; end: string } {
+    const d = new Date(T0);
+    const hhmm = (h: number) => `${String((h + 24) % 24).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return { start: hhmm(d.getHours() - 1), end: hhmm(d.getHours() + 1) };
+  }
+
+  it("does not post new topics inside the window but still answers replies", async () => {
+    // 時間帯なしで 1 件投稿して会話を開く
+    const h = harness();
+    await h.tick();
+    const root = h.runs.list({}).runs[0].chat_message_id!;
+    h.rules.updateWithRevision("patrol", 1, {
+      action_config: JSON.stringify({ kind: "material-chat", source_ids: ["fake"], scope_key: "hq", quiet_hours: windowAroundT0() }),
+    });
+    // 定期の期日が来ても新規投稿しない
+    h.rules.setNextDue("patrol", Math.floor(h.clock.ms / 1000));
+    const held = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(held).toEqual({ kind: "idle", reason: "quiet hours (新規投稿しない時間帯)" });
+    expect(h.runs.list({}).runs.filter((r) => r.action_kind === "pick")).toHaveLength(1);
+    // 返信には応える
+    const reply = h.humanPost("夜だけど気になる", root);
+    expect(acceptInbound(h.ports, reply.id)).toMatchObject({ accepted: true });
+    const answered = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(answered).toMatchObject({ kind: "acted", action: "reply", outcome: { status: "posted" } });
+  });
+
+  it("defaults to 22:00-09:30 for rules that do not set it", () => {
+    const parsed = parseActionConfig({ kind: "material-chat", source_ids: ["fake"], scope_key: "hq" });
+    expect(parsed.ok && parsed.config.quiet_hours).toEqual({ start: "22:00", end: "09:30" });
+  });
+});
+
 describe("patrol service events", () => {
   it("posts a short report for a matching event once", async () => {
     const h = harness();
     h.rules.updateWithRevision("patrol", 1, {
       trigger_type: "event", tick_sec: null, event_kind: "service.event",
-      action_config: JSON.stringify({ kind: "material-chat", source_ids: [], scope_key: "hq", renderer: "template", filters: { service_codes: ["Mm"] } }),
+      action_config: JSON.stringify({ kind: "material-chat", source_ids: [], scope_key: "hq", renderer: "template", filters: { service_codes: ["Mm"] }, quiet_hours: null }),
     });
     h.events.receive({ source_event_id: "x:1", service_code: "Mm", feature_key: null, event_kind: "release", title: "Memoria 1.2", summary: "s", url: null, scope_key: "hq", occurred_at: 1 }, 1);
     h.events.receive({ source_event_id: "x:2", service_code: "Ac", feature_key: null, event_kind: "release", title: "other", summary: "", url: null, scope_key: "hq", occurred_at: 1 }, 1);

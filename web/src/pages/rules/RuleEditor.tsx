@@ -13,6 +13,7 @@ const DEFAULT_CONFIG: PatrolActionConfig = {
   scope_key: "hq",
   filters: { genres: [], max_age_sec: 86400 },
   renderer: "oneshot",
+  quiet_hours: { start: "22:00", end: "09:30" },
   max_chars: 240,
   root_limit_per_day: 8,
   llm_limit_per_day: 16,
@@ -205,6 +206,26 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
                 <option value="template">決まった型の文</option>
               </select>
             </label>
+            <fieldset className="space-y-1" data-testid="quiet-hours">
+              <legend className="text-[11px] text-subtle">新規投稿しない時間帯 (返信はする)</legend>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={config.quiet_hours != null}
+                  onChange={(e) => patchConfig({ quiet_hours: e.target.checked ? { start: "22:00", end: "09:30" } : null })}
+                />
+                設定する
+              </label>
+              {config.quiet_hours && (
+                <div className="flex items-center gap-1">
+                  <input type="time" aria-label="開始" className="foundation-form text-sm" value={config.quiet_hours.start}
+                    onChange={(e) => patchConfig({ quiet_hours: { ...config.quiet_hours!, start: e.target.value } })} />
+                  <span className="text-xs">〜</span>
+                  <input type="time" aria-label="終了" className="foundation-form text-sm" value={config.quiet_hours.end}
+                    onChange={(e) => patchConfig({ quiet_hours: { ...config.quiet_hours!, end: e.target.value } })} />
+                </div>
+              )}
+            </fieldset>
             <label className="space-y-1">
               <span className="text-[11px] text-subtle block">1 日の投稿上限</span>
               <input type="number" className="foundation-form text-sm w-full" value={config.root_limit_per_day} onChange={(e) => patchConfig({ root_limit_per_day: Number(e.target.value) })} />

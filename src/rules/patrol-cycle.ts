@@ -18,7 +18,7 @@ import {
   type RunContext,
 } from "./execute-patrol.js";
 import { parseActionConfig, type PatrolActionConfig } from "./patrol-config.js";
-import { choosePatrolAction, computeNextDueAt } from "./patrol-policy.js";
+import { choosePatrolAction, computeNextDueAt, inQuietHours } from "./patrol-policy.js";
 import { dayStartSec, nowSecOf, type PatrolPorts } from "./patrol-ports.js";
 import { resolveChannelFor } from "./patrol-channel.js";
 
@@ -28,7 +28,10 @@ export type CycleOutcome =
   | { kind: "acted"; action: string; outcome: ExecuteOutcome };
 
 export interface CycleOptions {
-  /** 深夜帯の行動頻度 (1 = 通常、 0.1 = 1/10)。 定期 tick の間隔だけに効き、 返信は待たせない。 */
+  /**
+   * 深夜帯の行動頻度 (1 = 通常、 0.1 = 1/10)。 定期 tick の間隔だけに効き、 返信は待たせない。
+   * 新規投稿そのものの停止は action_config.quiet_hours が持つ。
+   */
   frequency: number;
 }
 
@@ -86,6 +89,7 @@ export async function runPatrolCycle(
     pendingEventIds: pendingEvents.map((ev) => ev.id),
     followups,
     tickDue,
+    quiet: inQuietHours(now, config.quiet_hours),
   });
 
   const advanceTick = () => {

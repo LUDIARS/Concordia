@@ -5,6 +5,7 @@ import {
   canReply,
   choosePatrolAction,
   computeNextDueAt,
+  inQuietHours,
   evaluateFollowup,
   pickMaterial,
   seededRandom,
@@ -126,6 +127,27 @@ describe("stop / reply / followup", () => {
   });
 });
 
+describe("inQuietHours (local time)", () => {
+  const at = (h: number, m: number) => Math.floor(new Date(2026, 9, 15, h, m).getTime() / 1000);
+  const night = { start: "22:00", end: "09:30" };
+
+  it("covers the overnight window to the start of work, end exclusive", () => {
+    expect(inQuietHours(at(21, 59), night)).toBe(false);
+    expect(inQuietHours(at(22, 0), night)).toBe(true);
+    expect(inQuietHours(at(3, 0), night)).toBe(true);
+    expect(inQuietHours(at(9, 29), night)).toBe(true);
+    expect(inQuietHours(at(9, 30), night)).toBe(false);
+    expect(inQuietHours(at(13, 0), night)).toBe(false);
+  });
+
+  it("supports same-day windows and treats null or equal bounds as no window", () => {
+    expect(inQuietHours(at(12, 30), { start: "12:00", end: "13:00" })).toBe(true);
+    expect(inQuietHours(at(13, 0), { start: "12:00", end: "13:00" })).toBe(false);
+    expect(inQuietHours(at(3, 0), null)).toBe(false);
+    expect(inQuietHours(at(3, 0), { start: "09:00", end: "09:00" })).toBe(false);
+  });
+});
+
 describe("choosePatrolAction priority", () => {
   const base: ChooseInput = {
     stop: { runtimeDisabled: false, ruleEnabled: true, config, rootsToday: 0, llmCallsToday: 0 },
@@ -161,6 +183,15 @@ describe("choosePatrolAction priority", () => {
     expect(choosePatrolAction({ ...base, tickDue: true })).toEqual({ kind: "pick" });
     expect(choosePatrolAction(base)).toEqual({ kind: "skip", reason: "no candidate" });
     expect(choosePatrolAction({ ...base, tickDue: true, stop: { ...base.stop, rootsToday: 8 } }).kind).toBe("skip");
+  });
+
+  it("answers replies but holds new posts during quiet hours", () => {
+    const quiet = { ...base, quiet: true };
+    expect(choosePatrolAction({ ...quiet, pendingReplies: [{ conversationId: "c", inboundId: 1 }], tickDue: true }))
+      .toMatchObject({ kind: "reply", inboundIds: [1] });
+    expect(choosePatrolAction({ ...quiet, tickDue: true })).toEqual({ kind: "skip", reason: "quiet hours (新規投稿しない時間帯)" });
+    expect(choosePatrolAction({ ...quiet, pendingEventIds: [9] }).kind).toBe("skip");
+    expect(choosePatrolAction({ ...quiet, followups: [{ conversationId: "c", eligibility: { ok: true, reason: "r" } }] }).kind).toBe("skip");
   });
 
   it("returns stop before any work when stopped, even for replies", () => {

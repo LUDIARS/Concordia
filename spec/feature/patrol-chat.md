@@ -88,6 +88,9 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 
 - 定期の期日は `next_due_at`。初見の rule は即発火させず、rule ID 由来の jitter (間隔の 10% 以内) で次回を決める。
   深夜帯は間隔を 1/頻度 倍に伸ばす。返信は深夜帯でも待たせない。
+- 新規投稿しない時間帯 `action_config.quiet_hours` (`{start,end}` の HH:MM、サーバのローカル時刻、日付またぎ可、既定 22:00〜09:30、
+  null で時間帯なし。neco 2026-10-15「深夜帯～始業までは新規投稿しない。返信はする」)。時間帯の中は返信だけを行い、
+  定期 pick・service event・追投稿は出さない (`skip: quiet hours`)。定期の期日は通常どおり進め、event は受信箱に残って時間帯明けに出る。
 - 状態: `claimed → material_selected → rendering → rendered → delivery_pending → delivered | delivery_unknown`、
   途中で `skipped` / `failed`。各遷移は lease_owner と現状態の compare-and-set。
 - 生成は `claude -p` 会話専用 (tools 無効)・haiku・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。

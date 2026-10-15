@@ -13,7 +13,7 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:1789ffac */
 import augurContract_ba7bf205 from './status-report-policy.contract.js'; /* augur-inject:contract-predicate:3eb8ba5b */
 import augurContract_6f52f0e6 from './completion-evidence-policy.contract.js';
-import augurContract_23203ee6 from './remaining-guidance.contract.ts'; /* augur-inject:contract-predicate:c9bd3336 */ /* augur-inject:contract-predicate:80e50ac3 */
+import augurContract_23203ee6 from './remaining-guidance.contract.js'; /* augur-inject:contract-predicate:c9bd3336 */ /* augur-inject:contract-predicate:80e50ac3 */
 
 export const TERMINAL_DELEGATION_STATUSES = ["completed", "failed"] as const;
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { rulesApi, type PatrolActionConfig, type RuleView, type SourceView } from "./rules-api.js";
+import { rulesApi, type PatrolActionConfig, type RuleView, type SourceView, type SubsidiaryOption } from "./rules-api.js";
 
 // 巡回 rule の型付きフォーム (spec/feature/patrol-chat.md §9)。 上級者向けの JSON 編集も同じ
 // schema でサーバが検証する。 任意コード・URL・credential は入力させない (素材元は登録済みから選ぶ)。
@@ -13,9 +13,8 @@ const DEFAULT_CONFIG: PatrolActionConfig = {
   scope_key: "hq",
   filters: { genres: [], max_age_sec: 86400 },
   renderer: "oneshot",
-  quiet_hours: { start: "22:00", end: "09:30" },
+  // 時間帯・1 日の上限・投稿先チャンネル・名前の雰囲気は書かなければ持ち主の既定値を引き継ぐ。
   max_chars: 240,
-  root_limit_per_day: 8,
   llm_limit_per_day: 16,
   followup: {
     reply_enabled: true,
@@ -31,8 +30,19 @@ const DEFAULT_CONFIG: PatrolActionConfig = {
 interface Props {
   rule: RuleView | null;
   sources: SourceView[];
+  /** 持ち主の候補 (空なら持ち主の欄を出さない)。 */
+  subsidiaries?: SubsidiaryOption[];
+  /** 新規作成時の持ち主 (一覧で子会社を絞り込んでいるとき)。 */
+  defaultOwner?: string | null;
   onSaved: (rule: RuleView) => void;
   onCancel: () => void;
+}
+
+/** 引き継ぐ項目のキーを消す (= 持ち主の既定値に戻す)。 */
+function withoutKey<T extends object>(obj: T, key: string): T {
+  const next = { ...obj } as Record<string, unknown>;
+  delete next[key];
+  return next as T;
 }
 
 const splitList = (text: string): string[] => text.split(/[,\s、]+/).map((s) => s.trim()).filter(Boolean);
@@ -45,7 +55,8 @@ export function parseDiscordChannel(text: string): string | null {
   return /^\d{17,20}$/.test(t) ? t : null;
 }
 
-export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
+export function RuleEditor({ rule, sources, subsidiaries = [], defaultOwner = null, onSaved, onCancel }: Props) {
+  const [ownerId, setOwnerId] = useState<string | null>(rule ? rule.subsidiary_id ?? null : defaultOwner);
   const initial = rule?.action_config ?? DEFAULT_CONFIG;
   const [id, setId] = useState(rule?.id ?? "");
   const [description, setDescription] = useState(rule?.description ?? "");
@@ -68,7 +79,9 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
     if (!jsonMode) {
       const channelId = channelText.trim() ? parseDiscordChannel(channelText) : null;
       if (channelText.trim() && !channelId) { setError("Discord のチャンネル URL か ID を入れてください"); return; }
-      actionConfig = { ...config, discord_channel_id: channelId };
+      // 空欄は「持ち主の既定値を引き継ぐ」。 子会社の rule は公開素材だけ (サーバも検証する)。
+      const base = channelId ? { ...config, discord_channel_id: channelId } : withoutKey(config, "discord_channel_id");
+      actionConfig = ownerId ? { ...base, scope_key: "public" } : base;
     }
     if (jsonMode) {
       try { actionConfig = JSON.parse(jsonText); } catch { setError("JSON が読めません"); return; }
@@ -83,6 +96,7 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
       cooldown_sec: Math.min(tickSec, 86400),
       config_version: 2,
       action_config: actionConfig,
+      ...(subsidiaries.length > 0 ? { subsidiary_id: ownerId } : {}),
     };
     setSaving(true);
     const res = rule
@@ -108,6 +122,16 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
           <label className="space-y-1">
             <span className="text-[11px] text-subtle block">ID</span>
             <input className="foundation-form text-sm w-full" value={id} onChange={(e) => setId(e.target.value)} placeholder="tendentia-tech-patrol" />
+          </label>
+        )}
+        {subsidiaries.length > 0 && (
+          <label className="space-y-1">
+            <span className="text-[11px] text-subtle block">持ち主 (子会社のルールはその子会社の既定値を引き継ぎ、 その子会社のサーバーにだけ投稿)</span>
+            <select className="foundation-form text-sm w-full" aria-label="持ち主" value={ownerId ?? ""}
+              onChange={(e) => setOwnerId(e.target.value || null)}>
+              <option value="">本社</option>
+              {subsidiaries.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
+            </select>
           </label>
         )}
         <label className="space-y-1">
@@ -168,7 +192,7 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
           </fieldset>
           <label className="space-y-1 block">
             <span className="text-[11px] text-subtle block">
-              Discord チャンネルを個別に指定 (URL か ID。 子会社のサーバーも可。 空なら上の投稿先)
+              Discord チャンネルを個別に指定 (URL か ID。 子会社のサーバーも可。 空なら持ち主の既定値、 それも無ければ上の投稿先)
             </span>
             <input
               className="foundation-form text-sm w-full"
@@ -208,14 +232,20 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
             </label>
             <fieldset className="space-y-1" data-testid="quiet-hours">
               <legend className="text-[11px] text-subtle">新規投稿しない時間帯 (返信はする)</legend>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={config.quiet_hours != null}
-                  onChange={(e) => patchConfig({ quiet_hours: e.target.checked ? { start: "22:00", end: "09:30" } : null })}
-                />
-                設定する
-              </label>
+              <select
+                className="foundation-form text-xs"
+                aria-label="時間帯の指定"
+                value={config.quiet_hours === undefined ? "inherit" : config.quiet_hours === null ? "none" : "set"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "inherit") setConfig((c) => withoutKey(c, "quiet_hours"));
+                  else patchConfig({ quiet_hours: v === "none" ? null : { start: "22:00", end: "09:30" } });
+                }}
+              >
+                <option value="inherit">持ち主の既定値{rule?.effective_config?.quiet_hours ? ` (今は ${rule.effective_config.quiet_hours.start}〜${rule.effective_config.quiet_hours.end})` : ""}</option>
+                <option value="none">時間帯なし</option>
+                <option value="set">指定する</option>
+              </select>
               {config.quiet_hours && (
                 <div className="flex items-center gap-1">
                   <input type="time" aria-label="開始" className="foundation-form text-sm" value={config.quiet_hours.start}
@@ -227,8 +257,14 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
               )}
             </fieldset>
             <label className="space-y-1">
-              <span className="text-[11px] text-subtle block">1 日の投稿上限</span>
-              <input type="number" className="foundation-form text-sm w-full" value={config.root_limit_per_day} onChange={(e) => patchConfig({ root_limit_per_day: Number(e.target.value) })} />
+              <span className="text-[11px] text-subtle block">1 日の投稿上限 (空なら持ち主の既定値)</span>
+              <input type="number" className="foundation-form text-sm w-full" value={config.root_limit_per_day ?? ""}
+                placeholder={String(rule?.effective_config?.root_limit_per_day ?? 8)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "") setConfig((c) => withoutKey(c, "root_limit_per_day"));
+                  else patchConfig({ root_limit_per_day: Number(v) });
+                }} />
             </label>
             <label className="space-y-1">
               <span className="text-[11px] text-subtle block">1 日の生成上限</span>

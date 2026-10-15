@@ -19,7 +19,7 @@ import {
 } from "./execute-patrol.js";
 import { parseActionConfig, type PatrolActionConfig } from "./patrol-config.js";
 import { choosePatrolAction, computeNextDueAt, inQuietHours } from "./patrol-policy.js";
-import { dayStartSec, nowSecOf, type PatrolPorts } from "./patrol-ports.js";
+import { dayStartSec, nowSecOf, ownerDefaultsOf, ownerStopReason, type PatrolPorts } from "./patrol-ports.js";
 import { resolveChannelFor } from "./patrol-channel.js";
 
 export type CycleOutcome =
@@ -49,7 +49,9 @@ export async function runPatrolCycle(
   rule: RuleRow,
   options: CycleOptions,
 ): Promise<CycleOutcome> {
-  const parsed = parseActionConfig(rule.action_config);
+  // 持ち主の子会社の既定値を引き継いだ実効設定で動く (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §2)。
+  const inherit = ownerDefaultsOf(ports, rule);
+  const parsed = parseActionConfig(rule.action_config, inherit);
   if (!parsed.ok) return { kind: "idle", reason: `invalid action_config: ${parsed.reason}` };
   const config = parsed.config;
   const now = nowSecOf(ports);
@@ -84,6 +86,7 @@ export async function runPatrolCycle(
       config,
       rootsToday: usage.roots,
       llmCallsToday: usage.llmCalls,
+      ownerStopped: ownerStopReason(ports, rule, inherit),
     },
     pendingReplies: pendingInbound.map((i) => ({ conversationId: i.conversation_id, inboundId: i.inbound_chat_id })),
     pendingEventIds: pendingEvents.map((ev) => ev.id),

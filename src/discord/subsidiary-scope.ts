@@ -37,10 +37,20 @@ import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
  * 子会社 guild へ登録する slash command。
  * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "bug", "budget"]);
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "bug", "budget", "patrol"]);
+
+/**
+ * 子会社 guild にだけ登録するコマンド。 `/patrol` は子会社のサーバー管理者が自分の巡回チャットを
+ * 設定する口で、 本社は Web の /rules を使う (2026-10-15 neco 指示)。
+ */
+const SUBSIDIARY_ONLY_COMMAND_NAMES = new Set(["patrol"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
+}
+
+export function isSubsidiaryOnlyCommand(name: string): boolean {
+  return SUBSIDIARY_ONLY_COMMAND_NAMES.has(name);
 }
 
 /**

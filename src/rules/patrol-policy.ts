@@ -55,12 +55,15 @@ export interface StopInput {
   config: PatrolActionConfig;
   rootsToday: number;
   llmCallsToday: number;
+  /** 持ち主の子会社が止まっている理由 (既定値の paused / 子会社自体の無効)。 本社の rule は null。 */
+  ownerStopped?: string | null;
 }
 
 /** 新規生成・送信を始めてはいけない理由。 無ければ null (CC-PATROL-06)。 */
 export function stopReason(input: StopInput, needsRender: boolean): string | null {
   if (input.runtimeDisabled) return "rules disabled at runtime (admin/cost)";
   if (!input.ruleEnabled) return "rule disabled";
+  if (input.ownerStopped) return input.ownerStopped;
   if (needsRender && input.config.renderer === "oneshot" && input.llmCallsToday >= input.config.llm_limit_per_day) {
     return `llm budget reached (${input.llmCallsToday}/${input.config.llm_limit_per_day} today)`;
   }
@@ -113,13 +116,20 @@ export function pickMaterial(items: readonly Material[], ctx: PickContext): Mate
       scored: [],
     };
   }
-  const scored = eligible.map((m) => ({ m, score: scoreMaterial(m, ctx.nowMs, maxAgeMs, ctx.config) }));
+  // 優先ジャンル: prefer_ratio の確率で優先ジャンルの候補だけから選ぶ (絞り込みではなく寄せる)。
+  // 乱数は seed 由来なので、 同じ seed なら同じ結果になる (CC-PATROL-01)。
+  const preferred = filters.prefer_genres?.length
+    ? eligible.filter((m) => (m.tags ?? []).some((t) => filters.prefer_genres!.includes(t)))
+    : [];
+  const usePreferred = preferred.length > 0 && ctx.random() < (filters.prefer_ratio ?? 0.7);
+  const pool = usePreferred ? preferred : eligible;
+  const scored = pool.map((m) => ({ m, score: scoreMaterial(m, ctx.nowMs, maxAgeMs, ctx.config) }));
   const top = Math.max(...scored.map((s) => s.score));
   const best = scored.filter((s) => s.score === top).sort((a, b) => a.m.itemId.localeCompare(b.m.itemId));
   const chosen = best[Math.floor(ctx.random() * best.length)] ?? best[0];
   return {
     picked: chosen.m,
-    reason: `picked 1 of ${best.length} top-score (score ${top}) among ${eligible.length}`,
+    reason: `picked 1 of ${best.length} top-score (score ${top}) among ${pool.length}${usePreferred ? " preferred-genre" : ""} of ${eligible.length}`,
     candidateCount: eligible.length,
     scored: scored
       .sort((a, b) => b.score - a.score || a.m.itemId.localeCompare(b.m.itemId))

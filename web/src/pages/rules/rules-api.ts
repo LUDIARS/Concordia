@@ -25,14 +25,42 @@ export interface PatrolActionConfig {
     max_age_sec: number;
   };
   renderer: "oneshot" | "template";
-  /** 新規投稿しない時間帯 (サーバのローカル時刻)。 この間は返信だけ。 null で時間帯なし。 */
+  /**
+   * 以下 4 項目は「書かれていない = 持ち主の子会社の既定値 → 全体の既定値を引き継ぐ」。
+   * 新規投稿しない時間帯 (サーバのローカル時刻)。 この間は返信だけ。 null で時間帯なし。
+   */
   quiet_hours?: { start: string; end: string } | null;
   /** 投稿先の Discord channel を個別指定 (本社・子会社 guild)。 null なら投稿先 (target) の meta channel。 */
   discord_channel_id?: string | null;
+  root_limit_per_day?: number;
+  /** 名前の雰囲気。 */
+  persona_hint?: string | null;
   max_chars: number;
-  root_limit_per_day: number;
   llm_limit_per_day: number;
   followup: FollowupConfig;
+}
+
+/** 持ち主の既定値を引き継いだ、 実行時の値。 */
+export interface EffectiveConfig extends Omit<PatrolActionConfig, "quiet_hours" | "discord_channel_id" | "root_limit_per_day" | "persona_hint"> {
+  quiet_hours: { start: string; end: string } | null;
+  discord_channel_id: string | null;
+  root_limit_per_day: number;
+  persona_hint: string | null;
+}
+
+export interface SubsidiaryOption {
+  id: string;
+  name: string;
+  display_name: string;
+  enabled: boolean;
+}
+
+export interface PatrolDefaults {
+  quiet_hours?: { start: string; end: string } | null;
+  root_limit_per_day?: number;
+  discord_channel_id?: string | null;
+  persona_hint?: string | null;
+  paused?: boolean;
 }
 
 export interface RuleView {
@@ -51,6 +79,9 @@ export interface RuleView {
   revision: number;
   execution_mode: ExecutionMode;
   action_config: PatrolActionConfig | null;
+  effective_config?: EffectiveConfig | null;
+  /** 持ち主の子会社 (null = 本社)。 */
+  subsidiary_id?: string | null;
   next_due_at: number | null;
   last_attempt_at: number | null;
   last_posted_at: number | null;
@@ -145,8 +176,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<Ap
   }
 }
 
+/** 持ち主の絞り込み: "" = 全社、 "hq" = 本社、 それ以外は子会社 ID。 */
+export type OwnerFilter = string;
+
 export const rulesApi = {
-  list: () => call<{ rules: RuleView[] }>("GET", "/v1/rules"),
+  list: (owner: OwnerFilter = "") => call<{ rules: RuleView[] }>(
+    "GET",
+    owner === "" ? "/v1/rules" : owner === "hq" ? "/v1/rules?head_office=1" : `/v1/rules?subsidiary_id=${encodeURIComponent(owner)}`,
+  ),
+  subsidiaries: () => call<{ subsidiaries: SubsidiaryOption[] }>("GET", "/v1/subsidiaries"),
+  patrolDefaults: (id: string) =>
+    call<{ defaults: PatrolDefaults; updated_at: number | null; updated_by: string | null }>("GET", `/v1/subsidiaries/${encodeURIComponent(id)}/patrol-defaults`),
+  setPatrolDefaults: (id: string, defaults: PatrolDefaults) =>
+    call<{ defaults: PatrolDefaults }>("PUT", `/v1/subsidiaries/${encodeURIComponent(id)}/patrol-defaults`, { actor: "web", defaults }),
   sources: () => call<{ sources: SourceView[] }>("GET", "/v1/rules/sources"),
   engineEnabled: () => call<{ enabled: boolean }>("GET", "/v1/admin/rules-enabled"),
   setEngineEnabled: (enabled: boolean) => call<{ enabled: boolean }>("PUT", "/v1/admin/rules-enabled", { enabled }),

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { RuleEditor } from "./rules/RuleEditor.js";
 import { RuleList } from "./rules/RuleList.js";
 import { RunHistory } from "./rules/RunHistory.js";
-import { fmtSec, rulesApi, type RuleView, type SourceView } from "./rules/rules-api.js";
+import { fmtSec, rulesApi, type RuleView, type SourceView, type SubsidiaryOption } from "./rules/rules-api.js";
+import { SubsidiaryDefaults } from "./rules/SubsidiaryDefaults.js";
 
 // ルールと巡回チャット (spec/feature/patrol-chat.md §9)。 上部にエンジンの ON/OFF と素材元の状態、
 // 下に「ルール」と「実行履歴」。 候補不足・認証不足を保存成功と混同しないよう、 素材元の状態を常に出す。
@@ -17,16 +18,24 @@ export function Rules() {
   const [editing, setEditing] = useState<RuleView | "new" | null>(null);
   const [runRuleId, setRunRuleId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** "" = 全社、 "hq" = 本社、 それ以外は子会社 ID。 */
+  const [owner, setOwner] = useState("");
+  const [subsidiaries, setSubsidiaries] = useState<SubsidiaryOption[]>([]);
 
   const refresh = async () => {
-    const [r, s, e] = await Promise.all([rulesApi.list(), rulesApi.sources(), rulesApi.engineEnabled()]);
+    const [r, s, e] = await Promise.all([rulesApi.list(owner), rulesApi.sources(), rulesApi.engineEnabled()]);
     if (r.ok) setRules(r.data.rules);
     if (s.ok) setSources(s.data.sources);
     if (e.ok) setEngineOn(e.data.enabled);
     setError(!r.ok ? r.error : !s.ok ? s.error : null);
   };
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [owner]);
+  useEffect(() => {
+    // 子会社の一覧が取れない環境 (子会社機能なし) では持ち主の絞り込みを出さない。
+    void rulesApi.subsidiaries().then((res) => { if (res.ok) setSubsidiaries(res.data.subsidiaries); });
+  }, []);
+  const ownerSubsidiary = subsidiaries.find((s) => s.id === owner) ?? null;
 
   const toggleEngine = async () => {
     if (engineOn === null) return;
@@ -77,17 +86,33 @@ export function Rules() {
 
       {tab === "rules" ? (
         <div className="space-y-3">
-          <button type="button" className="px-3 py-1 rounded border border-border text-sm" onClick={() => setEditing("new")}>巡回ルールを追加</button>
+          <div className="flex flex-wrap items-center gap-2">
+            {subsidiaries.length > 0 && (
+              <label className="flex items-center gap-1 text-sm">
+                <span className="text-[11px] text-subtle">持ち主</span>
+                <select className="foundation-form text-sm" aria-label="持ち主" value={owner} onChange={(e) => setOwner(e.target.value)}>
+                  <option value="">すべて</option>
+                  <option value="hq">本社</option>
+                  {subsidiaries.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
+                </select>
+              </label>
+            )}
+            <button type="button" className="px-3 py-1 rounded border border-border text-sm" onClick={() => setEditing("new")}>巡回ルールを追加</button>
+          </div>
+          {ownerSubsidiary && <SubsidiaryDefaults key={ownerSubsidiary.id} subsidiary={ownerSubsidiary} />}
           {editing && (
             <RuleEditor
               key={editing === "new" ? "new" : `${editing.id}:${editing.revision}`}
               rule={editing === "new" ? null : editing}
               sources={sources}
+              subsidiaries={subsidiaries}
+              defaultOwner={owner === "" || owner === "hq" ? null : owner}
               onSaved={() => { setEditing(null); void refresh(); }}
               onCancel={() => setEditing(null)}
             />
           )}
           <RuleList
+            subsidiaries={subsidiaries}
             rules={rules}
             onEdit={(r) => setEditing(r)}
             onChanged={() => void refresh()}

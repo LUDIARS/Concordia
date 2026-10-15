@@ -15,8 +15,10 @@ describe("Discord command registration", () => {
     // /spawn は子会社では出さない (2026-09-02 neco 指示: 起動は Session forum 一本)。
     // /consult は子会社の相談窓口として出す (2026-10-01、 tech-consultation.md §6)。
     // /bug は本社・子会社の両方に出す (2026-10-02、 bug-bounty.md §3)。
-    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "budget", "bug", "ch_name", "consult", "バックログに追加"]);
+    // /patrol は子会社のサーバー管理者が巡回チャットを設定する口で、 子会社にだけ出す (2026-10-15)。
+    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["backlog", "budget", "bug", "ch_name", "consult", "patrol", "バックログに追加"]);
     expect(commandNamesForRegistration()).toContain("bug");
+    expect(commandNamesForRegistration()).not.toContain("patrol");
     expect(isSubsidiaryAllowedCommand("reward")).toBe(false);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
     expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);

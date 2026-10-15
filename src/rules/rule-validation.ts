@@ -4,16 +4,23 @@
  */
 
 import type { RuleRow, TriggerType } from "../db/rules-repo.js";
-import { parseActionConfig, reviewPatrolConfig, type SourceLookup } from "./patrol-config.js";
+import { parseActionConfig, reviewPatrolConfig, type SourceLookup, type SubsidiaryPatrolDefaults } from "./patrol-config.js";
 import { reviewRule, type ReviewResult } from "./review.js";
 
 export type RuleDefinition = Pick<
   RuleRow,
   | "id" | "description" | "trigger_type" | "tick_sec" | "event_kind" | "conditions" | "instructions"
   | "target" | "cooldown_sec" | "config_version" | "execution_mode" | "action_config"
->;
+> & { subsidiary_id?: string | null };
 
-export function validateRuleDefinition(def: RuleDefinition, sources: SourceLookup): ReviewResult {
+/**
+ * @param inherit 持ち主の子会社の既定値 (引き継いだ値も含めた実効設定で検証する)。
+ */
+export function validateRuleDefinition(
+  def: RuleDefinition,
+  sources: SourceLookup,
+  inherit?: SubsidiaryPatrolDefaults | null,
+): ReviewResult {
   const base = reviewRule({
     id: def.id,
     description: def.description,
@@ -38,10 +45,10 @@ export function validateRuleDefinition(def: RuleDefinition, sources: SourceLooku
   }
   if (def.config_version !== 2) return { ok: false, reason: `未知の config_version: ${def.config_version}` };
   if (def.execution_mode !== "patrol") return { ok: false, reason: "config_version=2 は execution_mode=patrol" };
-  const parsed = parseActionConfig(def.action_config);
+  const parsed = parseActionConfig(def.action_config, inherit);
   if (!parsed.ok) return parsed;
   return reviewPatrolConfig(
-    { trigger_type: def.trigger_type, event_kind: def.event_kind, config: parsed.config },
+    { trigger_type: def.trigger_type, event_kind: def.event_kind, config: parsed.config, subsidiaryId: def.subsidiary_id ?? null },
     sources,
   );
 }

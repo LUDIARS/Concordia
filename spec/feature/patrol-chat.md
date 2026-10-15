@@ -124,6 +124,25 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   本社の会話は個別チャンネルの発言を数えない。個別チャンネルでは雑談を取り込まないので、後続発言による追投稿は実質起きない。
 - 個別チャンネルの反応 (リアクション) は、子会社の Bot が受けて `discord_message_map` で巡回投稿へ結び付けられた場合だけ数える (未検証)。
 
+## 子会社単位の設定
+
+設計: [patrol-subsidiary-rules](../plan/2026-10-15-patrol-subsidiary-rules-design.md)。
+
+- `rules.subsidiary_id` (NULL = 本社) で rule を子会社に紐付ける (migration 139)。子会社の rule は `scope_key=public`、
+  個別チャンネルの配送先は持ち主の guild だけ (本社 rule は本社 guild)。`GET /v1/rules?subsidiary_id=|head_office=1`。
+- 子会社ごとの既定値 `subsidiary_patrol_defaults` (`quiet_hours` / `root_limit_per_day` / `discord_channel_id` / `persona_hint` / `paused`)。
+  rule の action_config に**書かれていない**項目は 子会社の既定値 → 全体の既定値 (時間帯なし・8 件/日・投稿先なし・雰囲気なし) で埋める。
+  明示の null は「無し」。API は保存形 `action_config` と実行時の `effective_config` を分けて返す。
+  `paused` と子会社自体の無効は返信も含めて新規の行動を止める。
+- 子会社サーバー管理者の `/patrol` (Manage Guild 権限、子会社 guild にだけ登録): list / add / set / on / off / defaults / defaults-set。
+  `/v1/subsidiaries/:id/patrol/*` だけを呼び、持ち主が違う rule は 404。素材元・scope・持ち主は変えられない。変更者は `discord:<id>` で版と rule_log に残る。
+
+## ジャンル
+
+- Tendentia の overview は総合ジャンルが先頭に並ぶ。上限 (100 件) はジャンルを交互に並べてから掛け、`filters.genres` は上限の前に絞る
+  (以前は先頭から切っていたため、ゲーム・技術などのジャンルが候補に入らなかった)。
+- `filters.prefer_genres` / `prefer_ratio` (既定 0.7): 絞り込みではなく寄せる。seed 由来の乱数で prefer_ratio の確率だけ優先ジャンルの候補から選ぶ。
+
 ## 返信と反応
 
 - Discord の meta channel で返信 (reference) した発言は、`discord_message_map` で既知の chat 行へ解決して `in_reply_to` を付けて投稿する。

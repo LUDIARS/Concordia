@@ -44,7 +44,7 @@ describe("external channel delivery", () => {
   it("refuses channels outside the HQ and enabled subsidiary guilds", async () => {
     const d = fakeDiscord({ guildId: "999999999999999999" });
     const post = makeExternalChannelPoster({ botToken: () => "t", allowedGuildIds: () => [GLAB], fetchImpl: d.fetchImpl });
-    await expect(post({ channelId: CHANNEL, content: "x", username: null })).rejects.toThrow(/not in the HQ/);
+    await expect(post({ channelId: CHANNEL, content: "x", username: null })).rejects.toThrow(/not in the rule owner's guild/);
     expect(d.calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
 
@@ -75,6 +75,25 @@ describe("patrol runtime external routing", () => {
     expect(externalChannelOf(JSON.stringify({ patrol_discord_channel_id: CHANNEL }))).toBe(CHANNEL);
     expect(externalChannelOf(JSON.stringify({ patrol_discord_channel_id: "abc" }))).toBeNull();
     expect(externalChannelOf(null)).toBeNull();
+  });
+
+  it("limits delivery to the owner's guild", async () => {
+    const poster = vi.fn(async () => ({ messageId: "m2" }));
+    const put = vi.fn();
+    const ownerGuild = (sub: string | null) => (sub === "sub-glab" ? GLAB : sub === null ? "hq-guild" : null);
+    expect(await deliverExternal(poster, { put }, row({ patrol_subsidiary_id: "sub-glab" }), CHANNEL, undefined, ownerGuild)).toBe(true);
+    expect(poster).toHaveBeenLastCalledWith(expect.objectContaining({ allowedGuildIds: [GLAB] }));
+    expect(await deliverExternal(poster, { put }, row({}), CHANNEL, undefined, ownerGuild)).toBe(true);
+    expect(poster).toHaveBeenLastCalledWith(expect.objectContaining({ allowedGuildIds: ["hq-guild"] }));
+    const warn = vi.fn();
+    expect(await deliverExternal(poster, { put }, row({ patrol_subsidiary_id: "gone" }), CHANNEL, { warn }, ownerGuild)).toBe(false);
+    expect(poster).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the per-post guild allowlist over the global one", async () => {
+    const d = fakeDiscord();
+    const post = makeExternalChannelPoster({ botToken: () => "t", allowedGuildIds: () => [GLAB], fetchImpl: d.fetchImpl });
+    await expect(post({ channelId: CHANNEL, content: "x", username: null, allowedGuildIds: ["other"] })).rejects.toThrow(/owner's guild/);
   });
 
   it("records the Discord message only after a successful post, never retrying", async () => {

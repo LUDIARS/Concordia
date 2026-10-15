@@ -34,6 +34,7 @@ function harness(opts: {
   sourceError?: MaterialSourceError;
   render?: (i: RenderInput) => Promise<RenderResult>;
   quietHours?: { start: string; end: string };
+  owners?: PatrolPorts["owners"];
 } = {}) {
   const db = new Database(":memory:");
   open.push(db);
@@ -63,6 +64,7 @@ function harness(opts: {
   let disabled = false;
   let seq = 0;
   const ports: PatrolPorts = {
+    ...(opts.owners ? { owners: opts.owners } : {}),
     rules, runs, conversations, events, sources,
     chat: {
       insert: (input) => chat.insert({
@@ -310,9 +312,15 @@ describe("patrol quiet hours", () => {
     expect(answered).toMatchObject({ kind: "acted", action: "reply", outcome: { status: "posted" } });
   });
 
-  it("defaults to 22:00-09:30 for rules that do not set it", () => {
-    const parsed = parseActionConfig({ kind: "material-chat", source_ids: ["fake"], scope_key: "hq" });
-    expect(parsed.ok && parsed.config.quiet_hours).toEqual({ start: "22:00", end: "09:30" });
+  it("has no window for head-office rules and inherits the owner's window otherwise", () => {
+    // 本社は時間帯なし、 GLab / VOB は子会社の既定値で 22:00〜09:30 (neco 2026-10-15)。
+    const raw = { kind: "material-chat", source_ids: ["fake"], scope_key: "public" };
+    const hq = parseActionConfig(raw);
+    expect(hq.ok && hq.config.quiet_hours).toBeNull();
+    const sub = parseActionConfig(raw, { quiet_hours: { start: "22:00", end: "09:30" } });
+    expect(sub.ok && sub.config.quiet_hours).toEqual({ start: "22:00", end: "09:30" });
+    const own = parseActionConfig({ ...raw, quiet_hours: null }, { quiet_hours: { start: "22:00", end: "09:30" } });
+    expect(own.ok && own.config.quiet_hours).toBeNull();
   });
 });
 
@@ -360,6 +368,41 @@ describe("patrol individual channel replies", () => {
     expect(r.kind === "acted" && r.action).not.toBe("followup");
     expect(h.chat.countHumanAfter("chitchat", root, GLAB_CHANNEL)).toBe(0);
     expect(h.chat.countHumanAfter("chitchat", root, null)).toBe(4);
+  });
+});
+
+describe("patrol rules owned by a subsidiary", () => {
+  const SUB = "sub-glab";
+  function owned(defaults: Record<string, unknown>, active = true) {
+    const h = harness({ owners: { defaults: () => defaults as never, active: () => active } });
+    h.db.prepare(`UPDATE rules SET subsidiary_id = ?, action_config = ? WHERE id = 'patrol'`).run(SUB, JSON.stringify({
+      kind: "material-chat", source_ids: ["fake"], scope_key: "public",
+      followup: { min_wait_sec: 600, reaction_threshold: 2, later_message_threshold: 2 },
+    }));
+    return h;
+  }
+
+  it("inherits the owner's persona hint and channel, and tags the post with the owner", async () => {
+    const h = owned({ persona_hint: "学校らしく", discord_channel_id: "1546109590930853962" });
+    await h.tick();
+    expect(h.render.mock.calls[0][0]).toMatchObject({ personaHint: "学校らしく" });
+    const msg = h.chat.findById(h.runs.list({}).runs[0].chat_message_id!)!;
+    expect(JSON.parse(msg.metadata!)).toMatchObject({ patrol_subsidiary_id: SUB, patrol_discord_channel_id: "1546109590930853962" });
+  });
+
+  it("stops while the owner is paused or disabled", async () => {
+    const paused = owned({ paused: true });
+    expect(await paused.tick()).toMatchObject({ kind: "stopped", reason: "owner subsidiary paused" });
+    const disabled = owned({}, false);
+    expect(await disabled.tick()).toMatchObject({ kind: "stopped", reason: "owner subsidiary disabled" });
+    expect(paused.render).not.toHaveBeenCalled();
+  });
+
+  it("holds new posts in the owner's quiet window", async () => {
+    const d = new Date(T0);
+    const hhmm = (h: number) => `${String((h + 24) % 24).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const h = owned({ quiet_hours: { start: hhmm(d.getHours() - 1), end: hhmm(d.getHours() + 1) } });
+    expect(await h.tick()).toEqual({ kind: "idle", reason: "quiet hours (新規投稿しない時間帯)" });
   });
 });
 

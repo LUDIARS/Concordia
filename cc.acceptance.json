@@ -5032,6 +5032,10 @@
     {"source": "src/rules/material-registry.ts", "tests": ["src/rules/patrol-config.test.ts", "src/api/rules-patrol.test.ts"], "contracts": ["CC-PATROL-05"]},
     {"source": "src/rules/render-patrol.ts", "tests": ["src/rules/render-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-09"]},
     {"source": "src/rules/patrol-persona.ts", "tests": ["src/rules/patrol-persona.test.ts", "src/rules/render-patrol.test.ts", "src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-02"]},
+    {"source": "src/api/subsidiary-patrol.ts", "tests": ["src/api/subsidiary-patrol.test.ts"], "contracts": ["CC-PATROL-05", "CC-PATROL-08"]},
+    {"source": "src/db/subsidiary-patrol-defaults-repo.ts", "tests": ["src/api/subsidiary-patrol.test.ts"], "contracts": ["CC-PATROL-05"]},
+    {"source": "src/discord/patrol-command-args.ts", "tests": ["src/discord/patrol-command-args.test.ts"], "contracts": ["CC-PATROL-08"]},
+    {"source": "src/discord/commands/patrol.ts", "tests": ["src/discord/commands.test.ts", "src/discord/patrol-command-args.test.ts"], "contracts": ["CC-PATROL-05", "CC-PATROL-08"]},
     {"source": "src/rules/patrol-external-delivery.ts", "tests": ["src/rules/patrol-external-delivery.test.ts", "src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-03", "CC-PATROL-05"]},
     {"source": "src/discord/patrol-reply-ingress.ts", "tests": ["src/discord/patrol-reply-ingress.test.ts", "src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-04", "CC-PATROL-05"]},
     {"source": "src/rules/execute-patrol.ts", "tests": ["src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-02", "CC-PATROL-03", "CC-PATROL-06", "CC-PATROL-08", "CC-PATROL-09"]},
@@ -5063,6 +5067,7 @@
     {"source": "web/src/pages/Rules.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-09"]},
     {"source": "web/src/pages/rules/RuleList.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-08", "CC-PATROL-09"]},
     {"source": "web/src/pages/rules/RuleEditor.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-08"]},
+    {"source": "web/src/pages/rules/SubsidiaryDefaults.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-05"]},
     {"source": "web/src/pages/rules/RunHistory.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-09"]},
     {"source": "web/src/pages/rules/rules-api.ts", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-09"]},
     {"source": "src/config/settings/coverage-scan.ts", "tests": ["src/config/settings/coverage.test.ts"], "contracts": ["CC-PATROL-05"]}

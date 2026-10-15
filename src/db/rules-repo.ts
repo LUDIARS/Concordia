@@ -30,6 +30,8 @@ export interface RuleRow {
   next_due_at: number | null;
   last_attempt_at: number | null;
   last_posted_at: number | null;
+  /** 持ち主の子会社 (NULL = 本社)。 spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §1。 */
+  subsidiary_id: string | null;
 }
 
 export type ExecutionMode = "legacy-observe" | "patrol";
@@ -37,7 +39,7 @@ export type ExecutionMode = "legacy-observe" | "patrol";
 /** 版付き更新で書いてよい列 (SQL の列名として連結するので固定の allowlist)。 */
 const PATCHABLE_COLUMNS = [
   "description", "trigger_type", "tick_sec", "event_kind", "conditions", "instructions",
-  "target", "cooldown_sec", "config_version", "execution_mode", "action_config",
+  "target", "cooldown_sec", "config_version", "execution_mode", "action_config", "subsidiary_id",
 ] as const satisfies ReadonlyArray<keyof RuleDefinitionPatch>;
 
 /** 版付き更新の入力。 rules 本体の編集可能な列すべて。 */
@@ -53,6 +55,7 @@ export interface RuleDefinitionPatch {
   config_version?: number;
   execution_mode?: ExecutionMode;
   action_config?: string | null;
+  subsidiary_id?: string | null;
 }
 
 export interface RuleLogRow {
@@ -71,12 +74,13 @@ export class RulesRepo {
     RuleRow,
     | "added_at" | "removed_at" | "removed_by" | "removed_reason" | "last_fired_at" | "enabled"
     | "config_version" | "revision" | "execution_mode" | "action_config"
-    | "next_due_at" | "last_attempt_at" | "last_posted_at"
+    | "next_due_at" | "last_attempt_at" | "last_posted_at" | "subsidiary_id"
   > & {
     enabled?: boolean;
     config_version?: number;
     execution_mode?: ExecutionMode;
     action_config?: string | null;
+    subsidiary_id?: string | null;
   }): RuleRow {
     const now = Math.floor(Date.now() / 1000);
     this.db
@@ -84,8 +88,8 @@ export class RulesRepo {
         `INSERT INTO rules(
           id, description, trigger_type, tick_sec, event_kind, conditions,
           instructions, target, cooldown_sec, last_fired_at, enabled,
-          added_at, added_by, config_version, execution_mode, action_config
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+          added_at, added_by, config_version, execution_mode, action_config, subsidiary_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -104,6 +108,7 @@ export class RulesRepo {
         input.config_version ?? 1,
         input.execution_mode ?? "legacy-observe",
         input.action_config ?? null,
+        input.subsidiary_id ?? null,
       );
     return this.find(input.id)!;
   }
@@ -114,9 +119,17 @@ export class RulesRepo {
     );
   }
 
-  list(filter: { enabled?: boolean; trigger_type?: TriggerType; execution_mode?: ExecutionMode } = {}): RuleRow[] {
+  list(filter: {
+    enabled?: boolean;
+    trigger_type?: TriggerType;
+    execution_mode?: ExecutionMode;
+    /** 子会社 ID で絞る。 null は本社 (subsidiary_id IS NULL)、 undefined は全社。 */
+    subsidiary_id?: string | null;
+  } = {}): RuleRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
+    if (filter.subsidiary_id === null) where.push("subsidiary_id IS NULL");
+    else if (filter.subsidiary_id !== undefined) { where.push("subsidiary_id = ?"); args.push(filter.subsidiary_id); }
     if (filter.execution_mode) { where.push("execution_mode = ?"); args.push(filter.execution_mode); }
     if (filter.enabled !== undefined) { where.push("enabled = ?"); args.push(filter.enabled ? 1 : 0); }
     if (filter.trigger_type) { where.push("trigger_type = ?"); args.push(filter.trigger_type); }

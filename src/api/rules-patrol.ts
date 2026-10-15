@@ -21,6 +21,7 @@ import type { MaterialSourceRegistry } from "../rules/material-registry.js";
 import { KNOWN_PATROL_SCOPES } from "../rules/patrol-config.js";
 import { previewPatrolRule } from "../rules/patrol-preview.js";
 import { validateRuleDefinition } from "../rules/rule-validation.js";
+import type { SubsidiaryPatrolDefaults } from "../rules/patrol-config.js";
 import { eventBus } from "../events.js";
 
 export interface PatrolApiDeps {
@@ -71,6 +72,8 @@ export function registerPatrolRoutes(
     rules: RulesRepo;
     versions: RuleVersionsRepo | null;
     serializeRule: (r: RuleRow) => unknown;
+    /** 持ち主の子会社の既定値 (本社は null)。 */
+    inheritFor?: (subsidiaryId: string | null) => SubsidiaryPatrolDefaults | null;
   },
 ): void {
   app.get("/sources", (c) => c.json({ sources: deps.sources.statuses() }));
@@ -166,7 +169,12 @@ export function registerPatrolRoutes(
     const target = deps.versions.find(id, parsed.data.to_revision);
     if (!target) return c.json({ error: "revision_not_found" }, 404);
     const snap = JSON.parse(target.snapshot) as RuleDefinitionSnapshot;
-    const review = validateRuleDefinition({ id, ...snap }, deps.sources);
+    // 持ち主は版の対象外 (戻しても今の持ち主のまま)。 その子会社の既定値で検証する。
+    const review = validateRuleDefinition(
+      { id, ...snap, subsidiary_id: cur.subsidiary_id },
+      deps.sources,
+      deps.inheritFor?.(cur.subsidiary_id) ?? null,
+    );
     if (!review.ok) return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
     const updated = deps.rules.updateWithRevision(id, cur.revision, {
       description: snap.description,

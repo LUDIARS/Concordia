@@ -32,6 +32,8 @@ export interface RenderInput {
   maxChars: number;
   /** 会話で引き継ぐ名乗り。 null なら新しく名乗る (会話の最初の投稿)。 */
   persona: string | null;
+  /** 新しく名乗るときの雰囲気 (子会社の既定値・rule の persona_hint)。 */
+  personaHint?: string | null;
 }
 
 export type RenderResult =
@@ -103,6 +105,7 @@ export function buildPrompt(input: RenderInput): string {
       "名乗り: 1 行目に「名前: 姓 名」だけを書き、 2 行目から本文を書く。",
       "名前は話題をもじった、 実在しなさそうな珍しい日本人風の姓名にする (例: 押野 進・問田 鋭・笑里 凪 のように漢字の意味で話題や性格をもじる)。",
       "全体で 2〜8 文字。 実在の人物名・有名人・キャラクター名・記号・英字は使わない。",
+      ...(input.personaHint ? [`名前の雰囲気: ${clip(input.personaHint, 80)}`] : []),
     ].join(" "));
   }
   if (input.instructions.trim()) sections.push(`追加の方針: ${clip(input.instructions, 400)}`);

@@ -209,6 +209,8 @@ import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { buildPatrolRuntime } from "../rules/patrol-runtime.js";
 import { makeExternalChannelPoster } from "../rules/patrol-external-delivery.js";
+import { parseSubsidiaryDefaults } from "../rules/patrol-config.js";
+import { SubsidiaryPatrolDefaultsRepo } from "../db/subsidiary-patrol-defaults-repo.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
 import { indexSessionPrs } from "../daily/site-activity-prs.js";
@@ -683,6 +685,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
+  // 巡回チャットの子会社ごとの既定値 (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §2)。
+  const subsidiaryPatrolDefaults = new SubsidiaryPatrolDefaultsRepo(db);
   // 巡回チャット (spec/feature/patrol-chat.md)。 Tendentia の接続先は Excubitor topology が配る TENDENTIA_URL。
   const patrolRuntime = buildPatrolRuntime({
     db,
@@ -699,6 +703,18 @@ export async function startBackend(): Promise<BackendHandle> {
       ].filter((id): id is string => typeof id === "string" && id.length > 0),
     }),
     log: { warn: (m) => log.warn(m) },
+    // rule の持ち主 (子会社) の既定値と稼働状態、 個別チャンネルの配送先 guild。
+    owners: {
+      defaults: (subsidiaryId) => {
+        const row = subsidiaryPatrolDefaults.get(subsidiaryId);
+        const parsed = row ? parseSubsidiaryDefaults(row.config) : null;
+        return parsed?.ok ? parsed.defaults : null;
+      },
+      active: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.enabled === 1,
+    },
+    ownerGuild: (subsidiaryId) => subsidiaryId
+      ? subsidiaryRepo.find(subsidiaryId)?.guild_id ?? null
+      : resolveDiscordConfig(discordConfig, secretBox).guildId ?? null,
   });
   const dayReports = new DayReportsRepo(db);
   const processes = new ProcessesRepo(db);
@@ -2277,6 +2293,7 @@ export async function startBackend(): Promise<BackendHandle> {
     rules,
     ruleVersions: patrolRuntime.versions,
     patrolApi: patrolRuntime.api,
+    subsidiaryPatrolDefaults,
     dayReports,
     processes,
     stats,

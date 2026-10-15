@@ -39,7 +39,9 @@ export async function previewPatrolRule(
   const sourceErrors: PreviewResult["sourceErrors"] = [];
   for (const sourceId of config.source_ids) {
     try {
-      const page = await deps.sources.resolve(sourceId).list({ since, limit: 100, scopeKey: config.scope_key });
+      const page = await deps.sources.resolve(sourceId).list({
+        since, limit: 100, scopeKey: config.scope_key, ...(config.filters.genres?.length ? { genres: config.filters.genres } : {}),
+      });
       items.push(...page.items);
     } catch (err) {
       sourceErrors.push({

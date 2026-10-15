@@ -20,7 +20,7 @@ import { eventBus } from "../events.js";
 import { runClaude } from "./claude-runner.js";
 import { MaterialSourceRegistry } from "./material-registry.js";
 import { TENDENTIA_SOURCE_ID, makeTendentiaSource } from "./material-tendentia.js";
-import { PATROL_AUTHOR_LABEL, type PatrolPorts } from "./patrol-ports.js";
+import { PATROL_AUTHOR_LABEL, type PatrolOwnersPort, type PatrolPorts } from "./patrol-ports.js";
 import type { ExternalChannelPoster } from "./patrol-external-delivery.js";
 import { renderPatrol } from "./render-patrol.js";
 
@@ -83,19 +83,42 @@ function usernameOf(msg: ChatMessageRow): string | null {
   return msg.author_label?.trim() || null;
 }
 
+/** chat 行の metadata から rule の持ち主 (子会社 ID) を読む。 本社は null。 */
+export function ownerSubsidiaryOf(metadata: string | null): string | null {
+  try {
+    const id = (JSON.parse(metadata ?? "{}") as { patrol_subsidiary_id?: unknown }).patrol_subsidiary_id;
+    return typeof id === "string" && id !== "" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function deliverExternal(
   poster: ExternalChannelPoster | null,
   messageMap: { put(discordMessageId: string, chatMessageId: number): void },
   msg: ChatMessageRow,
   channelId: string,
   log?: { warn: (msg: string) => void },
+  /** rule の持ち主の guild (本社 rule は本社 guild)。 解決できなければ送らない。 */
+  ownerGuild?: (subsidiaryId: string | null) => string | null,
 ): Promise<boolean> {
   if (!poster) {
     log?.warn(`patrol: external channel delivery is not wired (chat #${msg.id} → ${channelId})`);
     return false;
   }
+  let allowedGuildIds: string[] | undefined;
+  if (ownerGuild) {
+    const guild = ownerGuild(ownerSubsidiaryOf(msg.metadata));
+    if (!guild) {
+      log?.warn(`patrol: owner guild unresolved (chat #${msg.id} → ${channelId}); not sent`);
+      return false;
+    }
+    allowedGuildIds = [guild];
+  }
   try {
-    const { messageId } = await poster({ channelId, content: msg.text, username: usernameOf(msg) });
+    const { messageId } = await poster({
+      channelId, content: msg.text, username: usernameOf(msg), ...(allowedGuildIds ? { allowedGuildIds } : {}),
+    });
     messageMap.put(messageId, msg.id);
     return true;
   } catch (err) {
@@ -112,6 +135,10 @@ export function buildPatrolRuntime(deps: {
   /** 個別チャンネル指定の配送。 未注入なら個別指定の投稿は送らず delivery_unknown になる。 */
   externalPoster?: ExternalChannelPoster | null;
   log?: { warn: (msg: string) => void };
+  /** rule の持ち主 (子会社) の既定値と稼働状態。 */
+  owners?: PatrolOwnersPort;
+  /** 持ち主の guild (null = 本社 guild)。 個別チャンネルの配送先を持ち主の guild に限る。 */
+  ownerGuild?: (subsidiaryId: string | null) => string | null;
 }): PatrolRuntime {
   const runs = new RuleRunsRepo(deps.db);
   const conversations = new RuleConversationsRepo(deps.db);
@@ -121,6 +148,7 @@ export function buildPatrolRuntime(deps: {
   const reactions = makeChatMessageReactionsRepo(deps.db);
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const ports: Omit<PatrolPorts, "runtimeDisabled"> = {
+    ...(deps.owners ? { owners: deps.owners } : {}),
     rules: deps.rules,
     runs,
     conversations,
@@ -147,7 +175,7 @@ export function buildPatrolRuntime(deps: {
       if (externalChannelId) {
         // 個別チャンネル指定の投稿は本社の chat 配信 (Discord meta / Slack) に流さず、 直接送る。
         // 成功時だけ discord_message_map に記録し、 配達照合 (patrol-maintenance) が delivered にする。
-        void deliverExternal(deps.externalPoster ?? null, messageMap, msg, externalChannelId, deps.log);
+        void deliverExternal(deps.externalPoster ?? null, messageMap, msg, externalChannelId, deps.log, deps.ownerGuild);
         return;
       }
       eventBus.emit({

@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 138;
+export const SCHEMA_VERSION = 139;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3606,6 +3606,25 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         consumed_by     TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_rule_service_events_pending ON rule_service_events(status, id);
+    `);
+  },
+},
+{
+  version: 139,
+  name: "patrol-subsidiary-rules",
+  source: "rules.subsidiary_id + subsidiary_patrol_defaults (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md)",
+  up(db) {
+    // 既存 rule は subsidiary_id=NULL (本社) のまま。 子会社の既定値は行が無ければ全体の既定値。
+    db.exec(`
+      ALTER TABLE rules ADD COLUMN subsidiary_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_rules_subsidiary ON rules(subsidiary_id);
+
+      CREATE TABLE IF NOT EXISTS subsidiary_patrol_defaults (
+        subsidiary_id TEXT PRIMARY KEY,
+        config        TEXT NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        updated_by    TEXT NOT NULL
+      );
     `);
   },
 },

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { fmtSec, rulesApi, RUN_STATUS_LABEL, type PreviewView, type RuleView, type VersionView } from "./rules-api.js";
+import { fmtSec, rulesApi, RUN_STATUS_LABEL, type PreviewView, type RuleView, type SubsidiaryOption, type VersionView } from "./rules-api.js";
 
 // ルール一覧 (spec/feature/patrol-chat.md §9)。 旧ルールは legacy-observe (投稿しない) と明示する。
 // 試し見は副作用・生成なしで候補と理由を出す。 rollback は設定だけを戻し、 過去の投稿は変えない。
 
 interface Props {
   rules: RuleView[];
+  /** 持ち主の表示名 (未取得なら ID のまま出す)。 */
+  subsidiaries?: SubsidiaryOption[];
   onEdit: (rule: RuleView) => void;
   onChanged: () => void;
   onShowRuns: (ruleId: string) => void;
@@ -16,7 +18,9 @@ function triggerLabel(r: RuleView): string {
   return r.event_kind === "service.event" ? "サービスの出来事" : `event ${r.event_kind ?? "*"}`;
 }
 
-export function RuleList({ rules, onEdit, onChanged, onShowRuns }: Props) {
+export function RuleList({ rules, subsidiaries = [], onEdit, onChanged, onShowRuns }: Props) {
+  const ownerName = (id: string | null | undefined) =>
+    id ? subsidiaries.find((s) => s.id === id)?.display_name ?? id : "本社";
   const [message, setMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; view: PreviewView } | null>(null);
   const [versions, setVersions] = useState<{ rule: RuleView; rows: VersionView[] } | null>(null);
@@ -66,6 +70,7 @@ export function RuleList({ rules, onEdit, onChanged, onShowRuns }: Props) {
                 <td className="py-1 pr-2">
                   <div className="font-medium">{r.id}</div>
                   <div className="text-xs text-subtle">{r.description ?? ""} (rev {r.revision})</div>
+                  {r.execution_mode === "patrol" && <div className="text-xs text-subtle">持ち主: {ownerName(r.subsidiary_id)}</div>}
                 </td>
                 <td className="py-1 pr-2 text-xs">{r.execution_mode === "patrol" ? "巡回" : "legacy-observe (投稿しない)"}</td>
                 <td className="py-1 pr-2 text-xs">{triggerLabel(r)}</td>
@@ -75,7 +80,12 @@ export function RuleList({ rules, onEdit, onChanged, onShowRuns }: Props) {
                   {r.action_config?.filters.service_codes?.length ? <div className="text-subtle">サービス: {r.action_config.filters.service_codes.join(", ")}</div> : null}
                 </td>
                 <td className="py-1 pr-2 text-xs">
-                  {r.action_config ? `${r.action_config.root_limit_per_day}/日 · ${r.action_config.renderer === "oneshot" ? "短文生成" : "決まった型"}` : "—"}
+                  {r.action_config
+                    ? `${r.effective_config?.root_limit_per_day ?? r.action_config.root_limit_per_day ?? "?"}/日 · ${r.action_config.renderer === "oneshot" ? "短文生成" : "決まった型"}`
+                    : "—"}
+                  {r.effective_config?.quiet_hours && (
+                    <div className="text-subtle">{r.effective_config.quiet_hours.start}〜{r.effective_config.quiet_hours.end} は新規投稿しない</div>
+                  )}
                 </td>
                 <td className="py-1 pr-2 text-xs">
                   {r.last_run ? (

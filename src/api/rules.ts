@@ -16,7 +16,7 @@ import type { RuleVersionsRepo } from "../db/rule-versions-repo.js";
 import { eventBus } from "../events.js";
 import { runClaude, extractJson } from "../rules/claude-runner.js";
 import { KNOWN_EVENT_KINDS } from "../rules/review.js";
-import { parseActionConfig, type SourceLookup } from "../rules/patrol-config.js";
+import { parseActionConfig, type SourceLookup, type SubsidiaryPatrolDefaults } from "../rules/patrol-config.js";
 import { validateRuleDefinition, type RuleDefinition } from "../rules/rule-validation.js";
 import { registerPatrolRoutes, type PatrolApiDeps } from "./rules-patrol.js";
 
@@ -38,9 +38,12 @@ const RuleInput = z.object({
   /** 2 = 巡回チャット rule。 省略時 1 (旧 rule)。 */
   config_version: z.union([z.literal(1), z.literal(2)]).optional(),
   action_config: z.record(z.unknown()).nullable().optional(),
+  /** 持ち主の子会社 (省略・null = 本社)。 */
+  subsidiary_id: z.string().min(1).max(64).nullable().optional(),
 });
 
 const PatchSchema = z.object({
+  subsidiary_id: z.string().min(1).max(64).nullable().optional(),
   expected_revision: z.number().int().min(1).optional(),
   description: z.string().nullable().optional(),
   trigger_type: z.enum(["tick", "event"]).optional(),
@@ -60,6 +63,14 @@ export interface RulesApiDeps {
   versions?: RuleVersionsRepo;
   /** 巡回チャットの台帳と素材元。 未配線なら巡回 rule は作成・有効化できない。 */
   patrol?: PatrolApiDeps;
+  /** rule の持ち主 (子会社)。 未配線なら子会社への紐付けは受け付けない。 */
+  owners?: RuleOwnersLookup;
+}
+
+/** 子会社の存在確認と巡回の既定値 (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md)。 */
+export interface RuleOwnersLookup {
+  exists(subsidiaryId: string): boolean;
+  defaults(subsidiaryId: string): SubsidiaryPatrolDefaults | null;
 }
 
 const NO_SOURCES: SourceLookup = { has: () => false, describe: () => null };
@@ -68,13 +79,28 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
   const app = new Hono();
   const sources: SourceLookup = deps.patrol?.sources ?? NO_SOURCES;
   const recordVersion = (rule: RuleRow, note: string) => deps.versions?.record(rule, "human", note);
-  const serializeRule = (r: RuleRow) => serialize(r, deps.patrol?.runs ?? null, sources);
+  const inheritFor = (subsidiaryId: string | null | undefined) =>
+    subsidiaryId ? deps.owners?.defaults(subsidiaryId) ?? null : null;
+  const serializeRule = (r: RuleRow) => serialize(r, deps.patrol?.runs ?? null, sources, inheritFor(r.subsidiary_id));
+  /** 持ち主の指定が妥当か。 不正なら理由。 */
+  const ownerError = (subsidiaryId: string | null | undefined): string | null => {
+    if (!subsidiaryId) return null;
+    if (!deps.owners) return "subsidiary ownership is unavailable";
+    return deps.owners.exists(subsidiaryId) ? null : `unknown subsidiary: ${subsidiaryId}`;
+  };
 
   // 巡回の追加 route (/sources /preview /runs /service-events /:id/versions /:id/rollback) を先に登録する。
-  if (deps.patrol) registerPatrolRoutes(app, { ...deps.patrol, rules: deps.rules, versions: deps.versions ?? null, serializeRule });
+  if (deps.patrol) {
+    registerPatrolRoutes(app, { ...deps.patrol, rules: deps.rules, versions: deps.versions ?? null, serializeRule, inheritFor });
+  }
 
+  // ?subsidiary_id=<id> で子会社、 ?head_office=1 で本社、 未指定で全社。
   app.get("/", (c) => {
-    return c.json({ rules: deps.rules.list().map(serializeRule) });
+    const subsidiaryId = c.req.query("subsidiary_id");
+    const headOffice = c.req.query("head_office") === "1";
+    if (subsidiaryId && headOffice) return c.json({ error: "subsidiary_id and head_office are exclusive" }, 400);
+    const filter = subsidiaryId ? { subsidiary_id: subsidiaryId } : headOffice ? { subsidiary_id: null } : {};
+    return c.json({ rules: deps.rules.list(filter).map(serializeRule) });
   });
 
   app.put("/", async (c) => {
@@ -98,9 +124,12 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       config_version: version,
       execution_mode: version === 2 ? "patrol" : "legacy-observe",
       action_config: version === 2 ? JSON.stringify(r.action_config ?? {}) : null,
+      subsidiary_id: r.subsidiary_id ?? null,
     };
+    const owner = ownerError(def.subsidiary_id);
+    if (owner) return c.json({ error: "invalid_subsidiary", reason: owner }, 400);
     // 発火前の決定的レビュー (LLM 不使用). 落ちれば理由付きで拒否.
-    const review = validateRuleDefinition(def, sources);
+    const review = validateRuleDefinition(def, sources, inheritFor(def.subsidiary_id));
     if (!review.ok) {
       deps.rules.log({ rule_id: r.id, action: "error", actor: "human", detail: `rejected by review: ${review.reason}` });
       return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
@@ -122,6 +151,7 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       config_version: def.config_version,
       execution_mode: def.execution_mode,
       action_config: def.action_config,
+      subsidiary_id: def.subsidiary_id ?? null,
     });
     recordVersion(inserted, "created");
     deps.rules.log({
@@ -178,8 +208,11 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       action_config: nextVersion === 2
         ? (p.action_config !== undefined ? JSON.stringify(p.action_config ?? {}) : cur.action_config)
         : null,
+      subsidiary_id: p.subsidiary_id !== undefined ? p.subsidiary_id : cur.subsidiary_id,
     };
-    const review = validateRuleDefinition(merged, sources);
+    const owner = ownerError(merged.subsidiary_id);
+    if (owner) return c.json({ error: "invalid_subsidiary", reason: owner }, 400);
+    const review = validateRuleDefinition(merged, sources, inheritFor(merged.subsidiary_id));
     if (!review.ok) {
       deps.rules.log({ rule_id: id, action: "error", actor: "human", detail: `edit rejected by review: ${review.reason}` });
       return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
@@ -196,6 +229,7 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       config_version: merged.config_version,
       execution_mode: merged.execution_mode,
       action_config: merged.action_config,
+      subsidiary_id: merged.subsidiary_id ?? null,
     });
     if (!updated) return c.json({ error: "revision_conflict", revision: deps.rules.find(id)?.revision ?? null }, 409);
     // 間隔が変わった可能性があるので次回期日は作り直させる。
@@ -266,7 +300,7 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
     if (next) {
       // 有効化の前に現在の設定を検証し直す (素材元の登録状況も変わり得る)。
       if (cur.config_version === 2 && !deps.patrol) return c.json({ error: "patrol_unavailable" }, 503);
-      const review = validateRuleDefinition(cur, sources);
+      const review = validateRuleDefinition(cur, sources, inheritFor(cur.subsidiary_id));
       if (!review.ok) return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
     }
     const updated = cur.config_version === 2 ? deps.rules.toggleWithRevision(id, next) : (deps.rules.toggle(id, next), deps.rules.find(id));
@@ -293,17 +327,31 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
 }
 
 /** rule の実行可否と不足理由。 旧 rule は legacy-observe (投稿しない) と明示する。 */
-export function readinessOf(r: RuleRow, sources: SourceLookup): { runnable: boolean; reason: string } {
+export function readinessOf(
+  r: RuleRow,
+  sources: SourceLookup,
+  inherit?: SubsidiaryPatrolDefaults | null,
+): { runnable: boolean; reason: string } {
   if (r.removed_at) return { runnable: false, reason: "removed" };
   if (r.execution_mode !== "patrol") return { runnable: false, reason: "legacy-observe (投稿しない旧 rule)" };
-  const review = validateRuleDefinition(r, sources);
+  const review = validateRuleDefinition(r, sources, inherit);
   if (!review.ok) return { runnable: false, reason: review.reason };
   if (!r.enabled) return { runnable: false, reason: "disabled" };
+  if (inherit?.paused) return { runnable: false, reason: "owner subsidiary paused" };
   return { runnable: true, reason: "ready" };
 }
 
-export function serialize(r: RuleRow, runs: Pick<RuleRunsRepo, "list"> | null, sources: SourceLookup) {
-  const config = r.config_version === 2 ? parseActionConfig(r.action_config) : null;
+/**
+ * action_config は保存された形 (引き継ぐ項目は書かれていなければ無い)、 effective_config は
+ * 持ち主の子会社 → 全体の既定値で埋めた実行時の値。 編集は action_config を元に行う。
+ */
+export function serialize(
+  r: RuleRow,
+  runs: Pick<RuleRunsRepo, "list"> | null,
+  sources: SourceLookup,
+  inherit?: SubsidiaryPatrolDefaults | null,
+) {
+  const config = r.config_version === 2 ? parseActionConfig(r.action_config, inherit) : null;
   const last = runs ? runs.list({ rule_id: r.id, limit: 1 }).runs[0] ?? null : null;
   return {
     id: r.id,
@@ -325,11 +373,13 @@ export function serialize(r: RuleRow, runs: Pick<RuleRunsRepo, "list"> | null, s
     config_version: r.config_version,
     revision: r.revision,
     execution_mode: r.execution_mode,
-    action_config: config?.ok ? config.config : r.action_config ? safeParse(r.action_config) : null,
+    action_config: config?.ok ? config.input : r.action_config ? safeParse(r.action_config) : null,
+    effective_config: config?.ok ? config.config : null,
+    subsidiary_id: r.subsidiary_id ?? null,
     next_due_at: r.next_due_at,
     last_attempt_at: r.last_attempt_at,
     last_posted_at: r.last_posted_at,
-    readiness: readinessOf(r, sources),
+    readiness: readinessOf(r, sources, inherit),
     last_run: last ? { run_id: last.run_id, status: last.status, reason: last.reason, created_at: last.created_at } : null,
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Material } from "./material-types.js";
-import { PatrolActionConfig } from "./patrol-config.js";
+import { PatrolActionConfigInput, resolveEffectivePatrolConfig } from "./patrol-config.js";
 import {
   canReply,
   choosePatrolAction,
@@ -16,12 +16,12 @@ import {
 const NOW_MS = Date.parse("2026-10-15T12:00:00Z");
 const NOW_SEC = NOW_MS / 1000;
 
-const config = PatrolActionConfig.parse({
+const config = resolveEffectivePatrolConfig(PatrolActionConfigInput.parse({
   kind: "material-chat",
   source_ids: ["tendentia-public-trends"],
   scope_key: "hq",
   filters: { genres: ["tech", "ai"], max_age_sec: 86400 },
-});
+}), null);
 
 function material(id: string, over: Partial<Material> = {}): Material {
   return {
@@ -95,6 +95,25 @@ describe("pickMaterial", () => {
     for (let seed = 0; seed < 20; seed++) picks.add(pickMaterial([old, ...fresh], ctx([], seed)).picked!.itemId);
     expect(picks.has("old")).toBe(false);
     expect(picks).toEqual(new Set(["x", "y"]));
+  });
+
+  it("leans toward preferred genres without excluding the rest", () => {
+    const leaning = { ...config, filters: { ...config.filters, genres: undefined, prefer_genres: ["game", "tech"], prefer_ratio: 0.7 } };
+    const items = [
+      ...["g1", "g2"].map((id) => material(id, { tags: ["game"], featureKey: "game" })),
+      ...["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"].map((id) => material(id, { tags: ["general"], featureKey: "general" })),
+    ];
+    let preferred = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const r = pickMaterial(items, { ...ctx([], seed), config: leaning });
+      if (r.picked!.tags![0] === "game") preferred++;
+    }
+    // 均等なら 2/10 = 20%。 寄せると 7 割 + 残り 3 割の中の 2 割 ≒ 76%
+    expect(preferred).toBeGreaterThan(120);
+    expect(preferred).toBeLessThan(200);
+    // 優先ジャンルの候補が無ければ全体から選ぶ
+    const none = pickMaterial(items.slice(2), { ...ctx(), config: leaning });
+    expect(none.picked).not.toBeNull();
   });
 });
 

@@ -7,8 +7,9 @@ import type { ChatMessageRow } from "../db/chat-repo.js";
 import type { RuleConversationsRepo } from "../db/rule-conversations-repo.js";
 import type { RuleRunsRepo } from "../db/rule-runs-repo.js";
 import type { RuleServiceEventsRepo } from "../db/rule-service-events-repo.js";
-import type { RulesRepo } from "../db/rules-repo.js";
+import type { RuleRow, RulesRepo } from "../db/rules-repo.js";
 import type { MaterialSourceRegistry } from "./material-registry.js";
+import type { SubsidiaryPatrolDefaults } from "./patrol-config.js";
 import type { RenderInput, RenderResult } from "./render-patrol.js";
 
 /** 巡回の bot 発言に付ける metadata.source。 自分の出力を素材・返信として再投入しない目印 (CC-PATROL-04)。 */
@@ -46,7 +47,33 @@ export interface PatrolDeliveryPort {
   findExternalId(chatMessageId: number): string | null;
 }
 
+/** rule の持ち主 (子会社) の既定値と稼働状態。 spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §2。 */
+export interface PatrolOwnersPort {
+  defaults(subsidiaryId: string): SubsidiaryPatrolDefaults | null;
+  /** 子会社が存在して有効か。 */
+  active(subsidiaryId: string): boolean;
+}
+
+/** 持ち主の既定値 (本社の rule・未配線なら null)。 */
+export function ownerDefaultsOf(ports: Pick<PatrolPorts, "owners">, rule: Pick<RuleRow, "subsidiary_id">): SubsidiaryPatrolDefaults | null {
+  return rule.subsidiary_id ? ports.owners?.defaults(rule.subsidiary_id) ?? null : null;
+}
+
+/** 持ち主の子会社が止まっていれば理由を返す。 */
+export function ownerStopReason(
+  ports: Pick<PatrolPorts, "owners">,
+  rule: Pick<RuleRow, "subsidiary_id">,
+  defaults: SubsidiaryPatrolDefaults | null,
+): string | null {
+  if (!rule.subsidiary_id) return null;
+  if (ports.owners && !ports.owners.active(rule.subsidiary_id)) return "owner subsidiary disabled";
+  if (defaults?.paused) return "owner subsidiary paused";
+  return null;
+}
+
 export interface PatrolPorts {
+  /** 子会社の既定値・稼働状態。 未配線なら子会社の rule も全体の既定値で動く。 */
+  owners?: PatrolOwnersPort;
   rules: Pick<RulesRepo, "find" | "setNextDue" | "markAttempt" | "log">;
   runs: RuleRunsRepo;
   conversations: RuleConversationsRepo;

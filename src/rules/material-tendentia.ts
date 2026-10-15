@@ -96,6 +96,23 @@ export function normalizeTendentiaOverview(body: unknown, observedAt: string): M
   return out;
 }
 
+/** ジャンルごとの並びを保ったまま、 ジャンルを 1 件ずつ交互に並べる (決定的)。 */
+export function interleaveByGenre(items: readonly Material[]): Material[] {
+  const groups = new Map<string, Material[]>();
+  for (const m of items) {
+    const g = m.featureKey ?? m.tags?.[0] ?? "";
+    const list = groups.get(g);
+    if (list) list.push(m);
+    else groups.set(g, [m]);
+  }
+  const queues = [...groups.values()];
+  const out: Material[] = [];
+  for (let i = 0; out.length < items.length; i++) {
+    for (const q of queues) if (i < q.length) out.push(q[i]);
+  }
+  return out;
+}
+
 export interface TendentiaSourceDeps {
   /** Excubitor topology が配る `TENDENTIA_URL`。 無ければ not-configured。 */
   baseUrl: string | null;
@@ -131,11 +148,14 @@ export function makeTendentiaSource(deps: TendentiaSourceDeps): MaterialSource {
       });
       const observedAt = now().toISOString();
       const sinceMs = Date.parse(query.since);
-      const items = normalizeTendentiaOverview(body, observedAt)
+      const filtered = normalizeTendentiaOverview(body, observedAt)
         .filter((m) => m.shareableTo.includes("*") || m.shareableTo.includes(query.scopeKey))
         .filter((m) => !query.featureKey || m.featureKey === query.featureKey)
-        .filter((m) => Number.isNaN(sinceMs) || Date.parse(m.occurredAt) >= sinceMs)
-        .slice(0, Math.min(query.limit, MATERIAL_LIMITS.maxItemsPerFetch));
+        .filter((m) => !query.genres?.length || (m.tags ?? []).some((t) => query.genres!.includes(t)))
+        .filter((m) => Number.isNaN(sinceMs) || Date.parse(m.occurredAt) >= sinceMs);
+      // 上限はジャンルを交互に取ってから掛ける。 overview は総合ジャンルが先頭なので、
+      // 先頭から切ると他のジャンル (ゲーム・技術など) が候補に入らない。
+      const items = interleaveByGenre(filtered).slice(0, Math.min(query.limit, MATERIAL_LIMITS.maxItemsPerFetch));
       return { items, cursor: null, observedAt, status: items.length > 0 ? "ready" : "empty" };
     },
   };

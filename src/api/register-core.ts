@@ -45,7 +45,10 @@ import { sessionLogsRouter } from "./session-logs.js";
 import { setupRouter } from "./setup.js";
 import { skillsRouter } from "./skills.js";
 import { SkillCatalogStore } from "../skills/catalog-store.js";
-import { rulesRouter } from "./rules.js";
+import { rulesRouter, serialize as serializeRule } from "./rules.js";
+import { subsidiaryPatrolRouter } from "./subsidiary-patrol.js";
+import { parseSubsidiaryDefaults } from "../rules/patrol-config.js";
+import type { SubsidiaryPatrolDefaultsRepo } from "../db/subsidiary-patrol-defaults-repo.js";
 import { libraryRouter } from "./library.js";
 import { processesRouter } from "./processes.js";
 import { statRouter } from "./stat.js";
@@ -279,6 +282,8 @@ export interface CoreSessionDeps {
   rules: RulesRepo;
   /** rule 設定の版履歴 (spec/feature/patrol-chat.md §8)。 */
   ruleVersions?: RuleVersionsRepo;
+  /** 巡回チャットの子会社ごとの既定値。 */
+  subsidiaryPatrolDefaults?: SubsidiaryPatrolDefaultsRepo;
   /** 巡回チャットの台帳と素材元。 未配線なら巡回 rule は作れない。 */
   patrolApi?: PatrolApiDeps;
   processes: ProcessesRepo;
@@ -631,7 +636,33 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     catalog: deps.skillCatalog
       ?? new SkillCatalogStore(() => deps.adminState.getWorkspaceRoot()),
   }));
-  app.route("/v1/rules", rulesRouter({ rules: deps.rules, versions: deps.ruleVersions, patrol: deps.patrolApi }));
+  const subsidiaryPatrolDefaults = deps.subsidiaryPatrolDefaults;
+  const subsidiaryRepoForRules = deps.subsidiary;
+  const patrolInherit = (subsidiaryId: string) => {
+    const row = subsidiaryPatrolDefaults?.get(subsidiaryId);
+    const parsed = row ? parseSubsidiaryDefaults(row.config) : null;
+    return parsed?.ok ? parsed.defaults : null;
+  };
+  const ruleOwners = subsidiaryRepoForRules && subsidiaryPatrolDefaults
+    ? { exists: (id: string) => Boolean(subsidiaryRepoForRules.find(id)), defaults: patrolInherit }
+    : undefined;
+  app.route("/v1/rules", rulesRouter({ rules: deps.rules, versions: deps.ruleVersions, patrol: deps.patrolApi, owners: ruleOwners }));
+  // 子会社単位の巡回 (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md)。 子会社の /patrol はここだけを呼ぶ。
+  if (subsidiaryRepoForRules && subsidiaryPatrolDefaults && deps.patrolApi) {
+    const patrolApi = deps.patrolApi;
+    app.route("/v1/subsidiaries", subsidiaryPatrolRouter({
+      rules: deps.rules,
+      versions: deps.ruleVersions ?? null,
+      defaults: subsidiaryPatrolDefaults,
+      sources: patrolApi.sources,
+      subsidiary: (id) => {
+        const row = subsidiaryRepoForRules.find(id);
+        return row ? { name: row.name } : null;
+      },
+      serializeRule: (r) => serializeRule(r, patrolApi.runs, patrolApi.sources, r.subsidiary_id ? patrolInherit(r.subsidiary_id) : null),
+      cancelInFlight: (ruleId, reason, now) => patrolApi.runs.cancelInFlight(ruleId, reason, now),
+    }));
+  }
   app.route(
     "/v1/library",
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),

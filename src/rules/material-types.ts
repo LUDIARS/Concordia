@@ -45,6 +45,8 @@ export interface SourceQuery {
   scopeKey: string;
   serviceCode?: string;
   featureKey?: string;
+  /** 指定すればこのジャンル (tags) の素材だけ。 件数の上限は絞った後に掛ける。 */
+  genres?: readonly string[];
 }
 
 export interface MaterialSource {

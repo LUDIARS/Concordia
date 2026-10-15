@@ -23,8 +23,52 @@ export const PATROL_HARD_CAPS = {
 export const KNOWN_PATROL_SCOPES = ["hq", "public"] as const;
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** 新規投稿しない時間帯の既定 (neco 2026-10-15: 深夜帯〜始業は新規投稿しない、 返信はする)。 */
+/**
+ * 子会社に勧める新規投稿しない時間帯 (neco 2026-10-15: 深夜帯〜始業は新規投稿しない、 返信はする)。
+ * 全体の既定は「時間帯なし」(本社は時間帯なし、 同日 neco)。 子会社は既定値でこれを持つ。
+ */
 export const DEFAULT_QUIET_HOURS = { start: "22:00", end: "09:30" } as const;
+
+const QuietHours = z.object({
+  start: z.string().regex(HHMM, "HH:MM"),
+  end: z.string().regex(HHMM, "HH:MM"),
+}).strict();
+const DiscordChannelId = z.string().regex(/^\d{17,20}$/, "Discord の channel ID (数字 17〜20 桁)");
+const PersonaHint = z.string().trim().min(1).max(80);
+
+/**
+ * rule の持ち主 (子会社) から引き継ぐ項目の全体の既定値。 rule にも子会社の既定値にも無ければこれ。
+ * spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §2。
+ */
+export const GLOBAL_PATROL_DEFAULTS = {
+  quiet_hours: null as { start: string; end: string } | null,
+  root_limit_per_day: 8,
+  discord_channel_id: null as string | null,
+  persona_hint: null as string | null,
+};
+
+/** 子会社ごとの既定値 (すべて任意。 書かれていない項目は全体の既定値)。 */
+export const SubsidiaryPatrolDefaults = z.object({
+  quiet_hours: QuietHours.nullable().optional(),
+  root_limit_per_day: z.number().int().min(1).max(48).optional(),
+  discord_channel_id: DiscordChannelId.nullable().optional(),
+  persona_hint: PersonaHint.nullable().optional(),
+  /** 子会社まるごとの停止。 true の間は返信も含め新規の行動をしない。 */
+  paused: z.boolean().optional(),
+}).strict();
+export type SubsidiaryPatrolDefaults = z.infer<typeof SubsidiaryPatrolDefaults>;
+
+export function parseSubsidiaryDefaults(raw: unknown): { ok: true; defaults: SubsidiaryPatrolDefaults } | { ok: false; reason: string } {
+  let value = raw;
+  if (typeof raw === "string") {
+    try { value = JSON.parse(raw); } catch { return { ok: false, reason: "defaults is not valid JSON" }; }
+  }
+  const parsed = SubsidiaryPatrolDefaults.safeParse(value ?? {});
+  if (!parsed.success) {
+    return { ok: false, reason: `defaults: ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}` };
+  }
+  return { ok: true, defaults: parsed.data };
+}
 
 export const FollowupConfig = z.object({
   reply_enabled: z.boolean().default(true),
@@ -39,6 +83,9 @@ export type FollowupConfig = z.infer<typeof FollowupConfig>;
 
 export const PatrolFilters = z.object({
   genres: z.array(z.string().min(1).max(40)).max(30).optional(),
+  /** 寄せたいジャンル (絞り込みではない)。 prefer_ratio の確率でこのジャンルの候補から選ぶ。 */
+  prefer_genres: z.array(z.string().min(1).max(40)).max(30).optional(),
+  prefer_ratio: z.number().min(0).max(1).optional(),
   service_codes: z.array(z.string().min(1).max(20)).max(30).optional(),
   feature_keys: z.array(z.string().min(1).max(60)).max(30).optional(),
   event_kinds: z.array(z.string().min(1).max(60)).max(30).optional(),
@@ -46,44 +93,76 @@ export const PatrolFilters = z.object({
 });
 export type PatrolFilters = z.infer<typeof PatrolFilters>;
 
-export const PatrolActionConfig = z.object({
+/**
+ * 保存される rule の action_config。 引き継ぐ項目 (quiet_hours / root_limit_per_day / discord_channel_id /
+ * persona_hint) は「書かれていない (undefined) = 持ち主の子会社 → 全体の既定値を引き継ぐ」と
+ * 「明示の null = 無し」を区別するため default を付けない。
+ */
+export const PatrolActionConfigInput = z.object({
   kind: z.literal("material-chat"),
   source_ids: z.array(z.string().min(1).max(64)).max(5).default([]),
   scope_key: z.string().min(1).max(40),
   filters: PatrolFilters.default({}),
   renderer: z.enum(["oneshot", "template"]).default("oneshot"),
   max_chars: z.number().int().min(40).max(PATROL_HARD_CAPS.maxChars).default(240),
-  root_limit_per_day: z.number().int().min(1).max(PATROL_HARD_CAPS.rootLimitPerDay).default(8),
+  root_limit_per_day: z.number().int().min(1).max(PATROL_HARD_CAPS.rootLimitPerDay).optional(),
   llm_limit_per_day: z.number().int().min(0).max(PATROL_HARD_CAPS.llmLimitPerDay).default(16),
   followup: FollowupConfig.default({}),
-  /**
-   * 新規投稿しない時間帯 (サーバのローカル時刻、 日付またぎ可)。 この間は返信だけを行う。
-   * 既定は深夜帯〜始業 (22:00〜09:30)。 null で時間帯なし。
-   */
-  quiet_hours: z.object({
-    start: z.string().regex(HHMM, "HH:MM"),
-    end: z.string().regex(HHMM, "HH:MM"),
-  }).strict().nullable().default(DEFAULT_QUIET_HOURS),
+  /** 新規投稿しない時間帯 (サーバのローカル時刻、 日付またぎ可)。 この間は返信だけを行う。 null で時間帯なし。 */
+  quiet_hours: QuietHours.nullable().optional(),
   /**
    * 投稿先の Discord channel を個別に指定する (本社・子会社 guild のチャンネル)。 null なら rule.target の meta channel。
    * 指定した投稿は本社の chat 配信 (Discord meta / Slack) に流さず、 このチャンネルへ直接送る。
    */
-  discord_channel_id: z.string().regex(/^\d{17,20}$/, "Discord の channel ID (数字 17〜20 桁)").nullable().default(null),
+  discord_channel_id: DiscordChannelId.nullable().optional(),
+  /** 名乗りの雰囲気 (生成への指示。 判定には使わない)。 */
+  persona_hint: PersonaHint.nullable().optional(),
 }).strict();
-export type PatrolActionConfig = z.infer<typeof PatrolActionConfig>;
+export type PatrolActionConfigInput = z.infer<typeof PatrolActionConfigInput>;
 
-export type ParsedConfig = { ok: true; config: PatrolActionConfig } | { ok: false; reason: string };
+/** 実行に使う実効設定。 引き継ぐ項目は rule → 持ち主の子会社の既定値 → 全体の既定値で埋まっている。 */
+export type PatrolActionConfig = Omit<PatrolActionConfigInput, "root_limit_per_day" | "quiet_hours" | "discord_channel_id" | "persona_hint"> & {
+  root_limit_per_day: number;
+  quiet_hours: { start: string; end: string } | null;
+  discord_channel_id: string | null;
+  persona_hint: string | null;
+};
 
-export function parseActionConfig(raw: unknown): ParsedConfig {
+export type ParsedConfig =
+  | { ok: true; config: PatrolActionConfig; input: PatrolActionConfigInput }
+  | { ok: false; reason: string };
+
+/** rule の値 → 子会社の既定値 → 全体の既定値。 undefined だけを「書かれていない」とみなす (null は明示の無し)。 */
+export function resolveEffectivePatrolConfig(
+  input: PatrolActionConfigInput,
+  inherit: SubsidiaryPatrolDefaults | null | undefined,
+): PatrolActionConfig {
+  const pick = <K extends keyof typeof GLOBAL_PATROL_DEFAULTS>(key: K): (typeof GLOBAL_PATROL_DEFAULTS)[K] => {
+    const own = input[key];
+    if (own !== undefined) return own as (typeof GLOBAL_PATROL_DEFAULTS)[K];
+    const inherited = inherit?.[key];
+    if (inherited !== undefined) return inherited as (typeof GLOBAL_PATROL_DEFAULTS)[K];
+    return GLOBAL_PATROL_DEFAULTS[key];
+  };
+  return {
+    ...input,
+    root_limit_per_day: pick("root_limit_per_day"),
+    quiet_hours: pick("quiet_hours"),
+    discord_channel_id: pick("discord_channel_id"),
+    persona_hint: pick("persona_hint"),
+  };
+}
+
+export function parseActionConfig(raw: unknown, inherit?: SubsidiaryPatrolDefaults | null): ParsedConfig {
   let value = raw;
   if (typeof raw === "string") {
     try { value = JSON.parse(raw); } catch { return { ok: false, reason: "action_config is not valid JSON" }; }
   }
-  const parsed = PatrolActionConfig.safeParse(value);
+  const parsed = PatrolActionConfigInput.safeParse(value);
   if (!parsed.success) {
     return { ok: false, reason: `action_config: ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}` };
   }
-  return { ok: true, config: parsed.data };
+  return { ok: true, config: resolveEffectivePatrolConfig(parsed.data, inherit), input: parsed.data };
 }
 
 export interface SourceLookup {
@@ -98,10 +177,14 @@ export interface SourceLookup {
  * - event は service/feature/event_kind の型付き filter のどれかを要求する (wildcard を本文へ流さない)
  */
 export function reviewPatrolConfig(
-  input: { trigger_type: "tick" | "event"; event_kind: string | null; config: PatrolActionConfig },
+  input: { trigger_type: "tick" | "event"; event_kind: string | null; config: PatrolActionConfig; subsidiaryId?: string | null },
   sources: SourceLookup,
 ): ReviewResult {
   const { config } = input;
+  // 子会社の rule は公開素材だけ (本社限定の素材・出来事を子会社へ出さない、 CC-PATROL-05)。
+  if (input.subsidiaryId && config.scope_key !== "public") {
+    return { ok: false, reason: "子会社の巡回 rule は scope_key=public にする" };
+  }
   if (!(KNOWN_PATROL_SCOPES as readonly string[]).includes(config.scope_key)) {
     return { ok: false, reason: `scope_key は ${KNOWN_PATROL_SCOPES.join("/")} のいずれか (got ${config.scope_key})` };
   }

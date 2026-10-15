@@ -15,7 +15,14 @@
 import type { RuleRunRow } from "../db/rule-runs-repo.js";
 import { commitRendered, type RunContext } from "./execute-patrol.js";
 import { parseActionConfig } from "./patrol-config.js";
-import { DELIVERY_UNKNOWN_AFTER_SEC, PATROL_LEASE_SEC, nowSecOf, type PatrolPorts } from "./patrol-ports.js";
+import {
+  DELIVERY_UNKNOWN_AFTER_SEC,
+  PATROL_LEASE_SEC,
+  nowSecOf,
+  ownerDefaultsOf,
+  ownerStopReason,
+  type PatrolPorts,
+} from "./patrol-ports.js";
 
 export interface RecoveryReport {
   failed: number;
@@ -46,8 +53,10 @@ export function recoverStaleRuns(ports: PatrolPorts): RecoveryReport {
 function recoverRendered(ports: PatrolPorts, run: RuleRunRow, report: RecoveryReport): void {
   const now = nowSecOf(ports);
   const rule = ports.rules.find(run.rule_id);
-  const parsed = rule ? parseActionConfig(rule.action_config) : null;
-  if (!rule || !rule.enabled || rule.removed_at || rule.execution_mode !== "patrol" || ports.runtimeDisabled() || !parsed?.ok) {
+  const inherit = rule ? ownerDefaultsOf(ports, rule) : null;
+  const parsed = rule ? parseActionConfig(rule.action_config, inherit) : null;
+  if (!rule || !rule.enabled || rule.removed_at || rule.execution_mode !== "patrol" || ports.runtimeDisabled() || !parsed?.ok
+    || ownerStopReason(ports, rule, inherit)) {
     ports.runs.transition(run.run_id, ports.leaseOwner, ["rendered"], "skipped", { reason: "recovered rendered run: rule stopped before send" }, now);
     report.skipped++;
     return;

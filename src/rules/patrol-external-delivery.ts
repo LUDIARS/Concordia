@@ -18,6 +18,11 @@ export interface ExternalChannelPostInput {
   channelId: string;
   content: string;
   username: string | null;
+  /**
+   * この投稿で許す guild (rule の持ち主の guild)。 指定すれば deps.allowedGuildIds より優先する
+   * (子会社の rule を別の子会社や本社のチャンネルへ送らない)。
+   */
+  allowedGuildIds?: readonly string[];
 }
 
 export interface ExternalDeliveryDeps {
@@ -71,15 +76,16 @@ export function makeExternalChannelPoster(deps: ExternalDeliveryDeps): ExternalC
     return null;
   }
 
-  return async ({ channelId, content, username }) => {
+  return async ({ channelId, content, username, allowedGuildIds }) => {
     if (!/^\d{17,20}$/.test(channelId)) throw new Error(`invalid Discord channel id: ${channelId}`);
     const token = deps.botToken();
     if (!token) throw new Error("HQ Discord bot token is not configured");
     const channel = await api(token, `/channels/${channelId}`);
     if (!channel.ok) throw new Error(`Discord channel lookup failed (${channel.status})`);
     const guildId = ((await channel.json()) as { guild_id?: string }).guild_id ?? null;
-    if (!guildId || !deps.allowedGuildIds().includes(guildId)) {
-      throw new Error(`Discord channel ${channelId} is not in the HQ or an enabled subsidiary guild`);
+    const allowed = allowedGuildIds ?? deps.allowedGuildIds();
+    if (!guildId || !allowed.includes(guildId)) {
+      throw new Error(`Discord channel ${channelId} is not in the rule owner's guild`);
     }
     const allowed_mentions = { parse: [] as string[] };
     const hook = await ensureWebhook(token, channelId);

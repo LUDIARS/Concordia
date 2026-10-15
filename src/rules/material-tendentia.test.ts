@@ -80,6 +80,25 @@ describe("makeTendentiaSource", () => {
     expect(page.items.map((m) => m.itemId)).toEqual(["hn:k1"]);
   });
 
+  it("keeps later genres within the item cap and filters genres before capping", async () => {
+    // 総合ジャンルが先頭で 150 件ある overview。 先頭から切るとゲーム・技術が候補に入らなかった (2026-10-15)。
+    const many = (genre: string, n: number) => ({
+      genre, label: genre, highlights: [],
+      sources: [{
+        sourceId: `${genre}-src`, name: genre, fetchedAt: "2026-10-15T11:00:00.000Z", error: null,
+        items: Array.from({ length: n }, (_, i) => ({ key: `${genre}${i}`, title: `${genre} ${i}`, firstSeenAt: "2026-10-15T10:00:00.000Z" })),
+      }],
+    });
+    const body = { overview: { genres: [many("general", 150), many("game", 5), many("tech", 5)] } };
+    const source = makeTendentiaSource({ baseUrl: "http://x", fetch: (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch });
+    const all = await source.list(query);
+    expect(all.items).toHaveLength(100);
+    expect(all.items.filter((m) => m.featureKey === "game")).toHaveLength(5);
+    expect(all.items.filter((m) => m.featureKey === "tech")).toHaveLength(5);
+    const onlyGame = await source.list({ ...query, genres: ["game"] });
+    expect(onlyGame.items.map((m) => m.featureKey)).toEqual(Array(5).fill("game"));
+  });
+
   it("maps auth and HTTP failures to explicit errors", async () => {
     const auth = makeTendentiaSource({ baseUrl: "http://x", fetch: (async () => new Response("", { status: 403 })) as unknown as typeof fetch });
     await expect(auth.list(query)).rejects.toMatchObject({ code: "auth" });

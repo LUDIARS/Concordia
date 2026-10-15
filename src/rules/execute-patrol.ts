@@ -21,6 +21,8 @@ import {
   PATROL_LEASE_SEC,
   PATROL_MESSAGE_SOURCE,
   nowSecOf,
+  ownerDefaultsOf,
+  ownerStopReason,
   type PatrolPorts,
 } from "./patrol-ports.js";
 import { personaOfChatMetadata, personaOfDecision, personaUsername, withPersonaDecision } from "./patrol-persona.js";
@@ -73,6 +75,8 @@ function sendBlocker(ctx: RunContext): string | null {
   const current = ctx.ports.rules.find(ctx.rule.id);
   if (!current || !current.enabled || current.removed_at) return "rule disabled before send";
   if (current.execution_mode !== "patrol") return "rule left patrol mode before send";
+  const owner = ownerStopReason(ctx.ports, current, ownerDefaultsOf(ctx.ports, current));
+  if (owner) return `${owner} before send`;
   return null;
 }
 
@@ -96,6 +100,7 @@ async function renderAndCommit(
     previousBotText: render.previousBotText,
     maxChars: ctx.config.max_chars,
     persona: render.persona,
+    personaHint: ctx.config.persona_hint,
   });
   if (!result.ok) {
     ports.runs.transition(run.run_id, ports.leaseOwner, ["rendering"], "failed",
@@ -137,6 +142,8 @@ export function commitRendered(
         scope: ctx.config.scope_key,
         ...(persona ? { patrol_persona: persona, webhook_username: personaUsername(persona) } : {}),
         ...(ctx.config.discord_channel_id ? { patrol_discord_channel_id: ctx.config.discord_channel_id } : {}),
+        // 配送先 guild の照合に使う (子会社の rule はその子会社の guild だけへ送る)。
+        ...(ctx.rule.subsidiary_id ? { patrol_subsidiary_id: ctx.rule.subsidiary_id } : {}),
       },
     });
     return chat.id;
@@ -185,7 +192,9 @@ export async function executePick(ctx: RunContext, triggerKey: string): Promise<
   for (const sourceId of config.source_ids) {
     const at = new Date(nowMs).toISOString();
     try {
-      const page = await ports.sources.resolve(sourceId).list({ since, limit: 100, scopeKey: config.scope_key });
+      const page = await ports.sources.resolve(sourceId).list({
+        since, limit: 100, scopeKey: config.scope_key, ...(config.filters.genres?.length ? { genres: config.filters.genres } : {}),
+      });
       items.push(...page.items);
       ports.sources.observe(sourceId, at, null);
     } catch (err) {

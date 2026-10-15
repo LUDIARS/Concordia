@@ -28,13 +28,25 @@ const legacyRule = {
 
 interface Call { url: string; method: string; body: any }
 
-function stub(overrides: { patch?: () => Response } = {}): Call[] {
+function stub(overrides: { patch?: () => Response; subsidiaries?: boolean } = {}): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: unknown, options?: RequestInit) => {
     const url = String(input);
     const method = options?.method ?? "GET";
     calls.push({ url, method, body: options?.body ? JSON.parse(String(options.body)) : null });
     if (url === "/v1/rules" && method === "GET") return new Response(JSON.stringify({ rules: [patrolRule, legacyRule] }));
+    if (url === "/v1/rules?subsidiary_id=sub-glab") return new Response(JSON.stringify({ rules: [{ ...patrolRule, id: "glab-trend-1", subsidiary_id: "sub-glab" }] }));
+    if (url === "/v1/subsidiaries") {
+      return overrides.subsidiaries
+        ? new Response(JSON.stringify({ subsidiaries: [{ id: "sub-glab", name: "glab", display_name: "GLab", enabled: true }] }))
+        : new Response("{}", { status: 404 });
+    }
+    if (url === "/v1/subsidiaries/sub-glab/patrol-defaults" && method === "GET") {
+      return new Response(JSON.stringify({ defaults: { quiet_hours: { start: "22:00", end: "09:30" } }, updated_at: 1, updated_by: "discord:1" }));
+    }
+    if (url === "/v1/subsidiaries/sub-glab/patrol-defaults" && method === "PUT") {
+      return new Response(JSON.stringify({ defaults: {} }));
+    }
     if (url === "/v1/rules/sources") {
       return new Response(JSON.stringify({ sources: [
         { sourceId: "tendentia-public-trends", label: "Tendentia 公開トレンド", kind: "trend", serviceCode: "Td", scopes: ["*"], status: "ready", reason: null, lastFetchedAt: null, lastError: null },
@@ -105,6 +117,34 @@ describe("Rules page", () => {
     const patch = calls.find((c) => c.method === "PATCH")!;
     expect(patch.body).toMatchObject({ expected_revision: 3, config_version: 2 });
     expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/競合/);
+    act(() => root.unmount());
+  });
+
+  it("filters by subsidiary owner and edits that subsidiary's defaults", async () => {
+    const calls = stub({ subsidiaries: true });
+    const { container, root } = await render();
+    const select = container.querySelector('select[aria-label="持ち主"]') as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    await act(async () => {
+      select.value = "sub-glab";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(calls.some((c) => c.url === "/v1/rules?subsidiary_id=sub-glab")).toBe(true);
+    const panel = container.querySelector('[data-testid="subsidiary-defaults"]');
+    expect(panel?.textContent).toContain("GLab の既定値");
+    expect((panel?.querySelector('input[aria-label="既定の開始"]') as HTMLInputElement).value).toBe("22:00");
+    await click(byText(container, "既定値を保存"));
+    const put = calls.find((c) => c.method === "PUT" && c.url.endsWith("/patrol-defaults"))!;
+    expect(put.body).toMatchObject({ actor: "web", defaults: { quiet_hours: { start: "22:00", end: "09:30" } } });
+    act(() => root.unmount());
+  });
+
+  it("hides the owner filter when subsidiaries are unavailable", async () => {
+    stub();
+    const { container, root } = await render();
+    expect(container.querySelector('select[aria-label="持ち主"]')).toBeNull();
     act(() => root.unmount());
   });
 

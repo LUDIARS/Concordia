@@ -60,7 +60,8 @@ import {
   dispatchForumSpawnIntakeInteraction,
   isForumSpawnIntakeInteraction,
 } from "./forum-spawn-intake.js";
-import { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction } from "./subsidiary-scope.js";
+import { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction, isSubsidiaryOnlyCommand } from "./subsidiary-scope.js";
+import patrolCommand from "./commands/patrol.js";
 import { backlogCommands, handleBacklogCommand } from "./actio-backlog-command.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
@@ -105,6 +106,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   exRebootCommand,
   goalAndGoCommand,
   doctorCommand,
+  patrolCommand,
 ];
 
 // 子会社 guild の許可範囲は subsidiary-scope.ts が正本 (登録と dispatch で同じ集合を使う)。
@@ -114,6 +116,8 @@ export function commandNamesForRegistration(opts: CommandRegistrationOptions = {
   const isWorkflowEnabled = opts.isWorkflowEnabled ?? (() => true);
   return COMMANDS
     .filter((c) => !opts.subsidiary || isSubsidiaryAllowedCommand(c.builder.name))
+    // 子会社専用のコマンド (/patrol) は本社 guild に出さない。
+    .filter((c) => opts.subsidiary || !isSubsidiaryOnlyCommand(c.builder.name))
     .filter((c) => isCommandWorkflowEnabled(c.builder.name, isWorkflowEnabled))
     .map((c) => c.builder.name).concat(backlogCommands.map(c => c.name));
 }

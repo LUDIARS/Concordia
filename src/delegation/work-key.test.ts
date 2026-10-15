@@ -12,7 +12,7 @@ describe("resolveWorkUnit", () => {
   });
 
   it("keys a task spec file by repository and path, independent of the body and branch", () => {
-    const a = resolveWorkUnit({ args: { task: "続きを実装する\n詳細は spec/tasks/2026-10-01-x.md" }, repoPath: REPO, branch: "feat/a", title: "A" });
+    const a = resolveWorkUnit({ args: { task: "続きを実装する spec/tasks/2026-10-01-x.md\n詳細は本文" }, repoPath: REPO, branch: "feat/a", title: "A" });
     const b = resolveWorkUnit({ args: { task: "前任の続きを引き継ぐ。spec/tasks/2026-10-01-x.md" }, repoPath: REPO, branch: "feat/b", title: "B" });
     expect(a).toEqual({ kind: "key", sourceRef: "work:e:/document/ars/concordia:spec/tasks/2026-10-01-x.md" });
     expect(b).toEqual(a);
@@ -35,6 +35,17 @@ describe("specPathOf", () => {
     expect(specPathOf({ task: "Concordia で実装する。設計の正本: spec/faq/actio-cc-task-project-sync.md (§4)" }))
       .toBe("spec/faq/actio-cc-task-project-sync.md");
     expect(specPathOf({ task: "バグを直す\n参考: spec/feature/delegation.md" })).toBeNull();
+  });
+
+  it("does not key a task spec that is only cited after the first line of the request", () => {
+    expect(specPathOf({ task: "Ergo の L2 を実装する\n前段: spec/tasks/2026-10-15-ergo-l1.md を参照" })).toBeNull();
+    const a = resolveWorkUnit({ args: { task: "L2 を実装する\n前段: spec/tasks/2026-10-15-l1.md" }, repoPath: REPO, branch: "feat/l2", title: "L2" });
+    const b = resolveWorkUnit({ args: { task: "L3 を実装する\n前段: spec/tasks/2026-10-15-l1.md" }, repoPath: REPO, branch: "feat/l3", title: "L3" });
+    expect(a).not.toEqual(b);
+  });
+
+  it("prefers a task spec on the first line over one in another argument", () => {
+    expect(specPathOf({ task: "spec/tasks/a.md を実装する", context_extra: "spec/tasks/b.md" })).toBe("spec/tasks/a.md");
   });
 });
 

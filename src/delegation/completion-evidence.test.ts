@@ -37,14 +37,14 @@ describe("verifyBranchExemptCompletion", () => {
     });
   });
 
-  it("受け入れ条件を自己申告した場合だけ契約と突合する", async () => {
+  it("受け入れ条件を自己申告しても契約ファイルが無ければ突合せずに通す", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cc-exempt-"));
     try {
       const verdict = await verifyBranchExemptCompletion({ ...run, spawn_cwd: dir }, { result: "done" }, {
         acceptanceReport: [{ criterion: "C-1 x(): y", met: true }],
         hasContract: () => false,
       });
-      expect(verdict).toEqual({ ok: false, reason: "acceptance report supplied but its Augur contract is missing" });
+      expect(verdict).toEqual({ ok: true, checked: true, acceptance: "not_configured" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -86,7 +86,7 @@ describe("verifyCompletionEvidence — 契約書式の受け入れ条件の突�
     return verifyContractAcceptance(dir, run, options);
   }
 
-  it("受入報告があるのに契約ファイルが無い委託は拒否する", async () => {
+  it("受入報告があっても契約ファイルが無い委託は branch 証跡だけで通す (Augur を呼ばない)", async () => {
     const dir = makeWorktree(false);
     try {
       let called = false;
@@ -94,7 +94,7 @@ describe("verifyCompletionEvidence — 契約書式の受け入れ条件の突�
         acceptanceReport: REPORT,
         resolveAugurCli: () => { called = true; return "augur.mjs"; },
       });
-      expect(verdict).toEqual({ ok: false, reason: "acceptance report supplied but its Augur contract is missing" });
+      expect(verdict).toEqual({ ok: true, checked: true, acceptance: "not_configured" });
       expect(called).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });

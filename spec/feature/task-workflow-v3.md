@@ -280,7 +280,7 @@ Taskflow の各行に、タスクの業務状態 (`status`、正本は Actio / t
 委託から task を決めるキーは描画後の本文ではなく、次の順で決める (`src/delegation/work-key.ts`)。
 
 1. `args.taskflow_reference` (`actio:<id>`) があれば、その task を再利用する。
-2. タスク仕様 (`spec/tasks/<file>.md`) がどの引数にあっても、`work:<repoKey>:<path>`。設計ファイル (それ以外の `spec/` の md) は、依頼の 1 行目 (`task` 引数) にあるときだけ作業の指定とみなす。参考資料として本文に挙がった設計ファイルで別の作業を束ねないため。
+2. タスク仕様 (`spec/tasks/<file>.md`) が依頼の 1 行目 (`task` 引数) か `task` 以外の引数にあれば、`work:<repoKey>:<path>` (1 行目を優先)。設計ファイル (それ以外の `spec/` の md) は、依頼の 1 行目にあるときだけ作業の指定とみなす。本文の 2 行目以降に挙がった spec はタスク md も設計ファイルも参考資料として扱い、キーにしない。共通の前置きで前段のタスク md を挙げた別々の委託を 1 つの task に束ねない (束ねると 2 本目が `task_execution_conflict` になる) ため。
 3. どちらも無ければ `work:<repoKey>:<branch>:<題名の正規化>`。
 
 作業単位のキーで一致した既存 task は、本文が違っても同じ作業として再利用する (`reuseExisting`)。本文に依存する従来のキー (`session:` / `remaining:` など) は、これまでどおり内容の食い違いを拒否する。

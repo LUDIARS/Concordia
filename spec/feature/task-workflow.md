@@ -297,7 +297,10 @@ Augur 設計 `2026-09-05-live-contract-testing.md` §8 (C4)。 「動いたつ�
   JSON の項目が不正な場合も拒否する。 契約ファイルがあるのに Augur を実行できない (CLI 未解決 / 実行
   失敗 / JSON 不正) 場合も、 診断を理由文に出して拒否する — 「証跡を取れなかったから通す」
   にすると契約を置いた委託ほど検証を素通りできてしまうため。 契約ファイルが無い委託は
-  従来どおり branch 証跡だけで判定する (review_only / parttimer の除外も維持)。
+  従来どおり branch 証跡だけで判定する (review_only / parttimer の除外も維持)。 このとき
+  `acceptance_report` が付いていても突合の相手が無いので判定に使わず、 拒否もしない
+  (`acceptance: "not_configured"`)。 Augur 契約を置けない C++ / CMake のリポや、 起動 cwd と
+  実作業リポが異なる委託が、 マージ済みでも failed に確定するのを防ぐため。
 - 実装の分担: `src/delegation/augur-acceptance.ts` が契約ファイルの検出・Augur CLI パスの
   解決・`contracts report` の実行と JSON 解釈を持ち、 `src/delegation/acceptance-reconcile.ts`
   が自己申告と集計の突合 (純関数) を、 `src/delegation/completion-evidence.ts` が completed

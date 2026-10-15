@@ -170,10 +170,11 @@ export async function verifyContractAcceptance(
   options: CompletionEvidenceOptions = {},
 ): Promise<CompletionEvidenceVerdict> {
   const hasContract = options.hasContract ?? hasAcceptanceContract;
-  if (!(await hasContract(cwd))) {
-    if (options.acceptanceReport?.length) return { ok: false, reason: "acceptance report supplied but its Augur contract is missing" };
-    return { ok: true, checked: true, acceptance: "not_configured" };
-  }
+  // 契約ファイルが無い委託は branch 証跡だけで判定する (spec/feature/task-workflow.md §5.1)。
+  // 自己申告の acceptance_report は突合する相手が無いので判定に使わない。拒否すると、
+  // Augur 契約を置けない C++ / CMake のリポや、spawn_cwd と実作業リポが違う委託が、
+  // マージ済みでも failed に確定してしまう。
+  if (!(await hasContract(cwd))) return { ok: true, checked: true, acceptance: "not_configured" };
 
   const workspaceRoots = options.workspaceRoots ?? [];
   const cliPath = options.resolveAugurCli

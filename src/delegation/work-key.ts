@@ -20,16 +20,22 @@ function specPaths(value: string): string[] {
 }
 
 /**
- * 作業を指す spec の md パス。タスク仕様 (spec/tasks/) はどの引数に書かれていても採る。
- * 設計ファイル (それ以外の spec/) は参考として本文中に挙がることが多いので、
- * 依頼の 1 行目 (task 引数) に書かれたものだけを作業の指定とみなす。
+ * 作業を指す spec の md パス。依頼本文 (task 引数) は 1 行目だけを作業の指定とみなす。
+ * 本文の 2 行目以降に挙がった spec は、前段のタスク md も設計ファイルも参考資料として扱い、
+ * キーにしない。共通の前置きを持つ別々の委託が、参考として挙げた同じタスク md で
+ * 1 つの Actio task に束ねられ task_execution_conflict になるのを防ぐため。
+ * task 以外の引数 (context_extra など) に書かれたタスク仕様 (spec/tasks/) は、
+ * 呼び出し側が明示した作業の指定として採る。
  */
 export function specPathOf(args: Record<string, unknown>): string | null {
-  const all = Object.values(args).flatMap((value) => typeof value === "string" ? specPaths(value) : []);
-  const task = all.find((path) => path.startsWith("spec/tasks/"));
-  if (task) return task;
-  const head = typeof args.task === "string" ? args.task.trim().split(/\r?\n/)[0] ?? "" : "";
-  return specPaths(head)[0] ?? null;
+  const head = typeof args.task === "string" ? specPaths(args.task.trim().split(/\r?\n/)[0] ?? "") : [];
+  const headTask = head.find((path) => path.startsWith("spec/tasks/"));
+  if (headTask) return headTask;
+  const explicit = Object.entries(args)
+    .flatMap(([key, value]) => key !== "task" && typeof value === "string" ? specPaths(value) : []);
+  const explicitTask = explicit.find((path) => path.startsWith("spec/tasks/"));
+  if (explicitTask) return explicitTask;
+  return head[0] ?? null;
 }
 
 /** 大文字小文字・空白・記号の揺れを吸収した題名。キーにだけ使い、表示には使わない。 */

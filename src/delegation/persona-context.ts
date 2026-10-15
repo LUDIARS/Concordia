@@ -114,7 +114,7 @@ function delegationContextTemplate(
     "",
     "- The spawn environment includes CONCORDIA_DELEGATION_RUN_ID. When the task is completed or failed, you MUST call:",
     `  POST ${apiUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
-    '  with JSON {"status":"completed","detail":"...","result":"...","acceptance_report":[]} or {"status":"partial","remaining":[{"title":"...","note":"...","scope_dirs":[]}]} or {"status":"failed","detail":"..."} before ending.',
+    '  with JSON {"status":"completed","detail":"...","result":"...","acceptance_report":[]} or {"status":"failed","detail":"..."} before ending. partial の remaining は以下の共通案内に従い、各項目の kind を明記します。',
     ...buildStatusReportGuidance(`${apiUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`),
     "- If approval or clarification is needed, ask the parent session through the delegation status/inject flow, not directly in Discord.",
     // 質問の作法は taskflow/task-instructions.ts が正本 (実装 inject の受け入れ条件節と共用)。

@@ -12,7 +12,8 @@
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:1789ffac */
 import augurContract_ba7bf205 from './status-report-policy.contract.js'; /* augur-inject:contract-predicate:3eb8ba5b */
-import augurContract_6f52f0e6 from './completion-evidence-policy.contract.js'; /* augur-inject:contract-predicate:80e50ac3 */
+import augurContract_6f52f0e6 from './completion-evidence-policy.contract.js';
+import augurContract_23203ee6 from './remaining-guidance.contract.ts'; /* augur-inject:contract-predicate:c9bd3336 */ /* augur-inject:contract-predicate:80e50ac3 */
 
 export const TERMINAL_DELEGATION_STATUSES = ["completed", "failed"] as const;
 
@@ -89,5 +90,12 @@ export function buildStatusReportGuidance(statusEndpoint: string): string[] {
   return [
     `- 状態の確認は GET ${statusEndpoint} で行います (読み取りのみ。 状態は変わりません)。`,
     `- 終端報告 (completed / failed) は POST ${statusEndpoint} で一度だけ受理され、 後から訂正できません。 委託本文を読んで結果を確かめてから送ります。`,
+    "- partial の remaining は、人間判断・権限待ちは `kind=wait`、実行可能な作業は `kind=work` と明記します。kind を省略して判断待ちを報告しないでください。待機事項と実行可能な作業が混在する場合は項目を分けます。",
+    "- 人間判断・権限待ちの報告例:",
+    '```json\n{"status":"partial","remaining":[{"kind":"wait","title":"権限の確認待ち","note":"依頼者の承認後に再開する","scope_dirs":[]}]}\n```',
+    "- 実行可能な作業の報告例:",
+    '```json\n{"status":"partial","remaining":[{"kind":"work","title":"案内の修正","note":"合意済みの文言を更新する","scope_dirs":[]}]}\n```',
   ];
 }
+// @ts-expect-error augur-inject
+buildStatusReportGuidance = contract(buildStatusReportGuidance, { ...augurContract_23203ee6, contractId: 'remaining-guidance-C-1', mode: 'observe', sample: 1, where: 'src/delegation/status-report-policy.ts:88', rule: 'contract-wrap', id: '23203ee6' }); /* augur-inject:contract-wrap:23203ee6 */

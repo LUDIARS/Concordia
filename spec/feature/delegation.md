@@ -843,6 +843,23 @@ feature branch を記録した run は、子 PR の有無にかかわらず上�
 すべての failed / partial の受理条件は従来どおり。 変わるのはパートタイマー / review_only の
 completed が成果の記述を要するようになった点だけで、 不足時も run は書き換わらず再送できる。
 
+#### partial の残作業と待機事項の案内
+
+Actio: `actio:a2097f11-67b6-49d8-b454-92f061d4c95f`。
+UX-CC-W4 / UX-CC-S5、CC-INV-08、CC-NODE-04 に対応する。
+agent-delegation の共通案内が、判断待ちを実行可能な残作業として再委託させないための記述を所有する。
+run の状態遷移・再キュー判断は既存の所有者とポリシーを維持し、案内から状態を書き換えない。
+
+`buildStatusReportGuidance` は `partial.remaining[]` の人間判断・権限待ちを `kind=wait`、
+実行可能な作業を `kind=work` と明記させる。kind を省略して判断待ちを報告させない。
+混在する場合は別項目に分け、両種類のコピー可能な JSON 例を共通案内に置く。
+persona の汎用報告例は共通案内を参照し、kind を省略した partial 例を重複定義しない。
+既存の kind 省略入力の互換性や再キューの挙動は変更しない。
+
+契約: C-1 buildStatusReportGuidance(endpoint): 人間判断・権限待ちを kind=wait、実行可能作業を kind=work と案内し、両方の JSON 例を示す。
+回帰確認は合成データで JSON 例を解析し、persona への共通案内の包含と省略例の除去を確認する。
+テストの実行は別途許可された範囲に限る。復旧は案内の変更を戻すことで行え、データ移行は不要。
+
 ### status 報告の UTF-8 検証
 
 **Requirement ID: `SPEC-DELEGATION-STATUS-UTF8`**

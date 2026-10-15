@@ -2,8 +2,16 @@ import { describe, it, expect } from "vitest";
 import { buildDelegationContext } from "./persona-context.js";
 import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
 import { majorInjectDefinition } from "../control/major-inject-catalog.js";
+import { buildStatusReportGuidance } from "./status-report-policy.js";
 
 describe("buildDelegationContext", () => {
+  it("共通の work/wait 案内を保持し、kind を省略した partial 例を残さない", () => {
+    const ctx = buildDelegationContext("http://127.0.0.1:11111");
+    const guidance = buildStatusReportGuidance("http://127.0.0.1:11111/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status");
+    for (const line of guidance.slice(2)) expect(ctx).toContain(line);
+    expect(ctx).not.toContain('"remaining":[{"title":');
+  });
+
   it("manual なしでは作業マニュアル節を含まない", () => {
     const ctx = buildDelegationContext("http://127.0.0.1:11111");
     expect(ctx).toContain("## Concordia コンテキスト");

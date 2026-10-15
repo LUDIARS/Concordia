@@ -159,6 +159,7 @@ import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { SqliteReleaseNoticeLedger, createReleaseNoticeLookup } from "../deploy/release-published-runtime.js";
+import { SqlitePackageUpdateLedger } from "../deploy/package-updates-runtime.js";
 import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
 import { handleProjectPushed } from "../deploy/project-created.js";
 import { DomainReviewRepo } from "../db/domain-review-repo.js";
@@ -1321,6 +1322,15 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     log: createChildLogger("release-published"),
   };
+  // Ergo パッケージ更新のお知らせはデプロイ通知チャンネルへ (spec/feature/package-update-events.md)。
+  // Bot 投稿はデプロイ通知の cc-channel 配送をそのまま使う。
+  const packageUpdates = {
+    ledger: new SqlitePackageUpdateLedger(db),
+    configured: () => readDiscordSetting(discordConfig, secretBox, "deploy_notify_channel_id") !== null,
+    post: (content: string) => serviceDeployed.delivery.ccChannel(content),
+    authorize: serviceDeployed.authorize,
+    log: createChildLogger("package-updates"),
+  };
   /**
    * 新規プロジェクトの本社通知 (spec/feature/project-created-notify.md)。
    * 宛先と Bot 送信はリリース通知と同じ本社チャンネルを流用する。
@@ -2375,6 +2385,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
     releasePublished,
+    packageUpdates,
     projectNotice: {
       arm: (event) => { projectNoticeLedger.arm(event, Date.now()); },
       notifyPushed: notifyProjectPushed,

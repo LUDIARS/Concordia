@@ -98,6 +98,8 @@ import { projectCodesRouter } from "./project-codes.js";
 import { serviceVersionsRouter } from "./service-versions.js";
 import { serviceDeployedRouter } from "./service-deployed.js";
 import { releasePublishedRouter } from "./release-published.js";
+import { packageUpdatesRouter } from "./package-updates.js";
+import type { PackageUpdateLedger } from "../deploy/package-updates.js";
 import { aiNotesRouter } from "./ai-notes.js";
 import type { PublicationService } from "../ai-notes/publication-service.js";
 import type { DeploymentDelivery, DeploymentLedger, DeploymentLookup } from "../deploy/service-deployed.js";
@@ -454,6 +456,8 @@ export interface CoreRuntimeDeps {
   serviceDeployed?: { ledger: DeploymentLedger; lookup: DeploymentLookup; delivery: DeploymentDelivery; authorize: (header: string | undefined) => boolean };
   /** Revisor の release-published を受理する adapter 群。 */
   releasePublished?: { ledger: ReleaseNoticeLedger; lookup: ReleaseNoticeLookup; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
+  /** Excubitor (ergo-watch) のパッケージ更新お知らせを受理する adapter 群。 */
+  packageUpdates?: { ledger: PackageUpdateLedger; configured: () => boolean; post: (content: string) => Promise<void>; authorize: (header: string | undefined) => boolean };
   /** 新規プロジェクトの本社通知 (登録で控え、初回 push で 1 回だけ送る)。 */
   projectNotice?: { arm: (event: ProjectCreatedEvent) => void; notifyPushed: (repository: string) => Promise<void> };
   aiNotePublication?: PublicationService;
@@ -490,6 +494,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
   if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));
+  if (deps.packageUpdates) app.route("/v1/events/package-updates", packageUpdatesRouter(deps.packageUpdates));
   app.route("/v1/harness/reliability", harnessReliabilityRouter({ repo: deps.repo, messages: deps.sessionMessages,
     questions: deps.pendingQuestions, projectCodes: deps.projectCodes, chat: deps.chat, run: deps.harnessRunClaude,
     ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}) }));

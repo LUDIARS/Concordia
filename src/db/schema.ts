@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 139;
+export const SCHEMA_VERSION = 140;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3626,6 +3626,19 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_by    TEXT NOT NULL
       );
     `);
+  },
+},
+{
+  version: 140,
+  name: "package-update-ledger",
+  source: "package_update_ledger durable (run_id,message_index) idempotency for ergo-watch package update notices (spec/feature/package-update-events.md)",
+  up(db) {
+    db.exec(`CREATE TABLE IF NOT EXISTS package_update_ledger (
+      run_id TEXT NOT NULL,
+      message_index INTEGER NOT NULL,
+      received_at INTEGER NOT NULL,
+      PRIMARY KEY (run_id, message_index)
+    )`);
   },
 },
 ];

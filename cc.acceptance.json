@@ -5070,6 +5070,13 @@
     {"source": "web/src/pages/rules/SubsidiaryDefaults.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-05"]},
     {"source": "web/src/pages/rules/RunHistory.tsx", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-09"]},
     {"source": "web/src/pages/rules/rules-api.ts", "tests": ["web/src/pages/Rules.test.tsx"], "contracts": ["CC-PATROL-09"]},
-    {"source": "src/config/settings/coverage-scan.ts", "tests": ["src/config/settings/coverage.test.ts"], "contracts": ["CC-PATROL-05"]}
+    {"source": "src/config/settings/coverage-scan.ts", "tests": ["src/config/settings/coverage.test.ts"], "contracts": ["CC-PATROL-05"]},
+    {"source": "src/deploy/package-updates.ts", "tests": ["src/deploy/package-updates.test.ts", "src/api/package-updates.test.ts"], "contracts": []},
+    {"source": "src/deploy/package-updates-runtime.ts", "tests": ["src/deploy/package-updates.test.ts"], "contracts": []},
+    {"source": "src/deploy/package-updates.contract.ts", "tests": ["src/deploy/package-updates.test.ts"], "contracts": []},
+    {"source": "src/api/package-updates.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
+    {"source": "src/api/register-core.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
+    {"source": "src/bootstrap/core.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
+    {"source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts", "src/deploy/package-updates.test.ts"], "contracts": []}
   ]
 }

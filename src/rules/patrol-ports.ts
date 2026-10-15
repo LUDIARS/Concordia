@@ -25,6 +25,8 @@ export interface PatrolChatPort {
     channel: string;
     text: string;
     in_reply_to: number | null;
+    /** 投稿者名。 省略時は PATROL_AUTHOR_LABEL。 */
+    author_label?: string;
     metadata: Record<string, unknown>;
   }): ChatMessageRow;
   findById(id: number): ChatMessageRow | null;

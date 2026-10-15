@@ -84,7 +84,7 @@ export function buildPatrolRuntime(deps: {
       insert: (input) => deps.chat.insert({
         channel: input.channel as ChatChannel,
         session_id: null,
-        author_label: PATROL_AUTHOR_LABEL,
+        author_label: input.author_label ?? PATROL_AUTHOR_LABEL,
         text: input.text,
         in_reply_to: input.in_reply_to,
         is_actionable: false,

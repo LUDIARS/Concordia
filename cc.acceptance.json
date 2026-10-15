@@ -5031,6 +5031,7 @@
     {"source": "src/rules/material-tendentia.ts", "tests": ["src/rules/material-tendentia.test.ts"], "contracts": ["CC-PATROL-05", "CC-PATROL-09"]},
     {"source": "src/rules/material-registry.ts", "tests": ["src/rules/patrol-config.test.ts", "src/api/rules-patrol.test.ts"], "contracts": ["CC-PATROL-05"]},
     {"source": "src/rules/render-patrol.ts", "tests": ["src/rules/render-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-09"]},
+    {"source": "src/rules/patrol-persona.ts", "tests": ["src/rules/patrol-persona.test.ts", "src/rules/render-patrol.test.ts", "src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-02"]},
     {"source": "src/rules/execute-patrol.ts", "tests": ["src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-02", "CC-PATROL-03", "CC-PATROL-06", "CC-PATROL-08", "CC-PATROL-09"]},
     {"source": "src/rules/patrol-cycle.ts", "tests": ["src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-06", "CC-PATROL-07"]},
     {"source": "src/rules/patrol-inbound.ts", "tests": ["src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-03", "CC-PATROL-04"]},

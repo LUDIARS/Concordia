@@ -23,6 +23,7 @@ import {
   nowSecOf,
   type PatrolPorts,
 } from "./patrol-ports.js";
+import { personaOfChatMetadata, personaOfDecision, personaUsername, withPersonaDecision } from "./patrol-persona.js";
 import type { RenderKind, RenderMaterial } from "./render-patrol.js";
 
 export type ExecuteOutcome =
@@ -78,7 +79,7 @@ function sendBlocker(ctx: RunContext): string | null {
 async function renderAndCommit(
   ctx: RunContext,
   run: RuleRunRow,
-  render: { kind: RenderKind; material: RenderMaterial | null; replies: string[]; previousBotText: string | null },
+  render: { kind: RenderKind; material: RenderMaterial | null; replies: string[]; previousBotText: string | null; persona: string | null },
   post: { inReplyTo: number | null; conversationId: string | null },
 ): Promise<{ ok: true; chat: ChatMessageRow } | { ok: false; outcome: ExecuteOutcome }> {
   const { ports } = ctx;
@@ -93,6 +94,7 @@ async function renderAndCommit(
     replies: render.replies,
     previousBotText: render.previousBotText,
     maxChars: ctx.config.max_chars,
+    persona: render.persona,
   });
   if (!result.ok) {
     ports.runs.transition(run.run_id, ports.leaseOwner, ["rendering"], "failed",
@@ -100,8 +102,10 @@ async function renderAndCommit(
     ports.rules.log({ rule_id: ctx.rule.id, action: "error", actor: "engine", detail: `${run.action_kind}: ${result.error}` });
     return { ok: false, outcome: { status: "failed", runId: run.run_id, reason: result.error } };
   }
+  // 名乗りは本文と一緒に run へ保存し、 復旧で投稿を確定するときも同じ名前で出す
+  const decision = withPersonaDecision(ports.runs.find(run.run_id)?.decision ?? null, result.persona);
   if (!ports.runs.transition(run.run_id, ports.leaseOwner, ["rendering"], "rendered",
-    { rendered_text: result.text, llm_calls_inc: result.llmCalls }, nowSecOf(ports))) {
+    { rendered_text: result.text, decision, llm_calls_inc: result.llmCalls }, nowSecOf(ports))) {
     return { ok: false, outcome: { status: "skipped", runId: run.run_id, reason: "lease lost after render" } };
   }
   const blocker = sendBlocker(ctx);
@@ -116,18 +120,21 @@ export function commitRendered(
   post: { inReplyTo: number | null; conversationId: string | null },
 ): { ok: true; chat: ChatMessageRow } | { ok: false; outcome: ExecuteOutcome } {
   const { ports } = ctx;
+  const persona = personaOfDecision(ports.runs.find(runId)?.decision ?? null);
   let chat: ChatMessageRow | null = null;
   const chatId = ports.runs.commitChat(runId, ports.leaseOwner, nowSecOf(ports), (text) => {
     chat = ports.chat.insert({
       channel: ctx.channel,
       text,
       in_reply_to: post.inReplyTo,
+      ...(persona ? { author_label: personaUsername(persona) } : {}),
       metadata: {
         source: PATROL_MESSAGE_SOURCE,
         rule_id: ctx.rule.id,
         run_id: runId,
         conversation_id: post.conversationId,
         scope: ctx.config.scope_key,
+        ...(persona ? { patrol_persona: persona, webhook_username: personaUsername(persona) } : {}),
       },
     });
     return chat.id;
@@ -214,7 +221,7 @@ export async function executePick(ctx: RunContext, triggerKey: string): Promise<
     return { status: "skipped", runId: run.run_id, reason: "lease lost before material" };
   }
   const committed = await renderAndCommit(ctx, run,
-    { kind: "pick", material: materialOf(pick.picked), replies: [], previousBotText: null },
+    { kind: "pick", material: materialOf(pick.picked), replies: [], previousBotText: null, persona: null },
     { inReplyTo: null, conversationId: null });
   if (!committed.ok) return committed.outcome;
   openConversation(ctx, run, committed.chat, pick.picked.itemId);
@@ -253,7 +260,7 @@ export async function executeEvent(ctx: RunContext, ev: ServiceEventRow): Promis
     reason: `service event ${ev.service_code}/${ev.event_kind}`,
   }, nowSecOf(ports));
   const committed = await renderAndCommit(ctx, run,
-    { kind: "event", material: materialOf(material), replies: [], previousBotText: null },
+    { kind: "event", material: materialOf(material), replies: [], previousBotText: null, persona: null },
     { inReplyTo: null, conversationId: null });
   if (!committed.ok) return committed.outcome;
   openConversation(ctx, run, committed.chat, material.itemId);
@@ -261,6 +268,11 @@ export async function executeEvent(ctx: RunContext, ev: ServiceEventRow): Promis
 }
 
 // ─── reply / followup (会話) ────────────────────────────
+
+/** 会話の最初の投稿の名乗り (返信・追投稿で引き継ぐ)。 */
+function conversationPersona(ctx: RunContext, conv: RuleConversationRow): string | null {
+  return personaOfChatMetadata(ctx.ports.chat.findById(conv.root_chat_id)?.metadata ?? null);
+}
 
 function conversationMaterial(ctx: RunContext, conv: RuleConversationRow): RenderMaterial | null {
   const root = ctx.ports.runs.findByChatMessage(conv.root_chat_id);
@@ -298,6 +310,7 @@ export async function executeReply(ctx: RunContext, conv: RuleConversationRow, i
     material: conversationMaterial(ctx, conv),
     replies,
     previousBotText: ports.chat.findById(conv.last_bot_message_id)?.text ?? null,
+    persona: conversationPersona(ctx, conv),
   }, { inReplyTo: inboundIds[inboundIds.length - 1], conversationId: conv.conversation_id });
   if (!committed.ok) {
     // 生成失敗・停止でも同じ返信へ自動で何度も挑まない (結果は run に残る)。
@@ -322,6 +335,7 @@ export async function executeFollowup(ctx: RunContext, conv: RuleConversationRow
     material: conversationMaterial(ctx, conv),
     replies: [],
     previousBotText: ports.chat.findById(conv.last_bot_message_id)?.text ?? null,
+    persona: conversationPersona(ctx, conv),
   }, { inReplyTo: conv.last_bot_message_id, conversationId: conv.conversation_id });
   if (!committed.ok) return committed.outcome;
   ports.conversations.recordBotTurn(conv.conversation_id, committed.chat.id, "followup", nowSecOf(ports));

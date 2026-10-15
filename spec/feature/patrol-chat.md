@@ -91,6 +91,11 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 - 状態: `claimed → material_selected → rendering → rendered → delivery_pending → delivered | delivery_unknown`、
   途中で `skipped` / `failed`。各遷移は lease_owner と現状態の compare-and-set。
 - 生成は `claude -p` 会話専用 (tools 無効)・haiku・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。
+- 名乗り (`patrol-persona.ts`): 会話の最初の投稿 (pick / event) は、同じ 1 回の生成で 1 行目に「名前: 姓 名」を書かせ、
+  話題をもじった珍しい日本人風の名前を毎回付ける (Discutere の役名 `押野 進` 等と同じ流儀)。返信・追投稿は会話の root の名乗りを引き継ぐ。
+  名前は 2〜16 文字で、mention・URL・Discord が webhook 名に禁じる語・記号を含むものは採らず、決まった一覧から素材の題で決定的に選ぶ。
+  名乗りは `rule_runs.decision.persona` に本文と一緒に保存し (復旧時も同じ名前で確定)、chat 行の `author_label` と
+  `metadata.patrol_persona` / `metadata.webhook_username` に `<名前> (巡回)` として載せる。表示だけに使い、判定には関わらない。
 - 15 秒ごとの保守: lease 切れの run を復旧 (rendered は保存済み本文で投稿を確定、rendering は `render_interrupted` で失敗確定)、
   配達照合、期限切れ会話の終了、1 日以上前の未処理 event を ignored に。
 - 配達: 既存 egress が chat.posted で送信し、成功時だけ `discord_message_map` に記録する。記録が見つかれば `delivered`、

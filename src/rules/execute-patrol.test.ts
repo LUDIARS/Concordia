@@ -51,14 +51,16 @@ function harness(opts: { items?: Material[]; sourceError?: MaterialSourceError; 
   ]);
   const clock = { ms: T0 };
   const posted: number[] = [];
-  const render = vi.fn(opts.render ?? (async (i: RenderInput): Promise<RenderResult> => ({ ok: true, text: `[${i.kind}] ${i.material?.title ?? ""}`, llmCalls: 1 })));
+  const render = vi.fn(opts.render ?? (async (i: RenderInput): Promise<RenderResult> => ({
+    ok: true, text: `[${i.kind}] ${i.material?.title ?? ""}`, persona: i.persona ?? "噂坂 聞", llmCalls: 1,
+  })));
   let disabled = false;
   let seq = 0;
   const ports: PatrolPorts = {
     rules, runs, conversations, events, sources,
     chat: {
       insert: (input) => chat.insert({
-        channel: input.channel as "chitchat", session_id: null, author_label: "巡回チャット", text: input.text,
+        channel: input.channel as "chitchat", session_id: null, author_label: input.author_label ?? "巡回チャット", text: input.text,
         in_reply_to: input.in_reply_to, is_actionable: false, metadata: JSON.stringify(input.metadata),
       }),
       findById: (id) => chat.findById(id),
@@ -120,6 +122,17 @@ describe("patrol pick (CC-PATROL-01/02/03)", () => {
     expect(h.current().last_posted_at).not.toBeNull();
   });
 
+  it("posts under the generated name and keeps it in the run", async () => {
+    const h = harness();
+    await h.tick();
+    const [run] = h.runs.list({}).runs;
+    expect(h.render.mock.calls[0][0].persona).toBeNull();
+    expect(JSON.parse(run.decision!)).toMatchObject({ persona: "噂坂 聞", candidateCount: 2 });
+    const msg = h.chat.findById(run.chat_message_id!)!;
+    expect(msg.author_label).toBe("噂坂 聞 (巡回)");
+    expect(JSON.parse(msg.metadata!)).toMatchObject({ patrol_persona: "噂坂 聞", webhook_username: "噂坂 聞 (巡回)" });
+  });
+
   it("does not post twice for the same due time", async () => {
     const h = harness();
     await h.tick();
@@ -155,7 +168,7 @@ describe("patrol pick (CC-PATROL-01/02/03)", () => {
     h = harness({
       render: async () => {
         h.rules.toggle("patrol", false);
-        return { ok: true, text: "生成済み", llmCalls: 1 };
+        return { ok: true, text: "生成済み", persona: "噂坂 聞", llmCalls: 1 };
       },
     });
     await h.tick();
@@ -191,7 +204,8 @@ describe("patrol replies and followups (CC-PATROL-04/07)", () => {
     expect(r).toMatchObject({ kind: "acted", action: "reply", outcome: { status: "posted" } });
     const replyRun = h.runs.list({}).runs[0];
     expect(h.chat.findById(replyRun.chat_message_id!)!.in_reply_to).toBe(reply.id);
-    expect(h.render.mock.calls.at(-1)![0]).toMatchObject({ kind: "reply", replies: ["それ気になる"] });
+    expect(h.render.mock.calls.at(-1)![0]).toMatchObject({ kind: "reply", replies: ["それ気になる"], persona: "噂坂 聞" });
+    expect(h.chat.findById(replyRun.chat_message_id!)!.author_label).toBe("噂坂 聞 (巡回)");
     // 同じ返信へ二度応答しない。
     const again = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
     expect(again.kind).toBe("idle");
@@ -269,7 +283,7 @@ describe("patrol recovery and delivery (CC-PATROL-02/03/09)", () => {
       run_id: "stale", rule_id: "patrol", rule_revision: 1, trigger_key: "tick:patrol:1", action_kind: "pick",
       conversation_id: null, scope_key: "hq", channel: "chitchat", lease_owner: "dead", lease_until: now - 1, now: now - 200,
     });
-    h.db.prepare(`UPDATE rule_runs SET status = 'rendered', rendered_text = '保存済み本文' WHERE run_id = 'stale'`).run();
+    h.db.prepare(`UPDATE rule_runs SET status = 'rendered', rendered_text = '保存済み本文', decision = '{"persona":"拾井 種"}' WHERE run_id = 'stale'`).run();
     h.runs.claim({
       run_id: "rendering", rule_id: "patrol", rule_revision: 1, trigger_key: "tick:patrol:2", action_kind: "pick",
       conversation_id: null, scope_key: "hq", channel: "chitchat", lease_owner: "dead", lease_until: now - 1, now: now - 100,
@@ -279,7 +293,7 @@ describe("patrol recovery and delivery (CC-PATROL-02/03/09)", () => {
     expect(report).toEqual({ failed: 1, committed: 1, skipped: 0 });
     expect(h.render).not.toHaveBeenCalled();
     const committed = h.runs.find("stale")!;
-    expect(h.chat.findById(committed.chat_message_id!)!.text).toBe("保存済み本文");
+    expect(h.chat.findById(committed.chat_message_id!)!).toMatchObject({ text: "保存済み本文", author_label: "拾井 種 (巡回)" });
     expect(h.runs.find("rendering")).toMatchObject({ status: "failed", error_code: "render_interrupted" });
     expect(PATROL_LEASE_SEC).toBeGreaterThan(30);
   });

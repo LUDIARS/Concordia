@@ -233,6 +233,19 @@ export class RuleRunsRepo {
     return new Set(rows.map((r) => r.source_ref));
   }
 
+  /** 投稿まで進んだ定期・event の素材の題 (直近の話題の減点に使う)。 */
+  recentPostedTitles(ruleId: string, sinceSec: number): Array<{ title: string; created_at: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(material_snapshot, '$.title') AS title, created_at FROM rule_runs
+          WHERE rule_id = ? AND created_at >= ? AND action_kind IN ('pick', 'event') AND material_snapshot IS NOT NULL
+            AND json_valid(material_snapshot) AND status IN ('delivery_pending', 'delivered', 'delivery_unknown')
+          ORDER BY created_at DESC LIMIT 100`,
+      )
+      .all(ruleId, sinceSec) as Array<{ title: string | null; created_at: number }>;
+    return rows.filter((r): r is { title: string; created_at: number } => typeof r.title === "string" && r.title !== "");
+  }
+
   /** lease が切れた投稿前の run (再起動・クラッシュの取り残し)。 */
   listStale(nowSec: number): RuleRunRow[] {
     const placeholders = IN_FLIGHT_STATUSES.map(() => "?").join(", ");

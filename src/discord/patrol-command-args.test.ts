@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelIdOf, formatDefaults, formatRule, mergeDefaults, parseQuietArg, type PatrolRuleView } from "./patrol-command-args.js";
+import { channelIdOf, formatDefaults, formatRule, mergeDefaults, parseKeywordsArg, parseQuietArg, type PatrolRuleView } from "./patrol-command-args.js";
 
 describe("/patrol args", () => {
   it("parses the quiet window, none and inherit", () => {
@@ -21,6 +21,13 @@ describe("/patrol args", () => {
     expect(mergeDefaults(cur, { rootLimit: 6 })).toEqual({ ...cur, root_limit_per_day: 6 });
     expect(mergeDefaults(cur, { quiet: "inherit", persona: "既定" })).toEqual({ root_limit_per_day: 4 });
     expect(mergeDefaults(cur, { paused: true, rootLimit: null, channelId: null })).toEqual({ ...cur, paused: true });
+  });
+
+  it("parses interest keywords and clears them with なし", () => {
+    expect(parseKeywordsArg("TGS, リズムゲーム、ローグライト,TGS")).toEqual(["TGS", "リズムゲーム", "ローグライト"]);
+    expect(parseKeywordsArg("なし")).toEqual([]);
+    expect(mergeDefaults({ topic_keywords: ["a"] }, { keywords: ["TGS"] })).toEqual({ topic_keywords: ["TGS"] });
+    expect(mergeDefaults({ topic_keywords: ["a"] }, { keywords: [] })).toEqual({});
   });
 
   it("shows where each value comes from", () => {

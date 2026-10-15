@@ -87,6 +87,18 @@ export function SubsidiaryDefaults({ subsidiary }: { subsidiary: SubsidiaryOptio
             onChange={(e) => patch({ persona_hint: e.target.value.trim() || null })} />
         </label>
       </div>
+      <label className="space-y-1 block">
+        <span className="text-[11px] text-subtle block">関心キーワード (カンマ区切り。 近い話題ほど選ばれやすく、 直近 3 日に話した話題は下がる)</span>
+        <textarea className="foundation-form text-sm w-full" rows={2} aria-label="関心キーワード"
+          value={(defaults.topic_keywords ?? []).join(", ")}
+          onChange={(e) => setDefaults((d) => {
+            const list = e.target.value.split(/[,、\n]+/).map((s) => s.trim()).filter(Boolean);
+            const next = { ...d };
+            if (list.length === 0) delete next.topic_keywords;
+            else next.topic_keywords = list;
+            return next;
+          })} />
+      </label>
       {message && <p className="text-xs" role="status">{message}</p>}
       <button type="button" className="px-3 py-1 rounded bg-accent text-white text-sm" onClick={() => void save()}>既定値を保存</button>
     </section>

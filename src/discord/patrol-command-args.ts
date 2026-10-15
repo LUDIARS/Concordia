@@ -77,8 +77,15 @@ export interface PatrolDefaultsView {
     discord_channel_id?: string | null;
     persona_hint?: string | null;
     paused?: boolean;
+    topic_keywords?: string[];
   };
   updated_by: string | null;
+}
+
+/** 「TGS, リズムゲーム、ローグライト」を関心キーワードの配列にする。 「なし」で空。 */
+export function parseKeywordsArg(text: string): string[] {
+  if (["なし", "none", "既定"].includes(text.trim())) return [];
+  return [...new Set(text.split(/[,、\n]+/).map((s) => s.trim()).filter((s) => s.length > 0 && s.length <= 40))].slice(0, 50);
 }
 
 export function formatDefaults(view: PatrolDefaultsView): string {
@@ -90,6 +97,7 @@ export function formatDefaults(view: PatrolDefaultsView): string {
     `1日の上限: ${d.root_limit_per_day ?? "未設定 (8 件)"}`,
     `投稿先: ${d.discord_channel_id ? `<#${d.discord_channel_id}>` : "未設定"}`,
     `名前の雰囲気: ${d.persona_hint ?? "未設定"}`,
+    `関心キーワード: ${d.topic_keywords?.length ? d.topic_keywords.join("、") : "未設定"}`,
     ...(view.updated_by ? [`最終更新: ${view.updated_by}`] : []),
   ].join("\n");
 }
@@ -103,6 +111,7 @@ export function mergeDefaults(
     channelId?: string | null;
     persona?: string | null;
     paused?: boolean | null;
+    keywords?: string[] | null;
   },
 ): PatrolDefaultsView["defaults"] {
   const next: Record<string, unknown> = { ...current };
@@ -117,5 +126,9 @@ export function mergeDefaults(
     else next.persona_hint = input.persona.trim().slice(0, 80);
   }
   if (input.paused !== undefined && input.paused !== null) next.paused = input.paused;
+  if (input.keywords !== undefined && input.keywords !== null) {
+    if (input.keywords.length === 0) delete next.topic_keywords;
+    else next.topic_keywords = input.keywords;
+  }
   return next as PatrolDefaultsView["defaults"];
 }

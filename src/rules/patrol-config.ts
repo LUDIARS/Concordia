@@ -35,6 +35,10 @@ const QuietHours = z.object({
 }).strict();
 const DiscordChannelId = z.string().regex(/^\d{17,20}$/, "Discord の channel ID (数字 17〜20 桁)");
 const PersonaHint = z.string().trim().min(1).max(80);
+/** 学習した方針の上限 (字)。 */
+export const LEARNED_INSTRUCTIONS_MAX = 200;
+/** サーバー (子会社・rule) の関心キーワード。 話題の点数付けに使う (判定は決定的)。 */
+const TopicKeywords = z.array(z.string().trim().min(1).max(40)).max(50);
 
 /**
  * rule の持ち主 (子会社) から引き継ぐ項目の全体の既定値。 rule にも子会社の既定値にも無ければこれ。
@@ -55,6 +59,8 @@ export const SubsidiaryPatrolDefaults = z.object({
   persona_hint: PersonaHint.nullable().optional(),
   /** 子会社まるごとの停止。 true の間は返信も含め新規の行動をしない。 */
   paused: z.boolean().optional(),
+  /** このサーバーの関心キーワード (例: GLab は TGS 出展作のジャンル)。 所属 rule のキーワードと合わせて使う。 */
+  topic_keywords: TopicKeywords.optional(),
 }).strict();
 export type SubsidiaryPatrolDefaults = z.infer<typeof SubsidiaryPatrolDefaults>;
 
@@ -117,15 +123,28 @@ export const PatrolActionConfigInput = z.object({
   discord_channel_id: DiscordChannelId.nullable().optional(),
   /** 名乗りの雰囲気 (生成への指示。 判定には使わない)。 */
   persona_hint: PersonaHint.nullable().optional(),
+  /** 1 日ごとの学習 (spec/plan/2026-10-15-patrol-learning-design.md)。 既定は有効。 */
+  learning: z.object({ enabled: z.boolean().default(true) }).strict().optional(),
+  /** 学習が書く欄。 rule の instructions とは別枠で生成に渡す (毎回置き換え)。 */
+  learned: z.object({
+    instructions: z.string().max(LEARNED_INSTRUCTIONS_MAX).nullable().optional(),
+    /** 会話から学んだ関心キーワード (毎回置き換え)。 */
+    keywords: TopicKeywords.optional(),
+    updated_at: z.number().int().optional(),
+  }).strict().optional(),
+  /** このルールの関心キーワード。 近い話題ほど点数が上がる (子会社の既定値・学習分と合わせて使う)。 */
+  topic_keywords: TopicKeywords.optional(),
 }).strict();
 export type PatrolActionConfigInput = z.infer<typeof PatrolActionConfigInput>;
 
 /** 実行に使う実効設定。 引き継ぐ項目は rule → 持ち主の子会社の既定値 → 全体の既定値で埋まっている。 */
-export type PatrolActionConfig = Omit<PatrolActionConfigInput, "root_limit_per_day" | "quiet_hours" | "discord_channel_id" | "persona_hint"> & {
+export type PatrolActionConfig = Omit<PatrolActionConfigInput, "root_limit_per_day" | "quiet_hours" | "discord_channel_id" | "persona_hint" | "topic_keywords"> & {
   root_limit_per_day: number;
   quiet_hours: { start: string; end: string } | null;
   discord_channel_id: string | null;
   persona_hint: string | null;
+  /** rule・持ち主の子会社・学習の関心キーワードを合わせたもの (重複なし)。 */
+  topic_keywords: string[];
 };
 
 export type ParsedConfig =
@@ -150,6 +169,12 @@ export function resolveEffectivePatrolConfig(
     quiet_hours: pick("quiet_hours"),
     discord_channel_id: pick("discord_channel_id"),
     persona_hint: pick("persona_hint"),
+    // 関心キーワードは上書きではなく合わせる (サーバーの関心 + rule 固有 + 会話から学んだもの)。
+    topic_keywords: [...new Set([
+      ...(input.topic_keywords ?? []),
+      ...(inherit?.topic_keywords ?? []),
+      ...(input.learned?.keywords ?? []),
+    ])].slice(0, 100),
   };
 }
 

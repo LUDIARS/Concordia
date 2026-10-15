@@ -14,6 +14,7 @@
 
 import type { Material } from "./material-types.js";
 import { PATROL_HARD_CAPS, type FollowupConfig, type PatrolActionConfig } from "./patrol-config.js";
+import { recencyPenalty, relevanceScore, type TopicContext } from "./patrol-topics.js";
 
 // ─── 乱数 ────────────────────────────────────────────────
 
@@ -91,6 +92,8 @@ export interface PickContext {
   /** この rule が既に使った話題 (itemId)。 */
   usedItemIds: ReadonlySet<string>;
   random: () => number;
+  /** サーバーの関心キーワードと直近 3 日の話題 (関連度の加点・直近の話題の減点)。 */
+  topics?: TopicContext;
 }
 
 /**
@@ -123,7 +126,7 @@ export function pickMaterial(items: readonly Material[], ctx: PickContext): Mate
     : [];
   const usePreferred = preferred.length > 0 && ctx.random() < (filters.prefer_ratio ?? 0.7);
   const pool = usePreferred ? preferred : eligible;
-  const scored = pool.map((m) => ({ m, score: scoreMaterial(m, ctx.nowMs, maxAgeMs, ctx.config) }));
+  const scored = pool.map((m) => ({ m, score: scoreMaterial(m, ctx.nowMs, maxAgeMs, ctx.config, ctx.topics) }));
   const top = Math.max(...scored.map((s) => s.score));
   const best = scored.filter((s) => s.score === top).sort((a, b) => a.m.itemId.localeCompare(b.m.itemId));
   const chosen = best[Math.floor(ctx.random() * best.length)] ?? best[0];
@@ -138,14 +141,21 @@ export function pickMaterial(items: readonly Material[], ctx: PickContext): Mate
   };
 }
 
-function scoreMaterial(m: Material, nowMs: number, maxAgeMs: number, config: PatrolActionConfig): number {
+/**
+ * 素材の点数 = 鮮度 (0〜3) + サービス一致 + 関心キーワードの関連度 (0〜3) − 直近の話題の減点 (0〜3)。
+ * 関連度と減点は neco 2026-10-15「サーバに近い話題は高く、 直近 3 日に話した内容は低く (日ごとに緩和)」。
+ */
+export function scoreMaterial(m: Material, nowMs: number, maxAgeMs: number, config: PatrolActionConfig, topics?: TopicContext): number {
   const age = Math.max(0, nowMs - Date.parse(m.occurredAt));
   const freshness = 3 - Math.min(3, Math.floor((age / Math.max(1, maxAgeMs)) * 3));
   const f = config.filters;
   const serviceMatch =
     (f.service_codes?.includes(m.serviceCode) ? 1 : 0) +
     (m.featureKey && f.feature_keys?.includes(m.featureKey) ? 1 : 0);
-  return freshness + serviceMatch;
+  const keywords = topics?.keywords ?? config.topic_keywords ?? [];
+  const relevance = keywords.length ? relevanceScore(`${m.title} ${m.excerpt}`, keywords) : 0;
+  const penalty = topics?.recent.length ? recencyPenalty(m.title, topics.recent) : 0;
+  return freshness + serviceMatch + relevance - penalty;
 }
 
 // ─── 返信・追投稿 ────────────────────────────────────────

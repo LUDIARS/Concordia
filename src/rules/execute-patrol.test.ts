@@ -230,6 +230,10 @@ describe("patrol replies and followups (CC-PATROL-04/07)", () => {
     const replyRun = h.runs.list({}).runs[0];
     expect(h.chat.findById(replyRun.chat_message_id!)!.in_reply_to).toBe(reply.id);
     expect(h.render.mock.calls.at(-1)![0]).toMatchObject({ kind: "reply", replies: ["それ気になる"], persona: "噂坂 聞" });
+    // 会話の人格も引き継ぐ (最初の投稿で seed から選んだもの)
+    const rootCharacter = h.render.mock.calls[0][0].character;
+    expect(rootCharacter).toBeTruthy();
+    expect(h.render.mock.calls.at(-1)![0].character).toEqual(rootCharacter);
     expect(h.chat.findById(replyRun.chat_message_id!)!.author_label).toBe("噂坂 聞 (巡回)");
     // 同じ返信へ二度応答しない。
     const again = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });

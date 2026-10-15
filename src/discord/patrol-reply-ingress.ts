@@ -48,6 +48,28 @@ export function resolvePatrolChannelReply(
   return { chatId, channel: row.channel, discordChannelId: msg.channelId };
 }
 
+/**
+ * 巡回の投稿先チャンネルの、 返信でない会話を記録する chat 行の本文 (neco 2026-10-15「全部拾う」)。
+ * in_reply_to を付けないので巡回の即応 (返信への応答) は起きない。 追投稿の観測と学習の断片に使う。
+ */
+export function patrolChannelChatBody(
+  chatChannel: string,
+  discordChannelId: string,
+  input: { text: string; authorLabel: string; discordUserId: string; discordMessageId: string },
+): Record<string, unknown> {
+  return {
+    channel: chatChannel,
+    text: input.text.slice(0, 2000),
+    author_label: input.authorLabel,
+    metadata: {
+      source: "discord",
+      discord_user_id: input.discordUserId,
+      discord_message_id: input.discordMessageId,
+      patrol_discord_channel_id: discordChannelId,
+    },
+  };
+}
+
 /** 返信を記録する chat 行の本文。 /v1/chat へそのまま送る。 */
 export function patrolReplyChatBody(
   target: PatrolReplyTarget,

@@ -10,6 +10,7 @@ import type { RuleServiceEventsRepo } from "../db/rule-service-events-repo.js";
 import type { RuleRow, RulesRepo } from "../db/rules-repo.js";
 import type { MaterialSourceRegistry } from "./material-registry.js";
 import type { SubsidiaryPatrolDefaults } from "./patrol-config.js";
+import type { RecentTopic } from "./patrol-topics.js";
 import type { RenderInput, RenderResult } from "./render-patrol.js";
 
 /** 巡回の bot 発言に付ける metadata.source。 自分の出力を素材・返信として再投入しない目印 (CC-PATROL-04)。 */
@@ -74,6 +75,8 @@ export function ownerStopReason(
 export interface PatrolPorts {
   /** 子会社の既定値・稼働状態。 未配線なら子会社の rule も全体の既定値で動く。 */
   owners?: PatrolOwnersPort;
+  /** 直近 3 日に話した内容 (投稿した素材の題・会話の話題キーワード)。 未配線なら減点しない。 */
+  topicMemory?: (ruleId: string, nowSec: number) => RecentTopic[];
   rules: Pick<RulesRepo, "find" | "setNextDue" | "markAttempt" | "log">;
   runs: RuleRunsRepo;
   conversations: RuleConversationsRepo;

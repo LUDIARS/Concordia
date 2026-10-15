@@ -2023,6 +2023,8 @@ export async function startBackend(): Promise<BackendHandle> {
     onHumanReturn: notifyHumanReturn,
     readModel: chatReadModel,
     chatRepo: chat,
+    // 巡回の投稿先チャンネル (GLab / VOB 等) の会話を取り込む (neco 2026-10-15「全部拾う」)。
+    patrolChannelFor: patrolRuntime.channelFor,
     sessionsRepo: repo,
     gatewayPool: discordGatewayPool,
     revisorTestWorkflow,
@@ -2877,6 +2879,7 @@ export async function startBackend(): Promise<BackendHandle> {
         sessions: repo,
         rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
         patrol: patrolRuntime.ports,
+        learning: patrolRuntime.learning,
       }),
     );
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));

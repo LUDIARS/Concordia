@@ -5,7 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { patrolReplyChatBody, resolvePatrolChannelReply } from "./patrol-reply-ingress.js";
+import { patrolChannelChatBody, patrolReplyChatBody, resolvePatrolChannelReply } from "./patrol-reply-ingress.js";
 import { injectSession } from "../platform/session-inject.js";
 import { detectsEndSessionRequest, markEndSessionRequested } from "../shared/end-session-request.js";
 import { detectsConsultEndWord } from "../consultation/consult-end-word.js";
@@ -58,6 +58,8 @@ export interface IngressDeps {
    */
   onHumanReturn?: (sessionId: string, channelId: string, userId: string) => void;
   messageMap?: DiscordMessageMapRepo;
+  /** 巡回の投稿先チャンネルなら、 その会話を記録する chat channel (返信でない会話も取り込む)。 */
+  patrolChannelFor?: (discordChannelId: string) => string | null;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
   workflow?: {
     handle(
@@ -498,6 +500,23 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     const patrolReply = text
       ? resolvePatrolChannelReply(deps, { channelId: msg.channelId, referenceMessageId: msg.reference?.messageId })
       : null;
+    // 巡回の投稿先チャンネルの返信でない会話も取り込む (即応はしない。 追投稿の観測と学習に使う)。
+    const patrolChannel = !patrolReply && text ? deps.patrolChannelFor?.(msg.channelId) ?? null : null;
+    if (patrolChannel) {
+      try {
+        const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patrolChannelChatBody(patrolChannel, msg.channelId, {
+            text, authorLabel, discordUserId: msg.author.id, discordMessageId: msg.id,
+          })),
+        });
+        deps.log.info(`ingress: patrol channel message channel=${msg.channelId} status=${res.status}`);
+      } catch (e) {
+        deps.log.warn(`ingress: patrol channel message failed channel=${msg.channelId}: ${(e as Error).message}`);
+      }
+      return;
+    }
     if (patrolReply) {
       try {
         const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {

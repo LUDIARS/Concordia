@@ -22,6 +22,7 @@ import { KNOWN_PATROL_SCOPES } from "../rules/patrol-config.js";
 import { previewPatrolRule } from "../rules/patrol-preview.js";
 import { validateRuleDefinition } from "../rules/rule-validation.js";
 import type { SubsidiaryPatrolDefaults } from "../rules/patrol-config.js";
+import type { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import { eventBus } from "../events.js";
 
 export interface PatrolApiDeps {
@@ -29,6 +30,8 @@ export interface PatrolApiDeps {
   conversations: RuleConversationsRepo;
   events: RuleServiceEventsRepo;
   sources: MaterialSourceRegistry;
+  /** 学習の断片と run (未配線なら /:id/learning は空)。 */
+  learning?: Pick<PatrolLearningRepo, "listRuns" | "recentFragments">;
 }
 
 const RUN_STATUSES: readonly RunStatus[] = [
@@ -109,6 +112,18 @@ export function registerPatrolRoutes(
       limit: Number.isInteger(rawLimit) ? rawLimit : 50,
     });
     return c.json({ runs: page.runs.map(serializeRun), next_cursor: page.next_cursor });
+  });
+
+  // 学習の結果 (spec/plan/2026-10-15-patrol-learning-design.md)。 断片は要点だけで、 原文は持たない。
+  app.get("/:id/learning", (c) => {
+    const id = c.req.param("id");
+    if (!deps.rules.find(id)) return c.json({ error: "not_found" }, 404);
+    const runs = deps.learning?.listRuns(id, 30) ?? [];
+    const fragments = deps.learning?.recentFragments(id, 50) ?? [];
+    return c.json({
+      runs: runs.map((r) => ({ ...r, proposal: parseJson(r.proposal), applied: parseJson(r.applied) })),
+      fragments: fragments.map((f) => ({ ...f, signal: parseJson(f.signal) })),
+    });
   });
 
   app.get("/runs/:runId", (c) => {

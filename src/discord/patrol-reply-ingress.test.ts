@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessageRow } from "../db/chat-repo.js";
-import { patrolReplyChatBody, resolvePatrolChannelReply } from "./patrol-reply-ingress.js";
+import { patrolChannelChatBody, patrolReplyChatBody, resolvePatrolChannelReply } from "./patrol-reply-ingress.js";
 
 const GLAB_CHANNEL = "1546109590930853962";
 
@@ -35,6 +35,15 @@ describe("resolvePatrolChannelReply", () => {
     expect(resolvePatrolChannelReply(deps, { channelId: GLAB_CHANNEL, referenceMessageId: "d-human" })).toBeNull();
     expect(resolvePatrolChannelReply(deps, { channelId: "999999999999999999", referenceMessageId: "d-glab" })).toBeNull();
     expect(resolvePatrolChannelReply({}, { channelId: GLAB_CHANNEL, referenceMessageId: "d-glab" })).toBeNull();
+  });
+
+  it("records non-reply talk in a patrol channel without a reply target (no immediate answer)", () => {
+    expect(patrolChannelChatBody("chitchat", GLAB_CHANNEL, { text: "雑談", authorLabel: "部員B", discordUserId: "u2", discordMessageId: "m2" })).toEqual({
+      channel: "chitchat",
+      text: "雑談",
+      author_label: "部員B",
+      metadata: { source: "discord", discord_user_id: "u2", discord_message_id: "m2", patrol_discord_channel_id: GLAB_CHANNEL },
+    });
   });
 
   it("records the reply as a human Discord message tied to the individual channel", () => {

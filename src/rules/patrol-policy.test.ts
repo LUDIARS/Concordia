@@ -97,6 +97,23 @@ describe("pickMaterial", () => {
     expect(picks).toEqual(new Set(["x", "y"]));
   });
 
+  it("prefers topics close to the server's interests and avoids what was talked about recently", () => {
+    const items = [
+      material("hanabi", { title: "淀川花火大会 2026" }),
+      material("rogue", { title: "ローグライトのカードゲーム新作" }),
+      material("other", { title: "大臣が交代" }),
+    ];
+    const topics = { keywords: ["ローグライト", "カードゲーム"], recent: [{ text: "淀川花火大会 2026", ageDays: 0 }] };
+    for (let seed = 0; seed < 10; seed++) {
+      expect(pickMaterial(items, { ...ctx([], seed), topics }).picked!.itemId).toBe("rogue");
+    }
+    // 興味が無くても、 今日話した話題は避ける
+    const noInterest = { keywords: [], recent: [{ text: "淀川花火大会 2026", ageDays: 0 }] };
+    for (let seed = 0; seed < 10; seed++) {
+      expect(pickMaterial(items, { ...ctx([], seed), topics: noInterest }).picked!.itemId).not.toBe("hanabi");
+    }
+  });
+
   it("leans toward preferred genres without excluding the rest", () => {
     const leaning = { ...config, filters: { ...config.filters, genres: undefined, prefer_genres: ["game", "tech"], prefer_ratio: 0.7 } };
     const items = [

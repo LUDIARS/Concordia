@@ -10,6 +10,7 @@
 
 import { MATERIAL_LIMITS } from "./material-types.js";
 import { fallbackPersona, splitPersonaLine } from "./patrol-persona.js";
+import { characterPromptSection, type PatrolCharacter } from "./patrol-characters.js";
 
 export type RenderKind = "pick" | "event" | "reply" | "followup";
 
@@ -24,6 +25,8 @@ export interface RenderInput {
   kind: RenderKind;
   /** rule の追加指示 (人間 / LLM が編集した短文)。 */
   instructions: string;
+  /** 1 日ごとの学習が書いた方針 (instructions とは別枠)。 */
+  learnedInstructions?: string | null;
   material: RenderMaterial | null;
   /** reply のとき応答対象の人間の発言 (最大 3 件)。 */
   replies: string[];
@@ -34,6 +37,8 @@ export interface RenderInput {
   persona: string | null;
   /** 新しく名乗るときの雰囲気 (子会社の既定値・rule の persona_hint)。 */
   personaHint?: string | null;
+  /** 会話の人格 (性格・話し方)。 会話の最初の投稿で決め、 返信・追投稿は引き継ぐ。 */
+  character?: PatrolCharacter | null;
 }
 
 export type RenderResult =
@@ -85,7 +90,7 @@ function personaKey(input: RenderInput): string {
 }
 
 const KIND_GUIDE: Record<RenderKind, string> = {
-  pick: "素材から話題を 1 つ取り上げ、 短い感想を 1〜2 文で書く。",
+  pick: "素材から話題を 1 つ取り上げ、 自分の人格として一言いう (1〜2 文)。 要約ではなく、 自分の見方を出す。",
   event: "サービスの出来事を短く報告する。 事実だけを 1〜2 文で書く。",
   reply: "人間の返信に、 会話の流れに沿って短く応える。",
   followup: "直前の自分の投稿に反応があったので、 短い一言を足す。 催促はしない。",
@@ -108,7 +113,9 @@ export function buildPrompt(input: RenderInput): string {
       ...(input.personaHint ? [`名前の雰囲気: ${clip(input.personaHint, 80)}`] : []),
     ].join(" "));
   }
+  if (input.character) sections.push(characterPromptSection(input.character));
   if (input.instructions.trim()) sections.push(`追加の方針: ${clip(input.instructions, 400)}`);
+  if (input.learnedInstructions?.trim()) sections.push(`利用者の反応から学んだ方針: ${clip(input.learnedInstructions, 200)}`);
   const data: string[] = [];
   if (input.material) {
     data.push(`題: ${input.material.title}`);

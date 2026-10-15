@@ -16,6 +16,7 @@ import {
   formatDefaults,
   formatRule,
   mergeDefaults,
+  parseKeywordsArg,
   parseQuietArg,
   type PatrolDefaultsView,
   type PatrolRuleView,
@@ -48,7 +49,8 @@ const builder = new SlashCommandBuilder()
     .addIntegerOption((o) => o.setName("daily_limit").setDescription("1日の投稿上限 (1〜48)").setMinValue(1).setMaxValue(48))
     .addChannelOption((o) => o.setName("channel").setDescription("投稿先"))
     .addStringOption((o) => o.setName("persona").setDescription("名前の雰囲気 /「既定」"))
-    .addBooleanOption((o) => o.setName("paused").setDescription("このサーバーの巡回をまるごと止める")));
+    .addBooleanOption((o) => o.setName("paused").setDescription("このサーバーの巡回をまるごと止める"))
+    .addStringOption((o) => o.setName("keywords").setDescription("このサーバーの関心キーワード (カンマ区切り、 近い話題ほど選ばれやすい) /「なし」")));
 
 interface CallResult { ok: boolean; status: number; body: Record<string, unknown> }
 
@@ -149,6 +151,10 @@ const patrolCommand: DiscordCommandSpec = {
           channelId: interaction.options.getChannel("channel")?.id ?? null,
           persona: interaction.options.getString("persona"),
           paused: interaction.options.getBoolean("paused"),
+          keywords: (() => {
+            const raw = interaction.options.getString("keywords");
+            return raw === null ? null : parseKeywordsArg(raw);
+          })(),
         });
         const r = await call(deps, "PUT", "/patrol-defaults", { actor, defaults: next });
         if (!r.ok) return reply(interaction, failure(r));

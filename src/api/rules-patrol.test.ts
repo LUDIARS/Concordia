@@ -9,6 +9,7 @@ import { applyMigrations } from "../db/schema.js";
 import { MaterialSourceRegistry } from "../rules/material-registry.js";
 import { buildMaterialRegistry } from "../rules/patrol-runtime.js";
 import { rulesRouter } from "./rules.js";
+import { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 
 const open: Database.Database[] = [];
 afterEach(() => { for (const db of open.splice(0)) db.close(); });
@@ -23,7 +24,7 @@ function setup(sources: MaterialSourceRegistry = buildMaterialRegistry({ tendent
   const app = rulesRouter({
     rules,
     versions,
-    patrol: { runs, conversations: new RuleConversationsRepo(db), events: new RuleServiceEventsRepo(db), sources },
+    patrol: { runs, conversations: new RuleConversationsRepo(db), events: new RuleServiceEventsRepo(db), sources, learning: new PatrolLearningRepo(db) },
   });
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
@@ -123,6 +124,21 @@ describe("/v1/rules patrol rules (CC-PATROL-05/08)", () => {
     expect(r.body.rule.readiness.reason).toMatch(/legacy-observe/);
     const p = await call("PATCH", "/old-rule", { tick_sec: 600 });
     expect(p.body.rule).toMatchObject({ tick_sec: 600, revision: 2 });
+  });
+});
+
+describe("/v1/rules/:id/learning", () => {
+  it("lists learning runs and fragments with parsed JSON", async () => {
+    const { db, call } = setup();
+    await call("PUT", "/", patrolRule);
+    const repo = new PatrolLearningRepo(db);
+    repo.insertFragment({ rule_id: patrolRule.id, kind: "message", source_key: "msg:1", status: "ok", signal: { genres: ["game"], sentiment: "positive", request: null, tone: null }, now: 1 });
+    repo.recordRun({ run_id: "l1", rule_id: patrolRule.id, day: "2026-10-16", status: "applied", fragment_count: 3, proposal: JSON.stringify({ summary: "s" }), applied: JSON.stringify({ prefer_genres: ["game"] }), reason: "s", revision: 2, now: 2 });
+    const r = await call("GET", `/${patrolRule.id}/learning`);
+    expect(r.status).toBe(200);
+    expect(r.body.runs[0]).toMatchObject({ status: "applied", applied: { prefer_genres: ["game"] } });
+    expect(r.body.fragments[0].signal).toMatchObject({ genres: ["game"] });
+    expect((await call("GET", "/nope/learning")).status).toBe(404);
   });
 });
 

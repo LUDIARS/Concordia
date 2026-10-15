@@ -61,6 +61,8 @@ export interface PatrolDefaults {
   discord_channel_id?: string | null;
   persona_hint?: string | null;
   paused?: boolean;
+  /** このサーバーの関心キーワード (近い話題ほど選ばれやすい)。 */
+  topic_keywords?: string[];
 }
 
 export interface RuleView {

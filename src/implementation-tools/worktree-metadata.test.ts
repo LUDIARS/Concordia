@@ -29,7 +29,8 @@ describe("ignored worktree metadata", () => {
       .toBe(".local/concordia/worktree.json");
     expect(JSON.parse(await readFile(join(root, ".local/concordia/worktree.json"), "utf8"))).toEqual(record);
     expect((await readFile(join(root, ".git/info/exclude"), "utf8")).match(/\/\.local\/concordia\//g)).toHaveLength(1);
-  });
+    // git を 5 回以上起動する。 負荷の高い審査では既定の 5 秒を超える (2026-10-15 の審査で 10〜14 秒)。
+  }, 60_000);
 
   it("does not overwrite another owner's record or accept task/credential fields", async () => {
     await keepWorktreeRecord(root, "worktree.json", record, worktreeGit);

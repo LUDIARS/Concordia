@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 140;
+export const SCHEMA_VERSION = 141;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3639,6 +3639,41 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       received_at INTEGER NOT NULL,
       PRIMARY KEY (run_id, message_index)
     )`);
+  },
+},
+{
+  version: 141,
+  name: "patrol-learning",
+  source: "patrol_learning_fragments + patrol_learning_runs (spec/plan/2026-10-15-patrol-learning-design.md)",
+  up(db) {
+    // 断片は発言の要点だけ (原文は持たない)。 学習は rule × 日で 1 回。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS patrol_learning_fragments (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_id     TEXT NOT NULL,
+        kind        TEXT NOT NULL,
+        source_key  TEXT NOT NULL UNIQUE,
+        status      TEXT NOT NULL,
+        signal      TEXT,
+        created_at  INTEGER NOT NULL,
+        consumed_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_patrol_learning_fragments_rule ON patrol_learning_fragments(rule_id, consumed_by, created_at);
+
+      CREATE TABLE IF NOT EXISTS patrol_learning_runs (
+        run_id         TEXT PRIMARY KEY,
+        rule_id        TEXT NOT NULL,
+        day            TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        fragment_count INTEGER NOT NULL,
+        proposal       TEXT,
+        applied        TEXT,
+        reason         TEXT,
+        revision       INTEGER,
+        created_at     INTEGER NOT NULL,
+        UNIQUE(rule_id, day)
+      );
+    `);
   },
 },
 ];

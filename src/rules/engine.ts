@@ -40,7 +40,15 @@ export interface EngineDeps {
    * (旧 rule の legacy-observe だけが従来どおり動く)。 spec/feature/patrol-chat.md
    */
   patrol?: Omit<PatrolPorts, "runtimeDisabled">;
+  /**
+   * 巡回の学習 (断片の抽出と 1 日ごとの学習)。 返信の周期とは別の流れで 1 分ごとに回す
+   * (LLM の待ちで返信を遅らせない)。 spec/plan/2026-10-15-patrol-learning-design.md
+   */
+  learning?: { run: () => Promise<unknown> };
 }
+
+/** 学習の pass を回す間隔。 */
+const PATROL_LEARNING_MS = 60_000;
 
 export interface EngineHandle {
   stop: () => void;
@@ -201,10 +209,27 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
     });
   }
 
+  // 巡回の学習。 返信の周期 (runPatrolPass) とは別の mutex で回す。
+  let learningRunning = false;
+  const learningLoop = deps.learning
+    ? startSupervisedInterval("patrol-learning", async () => {
+        if (stopped || learningRunning || (deps.rulesDisabled?.() ?? false)) return;
+        learningRunning = true;
+        try {
+          await deps.learning!.run();
+        } catch (err) {
+          log.warn({ err: (err as Error).message }, "patrol learning pass failed");
+        } finally {
+          learningRunning = false;
+        }
+      }, { intervalMs: PATROL_LEARNING_MS, log: { warn: (message) => log.warn(message) } })
+    : null;
+
   return {
     stop: () => {
       stopped = true;
       supervised.stop();
+      learningLoop?.stop();
       if (unsubEvent) unsubEvent();
       log.info("rule engine stopped");
     },

@@ -283,6 +283,11 @@ export interface DiscordBotDeps {
   onHumanReturn?: (sessionId: string, channelId: string, userId: string) => void;
   readModel: ChatReadModel;
   chatRepo: ChatRepo;
+  /**
+   * 巡回の投稿先 (個別チャンネル) なら、 その会話を記録する chat channel。 違えば null。
+   * 返信でない会話も取り込む (即応はしない。 追投稿の観測と学習に使う)。
+   */
+  patrolChannelFor?: (discordChannelId: string) => string | null;
   sessionsRepo: SessionsRepo;
   /** 本社/子会社で token 単位の物理 Discord Client を共有する。未指定は private pool。 */
   gatewayPool?: DiscordGatewayPool;
@@ -1921,6 +1926,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         chatRepo: deps.chatRepo,
         onHumanReturn: deps.onHumanReturn,
         messageMap,
+        // 巡回の投稿先チャンネル (子会社 guild 等) の会話を取り込む (spec/feature/patrol-chat.md §個別チャンネル)。
+        patrolChannelFor: deps.patrolChannelFor,
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         isSessionEndUserAllowed: deps.isSessionEndUserAllowed,

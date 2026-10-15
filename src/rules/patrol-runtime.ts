@@ -15,12 +15,17 @@ import { RuleConversationsRepo } from "../db/rule-conversations-repo.js";
 import { RuleRunsRepo } from "../db/rule-runs-repo.js";
 import { RuleServiceEventsRepo } from "../db/rule-service-events-repo.js";
 import { RuleVersionsRepo } from "../db/rule-versions-repo.js";
-import type { RulesRepo } from "../db/rules-repo.js";
+import type { RuleRow, RulesRepo } from "../db/rules-repo.js";
+import { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
+import { runLearningPass, type LearningPassReport } from "./patrol-learning-loop.js";
+import { validateRuleDefinition } from "./rule-validation.js";
+import { parseActionConfig } from "./patrol-config.js";
+import { resolveChannelFor } from "./patrol-channel.js";
 import { eventBus } from "../events.js";
 import { runClaude } from "./claude-runner.js";
 import { MaterialSourceRegistry } from "./material-registry.js";
 import { TENDENTIA_SOURCE_ID, makeTendentiaSource } from "./material-tendentia.js";
-import { PATROL_AUTHOR_LABEL, type PatrolOwnersPort, type PatrolPorts } from "./patrol-ports.js";
+import { PATROL_AUTHOR_LABEL, dayStartSec, type PatrolOwnersPort, type PatrolPorts } from "./patrol-ports.js";
 import type { ExternalChannelPoster } from "./patrol-external-delivery.js";
 import { renderPatrol } from "./render-patrol.js";
 
@@ -29,11 +34,16 @@ export const CORPUS_ACTIVITY_SOURCE_ID = "corpus-activity";
 export interface PatrolRuntime {
   ports: Omit<PatrolPorts, "runtimeDisabled">;
   versions: RuleVersionsRepo;
+  /** 学習の pass (engine が 1 分ごとに回す)。 */
+  learning: { repo: PatrolLearningRepo; run: () => Promise<LearningPassReport> };
+  /** 巡回の投稿先 (個別チャンネル) なら、 その会話を記録する chat channel。 */
+  channelFor: (discordChannelId: string) => string | null;
   api: {
     runs: RuleRunsRepo;
     conversations: RuleConversationsRepo;
     events: RuleServiceEventsRepo;
     sources: MaterialSourceRegistry;
+    learning: PatrolLearningRepo;
   };
 }
 
@@ -147,8 +157,18 @@ export function buildPatrolRuntime(deps: {
   const sources = buildMaterialRegistry({ tendentiaUrl: deps.tendentiaUrl });
   const reactions = makeChatMessageReactionsRepo(deps.db);
   const messageMap = makeDiscordMessageMapRepo(deps.db);
+  const learningRepo = new PatrolLearningRepo(deps.db);
   const ports: Omit<PatrolPorts, "runtimeDisabled"> = {
     ...(deps.owners ? { owners: deps.owners } : {}),
+    // 直近 3 日に話した内容: 投稿した素材の題と、 会話の断片の話題キーワード。 何日前かはローカル日付で数える。
+    topicMemory: (ruleId, nowSec) => {
+      const since = dayStartSec(nowSec) - 2 * 86400;
+      const ageDays = (ts: number) => Math.round((dayStartSec(nowSec) - dayStartSec(ts)) / 86400);
+      return [
+        ...runs.recentPostedTitles(ruleId, since).map((r) => ({ text: r.title, ageDays: ageDays(r.created_at) })),
+        ...learningRepo.recentKeywords(ruleId, since).map((r) => ({ text: r.keyword, ageDays: ageDays(r.created_at) })),
+      ];
+    },
     rules: deps.rules,
     runs,
     conversations,
@@ -194,5 +214,39 @@ export function buildPatrolRuntime(deps: {
     newId: () => randomUUID(),
     leaseOwner: `cc:${process.pid}:${randomUUID().slice(0, 8)}`,
   };
-  return { ports, versions, api: { runs, conversations, events, sources } };
+  // 学習 (spec/plan/2026-10-15-patrol-learning-design.md)。 返信の周期とは別の流れで engine が回す。
+  const inherit = (rule: RuleRow) => (rule.subsidiary_id ? deps.owners?.defaults(rule.subsidiary_id) ?? null : null);
+  // 巡回の投稿先チャンネル → rule。 有効な巡回 rule の実効投稿先 (子会社の既定値を含む) から引く。
+  const ruleForChannel = (discordChannelId: string): RuleRow | null => {
+    for (const rule of deps.rules.list({ enabled: true, execution_mode: "patrol" })) {
+      const parsed = parseActionConfig(rule.action_config, inherit(rule));
+      if (parsed.ok && parsed.config.discord_channel_id === discordChannelId) return rule;
+    }
+    return null;
+  };
+  const learning = {
+    repo: learningRepo,
+    run: () => runLearningPass({
+      repo: learningRepo,
+      rules: deps.rules,
+      versions,
+      reactions,
+      runner: (prompt, opts) => runClaude(prompt, opts),
+      validate: (rule, actionConfigJson, tickSec) => validateRuleDefinition(
+        { ...rule, action_config: actionConfigJson, tick_sec: tickSec, cooldown_sec: tickSec },
+        sources,
+        inherit(rule),
+      ),
+      inherit,
+      ruleForChannel,
+      nowMs: () => Date.now(),
+      newId: () => randomUUID(),
+      ...(deps.log ? { log: deps.log } : {}),
+    }),
+  };
+  const channelFor = (discordChannelId: string): string | null => {
+    const rule = ruleForChannel(discordChannelId);
+    return rule ? resolveChannelFor(rule) : null;
+  };
+  return { ports, versions, learning, channelFor, api: { runs, conversations, events, sources, learning: learningRepo } };
 }

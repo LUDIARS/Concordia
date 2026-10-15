@@ -5,6 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
+import { patrolReplyChatBody, resolvePatrolChannelReply } from "./patrol-reply-ingress.js";
 import { injectSession } from "../platform/session-inject.js";
 import { detectsEndSessionRequest, markEndSessionRequested } from "../shared/end-session-request.js";
 import { detectsConsultEndWord } from "../consultation/consult-end-word.js";
@@ -493,6 +494,25 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
 
   const kind = resolveMetaKind(deps.configRepo, routeChannelId);
   if (!kind) {
+    // 個別チャンネル (子会社 guild 等) の巡回投稿への返信だけを受け取る (spec/feature/patrol-chat.md)。
+    const patrolReply = text
+      ? resolvePatrolChannelReply(deps, { channelId: msg.channelId, referenceMessageId: msg.reference?.messageId })
+      : null;
+    if (patrolReply) {
+      try {
+        const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patrolReplyChatBody(patrolReply, {
+            text, authorLabel, discordUserId: msg.author.id, discordMessageId: msg.id,
+          })),
+        });
+        deps.log.info(`ingress: patrol channel reply channel=${msg.channelId} reply_to=${patrolReply.chatId} status=${res.status}`);
+      } catch (e) {
+        deps.log.warn(`ingress: patrol channel reply failed channel=${msg.channelId}: ${(e as Error).message}`);
+      }
+      return;
+    }
     deps.log.info(`ingress: no routing target for route_channel=${routeChannelId}; ignored`);
     return;
   }

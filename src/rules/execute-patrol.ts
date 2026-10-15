@@ -24,6 +24,7 @@ import {
   type PatrolPorts,
 } from "./patrol-ports.js";
 import { personaOfChatMetadata, personaOfDecision, personaUsername, withPersonaDecision } from "./patrol-persona.js";
+import { externalChannelOfMessage } from "./patrol-inbound.js";
 import type { RenderKind, RenderMaterial } from "./render-patrol.js";
 
 export type ExecuteOutcome =
@@ -361,7 +362,10 @@ export function observeFollowup(ctx: RunContext, conv: RuleConversationRow): { o
       distinctReactors: reactors.distinct,
       fineReactors: reactors.fine,
       badReactors: reactors.bad,
-      laterHumanMessages: ports.chat.countHumanAfter(latest.channel, latest.last_bot_message_id),
+      // 個別チャンネルの会話はそのチャンネルの発言だけを数える (本社の雑談で子会社へ追投稿しない)。
+      laterHumanMessages: ports.chat.countHumanAfter(
+        latest.channel, latest.last_bot_message_id, externalChannelOfMessage(ports.chat.findById(latest.root_chat_id)),
+      ),
     },
     ctx.config.followup,
     nowSecOf(ports),

@@ -70,7 +70,7 @@ function harness(opts: {
         in_reply_to: input.in_reply_to, is_actionable: false, metadata: JSON.stringify(input.metadata),
       }),
       findById: (id) => chat.findById(id),
-      countHumanAfter: (channel, afterId) => chat.countHumanAfter(channel, afterId),
+      countHumanAfter: (channel, afterId, externalChannelId) => chat.countHumanAfter(channel, afterId, externalChannelId),
     },
     reactions,
     delivery: { findExternalId: (id) => messageMap.findDiscordId(id) },
@@ -313,6 +313,53 @@ describe("patrol quiet hours", () => {
   it("defaults to 22:00-09:30 for rules that do not set it", () => {
     const parsed = parseActionConfig({ kind: "material-chat", source_ids: ["fake"], scope_key: "hq" });
     expect(parsed.ok && parsed.config.quiet_hours).toEqual({ start: "22:00", end: "09:30" });
+  });
+});
+
+describe("patrol individual channel replies", () => {
+  const GLAB_CHANNEL = "1546109590930853962";
+
+  async function externalPost() {
+    const h = harness();
+    h.rules.updateWithRevision("patrol", 1, {
+      action_config: JSON.stringify({
+        kind: "material-chat", source_ids: ["fake"], scope_key: "public", discord_channel_id: GLAB_CHANNEL, quiet_hours: null,
+        followup: { min_wait_sec: 600, reaction_threshold: 2, later_message_threshold: 2 },
+      }),
+    });
+    await h.tick();
+    const root = h.runs.list({}).runs[0].chat_message_id!;
+    const channelPost = (text: string, inReplyTo: number | null, user = "g1") => h.chat.insert({
+      channel: "chitchat", session_id: null, author_label: "部員", text, in_reply_to: inReplyTo, is_actionable: false,
+      metadata: JSON.stringify({ source: "discord", discord_user_id: user, discord_message_id: `g-${text}`, patrol_discord_channel_id: GLAB_CHANNEL }),
+    });
+    return { h, root, channelPost };
+  }
+
+  it("answers a reply received in the individual channel", async () => {
+    const { h, root, channelPost } = await externalPost();
+    const reply = channelPost("それ気になる", root);
+    expect(acceptInbound(h.ports, reply.id)).toMatchObject({ accepted: true });
+    const r = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(r).toMatchObject({ kind: "acted", action: "reply", outcome: { status: "posted" } });
+    const answer = h.chat.findById(h.runs.list({}).runs[0].chat_message_id!)!;
+    expect(JSON.parse(answer.metadata!)).toMatchObject({ patrol_discord_channel_id: GLAB_CHANNEL });
+  });
+
+  it("does not mix HQ and individual-channel messages in replies or follow-up counts", async () => {
+    const { h, root } = await externalPost();
+    // 本社の発言は、 個別チャンネルの会話への返信として受けない
+    const hqReply = h.humanPost("本社から", root);
+    expect(acceptInbound(h.ports, hqReply.id)).toMatchObject({ accepted: false, reason: "different destination" });
+    // 本社の雑談がいくら続いても、 個別チャンネルの投稿へ追投稿しない
+    h.humanPost("one", null, "u1");
+    h.humanPost("two", null, "u2");
+    h.humanPost("three", null, "u3");
+    h.clock.ms += 700_000;
+    const r = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(r.kind === "acted" && r.action).not.toBe("followup");
+    expect(h.chat.countHumanAfter("chitchat", root, GLAB_CHANNEL)).toBe(0);
+    expect(h.chat.countHumanAfter("chitchat", root, null)).toBe(4);
   });
 });
 

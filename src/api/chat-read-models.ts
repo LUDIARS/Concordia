@@ -318,6 +318,7 @@ function readChatMeta(raw: string | null | undefined): ChatMessageMetadata {
     scope: stringOrUndefined(parsed.scope),
     webhook_username: stringOrUndefined(parsed.webhook_username),
     webhook_avatar_url: stringOrUndefined(parsed.webhook_avatar_url),
+    patrol_discord_channel_id: stringOrUndefined(parsed.patrol_discord_channel_id),
     ...(attachmentPaths ? { attachment_paths: attachmentPaths } : {}),
   };
 }

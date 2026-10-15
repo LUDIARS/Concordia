@@ -115,7 +115,14 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   - 宛先 guild は本社 guild と有効な子会社 guild (`subsidiaries.guild_id`) に限る。それ以外は送らない。
   - チャンネルの巡回用 webhook (`Concordia 巡回`) を使って名乗りで投稿する。webhook を作れなければ Bot 本人の投稿に名乗りを太字で前置する。
   - 成功時だけ `discord_message_map` に記録し、配達照合で `delivered`。失敗は自動再送せず `delivery_unknown`。
-- 個別チャンネルでの返信・反応は今は受けない (本社 guild 以外の発言は chat 行にならない)。追投稿は後続発言・反応が観測できないので起きない。
+- 個別チャンネルでの返信: meta channel でないチャンネルの発言は通常捨てるが、巡回投稿 (`discord_message_map` にある) への
+  Discord 返信だけは `src/discord/patrol-reply-ingress.ts` が chat 行にする (返信先の巡回投稿の `patrol_discord_channel_id` が
+  発言チャンネルと一致する時だけ)。chat 行は `metadata.patrol_discord_channel_id` を持ち、本社の Discord (source=discord) /
+  Slack へ転記しない。返信でない雑談は取り込まない (本社 DB に子会社の雑談を溜めない)。
+- 会話の受理と追投稿の数え方は宛先チャンネルで分ける: 個別チャンネルの会話は同じチャンネルの返信だけを受け、
+  後続の人間の発言はそのチャンネルの chat 行だけを数える (`countHumanAfter(channel, afterId, externalChannelId)`)。
+  本社の会話は個別チャンネルの発言を数えない。個別チャンネルでは雑談を取り込まないので、後続発言による追投稿は実質起きない。
+- 個別チャンネルの反応 (リアクション) は、子会社の Bot が受けて `discord_message_map` で巡回投稿へ結び付けられた場合だけ数える (未検証)。
 
 ## 返信と反応
 

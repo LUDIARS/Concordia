@@ -137,7 +137,7 @@ export function buildPatrolRuntime(deps: {
         metadata: JSON.stringify({ ...input.metadata }),
       }),
       findById: (id) => deps.chat.findById(id),
-      countHumanAfter: (channel, afterId) => deps.chat.countHumanAfter(channel, afterId),
+      countHumanAfter: (channel, afterId, externalChannelId) => deps.chat.countHumanAfter(channel, afterId, externalChannelId),
     },
     reactions,
     delivery: { findExternalId: (chatMessageId) => messageMap.findDiscordId(chatMessageId) },

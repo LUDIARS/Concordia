@@ -30,8 +30,11 @@ export interface PatrolChatPort {
     metadata: Record<string, unknown>;
   }): ChatMessageRow;
   findById(id: number): ChatMessageRow | null;
-  /** 同じ宛先で afterId より後の人間の発言数 (bot / system / 巡回自身を除く)。 */
-  countHumanAfter(channel: string, afterId: number): number;
+  /**
+   * 同じ宛先で afterId より後の人間の発言数 (bot / system / 巡回自身を除く)。
+   * externalChannelId を指定すればその個別チャンネルの発言だけ、 null なら本社の発言だけ。
+   */
+  countHumanAfter(channel: string, afterId: number, externalChannelId: string | null): number;
 }
 
 export interface PatrolReactionsPort {

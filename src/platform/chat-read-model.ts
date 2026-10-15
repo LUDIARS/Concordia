@@ -15,6 +15,8 @@ export interface ChatMessageMetadata {
   attachment_paths?: string[];
   webhook_username?: string;
   webhook_avatar_url?: string;
+  /** 巡回チャットの個別チャンネル (子会社 guild 等) の発言。 本社の Discord / Slack へ転記しない。 */
+  patrol_discord_channel_id?: string;
 }
 
 export interface ChatMessageRelay {

@@ -24,6 +24,13 @@ function metadataOf(msg: ChatMessageRow): Record<string, unknown> {
   }
 }
 
+/** 発言の個別チャンネル (巡回投稿の投稿先 / 個別チャンネルで受けた返信)。 本社の発言は null。 */
+export function externalChannelOfMessage(msg: ChatMessageRow | null): string | null {
+  if (!msg) return null;
+  const id = metadataOf(msg).patrol_discord_channel_id;
+  return typeof id === "string" && id !== "" ? id : null;
+}
+
 /** 人間起源の発言か。 Discord ingress (bot 除外済み) か、 明示の human origin だけを認める。 */
 export function isHumanMessage(msg: ChatMessageRow): boolean {
   const meta = metadataOf(msg);
@@ -42,6 +49,10 @@ export function acceptInbound(ports: Pick<PatrolPorts, "chat" | "conversations" 
   const now = nowSecOf(ports);
   if (conv.status !== "open" || now >= conv.expires_at) return { accepted: false, reason: "conversation closed" };
   if (conv.channel !== msg.channel) return { accepted: false, reason: "different destination" };
+  // 個別チャンネルの会話には、 そのチャンネルでの返信だけを受ける (本社と子会社の発言を混ぜない)。
+  if (externalChannelOfMessage(msg) !== externalChannelOfMessage(ports.chat.findById(conv.root_chat_id))) {
+    return { accepted: false, reason: "different destination" };
+  }
   if (!ports.conversations.recordInbound(msg.id, conv.conversation_id, now)) {
     return { accepted: false, reason: "already received" };
   }

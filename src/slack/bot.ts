@@ -344,6 +344,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       log.info(`chat.posted skipped — source=slack (self-loop) message_id=${row.id}`);
       return;
     }
+    // 巡回チャットの個別チャンネル (子会社 guild 等) で受けた返信は本社の Slack へ転記しない。
+    if (row.metadata.patrol_discord_channel_id) {
+      log.info(`chat.posted skipped — patrol individual channel message_id=${row.id}`);
+      return;
+    }
     const author = row.authorLabel?.trim() || "Concordia";
     if (row.sessionId) {
       log.info(`[verbose-slack-egress] chat.posted → channel session=${row.sessionId} message_id=${row.id} channel=${row.channel}`);

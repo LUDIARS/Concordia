@@ -80,7 +80,11 @@ export class ChatRepo {
    * 同じ channel で afterId より後に来た人間の発言数。 Discord ingress (bot 除外済み) か明示の
    * human origin だけを数え、 巡回・bot・system の自動発言は数えない (spec/feature/patrol-chat.md §7)。
    */
-  countHumanAfter(channel: string, afterId: number): number {
+  /**
+   * 同じ宛先で afterId より後の人間の発言数。 externalChannelId は巡回の個別チャンネル (Discord channel ID):
+   * 指定すればそのチャンネルの発言だけ、 null なら個別チャンネルの発言を除いた本社の発言だけを数える。
+   */
+  countHumanAfter(channel: string, afterId: number, externalChannelId: string | null = null): number {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM chat_messages
@@ -89,9 +93,10 @@ export class ChatRepo {
            AND (
              (json_extract(metadata, '$.source') = 'discord' AND COALESCE(json_extract(metadata, '$.discord_user_id'), '') <> '')
              OR json_extract(metadata, '$.origin') = 'human'
-           )`,
+           )
+           AND COALESCE(json_extract(metadata, '$.patrol_discord_channel_id'), '') = ?`,
       )
-      .get(channel, afterId) as { n: number };
+      .get(channel, afterId, externalChannelId ?? "") as { n: number };
     return row.n;
   }
 

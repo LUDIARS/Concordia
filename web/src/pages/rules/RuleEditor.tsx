@@ -36,6 +36,14 @@ interface Props {
 
 const splitList = (text: string): string[] => text.split(/[,\s、]+/).map((s) => s.trim()).filter(Boolean);
 
+/** Discord のチャンネル URL (https://discord.com/channels/<guild>/<channel>) か ID から channel ID を取る。 */
+export function parseDiscordChannel(text: string): string | null {
+  const t = text.trim();
+  const url = /discord(?:app)?\.com\/channels\/\d{17,20}\/(\d{17,20})/.exec(t);
+  if (url) return url[1];
+  return /^\d{17,20}$/.test(t) ? t : null;
+}
+
 export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
   const initial = rule?.action_config ?? DEFAULT_CONFIG;
   const [id, setId] = useState(rule?.id ?? "");
@@ -45,6 +53,7 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
   const [triggerType, setTriggerType] = useState<"tick" | "event">(rule?.trigger_type ?? "tick");
   const [tickSec, setTickSec] = useState(rule?.tick_sec ?? 1800);
   const [config, setConfig] = useState<PatrolActionConfig>({ ...DEFAULT_CONFIG, ...initial, followup: { ...DEFAULT_CONFIG.followup, ...initial.followup } });
+  const [channelText, setChannelText] = useState(initial.discord_channel_id ?? "");
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonText, setJsonText] = useState(() => JSON.stringify(config, null, 2));
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +64,11 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
 
   const save = async () => {
     let actionConfig: unknown = config;
+    if (!jsonMode) {
+      const channelId = channelText.trim() ? parseDiscordChannel(channelText) : null;
+      if (channelText.trim() && !channelId) { setError("Discord のチャンネル URL か ID を入れてください"); return; }
+      actionConfig = { ...config, discord_channel_id: channelId };
+    }
     if (jsonMode) {
       try { actionConfig = JSON.parse(jsonText); } catch { setError("JSON が読めません"); return; }
     }
@@ -151,6 +165,22 @@ export function RuleEditor({ rule, sources, onSaved, onCancel }: Props) {
               </label>
             ))}
           </fieldset>
+          <label className="space-y-1 block">
+            <span className="text-[11px] text-subtle block">
+              Discord チャンネルを個別に指定 (URL か ID。 子会社のサーバーも可。 空なら上の投稿先)
+            </span>
+            <input
+              className="foundation-form text-sm w-full"
+              value={channelText}
+              placeholder="https://discord.com/channels/…/…"
+              aria-label="Discord チャンネル"
+              onChange={(e) => {
+                setChannelText(e.target.value);
+                // 本社外にも出るので、 指定したら共有範囲は公開に揃える (サーバも検証する)
+                if (e.target.value.trim()) patchConfig({ scope_key: "public" });
+              }}
+            />
+          </label>
           <div className="grid gap-2 sm:grid-cols-3">
             <label className="space-y-1">
               <span className="text-[11px] text-subtle block">共有範囲</span>

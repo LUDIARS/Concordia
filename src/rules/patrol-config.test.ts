@@ -45,6 +45,15 @@ describe("reviewPatrolConfig (CC-PATROL-05)", () => {
     expect(review({ ...base, source_ids: [], filters: { service_codes: ["Mm"] } }, "event", "service.event")).toEqual({ ok: true });
   });
 
+  it("accepts an individual Discord channel only with public scope and a channel ID", () => {
+    const channel = "1546109590930853962";
+    expect(parseActionConfig(base).ok && (parseActionConfig(base) as { config: { discord_channel_id: unknown } }).config.discord_channel_id).toBeNull();
+    const hq = review({ ...base, discord_channel_id: channel });
+    expect(hq.ok === false && hq.reason).toMatch(/scope_key=public/);
+    expect(review({ ...base, scope_key: "public", discord_channel_id: channel })).toEqual({ ok: true });
+    expect(parseActionConfig({ ...base, scope_key: "public", discord_channel_id: "https://discord.com/channels/1/2" }).ok).toBe(false);
+  });
+
   it("rejects oneshot rendering with a zero LLM budget", () => {
     expect(review({ ...base, llm_limit_per_day: 0 }).ok).toBe(false);
     expect(review({ ...base, llm_limit_per_day: 0, renderer: "template" })).toEqual({ ok: true });

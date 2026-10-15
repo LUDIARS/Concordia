@@ -122,6 +122,21 @@ describe("patrol pick (CC-PATROL-01/02/03)", () => {
     expect(h.current().last_posted_at).not.toBeNull();
   });
 
+  it("marks a post for an individually specified Discord channel", async () => {
+    const h = harness();
+    h.rules.updateWithRevision("patrol", 1, {
+      action_config: JSON.stringify({
+        kind: "material-chat", source_ids: ["fake"], scope_key: "public", discord_channel_id: "1546109590930853962",
+      }),
+    });
+    await h.tick();
+    const [run] = h.runs.list({}).runs;
+    const msg = h.chat.findById(run.chat_message_id!)!;
+    expect(JSON.parse(msg.metadata!)).toMatchObject({
+      source: "patrol", patrol_discord_channel_id: "1546109590930853962", webhook_username: "噂坂 聞 (巡回)",
+    });
+  });
+
   it("posts under the generated name and keeps it in the run", async () => {
     const h = harness();
     await h.tick();

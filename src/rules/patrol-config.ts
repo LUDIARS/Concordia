@@ -52,6 +52,11 @@ export const PatrolActionConfig = z.object({
   root_limit_per_day: z.number().int().min(1).max(PATROL_HARD_CAPS.rootLimitPerDay).default(8),
   llm_limit_per_day: z.number().int().min(0).max(PATROL_HARD_CAPS.llmLimitPerDay).default(16),
   followup: FollowupConfig.default({}),
+  /**
+   * 投稿先の Discord channel を個別に指定する (本社・子会社 guild のチャンネル)。 null なら rule.target の meta channel。
+   * 指定した投稿は本社の chat 配信 (Discord meta / Slack) に流さず、 このチャンネルへ直接送る。
+   */
+  discord_channel_id: z.string().regex(/^\d{17,20}$/, "Discord の channel ID (数字 17〜20 桁)").nullable().default(null),
 }).strict();
 export type PatrolActionConfig = z.infer<typeof PatrolActionConfig>;
 
@@ -87,6 +92,10 @@ export function reviewPatrolConfig(
   const { config } = input;
   if (!(KNOWN_PATROL_SCOPES as readonly string[]).includes(config.scope_key)) {
     return { ok: false, reason: `scope_key は ${KNOWN_PATROL_SCOPES.join("/")} のいずれか (got ${config.scope_key})` };
+  }
+  // 個別チャンネルは本社外 (子会社 guild) にもなりうるので、 公開素材だけを出す (CC-PATROL-05)。
+  if (config.discord_channel_id && config.scope_key !== "public") {
+    return { ok: false, reason: "discord_channel_id を指定した巡回 rule は scope_key=public にする (本社外へ本社限定の素材を出さない)" };
   }
   if (input.trigger_type === "tick" && config.source_ids.length === 0) {
     return { ok: false, reason: "tick の巡回 rule には source_ids が 1 つ以上必要" };

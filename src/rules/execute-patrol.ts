@@ -135,6 +135,7 @@ export function commitRendered(
         conversation_id: post.conversationId,
         scope: ctx.config.scope_key,
         ...(persona ? { patrol_persona: persona, webhook_username: personaUsername(persona) } : {}),
+        ...(ctx.config.discord_channel_id ? { patrol_discord_channel_id: ctx.config.discord_channel_id } : {}),
       },
     });
     return chat.id;

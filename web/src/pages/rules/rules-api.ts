@@ -25,6 +25,8 @@ export interface PatrolActionConfig {
     max_age_sec: number;
   };
   renderer: "oneshot" | "template";
+  /** 投稿先の Discord channel を個別指定 (本社・子会社 guild)。 null なら投稿先 (target) の meta channel。 */
+  discord_channel_id?: string | null;
   max_chars: number;
   root_limit_per_day: number;
   llm_limit_per_day: number;

@@ -102,6 +102,18 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   投稿後 10 分見つからなければ `delivery_unknown`。不明は 1 日照合を続けるが、自動では再送しない。
 - 停止: engine.stop は新しい周期を止め、送信直前の検査で投稿させない。生成途中の run は次回起動時に `render_interrupted` として残る。
 
+## 個別チャンネル
+
+- `action_config.discord_channel_id` (Discord channel ID、既定 null) で投稿先を rule ごとに指定できる。null なら `rule.target` の meta channel。
+  `/rules` の編集画面はチャンネル URL (`https://discord.com/channels/<guild>/<channel>`) か ID を受け、ID にして保存する。
+- 指定した rule は `scope_key=public` に限る (子会社 guild など本社外へ本社限定の素材を出さない、CC-PATROL-05)。
+- 指定した投稿は chat 行 (`metadata.patrol_discord_channel_id`) を残すが `chat.posted` を出さず、本社の Discord meta / Slack 配信に流さない。
+  `patrol-external-delivery.ts` が本社 Bot の token で直接送る (子会社 guild には本社と同じ Bot が招待されている)。
+  - 宛先 guild は本社 guild と有効な子会社 guild (`subsidiaries.guild_id`) に限る。それ以外は送らない。
+  - チャンネルの巡回用 webhook (`Concordia 巡回`) を使って名乗りで投稿する。webhook を作れなければ Bot 本人の投稿に名乗りを太字で前置する。
+  - 成功時だけ `discord_message_map` に記録し、配達照合で `delivered`。失敗は自動再送せず `delivery_unknown`。
+- 個別チャンネルでの返信・反応は今は受けない (本社 guild 以外の発言は chat 行にならない)。追投稿は後続発言・反応が観測できないので起きない。
+
 ## 返信と反応
 
 - Discord の meta channel で返信 (reference) した発言は、`discord_message_map` で既知の chat 行へ解決して `in_reply_to` を付けて投稿する。

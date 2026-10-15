@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Rules } from "./Rules.js";
+import { parseDiscordChannel } from "./rules/RuleEditor.js";
 
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ""; });
 
@@ -75,6 +76,14 @@ const click = async (el: Element | null | undefined) => {
 };
 const byText = (container: HTMLElement, text: string) =>
   Array.from(container.querySelectorAll("button")).find((b) => b.textContent === text);
+
+describe("parseDiscordChannel", () => {
+  it("takes the channel ID from a Discord channel URL or a bare ID", () => {
+    expect(parseDiscordChannel("https://discord.com/channels/1352438523155841126/1546109590930853962")).toBe("1546109590930853962");
+    expect(parseDiscordChannel(" 1546109590930853962 ")).toBe("1546109590930853962");
+    expect(parseDiscordChannel("chitchat")).toBeNull();
+  });
+});
 
 describe("Rules page", () => {
   it("shows engine state, source availability and labels legacy rules as non-posting", async () => {

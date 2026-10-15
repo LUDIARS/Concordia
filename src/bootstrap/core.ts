@@ -208,6 +208,7 @@ import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { buildPatrolRuntime } from "../rules/patrol-runtime.js";
+import { makeExternalChannelPoster } from "../rules/patrol-external-delivery.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
 import { indexSessionPrs } from "../daily/site-activity-prs.js";
@@ -688,6 +689,16 @@ export async function startBackend(): Promise<BackendHandle> {
     chat,
     rules,
     tendentiaUrl: process.env.TENDENTIA_URL?.trim() || null,
+    // 個別チャンネル指定 (GLab 等の子会社 guild を含む) は本社 Bot の token で直接送る。
+    // discordConfig / secretBox / subsidiaryRepo は下で組み立てるので、 呼び出し時に解決する。
+    externalPoster: makeExternalChannelPoster({
+      botToken: () => resolveDiscordConfig(discordConfig, secretBox).token ?? null,
+      allowedGuildIds: () => [
+        resolveDiscordConfig(discordConfig, secretBox).guildId,
+        ...subsidiaryRepo.listEnabled().map((s) => s.guild_id),
+      ].filter((id): id is string => typeof id === "string" && id.length > 0),
+    }),
+    log: { warn: (m) => log.warn(m) },
   });
   const dayReports = new DayReportsRepo(db);
   const processes = new ProcessesRepo(db);

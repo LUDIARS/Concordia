@@ -19,6 +19,40 @@ export interface RuleRow {
   removed_at: number | null;
   removed_by: string | null;
   removed_reason: string | null;
+  /** 1 = 旧 rule (ログのみ)、 2 = 巡回チャット (spec/feature/patrol-chat.md §5)。 */
+  config_version: number;
+  /** 編集のたびに増える版。 PATCH / rollback の楽観ロックに使う (CC-PATROL-08)。 */
+  revision: number;
+  /** legacy-observe = 投稿副作用なし (旧挙動)、 patrol = 巡回チャットとして実行。 */
+  execution_mode: ExecutionMode;
+  /** config_version=2 の型付き設定 (JSON)。 */
+  action_config: string | null;
+  next_due_at: number | null;
+  last_attempt_at: number | null;
+  last_posted_at: number | null;
+}
+
+export type ExecutionMode = "legacy-observe" | "patrol";
+
+/** 版付き更新で書いてよい列 (SQL の列名として連結するので固定の allowlist)。 */
+const PATCHABLE_COLUMNS = [
+  "description", "trigger_type", "tick_sec", "event_kind", "conditions", "instructions",
+  "target", "cooldown_sec", "config_version", "execution_mode", "action_config",
+] as const satisfies ReadonlyArray<keyof RuleDefinitionPatch>;
+
+/** 版付き更新の入力。 rules 本体の編集可能な列すべて。 */
+export interface RuleDefinitionPatch {
+  description?: string | null;
+  trigger_type?: TriggerType;
+  tick_sec?: number | null;
+  event_kind?: string | null;
+  conditions?: string;
+  instructions?: string;
+  target?: string | null;
+  cooldown_sec?: number;
+  config_version?: number;
+  execution_mode?: ExecutionMode;
+  action_config?: string | null;
 }
 
 export interface RuleLogRow {
@@ -33,8 +67,16 @@ export interface RuleLogRow {
 export class RulesRepo {
   constructor(private readonly db: Database.Database) {}
 
-  insert(input: Omit<RuleRow, "added_at" | "removed_at" | "removed_by" | "removed_reason" | "last_fired_at" | "enabled"> & {
+  insert(input: Omit<
+    RuleRow,
+    | "added_at" | "removed_at" | "removed_by" | "removed_reason" | "last_fired_at" | "enabled"
+    | "config_version" | "revision" | "execution_mode" | "action_config"
+    | "next_due_at" | "last_attempt_at" | "last_posted_at"
+  > & {
     enabled?: boolean;
+    config_version?: number;
+    execution_mode?: ExecutionMode;
+    action_config?: string | null;
   }): RuleRow {
     const now = Math.floor(Date.now() / 1000);
     this.db
@@ -42,8 +84,8 @@ export class RulesRepo {
         `INSERT INTO rules(
           id, description, trigger_type, tick_sec, event_kind, conditions,
           instructions, target, cooldown_sec, last_fired_at, enabled,
-          added_at, added_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+          added_at, added_by, config_version, execution_mode, action_config
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING`,
       )
       .run(
@@ -59,6 +101,9 @@ export class RulesRepo {
         input.enabled === false ? 0 : 1,
         now,
         input.added_by,
+        input.config_version ?? 1,
+        input.execution_mode ?? "legacy-observe",
+        input.action_config ?? null,
       );
     return this.find(input.id)!;
   }
@@ -69,9 +114,10 @@ export class RulesRepo {
     );
   }
 
-  list(filter: { enabled?: boolean; trigger_type?: TriggerType } = {}): RuleRow[] {
+  list(filter: { enabled?: boolean; trigger_type?: TriggerType; execution_mode?: ExecutionMode } = {}): RuleRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
+    if (filter.execution_mode) { where.push("execution_mode = ?"); args.push(filter.execution_mode); }
     if (filter.enabled !== undefined) { where.push("enabled = ?"); args.push(filter.enabled ? 1 : 0); }
     if (filter.trigger_type) { where.push("trigger_type = ?"); args.push(filter.trigger_type); }
     const sql = `SELECT * FROM rules ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY added_at DESC`;
@@ -153,6 +199,43 @@ export class RulesRepo {
         input.id,
       );
     return Number(r.changes ?? 0) > 0;
+  }
+
+  /**
+   * 版付き更新 (compare-and-set)。 expectedRevision が現在値と一致した時だけ書き、 revision を 1 増やす。
+   * 一致しなければ null (呼び出し側が 409 にする)。
+   */
+  updateWithRevision(id: string, expectedRevision: number, patch: RuleDefinitionPatch): RuleRow | null {
+    const sets: string[] = ["revision = revision + 1"];
+    const args: unknown[] = [];
+    for (const key of PATCHABLE_COLUMNS) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      sets.push(`${key} = ?`);
+      args.push(value);
+    }
+    args.push(id, expectedRevision);
+    const r = this.db
+      .prepare(`UPDATE rules SET ${sets.join(", ")} WHERE id = ? AND revision = ? AND removed_at IS NULL`)
+      .run(...args);
+    return Number(r.changes ?? 0) > 0 ? this.find(id) : null;
+  }
+
+  /** 有効/無効を版付きで切り替える。 無効化は固定版より優先するので revision も進める。 */
+  toggleWithRevision(id: string, enabled: boolean): RuleRow | null {
+    this.db.prepare(`UPDATE rules SET enabled = ?, revision = revision + 1 WHERE id = ?`).run(enabled ? 1 : 0, id);
+    return this.find(id);
+  }
+
+  setNextDue(id: string, ts: number | null): void {
+    this.db.prepare(`UPDATE rules SET next_due_at = ? WHERE id = ?`).run(ts, id);
+  }
+
+  /** 試行 (成否問わず) と最後の投稿成功を分けて残す。 last_fired_at は成功の証拠にしない。 */
+  markAttempt(id: string, ts: number, posted: boolean): void {
+    this.db
+      .prepare(`UPDATE rules SET last_attempt_at = ?${posted ? ", last_posted_at = ?" : ""} WHERE id = ?`)
+      .run(...(posted ? [ts, ts, id] : [ts, id]));
   }
 
   setLastFired(id: string, ts: number): void {

@@ -71,6 +71,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   HOME: "POSIX のユーザーホーム (OS 提供)。 USERPROFILE が無い環境で claude.exe の既定の置き場所を探すときに読む",
   PATH: "実行ファイルの探索パス (OS 提供)。 repo 検索のツール検出で読むだけで、 Concordia の設定ではない",
   EXCUBITOR_SERVICE_VERSION: "Excubitor が稼働プロセスへ注入する配備バージョン。 Concordia の設定ではない",
+  TENDENTIA_URL: "Excubitor の topology が全サービスへ配る Tendentia の接続先 (<CODE>_URL 自動導出)。 巡回チャットの素材元が読む外部サービスの所在で、 Concordia の設定ではない",
   VESTIGIUM_LOGS_DIR: "Vestigium が所有する共有ログ出力先。独立した migration-preflight CLI の観測先として読む外部サービスの設定",
   CONCORDIA_URL: "Inject 文面調整コマンド (src/control/inject-source-client.ts) が接続先 Cc を指す CLI クライアント側の env。 Concordia 本体の設定ではない",
   CONCORDIA_MANAGEMENT_TOKEN: "dots 側 PC で動く管理用 MCP クライアント (src/mcp/management-server.ts) が読む任務トークン。 Concordia 本体の設定ではない",

@@ -499,6 +499,9 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
 
   const chatChannel = metaKindToChatChannel(kind);
   const author = authorLabel;
+  // Discord の返信 (reference) は既知の chat 行へ結び付ける。 巡回チャットの直接返信判定に使う
+  // (spec/feature/patrol-chat.md §7)。 対応が無ければ従来どおり単独の発言として送る。
+  const inReplyTo = resolveMetaReplyTarget(deps, msg);
   try {
     const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
       method: "POST",
@@ -507,6 +510,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
         channel: chatChannel satisfies ChatChannel,
         text: text.slice(0, 2000),
         author_label: author,
+        ...(inReplyTo !== null ? { in_reply_to: inReplyTo } : {}),
         metadata: { source: "discord", discord_user_id: msg.author.id, discord_message_id: msg.id },
       }),
     });
@@ -619,6 +623,13 @@ async function tryEmojiWorkflow(
     )
     .catch((e) => deps.log.warn(`ingress: emoji workflow failed: ${(e as Error).message}`));
   return true;
+}
+
+/** meta channel の Discord 返信先を chat_messages.id へ解決する。 解決できなければ null。 */
+export function resolveMetaReplyTarget(deps: Pick<IngressDeps, "messageMap">, msg: Pick<Message, "reference">): number | null {
+  const refId = msg.reference?.messageId;
+  if (!refId || !deps.messageMap) return null;
+  return deps.messageMap.findChatId(refId);
 }
 
 /** 単発絵文字の対象メッセージ: 返信先 → session の直近の順で補助的に解決する。 */

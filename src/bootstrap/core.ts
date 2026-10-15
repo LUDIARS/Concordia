@@ -207,6 +207,7 @@ import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
+import { buildPatrolRuntime } from "../rules/patrol-runtime.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
 import { indexSessionPrs } from "../daily/site-activity-prs.js";
@@ -681,6 +682,13 @@ export async function startBackend(): Promise<BackendHandle> {
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
+  // 巡回チャット (spec/feature/patrol-chat.md)。 Tendentia の接続先は Excubitor topology が配る TENDENTIA_URL。
+  const patrolRuntime = buildPatrolRuntime({
+    db,
+    chat,
+    rules,
+    tendentiaUrl: process.env.TENDENTIA_URL?.trim() || null,
+  });
   const dayReports = new DayReportsRepo(db);
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
@@ -2256,6 +2264,8 @@ export async function startBackend(): Promise<BackendHandle> {
     skills,
     skillCatalog,
     rules,
+    ruleVersions: patrolRuntime.versions,
+    patrolApi: patrolRuntime.api,
     dayReports,
     processes,
     stats,
@@ -2827,6 +2837,7 @@ export async function startBackend(): Promise<BackendHandle> {
         rules,
         sessions: repo,
         rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
+        patrol: patrolRuntime.ports,
       }),
     );
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));

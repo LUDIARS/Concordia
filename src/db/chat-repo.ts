@@ -76,6 +76,25 @@ export class ChatRepo {
     );
   }
 
+  /**
+   * 同じ channel で afterId より後に来た人間の発言数。 Discord ingress (bot 除外済み) か明示の
+   * human origin だけを数え、 巡回・bot・system の自動発言は数えない (spec/feature/patrol-chat.md §7)。
+   */
+  countHumanAfter(channel: string, afterId: number): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM chat_messages
+         WHERE channel = ? AND id > ?
+           AND json_valid(metadata)
+           AND (
+             (json_extract(metadata, '$.source') = 'discord' AND COALESCE(json_extract(metadata, '$.discord_user_id'), '') <> '')
+             OR json_extract(metadata, '$.origin') = 'human'
+           )`,
+      )
+      .get(channel, afterId) as { n: number };
+    return row.n;
+  }
+
   list(filter: {
     channel?: ChatChannel;
     sessionId?: string;

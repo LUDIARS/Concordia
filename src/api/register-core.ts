@@ -57,6 +57,8 @@ import type { ProcessManager } from "../processes/manager.js";
 import type { ProcessesRepo } from "../db/processes-repo.js";
 import type { SkillsRepo } from "../db/skills-repo.js";
 import type { RulesRepo } from "../db/rules-repo.js";
+import type { RuleVersionsRepo } from "../db/rule-versions-repo.js";
+import type { PatrolApiDeps } from "./rules-patrol.js";
 import type { StatsRepo } from "../db/stats-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
@@ -275,6 +277,10 @@ export interface CoreSessionDeps {
   /** Castra / user 領域のスキル一覧 (設計 §10.2 C-8)。 未注入なら自前で作る。 */
   skillCatalog?: SkillCatalogStore;
   rules: RulesRepo;
+  /** rule 設定の版履歴 (spec/feature/patrol-chat.md §8)。 */
+  ruleVersions?: RuleVersionsRepo;
+  /** 巡回チャットの台帳と素材元。 未配線なら巡回 rule は作れない。 */
+  patrolApi?: PatrolApiDeps;
   processes: ProcessesRepo;
   stats: StatsRepo;
   prs: PrRecordsRepo;
@@ -625,7 +631,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     catalog: deps.skillCatalog
       ?? new SkillCatalogStore(() => deps.adminState.getWorkspaceRoot()),
   }));
-  app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
+  app.route("/v1/rules", rulesRouter({ rules: deps.rules, versions: deps.ruleVersions, patrol: deps.patrolApi }));
   app.route(
     "/v1/library",
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),

@@ -51,3 +51,35 @@ describe("rule engine crash guard", () => {
     }
   });
 });
+
+describe("rule engine patrol separation (spec/feature/patrol-chat.md §5)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps legacy passes on legacy-observe rules and runs patrol rules only through the patrol pass", async () => {
+    vi.useFakeTimers();
+    const filters: unknown[] = [];
+    const rules = {
+      list: vi.fn((filter: unknown) => { filters.push(filter); return []; }),
+      log: vi.fn(),
+      setLastFired: vi.fn(),
+    };
+    const sessions = { listSessions: vi.fn(() => []) };
+    const patrol = {
+      runs: { listStale: vi.fn(() => []), listAwaitingDelivery: vi.fn(() => []) },
+      conversations: { closeExpired: vi.fn(() => 0) },
+      events: { ignoreOlderThan: vi.fn(() => 0) },
+      nowMs: () => Date.now(),
+    };
+    const engine = startRuleEngine({ rules, sessions, patrol } as unknown as EngineDeps);
+    try {
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(filters).toContainEqual({ enabled: true, trigger_type: "tick", execution_mode: "legacy-observe" });
+      expect(filters).toContainEqual({ enabled: true, execution_mode: "patrol" });
+      expect(patrol.runs.listStale).toHaveBeenCalled();
+    } finally {
+      engine.stop();
+    }
+  });
+});

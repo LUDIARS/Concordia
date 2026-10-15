@@ -313,6 +313,8 @@ export interface DiscordMessageMapRepo {
   put(discordMessageId: string, chatMessageId: number): void;
   /** Reaction 受信時に chat_messages.id を逆引きする. */
   findChatId(discordMessageId: string): number | null;
+  /** chat_messages.id から Discord に届いた message_id を引く (配達の照合用)。 未送信 / 不明は null。 */
+  findDiscordId(chatMessageId: number): string | null;
 }
 
 export function makeDiscordMessageMapRepo(db: Database): DiscordMessageMapRepo {
@@ -328,6 +330,12 @@ export function makeDiscordMessageMapRepo(db: Database): DiscordMessageMapRepo {
         .prepare("SELECT chat_message_id FROM discord_message_map WHERE discord_message_id = ?")
         .get(discordMessageId) as { chat_message_id: number } | undefined;
       return row?.chat_message_id ?? null;
+    },
+    findDiscordId(chatMessageId) {
+      const row = db
+        .prepare("SELECT discord_message_id FROM discord_message_map WHERE chat_message_id = ? ORDER BY ts DESC LIMIT 1")
+        .get(chatMessageId) as { discord_message_id: string } | undefined;
+      return row?.discord_message_id ?? null;
     },
   };
 }
@@ -354,6 +362,11 @@ export interface ChatMessageReactionsRepo {
   add(input: { message_id: number; discord_user_id: string; kind: ReactionKind }): void;
   remove(input: { message_id: number; discord_user_id: string; kind: ReactionKind }): void;
   countByMessage(messageId: number): { fine: number; bad: number; other: number };
+  /**
+   * 反応したユーザー数 (kind ごとではなく人数)。 同じ人の複数絵文字で閾値を越えないよう、
+   * 巡回チャットの追投稿判定はこちらを使う (spec/feature/patrol-chat.md §7)。 remove 済みは数えない。
+   */
+  reactorsByMessage(messageId: number): { distinct: number; fine: number; bad: number };
 }
 
 export function makeChatMessageReactionsRepo(db: Database): ChatMessageReactionsRepo {
@@ -387,6 +400,18 @@ export function makeChatMessageReactionsRepo(db: Database): ChatMessageReactions
         else other += r.n;
       }
       return { fine, bad, other };
+    },
+    reactorsByMessage(messageId) {
+      const row = db
+        .prepare(
+          `SELECT
+             COUNT(DISTINCT discord_user_id) AS distinct_users,
+             COUNT(DISTINCT CASE WHEN kind = 'fine' THEN discord_user_id END) AS fine_users,
+             COUNT(DISTINCT CASE WHEN kind = 'bad' THEN discord_user_id END) AS bad_users
+           FROM chat_message_reactions WHERE message_id = ?`,
+        )
+        .get(messageId) as { distinct_users: number; fine_users: number; bad_users: number };
+      return { distinct: row.distinct_users, fine: row.fine_users, bad: row.bad_users };
     },
   };
 }

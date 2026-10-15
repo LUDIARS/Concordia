@@ -63,6 +63,18 @@
     },
     {
       "pathPattern": "(^|/)tests/departments-[^/]+\\.test\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/rule-(runs|conversations|versions|service-events)-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/rules(-patrol)?(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/Rules(\\.test)?\\.tsx$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/rules/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
@@ -73,6 +85,7 @@
     "spec/feature/question-session-retention.md",
     "spec/feature/departments.md",
     "spec/feature/tech-consultation.md#4-プライベート相談",
-    "spec/feature/workplace-chat.md"
+    "spec/feature/workplace-chat.md",
+    "spec/feature/patrol-chat.md"
   ]
 }

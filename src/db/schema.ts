@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 137;
+export const SCHEMA_VERSION = 138;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3498,6 +3498,114 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_bounty_events_window ON bounty_events(ends_at, starts_at);
       ALTER TABLE bounty_reports ADD COLUMN event_id TEXT REFERENCES bounty_events(id);
       CREATE INDEX IF NOT EXISTS idx_bounty_reports_event ON bounty_reports(event_id, received_at);
+    `);
+  },
+},
+{
+  version: 138,
+  name: "patrol-chat-rules",
+  source: "rules v2 columns + rule_versions/runs/conversations/inbound/service_events (spec/feature/patrol-chat.md §5 §8)",
+  up(db) {
+    // 既存 rule は execution_mode='legacy-observe' のまま。 配備で旧 rule が突然投稿し始めない (CC-PATROL-08)。
+    db.exec(`
+      ALTER TABLE rules ADD COLUMN config_version INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE rules ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE rules ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy-observe';
+      ALTER TABLE rules ADD COLUMN action_config TEXT;
+      ALTER TABLE rules ADD COLUMN next_due_at INTEGER;
+      ALTER TABLE rules ADD COLUMN last_attempt_at INTEGER;
+      ALTER TABLE rules ADD COLUMN last_posted_at INTEGER;
+
+      CREATE TABLE IF NOT EXISTS rule_versions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_id    TEXT NOT NULL,
+        revision   INTEGER NOT NULL,
+        snapshot   TEXT NOT NULL,
+        actor      TEXT NOT NULL,
+        note       TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(rule_id, revision)
+      );
+
+      CREATE TABLE IF NOT EXISTS rule_runs (
+        run_id            TEXT PRIMARY KEY,
+        rule_id           TEXT NOT NULL,
+        rule_revision     INTEGER NOT NULL,
+        trigger_key       TEXT NOT NULL UNIQUE,
+        action_kind       TEXT NOT NULL,
+        conversation_id   TEXT,
+        scope_key         TEXT NOT NULL,
+        channel           TEXT NOT NULL,
+        source_ref        TEXT,
+        material_snapshot TEXT,
+        seed              INTEGER,
+        decision          TEXT,
+        reason            TEXT,
+        status            TEXT NOT NULL,
+        lease_owner       TEXT,
+        lease_until       INTEGER,
+        render_attempts   INTEGER NOT NULL DEFAULT 0,
+        llm_calls         INTEGER NOT NULL DEFAULT 0,
+        rendered_text     TEXT,
+        chat_message_id   INTEGER UNIQUE,
+        delivery_ref      TEXT,
+        error_code        TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rule_runs_rule ON rule_runs(rule_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_rule_runs_status ON rule_runs(status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS rule_conversations (
+        conversation_id     TEXT PRIMARY KEY,
+        rule_id             TEXT NOT NULL,
+        rule_revision       INTEGER NOT NULL,
+        root_chat_id        INTEGER NOT NULL UNIQUE,
+        channel             TEXT NOT NULL,
+        scope_key           TEXT NOT NULL,
+        source_ref          TEXT,
+        status              TEXT NOT NULL DEFAULT 'open',
+        expires_at          INTEGER NOT NULL,
+        last_bot_message_id INTEGER NOT NULL,
+        last_bot_at         INTEGER NOT NULL,
+        reply_count         INTEGER NOT NULL DEFAULT 0,
+        unprompted_count    INTEGER NOT NULL DEFAULT 0,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rule_conversations_open ON rule_conversations(rule_id, status, expires_at);
+
+      CREATE TABLE IF NOT EXISTS rule_conversation_messages (
+        chat_message_id INTEGER PRIMARY KEY,
+        conversation_id TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS rule_inbound (
+        inbound_chat_id INTEGER PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        received_at     INTEGER NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        run_id          TEXT,
+        reason          TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_rule_inbound_pending ON rule_inbound(status, inbound_chat_id);
+
+      CREATE TABLE IF NOT EXISTS rule_service_events (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_event_id TEXT NOT NULL UNIQUE,
+        service_code    TEXT NOT NULL,
+        feature_key     TEXT,
+        event_kind      TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        summary         TEXT NOT NULL DEFAULT '',
+        url             TEXT,
+        scope_key       TEXT NOT NULL,
+        occurred_at     INTEGER NOT NULL,
+        received_at     INTEGER NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        consumed_by     TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_rule_service_events_pending ON rule_service_events(status, id);
     `);
   },
 },

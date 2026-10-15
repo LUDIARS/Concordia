@@ -17,9 +17,15 @@ import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { actionFrequencyMultiplier } from "../shared/quiet-hours.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
+import type { PatrolPorts } from "./patrol-ports.js";
+import { runPatrolCycle } from "./patrol-cycle.js";
+import { acceptInbound } from "./patrol-inbound.js";
+import { reconcileDeliveries, recoverStaleRuns } from "./patrol-maintenance.js";
 
 const log = createChildLogger("rule-engine");
 const ENGINE_TICK_MS = 1000;
+/** 巡回の復旧・配達照合・期限切れ会話の整理を回す間隔。 */
+const PATROL_MAINTENANCE_MS = 15_000;
 
 export interface EngineDeps {
   rules: RulesRepo;
@@ -29,6 +35,11 @@ export interface EngineDeps {
    * (admin の rules-enabled=false / コスト予算超過から配線).
    */
   rulesDisabled?: () => boolean;
+  /**
+   * 巡回チャット (execution_mode=patrol の rule) の実行 port。 未指定なら巡回 rule は動かない
+   * (旧 rule の legacy-observe だけが従来どおり動く)。 spec/feature/patrol-chat.md
+   */
+  patrol?: Omit<PatrolPorts, "runtimeDisabled">;
 }
 
 export interface EngineHandle {
@@ -50,8 +61,13 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
       if (stopped) return;
       if (ev.type === "ping") return;
       const eventKind = ev.type;
+      if (ev.type === "chat.posted" && patrol) {
+        // 巡回会話への人間の直接返信は定期 tick を待たず受理し、 すぐ巡回の 1 周を起こす。
+        const accepted = acceptInbound(patrol, ev.message_id);
+        if (accepted.accepted) void runPatrolPass();
+      }
       const candidates = deps.rules
-        .list({ enabled: true, trigger_type: "event" })
+        .list({ enabled: true, trigger_type: "event", execution_mode: "legacy-observe" })
         .filter((r) => !r.event_kind || r.event_kind === eventKind || matchesEvent(r.event_kind, eventKind));
       if (candidates.length === 0) return;
       // 強制ルール: 深夜帯 (23:00–翌05:00) は event rule の発火も 1/10 に間引く.
@@ -76,7 +92,7 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
       const now = Math.floor(Date.now() / 1000);
       // 深夜帯は tick の発火間隔を 1/freq 倍に伸ばす (= 行動頻度 1/10).
       const freq = actionFrequencyMultiplier();
-      const ticks = deps.rules.list({ enabled: true, trigger_type: "tick" });
+      const ticks = deps.rules.list({ enabled: true, trigger_type: "tick", execution_mode: "legacy-observe" });
       for (const r of ticks) {
         if (!r.tick_sec) continue;
         const elapsed = r.last_fired_at ? now - r.last_fired_at : Infinity;
@@ -84,12 +100,59 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
           await tryFire(r, "tick");
         }
       }
+      void runPatrolPass();
   }, {
     intervalMs: ENGINE_TICK_MS,
     log: { warn: (message) => log.warn(message) },
   });
 
-  log.info({ tickMs: ENGINE_TICK_MS }, "rule engine started (deterministic / haiku-rendered)");
+  log.info({ tickMs: ENGINE_TICK_MS, patrol: !!deps.patrol }, "rule engine started (deterministic / haiku-rendered)");
+
+  // ─── 巡回チャット ───────────────────────────────────────
+  // 旧 rule とは別の mutex。 巡回の生成 (最大 30 秒) が旧 rule の発火を "engine busy" で潰さない。
+  // 巡回 rule 同士は 1 本ずつ実行し、 並列生成を増やさない。
+  const patrol: PatrolPorts | null = deps.patrol
+    ? { ...deps.patrol, runtimeDisabled: () => stopped || (deps.rulesDisabled?.() ?? false) }
+    : null;
+  let patrolRunning = false;
+  let lastMaintenanceMs = 0;
+  if (patrol) {
+    try {
+      const recovered = recoverStaleRuns(patrol);
+      if (recovered.failed + recovered.committed + recovered.skipped > 0) log.info(recovered, "patrol runs recovered at start");
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "patrol recovery at start failed");
+    }
+  }
+
+  async function runPatrolPass(): Promise<void> {
+    if (!patrol || stopped || patrolRunning) return;
+    patrolRunning = true;
+    try {
+      const nowMs = patrol.nowMs();
+      if (nowMs - lastMaintenanceMs >= PATROL_MAINTENANCE_MS) {
+        lastMaintenanceMs = nowMs;
+        recoverStaleRuns(patrol);
+        reconcileDeliveries(patrol);
+        patrol.conversations.closeExpired(Math.floor(nowMs / 1000));
+        patrol.events.ignoreOlderThan(Math.floor(nowMs / 1000) - 86400);
+      }
+      const frequency = actionFrequencyMultiplier();
+      for (const rule of deps.rules.list({ enabled: true, execution_mode: "patrol" })) {
+        if (stopped) break;
+        try {
+          await runPatrolCycle(patrol, rule, { frequency });
+        } catch (err) {
+          deps.rules.log({ rule_id: rule.id, action: "error", actor: "engine", detail: `patrol cycle: ${(err as Error).message}` });
+          log.warn({ err: (err as Error).message, rule_id: rule.id }, "patrol cycle failed");
+        }
+      }
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "patrol pass failed");
+    } finally {
+      patrolRunning = false;
+    }
+  }
 
   async function tryFire(rule: RuleRow, triggeredBy: string): Promise<void> {
     if (running) {

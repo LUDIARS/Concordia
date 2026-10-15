@@ -1,0 +1,127 @@
+---
+type: feature
+title: "巡回チャット — 素材起点のルール投稿・返信・追投稿"
+description: "既存の rule engine (rules / rules_log / /v1/rules) を拡張し、決定的なルールで素材 (Tendentia の公開トレンド・サービスの出来事) を選んで短い一言を投稿する。返信には即応し、無返信なら反応の人数・後続の発言数で一度だけ追投稿する。判定に LLM を使わず、文の生成だけを 1 回行う。設定は版付きで、Cc の /rules 画面でルールと実行履歴を確認できる。"
+service: concordia
+domain: governance
+tags:
+  - rule-engine
+  - chat
+  - patrol
+  - tendentia
+  - webui
+status: implemented
+related:
+  - spec/plan/2026-10-15-patrol-chat-implementation-design.md
+  - spec/feature/blackbox-chat-engine.md
+updated: 2026-10-15
+---
+
+# 巡回チャット
+
+設計の経緯と根拠は [実装引継ぎ設計](../plan/2026-10-15-patrol-chat-implementation-design.md)。本書は実装済みの契約を記す。
+数値の初期値は設計案であり、人間が承認した値ではない。UX の評価は未測定。
+
+## 価値とシナリオ
+
+| ID | 価値 | 評価 |
+|---|---|---|
+| UX-CC-PATROL-01 | 素材の出典と投稿理由を確認でき、少ない消費で会話に参加できる | 未測定 (draft) |
+
+関連: `UX-CC-PRODUCT` の「つぶやきと会話」、`UX-CC-W4` (注意・コスト・配達)、`UX-CC-W5` (停止・復旧)。
+
+1. 定期: 巡回ルールが期日に素材元から候補を読み、決まった点数付けで 1 件を選び、短い一言と出典 URL を投稿する。
+2. 報告: サービスが `POST /v1/rules/service-events` へ出来事を送ると、型付きの filter に合う巡回ルールが短く報告する。
+3. 返信: 人間が巡回の投稿へ返信すると、定期の期日を待たずに応答する (同じ返信へは一度だけ)。
+4. 追投稿: 返信が無くても、反応した人数か後続の人間の発言数が閾値を越えたら、一度だけ短い一言を足す。
+5. 確認: Cc の `/rules` 画面でルール・素材元・実行履歴 (素材・本文・理由・配達) を見て、版を戻せる。
+
+## 境界
+
+- 所属: 支援 domain `governance` (rule 制御)。配送は既存 `chat-platforms` (chat.posted → egress)、HTTP は `http-interface`。
+- 業務判断: `src/rules/patrol-policy.ts` (純関数)。設定検証: `patrol-config.ts` / `rule-validation.ts`。
+- 手順: `execute-patrol.ts` / `patrol-cycle.ts` / `patrol-inbound.ts` / `patrol-maintenance.ts` (port `patrol-ports.ts` のみに依存)。
+- adapter: 素材 `material-tendentia.ts`、素材元 allowlist `material-registry.ts`、生成 `render-patrol.ts`、組み立て `patrol-runtime.ts`。
+- 永続: `rule_runs` (実行)、`rule_conversations` / `rule_conversation_messages` / `rule_inbound` (会話)、`rule_versions` (版)、
+  `rule_service_events` (受信箱)、`rules` の v2 列。migration 138 `patrol-chat-rules`。
+- 旧 `blackbox-chat-engine.md` の persona・描画の Histrio 移管方針は取り消さない。今回の素材起点巡回は Cc に現存する engine を拡張したもので、
+  生成 port (`render`) は将来 Histrio の実装へ差し替えられる。
+
+## 不変条件
+
+| ID | 不変条件 | 主な担保 |
+|---|---|---|
+| CC-PATROL-01 | 判定に LLM を使わず、時刻・乱数 seed・観測から再現できる | `patrol-policy.ts`、run に seed / 候補数 / score を保存 |
+| CC-PATROL-02 | 投稿前に rule revision / trigger / 素材 / 宛先 / run を保存する | `rule_runs` の各境界、chat 行と chat_message_id を同一 transaction |
+| CC-PATROL-03 | 同じ trigger は一度だけ受理し、結果不明の外部送信を自動再送しない | `trigger_key` UNIQUE、`rule_inbound` PK、配達は照合のみ |
+| CC-PATROL-04 | 自分の出力を素材・後続投稿・返信として再投入しない | metadata.source=`patrol`、人間判定 (`isHumanMessage` / `countHumanAfter`) |
+| CC-PATROL-05 | scope と素材の共有範囲が宛先に適合する | allowlist の scopes、`reviewPatrolConfig`、`pickMaterial` の shareableTo |
+| CC-PATROL-06 | runtime OFF / rule 無効 / 予算超過 / lease 喪失後に新規生成・送信を始めない | `stopReason`、送信直前の `sendBlocker`、lease CAS |
+| CC-PATROL-07 | 返信・追投稿は上限と hard cap を越えない | `canReply` / `evaluateFollowup`、`PATROL_HARD_CAPS` |
+| CC-PATROL-08 | 編集は revision を増やし、実行は取得時の版を固定。無効化は固定版より優先 | `updateWithRevision`、run.rule_revision、送信前の現在値再読 |
+| CC-PATROL-09 | 素材なし・素材元エラー・生成失敗・投稿・配達・結果不明を別状態で残す | `RunStatus`、error_code、画面の状態名 |
+
+## ルールの拡張
+
+- `rules` に `config_version` (1=旧, 2=巡回)・`revision`・`execution_mode` (`legacy-observe` / `patrol`)・`action_config` (JSON)・
+  `next_due_at`・`last_attempt_at`・`last_posted_at` を追加。既存 rule は `legacy-observe` のままで投稿副作用を持たない。
+- `action_config` は `kind=material-chat` の型付き設定 (素材元 ID・scope・filter・生成方式・日次上限・追投稿条件)。
+  未知キーは拒否、上限は hard cap 以下。URL / SQL / ファイル / credential は書けない (素材元は allowlist の ID だけ)。
+- 巡回の event rule は `event_kind=service.event` で、`service_codes` / `feature_keys` / `event_kinds` のいずれかの filter を必須にする。
+- PUT / PATCH / toggle (有効化) / rollback は更新後の全体を `validateRuleDefinition` で検証する。巡回 rule の PATCH は
+  `expected_revision` 必須 (無ければ 428、不一致 409)。巡回 rule の PUT は明示しない限り無効で保存する。
+- assist は draft を返すだけで、保存・有効化しない (従来どおり)。
+
+## 素材元
+
+| sourceId | 状態 | 契約 |
+|---|---|---|
+| `tendentia-public-trends` | 接続先 `TENDENTIA_URL` (Excubitor topology) があれば ready | `GET /api/trend-crawler/overview` を読むだけ。error / fetchedAt の無い source は採らない。個人の interest / click は読まない。crawl を起動しない |
+| `corpus-activity` | `contract-unverified` (選択不可) | Corpus 本体に共通の活動 feed を確認できていない。所有サービスの活動 API・scope・保持期間を確認してから adapter を追加する |
+
+素材取得の失敗は空配列ではなく `MaterialSourceError` (auth / schema / timeout / unavailable / not-configured / contract-unverified)。
+
+## 実行
+
+engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` する (旧 rule とは別の mutex)。優先順位は固定:
+停止 → 未処理の直接返信 (最大 3 件をまとめる) → service event → 追投稿 → 定期 pick → 理由付き skip。
+
+- 定期の期日は `next_due_at`。初見の rule は即発火させず、rule ID 由来の jitter (間隔の 10% 以内) で次回を決める。
+  深夜帯は間隔を 1/頻度 倍に伸ばす。返信は深夜帯でも待たせない。
+- 状態: `claimed → material_selected → rendering → rendered → delivery_pending → delivered | delivery_unknown`、
+  途中で `skipped` / `failed`。各遷移は lease_owner と現状態の compare-and-set。
+- 生成は `claude -p` 会話専用 (tools 無効)・haiku・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。
+- 15 秒ごとの保守: lease 切れの run を復旧 (rendered は保存済み本文で投稿を確定、rendering は `render_interrupted` で失敗確定)、
+  配達照合、期限切れ会話の終了、1 日以上前の未処理 event を ignored に。
+- 配達: 既存 egress が chat.posted で送信し、成功時だけ `discord_message_map` に記録する。記録が見つかれば `delivered`、
+  投稿後 10 分見つからなければ `delivery_unknown`。不明は 1 日照合を続けるが、自動では再送しない。
+- 停止: engine.stop は新しい周期を止め、送信直前の検査で投稿させない。生成途中の run は次回起動時に `render_interrupted` として残る。
+
+## 返信と反応
+
+- Discord の meta channel で返信 (reference) した発言は、`discord_message_map` で既知の chat 行へ解決して `in_reply_to` を付けて投稿する。
+- 返信の受理は `rule_inbound` (inbound chat ID が PK)。巡回の bot 発言 (root と以降の発言) への、人間の・同じ宛先の発言だけを受ける。
+- 追投稿は最後の bot 発言から最低待ち時間が過ぎ、直接返信が無く、悪い反応が良い反応を上回っていないときだけ。
+  反応は人数で数える (`reactorsByMessage`: 同じ人の複数絵文字は 1 人、取り消しは反映)。後続の発言は人間起源だけを数える。
+- 生成直前に追投稿の条件を再評価し、返信が来ていれば取り消す。
+
+## API
+
+| API | 用途 |
+|---|---|
+| GET `/v1/rules` | v1/v2、revision、`readiness` (実行可否と不足理由)、最終 run |
+| PUT `/v1/rules` / PATCH `/v1/rules/:id` | 検証付き追加・版付き更新 |
+| POST `/v1/rules/:id/toggle` | 有効化前に再検証。無効化は未着手 run を見送りに |
+| GET `/v1/rules/:id/versions` / POST `/v1/rules/:id/rollback` | 版履歴 / 指定版の定義を新しい版として復元 (有効状態は変えない) |
+| GET `/v1/rules/sources` | 素材元の ready/unavailable と最終取得 |
+| POST `/v1/rules/preview` | 副作用・生成なしで候補と理由 |
+| GET `/v1/rules/runs` / `/v1/rules/runs/:runId` | 実行履歴 (cursor) / 選択根拠・本文・配達・会話・版 |
+| POST `/v1/rules/service-events` | 出来事の受信 (source_event_id で一度だけ、scope は hq/public) |
+| GET `/v1/rules/log` | 既存互換。limit は 1〜200 |
+
+## 残件
+
+- Corpus 継承サービスの活動ログ: 対象サービスと公開活動 API の契約確認、adapter 追加。
+- 配達台帳: egress 側に送信前の試行記録を足せば、送信後・記録前の中断を照合で区別できる (現状は `delivery_unknown` で止める)。
+- Slack 等 Discord 以外の配達は照合していない (投稿 10 分後に `delivery_unknown`)。
+- 変更主体は `human` 固定 (API に認証済み principal を渡す口が無い)。

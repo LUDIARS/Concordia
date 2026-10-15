@@ -1,13 +1,24 @@
 /**
  * /v1/rules API.
+ *
+ * 旧 rule (config_version=1, legacy-observe) の CRUD を保ったまま、 巡回チャット rule
+ * (config_version=2, patrol) を同じ経路で扱う (spec/feature/patrol-chat.md §5 §9)。
+ * - PUT / PATCH / toggle-enable / rollback は更新後の全体を同じ validator で検証する
+ * - 版付き更新: 巡回 rule の PATCH は expected_revision 必須、 不一致は 409
+ * - assist は draft を返すだけで保存・有効化しない
  */
 
 import { Hono } from "hono";
 import { z } from "zod";
-import type { RulesRepo, TriggerType } from "../db/rules-repo.js";
+import type { RuleRow, RulesRepo, TriggerType } from "../db/rules-repo.js";
+import type { RuleRunsRepo } from "../db/rule-runs-repo.js";
+import type { RuleVersionsRepo } from "../db/rule-versions-repo.js";
 import { eventBus } from "../events.js";
 import { runClaude, extractJson } from "../rules/claude-runner.js";
-import { reviewRule, KNOWN_EVENT_KINDS } from "../rules/review.js";
+import { KNOWN_EVENT_KINDS } from "../rules/review.js";
+import { parseActionConfig, type SourceLookup } from "../rules/patrol-config.js";
+import { validateRuleDefinition, type RuleDefinition } from "../rules/rule-validation.js";
+import { registerPatrolRoutes, type PatrolApiDeps } from "./rules-patrol.js";
 
 function nowSec(): number { return Math.floor(Date.now() / 1000); }
 
@@ -22,21 +33,48 @@ const RuleInput = z.object({
   target: z.string().nullable().optional(),
   cooldown_sec: z.number().int().min(0).max(86400).optional(),
   /** 提案直後 enabled にせず disabled で保存し、 後で toggle で enable する review 経路.
-   *  省略時は true (即時有効) ── 既存 API クライアント互換のため. */
+   *  省略時は true (即時有効) ── 既存 API クライアント互換のため. 巡回 rule は省略時 false. */
   enabled: z.boolean().optional(),
+  /** 2 = 巡回チャット rule。 省略時 1 (旧 rule)。 */
+  config_version: z.union([z.literal(1), z.literal(2)]).optional(),
+  action_config: z.record(z.unknown()).nullable().optional(),
+});
+
+const PatchSchema = z.object({
+  expected_revision: z.number().int().min(1).optional(),
+  description: z.string().nullable().optional(),
+  trigger_type: z.enum(["tick", "event"]).optional(),
+  tick_sec: z.number().int().min(5).max(86400).nullable().optional(),
+  event_kind: z.string().nullable().optional(),
+  conditions: z.array(z.unknown()).optional(),
+  instructions: z.string().min(1).max(4000).optional(),
+  target: z.string().nullable().optional(),
+  cooldown_sec: z.number().int().min(0).max(86400).optional(),
+  config_version: z.union([z.literal(1), z.literal(2)]).optional(),
+  action_config: z.record(z.unknown()).nullable().optional(),
 });
 
 export interface RulesApiDeps {
   rules: RulesRepo;
+  /** 版履歴。 未配線なら版は残さない (旧構成互換)。 */
+  versions?: RuleVersionsRepo;
+  /** 巡回チャットの台帳と素材元。 未配線なら巡回 rule は作成・有効化できない。 */
+  patrol?: PatrolApiDeps;
 }
+
+const NO_SOURCES: SourceLookup = { has: () => false, describe: () => null };
 
 export function rulesRouter(deps: RulesApiDeps): Hono {
   const app = new Hono();
+  const sources: SourceLookup = deps.patrol?.sources ?? NO_SOURCES;
+  const recordVersion = (rule: RuleRow, note: string) => deps.versions?.record(rule, "human", note);
+  const serializeRule = (r: RuleRow) => serialize(r, deps.patrol?.runs ?? null, sources);
+
+  // 巡回の追加 route (/sources /preview /runs /service-events /:id/versions /:id/rollback) を先に登録する。
+  if (deps.patrol) registerPatrolRoutes(app, { ...deps.patrol, rules: deps.rules, versions: deps.versions ?? null, serializeRule });
 
   app.get("/", (c) => {
-    return c.json({
-      rules: deps.rules.list().map(serialize),
-    });
+    return c.json({ rules: deps.rules.list().map(serializeRule) });
   });
 
   app.put("/", async (c) => {
@@ -44,27 +82,10 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
     const parsed = RuleInput.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const r = parsed.data;
-    const existing = deps.rules.find(r.id);
-    if (existing) return c.json({ error: "id already exists; use POST /:id/toggle to update enabled" }, 409);
-
-    // 発火前の決定的レビュー (LLM 不使用). 通れば自動有効化、 落ちれば理由付きで拒否.
-    const review = reviewRule({
-      id: r.id,
-      description: r.description ?? null,
-      trigger_type: r.trigger_type as TriggerType,
-      tick_sec: r.tick_sec ?? null,
-      event_kind: r.event_kind ?? null,
-      target: r.target ?? null,
-      cooldown_sec: r.cooldown_sec ?? null,
-      instructions: r.instructions,
-    });
-    if (!review.ok) {
-      deps.rules.log({ rule_id: r.id, action: "error", actor: "human", detail: `rejected by review: ${review.reason}` });
-      return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
-    }
-
-    const enabled = r.enabled !== false; // 省略時 true (review 通過済). 明示 false で手動ドラフト保留可.
-    const inserted = deps.rules.insert({
+    if (deps.rules.find(r.id)) return c.json({ error: "id already exists; use PATCH /:id to update" }, 409);
+    const version = r.config_version ?? 1;
+    if (version === 2 && !deps.patrol) return c.json({ error: "patrol_unavailable" }, 503);
+    const def: RuleDefinition = {
       id: r.id,
       description: r.description ?? null,
       trigger_type: r.trigger_type as TriggerType,
@@ -74,17 +95,43 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       instructions: r.instructions,
       target: r.target ?? null,
       cooldown_sec: r.cooldown_sec ?? 60,
+      config_version: version,
+      execution_mode: version === 2 ? "patrol" : "legacy-observe",
+      action_config: version === 2 ? JSON.stringify(r.action_config ?? {}) : null,
+    };
+    // 発火前の決定的レビュー (LLM 不使用). 落ちれば理由付きで拒否.
+    const review = validateRuleDefinition(def, sources);
+    if (!review.ok) {
+      deps.rules.log({ rule_id: r.id, action: "error", actor: "human", detail: `rejected by review: ${review.reason}` });
+      return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
+    }
+    // 巡回 rule は投稿副作用を持つので、 明示しない限り無効で保存する (preview で確かめてから有効化)。
+    const enabled = r.enabled ?? version === 1;
+    const inserted = deps.rules.insert({
+      id: def.id,
+      description: def.description,
+      trigger_type: def.trigger_type,
+      tick_sec: def.tick_sec,
+      event_kind: def.event_kind,
+      conditions: def.conditions,
+      instructions: def.instructions,
+      target: def.target,
+      cooldown_sec: def.cooldown_sec,
       added_by: "human",
       enabled,
+      config_version: def.config_version,
+      execution_mode: def.execution_mode,
+      action_config: def.action_config,
     });
+    recordVersion(inserted, "created");
     deps.rules.log({
       rule_id: r.id,
       action: "add",
       actor: "human",
-      detail: enabled ? "added via API (enabled)" : "proposed via API (review-pending, disabled)",
+      detail: `${enabled ? "added via API (enabled)" : "proposed via API (disabled)"} v${version}`,
     });
     eventBus.emit({ type: "rule.changed", rule_id: r.id, action: "add", ts: nowSec() });
-    return c.json({ rule: serialize(inserted) });
+    return c.json({ rule: serializeRule(inserted) });
   });
 
   app.delete("/:id", async (c) => {
@@ -93,43 +140,70 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
     const reason = typeof body?.reason === "string" ? body.reason : null;
     const ok = deps.rules.remove(id, "human", reason);
     if (!ok) return c.json({ error: "not_found" }, 404);
-    deps.rules.log({ rule_id: id, action: "remove", actor: "human", detail: reason });
+    deps.patrol?.runs.cancelInFlight(id, "rule removed", nowSec());
+    deps.rules.log({ rule_id: id, action: "remove", actor: "human", detail: reason ?? undefined });
     eventBus.emit({ type: "rule.changed", rule_id: id, action: "remove", ts: nowSec() });
     return c.json({ ok: true });
   });
 
-  // PATCH /v1/rules/:id  — instructions / event_kind / tick_sec etc を編集
-  const PatchSchema = z.object({
-    description: z.string().nullable().optional(),
-    trigger_type: z.enum(["tick", "event"]).optional(),
-    tick_sec: z.number().int().min(5).max(86400).nullable().optional(),
-    event_kind: z.string().nullable().optional(),
-    conditions: z.array(z.unknown()).optional(),
-    instructions: z.string().min(1).max(4000).optional(),
-    target: z.string().nullable().optional(),
-    cooldown_sec: z.number().int().min(0).max(86400).optional(),
-  });
+  // PATCH /v1/rules/:id  — 更新後の全体を検証し、 版を進めて保存する
   app.patch("/:id", async (c) => {
     const id = c.req.param("id");
     const cur = deps.rules.find(id);
-    if (!cur) return c.json({ error: "not_found" }, 404);
+    if (!cur || cur.removed_at) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = PatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const p = parsed.data;
-    deps.rules.updateRule(id, {
-      description: p.description,
-      trigger_type: p.trigger_type as TriggerType | undefined,
-      tick_sec: p.tick_sec,
-      event_kind: p.event_kind,
-      conditions: p.conditions ? JSON.stringify(p.conditions) : undefined,
-      instructions: p.instructions,
-      target: p.target,
-      cooldown_sec: p.cooldown_sec,
+    const nextVersion = p.config_version ?? cur.config_version;
+    if ((cur.config_version === 2 || nextVersion === 2) && p.expected_revision === undefined) {
+      return c.json({ error: "expected_revision_required", revision: cur.revision }, 428);
+    }
+    if (p.expected_revision !== undefined && p.expected_revision !== cur.revision) {
+      return c.json({ error: "revision_conflict", revision: cur.revision }, 409);
+    }
+    if (nextVersion === 2 && !deps.patrol) return c.json({ error: "patrol_unavailable" }, 503);
+    const merged: RuleDefinition = {
+      id,
+      description: p.description !== undefined ? p.description : cur.description,
+      trigger_type: (p.trigger_type ?? cur.trigger_type) as TriggerType,
+      tick_sec: p.tick_sec !== undefined ? p.tick_sec : cur.tick_sec,
+      event_kind: p.event_kind !== undefined ? p.event_kind : cur.event_kind,
+      conditions: p.conditions ? JSON.stringify(p.conditions) : cur.conditions,
+      instructions: p.instructions ?? cur.instructions,
+      target: p.target !== undefined ? p.target : cur.target,
+      cooldown_sec: p.cooldown_sec ?? cur.cooldown_sec,
+      config_version: nextVersion,
+      execution_mode: nextVersion === 2 ? "patrol" : "legacy-observe",
+      action_config: nextVersion === 2
+        ? (p.action_config !== undefined ? JSON.stringify(p.action_config ?? {}) : cur.action_config)
+        : null,
+    };
+    const review = validateRuleDefinition(merged, sources);
+    if (!review.ok) {
+      deps.rules.log({ rule_id: id, action: "error", actor: "human", detail: `edit rejected by review: ${review.reason}` });
+      return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
+    }
+    const updated = deps.rules.updateWithRevision(id, cur.revision, {
+      description: merged.description,
+      trigger_type: merged.trigger_type,
+      tick_sec: merged.tick_sec,
+      event_kind: merged.event_kind,
+      conditions: merged.conditions,
+      instructions: merged.instructions,
+      target: merged.target,
+      cooldown_sec: merged.cooldown_sec,
+      config_version: merged.config_version,
+      execution_mode: merged.execution_mode,
+      action_config: merged.action_config,
     });
-    deps.rules.log({ rule_id: id, action: "add", actor: "human", detail: "edited via API" });
+    if (!updated) return c.json({ error: "revision_conflict", revision: deps.rules.find(id)?.revision ?? null }, 409);
+    // 間隔が変わった可能性があるので次回期日は作り直させる。
+    deps.rules.setNextDue(id, null);
+    recordVersion(updated, "edited");
+    deps.rules.log({ rule_id: id, action: "add", actor: "human", detail: `edited via API (rev ${updated.revision})` });
     eventBus.emit({ type: "rule.changed", rule_id: id, action: "toggle", ts: nowSec() });
-    return c.json({ rule: serialize(deps.rules.find(id)!) });
+    return c.json({ rule: serializeRule(updated) });
   });
 
   // POST /v1/rules/assist  — partial rule を AI に補完してもらう (insert はしない、結果のみ返す)
@@ -171,7 +245,7 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       '{"id":"","description":"","trigger_type":"","tick_sec":null,"event_kind":null,"conditions":[],"instructions":"","cooldown_sec":300}',
     ].join("\n");
 
-    // rule 補完は人手のオーサリング補助 (低頻度). Haiku で十分.
+    // rule 補完は人手のオーサリング補助 (低頻度). Haiku で十分. 結果は draft で、 保存・有効化しない.
     const r = await runClaude(prompt, { model: "haiku" });
     if (!r.ok) return c.json({ error: `claude failed: ${r.stderr.slice(0, 200)}` }, 502);
     const json = extractJson(r.stdout);
@@ -187,9 +261,18 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
   app.post("/:id/toggle", async (c) => {
     const id = c.req.param("id");
     const cur = deps.rules.find(id);
-    if (!cur) return c.json({ error: "not_found" }, 404);
+    if (!cur || cur.removed_at) return c.json({ error: "not_found" }, 404);
     const next = !cur.enabled;
-    deps.rules.toggle(id, next);
+    if (next) {
+      // 有効化の前に現在の設定を検証し直す (素材元の登録状況も変わり得る)。
+      if (cur.config_version === 2 && !deps.patrol) return c.json({ error: "patrol_unavailable" }, 503);
+      const review = validateRuleDefinition(cur, sources);
+      if (!review.ok) return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
+    }
+    const updated = cur.config_version === 2 ? deps.rules.toggleWithRevision(id, next) : (deps.rules.toggle(id, next), deps.rules.find(id));
+    if (!next) deps.patrol?.runs.cancelInFlight(id, "rule disabled", nowSec());
+    if (next) deps.rules.setNextDue(id, null);
+    if (updated && cur.config_version === 2) recordVersion(updated, next ? "enabled" : "disabled");
     deps.rules.log({
       rule_id: id,
       action: "add",
@@ -197,18 +280,31 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       detail: `toggle: ${next ? "enabled" : "disabled"}`,
     });
     eventBus.emit({ type: "rule.changed", rule_id: id, action: "toggle", ts: nowSec() });
-    return c.json({ rule: serialize(deps.rules.find(id)!) });
+    return c.json({ rule: serializeRule(deps.rules.find(id)!) });
   });
 
   app.get("/log", (c) => {
-    const limit = Number(c.req.query("limit") ?? "100");
+    const raw = Number(c.req.query("limit") ?? "100");
+    const limit = Number.isInteger(raw) ? Math.min(Math.max(raw, 1), 200) : 100;
     return c.json({ logs: deps.rules.recentLogs(limit) });
   });
 
   return app;
 }
 
-function serialize(r: ReturnType<RulesRepo["list"]>[number]) {
+/** rule の実行可否と不足理由。 旧 rule は legacy-observe (投稿しない) と明示する。 */
+export function readinessOf(r: RuleRow, sources: SourceLookup): { runnable: boolean; reason: string } {
+  if (r.removed_at) return { runnable: false, reason: "removed" };
+  if (r.execution_mode !== "patrol") return { runnable: false, reason: "legacy-observe (投稿しない旧 rule)" };
+  const review = validateRuleDefinition(r, sources);
+  if (!review.ok) return { runnable: false, reason: review.reason };
+  if (!r.enabled) return { runnable: false, reason: "disabled" };
+  return { runnable: true, reason: "ready" };
+}
+
+export function serialize(r: RuleRow, runs: Pick<RuleRunsRepo, "list"> | null, sources: SourceLookup) {
+  const config = r.config_version === 2 ? parseActionConfig(r.action_config) : null;
+  const last = runs ? runs.list({ rule_id: r.id, limit: 1 }).runs[0] ?? null : null;
   return {
     id: r.id,
     description: r.description,
@@ -226,6 +322,15 @@ function serialize(r: ReturnType<RulesRepo["list"]>[number]) {
     removed_at: r.removed_at,
     removed_by: r.removed_by,
     removed_reason: r.removed_reason,
+    config_version: r.config_version,
+    revision: r.revision,
+    execution_mode: r.execution_mode,
+    action_config: config?.ok ? config.config : r.action_config ? safeParse(r.action_config) : null,
+    next_due_at: r.next_due_at,
+    last_attempt_at: r.last_attempt_at,
+    last_posted_at: r.last_posted_at,
+    readiness: readinessOf(r, sources),
+    last_run: last ? { run_id: last.run_id, status: last.status, reason: last.reason, created_at: last.created_at } : null,
   };
 }
 

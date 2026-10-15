@@ -1,6 +1,6 @@
 import { ChannelType, type Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleMessage, resolveMetaKind, type IngressDeps } from "./ingress.js";
+import { handleMessage, resolveMetaKind, resolveMetaReplyTarget, type IngressDeps } from "./ingress.js";
 import { clearInjectAcks, takeInjectAck } from "./inject-ack.js";
 
 describe("discord ingress inject acceptance reactions", () => {
@@ -577,5 +577,15 @@ describe("論理会話 (Astra With Sidecar) の受付", () => {
     await handleMessage(deps, threadMessage());
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/sessions/s1/inject");
     expect(reportDelivery).not.toHaveBeenCalled();
+  });
+});
+
+describe("meta channel reply reference (spec/feature/patrol-chat.md §7)", () => {
+  it("resolves a Discord reply to the known chat message, or null", () => {
+    const messageMap = { findChatId: vi.fn((id: string) => (id === "d-root" ? 42 : null)) } as unknown as IngressDeps["messageMap"];
+    expect(resolveMetaReplyTarget({ messageMap }, { reference: { messageId: "d-root" } } as unknown as Message)).toBe(42);
+    expect(resolveMetaReplyTarget({ messageMap }, { reference: { messageId: "d-other" } } as unknown as Message)).toBeNull();
+    expect(resolveMetaReplyTarget({ messageMap }, { reference: null } as unknown as Message)).toBeNull();
+    expect(resolveMetaReplyTarget({ messageMap: undefined }, { reference: { messageId: "d-root" } } as unknown as Message)).toBeNull();
   });
 });

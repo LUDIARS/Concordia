@@ -311,3 +311,24 @@ describe("discord_pending_questions repo", () => {
     expect(repo.findRecentlyAnsweredByQuestion("s1", "別の質問", 0)).toBeNull();
   });
 });
+
+describe("patrol chat support (spec/feature/patrol-chat.md §7–§8)", () => {
+  it("counts reacting users, not reaction kinds, and reflects removals", () => {
+    const db = makeTestDb();
+    const repo = makeChatMessageReactionsRepo(db);
+    repo.add({ message_id: 1, discord_user_id: "u1", kind: "fine" });
+    repo.add({ message_id: 1, discord_user_id: "u1", kind: "raw:🔥" });
+    repo.add({ message_id: 1, discord_user_id: "u2", kind: "bad" });
+    expect(repo.reactorsByMessage(1)).toEqual({ distinct: 2, fine: 1, bad: 1 });
+    repo.remove({ message_id: 1, discord_user_id: "u2", kind: "bad" });
+    expect(repo.reactorsByMessage(1)).toEqual({ distinct: 1, fine: 1, bad: 0 });
+  });
+
+  it("finds the Discord message for a chat message only after delivery was recorded", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordMessageMapRepo(db);
+    expect(repo.findDiscordId(5)).toBeNull();
+    repo.put("d-1", 5);
+    expect(repo.findDiscordId(5)).toBe("d-1");
+  });
+});

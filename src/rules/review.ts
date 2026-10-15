@@ -29,6 +29,9 @@ export const KNOWN_EVENT_KINDS = [
   "skill.snapshot",
   "report.generated",
   "rule.changed",
+  // 巡回チャットの service event 受信箱 (rule_service_events)。 eventBus の event ではなく、
+  // 巡回 rule (config_version=2) だけが使う (spec/feature/patrol-chat.md §5)。
+  "service.event",
 ] as const;
 
 /**

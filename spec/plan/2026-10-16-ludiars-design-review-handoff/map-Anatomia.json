@@ -1,0 +1,839 @@
+{
+ "repo": "Anatomia (LUDIARS/Anatomia, 略称 An) — /home/user/Anatomia",
+ "abbreviation": "An",
+ "purpose": "コードを関数粒度の正規化 Merkle-AST (Anchor ID) に解剖し、コードグラフ・ドメイン検出・コード↔仕様リンクを重ねて「生成前 supply (着地点/ルール/手本/影響半径/重複回避) → 生成後 verify (5 ゲート)」のループを AI ホストに提供する建築規約オラクル (DESIGN.md:41-56, README.md:3-18)。利用者は (a) Claude Code / Famulus / Concordia など MCP ホストと Castra の hooks (生成前後に自動で叩く)、(b) Revisor (PR レビュー時に pr-review / verify を CLI で叩く)、(c) 人間 (web 管理パネル 4200 でドメイン/シーン/入口を閲覧、Gate A/B/C でドメインを承認)。副次的に横断 cost-feed の受信ハブ、横断ドメインマップ検索 (plan の前段)、Augur への集中テスト提案依頼も担う。",
+ "coreConcepts": [
+  {
+   "name": "Project (レジストリ)",
+   "definition": "解析対象リポの登録単位。id/name/rootPath/languages/ontologyDir/specDirs/knowledgeWriteRoot を持ち、Anatomia home の projects.json に永続化。所有者は Anatomia。home は --home > ANATOMIA_HOME > <cwd>/.anatomia (projects.json がある時) > ~/.anatomia の順",
+   "evidence": "spec/data/project-cache.md:21-52, src/project/store.ts:552-576, excubitor.catalog.yaml:12-16 (--home ${ARS_ROOT}/.anatomia を明示)",
+   "storedIn": "<ANATOMIA_HOME>/projects.json (運用正本は ${ARS_ROOT}/.anatomia、.mcp.json 既定は E:/Document/Ars/.anatomia)"
+  },
+  {
+   "name": "Anchor ID (CodeSymbol の content identity)",
+   "definition": "関数 body の α 正規化 + signature shape + repo 相対パスを畳んだ SHA-256。整形/コメント/ローカル名の変更で不変、意味変更で変化。キャッシュ土台であり Domain/Scene の lifetime ID には使わない。所有者 Anatomia",
+   "evidence": "DESIGN.md:109-112,139-149; docs/measurement-report.md:156-166; spec/plan/problem_logs/2026-08-09-cross-checkout-anchor-instability.md:56-60 (絶対→repo 相対パスへ修正)",
+   "storedIn": "AnalysisContext (メモリ) / cache/<projectId>/files/ (gzip FileNode) / knowledge JSONL の evidence"
+  },
+  {
+   "name": "Merkle DAG / fingerprint / snapshot",
+   "definition": "FileNode→RepoNode の Merkle ハッシュと、解析前 content fingerprint (各ファイル SHA-256 のソート済み hash)。fingerprint 一致で解析を完全スキップ。snapshot.json は version 7 の小さな派生物で破棄可能",
+   "evidence": "spec/data/project-cache.md:54-96; src/project/cache.ts:6-30,69",
+   "storedIn": "<home>/cache/<projectId>/snapshot.json (+ Redis ANATOMIA_RESULT_CACHE_REDIS 任意)"
+  },
+  {
+   "name": "コードグラフ (KG)",
+   "definition": "Anchor をノード、calls/reads/writes を辺とする in-memory グラフ (InMemoryCodeGraph)。名前+型認識で呼び出しを解決し、落とした辺は unresolved に理由付き記録。Kuzu 射影 (KuzuCodeGraph / KuzuKnowledgeProjection) はコードとテストに存在するが本番経路で実体化されていない",
+   "evidence": "spec/feature/static-analysis.md:81-134; src/core.ts:26; grep: KuzuCodeGraph/KuzuKnowledgeProjection の実体化箇所ゼロ (src/graph/kuzu.ts, src/knowledge/kuzu-projection.ts 以外に出現なし)",
+   "storedIn": "メモリ (graphCache ns=graph) / 永続化なし"
+  },
+  {
+   "name": "Domain (ビジネスドメイン = 承認済み semantic domain)",
+   "definition": "仕様 (spec/OKF) を正本とし Gate A/B/C で人間承認される意味的分割。owner は最大 1、default domain 禁止、unassigned を許容。DomainDef の committed 正本は spec/domains/*.domain.json、承認 transaction は hash-chain knowledge JSONL。所有者 Anatomia (他ツールは借りる)",
+   "evidence": "spec/feature/domain-dual-layer.md:21-26,81-89; spec/feature/domain-detection.md:271-283; spec/data/domain-knowledge-log.md:55,84,100-150",
+   "storedIn": "<repo>/spec/domains/*.domain.json、<knowledgeWriteRoot>/data/domain-map/<project>.knowledge.jsonl、旧 .anatomia/domains/ と spec/data/ontology/ (互換入力)"
+  },
+  {
+   "name": "Program domain (プログラムドメイン / layer)",
+   "definition": "コード正本の構造的分割 = layer × プログラムツリー上の凝集まとまり。全 CodeSymbol が必ずどれかに属する (unclassified は診断)。層の順序/許可依存は .anatomia/layers.json に宣言し、壊れた宣言は fail-fast",
+   "evidence": "spec/feature/domain-dual-layer.md:36-78; .anatomia/layers.json; README.md:88-104",
+   "storedIn": "<repo>/.anatomia/layers.json (commit 対象、.gitignore で例外指定) + web-cache の program-domains 派生"
+  },
+  {
+   "name": "SpecClause / Link (コード↔仕様 3 段リンカ)",
+   "definition": "spec/*.md を節単位に分割した SpecClause と、explicit (@implements / basename) > structural (命名 Jaccard) > semantic (embedding) の信頼度付き Link。批准 (ratify) で explicit に硬化し spec/data/spec-links.json へコミット",
+   "evidence": "DESIGN.md:183-198; src/spec/persist.ts:1-24; spec/feature/spec-source-config.md:1-60 (specDirs で spec 根を別途設定)",
+   "storedIn": "<repo>/spec/data/spec-links.json (批准済み)、メモリ speclink cache、.anatomia/ の stability state"
+  },
+  {
+   "name": "Scene / Screen / SceneElement / Entry point",
+   "definition": "画面・実行局面・workflow を code/asset 正本で自動導出するシーン層 (trace は観測、manual は表示注記のみ)。screens は静的画面構成、scenes は動的シーン、entrypoints は到達木。知識 log の code-sync transaction と fingerprint キー付き artifact",
+   "evidence": "DESIGN.md:212-245; spec/feature/scene-derivation.md:95-110; spec/feature/entrypoint-trace-graph.md:150-160; CLAUDE.md:25-27",
+   "storedIn": "knowledge JSONL (scene manifest / edge)、web-cache views、scenes/store.ts の legacy 手動 JSON"
+  },
+  {
+   "name": "ContextBundle / Landing / Plan",
+   "definition": "supply 側の成果物。where=着地点、context=決定的文脈束 (content-addressed、immutable-first で並べる)、plan=task をドメイン単位の作業計画へ分解 (LLM 既定 ON、~10 秒)。plan は .anatomia/plan/<task-hash>.json に保存され verify --plan で突合",
+   "evidence": "spec/feature/context-supply.md:10-25; spec/feature/domain-plan.md:17-40; src/adapters/web/routes/plan.ts:8-12; spec/interface/cli.md:50",
+   "storedIn": "<repo>/.anatomia/plan/<task-hash>.json、bundle cache (メモリ)"
+  },
+  {
+   "name": "Verdict (5 ゲート)",
+   "definition": "diff を再パースして rule_conformance (block) / duplication (block) / spec_linkage (warn) / coupling_delta (warn) / convention_drift (warn) + 任意 plan_conformance (advisory) を評価。block 失敗で CLI exit 1",
+   "evidence": "spec/feature/verify-gates.md:14-56",
+   "storedIn": "返り値のみ (永続化なし)。Vestigium に合否メタのみ記録 (src/adapters/web/routes/harness.ts:58-63)"
+  },
+  {
+   "name": "Domain Card + CacheStore (LLM 蒸留キャッシュ)",
+   "definition": "ドメインの LLM 蒸留サマリ。key = sha256(contentKey + modelId + templateVersion)、backend 優先度 Redis > File > memory。duplication ゲートの比較対象。namespace card / phase",
+   "evidence": "spec/data/llm-cache.md:133-168; src/cache/resolve.ts:1-16; DESIGN.md:174-182",
+   "storedIn": "ANATOMIA_CACHE_REDIS (prefix anatomia:) / ANATOMIA_CACHE_DIR/<key>.json / プロセスメモリ"
+  },
+  {
+   "name": "Knowledge transaction log (hash-chain JSONL)",
+   "definition": "承認 (Gate) と code-sync の machine 正本。1 transaction = 1 行、previousHead で連鎖、expected head で排他。Kuzu/taxonomy/generated OKF/web-cache は再生成可能な projection",
+   "evidence": "spec/data/domain-knowledge-log.md:100-152; DESIGN.md:200-209,465-469",
+   "storedIn": "<knowledgeWriteRoot>/data/domain-map/<project>.knowledge.jsonl、<knowledgeWriteRoot>/data/generated/anatomia/**"
+  },
+  {
+   "name": "Session (借用: Concordia/Lictor)",
+   "definition": "キャッシュ transcript と cost 帰属のタグ。Anatomia 自身は採番せず、Lictor が export する LICTOR_SESSION_ID (= Concordia session_id) を hooks が body/query で渡し、無ければ pid-時刻を自動採番",
+   "evidence": "docs/cache-strategy.md:43-52; spec/data/llm-cache.md:182; src/adapters/web/routes/harness.ts:54-57",
+   "storedIn": "ANATOMIA_CACHE_LOG の JSONL の session フィールド"
+  },
+  {
+   "name": "Task (借用: Memoria / Concordia task workflow / Actio)",
+   "definition": "RefactoringProposal から発行する調整タスクは外部 sink (既定 Memoria、設定で Cc) に POST し、proposalId を冪等キーに knowledge log へ記録。作業記録の task id は Actio (`actio:<uuid>`)",
+   "evidence": "src/adapters/refactoring-task-sink.ts:49-54; spec/feature/viewer-scene-domain-tabs.md:82-91; spec/tasks/2026-10-14-source-view-analyzed-files-only.md:3; spec/feature/redis-analysis-results.md:9",
+   "storedIn": "knowledge JSONL (proposal record + task id/status)、本体は Memoria/Cc/Actio 側"
+  },
+  {
+   "name": "PR / branch diff (借用: Revisor / git)",
+   "definition": "pr-review は merge-base との関数粒度差分と unified diff から一時的 (temporary:true) な PrDiffReview を作る。レジストリ・永続キャッシュを一切使わず --project を禁止。しきい値判断は呼び出し側 (Revisor) の責務",
+   "evidence": "spec/feature/pr-diff-review.md:11-33,59-65; src/adapters/cli.ts:450 (--enforce-dual-layer-domain-gate)",
+   "storedIn": "永続化なし (呼び出し側が 1 リクエスト分シリアライズ)"
+  },
+  {
+   "name": "Test plan / suggestion (借用: Augur)",
+   "definition": "Anatomia が解析事実 (domain implementor、引数、field、UX 直結ドメイン) を決定的に組んで CreatePlanRequest を作り、Augur CLI に stdin で渡して PlanResponse を受ける。Anatomia は実行しない",
+   "evidence": "spec/interface/augur-bridge.md:1-35; spec/feature/focused-testing.md:1-50; src/adapters/web/routes/test-suggestions.ts:321-358",
+   "storedIn": "返り値のみ"
+  },
+  {
+   "name": "Project roster / project-codes (借用: Concordia)",
+   "definition": "LUDIARS プロジェクト名と略称の正本は Concordia GET /v1/project-codes。Anatomia はドメインマップの名前リンクにだけ使い、落ちていれば空 roster + notes で明示劣化",
+   "evidence": "src/map/project-codes.ts:5-12,31-34,51-62; spec/feature/domain-map.md:154-156,184",
+   "storedIn": "短時間メモ化 (メモリ)"
+  },
+  {
+   "name": "Cost (双方向: 受信ハブ兼送信元)",
+   "definition": "(1) 他サービスの cost 要約を POST /api/cost-feed で受けてパネルに集計 (プロセス内 latest-wins)。(2) 自身の claude-cli 呼び出しごとに Concordia /v1/cost/one-shots へ push、失敗時は JSONL キューへ。(3) 自前の単価表 ($5/$25) で想定コスト推定",
+   "evidence": "spec/data/cost-feed.md:1-4,16; src/providers/concordia-cost.ts:21-50; docs/cache-strategy.md:144-158; src/cache/cost-estimate.ts (参照: docs/cache-strategy.md:107)",
+   "storedIn": "メモリ (cost feed)、logs/cost-one-shot-queue.jsonl、ANATOMIA_COST_LOG"
+  },
+  {
+   "name": "Contract / Acceptance (借用: Augur / Concordia)",
+   "definition": "augur.contracts.json の観測契約 C-1/C-2 (source-view 2 関数) を Augur が runtime 注入、cc.acceptance.json が source→tests 対応 66 件を宣言",
+   "evidence": "augur.contracts.json:1-28; augur.inject.json:1-18; cc.acceptance.json:1-71",
+   "storedIn": "リポ直下 JSON + src/adapters/web/contracts/"
+  },
+  {
+   "name": "Evidence / Confidence",
+   "definition": "全辺 (link / assignment / dispatch) は信頼度と根拠種別 (explicit/structural/semantic、base-call/abstract-call/unresolved-call) を持ち、推測と確定を区別する",
+   "evidence": "DESIGN.md:76-79,194; spec/feature/static-analysis.md:161-178",
+   "storedIn": "Link / KnowledgeEdge の evidence フィールド"
+  }
+ ],
+ "responsibilities": [
+  "静的解析: C++/C#/TS/JS を tree-sitter WASM でパースし Anchor ID 付き Merkle DAG + コードグラフを決定的に構築 (spec/feature/static-analysis.md)",
+  "増分キャッシュ: content fingerprint で再解析を完全スキップ、per-file gzip キャッシュ、graph/detection/speclink の content-keyed メモリキャッシュ、任意で Redis 結果キャッシュ (src/project/manager.ts:56-95, spec/feature/redis-analysis-results.md)",
+  "ドメイン検出とオントロジー: spec/domains/*.json (plugin) の preset/template 述語でドメイン所属と違反を出す。builtin は opt-in (spec/feature/domain-detection.md:242-253)",
+  "ドメイン整理ワークフロー: spec-only proposal → Gate A → code assignment → Gate B/C、hash-chain knowledge log、review-notes の受付 (spec/feature/domain-organization.md)",
+  "二層ドメイン: 層宣言 (layers.json) からプログラムドメインを全自動導出し、domains program / domain-review --by-layer で診断 (spec/feature/domain-dual-layer.md)",
+  "コード↔仕様リンク: 3 段リンカ + 批准による硬化 (links list/ratify/candidates)、spec 根の設定/自動検出 (spec/feature/spec-linkage.md, spec-source-config.md)",
+  "supply: where / context / plan / map (横断ドメインマップ検索) を CLI・MCP・warm HTTP で提供 (spec/feature/context-supply.md, domain-plan.md, domain-map.md)",
+  "verify: diff を 5 ゲートで検証、plan_conformance を advisory で付加、CLI は block で exit 1 (spec/feature/verify-gates.md)",
+  "レビュー: review (構造)、spec-review (AIFormat 監査)、domain-review、pr-review (一時的 PR 差分 + 複雑度 snapshot + 二層 gate advisory) (spec/interface/cli.md:23-26)",
+  "シーン/画面/入口: screens / scenes / entrypoints の静的導出と web-cache 事前集約、Tela/Web ソースビュー (spec/interface/web.md:93-150)",
+  "動的解析: マーカー注入計画 (trace plan)、JSONL 録画の取り込み (trace ingest)、局面学習 (signature/FSM/label)、タイムライン API (spec/feature/trace-recording.md, dynamic-trace-and-phase.md)",
+  "Web 管理パネル (Hono, 4200): 複数プロジェクト管理、prepare-web-cache の直列ジョブ、各種ビュー、Augur テスト提案タブ、cost-feed ハブ、request-usage 集計",
+  "LLM/embedder プロバイダ解決と content-addressed 蒸留キャッシュ (Redis/File/memory)、cache-stats による命中率・想定コスト計測 (docs/cache-strategy.md, docs/cache-measurement.md)",
+  "リファクタリング提案の生成と外部 task sink への冪等発行 (Memoria / Cc) (src/adapters/refactoring-task-sink.ts)",
+  "横断観測: Vestigium JSONL へ解析/キャッシュ/リクエスト完了イベントを出す (warm サーバのみ)、Concordia への one-shot cost 報告 (src/obs/vestigium.ts, src/obs/request-usage.ts)",
+  "自己計測: npm run measure (命中率/束決定性/verify 精度)、self-analyze、retune、eval ハーネス (scripts/, eval/)"
+ ],
+ "interfaces": [
+  {
+   "kind": "cli",
+   "entry": "bin/anatomia.mjs → dist/adapters/cli.js (src/adapters/cli.ts:300-325)",
+   "description": "24 サブコマンド: verify | context | where | find | callers | callees | review | spec-review | domain-review | pr-review | project | export-graph | web | cache-stats | integral | domains | trace | screens | scenes | entrypoints | knowledge | links | plan | map。verify は stdin diff、block 失敗 exit 1。spec/interface/cli.md は 21 個のみ記載 (entrypoints/knowledge/map が未記載)。毎回 cold analyze (warm 保持なし)。ANATOMIA_CALLER で呼び出し元を自己申告"
+  },
+  {
+   "kind": "mcp",
+   "entry": "bin/anatomia-mcp.mjs → src/adapters/mcp.ts (stdio、server name anatomia 0.1.0)",
+   "description": "実装は 17 ツール: context / verify / where / find / callers / callees / impact / domains.suggest / scenes / knowledge.status / knowledge.migration.plan / map.domains / map.functions / map.function / projects.{list,add,analyze} (src/adapters/mcp.ts:331-505)。spec/interface/mcp.md:13 は「11 ツール」と記載 (drift)。registry 空なら cwd を default として登録。stdout は MCP 専用"
+  },
+  {
+   "kind": "http",
+   "entry": "anatomia web --port 4200 → src/adapters/web/server.ts (Hono, @hono/node-server)、routes は src/adapters/web/routes/*.ts",
+   "description": "warm harness: POST /api/verify, GET /api/context, POST /api/plan (manager 専用)。プロジェクト: GET/POST /api/projects, POST /api/projects/:id/analyze (AnalysisQueue で 202 即返し)。per-project: summary/hotspots/spec-links(+ratify/candidates)/domains/vis-data/branch-diff/branches/domain-view/access-patterns/screens/scenes/spec-config/test-suggestions/source-view/*、flow/* (Gate A/B)、domain-organization/*、knowledge/*、refactoring-tasks、prepare-web-cache + /web/:view (409 未準備)、entrypoint-graph。横断: /api/domain-map/search, /api/cost-feed (POST/GET), /api/cache-stats?session=, /api/analysis-cache, /api/request-usage, /api/trace/{timeline,active,where}。認証は ANATOMIA_WEB_TOKEN の Bearer (mutation のみ)。X-Anatomia-Caller で呼び出し元申告"
+  },
+  {
+   "kind": "web-ui",
+   "entry": "src/adapters/web/public/index.html (3904 行、SPA) + *-logic.js",
+   "description": "タブ: domains / domain-view / graph / hotspots / spec-links / entrypoints / scene-modules / search (LLM 検索、stub 時 fail-fast) / test-suggestions (Augur) / adjust。prepared web-cache からのみ描画 (無ければ 409 → prepare 促し)。Excubitor Viewer で有効化 (excubitor.catalog.yaml:5-7)"
+  },
+  {
+   "kind": "hook",
+   "entry": "Castra `.claude/hooks/anatomia-supply.mjs` / `anatomia-verify` / `anatomia-hooks-lib.mjs` (本リポ外)",
+   "description": "UserPromptSubmit で /api/plan・/api/domain-map/search・/api/context を、PostToolUse で /api/verify を warm サーバへ投げる薄い HTTP クライアント。server 不在なら無言 skip、必要なら warm サーバを遅延起動 (src/adapters/web/routes/harness.ts:3-14, routes/plan.ts:4-6, routes/domain-map.ts:8, docs/cache-strategy.md:123-127, docs/trace-operations.md:71)"
+  },
+  {
+   "kind": "file",
+   "entry": "spec/domains/*.domain.json, spec/domains/builtins.json, spec/domains/content-sources.json, spec/data/spec-links.json, <knowledgeWriteRoot>/data/domain-map/*.knowledge.jsonl, .anatomia/layers.json, .anatomia/plan/*.json, trace JSONL",
+   "description": "解析対象リポ側にコミットされる入出力ファイル群。Revisor の ephemeral worktree でも読めるように committed 置き場を正本にしている (spec/feature/domain-detection.md:260-283, domain-dual-layer.md:205-207)"
+  },
+  {
+   "kind": "discord",
+   "entry": "POST /api/projects/:id/flow/draft, POST /api/flow/draft (discordMessageUrl) → src/adapters/web/discord-attachment.ts",
+   "description": "受信専用: Discord message/forum の Markdown 添付を Bot token で取得して domain proposal の入力にする。投稿機能は無い (ドメインレビューの Discord 投稿は Concordia 側: spec/feature/domain-organization.md:146)"
+  },
+  {
+   "kind": "cli",
+   "entry": "Claude Code スキル `anatomia-analyze` (Ars 配下、本リポ外)",
+   "description": "MCP 不要で CLI を直接叩く経路 (CLAUDE.md:12, spec/feature/analysis-procedure.md:111-114)"
+  },
+  {
+   "kind": "file",
+   "entry": "docs/ → GitHub Pages (.github/workflows/pages.yml)",
+   "description": "docs/*.html / *.md を静的公開。harness CI は AIFormat の harness-checks.yml を再利用 (.github/workflows/harness.yml)"
+  }
+ ],
+ "dataStores": [
+  {
+   "kind": "json-file (registry)",
+   "location": "<ANATOMIA_HOME>/projects.json (運用: ${ARS_ROOT}/.anatomia/projects.json)",
+   "holds": "RegistrySnapshot {version, selected, projects[]}。共有・長寿命で、使い捨て worktree の登録が溜まる (src/map/project-roots.ts:3-9 がファイルシステム事実で除外・集約)",
+   "evidence": "spec/data/project-cache.md:21-43; src/project/store.ts:552-576; excubitor.catalog.yaml:12-16"
+  },
+  {
+   "kind": "file (derived cache)",
+   "location": "<home>/cache/<projectId>/snapshot.json, cache/<projectId>/files/*.gz, web-cache views, domain-locator shards, plan artifacts",
+   "holds": "fingerprint/merkleHash/summary、AST 抜き FileNode (FORMAT_VERSION 6)、prepared web views、first-query locator。すべて破棄可能な projection",
+   "evidence": "src/project/cache.ts:6-30; src/project/file-cache.ts:1-33; src/adapters/web/routes/web-cache.ts:1-23"
+  },
+  {
+   "kind": "in-memory",
+   "location": "warm web / MCP プロセス",
+   "holds": "AnalysisContext (live tree-sitter AST、直列化不能)、graph/detection/speclink の content-keyed cache、bundle cache、AnalysisQueue / PrepareQueue (直列、再起動で消える)、cost feed (latest-wins)",
+   "evidence": "spec/data/project-cache.md:56-58; src/project/manager.ts:56-95; src/web-cache/prepare-queue.ts:15-17; spec/data/cost-feed.md:3-4"
+  },
+  {
+   "kind": "redis (optional)",
+   "location": "ANATOMIA_CACHE_REDIS (prefix anatomia:, TTL 任意) / ANATOMIA_RESULT_CACHE_REDIS (TTL 既定 3600s, op timeout 1000ms)",
+   "holds": "content-addressed ドメインカード・phase ラベル (org 横断共有) / 返却解析 JSON の結果キャッシュ。card 側は未到達なら無言 no-op、result 側は警告+disk fallback",
+   "evidence": "src/cache/redis-store.ts:1-45; src/cache/redis-text-store.ts:21-29; spec/feature/redis-analysis-results.md:30-34; spec/test/redis-results-validation.md:32 (Redis サービスが Ex inventory に無く live 未検証)"
+  },
+  {
+   "kind": "file (LLM cache)",
+   "location": "ANATOMIA_CACHE_DIR/<versionedKey>.json",
+   "holds": "蒸留結果 (card/phase)。tmp+rename atomic",
+   "evidence": "spec/data/llm-cache.md:160-168"
+  },
+  {
+   "kind": "repo-committed (解析対象リポ側)",
+   "location": "spec/domains/*.domain.json, spec/domains/builtins.json, spec/data/spec-links.json, <knowledgeWriteRoot>/data/domain-map/<project>.knowledge.jsonl, <knowledgeWriteRoot>/data/generated/anatomia/**, .anatomia/layers.json, .anatomia/plan/<hash>.json",
+   "holds": "DomainDef 正本、builtin opt-in、批准済みリンク、hash-chain 承認 log、generated OKF、層宣言、計画。旧置き場 spec/data/ontology/ と .anatomia/domains/ は互換入力",
+   "evidence": "spec/feature/domain-detection.md:271-283; src/spec/persist.ts:5-24; spec/data/domain-knowledge-log.md:55,84; spec/interface/cli.md:50"
+  },
+  {
+   "kind": "jsonl (observability)",
+   "location": "ANATOMIA_CACHE_LOG (cache transcript), VESTIGIUM_LOGS_DIR (既定 logs/、retention 14 日), logs/cost-one-shot-queue.jsonl (Concordia 不達時キュー), ANATOMIA_COST_LOG",
+   "holds": "cache get hit/miss + LLM usage、Vg イベント (verify 合否・supply 件数・request completed・crash)、未送信 cost one-shot",
+   "evidence": "spec/data/llm-cache.md:170-198; src/obs/vestigium.ts:2-16,275; src/providers/concordia-cost.ts:29-32"
+  },
+  {
+   "kind": "kuzu (未配線)",
+   "location": "src/graph/kuzu.ts, src/knowledge/kuzu-projection.ts",
+   "holds": "KG 射影の実装はあるがテスト以外で実体化されない。依存 kuzu ^0.11.3 はネイティブビルドを要する",
+   "evidence": "package.json:17; grep 結果: new KuzuCodeGraph / KuzuKnowledgeProjection の呼び出し箇所ゼロ; README.md:26 (初回 npm install でビルドが走る)"
+  }
+ ],
+ "integrationsOut": [
+  {
+   "target": "Augur (daemonless CLI)",
+   "mechanism": "cli-execFile",
+   "purpose": "test-suggestions タブ / POST /api/projects/:id/test-suggestions で CreatePlanRequest を stdin に渡し PlanResponse を stdout から読む (集中テスト提案)",
+   "syncOrAsync": "同期 (HTTP リクエストが子プロセス完了まで待つ)",
+   "timeoutRetry": "10 分で SIGKILL → 502。retry なし。ANATOMIA_AUGUR_DIR 既定 ../Augur (パス依存、サービスなし)",
+   "evidence": "src/adapters/augur.ts:17-20,75-115; spec/interface/augur-bridge.md:16-46; src/adapters/web/routes/test-suggestions.ts:360-376"
+  },
+  {
+   "target": "Concordia GET /v1/project-codes",
+   "mechanism": "http",
+   "purpose": "横断ドメインマップの名前ベースリンク用に LUDIARS プロジェクト名/略称 roster を取得",
+   "syncOrAsync": "同期 (map bundle 構築時)、短時間メモ化",
+   "timeoutRetry": "1500ms abort、失敗時は空 roster + notes[] (retry なし)。URL は Excubitor が供給する CONCORDIA_URL のみ",
+   "evidence": "src/map/project-codes.ts:31-34,51-62,71-94; spec/feature/domain-map.md:154-156,184-185"
+  },
+  {
+   "target": "Concordia POST /v1/cost/one-shots",
+   "mechanism": "http",
+   "purpose": "claude-cli backend の LLM 呼び出し 1 回ごとに one-shot cost を報告 (prompt 全文を含む)",
+   "syncOrAsync": "fire-and-forget (void)",
+   "timeoutRetry": "timeout 指定なし。失敗時は logs/cost-one-shot-queue.jsonl へ追記 (再送機構は本リポに無い)。CONCORDIA_URL 無指定時は 127.0.0.1:11111 をハードコード",
+   "evidence": "src/providers/claude-cli-llm.ts:72-89; src/providers/concordia-cost.ts:21-50"
+  },
+  {
+   "target": "Memoria タスク API / Concordia task workflow (MEMORIA_TASK_URL / CONCORDIA_TASK_WORKFLOW_URL)",
+   "mechanism": "http",
+   "purpose": "RefactoringProposal を調整タスクとして発行 (idempotency-key = proposalId)",
+   "syncOrAsync": "同期 (POST /api/projects/:id/refactoring-tasks の中)",
+   "timeoutRetry": "AbortSignal 30s、redirect: error、retry なし。URL 未設定は fail-fast",
+   "evidence": "src/adapters/refactoring-task-sink.ts:9,18-33,49-73; src/adapters/web/routes/refactoring-tasks.ts:12-36"
+  },
+  {
+   "target": "claude CLI (`claude -p --output-format json`) via @ludiars/one-shot",
+   "mechanism": "cli-execFile",
+   "purpose": "既定 LLM backend。ドメインカード蒸留 / plan 分解 / draft / search / integral judge (role: opus 既定、sonnet/haiku を用途別に)",
+   "syncOrAsync": "同期 (呼び出しごとに子プロセス 1 本)",
+   "timeoutRetry": "timeoutMs 既定 0 (無期限)。失敗は throw (stub への無言 fallback なし)。CLAUDE_CODE_GIT_BASH_PATH が Windows で必要 (eval/README.md:14)",
+   "evidence": "src/providers/claude-cli-llm.ts:60-65,94-152; src/providers/index.ts:319-345; src/adapters/web/server.ts:466-498"
+  },
+  {
+   "target": "Anthropic Messages API (SDK)",
+   "mechanism": "http",
+   "purpose": "ANTHROPIC_API_KEY があるときの蒸留 backend (既定モデル claude-opus-4-8 role)",
+   "syncOrAsync": "同期",
+   "timeoutRetry": "SDK 既定 (本リポで未指定)",
+   "evidence": "src/providers/index.ts:331-339; README.md:49-57"
+  },
+  {
+   "target": "OpenAI 互換 embeddings (/v1/embeddings、Ollama 可)",
+   "mechanism": "http",
+   "purpose": "duplication ゲートと semantic linker の embedding。未設定なら hash-embedder",
+   "syncOrAsync": "同期",
+   "timeoutRetry": "未確認 (推測: なし)",
+   "evidence": "src/providers/index.ts:357-363; docs/mcp-setup.md:30-41"
+  },
+  {
+   "target": "Redis",
+   "mechanism": "other",
+   "purpose": "org 横断 LLM カードキャッシュ、解析結果キャッシュ",
+   "syncOrAsync": "同期 await",
+   "timeoutRetry": "card: connect 2000ms・reconnect 無効・未到達は無言 no-op。result: op 1000ms・失敗は警告+disk fallback",
+   "evidence": "src/cache/redis-store.ts:38-45; src/cache/redis-text-store.ts:21-50; spec/setup/environment.md:182"
+  },
+  {
+   "target": "git CLI",
+   "mechanism": "git",
+   "purpose": "gitignore 準拠の走査 (`git ls-files --others --ignored`)、worktree 同一性 (`rev-parse --git-common-dir`)、merge-base / branch diff",
+   "syncOrAsync": "同期 execFile",
+   "timeoutRetry": "テストで 60s timeout 超過事例あり (spec/test/code-quality-validation.md:16-17)",
+   "evidence": "src/fs/git-ignore.ts:26-29,125; src/branch/git.ts:13-30; spec/data/project-cache.md:89-94"
+  },
+  {
+   "target": "Tela (`tela_source --font --source --line`)",
+   "mechanism": "cli-execFile",
+   "purpose": "ドメインカードから実装関数をサーバ PC 上の Tela ソースビューアで開く",
+   "syncOrAsync": "非同期 (detached spawn)",
+   "timeoutRetry": "なし。loopback 直接要求のみ、転送ヘッダ/Origin 不一致は 403、未設定は 503",
+   "evidence": "src/adapters/web/source-view-launch.ts:97; spec/interface/web.md:107-137"
+  },
+  {
+   "target": "Discord API v10 + CDN (cdn.discordapp.com / media.discordapp.net)",
+   "mechanism": "http",
+   "purpose": "/flow/draft の Markdown 添付取得 (Bot token)",
+   "syncOrAsync": "同期",
+   "timeoutRetry": "サイズ 3 重上限、redirect 手動検証。timeout 未確認",
+   "evidence": "src/adapters/web/discord-attachment.ts:1-37; spec/setup/environment.md:167"
+  },
+  {
+   "target": "Vestigium (@ludiars/vestigium, lib/vestigium submodule)",
+   "mechanism": "file",
+   "purpose": "横断ログ JSONL。Concordia monitor が同じ logsDir を tail する",
+   "syncOrAsync": "非同期 writer (warm web のみ init、CLI/MCP では no-op)",
+   "timeoutRetry": "EPERM 等の書込失敗は Vg を諦めて継続 (uncaughtException を自前判定)",
+   "evidence": "src/obs/vestigium.ts:2-16,260-281,351-357"
+  },
+  {
+   "target": "Excubitor (catalog / topology)",
+   "mechanism": "env-injection",
+   "purpose": "ANATOMIA_URL を provides、CONCORDIA_URL / ARS_ROOT を受け取る。Vault 利用なし",
+   "syncOrAsync": "起動時",
+   "timeoutRetry": "-",
+   "evidence": "excubitor.catalog.yaml:14-21; src/map/project-codes.ts:49-54"
+  },
+  {
+   "target": "GitHub Pages",
+   "mechanism": "other",
+   "purpose": "docs/ の静的公開",
+   "syncOrAsync": "CI",
+   "timeoutRetry": "-",
+   "evidence": ".github/workflows/pages.yml"
+  }
+ ],
+ "integrationsIn": [
+  {
+   "source": "Claude Code / Famulus / Concordia (MCP ホスト)",
+   "mechanism": "mcp (stdio)",
+   "purpose": "生成前 context/where/plan 相当・生成後 verify・project 管理・map 検索を AI セッションから直接呼ぶ",
+   "evidence": "spec/interface/mcp.md:4; .mcp.json; bin/anatomia-mcp.mjs:8-10; docs/mcp-setup.md:1-5"
+  },
+  {
+   "source": "Castra hooks (.claude/hooks/anatomia-supply.mjs / anatomia-supply-map.mjs / anatomia-verify)",
+   "mechanism": "http",
+   "purpose": "UserPromptSubmit で POST /api/plan (LLM 分解 ~10 秒) + GET /api/domain-map/search + GET /api/context、PostToolUse で POST /api/verify。session を LICTOR_SESSION_ID で渡す。warm サーバ不在なら遅延起動/無言 skip",
+   "evidence": "src/adapters/web/routes/harness.ts:3-14; src/adapters/web/routes/plan.ts:4-12; src/adapters/web/routes/domain-map.ts:8; spec/tasks/2026-09-05-domain-map-supply-hook-prefix.md:15,38-43; docs/cache-strategy.md:123-141"
+  },
+  {
+   "source": "Revisor (PR レビュー worktree)",
+   "mechanism": "cli-execFile",
+   "purpose": "`anatomia pr-review --repo <worktree> --base <ref> --json [--enforce-dual-layer-domain-gate]` で一時的 PR 解析 (domain gate / 複雑度 snapshot / 5 ゲート)、`git diff | anatomia verify --repo --json` をマージゲートに使う、complexity-comparison.mjs が functionComplexity を消費。ephemeral checkout で動くよう committed spec/domains・builtins.json・.anatomia/layers.json を読む",
+   "evidence": "spec/feature/pr-diff-review.md:11-33; spec/feature/domain-dual-layer.md:140-153,200-207; src/adapters/cli.ts:450-451,963; spec/ux/product.md:39,49; spec/feature/function-complexity-comparison.md:57-63; spec/feature/domain-detection.md:249-262; src/fs/walk.ts:21-22 (Revisor の 7 worktree でヒープ枯渇した事例)"
+  },
+  {
+   "source": "Praeforma (Pf)",
+   "mechanism": "http",
+   "purpose": "Ex topology の ANATOMIA_URL (http://127.0.0.1:4200) 経由で Anatomia API を参照。`domains organize` 出力の readableSpecs を Pf が人間可読契約として消費する想定。Pf がどのエンドポイントを叩くかは本リポに記述なし (推測: domains / domain-view 系)",
+   "evidence": "spec/tasks/2026-09-07-pf-catalog.md:8-14; excubitor.catalog.yaml:20-21; src/domains/organize/index.ts:226-228"
+  },
+  {
+   "source": "Excubitor (サービス管理 / Viewer)",
+   "mechanism": "other",
+   "purpose": "`node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia` を起動 (autostart false, restart no, tcp health 30s)、Viewer で管理パネルを埋め込む。Viewer 経由の Tela 起動は forwarded として 403",
+   "evidence": "excubitor.catalog.yaml:1-26; spec/interface/web.md:115-117; git log 629bc5b"
+  },
+  {
+   "source": "Concordia (Cc)",
+   "mechanism": "http",
+   "purpose": "(1) ステータスカードが GET /api/cache-stats?session= で命中率/想定 USD を取得、(2) X-Anatomia-Caller: concordia 付きで API を呼び request-usage に帰属、(3) Discord ドメインレビューの返信を POST .../domain-organization/proposals/review-notes へ転送、(4) 委託 seed が /api/domain-map/search を呼ぶ、(5) Vestigium logsDir を monitor が tail",
+   "evidence": "src/adapters/web/routes/cache.ts:23-27; spec/feature/request-usage.md:11-15; spec/feature/domain-organization.md:146-157; src/adapters/web/routes/domain-map.ts:8; src/obs/vestigium.ts:3-4"
+  },
+  {
+   "source": "他サービス (例: discutere) の cost 送信",
+   "mechanism": "http",
+   "purpose": "POST /api/cost-feed で per-session cost 要約を push、パネルで横断集計",
+   "evidence": "spec/data/cost-feed.md:1-33; src/adapters/web/routes/cost.ts:1-12"
+  },
+  {
+   "source": "Lictor (端末セッションラッパ)",
+   "mechanism": "env-injection",
+   "purpose": "LICTOR_SESSION_ID / ANATOMIA_SESSION_ID を供給し cache transcript と cost をセッション帰属させる",
+   "evidence": "docs/cache-strategy.md:51; spec/data/llm-cache.md:182; src/cache/transcript.ts:99"
+  },
+  {
+   "source": "Augur (観測契約注入)",
+   "mechanism": "file",
+   "purpose": "augur.inject.json に従い source-view-target.ts / source-view-request.ts を contract-wrap (C-1/C-2 observe)。実装タスクでは `augur plan (bug_fix / web)` の回帰計画を使用",
+   "evidence": "augur.contracts.json:1-28; augur.inject.json:1-18; spec/tasks/2026-10-14-source-view-analyzed-files-only.md:14,25,41"
+  },
+  {
+   "source": "anatomia-analyze スキル (Claude Code)",
+   "mechanism": "cli-execFile",
+   "purpose": "MCP 不要で CLI を直接叩く supply→verify 経路",
+   "evidence": "CLAUDE.md:12,58; spec/feature/analysis-procedure.md:113-114"
+  },
+  {
+   "source": "ゲームランタイム (KS / AC、runtime/cpp・csharp レコーダ)",
+   "mechanism": "file",
+   "purpose": "計測ビルドが JSONL トレースを追記し、`trace ingest` / ANATOMIA_TRACE_FILE で読み直す (ライブ socket は未配線)",
+   "evidence": "docs/trace-operations.md:9-16,30-33; spec/interface/cli.md:34"
+  },
+  {
+   "source": "eval ハーネス (eval/bin/*.mjs)",
+   "mechanism": "http",
+   "purpose": "warm サーバ + hooks 付き claude -p を 4 アームで回し品質/速度/キャッシュ効果を測る",
+   "evidence": "eval/DESIGN.md:1-40; eval/README.md:10-30"
+  },
+  {
+   "source": "Breviarium / Genius / Conflux",
+   "mechanism": "other",
+   "purpose": "本リポの spec/src/docs に言及なし (grep: breviarium / genius / conflux ヒット 0)。Br の CLI 呼び出し経路は Br 側にのみ記述されていると推測",
+   "evidence": "grep -rniE 'breviarium|genius|conflux' spec docs src README.md DESIGN.md → 0 件"
+  }
+ ],
+ "deployment": {
+  "port": "4200 (excubitor.catalog.yaml:17; server.ts:393 の既定も 4200)。provides ANATOMIA_URL=http://127.0.0.1:${port}",
+  "startCommand": "node bin/anatomia.mjs web --port 4200 --home ${ARS_ROOT}/.anatomia (excubitor.catalog.yaml:16)。MCP は node bin/anatomia-mcp.mjs (.mcp.json)。いずれも dist/ を読む",
+  "autostart": "false、restart_policy \"no\" (excubitor.catalog.yaml:18-19)。Castra hooks が初回 supply/verify 時に遅延起動し、3 時間無アクセスで自己終了 (src/adapters/web/idle.ts:9; server.ts:405-450)。EADDRINUSE は重複起動として skip (server.ts:430-438)",
+  "healthCheck": "catalog は tcp (interval 30s, grace 15s)。専用 /health ルートは無い (grep '/health' → 0 件)。診断は GET /api/analysis-cache, /api/cache-stats, /api/request-usage",
+  "authMechanism": "ANATOMIA_WEB_TOKEN の Bearer を mutation (POST/PUT/PATCH/DELETE) のみに要求、read は常に open。token 無しで非 loopback bind は起動拒否 (src/adapters/web/auth.ts:1-30,501-509)。Cernere 連携なし。Tela 起動は loopback 直接要求 + Origin 一致のみ (spec/interface/web.md:110-117)",
+  "publicExposure": "既定 127.0.0.1 loopback、tier personal。Excubitor Viewer 経由の閲覧は許可、Tela 起動は 403 (forwarded)。MCP は stdio",
+  "nodeVersion": "Node.js 20+ / ESM (README.md:24, package.json type module)。@types/node ^22",
+  "requiresBuild": "必須: tsc → dist/ を bin がロード (CLAUDE.md:44-46)。加えて git submodule update --init (lib/lapilli の @ludiars/one-shot が file: 依存、lib/vestigium) を npm install 前に実施 (spec/feature/shared-one-shot.md:14-16)。kuzu / web-tree-sitter のネイティブ・WASM ビルドが初回走る",
+  "testRunner": "vitest run、maxWorkers 4 固定 (Windows review host 対策)、testTimeout/hookTimeout 60s、lib/aiformat・lib/lapilli を除外 (vitest.config.ts)。263 test ファイル、直近実測 255 files / 1649 tests / 201 秒 (spec/test/redis-results-validation.md:22)",
+  "configSources": "ほぼ環境変数のみ (ANATOMIA_* 約 45 種 + ANTHROPIC_API_KEY / CONCORDIA_URL|HOST|PORT / MEMORIA_TASK_URL / VESTIGIUM_* / RETUNE_*)。Excubitor catalog から ANATOMIA_URL を provide、CONCORDIA_URL・ARS_ROOT を受領。.mcp.json の env 既定に Windows 絶対パス (E:/Document/Ars/.anatomia)。リポ側設定: .anatomia/layers.json、spec/domains/builtins.json、spec/domains/content-sources.json、Project.specDirs/ontologyDir/knowledgeWriteRoot (projects.json)。Vault / Infisical / 暗号化 config は使わない。Redis URL も env"
+ },
+ "sharedConventions": {
+  "architectureStyle": "src/ を 28 のトップレベルレイヤに分け、.anatomia/layers.json でオニオン (infrastructure < domain-logic < application < presentation、shared=tests) を宣言し自己診断 (CLAUDE.md:22-33; .anatomia/layers.json)。spec/architecture/ddd.md と spec/ux/product.md で DDD ゲート (コア: supply-verify / static-anatomy / domain-modeling / spec-linkage)。SRP 徹底で小ファイル多数 (417 非テスト .ts) だが core.ts 1451 行 / cli.ts 1989 行 / index.html 3904 行のハブは肥大",
+  "augurContractsImportFrom": "./contracts/runtime.js (augur.contracts.json:4; contractsDir src/adapters/web/contracts、runtimeFile src/adapters/web/contracts/runtime.ts)。契約 2 件 (C-1 resolveSourceTarget, C-2 classifyLaunchRequest) mode observe sample 1",
+  "augurInject": "service anatomia、include は source-view-target.ts / source-view-request.ts の 2 ファイルのみ、rules は contract-wrap のみ true (silent-catch / spawn-watch / interval-guard / listener-guard は false)、runtime.autoImport false (augur.inject.json)",
+  "ccAcceptance": "version 1、implementations 66 件 (source → tests[])。vitest.config.ts や scripts/measure-result-cache.mjs、public/*.js・index.html も source として登録 (cc.acceptance.json:1-71)",
+  "libVendored": [
+   "lib/vestigium (@ludiars/vestigium, git submodule 802e231)",
+   "lib/lapilli (@ludiars/one-shot = file:./lib/lapilli/packages/one-shot, git submodule 98ed6a2)",
+   "lib/aiformat (git submodule fbc7c97、harness/規約参照用)"
+  ],
+  "reviewAndTaskDocs": "spec/tasks/*.md 33 件 (frontmatter: task / project / kind / created / memory_links、本文に Actio task id と完了条件チェックリスト)、spec/plan/problem_logs/*.md 6 件 (障害記録)、docs/follow-ups.md (残作業)、TASKS.md (G0-G14 の実装追跡正本)、docs/spec-code-review.md、.revisor-version (値: uninitialized)、docs/manual/ (利用者向け draft)",
+  "specLayout": "spec/{architecture,data,domains,feature,interface,plan,setup,tasks,test,ux} + spec/README.md。CLAUDE.md:52-54 は data/feature/interface/setup/test のみを許可と記すが実際は 10 フォルダ (architecture/domains/plan/tasks/ux は DDD ゲート・Augur/Cc 規約で後付け)。planned 契約は OKF frontmatter status: planned + T 番号リンク必須 (spec/README.md:3-7)。CI は AIFormat の harness-checks.yml を Castra が配信 (.github/workflows/harness.yml:3-5)"
+ },
+ "crossCuttingReimplementations": [
+  {
+   "concern": "loopback / host / forwarded-header 判定",
+   "file": "src/adapters/web/auth.ts:488-494, src/adapters/web/source-view-request.ts (classifyLaunchRequest)",
+   "notes": "同一リポ内に bind 用と起動要求用の 2 系統の loopback 判定。Forwarded / X-Forwarded-* / CF-Connecting-IP / Origin 検査は他サービスの Cloudflare Access / host guard と重複する関心 (spec/interface/web.md:112-117)"
+  },
+  {
+   "concern": "Bearer token 認証 (独自、Cernere 非連携)",
+   "file": "src/adapters/web/auth.ts:515-545",
+   "notes": "ANATOMIA_WEB_TOKEN の timing-safe 比較を自前実装。Cernere PASETO/JWT (Praeforma / Actio が使う) と無関係な第 3 の認証方式"
+  },
+  {
+   "concern": "他サービス URL / 所在の解決",
+   "file": "src/map/project-codes.ts:51-62, src/providers/concordia-cost.ts:21-27, src/adapters/refactoring-task-sink.ts:49-73, src/adapters/augur.ts:52-55",
+   "notes": "CONCORDIA_URL (Ex 供給、ポート埋め込み禁止) / CONCORDIA_HOST+PORT 既定 11111 ハードコード / MEMORIA_TASK_URL / CONCORDIA_TASK_WORKFLOW_URL / ANATOMIA_AUGUR_DIR (パス) と、4 つの独立した解決器で方針も不統一"
+  },
+  {
+   "concern": "設定ローダ (env → 構造体)",
+   "file": "src/providers/index.ts:289-312, src/cache/resolve.ts:673-686, src/adapters/web/server.ts:466-536, src/adapters/web/idle.ts:515-521",
+   "notes": "統一 loader 無し。各モジュールが process.env を直接読む (約 50 変数)。Genius の genius.config.json loader、Actio の暗号化 config + Vault、Praeforma の Infisical と比べ最も素朴"
+  },
+  {
+   "concern": "health / 診断エンドポイント",
+   "file": "src/adapters/web/routes/cache.ts:28-46 (/api/analysis-cache, /api/cache-stats), src/adapters/web/request-usage.ts (/api/request-usage)",
+   "notes": "/health 相当が無く tcp のみ。診断は 3 ルートに分散"
+  },
+  {
+   "concern": "Discord クライアント",
+   "file": "src/adapters/web/discord-attachment.ts:1-37",
+   "notes": "Discord API v10 + CDN 取得 (snowflake 検証、CDN allowlist、サイズ上限) を独自実装。投稿側は Concordia が持つため、Discord 連携が 2 リポに分かれる"
+  },
+  {
+   "concern": "JSONL ログ writer",
+   "file": "src/cache/transcript.ts, src/cost/feed.ts, src/providers/concordia-cost.ts:29-32,43-47, src/obs/vestigium.ts",
+   "notes": "cache transcript / cost feed / cost one-shot キュー / Vestigium と 4 系統の JSONL。Vestigium 以外は独自形式"
+  },
+  {
+   "concern": "retry / timeout ポリシー",
+   "file": "src/map/project-codes.ts:34 (1500ms), src/cache/redis-store.ts:38-45 (2000ms), src/cache/redis-text-store.ts:28 (1000ms), src/adapters/refactoring-task-sink.ts:9 (30s), src/adapters/augur.ts:20 (10min), src/providers/claude-cli-llm.ts:65 (無期限)",
+   "notes": "クライアントごとに ad hoc。共通 retry なし、timeout は 1 秒〜10 分〜無期限までばらつく"
+  },
+  {
+   "concern": "LLM コスト計算・単価表",
+   "file": "src/cache/cost-estimate.ts (docs/cache-strategy.md:107,144-158), src/cost/aggregate.ts, src/providers/concordia-cost.ts",
+   "notes": "Anatomia 内に $5/$25 per Mtok の単価表と想定トークン (1500/400) を持ち、同時に Concordia へ one-shot cost を送り、他サービスからも cost を受ける。cost ドメインを Concordia と二重所有"
+  },
+  {
+   "concern": "直列バックグラウンドジョブキュー",
+   "file": "src/project/analysis-queue.ts:35-60, src/web-cache/prepare-queue.ts:1-40",
+   "notes": "同一リポに enqueue/状態/履歴 30 件のほぼ同型キューが 2 本 (analyze 用と prepare 用)"
+  },
+  {
+   "concern": "Redis クライアント",
+   "file": "src/cache/redis-store.ts, src/cache/redis-text-store.ts",
+   "notes": "card cache 用と result cache 用で別実装 (接続・timeout・失敗時方針が異なる: 無言 no-op vs 警告+fallback)"
+  },
+  {
+   "concern": "git サブプロセス wrapper",
+   "file": "src/fs/git-ignore.ts:26-29,125, src/branch/git.ts:13-30",
+   "notes": "ls-files / rev-parse / diff を execFile で個別実装。Revisor・Breviarium も git を直接叩くはず (推測)"
+  },
+  {
+   "concern": "request usage / caller 帰属",
+   "file": "src/obs/request-usage.ts:1-48, src/adapters/web/request-usage.ts:15",
+   "notes": "X-Anatomia-Caller / ANATOMIA_CALLER の自己申告ヘッダ方式。認証ではないと明記 (spec/feature/request-usage.md:11)"
+  },
+  {
+   "concern": "セッション ID 伝播 (AsyncLocal)",
+   "file": "src/cache/session-context.ts, src/cache/transcript.ts:99",
+   "notes": "ANATOMIA_SESSION_ID / LICTOR_SESSION_ID / Concordia session_id の 3 名称で同じ概念"
+  },
+  {
+   "concern": "LLM backend 切替 (claude-cli / anthropic / stub) と fail-fast",
+   "file": "src/providers/index.ts:314-345, src/providers/claude-cli-llm.ts:1-21",
+   "notes": "Genius の claude-cli / ollama 切替 (Genius CLAUDE.md) と同型。@ludiars/one-shot (Lapilli) に spawn と model role 解決を委ねるが、envelope 解析・usage 抽出は Anatomia 側で再実装"
+  },
+  {
+   "concern": "llm-gateway の orderSegments (束の immutable-first 整列)",
+   "file": "src/supply/bundle.ts:18,121-131; src/types.ts:547",
+   "notes": "DESIGN.md:349-350 / TASKS.md:12 は @ludiars/llm-gateway をそのまま使うとするが、package.json に依存は無く「mirror」として自前実装"
+  },
+  {
+   "concern": "crash / uncaughtException ロギング",
+   "file": "src/obs/vestigium.ts:345-379",
+   "notes": "warm サーバ用に独自の crash handler。Vg 書込失敗の自己判定を含む"
+  },
+  {
+   "concern": "契約 runtime (Augur)",
+   "file": "src/adapters/web/contracts/runtime.ts, launch-host.contract.ts, source-target.contract.ts",
+   "notes": "Augur の observe 契約 runtime をリポ内に生成配置 (他リポも同様に持つ想定)"
+  }
+ ],
+ "painPoints": [
+  {
+   "description": "仕様とコードの乖離: MCP は spec 11 ツール vs 実装 17 ツール、CLI は spec 21 サブコマンド vs 実装 24 (entrypoints / knowledge / map 未記載)、spec/README・CLAUDE.md の許可フォルダ 5 vs 実 10、README の embedder 記述が zero-vector/hash で揺れる",
+   "kind": "known-issue",
+   "evidence": "spec/interface/mcp.md:13 vs src/adapters/mcp.ts:331-505; spec/interface/cli.md:10-12 vs src/adapters/cli.ts:302-325; CLAUDE.md:52-54 vs ls spec/; spec/test/test-design.md:68 vs docs/mcp-setup.md:30"
+  },
+  {
+   "description": "CLI 経路は毎回 cold analyze (数秒〜数分) で、かつ providers/LLM キャッシュを通らないため duplication ゲートが常に pass。実効性のある verify は warm web / MCP 経路に限られる",
+   "kind": "perf",
+   "evidence": "src/adapters/web/routes/harness.ts:9-14; docs/cache-measurement.md:27-30; spec/feature/verify-gates.md:44-48"
+  },
+  {
+   "description": "warm サーバの運用が hooks の遅延起動 + 3h idle 自己終了 + EADDRINUSE 重複起動 skip に依存。catalog は autostart false なので Ex 管理下でも最初の supply/verify はコールドスタートを払う",
+   "kind": "ops-burden",
+   "evidence": "excubitor.catalog.yaml:18-19; src/adapters/web/idle.ts:1-10; src/adapters/web/server.ts:430-438; docs/cache-strategy.md:125"
+  },
+  {
+   "description": "POST /api/plan の LLM 分解が「コーディングプロンプトごとに ~10 秒」を設計として許容 (hooks の UserPromptSubmit で毎回発生)",
+   "kind": "perf",
+   "evidence": "src/adapters/web/routes/plan.ts:8-12; spec/interface/web.md:80"
+  },
+  {
+   "description": "Augur ブリッジは HTTP リクエスト中に子プロセスを同期待ちし、timeout 10 分で SIGKILL。パス依存 (../Augur) のため配置が変わると 503",
+   "kind": "perf",
+   "evidence": "src/adapters/augur.ts:19-20,90-93; spec/interface/augur-bridge.md:40-47"
+  },
+  {
+   "description": "ビルド必須 (bin は dist を読む) + サブモジュール初期化必須 (lapilli の file: 依存) + kuzu/tree-sitter のネイティブビルドで、新規 checkout のセットアップが重い。オフライン install では Kuzu 型解決エラーが報告されている",
+   "kind": "ops-burden",
+   "evidence": "CLAUDE.md:44-46; spec/feature/shared-one-shot.md:14-16,48-51; README.md:26; git submodule status (本 checkout は 3 submodule とも未初期化)"
+  },
+  {
+   "description": "kuzu はネイティブ依存として dependencies に入っているが、KuzuCodeGraph / KuzuKnowledgeProjection はテスト以外で実体化されない (KG 射影は in-memory のみ)。インストールコストに見合う本番用途が無い",
+   "kind": "perf",
+   "evidence": "package.json:17; grep 'new KuzuCodeGraph|KuzuKnowledgeProjection' → src/graph/kuzu.ts, src/knowledge/kuzu-projection.ts 以外ヒット無し; DESIGN.md:462-463 (Kuzu を決定事項とする)"
+  },
+  {
+   "description": "builtin ドメインが汎用すぎて過剰マッチ (state-machine が全ノードに当たる) → builtin を既定 none に後退。ゲーム別オントロジー plugin は未投入で NodeFilter.pathPattern も未完",
+   "kind": "planned-but-missing",
+   "evidence": "docs/follow-ups.md:14-24; docs/self-analysis.md:397-400; spec/feature/domain-detection.md:242-249,321"
+  },
+  {
+   "description": "analyze() の spec 収集が root 配下限定のため、code=src/ spec=spec/ の一般形で specDirs 設定や自動検出 (祖先 3 hop) という迂回が必要",
+   "kind": "workaround",
+   "evidence": "docs/follow-ups.md:40-42; docs/measurement-report.md:256-259; spec/feature/spec-source-config.md:33-45"
+  },
+  {
+   "description": "共有・長寿命レジストリに使い捨て worktree 登録が溜まり、検索結果が重複・死骸で埋まる → ファイルシステム事実で除外/集約する正規化を後付け",
+   "kind": "workaround",
+   "evidence": "src/map/project-roots.ts:3-9; spec/feature/domain-map.md:158-174"
+  },
+  {
+   "description": "Revisor が 7 つの Concordia worktree を解析してヒープ枯渇、入れ子 worktree を走査から外す修正。Anchor が絶対パス依存で checkout を跨いで解決不能だった事故 (修正済)。single-file diff が \"<diff>\" に帰属し spec orphan 誤検知 (修正済)",
+   "kind": "known-issue",
+   "evidence": "src/fs/walk.ts:21-22; spec/plan/problem_logs/2026-08-09-cross-checkout-anchor-instability.md:10-33,56-60"
+  },
+  {
+   "description": "テストスイートが重い: 255 files / 1649 tests で 201 秒、git サブプロセス系が 60s timeout を超える、Windows 共有レビューホストで maxWorkers 4 固定",
+   "kind": "perf",
+   "evidence": "spec/test/redis-results-validation.md:20-22; spec/test/code-quality-validation.md:16-17; vitest.config.ts:5-9"
+  },
+  {
+   "description": "Redis 結果キャッシュは実装済みだが、Concordia catalog の Redis (127.0.0.1:6379) が接続拒否・Excubitor inventory に Redis サービス無しで live 検証不能。card cache 側は Redis 未到達を無言 no-op にしており「無言フォールバック禁止」規約と矛盾",
+   "kind": "known-issue",
+   "evidence": "spec/test/redis-results-validation.md:32-36; spec/setup/environment.md:182; src/cache/redis-store.ts:10-13; README.md:57 (設定不備は黙ってスタブに落とさない)"
+  },
+  {
+   "description": "Vestigium 書込で並行プロセスが同日ファイルへ追記すると EPERM が uncaughtException として届く問題、MODULE_NOT_FOUND の stderr を委託エージェントが CLI 失敗と誤読 (Memoria #1754/#1770) した問題に個別対処",
+   "kind": "workaround",
+   "evidence": "src/obs/vestigium.ts:283-292,351-357"
+  },
+  {
+   "description": "Concordia cost one-shot の既定が 127.0.0.1:11111 のハードコードで、domain-map 側の「ポートを埋め込まず Ex が供給」原則と不整合。失敗時キュー JSONL の再送機構は無い",
+   "kind": "known-issue",
+   "evidence": "src/providers/concordia-cost.ts:24-26,43-47; spec/feature/domain-map.md:184"
+  },
+  {
+   "description": "cost-feed はプロセス内 latest-wins で永続化されず再起動で消える。Anatomia が cost の受信ハブを兼ねる理由が設計上薄い (「解析機能とは独立した観測レーン」)",
+   "kind": "known-issue",
+   "evidence": "spec/data/cost-feed.md:3-4,34"
+  },
+  {
+   "description": "Windows 固有の対処が多い: write→exit の libuv abort 対策 writeThenExit、CLAUDE_CODE_GIT_BASH_PATH 必須、.mcp.json の E:/ 既定パス、win32 分岐 9 ファイル",
+   "kind": "ops-burden",
+   "evidence": "spec/interface/cli.md:135-138; eval/README.md:13-14; .mcp.json:6; grep win32 → 9 files"
+  },
+  {
+   "description": "ハブ関数/ファイルの肥大: analyze() 883 AST ノード・fan-out 17 (自己解析)、core.ts 1451 行、cli.ts 1989 行、index.html 3904 行",
+   "kind": "known-issue",
+   "evidence": "docs/self-analysis.md:362-384; wc -l src/core.ts src/adapters/cli.ts src/adapters/web/public/index.html"
+  },
+  {
+   "description": "main 履歴の書き換えでローカル main と GitHub main が共通祖先を失い Revisor 公開が停止、AIFormat submodule の stale link など、submodule/履歴運用の事故",
+   "kind": "known-issue",
+   "evidence": "spec/plan/problem_logs/2026-08-05-rewritten-main-divergence.md:10-29; spec/plan/problem_logs/2026-08-23-stale-aiformat-submodule-link.md"
+  },
+  {
+   "description": "UX 価値の数値目標 (命中率・誤検知率) が未決定で、W1 精度未測定・W2 誤検知既知例あり。利用者向け manual は全章 draft で実操作未確認",
+   "kind": "todo",
+   "evidence": "spec/ux/product.md:38-43; docs/manual/README.md:14-16"
+  },
+  {
+   "description": "persistent per-file parse cache は warm で ~20% しか効かず初回 1.5x / 26MB のコストで一度不採用とされたが、現在 file-cache.ts (FORMAT_VERSION 6) として存在。効果の再計測記録は無い",
+   "kind": "perf",
+   "evidence": "spec/plan/problem_logs/2026-08-09-cross-checkout-anchor-instability.md:69-72; src/project/file-cache.ts:1-33"
+  }
+ ],
+ "unconnectedOrPlanned": [
+  {
+   "description": "ライブトレースストリーム (socket/UDP): LiveTraceSource / createTraceReceiver は部品のみでインスタンス化箇所ゼロ。運用は JSONL 読み直し、warm サーバは ANATOMIA_TRACE_FILE を起動時 1 回のみ読む",
+   "evidence": "docs/trace-operations.md:9-16,88-101; spec/feature/dynamic-trace-and-phase.md:21; spec/feature/analysis-procedure.md:129"
+  },
+  {
+   "description": "Kuzu KG 射影 (T13 / T55): 実装・テストはあるが CLI/MCP/Web のどの経路からも実体化されない",
+   "evidence": "grep 結果 (src/graph/kuzu.ts, src/knowledge/kuzu-projection.ts 以外に出現なし); TASKS.md:54-56,164-166"
+  },
+  {
+   "description": "Revisor 二層ドメイン gate: pr-review に advisory として載り --enforce-dual-layer-domain-gate で enforce 可能だが、task の完了条件は全て未チェックのまま。Revisor 側の切替・併走期間の終了は未定",
+   "evidence": "spec/tasks/2026-08-13-revisor-dual-layer-gate.md:17-23; src/adapters/cli.ts:450-451,963; src/review/dual-layer-gate.ts:1-20"
+  },
+  {
+   "description": "pr-review への「変更 symbol に届く入口」advisory、動的観測 overlay の join は後続タスク",
+   "evidence": "spec/feature/entrypoint-trace-graph.md:171-177"
+  },
+  {
+   "description": "dynamic-edge-recovery (動的裏取りで落とした辺を復活) は設計のみ未実装",
+   "evidence": "spec/feature/dynamic-edge-recovery.md:3"
+  },
+  {
+   "description": "T69 integration fixtures + 実測 baseline が未完了のため okf-generation / domain-knowledge-log / knowledge-quality-report / domain-dual-layer / viewer-scene-domain-tabs は status: planned のまま",
+   "evidence": "TASKS.md:203-204; docs/plan-okf-domain-scene-flow.md:247-255; spec/feature/okf-generation.md:6,27; spec/data/domain-knowledge-log.md:29"
+  },
+  {
+   "description": "整理 UI の未実装分: drag による subdomain-of 提案、subtree 集約、assignment batch proposal と各 filter、projection preview、Gate C の UI 導線 (API のみ)",
+   "evidence": "spec/feature/domain-organization.md:243-251"
+  },
+  {
+   "description": "ゲーム別ドメインオントロジー plugin (AdventureCube / KS) 未投入、NodeFilter.pathPattern 未実装",
+   "evidence": "docs/follow-ups.md:14-24; spec/feature/domain-detection.md:321"
+  },
+  {
+   "description": "リファクタリング task sink: HttpRefactoringTaskSink は実装済みだが task 完了条件は未チェックで、Memoria / Cc 側の受信エンドポイント (MEMORIA_TASK_URL / CONCORDIA_TASK_WORKFLOW_URL) の存在は本リポから確認できない (推測: 未接続)",
+   "evidence": "spec/tasks/2026-08-13-refactoring-proposal-task-sink.md:17-22; src/adapters/refactoring-task-sink.ts:49-54"
+  },
+  {
+   "description": "Praeforma 向け消費: organize 出力に Pf 向け注記はあるが Pf 専用エンドポイントや契約は無い (推測: Pf 側は ANATOMIA_URL の一般 API を読むだけ)",
+   "evidence": "src/domains/organize/index.ts:226-228; spec/tasks/2026-09-07-pf-catalog.md"
+  },
+  {
+   "description": "docs/manual の contexts.json キーは原稿側定義のみでパネル・CLI 配線なし。MCP 経由の章も未作成",
+   "evidence": "docs/manual/README.md:24-29"
+  },
+  {
+   "description": "org 共有のリモート blob キャッシュ (S3 等) は保管先未定。Redis は実装済みだが Ex inventory に Redis サービスが無い",
+   "evidence": "docs/follow-ups.md:50-55; spec/test/redis-results-validation.md:32"
+  },
+  {
+   "description": "@ludiars/llm-gateway orderSegments の採用は設計書に明記されるが依存は無く mirror 実装。lib/CLI/MCP の publish 要否、略称 An の project-codes 正式登録も未決",
+   "evidence": "DESIGN.md:349-350; src/supply/bundle.ts:18,131; package.json; docs/follow-ups.md:58-60; DESIGN.md:473"
+  },
+  {
+   "description": "spec 側が planned と記す knowledgeWriteRoot は routes/projects.ts で既に受理しており、scenes/store.ts の manual 優先も T66 実装済みと矛盾 (planned 記述の更新漏れ)",
+   "evidence": "spec/data/project-cache.md:45-52 vs src/adapters/web/routes/projects.ts:9-18; spec/feature/scene-derivation.md:103 vs TASKS.md:193-195"
+  },
+  {
+   "description": "Breviarium / Genius / Conflux との接続は本リポに一切記述が無い",
+   "evidence": "grep -rniE 'breviarium|genius|conflux' spec docs src → 0 件"
+  }
+ ],
+ "overlapsSuspected": [
+  {
+   "withTool": "Revisor",
+   "concept": "PR レビュー / 複雑度・品質スコア / マージゲート",
+   "why": "Anatomia は pr-review で 5 ゲート・循環・重複・overlap・drift・複雑度 snapshot・二層ドメイン gate まで出し、Revisor がそれを比較してしきい値判断する。review 系サブコマンド (review / domain-review / spec-review) と Revisor のレビュー責務の境界がコード品質評価で重なる (Anatomia 側に quality-scores.ts / refactoring-opportunities.ts まである)",
+   "evidence": "spec/feature/pr-diff-review.md:15-25,59-65; spec/feature/domain-dual-layer.md:140-153; src/review/quality-scores.ts, src/review/refactoring-opportunities.ts (cc.acceptance.json:20-21); spec/feature/function-complexity-comparison.md:57-63"
+  },
+  {
+   "withTool": "Augur",
+   "concept": "テスト計画 / 観測契約 / 集中テスト",
+   "why": "Anatomia が CreatePlanRequest を丸ごと組み立て (project.language='typescript' / frameworks ['hono'] / testRunners ['vitest'] を固定値で埋める)、UX 直結ドメイン政策まで付与してから Augur に渡す。テスト提案の入力整形責務が両者に跨る。また Augur 契約注入先が source-view 2 ファイルだけに留まる",
+   "evidence": "src/adapters/web/routes/test-suggestions.ts:321-358; spec/feature/focused-testing.md:7-10; augur.inject.json:3-6"
+  },
+  {
+   "withTool": "Concordia",
+   "concept": "cost / session / project roster / Discord / 観測ログ",
+   "why": "Anatomia は cost の受信ハブ (POST /api/cost-feed) と送信元 (Concordia /v1/cost/one-shots) と推定器 (単価表) を兼ね、session id は Concordia のものを借り、project-codes は Concordia 正本、Discord は Concordia が投稿・Anatomia が添付取得、Vestigium logsDir を Concordia monitor が tail。観測・コスト・セッションの 3 概念が双方向に往復している",
+   "evidence": "spec/data/cost-feed.md:1-4; src/providers/concordia-cost.ts:36; docs/cache-strategy.md:51,144-158; src/map/project-codes.ts:5-12; spec/feature/domain-organization.md:146-157; src/obs/vestigium.ts:3-4"
+  },
+  {
+   "withTool": "Memoria / Concordia task workflow / Actio",
+   "concept": "task (調整タスク / 作業記録)",
+   "why": "RefactoringTask は Memoria 既定 / Cc 切替の pluggable sink、作業記録 (spec/tasks) は Actio id を持つ。1 リポの中で task の所在が 3 系統に分かれる",
+   "evidence": "src/adapters/refactoring-task-sink.ts:49-54; spec/tasks/2026-10-14-source-view-analyzed-files-only.md:3; spec/feature/viewer-scene-domain-tabs.md:82-85"
+  },
+  {
+   "withTool": "Praeforma",
+   "concept": "domain / spec (仕様書 ↔ 実装の対応)",
+   "why": "Anatomia が SpecClause・domain・コード↔仕様リンク・generated OKF を所有し、Pf は「仕様書 ↔ 実装連携ツール」として同じ対応を扱う (Praeforma CLAUDE.md)。Pf が ANATOMIA_URL を参照する前提だが契約が無く、domain 定義 (spec/domains/*.json) と Pf の projects/domains/objects/specs の 5 領域の正本関係が未整理",
+   "evidence": "spec/tasks/2026-09-07-pf-catalog.md:8-14; src/domains/organize/index.ts:226-228; spec/feature/domain-dual-layer.md:21-26"
+  },
+  {
+   "withTool": "Breviarium",
+   "concept": "spec 構造監査 / 仕様要約",
+   "why": "Anatomia の spec-review (AIFormat 分類・索引・.gitignore 罠の決定的検査) と spec parse (SpecClause 化) は、仕様文書を扱う Br の責務と重なる可能性がある (推測: 本リポに Br 言及なし)",
+   "evidence": "spec/interface/cli.md:24; spec/README.md:124-126; grep 'breviarium' → 0 件"
+  },
+  {
+   "withTool": "Genius",
+   "concept": "LLM backend 切替 / ローカル embedding / content-addressed 蒸留キャッシュ",
+   "why": "Genius は claude-cli 既定・ollama 切替・ローカル embedding (Ollama) を規約にし (Genius CLAUDE.md)、Anatomia も claude-cli 既定・Ollama 互換 embedder・Redis/File キャッシュを独自に持つ。@ludiars/one-shot は共有するが、蒸留キャッシュ・embedder 抽象は各自実装",
+   "evidence": "src/providers/index.ts:314-363; spec/data/llm-cache.md:133-141; spec/feature/shared-one-shot.md:1-7"
+  },
+  {
+   "withTool": "Excubitor",
+   "concept": "service registry / project registry / home",
+   "why": "Anatomia の projects.json (ARS_ROOT/.anatomia) と Ex の catalog/topology は共に「どのリポがどこにあるか」を持つ。Anatomia は Ex から CONCORDIA_URL は受けるが、登録プロジェクトの rootPath は自前レジストリで二重管理",
+   "evidence": "excubitor.catalog.yaml:12-16; spec/data/project-cache.md:21-43; src/map/project-roots.ts:3-9"
+  },
+  {
+   "withTool": "Castra / Lictor (hooks)",
+   "concept": "supply→verify のオーケストレーション",
+   "why": "hooks (Castra) が plan/map/context/verify をどの順で何秒待つかを決め、Lictor が session を配る。Anatomia の重心ループの実際の制御は本リポ外にあり、eval ハーネスも hooks 前提",
+   "evidence": "spec/tasks/2026-09-05-domain-map-supply-hook-prefix.md:15,38-43; docs/cache-strategy.md:123-141; eval/DESIGN.md:18-27"
+  },
+  {
+   "withTool": "Tela",
+   "concept": "ソースビューア",
+   "why": "Tela 起動に加えて Web 側に独自のソース表示 (前後 120 行 + 関数範囲 + caller/callee) を併設しており、ソース閲覧 UI が 2 系統",
+   "evidence": "spec/interface/web.md:139-150; git log 7b51b83"
+  }
+ ],
+ "accessBottlenecks": [
+  {
+   "description": "CLI は呼び出しごとに cold analyze (全ファイル再パース、数秒〜数分)。warm 保持は web サーバだけで、MCP も起動ごとに ProjectManager を立てる。Revisor / スキル経由は毎回この cold path",
+   "evidence": "src/adapters/web/routes/harness.ts:9-14; spec/feature/analysis-procedure.md:32-42"
+  },
+  {
+   "description": "warm サーバは単一プロセス・単一ポート 4200 のハブで、analyze も prepare-web-cache も直列キュー (同時 2 本の重い解析は tree-sitter WASM ヒープを壊す)。大リポの prepare は分単位",
+   "evidence": "src/web-cache/prepare-queue.ts:9-13; src/project/analysis-queue.ts:3-7; src/adapters/web/routes/web-cache.ts:11-15"
+  },
+  {
+   "description": "UserPromptSubmit hook が POST /api/plan (LLM 分解 ~10 秒、既定 ON) + map 検索 + context を毎プロンプト実行。LLM 呼び出しは claude -p の子プロセス起動 (timeout 無期限)",
+   "evidence": "src/adapters/web/routes/plan.ts:8-12; src/providers/claude-cli-llm.ts:65,94-152"
+  },
+  {
+   "description": "Augur 連携は HTTP 要求内で子プロセスを同期待ち (最大 10 分)。常駐なし・パス依存",
+   "evidence": "src/adapters/augur.ts:19-20,75-93"
+  },
+  {
+   "description": "LLM 蒸留カードの 1 miss = Opus 1 回 (~$0.0175)。CLI 経路は card cache を使わず、File backend は per-machine、Redis は Ex に未配備のため org 横断共有が実効していない",
+   "evidence": "docs/cache-strategy.md:107-127; docs/cache-measurement.md:27-30; spec/test/redis-results-validation.md:32"
+  },
+  {
+   "description": "初回セットアップ: submodule init → npm install (kuzu/tree-sitter ネイティブ) → npm run build の 3 段が必須、変更ごとに build。Kuzu は本番未使用なのに install コストだけ払う",
+   "evidence": "spec/feature/shared-one-shot.md:14-16; CLAUDE.md:44-46; package.json:17"
+  },
+  {
+   "description": "home レジストリの場所が --home / ANATOMIA_HOME / cwd / ~ の 4 段で、Ex 起動・MCP (.mcp.json の Windows パス既定)・CLI 単発で別 home を見るとレジストリが空に見える",
+   "evidence": "src/project/store.ts:552-576; excubitor.catalog.yaml:12-15; .mcp.json:6"
+  },
+  {
+   "description": "idle 3h で warm サーバが落ち、次の hook がコールドスタート (解析 + カード pre-warm) を払う。catalog autostart false",
+   "evidence": "src/adapters/web/idle.ts:9; src/adapters/web/server.ts:212-229 (pre-warm); excubitor.catalog.yaml:18"
+  },
+  {
+   "description": "domain 承認 (Gate A/B/C) と review-notes は人間確認 (confirmApply + snapshotId + expected head) が必須の直列書き込みで、解析対象が変わると 409 stale で再提案からやり直し",
+   "evidence": "spec/interface/web.md:62-67; spec/feature/domain-organization.md:165-179"
+  },
+  {
+   "description": "テスト 200 秒超 + maxWorkers 4 + git サブプロセス timeout が PR サイクルを遅くする",
+   "evidence": "spec/test/redis-results-validation.md:20-22; vitest.config.ts:5-9"
+  },
+  {
+   "description": "Web パネルは prepared cache が無いと 409 で何も描かず、人が prepare を押して分単位待つ (first-view は SWR の stale snapshot で補う)",
+   "evidence": "src/adapters/web/routes/web-cache.ts:16-18; src/project/manager.ts:431-447; docs/manual/browse-panel.md:48"
+  },
+  {
+   "description": "Tela ソースビューはサーバ PC の loopback 直接要求のみ許可。Excubitor Viewer / 別端末からは Web 表示に限定",
+   "evidence": "spec/interface/web.md:112-126"
+  }
+ ],
+ "size": {
+  "srcFiles": 701,
+  "specLines": 7388,
+  "notes": "srcFiles は指定コマンド (node_modules 除外、dist 除外、.ts/.tsx/.mjs/.cs) の値。内訳: src/ 683 (うち非テスト .ts 417、テスト 263 ファイル)、残りは bin/ scripts/ eval/ runtime/ (.cs 等)。specLines は spec/**/*.md 合計 7388 行 (別途 docs/*.md 2055 行、DESIGN.md 518 行、TASKS.md 211 行)。src トップレベル 28 ディレクトリ、最大は domains 91 / knowledge 88 / adapters 60 ファイル。主要ハブ: src/core.ts 1451 行、src/adapters/cli.ts 1989 行、src/adapters/web/public/index.html 3904 行。git HEAD bc2da1f (2026-10-14)。lib/ の 3 submodule は本 checkout で未初期化"
+ }
+}

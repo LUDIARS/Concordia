@@ -10,7 +10,7 @@ import { applyMigrations } from "../db/schema.js";
 import { MaterialSourceRegistry } from "./material-registry.js";
 import { MaterialSourceError, type Material, type MaterialSource } from "./material-types.js";
 import { parseActionConfig } from "./patrol-config.js";
-import { PATROL_RETRY_AFTER_FAILURE_SEC, runPatrolCycle } from "./patrol-cycle.js";
+import { PATROL_RETRY_AFTER_FAILURE_SEC, retryDelaySec, runPatrolCycle } from "./patrol-cycle.js";
 import { acceptInbound } from "./patrol-inbound.js";
 import { reconcileDeliveries, recoverStaleRuns } from "./patrol-maintenance.js";
 import { DELIVERY_UNKNOWN_AFTER_SEC, PATROL_LEASE_SEC, type PatrolPorts } from "./patrol-ports.js";
@@ -205,6 +205,21 @@ describe("patrol pick (CC-PATROL-01/02/03)", () => {
     expect(r).toMatchObject({ kind: "acted", action: "pick", outcome: { status: "posted" } });
     // 成功したら通常の間隔に戻る
     expect(h.current().next_due_at! - Math.floor(h.clock.ms / 1000)).toBeGreaterThan(PATROL_RETRY_AFTER_FAILURE_SEC);
+  });
+
+  it("doubles the wait while failures continue, capped at the interval (usage limit lasts hours)", async () => {
+    const h = harness({ render: async () => ({ ok: false, error: "render failed: stdout: usage limit", llmCalls: 1 }) });
+    h.db.prepare("UPDATE rules SET tick_sec = 10800 WHERE id = 'patrol'").run();
+    await h.tick();
+    const waits: number[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      waits.push(h.current().next_due_at! - Math.floor(h.clock.ms / 1000));
+      h.clock.ms = (h.current().next_due_at! + 1) * 1000;
+      await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    }
+    expect(waits).toEqual([900, 1800]);
+    expect([1, 2, 3, 4, 5, 9].map((n) => retryDelaySec(n, 10800))).toEqual([900, 1800, 3600, 7200, 10800, 10800]);
+    expect(retryDelaySec(1, 600)).toBe(600);
   });
 
   it("stops before sending when the rule is disabled during rendering (CC-PATROL-06/08)", async () => {

@@ -27,8 +27,28 @@ export type CycleOutcome =
   | { kind: "stopped"; reason: string }
   | { kind: "acted"; action: string; outcome: ExecuteOutcome };
 
-/** 定期の投稿の生成が失敗したとき、 次の期日を待たずにもう一度試すまでの秒数。 */
+/** 定期の投稿の生成が失敗したとき、 次の期日を待たずにもう一度試すまでの秒数 (1 回目)。 */
 export const PATROL_RETRY_AFTER_FAILURE_SEC = 900;
+
+/**
+ * 連続 n 回目の失敗の後に待つ秒数。 15 分・30 分・1 時間… と倍にし、 通常の間隔で頭打ちにする。
+ * 使用上限のように数時間続く失敗で、 1 日の生成上限を再試行だけで使い切らないため。
+ */
+export function retryDelaySec(consecutiveFailures: number, tickSec: number): number {
+  const n = Math.max(1, Math.min(consecutiveFailures, 10));
+  return Math.min(tickSec, PATROL_RETRY_AFTER_FAILURE_SEC * 2 ** (n - 1));
+}
+
+/** 直近の定期 pick が生成失敗で何回続いているか (返信など他の run は数えない)。 */
+function consecutivePickFailures(ports: PatrolPorts, ruleId: string): number {
+  let count = 0;
+  for (const run of ports.runs.list({ rule_id: ruleId, limit: 50 }).runs) {
+    if (run.action_kind !== "pick") continue;
+    if (run.status !== "failed" || run.error_code !== "render_failed") break;
+    count += 1;
+  }
+  return count;
+}
 
 export interface CycleOptions {
   /**
@@ -139,7 +159,8 @@ export async function runPatrolCycle(
       // 生成の一時的な失敗 (claude -p の失敗など) では次の期日 (数時間後) まで待たせず、 少し後にもう一度選ぶ。
       // 新しい期日は新しい trigger なので同じ run の再送ではない。 回数は 1 日の生成上限が縛る。
       if (outcome.status === "failed" && rule.tick_sec && rule.tick_sec > PATROL_RETRY_AFTER_FAILURE_SEC) {
-        ports.rules.setNextDue(rule.id, nowSecOf(ports) + PATROL_RETRY_AFTER_FAILURE_SEC);
+        const delay = retryDelaySec(consecutivePickFailures(ports, rule.id), rule.tick_sec);
+        ports.rules.setNextDue(rule.id, nowSecOf(ports) + delay);
       }
       return { kind: "acted", action: "pick", outcome };
     }

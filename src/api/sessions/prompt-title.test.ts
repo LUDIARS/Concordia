@@ -39,12 +39,16 @@ describe("decidePromptTitle (SPEC-SESSION-PROMPT-TITLE)", () => {
 });
 
 describe("normalizeSummarizedTitle", () => {
-  it("keeps the first line without labels or quotes", () => {
-    expect(normalizeSummarizedTitle("タイトル: 「Cc セッションタイトルの要約修正」\n説明")).toBe("Cc セッションタイトルの要約修正");
+  it("accepts only a structured title with explicit context understanding", () => {
+    expect(normalizeSummarizedTitle(JSON.stringify({ understood: true, title: "Cc セッションタイトルの要約修正" }))).toBe("Cc セッションタイトルの要約修正");
   });
 
-  it("rejects empty or control-like output so the deterministic title stays", () => {
-    expect(normalizeSummarizedTitle("\n  \n")).toBeNull();
-    expect(normalizeSummarizedTitle("[Cc policy update]")).toBeNull();
+  it.each([
+    "", "[Cc policy update]", "依頼内容の要約から日本語タイトルを生成します。", "```json\n{}\n```",
+    JSON.stringify({ understood: false, title: "文脈不明" }), JSON.stringify({ title: "題名" }),
+    JSON.stringify({ understood: "true", title: "題名" }), JSON.stringify({ understood: true, title: "[Cc policy update]" }),
+    JSON.stringify({ understood: true, title: "題\n名" }), JSON.stringify({ understood: true, title: "長".repeat(41) }),
+  ])("rejects uncertain or malformed output: %s", raw => {
+    expect(normalizeSummarizedTitle(raw)).toBeNull();
   });
 });

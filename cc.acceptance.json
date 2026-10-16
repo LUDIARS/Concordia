@@ -4743,7 +4743,7 @@
     {"source":"src/delegation/sidecar/profile.ts","tests":["src/delegation/sidecar/profile.test.ts","src/delegation/sidecar/invoke-guard.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
     {"source":"src/delegation/sidecar/gate.ts","tests":["src/delegation/sidecar/gate.test.ts"],"contracts":["CC-DELEGATION-PROFILE-DEFAULTS"]},
     {"source":"src/stat/repo-change-watcher.ts","tests":["tests/repo-change-watcher.test.ts"],"contracts":["CC-AUTO-TITLE-TASK-STOP"]},
-    {"source":"src/consultation/title-summary.ts","tests":["src/consultation/title-summary.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
+    {"source":"src/consultation/title-summary.ts","tests":["src/consultation/title-summary.test.ts","src/discord/consultation-title.test.ts","tests/consultation-title-wiring.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
     {"source":"src/discord/consultation-title.ts","tests":["src/discord/consultation-title.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
     {"source":"src/discord/bot.ts","tests":["src/discord/consultation-title.test.ts","tests/consultation-title-wiring.test.ts"],"contracts":["CC-CONSULT-TITLE"]},
     {"source":"src/contract/schema.ts","tests":["src/contract/schema.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},

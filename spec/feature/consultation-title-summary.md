@@ -16,6 +16,12 @@ Discord adapter が要約反映記録を既存 scope-aware DiscordConfigRepo 経
 
 AT-01: 開始時に短い要約名へ変更する。AT-02: 同じ話題の言い換えは名前維持、重要な話題転換は更新。AT-03: private/固定/終了/所有権喪失/古い結果では変更しない。AT-04: rename結果不明を照合し、停止後に確定したrenameの結果を保全する。AT-05: 失敗・不正応答は既存名を保ち、本文をログへ出さない。
 
+2026-10-16 neco追加指示（Actio `2f7db92d-a189-42ae-b3dd-940ce34a0189`）:
+AT-05は文脈理解の失敗も含む。要約応答は `understood: true` を明示した場合のみ採用する。
+false/欠落/型不正は既存名と保存済み確定記録を維持し、本文や説明文で代替しない。
+相槌や選択肢への回答だけで作業対象を把握できないときは、推測せず understood=false を返すよう依頼する。
+既存consultation境界で扱い、新規ドメインや外部APIを追加しない。回帰テスト追加、実機評価は未実施。
+
 Anatomia plan --no-llm hash `7a12f50715f67e7c` は既存 consultation/dialogue-context を候補とした。新規ドメインなし。既存2domain宣言不正とcache EPERM警告は今回未修正。PfのConcordia登録と仕様一覧は先の調査で確認済みだが、本変更のPf承認は未確認。repoのUX/feature/domainが正本。
 
 復旧: Botへの要約接続を差し戻す。セッション本文、手動固定、private権限、保存済み対応記録を削除しない。未確定renameは保存先と現表示を照合してから運用で復旧する。

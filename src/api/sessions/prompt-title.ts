@@ -40,13 +40,15 @@ export function decidePromptTitle(text: string): PromptTitleDecision {
   return title ? { kind: "human", title, body } : { kind: "control" };
 }
 
-/** 要約モデルの出力を 1 行タイトルへ整える。 使えない出力は null (決定的タイトルを残す)。 */
+/** Context must be explicitly understood; prose and uncertain results never become titles. */
 export function normalizeSummarizedTitle(raw: string): string | null {
-  const firstLine = raw.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0) ?? "";
-  const unlabeled = firstLine.replace(/^(タイトル|title)\s*[:：]\s*/i, "");
-  const unquoted = unlabeled.replace(/^[「『"'`]+/, "").replace(/[」』"'`]+$/, "");
-  const title = clip(collapseSpaces(unquoted));
-  if (!title || isControlPrompt(title)) return null;
+  let result: unknown;
+  try { result = JSON.parse(raw); } catch { return null; }
+  if (!result || typeof result !== "object") return null;
+  const candidate = result as { understood?: unknown; title?: unknown };
+  if (candidate.understood !== true || typeof candidate.title !== "string") return null;
+  const title = candidate.title.trim();
+  if (!title || Array.from(title).length > 40 || /[\r\n@<>`]/u.test(title) || isControlPrompt(title)) return null;
   return title;
 }
 

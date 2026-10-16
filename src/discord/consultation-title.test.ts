@@ -13,33 +13,46 @@ function fixture() {
   let name = '長い元入力';
   const rename = vi.fn(async (next: string) => { name = next; });
   const remember = vi.fn((_id: string, title: string) => { if (snapshot) snapshot = { ...snapshot, nameBody: title }; });
-  const ports = { config, read: () => snapshot, summarize: vi.fn(async () => ({ title: '予算の相談', changed: true })),
+  const ports = { config, read: () => snapshot, summarize: vi.fn(async () => ({ understood: true, title: '予算の相談', changed: true })),
     surface: async () => ({ name, rename }), format: (_id: string, title: string) => `[Cc] ${title}`, remember, warn: vi.fn() };
   return { ports, values, rename, remember, set: (next: ConsultationTitleSnapshot | null) => { snapshot = next; },
     current: () => snapshot, setName: (next: string) => { name = next; } };
 }
 describe('consultation name delivery', () => {
+  it('does not rename or save a replacement when the model cannot understand context', async () => {
+    const f = fixture();
+    f.ports.summarize.mockResolvedValue({ understood: false, title: '文脈不明', changed: true });
+    const updater = createConsultationTitleUpdater(f.ports);
+    try {
+      updater.request('s');
+      await vi.waitFor(() => expect(f.ports.warn).toHaveBeenCalled());
+      expect(f.rename).not.toHaveBeenCalled();
+      expect(f.remember).not.toHaveBeenCalled();
+      expect(f.values.size).toBe(0);
+      expect(f.current()?.nameBody).toBe('長い元入力');
+    } finally { updater.stop(); }
+  });
   it('renames initially, keeps a thin change, and updates a new topic', async () => {
     const f = fixture(), updater = createConsultationTitleUpdater(f.ports);
     updater.request('s'); await vi.waitFor(() => expect(f.remember).toHaveBeenCalledTimes(1));
     f.set({ ...f.current()!, source: '予算の追加説明です' });
-    f.ports.summarize.mockResolvedValue({ title: '予算について', changed: false });
+    f.ports.summarize.mockResolvedValue({ understood: true, title: '予算について', changed: false });
     updater.request('s'); await vi.waitFor(() => expect(f.ports.summarize).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(JSON.parse(f.values.get('consultation_title:s')!).phase).toBe('done'));
     expect(f.rename).toHaveBeenCalledTimes(1);
     f.set({ ...f.current()!, source: '接続障害に話題が変わります' });
-    f.ports.summarize.mockResolvedValue({ title: '接続障害', changed: true });
+    f.ports.summarize.mockResolvedValue({ understood: true, title: '接続障害', changed: true });
     updater.request('s'); await vi.waitFor(() => expect(f.rename).toHaveBeenCalledTimes(2));
     updater.stop();
   });
   it('discards results when the source, lock or ownership changes during generation', async () => {
     for (const change of ['source', 'protected', 'channel'] as const) {
-      const f = fixture(); let resolve!: (value: { title: string; changed: boolean }) => void;
+      const f = fixture(); let resolve!: (value: { understood: boolean; title: string; changed: boolean }) => void;
       f.ports.summarize.mockImplementation(() => new Promise(done => { resolve = done; }));
       const updater = createConsultationTitleUpdater(f.ports); updater.request('s');
       await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
       f.set(change === 'protected' ? null : { ...f.current()!, ...(change === 'source' ? { source: '新しい話題' } : { channelId: 'other' }) });
-      resolve({ title: '古い要約', changed: true });
+      resolve({ understood: true, title: '古い要約', changed: true });
       await new Promise(done => setTimeout(done, 0));
       expect(f.rename).not.toHaveBeenCalled(); updater.stop();
     }

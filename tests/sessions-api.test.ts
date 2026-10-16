@@ -106,7 +106,7 @@ describe("sessions API", () => {
     expect(j.events[0].kind).toBe("prompt");
   });
 
-  it("prompt event auto-updates current_task from summary", async () => {
+  it("prompt event preserves current_task without a context-aware summarizer", async () => {
     await app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -114,6 +114,11 @@ describe("sessions API", () => {
         id: "ct", provider: "claude-code", repo_path: "/x", host: "h",
       }),
     });
+    const renamed = await app.request("/v1/sessions/ct/title", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "existing title" }),
+    });
+    expect(renamed.status).toBe(200);
     await app.request("/v1/sessions/ct/event", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -121,9 +126,9 @@ describe("sessions API", () => {
     });
     const detail = await app.request("/v1/sessions/ct");
     const j = await detail.json() as any;
-    expect(j.session.current_task).toBe("current task summary text");
+    expect(j.session.current_task).toBe("existing title");
 
-    // 後続 prompt で上書きされる
+    // 後続 prompt でも要約器がなければ確定済みタイトルを維持する
     await app.request("/v1/sessions/ct/event", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -131,7 +136,7 @@ describe("sessions API", () => {
     });
     const d2 = await app.request("/v1/sessions/ct");
     const j2 = await d2.json() as any;
-    expect(j2.session.current_task).toBe("second task");
+    expect(j2.session.current_task).toBe("existing title");
 
     // edit event は current_task を変えない
     await app.request("/v1/sessions/ct/event", {
@@ -141,7 +146,7 @@ describe("sessions API", () => {
     });
     const d3 = await app.request("/v1/sessions/ct");
     const j3 = await d3.json() as any;
-    expect(j3.session.current_task).toBe("second task");
+    expect(j3.session.current_task).toBe("existing title");
   });
 
   it("DELETE /v1/sessions/:id ends session while per-session report generation is deferred", async () => {

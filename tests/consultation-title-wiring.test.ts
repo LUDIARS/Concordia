@@ -9,7 +9,7 @@ it('persists a scoped summary and reuses it after reconnect without another rena
   const config = makeDiscordConfigRepo(db, 'sub:one');
   let name = '長い入力', nameBody = '長い入力';
   const rename = vi.fn(async (value: string) => { name = value; });
-  const summarize = vi.fn(async () => ({ title: '予算の相談', changed: true }));
+  const summarize = vi.fn(async () => ({ understood: true, title: '予算の相談', changed: true }));
   const ports = { config, read: () => ({ channelId: 'thread', source: '長い公開相談です', nameBody }), summarize,
     surface: async () => ({ name, rename }), format: (_id: string, title: string) => buildForumThreadTitle('Cc', title, '☀️', 'implementation'),
     remember: (_id: string, title: string) => { nameBody = title; }, warn: vi.fn() };

@@ -78,7 +78,7 @@ app.post("/:id/event", async (c) => {
       }
     }
     // prompt event は「いま何してるか」の最有力 signal。 制御注入を除いた人の指示だけを
-    // 1 行タイトルにし、 要約器があれば裏で Haiku 要約に差し替える (SPEC-SESSION-PROMPT-TITLE)。
+      // 文脈を確認できた要約だけ反映し、失敗時は既存タイトルを保つ (SPEC-SESSION-PROMPT-TITLE)。
     if (parsed.data.kind === "prompt") {
       const summary = (parsed.data.payload as { summary?: unknown } | undefined)?.summary;
       if (typeof summary === "string") {

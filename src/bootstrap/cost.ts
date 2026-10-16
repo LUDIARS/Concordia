@@ -25,6 +25,8 @@ export type CostMode = "embedded" | "worker" | "off";
 const COST_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
 const USAGE_SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
 const USAGE_SAMPLE_RETENTION_SEC = 60 * 24 * 60 * 60;
+// CC-COST-LIMIT-HISTORY-90D: Memoria's three-month graph reads these observations from Cc.
+const LIMIT_SAMPLE_RETENTION_SEC = 90 * 24 * 60 * 60;
 const STARTUP_SAMPLE_DELAY_MS = readPositiveIntEnv("CONCORDIA_COST_STARTUP_SAMPLE_DELAY_MS", 2_000);
 const COST_WORKER_LEASE_KEY = "cost_worker_lease";
 const COST_WORKER_ROLE = "cost-sampler";
@@ -192,7 +194,7 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
       const report = await collectCostReport(deps.sessionsRepo, { oauthLog: deps.log });
       const previous = limitSamplesRepo.listLatestByProvider();
       limitSamplesRepo.insertMany(collectLimitSamples(report, nowSec));
-      limitSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
+      limitSamplesRepo.pruneOlderThan(nowSec - LIMIT_SAMPLE_RETENTION_SEC);
     } catch (e) {
       deps.log?.warn(`cost limit sampler failed: ${(e as Error).message}`);
     }

@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/bootstrap/cost.ts", "tests": ["src/bootstrap/cost-retention.test.ts", "src/bootstrap/cost-lease-watch.test.ts"] },
     { "source": "src/web-sso/config.ts", "tests": ["src/web-sso/config.test.ts"], "contracts": ["CC-SSO-INV-01"] },
     { "source": "src/web-sso/policy.ts", "tests": ["src/web-sso/policy.test.ts"], "contracts": ["CC-SSO-INV-03", "CC-SSO-INV-04"] },
     { "source": "src/web-sso/cernere-project-channel.ts", "tests": ["src/web-sso/cernere-project-channel.test.ts"], "contracts": ["CC-SSO-INV-01"] },

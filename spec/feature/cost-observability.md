@@ -110,6 +110,11 @@ frame は新しい順に上限 (既定 500) まで読む。累積値は新しい
 `GET /v1/cost/limit-timeseries` は `since`（既定 7 日前）以降の保存 sample に現在取得値を
 加え、provider の rate-limit 使用率と reset 時刻の系列を返す。
 
+**CC-COST-LIMIT-HISTORY-90D:** Memoria の残量グラフの3ヶ月表示（90日）を支えるため、
+`cost_limit_samples` は直近90日を保持する。保持・削除の所有者はCcの既存limit samplerであり、
+他サービスに履歴の複製を持たせない。観測済みの値だけを返し、すでに削除された履歴は補わない。
+トークン利用量の `cost_usage_samples` は従来どおり60日保持とする。
+
 sample 保存時は、provider が観測した利用率だけを記録し、欠けた枠を過去の sample から
 補完しない。利用率を 1 つも観測できなかった provider は記録しない。一時的な取得失敗には、
 各 provider の取得層が直近の成功値を最長 30 分返すことで対応する。

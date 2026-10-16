@@ -1,0 +1,980 @@
+{
+ "repo": "Actio",
+ "abbreviation": "At (Cc project code / spec/tasks frontmatter の project: At)。Excubitor catalog の service code は actio",
+ "purpose": "LUDIARS の「タスク (Task)」正本サービス。人間 (Web UI / Discord・Slack チャンネル) と Concordia (Cc の taskflow v3・bounty・bug-report skill・service token 経路) がタスクを登録し、チーム/プロジェクト (Cc 正本をキャッシュ) 単位でバックログ・スプリント・フェーズ判断 (Terpsichore 判断機)・Pf 仕様精査・クリティカルパス・通知 (Cc/Memoria 経由配送) を回す。旧来の予定/カレンダー/学校/予約は Schedula/Aedilis へ分離決定済みだが、schema・frontend・docs に大量の残骸がある (features.md:3-4, 44-51 / app.ts:20-21, 188-189)。",
+ "responsibilities": [
+  "タスク CRUD と正本保持 (kind task/goal/issue, lane daily/backlog, executor human/ai, source+source_ref 冪等キー, public_hidden/public_summary) — modules/task/routes.ts, src/db/schema.ts:1077",
+  "Cc チーム/プロジェクトの同期キャッシュ (team_refs / project_refs, 10 分 tick) と改名・チーム割当の波及 — modules/task/team/cc-sync.ts, cc-project-sync.ts, cc-project-apply.ts",
+  "チーム membership/ロールと認可 (team_members は Actio 正本, requireTeamRole, X-Decided-By, ローカル持ち主) — src/auth/team-role.ts, local-owner.ts",
+  "バックログ整理・スプリント計画 (planning/active/closed, バッファ, 改訂 CAS, 履歴) — modules/task/planning/*, spec/feature/backlog-planning.md",
+  "スプリントフェーズの人間ゲート (計画承認/受入/振り返り/次計画) と Cc dialogue への配送・判断受信 — modules/task/sprint-gates/*, spec/feature/sprint-human-gates.md",
+  "Terpsichore 支援計画 (UX ゴール/到達点/定義案) の保存・評価、Genius 判断カード参照、Cc Delegation への実装委託と run 追跡 — modules/task/terpsichore/*, lib/terpsichore (submodule)",
+  "Praeforma 仕様の精査→バックログ登録、Pf 仕様/シナリオの実装状況投影と人間確認 — modules/task/planning/spec-routes.ts, praeforma-client.ts, modules/task/implementation/*",
+  "チャンネル (Discord 直接 or Cc 経由 Discord/Slack) からのバックログ受付・LLM 内容審査・スレッド質問・日次サマリ・Di 議論参加・会話ログ — modules/task/chat/* (30 ファイル)",
+  "タスク通知の送信箱と配送 (チーム→Cc cards, 個人→Memoria) と期限前検出 — modules/task/notifications/*",
+  "クリティカルパス計算と保存 (チーム単位) — modules/task/critical-path/*",
+  "パブリックイシュー (認証なし読み取り、Cc bounty 公開報告との合成) — modules/public-issues/*",
+  "PM モジュール: GitHub Issues / Notion 双方向同期・コンフリクト 3 段階・リマインダー・分析 (独自 pm_* テーブル) — modules/pm/* (DDD 層)",
+  "認証境界: Cernere composite 交換→HS256 service_token, PASETO V4 (Hub), API key, ローカルモード (loopback / Cloudflare Access JWT) — src/auth/*, src/middleware/auth.ts, modules/external-api/middleware.ts",
+  "設定・secret の多段解決 (Excubitor 注入 / runtime-config JSON / 暗号化ローカル config / Vault secret-agent / 旧 SSM) と初回設定画面 — src/config/*, src/setup/*, src/bootstrap.ts",
+  "静的配信サーバ actio-web (Host guard + /api,/ws,/.well-known 中継) — src/web-server/*",
+  "Corpus hub 向け宣言的 UI マニフェスト、peer adapter (Cernere service adapter)、Vestigium ログ、Augur 契約観測ランタイム — src/corpus.ts, src/service-adapter.ts, src/index.ts:8-12, src/contract-runtime.ts",
+  "プラグイン SDK ホスト (defineModule / installModule / schema-sync to Cernere / dynamic-loader skeleton) — src/plugins/*, packages/sdk",
+  "レガシー: groups, webhooks 通知 (/api/webhooks, /api/m5 alias), settings, secrets 閲覧, db-viewer, activity log, timetable — src/app.ts:173-260"
+ ],
+ "coreConcepts": [
+  {
+   "name": "Task (タスク)",
+   "definition": "解決すべき事象。Actio が正本 (本文・状態・依存・担当)。kind=task/goal/issue、lane=daily/backlog、executor_type=human/ai、source+source_ref で外部登録元 (concordia.taskflow.v3 / concordia.bounty.v1 / cc-command / praeforma-review / memoria-import 等) を冪等化。",
+   "storedIn": "tasks テーブル (src/db/schema.ts:1077)。Memoria 由来は pluginRef=memoria:<id>",
+   "evidence": "spec/feature/team-task/spec.md:35-36, 74-84; spec/feature/task-integration/spec.md:39-47; spec/feature/public-issues.md:19-28; modules/task/routes.ts:76-83"
+  },
+  {
+   "name": "Team (チーム)",
+   "definition": "Cc `teams` の 1 行が正本。Actio は id/slug/name/cc_settings(repo_ids) を team_refs にキャッシュするだけ。メンバーとロール (leader/member) は Actio 正本 (team_members)。独立配備 (Cc なし) では Actio 所有チームも作れる設計。",
+   "storedIn": "team_refs, team_members (src/db/team-task-schema.ts:3-8)",
+   "evidence": "spec/feature/team-task/spec.md:57, 106-120, 418-425; modules/task/team/cc-sync.ts:1-9; spec/feature/sprint-chat-integration.md:40"
+  },
+  {
+   "name": "Project (プロジェクト)",
+   "definition": "Cc project_codes (code 例 At) が正本。Actio は code/name/team_ids を project_refs に同期 (repo パスは保存しない)。チームタスクの project_id は Cc code。個人タスクの project_id は不透明参照。さらに Pf の projectId (ULID) と Excubitor の project_code (actio) が別軸で存在。",
+   "storedIn": "project_refs (src/db/team-task-schema.ts:21)",
+   "evidence": "spec/feature/task-integration/spec.md:200-219; modules/task/team/cc-project-sync.ts:1-9; spec/feature/sprint-chat-integration.md:26; excubitor.catalog.yaml:9"
+  },
+  {
+   "name": "Sprint / Backlog",
+   "definition": "チーム単位の期間 (planning→active→closed、チーム内 active は 1 つ)、バッファ上限、改訂番号 CAS、割付/延長/リスケ履歴。Actio が正本 (Calliope の既存スプリント実装は当面残す = 二重実装承知)。",
+   "storedIn": "sprints, sprint_changes, backlog_groups, backlog_placements (src/db/planning-migration.ts), team-task-schema.ts:9",
+   "evidence": "spec/feature/backlog-planning.md:42-59; spec/feature/team-task/spec.md:48-51, 268-288, 480-481"
+  },
+  {
+   "name": "Sprint Phase / Human Gate",
+   "definition": "計画・実装・受入確認・振り返り・次計画の各フェーズを本人の明示判断で進める状態機械。純粋判断は Terpsichore パッケージ、状態正本は Actio、会話/配送/Discord 本人入力は Cc。",
+   "storedIn": "sprint_gates, sprint_gate_history, sprint_gate_outbox, sprint_gate_events (src/db/sprint-gate-migration.ts)",
+   "evidence": "spec/feature/sprint-human-gates.md:5, 34, 38-45; modules/task/sprint-gates/*; lib/terpsichore 経由 import (modules/task/sprint-gates/effects.ts:2)"
+  },
+  {
+   "name": "Backlog Intake (チャット受付)",
+   "definition": "チャンネル投稿 (/backlog add, ++バックログ追加, mention) を受付 ID で保存し、審査 (Cc 審査キュー or OpenAI 互換 LLM) → スレッド質問 → 人間確定 → タスク登録。Actio が状態正本、外部 I/O は Cc か直接 Discord Bot。",
+   "storedIn": "task_chat_records, task_chat_lease (src/db/chat-migration.ts)",
+   "evidence": "spec/feature/sprint-chat-integration.md:29-57, 133-146; modules/task/chat/providers.ts:11-27; modules/task/chat/intake-store.ts"
+  },
+  {
+   "name": "Notification (通知)",
+   "definition": "Actio は配送しない。イベント (assigned/completed/deadline_soon/sprint.*) を送信箱に積み、チームは Cc cards、個人は Memoria に POST。dedupe_key で 1 回。設定欠落は即 failed。",
+   "storedIn": "task_notifications (team-task-schema.ts:23)",
+   "evidence": "spec/feature/task-integration/spec.md:27-33, 76-104; modules/task/notifications/dispatcher.ts:10-12, 49-53"
+  },
+  {
+   "name": "Evidence (証跡)",
+   "definition": "PR 証跡は Cc が pluginPayload.pull_requests に書き、Actio は表示のみ (merge≠反映)。完了レビュー用の completion_evidence (commits/PR/runs/sessions スコア) は列とテーブルだけ存在し、collector は未実装。",
+   "storedIn": "tasks.plugin_payload / tasks.completion_evidence, task_reviews, task_review_items (team-task-schema.ts:11-12)",
+   "evidence": "spec/feature/task-pr-evidence.md:7-16; spec/feature/team-task/spec.md:327-336, 487-504; modules/ 配下に review/ ディレクトリ無し"
+  },
+  {
+   "name": "Spec / Acceptance (仕様・受入)",
+   "definition": "仕様・シナリオは Pf が正本。Actio は精査結果 (task_spec_reviews) と実装状況リンク/人間確認 (pf_implementation_*) を持つ。受入条件 ID (AT-*) は cc.acceptance.json、契約 (C-n) は augur.contracts.json。",
+   "storedIn": "task_spec_reviews, pf_implementation_links / _reviews / _task_versions (src/db/implementation-migration.ts)",
+   "evidence": "spec/feature/backlog-planning.md:61-77; spec/feature/praeforma-implementation-review.md:8-9; spec/schema/praeforma-implementation-review.md:5-9; cc.acceptance.json; augur.contracts.json"
+  },
+  {
+   "name": "Execution / Delegation (委託)",
+   "definition": "Terpsichore 支援計画から AI 実行タスクを依存順に固定抽出し、Cc Delegation テンプレートへ 1 回だけ委託。run_id/partial-requeue を追跡し、Cc 終了≠Actio done。",
+   "storedIn": "terpsichore_plans, terpsichore_runs (src/db/planning-migration.ts)",
+   "evidence": "spec/feature/terpsichore.md:81-104; modules/task/terpsichore/execution-routes.ts:41-79"
+  },
+  {
+   "name": "Session / Identity",
+   "definition": "本人性は Cernere。Actio は composite 交換後に自前 HS256 service_token (15 分) を発行し Cookie に置く。Hub 経由は PASETO V4。service 経路は api_clients (bcrypt) + X-Decided-By。ローカルモードは固定ユーザー actio-local (loopback or Cloudflare Access JWT)。users/sessions テーブルは縮小・削除計画のまま残存。",
+   "storedIn": "Redis actio:session:user:* (session-cache.ts:11), users / sessions (schema.ts:15, 89), api_clients (schema.ts:736)",
+   "evidence": "src/auth/composite.ts:86-112; src/middleware/auth.ts:45-118; src/auth/local-mode.ts:8-9; spec/plan/cernere-migration.md:153-174"
+  },
+  {
+   "name": "Group (グループ・レガシー)",
+   "definition": "Schedula 時代のグループ (owner/leader/member, enabledModules)。Team と役割が重なるが別テーブル・別 API のまま残る。",
+   "storedIn": "groups, group_members (schema.ts:143-156)",
+   "evidence": "MODULES.md:189-197; modules/group/routes.ts (689 行); spec/plan/cernere-migration.md:241"
+  },
+  {
+   "name": "PM Project / PM Task",
+   "definition": "GitHub/Notion 同期用の別系統 (pm_projects/pm_tasks)。コアの tasks とも Cc project とも結合しない (「タスク側との重なりは残す」方針)。認可なし。",
+   "storedIn": "pm_projects, pm_tasks, pm_task_snapshots, pm_conflicts 等 (src/db/pm-schema.ts:17-200)",
+   "evidence": "spec/tasks/2026-10-02-pm-plan-completion.md:11; spec/feature/pm/completion.md:94-97"
+  },
+  {
+   "name": "Public Issue",
+   "definition": "公開プロジェクトの kind=issue タスク (public_hidden でない) と Cc bounty 公開報告を認証なしで並べる。公開可否は Cc の project_codes.public_issues が正本。",
+   "storedIn": "tasks (kind=issue) + メモリ TTL 60 秒キャッシュ",
+   "evidence": "spec/feature/public-issues.md:5-10, 34-37, 58-63; modules/public-issues/cc-public-client.ts:1-6"
+  },
+  {
+   "name": "Contract (観測契約)",
+   "definition": "Augur contract-wrap で純粋関数に pre/post 述語を巻き、判定だけを contracts.jsonl に書く。C-5〜C-17 が登録。",
+   "storedIn": "contracts/*.contract.ts, logs/contracts.jsonl (VESTIGIUM_LOGS_DIR)",
+   "evidence": "augur.contracts.json:3-5, 8-123; src/contract-runtime.ts:1-9; augur.inject.json:3-11"
+  }
+ ],
+ "interfaces": [
+  {
+   "kind": "http",
+   "entry": "/api/tasks (+ /api/tasks/notifications, /:id/lane)",
+   "description": "タスク CRUD、view=current_sprint、executor/kind/public 項目、source+source_ref 冪等登録。Cc・Castra skill・Memoria 移行スクリプトの入口 (modules/task/routes.ts, team-routes.ts)"
+  },
+  {
+   "kind": "http",
+   "entry": "/api/teams/:teamId/{members,planning,planning/praeforma/*,planning/terpsichore/*,planning/sprints/:id/phase,chat,critical-path,projects}",
+   "description": "チーム別の計画・Pf 精査・Terpsichore・フェーズ判断・チャット設定・クリティカルパス (src/app.ts:179-183)"
+  },
+  {
+   "kind": "http",
+   "entry": "/api/projects/cc, /api/projects/cc/:code/sprints",
+   "description": "Cc 同期プロジェクト一覧と Breviarium 向けスプリント集計 (loopback/admin 限定) (modules/task/team/project-routes.ts:23-35)"
+  },
+  {
+   "kind": "http",
+   "entry": "GET /api/public/issues",
+   "description": "認証なし・ローカルモード境界の外に置く公開イシュー (src/app.ts:148-150, src/auth/local-mode-policy.ts isPublicReadRequest)"
+  },
+  {
+   "kind": "http",
+   "entry": "/api/external/* (X-API-Client-ID / X-API-Client-Secret)",
+   "description": "API key 認証の外部 API。Cc service 経路は同ヘッダ + X-Decided-By で /api/teams 配下にも入る (modules/external-api/middleware.ts:18-74, src/auth/team-role.ts:40-56)"
+  },
+  {
+   "kind": "discord",
+   "entry": "POST /api/chat/commands",
+   "description": "Cc なし配備で Discord application command (Ed25519 署名) を直接受ける (src/app.ts:152, modules/task/chat/discord-signature.ts, command-routes.ts)"
+  },
+  {
+   "kind": "http",
+   "entry": "/api/pm/*",
+   "description": "PM モジュール (GitHub/Notion 同期・コンフリクト・リマインダー・分析)。legacy ActioModule として mount (src/app.ts:201-205)"
+  },
+  {
+   "kind": "ws",
+   "entry": "/ws (token クエリ or ローカル経路)",
+   "description": "module_request で破壊的操作、admin/group/pm コマンド (src/ws/handler.ts:33-90, src/ws/commands/*)"
+  },
+  {
+   "kind": "ws",
+   "entry": "Cernere service adapter PeerAdapter (saListenPort 0 動的)",
+   "description": "他 LUDIARS バックエンド (Imperativus) からの ping のみ受理 (src/service-adapter.ts:54-62)"
+  },
+  {
+   "kind": "http",
+   "entry": "GET /.well-known/corpus-service.json",
+   "description": "Corpus hub 向けサービスマニフェスト + 宣言的タスクパネル (src/app.ts:141-143, src/corpus.ts:1-5)"
+  },
+  {
+   "kind": "http",
+   "entry": "/api/auth/{login-url,exchange,me,ws-token,users/*}, /api/setup/*, /api/admin/*, /api/settings, /api/secrets, /api/admin/db, /api/webhooks (/api/m5 alias), /api/groups, /api/profile, /api/user-prefs, /api/links, /api/comments, /api/custom-fields, /api/timetable",
+   "description": "認証補助・初回設定・管理・レガシー群 (src/app.ts:139-260)"
+  },
+  {
+   "kind": "http",
+   "entry": "GET /api/health/live, /api/ready (/api/health alias)",
+   "description": "Excubitor の死活は /api/health/live、依存確認は /api/ready (src/app.ts:295-359, excubitor.catalog.yaml:20-22)"
+  },
+  {
+   "kind": "web-ui",
+   "entry": "frontend/ (React 19 + Vite) → actio-web (node dist/src/web-server/main.js :17881)",
+   "description": "SPA。/tasks, /tasks/planning, ChatPlanningPage, PublicIssuesPage, PM ページ、残存の Groups/Machina/Notifications/Dashboard (frontend/src/pages/*)。declarative.html の Corpus β も同梱 (frontend/vite.config.ts:66-77)"
+  },
+  {
+   "kind": "cli",
+   "entry": "npx tsx scripts/cc-project-backfill.ts [--apply]",
+   "description": "Actio/Cc の HTTP API だけで既存タスクのプロジェクト整合を dry-run → 反映 (scripts/cc-project-backfill.ts:8-17)"
+  },
+  {
+   "kind": "cli",
+   "entry": "node scripts/migrate-memoria-tasks.mjs [--apply]",
+   "description": "Memoria /api/tasks → Actio /api/tasks 移行 (既定ポート 5180/3000 のまま) (scripts/migrate-memoria-tasks.mjs:12-18)"
+  },
+  {
+   "kind": "cli",
+   "entry": "npm run config:seal < json / npm run db:init / db:export / redis:export",
+   "description": "暗号化ローカル config の保存と DB/Redis の出し入れ (package.json:21-25, 34)"
+  },
+  {
+   "kind": "file",
+   "entry": "logs/activity.log, logs/contracts.jsonl, ~/.config/Actio/config.enc",
+   "description": "操作ログ (appendFileSync)、Augur 契約観測、暗号化設定 (src/activity-logger.ts:11-12, src/contract-runtime.ts:7-9, src/config/local-config.ts:26-28)"
+  }
+ ],
+ "dataStores": [
+  {
+   "kind": "PostgreSQL (既定) / SQLite (明示) / MySQL (部分対応)",
+   "location": "DATABASE_URL / DATABASE_PATH。DB_DIALECT 未指定は postgres",
+   "holds": "tasks、team_refs/team_members/project_refs、sprints/sprint_changes/backlog_*、sprint_gate_*、task_chat_*、task_notifications、task_spec_reviews、pf_implementation_*、terpsichore_plans/runs、pm_*、api_clients、users/sessions/groups と予定系残骸 (events, reservations, personal_events, plans, my_plans, scheduling_*, voting_*, holidays, rooms, schedule_entries, machina_*, places/placement_state, curriculum 系)。計画機能は MySQL で 501",
+   "evidence": "src/db/connection.ts:17-20; src/db/schema.ts:15-1366; src/db/team-task-schema.ts:3-24; src/db/planning-repository.ts:18-26; CREATE TABLE 一覧 (src/db/migrate-sqlite.ts 57 件, tests/helpers.ts 55 件)"
+  },
+  {
+   "kind": "Redis (任意)",
+   "location": "REDIS_URL",
+   "holds": "セッションユーザーキャッシュ actio:session:user:* (TTL 3600)、タスク一覧短期キャッシュ (無ければメモリ)。readiness は未設定/切断を区別",
+   "evidence": "src/auth/session-cache.ts:11-12; modules/task/cache/redis-task-list-cache.ts, memory-task-list-store.ts; src/app.ts:332-346; git 984de37/8fb8594"
+  },
+  {
+   "kind": "暗号化ローカル設定ファイル",
+   "location": "%LOCALAPPDATA%/Actio/config.enc または ~/.config/Actio/config.enc (ACTIO_CONFIG_PATH)",
+   "holds": "DB/Redis 接続文字列、ローカルモード/URL 系キー、ACTIO_SECRET_KEYS、チャット/LLM secret (AES-256-GCM, 鍵は ACTIO_CONFIG_KEY)",
+   "evidence": "src/config/local-config.ts:8-34; spec/feature/runtime-modernization.md:19-23"
+  },
+  {
+   "kind": "プロセスメモリ",
+   "location": "SecretManager cache / TTL cache / 鍵キャッシュ",
+   "holds": "Vault・SSM から取得した secret、Cc 公開イシュー応答 (60 秒)、PASETO 公開鍵 (6h)、Cloudflare JWKS",
+   "evidence": "src/config/secrets.ts:25, 86-99; modules/public-issues/ttl-cache.ts; src/auth/paseto-verify.ts:20-27"
+  },
+  {
+   "kind": "ファイルログ",
+   "location": "<cwd>/logs/activity.log, $VESTIGIUM_LOGS_DIR/contracts.jsonl (+archive/), Excubitor log_path ${ARS_ROOT}/logs/actio",
+   "holds": "操作ログ (管理画面から読む)、Augur 契約判定 JSONL (日次ローテ・7 日保持)、stdout の JSON access log",
+   "evidence": "src/activity-logger.ts:11-12, 45; src/contract-runtime.ts:7-14, 42-43; src/app.ts:84-109; excubitor.catalog.yaml:25"
+  },
+  {
+   "kind": "git submodule (gitlink)",
+   "location": "lib/terpsichore, lib/vestigium",
+   "holds": "判断機 @ludiars/terpsichore と ログ @ludiars/vestigium のソース (file: 依存)。この checkout では空",
+   "evidence": ".gitmodules; package.json:45, 72; lib/ 配下の空ディレクトリ (ls 結果)"
+  }
+ ],
+ "integrationsOut": [
+  {
+   "target": "Concordia (Cc) GET /v1/teams, GET /v1/project-codes/admin",
+   "mechanism": "http",
+   "purpose": "チーム/プロジェクトの同期キャッシュ (team_refs / project_refs)、改名・チーム割当の波及",
+   "syncOrAsync": "非同期 tick (起動時 + 10 分)",
+   "timeoutRetry": "AbortSignal 10 秒、失敗はキャッシュ継続で次 tick、URL 未設定は warn skip",
+   "evidence": "modules/task/team/cc-sync.ts:23-24, 72-79, 120-140; modules/task/team/cc-project-sync.ts:15, 29"
+  },
+  {
+   "target": "Concordia POST /v1/teams/:teamId/cards",
+   "mechanism": "http",
+   "purpose": "チームタスク通知 (task-kanban カード)。投稿自体は Cc の Discord bot",
+   "syncOrAsync": "非同期 (送信箱 1 分 tick, 50 件/回)",
+   "timeoutRetry": "5 回で failed、設定欠落は即 failed",
+   "evidence": "modules/task/notifications/concordia-sink.ts:18; dispatcher.ts:10-12, 49-53; tick.ts:15"
+  },
+  {
+   "target": "Concordia PUT /v1/sprint-dialogues/:key, GET /v1/sprint-dialogues/events?limit=100, POST .../events/:id/ack",
+   "mechanism": "http",
+   "purpose": "スプリントフェーズ投影の配送と人間判断イベントのポーリング/ACK",
+   "syncOrAsync": "非同期 tick 30 秒 (ACTIO_CHAT_MODE=discord なら停止)",
+   "timeoutRetry": "10 秒、応答 2MB 上限、応答喪失は unknown として同 payload 再送",
+   "evidence": "modules/task/sprint-gates/concordia-client.ts:18-33; runtime.ts:12, 22-24; spec/feature/sprint-human-gates.md:38"
+  },
+  {
+   "target": "Concordia POST /v1/actio-chat/request, /v1/actio-chat/review",
+   "mechanism": "http",
+   "purpose": "Cc 経由の Discord/Slack I/O プロキシと受付内容の審査 (Bearer ACTIO_CHAT_SHARED_SECRET)",
+   "syncOrAsync": "非同期 (chat tick 30 秒, DB lease 300 秒)",
+   "timeoutRetry": "request 35 秒 / review 70 秒、redirect: error、Cc 失敗時に直接 Discord へ切替しない",
+   "evidence": "modules/task/chat/concordia-request.ts:10-13; concordia-transport.ts:13-16; providers.ts:18-22; runtime.ts:22, 46"
+  },
+  {
+   "target": "Concordia GET /v1/projects/public-issues, GET /v1/bounty/public-reports?project=",
+   "mechanism": "http",
+   "purpose": "公開プロジェクト判定と bounty 公開報告の取得",
+   "syncOrAsync": "同期 (リクエスト時、60 秒メモリキャッシュ)",
+   "timeoutRetry": "5 秒、失敗は projects:[] / available:false",
+   "evidence": "modules/public-issues/cc-public-client.ts:12, 41, 58, 65; spec/feature/public-issues.md:58-63"
+  },
+  {
+   "target": "Concordia Delegation (templates / resolve / invoke / runs) via @ludiars/terpsichore ConcordiaExecutionClient",
+   "mechanism": "http",
+   "purpose": "Terpsichore 支援計画の AI タスクを Cc 実装ワーカーへ委託し run を照合",
+   "syncOrAsync": "同期 (leader の POST /execution と GET /execution 時)",
+   "timeoutRetry": "spec 上 Cc 15 秒、送信失敗は unknown で保留・再送しない、run 一覧 500 件以内で照合",
+   "evidence": "modules/task/terpsichore/execution-routes.ts:16, 48-61, 69-77; spec/feature/terpsichore.md:94-98, 122-124"
+  },
+  {
+   "target": "Cernere POST /api/auth/exchange, GET /composite/login",
+   "mechanism": "http",
+   "purpose": "composite ログインの auth_code 交換 → Actio 自前 HS256 service_token 発行",
+   "syncOrAsync": "同期 (ログイン時)",
+   "timeoutRetry": "タイムアウト指定なし",
+   "evidence": "src/auth/composite.ts:42-66, 86-112"
+  },
+  {
+   "target": "Cernere POST /api/auth/login (project_credentials) + WS /ws/project (profile.get, managed_project.*, resolve_user_by_claim)",
+   "mechanism": "ws",
+   "purpose": "ユーザープロファイル取得、project user_data/schema 同期、OAuth token 保管、Discord ID→Cernere user の逆引き",
+   "syncOrAsync": "同期要求/シングルトン常時接続",
+   "timeoutRetry": "要求 10 秒、接続 10 秒、再接続 5 秒、資格情報欠落は throw (schema sync は policy で skip)",
+   "evidence": "src/auth/cernere-client.ts:44-45, 54-99, 381-386; src/plugins/schema-sync.ts:52-63"
+  },
+  {
+   "target": "Cernere GET /.well-known/cernere-public-key",
+   "mechanism": "http",
+   "purpose": "PASETO V4 公開鍵キャッシュ (Hub 経由 user_for_project token の検証)",
+   "syncOrAsync": "非同期 (起動時 + 6h)",
+   "timeoutRetry": "タイムアウト指定なし、失敗は warn のみ",
+   "evidence": "src/auth/paseto-verify.ts:20, 62-85"
+  },
+  {
+   "target": "Cloudflare Access JWKS https://<team>/cdn-cgi/access/certs",
+   "mechanism": "http",
+   "purpose": "Cf-Access-Jwt-Assertion の RS256 検証 (トンネル経由アクセス)",
+   "syncOrAsync": "同期 (初回・未知 kid 時)",
+   "timeoutRetry": "JWKS_TIMEOUT_MS、取得失敗は 403",
+   "evidence": "src/auth/cf-access-verify.ts:33; spec/feature/local-mode-cf-access.md:52-57"
+  },
+  {
+   "target": "Praeforma GET /api/projects, /api/projects/:pid/specs, /specs/:sid, /review-overlay/manifest",
+   "mechanism": "http",
+   "purpose": "仕様精査→バックログ登録、実装状況投影と人間確認 (操作ごとに manifest 再取得)",
+   "syncOrAsync": "同期 (リクエスト時、50 件ページを直列ループ)",
+   "timeoutRetry": "10 秒、redirect: error、上限 9950 件、失敗は 502",
+   "evidence": "modules/task/planning/praeforma-client.ts:20-44; modules/task/implementation/routes.ts:18-22, 25, 37; modules/task/planning/spec-routes.ts:10-17"
+  },
+  {
+   "target": "Genius (GENIUS_URL, GENIUS_TOKEN) via @ludiars/terpsichore retrieveAdvice",
+   "mechanism": "http",
+   "purpose": "判断カード検索 (domain=work, visibility=public, k=4)。タスク本文・ID は送らない",
+   "syncOrAsync": "同期 (leader の明示操作 1 リクエスト)",
+   "timeoutRetry": "spec 上 8 秒、未設定/失敗は明示エラー",
+   "evidence": "modules/task/terpsichore/routes.ts:52; spec/feature/terpsichore.md:77-79, 122-124"
+  },
+  {
+   "target": "Memoria POST /api/notifications",
+   "mechanism": "http",
+   "purpose": "個人タスク通知 (WebPush/Alexa は Memoria が配送)",
+   "syncOrAsync": "非同期 (送信箱 1 分 tick)",
+   "timeoutRetry": "5 回で failed、MEMORIA_URL 未設定は即 failed",
+   "evidence": "modules/task/notifications/memoria-sink.ts:17; spec/feature/task-integration/spec.md:77-78, 112-116"
+  },
+  {
+   "target": "Memoria GET /api/tasks (移行スクリプト)",
+   "mechanism": "http",
+   "purpose": "Memoria 個人タスクを Actio へ一括移行 (read-only, pluginRef 冪等)",
+   "syncOrAsync": "手動 CLI",
+   "timeoutRetry": "なし",
+   "evidence": "scripts/migrate-memoria-tasks.mjs:12-18, 26-44"
+  },
+  {
+   "target": "Discutere POST internal/external-discussion/consider (DISCUTERE_URL, DISCUTERE_EXTERNAL_DISCUSSION_SECRET)",
+   "mechanism": "http",
+   "purpose": "Di の議論参加判断・発言案 (Actio は同意と配送のみ)",
+   "syncOrAsync": "非同期 (chat tick 内)",
+   "timeoutRetry": "100 秒、失敗は 503 表示",
+   "evidence": "modules/task/chat/discussion.ts:19-21, 33-38; spec/feature/sprint-chat-integration.md:120-124"
+  },
+  {
+   "target": "Discord REST https://discord.com/api/v10 (直接モード) / Slack (Cc 経由のみ)",
+   "mechanism": "discord",
+   "purpose": "Cc なし配備のチャンネル投稿・スレッド・アーカイブ・履歴取込。Cc モードでは ConcordiaRequest にリダイレクト",
+   "syncOrAsync": "非同期 (chat tick)",
+   "timeoutRetry": "transport 依存、再投稿抑止は outbox",
+   "evidence": "modules/task/chat/providers.ts:24-27; concordia-request.ts:16-19; discord-rest.ts, slack-transport.ts"
+  },
+  {
+   "target": "GitHub REST API / Notion API",
+   "mechanism": "http",
+   "purpose": "PM モジュールの双方向同期・関連コミット検索",
+   "syncOrAsync": "非同期 (1 分 tick, sync_interval_minutes) + 手動",
+   "timeoutRetry": "過去レビューで timeout 未設定指摘 (現状のタイムアウトは未確認)",
+   "evidence": "modules/pm/sync/github-sync.ts:62, 112, 151; notion-sync.ts:65, 143; spec/feature/pm/completion.md:57-59; review/REVIEW_DESIGN.md:24"
+  },
+  {
+   "target": "OpenAI 互換 LLM (ACTIO_INTAKE_LLM_URL/_MODEL/_KEY) /chat/completions",
+   "mechanism": "http",
+   "purpose": "バックログ受付の内容審査 (Cc なし配備) と PM Stage 2 マージ",
+   "syncOrAsync": "非同期 (tick 内)",
+   "timeoutRetry": "60 秒、未設定は人間確認待ち (成功扱いしない)",
+   "evidence": "modules/task/chat/reviewer.ts:16-26; modules/pm/llm/merge-client.ts:17, 26, 38"
+  },
+  {
+   "target": "Excubitor secret-agent POST /api/v1/secrets/resolve (EXCUBITOR_URL, token file ~/.config/Excubitor/secret-agent.token)",
+   "mechanism": "http",
+   "purpose": "ACTIO_SECRET_KEYS で指定した secret を Vault から受け取る",
+   "syncOrAsync": "同期 (起動時 initSecrets、手動 refresh)",
+   "timeoutRetry": "10 秒、source=vault 必須、取得失敗は起動停止",
+   "evidence": "src/config/excubitor/endpoint.ts:14, 23-27, 29-53; secret-agent-client.ts:35-57; src/config/secrets.ts:86-99"
+  },
+  {
+   "target": "Excubitor 注入 env (ACTIO_PORT/ACTIO_URL/ACTIO_FRONTEND_URL/EXCUBITOR_SERVICE_CONFIG_JSON/EXCUBITOR_SERVICE_VERSION + catalog env)",
+   "mechanism": "env-injection",
+   "purpose": "ポート・自 URL・runtime-config (ACTIO_CONFIG_KEY 等)・版の受け取り。未注入ならポート解決で起動失敗",
+   "syncOrAsync": "起動時",
+   "timeoutRetry": "-",
+   "evidence": "src/config/service-endpoints.ts:13-31; src/config/excubitor/service-config.ts:12-35; src/shared/service-version.ts:36; excubitor.catalog.yaml:3-4, 26-37"
+  },
+  {
+   "target": "AWS SSM Parameter Store (@aws-sdk/client-ssm)",
+   "mechanism": "http",
+   "purpose": "旧 secret provider (SECRETS_PROVIDER=ssm)。通常運用は env だが依存は残り import コストを払う",
+   "syncOrAsync": "起動時 + 5 分 refresh",
+   "timeoutRetry": "SDK 既定",
+   "evidence": "src/config/secrets.ts:46-57, 129-143; src/config/ssm.ts:145-152; package.json:46; spec/plan/problem_logs/2026-09-26-vitest4-parallel-api-hook-timeout.md:25-26"
+  },
+  {
+   "target": "Cernere service adapter (@ludiars/cernere-service-adapter PeerAdapter)",
+   "mechanism": "ws",
+   "purpose": "他バックエンドとの WS 疎通 (Imperativus ping のみ)。CERNERE_PROJECT_ID/SECRET/URL 無しは no-op",
+   "syncOrAsync": "常駐",
+   "timeoutRetry": "-",
+   "evidence": "src/service-adapter.ts:19, 46-62; src/index.ts:88-90"
+  },
+  {
+   "target": "Vestigium (@ludiars/vestigium install, console capture)",
+   "mechanism": "file",
+   "purpose": "構造化ログの集約先 (pino transport 無効)。sprint-gates/chat の warn も writer へ",
+   "syncOrAsync": "同期",
+   "timeoutRetry": "-",
+   "evidence": "src/index.ts:8-12, 73-74; package.json:45"
+  },
+  {
+   "target": "Actio 自身の HTTP API (scripts)",
+   "mechanism": "http",
+   "purpose": "cc-project-backfill が ACTIO_BASE 経由で GET /api/projects/cc, /api/tasks と PATCH",
+   "syncOrAsync": "手動 CLI",
+   "timeoutRetry": "30 秒",
+   "evidence": "scripts/cc-project-backfill.ts:46-67, 74-75"
+  }
+ ],
+ "integrationsIn": [
+  {
+   "source": "Concordia (taskflow v3 / bug-bounty / bug-report command / RWF)",
+   "mechanism": "http",
+   "purpose": "POST /api/tasks に source=concordia.taskflow.v3 / concordia.bounty.v1 / cc-command (+sourceRef) で登録、再送は同 ID。Cc service 経路は api_client ヘッダ + X-Decided-By で /api/teams 配下 (実装状況 /service 等) も読む",
+   "evidence": "spec/feature/task-integration/spec.md:39-47; spec/feature/public-issues.md:27-28, 88-92; src/auth/team-role.ts:40-56; modules/task/implementation/routes.ts:31"
+  },
+  {
+   "source": "Concordia (PR 証跡)",
+   "mechanism": "http",
+   "purpose": "tasks.pluginPayload.pull_requests (provider/repository/number/head_sha/reviewed_head_sha/state/review/reflection) を Cc が書き、Actio は表示のみ",
+   "evidence": "spec/feature/task-pr-evidence.md:7-12; frontend/src/components/TaskPrEvidence.tsx"
+  },
+  {
+   "source": "Concordia (sprint dialogue 人間イベント)",
+   "mechanism": "http",
+   "purpose": "Actio がポーリングする形で Cc キューから approve/reject/hold/resume/resubmit を受け、Cernere 逆引きまたは ACTIO_SPRINT_CC_ADMINS で主体を確定",
+   "evidence": "modules/task/sprint-gates/concordia-client.ts:5, 32; cc-admins.ts:1-30; spec/feature/sprint-human-gates.md:18-30"
+  },
+  {
+   "source": "Castra bug-report skill",
+   "mechanism": "http",
+   "purpose": "POST /api/tasks (kind task, category 不具合, source cc-command, sourceRef bug:<key>)。issue 化は Castra 側未修正で起動時 migration が補正",
+   "evidence": "spec/feature/public-issues.md:24-26, 88-92; src/db/issue-kind-migration.ts"
+  },
+  {
+   "source": "Breviarium",
+   "mechanism": "http",
+   "purpose": "GET /api/projects/cc/:code/sprints でプロジェクト別スプリント集計 (loopback/admin のみ、件数だけ)",
+   "evidence": "spec/feature/task-integration/spec.md:229-247; modules/task/team/project-routes.ts:30-35; src/auth/loopback-or-admin.ts:12-14"
+  },
+  {
+   "source": "Corpus hub",
+   "mechanism": "http",
+   "purpose": "GET /.well-known/corpus-service.json を読み宣言的パネルを描画、PASETO V4 user_for_project token で data endpoint を叩く",
+   "evidence": "src/corpus.ts:1-5; src/app.ts:141-143; src/auth/paseto-verify.ts:1-16"
+  },
+  {
+   "source": "Discord (直接モード)",
+   "mechanism": "webhook",
+   "purpose": "application command interaction を POST /api/chat/commands で受け Ed25519 署名検証",
+   "evidence": "src/app.ts:152; modules/task/chat/discord-signature.ts; spec/feature/sprint-chat-integration.md:133-136"
+  },
+  {
+   "source": "Excubitor",
+   "mechanism": "env-injection",
+   "purpose": "起動 (node dist/src/bootstrap.js)、env/URL/port/runtime-config 注入、死活 GET /api/health/live (30 秒)、build_command でビルド",
+   "evidence": "excubitor.catalog.yaml:15-25, 50-51; src/app.ts:295-303"
+  },
+  {
+   "source": "Imperativus (他バックエンド)",
+   "mechanism": "ws",
+   "purpose": "PeerAdapter 経由の ping のみ (placement ingestion は Schedula へ分離済み)",
+   "evidence": "src/service-adapter.ts:58-61; MODULES.md:148-166 (旧 placement 記述)"
+  },
+  {
+   "source": "Cernere Hub / composite",
+   "mechanism": "http",
+   "purpose": "ブラウザが Cernere でログイン後 auth_code を /api/auth/exchange に渡す (パスキー一本化 commit 3e18493)",
+   "evidence": "src/auth/routes.ts:55-100; git log 3e18493"
+  },
+  {
+   "source": "Memoria (計画: Actio API のビューア化)",
+   "mechanism": "http",
+   "purpose": "Memoria のタスク画面を Actio API 読取に切替える計画 (未実施、推測: Memoria 側状況は本リポから不明)",
+   "evidence": "DESIGN-memoria-task-port.md:26-28, 86-91"
+  },
+  {
+   "source": "Revisor / Augur / Anatomia (開発ツール)",
+   "mechanism": "cli-execFile",
+   "purpose": "Revisor・Augur は vitest を直接起動 (pretest を通らないため lib/terpsichore を alias)、Augur は augur.inject.json/contracts、Anatomia は spec/domains/*.domain.json と .anatomia/layers.json を読む",
+   "evidence": "vitest.config.ts:6-9; scripts/check-local-team-tasks.mjs:1-20; .augur/tests.config.json; .anatomia/layers.json; spec/domains/*.json"
+  },
+  {
+   "source": "Praeforma (実装状況の表示)",
+   "mechanism": "http",
+   "purpose": "Pf が Actio の判定を読み取って表示する設計 (GET .../implementation/service を API client 認証で)。Pf 側実装は worktree feat/scenario-experience-overlay (本リポ外)",
+   "evidence": "spec/feature/praeforma-implementation-review.md:8, 35; spec/verification/praeforma-implementation-review.md:8; modules/task/implementation/routes.ts:31"
+  }
+ ],
+ "deployment": {
+  "port": "backend 17880 (actio), 静的配信 17881 (actio-web)。Excubitor が ACTIO_PORT/ACTIO_URL/ACTIO_FRONTEND_URL を注入し、未注入ならポート解決で起動失敗 (excubitor.catalog.yaml:11, 43; src/config/service-endpoints.ts:27-31)。Docker/compose/SETUP.md は 3000/8080/5173 の旧値 (Dockerfile:45, docker-compose.yaml:21, SETUP.md:36)",
+  "startCommand": "node dist/src/bootstrap.js (actio) / node dist/src/web-server/main.js (actio-web)。dev は tsx watch src/bootstrap.ts + vite (excubitor.catalog.yaml:15, 51; package.json:10-17)",
+  "requiresBuild": "必須。prebuild/predev/pretest/typecheck すべてで packages/sdk と lib/terpsichore を tsc、frontend prebuild も親の terpsichore:build を呼ぶ。submodule 未取得だと TS5058 で停止 (package.json:8-16, 29, 35; frontend/package.json prebuild; spec/tasks/2026-09-26-terpsichore-scrum-engine.md:54-55)",
+  "nodeVersion": "不一致: .nvmrc 24.14.1 / CI 24.14.1 / README v22+ / Dockerfile node:22-slim / SETUP.md v18+ / frontend engines ^20.19||>=22.12。better-sqlite3 13.0.3 は Node24 N-API 基準に固定 (spec/plan/problem_logs/2026-08-23-node24-sqlite-native-addon.md)",
+  "testRunner": "vitest run (pool forks, maxWorkers 1 直列, testTimeout/hookTimeout 15 s)。API スイートが毎回 app を cold import (~7 s) するため全体 2〜3.5 分。Revisor 上限 600 s (vitest.config.ts:15-22; spec/plan/problem_logs/2026-09-26-vitest4-parallel-api-hook-timeout.md:25-26, 56-57; .augur/tests.config.json timeoutMs)",
+  "healthCheck": "GET /api/health/live (DB を引かない liveness、Excubitor 30 秒)。/api/ready (= /api/health) が DB/Redis を確認。共有 DB 遅延で down 誤報が続いたため live へ変更 (excubitor.catalog.yaml:18-24; src/app.ts:295-359; deploy/excubitor.catalog.example.yaml:34 は旧 /api/health のまま)",
+  "authMechanism": "(1) Cernere composite: /api/auth/login-url → auth_code → /api/auth/exchange → Actio 自前 HS256 service_token (15 分) を HttpOnly Cookie actio_token に保存 (2) PASETO V4 user_for_project (Hub 経由, audience=ACTIO_PUBLIC_URL) (3) API key X-API-Client-ID/Secret (bcrypt, scopes) + Cc は X-Decided-By (4) ローカルモード ACTIO_LOCAL_MODE=1: loopback 直接 or Cloudflare Access JWT (RS256 JWKS) → 固定ユーザー actio-local (role general, Cc 同期チームの leader 相当) (5) WS は token クエリの HS256 かローカル経路。失敗は anonymous (401 を返さず requireRole で判定) (src/middleware/auth.ts:1-118; src/auth/composite.ts:25, 86-112; modules/external-api/middleware.ts; src/auth/local-mode.ts; src/auth/local-owner.ts; src/ws/handler.ts:16-19)",
+  "configSources": "優先順 (Actio 内): 注入 env > 暗号化ローカル config > 取得 secret。層: (a) Excubitor catalog env / topology provides (b) EXCUBITOR_SERVICE_CONFIG_JSON (Ex runtime-config を 1 変数で受け展開; ACTIO_CONFIG_KEY の経路) (c) ~/.config/Actio/config.enc (AES-256-GCM, allowlist は LOCAL_SETTING_KEYS + DATABASE_URL/REDIS_URL/チャット/LLM secret) (d) Vault via Excubitor secret-agent (ACTIO_SECRET_KEYS で指定したキーのみ) (e) 旧 SSM (SSM_PATH_PREFIX) (f) .env は読まない。初回設定画面 (ローカルのみ) が DB/Redis/ACTIO_SECRET_KEYS を保存。Ex 内優先順は topology < catalog env < runtime config < Vault (src/config/secrets.ts:33-79, 151-156; local-config.ts:8-34; excubitor/service-config.ts; secret-source.ts; src/setup/setup-state.ts; spec/feature/runtime-modernization.md:11-23, 43-61)",
+  "autostart": "autostart: false, restart_policy: \"no\" (actio, actio-web とも)。actio-web は depends_on actio、deploy_notify false (excubitor.catalog.yaml:16-17, 52-56)",
+  "publicExposure": "待受は 127.0.0.1 のみ。外部は Excubitor cf-tunnel ブローカーの共有 Cloudflare Tunnel → actio.ai-run-do.com (Cloudflare Access 認証, team nyangame.cloudflareaccess.com) → actio-web:17881 → actio:17880。TUNNEL_TOKEN は拒否。GET /api/public/issues は認証なし公開想定だが Access 除外設定は未実施 (excubitor.catalog.yaml:1-4, 32-35, 67-68; spec/feature/local-mode-cf-access.md:20-25, 92-96; spec/feature/public-issues.md:54)"
+ },
+ "sharedConventions": {
+  "specLayout": "spec/{feature (module 別 spec/usecase/code.md + 単体 .md), data (dbschema.md, dbs/*.md, dblist.md), interface (cernere-project.json), plan (cernere-migration.md, problem_logs/), domains (*.domain.json: Anatomia 用 11 件), ux (product.md), schema, verification, tasks (YYYY-MM-DD-*.md, frontmatter に delegation_run_id / source_session / actio_task_id)}。spec/README.md は 6 分類と言いつつ setup/ test/ 未整備と明記 (spec/README.md:10-20)。schema/ verification/ tasks/ ux/ は AIFormat 標準外の可能性 (推測)。spec 合計 7396 行",
+  "augurContractsImportFrom": "../contract-runtime.js (runtimeFile src/contract-runtime.ts, Augur テンプレート version=2 から生成、contractsDir contracts/)。契約 C-5〜C-17 (mode observe, sample 1)。C-1〜C-4 は contracts/ に述語ファイルだけあり contracts.json 未登録 (augur.contracts.json:3-5; contracts/ 18 ファイル; src/contract-runtime.ts:1-2)",
+  "augurInject": "service actio, include src/**/*.ts + modules/task/team/*.ts (modules/ 全体は対象外), rules は contract-wrap のみ true (entry-runtime/silent-catch/spawn-watch/interval-guard/listener-guard は false)。注入は .ts 拡張子 import を tsconfig rewriteRelativeImportExtensions で吸収 (augur.inject.json:3-13; tsconfig.json; src/config/secret-source.ts:5-6, 34-35)",
+  "ccAcceptance": "version 1、50 件超の implementations。source→tests→contracts: AT-TASK-PR-01 (frontend 4), AT-SPRINT-CHAT-INTEGRATION (chat 14), AT-PM-SYNC/CONFLICT/NOTIFY/REMINDER/VALIDATION/ANALYTICS/SECRET (pm 16), AT-PUBLIC-ISSUES (19), connection-drop-guard は contracts 空。.augur/tests.jsonl にも別途テスト登録簿 (domains business/program) があり二重管理 (cc.acceptance.json; .augur/tests.jsonl)",
+  "libVendored": [
+   "lib/terpsichore (@ludiars/terpsichore, git submodule https://github.com/LUDIARS/Terpsichore.git, file: 依存, 17 箇所 import, frontend も型 import)",
+   "lib/vestigium (@ludiars/vestigium, git submodule, CI で手動 npm install && build)",
+   "packages/sdk (@ludiars/schedula-sdk ローカル版; npm にも同名 ^0.1.0 依存)",
+   "packages/id-service, packages/id-cache, packages/auth, services/id-service (@actio/id-service 系; cernere-migration.md では削除予定だが tsconfig include に残る)",
+   "@ludiars/cernere-id-service / cernere-id-cache / cernere-service-adapter / cernere-composite (GitHub Packages npm)",
+   "@ludiars/schedula-module-{cocoiru,holiday,integrations,myplan,school,smart-scheduler,voting} (package.json:52-58; app.ts では未使用)"
+  ],
+  "reviewAndTaskDocs": "review/<date>/{REVIEW,REVIEW_DESIGN,REVIEW_IMPLEMENTATION,REVIEW_MISSING_FEATURES,REVIEW_QUALITY,REVIEW_VULNERABILITY,AUTOFIX}.md + latest.json (2026-05-13〜06-02 の 7 回分、root にも 2026-04-04 版が残り latest.json は 05-13 を指す = 不整合)。spec/tasks/*.md が作業単位 (Cc delegation / Lictor session / Actio task id を frontmatter で結ぶ)。spec/plan/problem_logs/*.md に障害記録。.revisor-version は uninitialized",
+  "architectureStyle": "ハイブリッド。modules/pm は DDD 層分け (domain/application/infra/sync/llm/secret/runtime; .anatomia/layers.json で層宣言)。modules/task は機能サブディレクトリ (team/planning/sprint-gates/chat/terpsichore/implementation/notifications/critical-path/validation/views/cache) + ルート直下に routes.ts/personal.ts。src/ はレイヤ (auth/config/db/plugins/ws/web-server/setup)。DB アクセスは src/db/repository.ts (2802 行, 56 repo) 集約だが planning/chat/gates は SQL 直書きストアを dialect 別に二重実装 (src/db/planning-repository.ts:8-26; src/app.ts:131-136 のコメント)"
+ },
+ "crossCuttingReimplementations": [
+  {
+   "concern": "host/origin guard (allowedHosts)",
+   "file": "src/web-server/host-guard.ts, frontend/vite.config.ts:12-17, 81, 90",
+   "notes": "loopback + ACTIO_CF_PUBLIC_ORIGIN + VITE_ALLOWED_HOSTS/LUDIARS_ALLOWED_HOSTS。契約 C-10。vite preview と同等の再実装"
+  },
+  {
+   "concern": "Cloudflare Access JWT (JWKS RS256) 検証",
+   "file": "src/auth/cf-access-verify.ts, src/auth/local-mode-policy.ts (cfAccessAssertion)",
+   "notes": "team domain/iss/exp/nbf/aud、未知 kid で 1 回再取得。email は監査ログのみ"
+  },
+  {
+   "concern": "loopback 強制・ローカルモード境界",
+   "file": "src/auth/local-mode.ts, src/auth/local-mode-policy.ts, src/auth/local-owner.ts, src/auth/loopback-or-admin.ts, src/setup/setup-state.ts",
+   "notes": "ソケット・URL・Host・Origin・転送ヘッダの検査、固定ユーザー actio-local、持ち主の leader 相当化、集計 API の loopback/admin 限定"
+  },
+  {
+   "concern": "設定ローダ / secret manager",
+   "file": "src/config/secrets.ts, local-config.ts, secret-source.ts, service-endpoints.ts, excubitor/{endpoint,secret-agent-client,service-config}.ts, ssm.ts, src/lib/env-bootstrap.ts",
+   "notes": "5 層の優先順位、AES-256-GCM+scrypt の独自暗号化 config (Ex の runtime-config と並存)、secret-agent token ファイル解決、SSM 残置"
+  },
+  {
+   "concern": "health / readiness / version",
+   "file": "src/app.ts:293-359, src/shared/service-version.ts, src/lib/connection-drop-guard.ts",
+   "notes": "live と ready を分離。EXCUBITOR_SERVICE_VERSION 優先。接続断の unhandledRejection 吸収も自前"
+  },
+  {
+   "concern": "他サービス URL 解決",
+   "file": "src/config/service-endpoints.ts + 各所の secretManager.get(\"CONCORDIA_URL\"|\"PRAEFORMA_URL\"|\"GENIUS_URL\"|\"MEMORIA_URL\"|\"DISCUTERE_URL\"|\"CERNERE_URL\")",
+   "notes": "ACTIO_* の自 URL だけ写像し、相手先 URL は 10 箇所以上で個別に取得・検証 (modules/task/team/cc-sync.ts:72 等)"
+  },
+  {
+   "concern": "URL 妥当性検証 (protocol/credentials/search/hash 禁止)",
+   "file": "modules/task/planning/praeforma-client.ts:17, modules/task/chat/concordia-request.ts:7, concordia-transport.ts:9, modules/task/sprint-gates/concordia-client.ts:13, modules/task/chat/reviewer.ts:19, modules/pm/llm/merge-client.ts:35",
+   "notes": "同じ 1 行の検証が 6 箇所にコピー"
+  },
+  {
+   "concern": "Discord / Slack 投稿・署名・履歴",
+   "file": "modules/task/chat/discord-rest.ts, discord-transport.ts, discord-signature.ts (Ed25519), discord-history.ts, slack-transport.ts, slack-history.ts, delivery.ts, outbox.ts",
+   "notes": "Cc モードでは ConcordiaRequest.discordFetch で Cc にプロキシ。Discutere/Cc 側にも Discord クライアントがある (推測: 他リポ)"
+  },
+  {
+   "concern": "通知本文の個人情報抑止 / mention 無害化",
+   "file": "modules/task/notifications/events.ts, route.ts; spec/feature/task-integration/spec.md:80",
+   "notes": "担当者表示名・@mention を入れずリンク先頭 (仕様)。Cc カード側の切り詰めに依存"
+  },
+  {
+   "concern": "contract runtime (Augur)",
+   "file": "src/contract-runtime.ts",
+   "notes": "Augur テンプレートの生成コピー (sha256 付き)。JST 日次ローテ・7 日保持・hard link によるマージ。各リポに同じ物が配られる構造"
+  },
+  {
+   "concern": "JSONL / 構造化ログ",
+   "file": "src/activity-logger.ts (logs/activity.log, appendFileSync), src/app.ts:84-109 (console JSON access log), src/index.ts:8-12 (Vestigium install), src/contract-runtime.ts",
+   "notes": "4 系統のログ出力が並存"
+  },
+  {
+   "concern": "retry / timeout / tick 常駐ループ",
+   "file": "modules/task/team/cc-sync.ts:120-140, modules/task/notifications/tick.ts:42-60, modules/task/sprint-gates/runtime.ts, modules/task/chat/runtime.ts, modules/pm/runtime/tick.ts, src/config/secrets.ts:129-143",
+   "notes": "isRunning ガード + setInterval + unref の同型コードが 5 箇所。タイムアウト値は 5/10/30/35/60/70/100 秒とバラバラ"
+  },
+  {
+   "concern": "SQLite / PostgreSQL / MySQL 初期化 (DDL)",
+   "file": "src/db/migrate-sqlite.ts (57 CREATE), src/db/dialects/postgres.ts (25), src/db/dialects/mysql.ts, planning-migration.ts (7), planning-postgres-migration.ts (12), sprint-gate-migration.ts, chat-migration.ts, implementation-migration.ts, pm-postgres-migration.ts, issue-kind-migration.ts, tests/helpers.ts (55 CREATE)",
+   "notes": "Drizzle schema (schema.ts / pm-schema.ts / pm-postgres-schema.ts / team-task-schema.ts) と手書き DDL の二重管理、テスト用 DDL の手同期が規約化 (spec/tasks/2026-08-24-01-team-task-t1-schema-lanes.md:36)"
+  },
+  {
+   "concern": "PASETO V4 公開鍵キャッシュ検証",
+   "file": "src/auth/paseto-verify.ts",
+   "notes": "コメントに『Bibliotheca と同形』= 他リポにも同実装"
+  },
+  {
+   "concern": "Cernere project WS クライアント / profile キャッシュ",
+   "file": "src/auth/cernere-client.ts, src/auth/user-info.ts, src/auth/session-cache.ts",
+   "notes": "client_credentials → WS /ws/project、再接続、placeholder ユーザー。@ludiars/cernere-id-cache を使っていない (README:98-101 の記述と乖離)"
+  },
+  {
+   "concern": "API key 認証 (bcrypt, scopes)",
+   "file": "modules/external-api/middleware.ts, modules/external-api/key-management.ts",
+   "notes": "Cc 等の service token 経路。TEAM_ADJUDICATION_SCOPE は定義のみ (src/auth/team-role.ts:22-23)"
+  },
+  {
+   "concern": "OpenAI 互換 LLM クライアント",
+   "file": "modules/task/chat/reviewer.ts, modules/pm/llm/merge-client.ts",
+   "notes": "同じ env 3 つ、同じ fetch/zod 検証を 2 箇所で実装"
+  },
+  {
+   "concern": "TTL / 一覧キャッシュ",
+   "file": "modules/public-issues/ttl-cache.ts, modules/task/cache/{task-list-cache,redis-task-list-cache,memory-task-list-store}.ts, src/db/task-write-listeners.ts",
+   "notes": "Redis 有無で切替、HTTP 層の書込後 notifyTaskWrite で無効化 (SQL 直書き経路があるため)"
+  },
+  {
+   "concern": "Corpus hub マニフェスト / 宣言的 UI",
+   "file": "src/corpus.ts, frontend/src/corpus-renderer/*, frontend/src/declarative.ts",
+   "notes": "Corpus DESIGN §13 のミラー型を Actio 側に複製"
+  },
+  {
+   "concern": "peer service adapter",
+   "file": "src/service-adapter.ts",
+   "notes": "@ludiars/cernere-service-adapter の初期化。ping のみ"
+  },
+  {
+   "concern": "rate limit / request id / CSP ヘッダ",
+   "file": "src/middleware/rate-limit.ts, src/middleware/request-id.ts, src/app.ts:111-129",
+   "notes": "setup だけ rate limit、CSP connect-src 'self' 固定"
+  }
+ ],
+ "painPoints": [
+  {
+   "kind": "known-issue",
+   "description": "CLAUDE.md / README / MODULES.md / spec/README.md / SETUP.md / system-design-v1.1.md / spec/interface/cernere-project.json が分離前 (予定・カレンダー・学校・予約・placement) の構成を説明し続けている。modules/ には event/calendar/myplan/school/holiday/voting/placement が存在せず、features.md だけが現状を書く。SETUP.md は『cd Schedula』『src/modules/m1..m5』『PORT=3000』『SQLite 既定』",
+   "evidence": "modules/ の実ディレクトリ一覧 (external-api, group, notification, pm, profile, public-issues, secrets, settings, setup, task, user-prefs のみ) vs MODULES.md:18-30, 45-166; README.md:33-70; spec/README.md:35-56; SETUP.md:3, 15, 36-40, 150-156; system-design-v1.1.md:1-28; spec/feature/features.md:3-4, 44-51"
+  },
+  {
+   "kind": "known-issue",
+   "description": "pre-push hook が別リポ Schedula の ci-check.sh を実行する (Actio の CI を回していない)",
+   "evidence": ".claude/settings.json (command: bash /home/user/Schedula/scripts/ci-check.sh)"
+  },
+  {
+   "kind": "known-issue",
+   "description": "frontend が backend に存在しない API を呼ぶコードを大量に保持 (/api/m1/*, /api/calendar/*, /api/myplans, /api/machina/*, /api/voting/*, /api/holidays, /api/smart-scheduler/*, /api/integrations/*)。api.ts 1741 行・api-types 1349 行、MachinaPage/GroupsPage/Dashboard/NotificationsPage が残存。Dashboard はカレンダー中心のまま",
+   "evidence": "frontend/src/lib/api.ts (grep: /api/machina 11, /api/m1 ~20, /api/calendar 7, /api/myplans 5 等) vs src/app.ts:139-260 の mount 一覧; frontend/src/pages/MachinaPage.tsx (749 行); spec/feature/features.md:50-51; review/2026-06-02/REVIEW.md:29"
+  },
+  {
+   "kind": "ops-burden",
+   "description": "DB スキーマが Drizzle 定義 + dialect 別手書き DDL + 機能別 migration + tests/helpers.ts DDL の多重管理。T1 タスクで『tests/helpers.ts の CREATE 文を同期』が規約化。予定系テーブル (events, reservations, personal_events, plans, my_plans, scheduling_*, voting_*, holidays, rooms, machina_*, places, curriculum 系) は分離後も全 dialect に残る。repository.ts 2802 行・56 repo のうち半数以上がレガシー",
+   "evidence": "src/db/migrate-sqlite.ts (57 CREATE TABLE), tests/helpers.ts (55), src/db/dialects/postgres.ts (25), src/db/schema.ts:15-1366, src/db/curriculum-schema.ts; spec/tasks/2026-08-24-01-team-task-t1-schema-lanes.md:36; src/db/repository.ts repo 一覧 (userRepo〜teamMemberRepo); review/REVIEW_DESIGN.md:46, 67"
+  },
+  {
+   "kind": "ops-burden",
+   "description": "計画系ストアが SQLite と PostgreSQL で別クラス二重実装 (BacklogStore/PostgresBacklogStore, SprintStore/PostgresSprintStore, SpecImportStore/PostgresSpecImportStore, sqliteGateDatabase/postgresGateDatabase)。MySQL は 501。repository 層を経由せず SQL 直書きのため HTTP 層でキャッシュ無効化を後付け",
+   "evidence": "src/db/planning-repository.ts:8-26; modules/task/planning/{backlog-store,postgres-backlog-store,sprint-store,postgres-sprint-store,spec-import-store,postgres-spec-import-store}.ts; src/app.ts:131-136; spec/feature/runtime-modernization.md:67"
+  },
+  {
+   "kind": "perf",
+   "description": "テストは直列 (maxWorkers 1) で 2〜3.5 分。各 API スイートが app 全体を cold import (約 7 秒; drizzle-orm, @aws-sdk/client-ssm, db/connection が重い)。Vitest 4 で singleFork が無視され 10〜14 スイートが hookTimeout で落ちた経緯。Revisor 上限 600 秒に対して余裕が薄い",
+   "evidence": "vitest.config.ts:15-22; spec/plan/problem_logs/2026-09-26-vitest4-parallel-api-hook-timeout.md:19-27, 56-57; spec/tasks/2026-09-26-local-owner-team-role.md:109-116; .augur/tests.config.json (timeoutMs 600000)"
+  },
+  {
+   "kind": "ops-burden",
+   "description": "ビルド鎖が長い: dev/build/typecheck/test の全 pre フックで packages/sdk と lib/terpsichore を tsc、frontend build も親の terpsichore:build を呼ぶ。submodule 未取得で TS5058、Revisor は file transport 拒否で停止した経緯。CI は lib/vestigium を手動 npm install && build。Revisor/Augur が vitest を直叩きするため alias で lib/terpsichore/src を読む回避策",
+   "evidence": "package.json:8-16, 29, 35; frontend/package.json (prebuild); .github/workflows/test.yml (Build submodules); spec/tasks/2026-09-26-terpsichore-scrum-engine.md:52-57; spec/feature/terpsichore.md:21-28; vitest.config.ts:6-9; scripts/check-local-team-tasks.mjs:1-20"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Dockerfile / docker-compose / Makefile が現行起動と乖離: node:22、src/ と modules/ しかコピーせず lib/ packages/ 無し (file: 依存の npm ci が成立しない見込み = 推測)、CMD は bootstrap でなく dist/src/index.js、EXPOSE 3000、compose に撤去済み Infisical 変数。README 自身が『Compose の現行 secret 供給対応は別途整備が必要』と認める",
+   "evidence": "Dockerfile:2, 9-11, 28, 45-48; docker-compose.yaml:21-35; package.json:45, 72; README.md:99-109; spec/feature/runtime-modernization.md:61 (SECRETS_PROVIDER=infisical は無効)"
+  },
+  {
+   "kind": "ops-burden",
+   "description": "設定・secret 経路が 5 層 (catalog env/topology, EXCUBITOR_SERVICE_CONFIG_JSON, 暗号化ローカル config, Vault secret-agent, 旧 SSM) + 初回設定画面 + config:seal CLI。.env/.env.secrets の整理は所有者任せ、SSM_PATH_PREFIX を空文字で明示注入する必要、@aws-sdk/client-ssm が常にロードされる。Ex 側 runtime-config と Actio 側 config.enc が二重の暗号化設定",
+   "evidence": "src/config/secrets.ts:33-79; src/config/local-config.ts; src/config/excubitor/service-config.ts:1-8; excubitor.catalog.yaml:28-30; README.md:84-96, 111; spec/feature/runtime-modernization.md:11-23, 47; spec/tasks/2026-10-03-remove-env-cli.md:23-25"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Node バージョン表記が 5 通り (24.14.1 / v22+ / node:22 / v18+ / ^20.19||>=22.12)。Node24 で better-sqlite3 の V8-ABI 問題が起き N-API 版へ固定した履歴",
+   "evidence": ".nvmrc; README.md:76; Dockerfile:2; SETUP.md:7; frontend/package.json engines; spec/plan/problem_logs/2026-08-23-node24-sqlite-native-addon.md"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Excubitor の死活監視が共有 DB 遅延で down 誤報を繰り返し、/api/health/live へ切替。deploy/excubitor.catalog.example.yaml は旧 /api/health・ACTIO_CLOUDFLARE_ENABLED 0・BACKEND_PORT 方式のまま",
+   "evidence": "excubitor.catalog.yaml:18-24; git 8fb8594 (2026-09-30); deploy/excubitor.catalog.example.yaml:18-21, 30-36"
+  },
+  {
+   "kind": "workaround",
+   "description": "ローカルモードは 1 人の固定ユーザー actio-local。Cloudflare Access 経由の複数人も同一 ID に畳む。持ち主を Cc 同期チームの leader 相当にする特例、Cc 管理者判断を ACTIO_SPRINT_CC_ADMINS (別名:DiscordID) で通す特例を積み重ねている。一方 Pf 実装確認は『人間ログイン』必須で actio-local・API client・ローカル経路を拒否するため、ローカル配備では確認操作ができない",
+   "evidence": "spec/feature/local-mode-cf-access.md:62-64, 68-82, 108-112; src/auth/local-owner.ts:23-29; modules/task/sprint-gates/cc-admins.ts:1-7; spec/feature/sprint-human-gates.md:18, 22-30; modules/task/implementation/routes.ts:14-17, 35; spec/feature/praeforma-implementation-review.md:25"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Cernere 移行 Phase 2 (users テーブル縮小、sessions 削除、packages/id-service・id-cache 削除) が未実施。users (passwordHash, google_* 等) と sessions が全 dialect に残り、packages/id-service・id-cache・auth と services/id-service (独自 Identity Service, 既定 JWT_SECRET 'id-service-dev-secret') が tsconfig include に残る。README は『@ludiars/cernere-id-cache で JWT 検証』と書くがコードは自前 HS256 + PASETO",
+   "evidence": "spec/plan/cernere-migration.md:96-100, 153-174; src/db/schema.ts:15-101; tsconfig.json include; services/id-service/src/server.ts:23-25; README.md:98-101 vs src/middleware/auth.ts:1-11, src/ws/handler.ts:16-19"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Augur contract-wrap が注入する @ludiars/log-weaver を Actio が持たず導入を見送った記録 (後に src/contract-runtime.ts の生成コピーで解決)。契約 C-1〜C-4 は述語ファイルのみで augur.contracts.json 未登録 (orphaned 表示)。契約集計は『テスト未実行で未観測』が常態",
+   "evidence": "spec/tasks/2026-09-26-local-owner-team-role.md:76-77; contracts/{should-sync-schema,deployment-policy,vault-secret-source,vault-secret-response,remove-env-cli}.contract.ts vs augur.contracts.json (C-5〜C-17); spec/tasks/2026-10-03-remove-env-cli.md:43-44; spec/tasks/2026-10-03-vault-secret-source.md:40"
+  },
+  {
+   "kind": "known-issue",
+   "description": "外部ツール連携の失敗記録: Pf に Actio プロジェクト未登録 (後に ULID 登録されたが仕様一覧は空)、Anatomia 索引保存 EPERM、Genius 照会が classifier 設定エラーで失敗、Lictor CLI は LICTOR_PORT 未設定、Jev は接続契約を確認できず、Cc HTTP 409 (checkout 所有者不一致 → safe.directory)",
+   "evidence": "spec/feature/backlog-planning.md:17-20; spec/feature/terpsichore.md:36-40; spec/feature/sprint-chat-integration.md:26-27; spec/verification/praeforma-implementation-review.md:25-27; spec/tasks/2026-09-26-terpsichore-scrum-engine.md:47-48"
+  },
+  {
+   "kind": "ops-burden",
+   "description": "検証が『テストは明示許可がないため未実行』『実 PostgreSQL migration・実画面・実サービス連携は未確認』で止まる記録が多数。Pf/Cc/Di の対応 branch を揃えて配備する必要があり、単独マージでは動かない",
+   "evidence": "spec/feature/terpsichore.md:131, 138; spec/feature/backlog-planning.md:100-104; spec/verification/praeforma-implementation-review.md:19-23; spec/tasks/2026-09-27-sprint-chat-integration.md:37; spec/feature/runtime-modernization.md:77-80"
+  },
+  {
+   "kind": "todo",
+   "description": "PM モジュールは core tasks と別系統 (pm_tasks) のまま『重なりは残す』方針、認可なし (認証済みなら誰でも操作)、defineModule 未移行、REST と WS に同じコマンド群",
+   "evidence": "spec/tasks/2026-10-02-pm-plan-completion.md:11; spec/feature/pm/completion.md:94-97; src/ws/commands/pm.ts:1-6; src/app.ts:201-205"
+  },
+  {
+   "kind": "known-issue",
+   "description": "review/ の Revisor 形式レビューが root と日付フォルダで重複・不整合 (root REVIEW_DESIGN.md は 2026-04-04 版、root latest.json は 05-13、最新は 06-02)。.revisor-version は uninitialized。bash.exe.stackdump がコミットされている",
+   "evidence": "review/REVIEW_DESIGN.md:8-9; review/latest.json; review/2026-06-02/latest.json; .revisor-version; bash.exe.stackdump"
+  },
+  {
+   "kind": "known-issue",
+   "description": "Memoria 移行が途中: DESIGN-memoria-task-port の Phase B〜E 未完了、移行スクリプトの既定ポートが 5180/3000 (現行 17880 と不一致)、Memoria の通知受け口 (POST /api/notifications) は Memoria 側実装待ち",
+   "evidence": "DESIGN-memoria-task-port.md:66-91; scripts/migrate-memoria-tasks.mjs:12-18; spec/feature/task-integration/spec.md:112-116, 339-341"
+  },
+  {
+   "kind": "known-issue",
+   "description": "依存の残骸: @ludiars/schedula-module-{cocoiru,holiday,integrations,myplan,school,smart-scheduler,voting} を依存に持つが app.ts で未使用、/api/m5 alias と /api/timetable (授業コマ) が残る、spec/interface/cernere-project.json は calendar/integrations/reminder 列と discutere/machina 共有を宣言し endpoint は localhost:3000",
+   "evidence": "package.json:52-58; src/app.ts:224-243; spec/interface/cernere-project.json:9-60"
+  },
+  {
+   "kind": "known-issue",
+   "description": "src/index.ts に文字化けしたログ文字列 (起動失敁E...) と、frontend Dashboard の CERNERE_URL 既定 http://localhost:8080 ハードコード",
+   "evidence": "src/index.ts:89; frontend/src/pages/Dashboard.tsx:129-130"
+  },
+  {
+   "kind": "known-issue",
+   "description": "spec/domains/web-frontend.domain.json に specRefs キーが二重定義 (JSON 上は後勝ちで前者が消える)",
+   "evidence": "spec/domains/web-frontend.domain.json:4, 11"
+  }
+ ],
+ "unconnectedOrPlanned": [
+  {
+   "description": "team-task 仕様 (status: planned) の T4〜T13: 1 日 2 回の完了レビュー scheduler、証跡 collector (git-commits / revisor-prs / cc-runs / cc-sessions)、スコア、判定キュー、遅延レポート、朝礼、work_logs、member_availability、メトリクス、調整提案、ガント、シミュレーション。テーブルは全部作成済みだが modules/task/{review,sprint,gantt,adjust}/ と src/scheduler/ は存在しない",
+   "evidence": "spec/feature/team-task/spec.md:16, 315-336, 487-504, 727-786; src/db/team-task-schema.ts:9-24 (task_reviews, task_delays, member_availability, work_logs, sprint_retros, team_metrics_daily, sprint_metrics, adjustment_proposals, gantt_snapshots); modules/task/ ディレクトリ一覧"
+  },
+  {
+   "description": "Calliope のスプリント/リスク計算エンジンの Actio 移植 (§5.3) と Calliope 側撤去 (T8 保留)。両者は当面二重実装",
+   "evidence": "spec/feature/team-task/spec.md:48-51, 268-288, 480-481, 497"
+  },
+  {
+   "description": "Cc 側の必要変更: review/delay/adjust カード種別、管理面 (権限者限定)、RWF・task-md reconciler・spawn task 選択・end-session の Memoria 依存を Actio へ差し替え、review カード番号返信の ingress、parttimer (team-standup-daily / director-task-organize-daily) 停止",
+   "evidence": "spec/feature/team-task/spec.md:407-413, 454-474"
+  },
+  {
+   "description": "Cc の公開 API 応答形 (GET /v1/projects/public-issues, /v1/bounty/public-reports) は未確定で Actio 側は推定形を前提。Cloudflare Access の除外設定 (公開イシューを外から見せる) は人間作業で未実施。Castra bug-report skill の kind: issue 化は未修正",
+   "evidence": "spec/feature/public-issues.md:54, 65-72, 88-92"
+  },
+  {
+   "description": "Memoria 側 POST /api/notifications (M1 PR) と Memoria の『Actio API ビューア化』『work-log export』は Memoria リポ側の未確認事項 (推測: 本リポからは実装有無不明)",
+   "evidence": "spec/feature/task-integration/spec.md:112-116, 338-341; spec/feature/team-task/spec.md:603-609; DESIGN-memoria-task-port.md:86-91"
+  },
+  {
+   "description": "Terpsichore: Jev は接続契約を確認できず未接続、Genius は GENIUS_URL/GENIUS_TOKEN の配備設定待ち (照会失敗の記録あり)。実委託・DB migration・サービス再起動・画面反映は未実施",
+   "evidence": "spec/feature/terpsichore.md:36-40, 122-124, 131; spec/feature/sprint-chat-integration.md:27"
+  },
+  {
+   "description": "Praeforma 連携: Pf 側 worktree feat/scenario-experience-overlay と同時配備が必要、Pf のチーム別アクセス分離は別途、実 PostgreSQL の trigger/DDL と実画面は未確認",
+   "evidence": "spec/feature/backlog-planning.md:65-66; spec/verification/praeforma-implementation-review.md:8, 19-23; spec/feature/praeforma-implementation-review.md:42, 54"
+  },
+  {
+   "description": "チャット連携: Cc `feat/actio-chat-transport` と Di `feat/actio-discussion-participation` の対応版が配備前に必要。Cc なし配備の Slack 直接接続は未決。旧フォーラムの移行は明示操作のみ。実投稿・再起動・テストは未実行",
+   "evidence": "spec/feature/sprint-chat-integration.md:36, 107, 120-124; spec/tasks/2026-09-27-sprint-chat-integration.md:21, 31-37"
+  },
+  {
+   "description": "sprint-gates の本人連携: Cernere 管理者が Actio project の identity_claims に discord_id を許可する必要があり、未連携者は反映されない (ACTIO_SPRINT_CC_ADMINS で管理者だけ迂回)",
+   "evidence": "spec/feature/sprint-human-gates.md:20-30; modules/task/sprint-gates/runtime.ts:24"
+  },
+  {
+   "description": "プラグイン基盤 Phase 2: 外部 npm パッケージの動的ロード (dynamic-loader はスケルトン)、Cernere project_schema への userData 登録 (CLAUDE.md 『Phase 2』)、peer adapter のコマンド追加 (現状 imperativus ping のみ)",
+   "evidence": "src/plugins/dynamic-loader.ts:1-17; src/service-adapter.ts:13-17, 58-61; CLAUDE.md モジュール SDK 節"
+  },
+  {
+   "description": "PM: defineModule 移行と認可 (所有者制限) は範囲外、MySQL 非対応",
+   "evidence": "spec/feature/pm/completion.md:94-97"
+  },
+  {
+   "description": "Cernere 移行 Phase 2〜4 (users 縮小、sessions 削除、ロール整合、Google Calendar OAuth の Cernere 経由) と、Cernere Organization ≠ Actio Group の統合検討",
+   "evidence": "spec/plan/cernere-migration.md:153-174, 231-241, 268"
+  },
+  {
+   "description": "WS セッション対応 SPA 移行 (破壊的操作を WS 経由のみにする) は設計書のみ。現状は REST で全書込が可能",
+   "evidence": "docs/ws-spa-migration.md:1-36; src/app.ts:176-205"
+  },
+  {
+   "description": "朝礼レポートに Excubitor の稼働 (state/health) を含めるかは未決。Dashboard のタスク向け再設計も別途",
+   "evidence": "spec/feature/team-task/spec.md:448-451, 480; spec/feature/features.md:50-51"
+  },
+  {
+   "description": "spec/ の setup/ test/ 分類は未整備",
+   "evidence": "spec/README.md:20"
+  }
+ ],
+ "overlapsSuspected": [
+  {
+   "withTool": "Concordia (Cc)",
+   "concept": "team / project / sprint 会話 / 公開報告 / 委託 run",
+   "why": "チーム・プロジェクトの正本は Cc で Actio はキャッシュだが、membership・ロールは Actio 正本という分割。Cc の sprint-dialogues (フォーラム) と Actio chat の通常チャンネル運用が並存。Cc bounty 公開報告と Actio issue を Actio 側で合成。Cc delegation run と Actio terpsichore_runs が同じ委託を二重に追跡。Cc parttimer の朝礼・タスク整理と Actio 計画の完了レビュー/朝礼が重複 (spec は Cc 側 deactivate 予定)",
+   "evidence": "spec/feature/team-task/spec.md:35-36, 57, 418-425, 454-465; spec/feature/sprint-chat-integration.md:21-24; spec/feature/public-issues.md:34-40; spec/feature/terpsichore.md:87-100; src/db/team-task-schema.ts:3-8, 21"
+  },
+  {
+   "withTool": "Concordia / Lictor / Actio 自身",
+   "concept": "task (作業単位の ID)",
+   "why": "1 つの作業に actio_task_id・delegation_run_id・source_session (lictor-…)・Pf projectId・Cc code が付く。spec/tasks/*.md frontmatter と Actio tasks と Cc run が三重の『タスク台帳』",
+   "evidence": "spec/tasks/2026-09-26-local-owner-team-role.md:2-9; spec/tasks/2026-09-26-local-mode-skip-cernere-sync.md:2-9; spec/feature/public-issues.md:5-6"
+  },
+  {
+   "withTool": "Memoria",
+   "concept": "personal task / notification / work log",
+   "why": "個人タスクは Memoria から Actio へ移植済み (kind/creator_type/category 列と status エイリアス)、Memoria は通知配送器・稼働観測器として残す設計。移行スクリプトと pluginRef=memoria:<id> の互換層が残る",
+   "evidence": "DESIGN-memoria-task-port.md:3-5, 19-28, 30-62; spec/feature/team-task/spec.md:581-609; scripts/migrate-memoria-tasks.mjs; modules/task/personal.ts (toMemoriaShape)"
+  },
+  {
+   "withTool": "Calliope",
+   "concept": "sprint capacity / candidates / progress / risk",
+   "why": "Actio が『スプリント正本実装』と宣言しつつ Calliope の既存実装 (PROJECTHUB 用) は当面残すと明記 = 承知の上の二重実装",
+   "evidence": "spec/feature/team-task/spec.md:48-51, 268-288, 480-481"
+  },
+  {
+   "withTool": "Praeforma (Pf)",
+   "concept": "spec / acceptance / implementation status / project",
+   "why": "仕様・受入条件・シナリオは Pf 正本、実装状況と人間確認は Actio 正本で、Pf が Actio の判定を読み返す往復構造。projectId (Pf ULID) と Cc code と teamId の対応を毎操作で照合。task_spec_reviews / pf_implementation_* に Pf の fingerprint をコピー保持",
+   "evidence": "spec/feature/backlog-planning.md:61-77; spec/feature/praeforma-implementation-review.md:8-9, 39-42; spec/schema/praeforma-implementation-review.md:5-9; modules/task/implementation/routes.ts:25-28"
+  },
+  {
+   "withTool": "Genius",
+   "concept": "judgment card / 判断の軽量化",
+   "why": "通常判断は Actio(Terpsichore) の決定的ルールで、Genius は明示操作時のみ domain=work 検索。Genius が失敗した記録が複数あり、実効性が薄い (推測)",
+   "evidence": "spec/feature/terpsichore.md:77-79, 122-124; spec/feature/sprint-chat-integration.md:27; modules/task/terpsichore/routes.ts:49-54"
+  },
+  {
+   "withTool": "Terpsichore (lib)",
+   "concept": "sprint phase state machine / guidance / execution manifest",
+   "why": "判断契約と型を submodule に出した結果、Actio backend 17 箇所と frontend 5 ファイルが gitlink 固定コミットの型に依存。ビルド鎖・テスト alias・Revisor の file transport 問題を生む",
+   "evidence": "grep @ludiars/terpsichore (modules/task/sprint-gates/*, planning/routes.ts, frontend/src/lib/*-api.ts); vitest.config.ts:6-9; spec/feature/terpsichore.md:14-28"
+  },
+  {
+   "withTool": "Breviarium",
+   "concept": "project sprint summary (contract)",
+   "why": "『応答の形は Breviarium と共通の契約で両リポで同じ形を使う』= 契約型を 2 リポで重複保持。認可は loopback/admin 限定で cf-access 閲覧者は 403",
+   "evidence": "spec/feature/task-integration/spec.md:229-247; modules/task/planning/project-sprint-summary.ts; modules/task/team/project-routes.ts:30-35"
+  },
+  {
+   "withTool": "Revisor",
+   "concept": "PR / evidence / test registration",
+   "why": "PR 証跡は Cc が Revisor/GitHub の PR を見て pluginPayload に書き、Actio は表示のみ。完了レビューの revisor-prs collector は未実装。Revisor が vitest を直接回すため Actio 側に alias とヘルパースクリプトを置く",
+   "evidence": "spec/feature/task-pr-evidence.md:7-12; spec/feature/team-task/spec.md:331-336; vitest.config.ts:6-9; scripts/check-local-team-tasks.mjs"
+  },
+  {
+   "withTool": "Augur / Concordia acceptance",
+   "concept": "contract / acceptance / test registry",
+   "why": "テスト↔要求の対応が cc.acceptance.json (AT-*)、.augur/tests.jsonl (domains)、augur.contracts.json (C-n) の 3 系統。contract-runtime.ts は Augur テンプレートの生成コピーを各リポが持つ",
+   "evidence": "cc.acceptance.json; .augur/tests.jsonl; augur.contracts.json; src/contract-runtime.ts:1-2"
+  },
+  {
+   "withTool": "Anatomia",
+   "concept": "domain / layer 定義",
+   "why": "spec/domains/*.domain.json (11 件) と .anatomia/layers.json と CLAUDE.md のレイヤ説明が別々にドメイン境界を記述。web-frontend.domain.json は JSON キー重複",
+   "evidence": "spec/domains/*.domain.json; .anatomia/layers.json; spec/domains/web-frontend.domain.json:4, 11"
+  },
+  {
+   "withTool": "Cernere",
+   "concept": "identity / session / token authority / group vs organization",
+   "why": "Actio が自前 HS256 service_token を発行 (第 2 のトークン発行者)、users/sessions テーブルと packages/id-service・services/id-service (独自 Identity Service) が残存、Actio Group と Cernere Organization の統合は未検討、READMEは id-cache 利用と記述",
+   "evidence": "src/auth/composite.ts:86-112; src/db/schema.ts:15-101; services/id-service/src/server.ts; spec/plan/cernere-migration.md:7, 98-99, 241; README.md:98-101"
+  },
+  {
+   "withTool": "Excubitor",
+   "concept": "encrypted runtime config / secret resolution / health",
+   "why": "Ex の runtime-config (EXCUBITOR_SERVICE_CONFIG_JSON) と Actio の config.enc が二重の暗号化設定。SSM provider が Ex の Vault と並存。health の意味 (live/ready) を Actio 側で再定義",
+   "evidence": "src/config/excubitor/service-config.ts:1-8; src/config/local-config.ts; spec/feature/runtime-modernization.md:21, 47; excubitor.catalog.yaml:18-24"
+  },
+  {
+   "withTool": "Vestigium",
+   "concept": "logging",
+   "why": "Vestigium install に加えて activity.log (appendFileSync)、console JSON access log、contracts.jsonl が並存",
+   "evidence": "src/index.ts:8-12; src/activity-logger.ts:11-12, 45; src/app.ts:84-109; src/contract-runtime.ts:7-9"
+  },
+  {
+   "withTool": "Discutere (Di)",
+   "concept": "chat-to-task / 議論参加 / machina",
+   "why": "旧 MACHINA (Slack/Discord→タスク) は Discutere へ移行済みだが Actio に machina_* テーブル・MachinaPage・cernere-project.json の data_sharing が残る。新しい chat intake は Actio 側に再び Discord/Slack 受付を実装し、議論参加だけ Di に委ねる",
+   "evidence": "src/db/schema.ts:862-954; frontend/src/pages/MachinaPage.tsx; spec/interface/cernere-project.json:14-20; spec/feature/sprint-chat-integration.md:25, 120-124; spec/feature/features.md:33"
+  },
+  {
+   "withTool": "Schedula / Aedilis / Nuntius",
+   "concept": "event / calendar / reservation / reminder / group",
+   "why": "分離決定後も schema・repository・frontend・npm 依存 (@ludiars/schedula-module-*)・/api/timetable・reminders テーブル・Nuntius 用 user_preferences キー設計が Actio に残る",
+   "evidence": "src/db/schema.ts:103-430, 771; package.json:52-58; src/app.ts:233-243; DESIGN-memoria-task-port.md:57-62; spec/feature/task-integration/spec.md:28"
+  },
+  {
+   "withTool": "Corpus",
+   "concept": "UI surface / manifest",
+   "why": "Actio 自前 React UI と Corpus 宣言的パネル (corpus.ts + corpus-renderer) の 2 面を保守",
+   "evidence": "src/corpus.ts:1-5; frontend/vite.config.ts:66-77; frontend/src/corpus-renderer/renderer.ts (787 行)"
+  }
+ ],
+ "accessBottlenecks": [
+  {
+   "description": "Cc との連携がすべて Actio 側ポーリング: チーム/プロジェクト 10 分、スプリント判断イベント 30 秒、チャット 30 秒、通知送信箱 1 分、PM 1 分。Cc から Actio への push/webhook は無く、チーム割当変更は最大 10 分、Discord 上の承認は最大 30 秒遅延",
+   "evidence": "modules/task/team/cc-sync.ts:23, 120-140; modules/task/sprint-gates/runtime.ts:12; modules/task/chat/runtime.ts:46; modules/task/notifications/tick.ts:15; src/index.ts:66-74"
+  },
+  {
+   "description": "chat tick は単一 lease (300 秒) で全接続を直列処理し、その中で Cc 審査 70 秒・LLM 60 秒・Di 100 秒・Cc request 35 秒のタイムアウトを持つ外部呼び出しを行う。1 接続の遅延が全チームの受付・投稿を止める",
+   "evidence": "modules/task/chat/runtime.ts:22-38; concordia-transport.ts:15; reviewer.ts:25; discussion.ts:37; concordia-request.ts:13"
+  },
+  {
+   "description": "起動・テストの cold import が重い (app 全体 ~7 秒: drizzle-orm, @aws-sdk/client-ssm, db/connection)。API テストが毎スイート app を import し直列 2〜3.5 分。SSM SDK は通常運用で使わないのに常にロード",
+   "evidence": "spec/plan/problem_logs/2026-09-26-vitest4-parallel-api-hook-timeout.md:25-27, 56-57; vitest.config.ts:18-22; src/config/secrets.ts:8-11"
+  },
+  {
+   "description": "起動前提が Excubitor に強く結合: EXCUBITOR_URL と secret-agent token ファイルが無いと Vault 取得で停止、ACTIO_PORT 未注入でポート解決エラー。素の npm dev でも Ex の環境注入済みシェルが前提で、単独起動には手動 env 設定が要る",
+   "evidence": "src/config/excubitor/endpoint.ts:23-27, 36-43; src/config/service-endpoints.ts:27-31; README.md:84-96; src/bootstrap.ts:14-25"
+  },
+  {
+   "description": "外部到達経路が 3 ホップ (cloudflared → actio-web:17881 → actio:17880)、かつ Access 経由は全員 actio-local に畳まれる。cf-access 経由では Breviarium 集計 API も 403、Pf 実装確認もローカル持ち主では不可 → 実質『人間確認』は公開配備 + Cernere ログインでしか成立しない",
+   "evidence": "excubitor.catalog.yaml:38-70; spec/feature/local-mode-cf-access.md:62-64, 86-89; src/auth/loopback-or-admin.ts:12-14; modules/task/implementation/routes.ts:14-17"
+  },
+  {
+   "description": "Pf 連携は同期・直列: プロジェクト/仕様一覧を 50 件ずつ最大 200 ページ順次取得、実装状況は GET と各 POST の前に manifest を再取得 (10 秒タイムアウト)。Pf が遅いと計画画面が待つ",
+   "evidence": "modules/task/planning/praeforma-client.ts:20-27, 35-54; modules/task/implementation/routes.ts:25, 37"
+  },
+  {
+   "description": "Cernere プロファイル取得は WS シングルトン経由で 1 件 10 秒タイムアウト、getUserInfos は ID 数だけ並列要求。Redis 無しだとキャッシュが効かず毎回 Cernere へ",
+   "evidence": "src/auth/cernere-client.ts:44, 204-230; src/auth/user-info.ts:41-72; src/auth/session-cache.ts:27-28"
+  },
+  {
+   "description": "ビルド鎖の反復: dev/build/test/typecheck のたびに packages/sdk と lib/terpsichore を tsc、frontend build でも再実行。submodule の sync/update と GitHub Packages トークン、config:seal の stdin 手順が初期構築の手作業",
+   "evidence": "package.json:8-16, 29, 35; frontend/package.json prebuild; README.md:78-96; spec/feature/terpsichore.md:21-28"
+  },
+  {
+   "description": "データ移行・整合は人手: cc-project-backfill (dry-run → 目視 → --apply)、multiTeam は人が個別更新、migrate-memoria-tasks、Castra skill 修正、Cloudflare Access 設定、Cernere identity_claims 許可、ACTIO_SPRINT_CC_ADMINS の別名登録、Ex catalog env 編集 + 再起動",
+   "evidence": "scripts/cc-project-backfill.ts:8-17, 96-100; spec/feature/task-integration/spec.md:309-318; spec/feature/public-issues.md:54, 88-92; spec/feature/sprint-human-gates.md:20, 28; spec/feature/local-mode-cf-access.md:92-96"
+  },
+  {
+   "description": "公開イシューは Cc への 5 秒タイムアウト fetch をリクエスト経路で行い 60 秒だけキャッシュ。Cc 不達時は一覧が空になる (DB に保存しない方針のため)",
+   "evidence": "modules/public-issues/cc-public-client.ts:12, 37-52; spec/feature/public-issues.md:59-63"
+  },
+  {
+   "description": "repository.ts 2802 行 / api.ts 1741 行 / schema.ts 1366 行 / dialects/postgres.ts 1748 行の巨大ファイルが変更の衝突点。並行作業で『project-routes.ts と planning/ は触らない』等の調整が必要になっている",
+   "evidence": "wc -l 上位 (src/db/repository.ts, src/db/dialects/postgres.ts, frontend/src/lib/api.ts, src/db/schema.ts); spec/tasks/2026-09-26-local-owner-team-role.md:120-121; review/REVIEW_DESIGN.md:103-109"
+  }
+ ],
+ "size": {
+  "srcFiles": 495,
+  "specLines": 7396,
+  "notes": "find (ts/tsx/mjs/cs, node_modules・dist 除外) = 495。内訳: src 106, modules 159 (task 配下 ~110, pm 37), frontend/src 90, tests 84, packages 20, services 7, scripts 7, contracts 18, lib 0 (submodule 未取得)。spec/**/*.md 7396 行 (team-task/spec.md 単体 ~890 行)。最大ファイル: src/db/repository.ts 2802 行、src/db/dialects/postgres.ts 1748、frontend/src/lib/api.ts 1741、src/db/schema.ts 1366。git は main のみ 50 コミット (2026-09-04〜2026-10-15, 浅い clone の可能性: 推測)。DB テーブルは CREATE TABLE 定義ベースで約 90 (うち予定・学校・machina・placement 系の残骸が 30 超)。"
+ }
+}

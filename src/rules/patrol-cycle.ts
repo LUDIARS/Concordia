@@ -27,6 +27,9 @@ export type CycleOutcome =
   | { kind: "stopped"; reason: string }
   | { kind: "acted"; action: string; outcome: ExecuteOutcome };
 
+/** 定期の投稿の生成が失敗したとき、 次の期日を待たずにもう一度試すまでの秒数。 */
+export const PATROL_RETRY_AFTER_FAILURE_SEC = 900;
+
 export interface CycleOptions {
   /**
    * 深夜帯の行動頻度 (1 = 通常、 0.1 = 1/10)。 定期 tick の間隔だけに効き、 返信は待たせない。
@@ -132,7 +135,13 @@ export async function runPatrolCycle(
     case "pick": {
       advanceTick();
       // trigger_key は期日で一意。 同じ期日の再実行 (再起動直後など) は duplicate になる。
-      return { kind: "acted", action: "pick", outcome: await executePick(ctx, `tick:${rule.id}:${rule.next_due_at}`) };
+      const outcome = await executePick(ctx, `tick:${rule.id}:${rule.next_due_at}`);
+      // 生成の一時的な失敗 (claude -p の失敗など) では次の期日 (数時間後) まで待たせず、 少し後にもう一度選ぶ。
+      // 新しい期日は新しい trigger なので同じ run の再送ではない。 回数は 1 日の生成上限が縛る。
+      if (outcome.status === "failed" && rule.tick_sec && rule.tick_sec > PATROL_RETRY_AFTER_FAILURE_SEC) {
+        ports.rules.setNextDue(rule.id, nowSecOf(ports) + PATROL_RETRY_AFTER_FAILURE_SEC);
+      }
+      return { kind: "acted", action: "pick", outcome };
     }
   }
 }

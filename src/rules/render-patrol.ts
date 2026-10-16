@@ -144,7 +144,11 @@ export async function renderPatrol(input: RenderInput, runner: OneShotRunner): P
   } catch (err) {
     return { ok: false, error: `render failed: ${(err as Error).message}`, llmCalls: 1 };
   }
-  if (!res.ok) return { ok: false, error: `render failed: ${clip(res.stderr || "claude -p failed", 200)}`, llmCalls: 1 };
+  if (!res.ok) {
+    // claude -p は失敗理由を stdout に出すことがある (stderr が空)。 原因が追えるよう両方を残す。
+    const detail = [res.stderr.trim(), res.stdout.trim() ? `stdout: ${res.stdout.trim()}` : ""].filter(Boolean).join(" / ");
+    return { ok: false, error: `render failed: ${clip(detail || "claude -p failed (no output)", 300)}`, llmCalls: 1 };
+  }
   const raw = res.stdout.replace(/^```[a-z]*\s*|```\s*$/g, "").trim();
   // 名乗りを渡した (引き継ぐ) ときも、 生成が名前行を付けてきたら本文から外す
   const split = splitPersonaLine(raw);

@@ -10,7 +10,7 @@ import { applyMigrations } from "../db/schema.js";
 import { MaterialSourceRegistry } from "./material-registry.js";
 import { MaterialSourceError, type Material, type MaterialSource } from "./material-types.js";
 import { parseActionConfig } from "./patrol-config.js";
-import { runPatrolCycle } from "./patrol-cycle.js";
+import { PATROL_RETRY_AFTER_FAILURE_SEC, runPatrolCycle } from "./patrol-cycle.js";
 import { acceptInbound } from "./patrol-inbound.js";
 import { reconcileDeliveries, recoverStaleRuns } from "./patrol-maintenance.js";
 import { DELIVERY_UNKNOWN_AFTER_SEC, PATROL_LEASE_SEC, type PatrolPorts } from "./patrol-ports.js";
@@ -186,6 +186,25 @@ describe("patrol pick (CC-PATROL-01/02/03)", () => {
     await h.tick();
     expect(h.runs.list({}).runs[0]).toMatchObject({ status: "failed", error_code: "render_failed", llm_calls: 1 });
     expect(h.posted).toHaveLength(0);
+  });
+
+  it("retries a failed render after a short wait instead of the whole interval", async () => {
+    let fail = true;
+    const h = harness({
+      render: async (i) => fail
+        ? { ok: false, error: "render failed: claude -p failed", llmCalls: 1 }
+        : { ok: true, text: `[${i.kind}] ${i.material?.title ?? ""}`, persona: "噂坂 聞", llmCalls: 1 },
+    });
+    h.db.prepare("UPDATE rules SET tick_sec = 10800 WHERE id = 'patrol'").run();
+    await h.tick();
+    const failedAt = Math.floor(h.clock.ms / 1000);
+    expect(h.current().next_due_at).toBe(failedAt + PATROL_RETRY_AFTER_FAILURE_SEC);
+    fail = false;
+    h.clock.ms = (h.current().next_due_at! + 1) * 1000;
+    const r = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(r).toMatchObject({ kind: "acted", action: "pick", outcome: { status: "posted" } });
+    // 成功したら通常の間隔に戻る
+    expect(h.current().next_due_at! - Math.floor(h.clock.ms / 1000)).toBeGreaterThan(PATROL_RETRY_AFTER_FAILURE_SEC);
   });
 
   it("stops before sending when the rule is disabled during rendering (CC-PATROL-06/08)", async () => {

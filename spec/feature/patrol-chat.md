@@ -94,6 +94,9 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 - 状態: `claimed → material_selected → rendering → rendered → delivery_pending → delivered | delivery_unknown`、
   途中で `skipped` / `failed`。各遷移は lease_owner と現状態の compare-and-set。
 - 生成は `claude -p` 会話専用 (tools 無効)・haiku・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。
+  失敗理由には stderr と stdout の先頭を残す (両方空なら `no output` と書く)。
+  定期 pick の生成が失敗したときは、次の期日を通常の間隔ではなく 15 分後 (`PATROL_RETRY_AFTER_FAILURE_SEC`) に置き直す。
+  間隔が 15 分以下の rule では置き直さない。新しい期日は別の trigger_key なので同じ run の再送ではなく、回数は 1 日の生成上限が縛る。
 - 名乗り (`patrol-persona.ts`): 会話の最初の投稿 (pick / event) は、同じ 1 回の生成で 1 行目に「名前: 姓 名」を書かせ、
   話題をもじった珍しい日本人風の名前を毎回付ける (Discutere の役名 `押野 進` 等と同じ流儀)。返信・追投稿は会話の root の名乗りを引き継ぐ。
   名前は 2〜16 文字で、mention・URL・Discord が webhook 名に禁じる語・記号を含むものは採らず、決まった一覧から素材の題で決定的に選ぶ。

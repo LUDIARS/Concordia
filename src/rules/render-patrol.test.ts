@@ -57,6 +57,13 @@ describe("renderPatrol", () => {
     expect(await renderPatrol(input, runner)).toEqual({ ok: false, error: "render failed: timeout", llmCalls: 1 });
   });
 
+  it("keeps stdout and a no-output marker in the failure reason when stderr is empty", async () => {
+    const withStdout = vi.fn(async () => ({ ok: false, stdout: "API Error: overloaded", stderr: "" }));
+    expect(await renderPatrol(input, withStdout)).toEqual({ ok: false, error: "render failed: stdout: API Error: overloaded", llmCalls: 1 });
+    const silent = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
+    expect(await renderPatrol(input, silent)).toEqual({ ok: false, error: "render failed: claude -p failed (no output)", llmCalls: 1 });
+  });
+
   it("uses the template only when configured, with no LLM call", async () => {
     const runner = vi.fn();
     const r = await renderPatrol({ ...input, mode: "template" }, runner);

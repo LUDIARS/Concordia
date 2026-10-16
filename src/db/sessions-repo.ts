@@ -17,6 +17,27 @@ import type {
 export class SessionsRepo {
   constructor(private readonly db: Database.Database) {}
 
+  /** Commit an inspected binding and its evidence together; never overwrite a newer declaration. */
+  commitImplementationBinding(input: {
+    expected: Pick<SessionRow, "id" | "status" | "repo_path" | "repo_origin" | "branch" | "current_task" | "target_project">;
+    patch: { current_task: string; branch: string; repo_path: string; repo_origin: string | null;
+      target_project: string; active_repos: string[] };
+    metadata: Record<string, unknown>;
+    event: { ts: number; payload: Record<string, unknown> };
+  }): boolean {
+    return this.db.transaction(() => {
+      const current = this.findSession(input.expected.id);
+      if (!current || current.status !== "active" || input.expected.status !== "active"
+        || current.repo_path !== input.expected.repo_path || current.repo_origin !== input.expected.repo_origin
+        || current.branch !== input.expected.branch || current.current_task !== input.expected.current_task
+        || current.target_project !== input.expected.target_project) return false;
+      this.patchSession(current.id, input.patch);
+      this.mergeMetadata(current.id, input.metadata);
+      this.appendEvent({ session_id: current.id, kind: "implementation.tool.bind", ...input.event });
+      return true;
+    }).immediate();
+  }
+
   // ─── sessions ───────────────────────────────────────
 
   insertSession(input: {

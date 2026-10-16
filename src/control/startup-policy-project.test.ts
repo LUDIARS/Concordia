@@ -16,6 +16,19 @@ const rows = [
 const roots = ["E:/Document/Ars"];
 
 describe("selectStartupPolicyProject", () => {
+  it("does not let a workspace .wt-* guess override the actual checkout origin", () => {
+    const session = { target_project: "Ar", repo_path: "E:/Document/Ars/.wt-Anatomia-review",
+      repo_origin: "https://github.com/LUDIARS/Anatomia.git" };
+    expect(selectStartupPolicyProject(rows, session, roots)?.code).toBe("An");
+  });
+
+  it("uses the explicit target for a sibling worktree without an origin", () => {
+    expect(selectStartupPolicyProject(rows, { target_project: "An",
+      repo_path: "E:/Document/Ars/.wt-Anatomia-review", repo_origin: null }, roots)?.code).toBe("An");
+    expect(selectStartupPolicyProject(rows, { target_project: "missing",
+      repo_path: "E:/Document/Ars/.wt-unknown", repo_origin: null }, roots)).toBeNull();
+  });
+
   it("follows repo_path when target_project=An but the session works in Concordia", () => {
     const session = { target_project: "An", repo_path: "E:\\Document\\Ars\\Concordia", repo_origin: null };
     expect(selectStartupPolicyProject(rows, session, roots)?.code).toBe("Cc");

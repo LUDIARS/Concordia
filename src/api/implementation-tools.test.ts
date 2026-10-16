@@ -2,6 +2,7 @@
 import { expect, it, vi } from "vitest";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
+import { ImplementationBindFailure } from "../implementation-tools/bind-failure.js";
 
 it("requests policy refresh only after a successful implementation bind", async () => {
   const order: string[] = [];
@@ -19,6 +20,27 @@ it("requests policy refresh only after a successful implementation bind", async 
   bind.mockRejectedValueOnce(new Error("invalid repository"));
   expect((await request()).status).toBe(409);
   expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+it("returns safe binding failure stages without private causes", async () => {
+  const bind = vi.fn().mockRejectedValue(new ImplementationBindFailure("repository", "git_timeout", new Error("private path and token")));
+  const app = implementationToolsRouter({ tools: { bind } as unknown as ImplementationToolsService, requestPolicyRefresh: vi.fn() });
+  const response = await app.request("/bind", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: "fixture", cwd: "/fixture", task: "fix" }) });
+  expect(response.status).toBe(409);
+  const body = await response.json();
+  expect(body).toMatchObject({ error: "implementation_bind_failed", stage: "repository", reason: "git_timeout", binding: "unchanged" });
+  expect(JSON.stringify(body)).not.toContain("private path");
+});
+
+it("does not report a failed bind when post-commit policy refresh throws", async () => {
+  const bind = vi.fn().mockResolvedValue({ ok: true, project_code: "AC" });
+  const app = implementationToolsRouter({ tools: { bind } as unknown as ImplementationToolsService,
+    requestPolicyRefresh: () => { throw new Error("private notification error"); } });
+  const response = await app.request("/bind", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: "fixture", cwd: "/fixture", task: "fix" }) });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ok: true, project_code: "AC", notification: "deferred" });
 });
 
 it("validates worktree requests and refreshes session policy only after completion", async () => {

@@ -20,7 +20,14 @@ export function selectStartupPolicyProject(
 ): ProjectCodeRow | null {
   const atWorkspaceRoot = isWorkspaceRootCwd(session.repo_path, workspaceRoots);
   const byRepo = atWorkspaceRoot ? null : projectForRepoPath(rows, session.repo_path);
-  if (byRepo) return byRepo;
+  // A sibling .wt-* directory under Castra is not evidence that it belongs to
+  // Castra. Prefer the checkout origin / explicit binding over that broad guess.
+  const inferredWorkspace = byRepo && isWorkspaceRootCwd(byRepo.repo_path, workspaceRoots)
+    && pathKey(byRepo.repo_path) !== pathKey(session.repo_path);
+  if (byRepo && !inferredWorkspace) return byRepo;
+  const origin = normalizeRepoOrigin(session.repo_origin ?? "").toLowerCase();
+  const byOrigin = origin ? rows.find((row) => normalizeRepoOrigin(row.repo_origin ?? "").toLowerCase() === origin) : null;
+  if (inferredWorkspace && byOrigin) return byOrigin;
   const target = session.target_project?.trim();
   if (target) {
     return rows.find((row) => row.code === target)
@@ -28,8 +35,7 @@ export function selectStartupPolicyProject(
       ?? rows.find((row) => row.project.toLowerCase() === target.toLowerCase())
       ?? null;
   }
-  const origin = normalizeRepoOrigin(session.repo_origin ?? "").toLowerCase();
-  return (origin ? rows.find((row) => normalizeRepoOrigin(row.repo_origin ?? "").toLowerCase() === origin) : null)
+  return byOrigin
     ?? rows.find((row) => pathKey(row.repo_path) === pathKey(session.repo_path))
     ?? null;
 }

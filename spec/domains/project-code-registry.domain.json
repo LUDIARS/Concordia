@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/implementation-tools/(bind-failure|repo-context)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/startup-policy-project(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/implementation-tools(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/project-code-renames(\\.test)?\\.ts$" },
@@ -39,6 +40,6 @@
     "revisor-workflow-round-trip",
     "project-notification-preference-management"
   ],
-  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md", "spec/feature/implementation-worktree.md"],
+  "specRefs": ["spec/feature/implementation-tools.md", "spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md", "spec/feature/implementation-worktree.md"],
   "rationale": "project code は session binding、Discord forum、title 推定へ横断配信されるため、静的文書の複製ではなく Cc DB の単一正本として変更理由をまとめる。"
 }

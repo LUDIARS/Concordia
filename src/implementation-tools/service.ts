@@ -4,7 +4,6 @@ import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { ExcubitorClient, ServiceAction } from "../excubitor/client.js";
 import type { LocalPrSubmissionResult } from "../pr/local-pr-submission.js";
-import { createProjectResolver } from "../projects/project-resolver.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
 import type { WorkSubmissionService } from "../work-submission/service.js";
@@ -14,6 +13,9 @@ import { createImplementationWorktree, type CreateWorktreeInput } from "./worktr
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import { EXPLICIT_CONTEXT_BINDING_KEY } from "../control/inject-context-presence.js";
 import { selectOwnedWorktree } from "./switch-worktree.js";
+import { ImplementationBindFailure, type BindStage, type BindReason } from "./bind-failure.js";
+import { repositoryKey } from "../taskflow/actio-binding.js";
+import { createChildLogger } from "../shared/logger.js";
 import {
   EXPLICIT_WORKING_BRANCH_METADATA_KEY,
   isWorkspaceRootCwd,
@@ -21,6 +23,15 @@ import {
 } from "../control/session-work-policy.js";
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
+const log = createChildLogger("implementation-bind");
+
+async function bindingStep<T>(stage: BindStage, reason: BindReason, run: () => Promise<T>): Promise<T> {
+  try { return await run(); }
+  catch (error) {
+    if (error instanceof ImplementationBindFailure) throw error;
+    throw new ImplementationBindFailure(stage, reason, error);
+  }
+}
 
 export interface ImplementationToolsDeps {
   sessions: SessionsRepo;
@@ -60,33 +71,37 @@ export class ImplementationToolsService {
   }
 
   async bind(input: { sessionId: string; cwd: string; task: string }) {
-    const session = this.requireSession(input.sessionId);
+    const session = this.deps.sessions.findSession(input.sessionId);
+    if (!session) throw new ImplementationBindFailure("session", "session_not_found");
+    if (session.status !== "active") throw new ImplementationBindFailure("session", "session_inactive");
     const task = input.task.trim();
-    if (!task) throw new Error("task is required");
+    if (!task) throw new ImplementationBindFailure("session", "invalid_task");
     const workspaceRoots = this.deps.resolveWorkspaceRoots();
     if (!await isWithinWorkspace(input.cwd, workspaceRoots)) {
-      throw new Error("cwd must be within a configured workspace root");
+      throw new ImplementationBindFailure("workspace", "workspace_denied");
     }
-    const context = await inspectImplementationRepo(input.cwd);
+    const context = await bindingStep("repository", "git_failed", () => inspectImplementationRepo(input.cwd));
     if (!await isWithinWorkspace(context.repoPath, workspaceRoots)) {
-      throw new Error("repository root must be within a configured workspace root");
+      throw new ImplementationBindFailure("workspace", "workspace_denied");
     }
     // 登録コマンドの直後から効かせるため、snapshot を cache せず bind ごとに DB を読む。
-    const resolver = createProjectResolver(this.deps.projectCodes.list());
-    const projectCode = resolver.codeForRepo(await mainRepositoryKey(context.repoPath));
-    const project = resolver.targetFromText(`[${projectCode}]`);
-    if (!project) throw new Error(`project code could not be resolved for ${context.repoPath}`);
+    const canonical = repositoryKey(await bindingStep("project", "identity_unavailable", () => mainRepositoryKey(context.repoPath)));
+    const matches = this.deps.projectCodes.list().filter(row => repositoryKey(row.repo_path) === canonical);
+    if (!matches.length) throw new ImplementationBindFailure("project", "project_not_registered");
+    if (matches.length !== 1) throw new ImplementationBindFailure("project", "project_ambiguous");
+    const project = matches[0]!;
+    const projectCode = project.code;
     const claimedTask = task.startsWith(`[${projectCode}]`) ? task : `[${projectCode}] ${task}`;
     const activeRepos = mergeActiveRepos(session.active_repos, context.repoPath);
-    this.deps.sessions.patchSession(session.id, {
+    const patch = {
       current_task: claimedTask,
       branch: context.branch,
       repo_path: context.repoPath,
       repo_origin: context.repoOrigin,
-      target_project: project.cwd,
+      target_project: project.repo_path,
       active_repos: activeRepos,
-    });
-    this.deps.sessions.mergeMetadata(session.id, {
+    };
+    const metadata = {
       [EXPLICIT_WORKING_BRANCH_METADATA_KEY]: context.branch,
       [EXPLICIT_CONTEXT_BINDING_KEY]: {
         repoPath: context.repoPath,
@@ -97,14 +112,18 @@ export class ImplementationToolsService {
       ...(isWorkspaceRootCwd(session.repo_path, workspaceRoots)
         ? { [WORKSPACE_ROOT_METADATA_KEY]: session.repo_path }
         : {}),
-    });
-    this.deps.sessions.appendEvent({
-      session_id: session.id,
-      ts: nowSec(),
-      kind: "implementation.tool.bind",
-      payload: { project_code: projectCode, task: claimedTask, branch: context.branch },
-    });
-    this.deps.onContextBindingChanged?.(session.id);
+    };
+    const committed = await bindingStep("persistence", "persistence_failed", async () =>
+      this.deps.sessions.commitImplementationBinding({ expected: session, patch, metadata,
+        event: { ts: nowSec(), payload: { project_code: projectCode, task: claimedTask, branch: context.branch } } }));
+    if (!committed) throw new ImplementationBindFailure("persistence", "stale_session");
+    let notificationDeferred = false;
+    try { this.deps.onContextBindingChanged?.(session.id); }
+    catch {
+      // Binding is committed; policy notification can be refreshed without replaying the write.
+      notificationDeferred = true;
+      log.warn({ stage: "notification" }, "binding committed; context notification deferred");
+    }
     // PATCH /v1/sessions/:id と同じく task 変更を通知する。 セッション契約 (contract/lifecycle.ts) は
     // session.started / session.task_changed にしか反応しないので、 ここで出さないと Castra 等で起動して
     // implement begin で契約対象プロジェクトへ入ったセッションに契約が作られず、 編集ゲートの
@@ -120,7 +139,8 @@ export class ImplementationToolsService {
         ts: nowSec(),
       });
     }
-    return { ok: true, project_code: projectCode, task: claimedTask, branch: context.branch };
+    return { ok: true, project_code: projectCode, task: claimedTask, branch: context.branch,
+      ...(notificationDeferred ? { notification: "deferred" as const } : {}) };
   }
 
   async controlService(input: {

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
+import { bindFailureResponse } from "../implementation-tools/bind-failure.js";
 
 const SessionSchema = z.object({ session_id: z.string().min(1) });
 const ReviewSchema = SessionSchema.extend({ fast_lane: z.boolean().optional() });
@@ -51,10 +52,12 @@ export function implementationToolsRouter(deps: { tools: ImplementationToolsServ
         cwd: parsed.data.cwd,
         task: parsed.data.task,
       });
-      deps.requestPolicyRefresh(parsed.data.session_id);
+      // Binding is already committed. A notification failure must not report a failed bind.
+      try { deps.requestPolicyRefresh(parsed.data.session_id); }
+      catch { return c.json({ ...result, notification: "deferred" }); }
       return c.json(result);
-    } catch {
-      return c.json({ error: "implementation_bind_failed" }, 409);
+    } catch (error) {
+      return c.json(bindFailureResponse(error), 409);
     }
   });
   app.post("/service", async (c) => {

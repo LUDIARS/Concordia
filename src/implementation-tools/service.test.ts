@@ -38,9 +38,7 @@ describe("ImplementationToolsService project-code binding", () => {
 
   it("observes a registration on the next bind without recreating the service", async () => {
     const rows: ProjectCodeRow[] = [];
-    const patchSession = vi.fn();
-    const mergeMetadata = vi.fn();
-    const appendEvent = vi.fn();
+    const commitImplementationBinding = vi.fn().mockReturnValue(true);
     const service = new ImplementationToolsService({
       sessions: {
         findSession: () => ({
@@ -50,9 +48,7 @@ describe("ImplementationToolsService project-code binding", () => {
           branch: "main",
           active_repos: "[]",
         }),
-        patchSession,
-        mergeMetadata,
-        appendEvent,
+        commitImplementationBinding,
       } as never,
       claims: {} as never,
       excubitor: {} as never,
@@ -66,7 +62,8 @@ describe("ImplementationToolsService project-code binding", () => {
       sessionId: "session-1",
       cwd: row.repo_path,
       task: "registry migration",
-    })).rejects.toThrow("project code could not be resolved");
+    })).rejects.toThrow("project/project_not_registered");
+    expect(commitImplementationBinding).not.toHaveBeenCalled();
 
     rows.push(row);
     await expect(service.bind({
@@ -79,15 +76,11 @@ describe("ImplementationToolsService project-code binding", () => {
       task: "[Cc] registry migration",
       branch: "feat/project-code",
     });
-    expect(patchSession).toHaveBeenCalledWith("session-1", expect.objectContaining({
+    expect(commitImplementationBinding).toHaveBeenCalledWith(expect.objectContaining({ patch: expect.objectContaining({
       target_project: row.repo_path,
       repo_origin: row.repo_origin,
       active_repos: [row.repo_path],
-    }));
-    expect(mergeMetadata).toHaveBeenCalled();
-    expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "implementation.tool.bind",
-    }));
+    }) }));
     // Repository names are not identities: a linked checkout can have any directory name.
     inspectImplementationRepo.mockResolvedValueOnce({
       repoPath: "E:/Document/Ars/renamed-checkout", repoOrigin: row.repo_origin, branch: "feat/new",
@@ -104,7 +97,7 @@ describe("ImplementationToolsService project-code binding", () => {
     const unsubscribe = eventBus.subscribe((event) => { if (event.type === "session.task_changed") events.push(event); });
     try {
       const service = new ImplementationToolsService({
-        sessions: { findSession: () => session, patchSession: vi.fn(), mergeMetadata: vi.fn(), appendEvent: vi.fn() } as never,
+        sessions: { findSession: () => session, commitImplementationBinding: vi.fn().mockReturnValue(true) } as never,
         claims: {} as never,
         excubitor: {} as never,
         submitLocalPr: vi.fn(),
@@ -133,6 +126,45 @@ describe("ImplementationToolsService project-code binding", () => {
     } finally {
       unsubscribe();
     }
+  });
+});
+
+describe("binding failure consistency", () => {
+  function fixture() {
+    const commit = vi.fn().mockReturnValue(true);
+    const notify = vi.fn();
+    const service = new ImplementationToolsService({
+      sessions: { findSession: () => ({ id: "s", status: "active", repo_path: "/workspace", branch: "main" }),
+        commitImplementationBinding: commit } as never,
+      claims: {} as never, excubitor: {} as never, submitLocalPr: vi.fn(), work: {} as never,
+      projectCodes: { list: () => [row] } as never, resolveWorkspaceRoots: () => ["/workspace"],
+      onContextBindingChanged: notify,
+    });
+    isWithinWorkspace.mockResolvedValue(true);
+    mainRepositoryKey.mockResolvedValue(row.repo_path.toLowerCase());
+    inspectImplementationRepo.mockResolvedValue({ repoPath: row.repo_path, repoOrigin: row.repo_origin, branch: "feat/fix" });
+    return { service, commit, notify, input: { sessionId: "s", cwd: row.repo_path, task: "fix" } };
+  }
+  it("refuses a similar checkout leaf that has no registered canonical identity", async () => {
+    const f = fixture();
+    mainRepositoryKey.mockResolvedValue("/workspace/concordia-unregistered");
+    await expect(f.service.bind(f.input)).rejects.toMatchObject({ reason: "project_not_registered" });
+    expect(f.commit).not.toHaveBeenCalled();
+  });
+  it("reports stale-session refusal without notifying", async () => {
+    const f = fixture(); f.commit.mockReturnValue(false);
+    await expect(f.service.bind(f.input)).rejects.toMatchObject({ reason: "stale_session", stage: "persistence" });
+    expect(f.notify).not.toHaveBeenCalled();
+  });
+  it("keeps a persistence exception private", async () => {
+    const f = fixture(); f.commit.mockImplementation(() => { throw new Error("private database path"); });
+    await expect(f.service.bind(f.input)).rejects.toThrow("persistence/persistence_failed");
+    expect(f.notify).not.toHaveBeenCalled();
+  });
+  it("returns committed success when notification must be deferred", async () => {
+    const f = fixture(); f.notify.mockImplementation(() => { throw new Error("notification offline"); });
+    await expect(f.service.bind(f.input)).resolves.toMatchObject({ ok: true, notification: "deferred" });
+    expect(f.commit).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -9,6 +9,12 @@ import { copyWorktreeProjectConfig } from "../control/worktree-project-config.js
 import { LOCAL_ACTIO_ACCESS } from "../taskflow/actio-projects.js";
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 
+// The suite shares a worker (isolate:false). Restore real filesystem identity
+// adapters before importing this integration path; service tests replace them.
+vi.hoisted(() => vi.resetModules());
+vi.unmock("./repo-context.js");
+vi.unmock("../taskflow/repository-identity.js");
+
 vi.mock("../control/worktree-project-config.js", () => ({ copyWorktreeProjectConfig: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../control/worktree-project-memory.js", () => ({ copyWorktreeProjectMemory: vi.fn().mockResolvedValue(undefined) }));
 

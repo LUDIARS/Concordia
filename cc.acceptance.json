@@ -1,6 +1,11 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/api/implementation-tools.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03", "CC-BIND-04"] },
+    { "source": "src/implementation-tools/bind-failure.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03"] },
+    { "source": "src/implementation-tools/service.ts", "tests": ["src/implementation-tools/service.test.ts"], "contracts": ["CC-BIND-01", "CC-BIND-02", "CC-BIND-04"] },
+    { "source": "src/implementation-tools/repo-context.ts", "tests": ["src/implementation-tools/repo-context.test.ts"], "contracts": ["CC-BIND-01"] },
+    { "source": "src/db/sessions-repo.ts", "tests": ["src/db/sessions-binding.test.ts"], "contracts": ["CC-BIND-02"] },
     { "source": "tools/design-review/digest-input.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-01", "CC-DESIGN-02"] },
     { "source": "tools/design-review/digest-renderer.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-04"] },
     { "source": "tools/design-review/make-digests.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-01", "CC-DESIGN-02"] },
@@ -352,7 +357,7 @@
     {
       "source": "src/control/startup-policy-project.ts",
       "tests": ["src/control/startup-policy-project.test.ts", "src/api/sessions/startup-policy-check.test.ts"],
-      "contracts": []
+      "contracts": ["CC-BIND-05"]
     },
     {
       "source": "src/control/startup-policy.ts",

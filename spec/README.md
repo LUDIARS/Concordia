@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Concordia 仕様書"
-description: "複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を行う Concordia の仕様ルートインデックス。feature（Discord 連携・委託・マルチプロバイダー）/ interface（DB・REST・WS・MCP API 正本）/ setup / test の 4 セクション構成で整理されている。"
+description: "複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録を行う Concordia の仕様ルートインデックス。UX、設計、機能、データ、公開契約、作業資料への入口。"
 service: concordia
 domain: session-coordination
 tags:
@@ -31,7 +31,7 @@ updated: 2026-07-02
 複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を
 行う **Concordia** の仕様。AIFormat
 [`FORMAT_SPEC.md`](https://github.com/LUDIARS/AIFormat/blob/main/FORMAT_SPEC.md)
-の 6 分類に整理する。
+を参照し、用途ごとの資料への入口を以下に示す。
 
 ## 構成
 
@@ -46,10 +46,14 @@ spec/
 ├── ux/          # プロダクトとコアドメインの UX 定義書（Pf/An 共通正本）
 ├── architecture/ # 採用技術・サービス原則、DDD の境界・不変条件・開発手順
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
+├── design/      # 個別設計資料
+├── domains/     # コード所属と関連仕様の宣言
+├── faq/         # 運用・設計上の補足説明
 ├── feature/     # 機能（Discord 連携 / 委託 / multi-provider / FAQ）
 ├── interface/   # API・schema 正本（service-schema.md）
 ├── plan/        # 中長期計画（3軸分離リファクタリング / マルチ拠点連合）
 ├── setup/       # 起動・設定（用途別ガイド + hook 連携手順）
+├── tasks/       # 作業要件と過去の実施記録（現在のタスク状態の正本は Actio）
 └── test/        # テスト設計
 ```
 > ロードマップは README §開発ステータス。アーキテクチャ再編計画は

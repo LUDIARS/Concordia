@@ -5,6 +5,12 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)tools/design-review/[^/]+\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)spec/plan/2026-10-16-ludiars-design-review-handoff/(?:make-digests\\.mjs|analyze\\.js|verify\\.js|ludiars-understand-split\\.js)$"
+    },
+    {
       "pathPattern": "(^|/)src/developer-tools/migration-preflight/[^/]+\\.ts$"
     },
     {
@@ -61,6 +67,7 @@
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "specRefs": [
+    "spec/feature/design-review-handoff.md",
     "spec/feature/migration-preflight.md",
     "spec/feature/domain-taxonomy.concordia.md#tooling",
     "spec/feature/harness-reliability.md",

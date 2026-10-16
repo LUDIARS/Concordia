@@ -1,6 +1,13 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "tools/design-review/digest-input.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-01", "CC-DESIGN-02"] },
+    { "source": "tools/design-review/digest-renderer.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-04"] },
+    { "source": "tools/design-review/make-digests.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-01", "CC-DESIGN-02"] },
+    { "source": "spec/plan/2026-10-16-ludiars-design-review-handoff/make-digests.mjs", "tests": ["tests/design-review-handoff.test.mjs"], "contracts": ["CC-DESIGN-01", "CC-DESIGN-02"] },
+    { "source": "spec/plan/2026-10-16-ludiars-design-review-handoff/analyze.js", "tests": ["tests/design-review-workflows.test.mjs"], "contracts": ["CC-DESIGN-03"] },
+    { "source": "spec/plan/2026-10-16-ludiars-design-review-handoff/verify.js", "tests": ["tests/design-review-workflows.test.mjs"], "contracts": ["CC-DESIGN-03"] },
+    { "source": "spec/plan/2026-10-16-ludiars-design-review-handoff/ludiars-understand-split.js", "tests": ["tests/design-review-workflows.test.mjs"], "contracts": ["CC-DESIGN-03"] },
     { "source": "src/bootstrap/cost.ts", "tests": ["src/bootstrap/cost-retention.test.ts", "src/bootstrap/cost-lease-watch.test.ts"] },
     { "source": "src/web-sso/config.ts", "tests": ["src/web-sso/config.test.ts"], "contracts": ["CC-SSO-INV-01"] },
     { "source": "src/web-sso/policy.ts", "tests": ["src/web-sso/policy.test.ts"], "contracts": ["CC-SSO-INV-03", "CC-SSO-INV-04"] },

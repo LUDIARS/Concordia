@@ -1,0 +1,716 @@
+{
+ "repo": "Breviarium",
+ "abbreviation": "Br",
+ "purpose": "LUDIARS 各プロジェクトの「状態 (スタートアップ / スプリント N 週目 / リリース済み / 運用中)・PDCA ループの位置・検査クラス (A/B/C/D/—)・現在スプリントの健全さ」を、14 の外部ソース (git・Praeforma・Anatomia・Revisor・Concordia・Actio・Excubitor・Elegantia・Voluptas・GitHub Release・リポ成果物) から読み取った証跡付きで一枚に出す読み取り専用のエグゼクティブサマリー (README.md:3-9、spec/ux/product.md:10-13)。利用者は人間 (neco 等の運営者が loopback から登録・更新、Cloudflare Access 経由の閲覧者が閲覧のみ)。表示は常に自前キャッシュ (スナップショット) から出し、ソースへ行くのは手動 refresh と 1 時間ごとの定期更新だけ (spec/ux/product.md:28-31)。AI エージェントや他サービスがこの API を呼ぶ経路は仕様・コード上に無い。",
+ "coreConcepts": [
+  {
+   "name": "Project (登録台帳)",
+   "definition": "Br が見る対象プロジェクト。code (Cc の略称、大文字小文字を無視して一意)・name・repoPath (絶対パス)・classification (public/internal)・bindings・registeredAt/updatedAt。【所有】",
+   "storedIn": "data/projects.json (version 1)",
+   "evidence": "spec/feature/project-registry.md:9-10,17; src/adapters/storage/project-file-store.ts:8-22"
+  },
+  {
+   "name": "bindings (7 システムへの外部キー)",
+   "definition": "praeformaProjectId / elegantiaProduct / voluptasPath / githubRepo (owner/name) / actioProjectCode / anatomiaProject / excubitorService / lifecycleOverride。各ツールの識別子を【借用】し Br は正本を持たない。未登録なら小文字 code 等で推測はせず not-connected",
+   "storedIn": "data/projects.json の bindings",
+   "evidence": "spec/feature/project-registry.md:21-29; src/adapters/sources/anatomia-cli-source.ts:10-12; src/adapters/sources/excubitor-source.ts:13-15"
+  },
+  {
+   "name": "project code (Cc 略称)",
+   "definition": "Concordia の /v1/project-codes が正本。Br の登録 code・Actio 問い合わせ code・Cc レビュー投稿の code として使い回す。【借用: Concordia】",
+   "storedIn": "data/projects.json (code)",
+   "evidence": "spec/feature/project-registry.md:17; src/adapters/sources/concordia-source.ts:20-25; spec/ux/product.md:5"
+  },
+  {
+   "name": "SourceSnapshot",
+   "definition": "ソースごと・プロジェクトごとの最新 1 件のキャッシュ {projectCode, source, sourceVersion, subject, data, dataFetchedAt, attemptedAt, status(ok|failed|not-connected), error}。失敗時は前回 data を保持 (applyOutcome)。【所有】",
+   "storedIn": "data/snapshots/<code>/<source>.json (原子的 temp+rename)",
+   "evidence": "spec/feature/snapshots.md:7-23; src/snapshots/domain/model.ts:53-91; src/snapshots/domain/snapshot-rules.ts:23-48"
+  },
+  {
+   "name": "Evidence (正規化証跡)",
+   "definition": "extractor (純関数) が生データを件数・状態・日時・commit だけに落としたもの (GitEvidence / PraeformaEvidence / AnatomiaEvidence / RepoArtifactsEvidence / VoluptasEvidence / ElegantiaEvidence / ConcordiaEvidence / RevisorEvidence / ExcubitorEvidence / ActioEvidence 等)。ホスト・ローカルパス・PR 本文・ファイル名を持たない。【所有】",
+   "storedIn": "スナップショットの data",
+   "evidence": "src/inspections/domain/evidence.ts:1-7,15-25,128-145,188-201; spec/feature/grading.md:17-20"
+  },
+  {
+   "name": "Lifecycle (状態)",
+   "definition": "startup / sprint (N 週目 (M 週)) / released / operating。優先 lifecycleOverride > operating (Excubitor の autostart or running) > released (GitHub Release で直前から major/minor を上げた明示的 Release) > sprint (Actio のアクティブなスプリント) > startup。判定ロジックは【所有】、証跡は Actio/GitHub/Excubitor から【借用】",
+   "storedIn": "読み取り時に純関数で導出 (保存しない)。上書きだけ bindings.lifecycleOverride",
+   "evidence": "spec/feature/workflow.md:21-49; src/workflow/domain/lifecycle.ts:105-120"
+  },
+  {
+   "name": "Release (明示的リリース)",
+   "definition": "GitHub Release (prerelease でない semver) のうち直前の Release から major/minor を上げたもの。初回の自動 Release (Revisor の bootstrap 版) と patch は数えない。Revisor の版ファイル・git v tag は根拠にしない。【借用: GitHub (gh)、分類規則は Revisor の classifyReleaseKind を写した】",
+   "storedIn": "data/snapshots/<code>/github-releases.json",
+   "evidence": "spec/feature/workflow.md:31-45; src/workflow/domain/explicit-release.ts; src/workflow/domain/lifecycle.ts:83-93"
+  },
+  {
+   "name": "スタートアップ整備チェックリスト (7 項目)",
+   "definition": "praeforma / anatomia / concordia / 公開先 (revisor 登録 or git origin、Cc の revisor_workflow で分岐) / actio チーム所属 / excubitor 登録 (リポの catalog と Ex の両方) / 関連設定 (catalog の depends_on・required_env・provides・uses_corpus・cernere_launch_credentials があるときだけ env-config の ready)。【所有】",
+   "storedIn": "導出",
+   "evidence": "spec/feature/workflow.md:58-73; src/workflow/domain/setup-checklist.ts:13-15"
+  },
+  {
+   "name": "PDCA スプリントループ (4 段 + 2 指標)",
+   "definition": "sprint.plan / sprint.build / sprint.evaluate / sprint.retro をスクラムのイベント名で出し、Actio のアクティブなスプリントの中だけで判定。指標 daily / refinement は Actio の集計に無いので常に「—」。完成の定義 = Revisor のマージ。【所有 (判定)】",
+   "storedIn": "導出",
+   "evidence": "spec/feature/workflow.md:77-111; src/workflow/domain/sprint-loop.ts"
+  },
+  {
+   "name": "アナライズ (3 項目、助言)",
+   "definition": "analyze.content (Omnipotens/Vitia/Discutere 成果物の mtime) / analyze.quality (Elegantia testedAt) / analyze.ux-review (Cc ドメインレビュー投稿 posted_at) の最新日時とスプリント開始に対する current/late/none/no-sprint。状態を変えない。【所有】",
+   "storedIn": "導出",
+   "evidence": "spec/feature/workflow.md:113-130; src/workflow/domain/analyze-phase.ts"
+  },
+  {
+   "name": "Inspection / Grade",
+   "definition": "{tool, kind, status(graded|measured|not-measured), grade(A/B/C/D/—), score, evidence[], measuredAt, commit}。固定閾値 A≥0.9/B≥0.7/C≥0.5/D。ツール別まとめは最低クラス。14 検査 (praeforma×4, anatomia×4, omnipotens×3, vitia×2, discutere, voluptas, elegantia, concordia, revisor, terpsichore)。【所有】",
+   "storedIn": "導出",
+   "evidence": "spec/feature/grading.md:10-54,96-99; src/inspections/domain/build-inspections.ts:24-31"
+  },
+  {
+   "name": "Sprint / Team",
+   "definition": "正本は Actio。Br は GET /api/projects/cc/<code>/sprints の集計 (件数・名前・ゴール・日付・チーム名) だけを契約の形で保存し、消化率・経過率・terpsichore/sprint-health を読み取り時に計算。タスク本文・id を持たない。【借用: Actio】",
+   "storedIn": "data/snapshots/<code>/actio.json",
+   "evidence": "spec/feature/sprints.md:12-13,38-78; src/inspections/domain/sprint-progress.ts"
+  },
+  {
+   "name": "Domain declaration / membership coverage",
+   "definition": "対象リポの spec/domains/*.domain.json (Anatomia の宣言) と生成 manifest をリポから直接読み、git index の実装ファイルに membership.pathPattern を当てて所属率を Br 自身で計算。層の割当率だけ Anatomia CLI。【借用: Anatomia の宣言、計算は再実装】",
+   "storedIn": "data/snapshots/<code>/anatomia.json (版 2)",
+   "evidence": "spec/feature/grading.md:62-76; src/inspections/domain/membership-coverage.ts; src/adapters/sources/anatomia-source.ts:10-12,28-32"
+  },
+  {
+   "name": "Service catalog (excubitor.catalog.yaml)",
+   "definition": "対象リポ直下の catalog を YAML ライブラリなしの行単位パースで code・depends_on・宣言の有無だけに落とす。Excubitor の /api/v1/services と照合して「Excubitor 登録」を判定。【借用: Excubitor、パースは再実装】",
+   "storedIn": "data/snapshots/<code>/repo-artifacts.json (版 2)",
+   "evidence": "src/inspections/extractors/service-catalog.ts:74-99; spec/feature/workflow.md:68-72"
+  },
+  {
+   "name": "PR (マージ済み PR の gate / risk)",
+   "definition": "Revisor CLI の pr list → 直近 merged 5 件を pr show で読み anatomiaGate.status・advisories 数・mergeRisk.band・mergeCommitSha だけ保持。Cc の /v1/prs (repo_origin で絞る) も別途読み、Do 段では両者を PR 番号で突き合わせる。【借用: Revisor と Concordia の二重】",
+   "storedIn": "data/snapshots/<code>/revisor.json, concordia.json",
+   "evidence": "spec/feature/grading.md:56-57; spec/feature/workflow.md:99; src/inspections/extractors/revisor.ts:36-45,59-72; src/inspections/extractors/concordia.ts:33-50"
+  },
+  {
+   "name": "Acceptance (受入)",
+   "definition": "Praeforma の /api/projects/:pid/acceptance/summary の passed/failed/blocked 件数で praeforma/acceptance をクラス付け。【借用: Praeforma】",
+   "storedIn": "data/snapshots/<code>/praeforma-acceptance.json",
+   "evidence": "spec/feature/grading.md:39; src/adapters/sources/praeforma-acceptance-source.ts:10-12"
+  },
+  {
+   "name": "Freshness (鮮度)",
+   "definition": "fresh / stale (last-attempt-failed, not-connected, too-old > BREVIARIUM_SNAPSHOT_MAX_AGE_HOURS 24h) / missing。【所有】",
+   "storedIn": "導出",
+   "evidence": "spec/feature/snapshots.md:54-64; src/snapshots/domain/freshness.ts"
+  },
+  {
+   "name": "AccessLevel (local / viewer)",
+   "definition": "自身の loopback authority かつ転送ヘッダ無しの要求だけ local (全操作)。それ以外は Cloudflare Access JWT 検証済みで viewer (GET/HEAD のみ)。【所有】",
+   "storedIn": "要求ごとに判定 (保存しない)",
+   "evidence": "spec/feature/web-entrance.md:44-79; src/adapters/http/request-admission.ts:21-28"
+  },
+  {
+   "name": "Contract (C-1〜C-49、Augur)",
+   "definition": "関数単位の受入条件を contracts/*.contract.ts の述語で表現。46 件。log-weaver は注入せず tests/shared/contracts.test.ts で手動検証。【所有】",
+   "storedIn": "augur.contracts.json / contracts/*.contract.ts / cc.acceptance.json",
+   "evidence": "augur.contracts.json:1-6; spec/tasks/2026-09-26-breviarium-cf-access.md:117-119"
+  }
+ ],
+ "responsibilities": [
+  "プロジェクト登録台帳の CRUD と登録規則 (code 一意性、絶対パス、bindings 検証) — src/registry/**",
+  "14 ソースからの読み取り専用取得 (HTTP / execFile CLI / git / gh / ローカルファイル) と証跡への正規化 — src/adapters/sources/**, src/inspections/extractors/**",
+  "ソースごとのスナップショット保存・失敗時前回値保持・鮮度判定・手動/定期 refresh (1 プロジェクトずつ直列、409 で二重更新拒否) — src/snapshots/**, src/adapters/scheduler/refresh-scheduler.ts",
+  "状態 (lifecycle)・スタートアップ整備・PDCA ループ・アナライズの純関数判定 — src/workflow/domain/**",
+  "検査の正規化と A/B/C/D/— クラス付け、ツール別まとめ、スプリント健全さ (Terpsichore) — src/inspections/domain/**",
+  "SSR HTML 画面 (一覧 / 詳細、JS なし、320px 対応) と JSON API、summary.md / summary.json 書き出し (ローカルパス・エラー本文を除外) — src/adapters/http/**",
+  "Web 入口の防御: loopback 待受強制、Host/Origin ガード、Cloudflare Access JWT 検証 (node:crypto)、viewer 読み取り専用 — src/adapters/config/*, src/adapters/http/cloudflare-access-*.ts, host-origin-guard.ts",
+  "Praeforma / Anatomia / Actio への外部リンク (アクセスレベル別の基点 URL、ハブ化しない) — src/adapters/config/service-links-config.ts, src/adapters/http/service-links.ts"
+ ],
+ "interfaces": [
+  {
+   "kind": "http",
+   "entry": "GET/POST /api/projects, GET/PUT/DELETE /api/projects/:code, POST /api/projects/:code/refresh {sources?}, GET /api/projects/:code/overview",
+   "description": "登録 CRUD・更新・概要 JSON。書き込みは local (loopback) のみ。エラーは {error, message}、404/409/400/422 (spec/feature/web-ui.md:57-71; src/adapters/http/api/project-api.ts, snapshot-api.ts)"
+  },
+  {
+   "kind": "http",
+   "entry": "GET /health",
+   "description": "生存のみ。各ソースと cloudflareAccess を configured/not_connected で返し URL・パス・team/AUD を出さない。Excubitor の health check 先 (src/adapters/http/health.ts:35-54; excubitor.catalog.yaml:45-49)"
+  },
+  {
+   "kind": "web-ui",
+   "entry": "GET /, GET /projects/:code, POST /projects, POST /projects/:code, POST /projects/:code/refresh, POST /projects/:code/delete",
+   "description": "サーバ側レンダリング HTML (テンプレートエンジン・JS なし、フォーム + PRG)。viewer には書き込みフォームを出さない (spec/feature/web-ui.md:9-23; src/adapters/http/page-routes.ts)"
+  },
+  {
+   "kind": "file",
+   "entry": "GET /projects/:code/summary.md, GET /projects/:code/summary.json (version: 3)",
+   "description": "エグゼクティブサマリーの書き出し。repoPath・Voluptas パス・subject・エラー本文を含めず、internal には共有注意 (spec/feature/web-ui.md:73-76; augur.contracts.json C-11)"
+  },
+  {
+   "kind": "http",
+   "entry": "Cloudflare Tunnel → https://br${DOMAIN_ROOT} → http://127.0.0.1:4370 (Cf-Access-Jwt-Assertion 必須、GET/HEAD のみ)",
+   "description": "Internal 公開入口。CF 側設定は人間が行う (spec/feature/web-entrance.md:9-19; README.md:85-112)"
+  }
+ ],
+ "dataStores": [
+  {
+   "kind": "json-file",
+   "location": "${BREVIARIUM_DATA_DIR}/projects.json",
+   "holds": "登録台帳 {version:1, projects:[...]}。全体をメモリに持ち変更ごとに丸ごと書き戻し (temp+rename)。未知 version は起動拒否",
+   "evidence": "src/adapters/storage/project-file-store.ts:8-45; src/adapters/storage/atomic-json.ts:18-32"
+  },
+  {
+   "kind": "json-file",
+   "location": "${BREVIARIUM_DATA_DIR}/snapshots/<code>/<source>.json",
+   "holds": "ソースごとの最新スナップショット (14 本 × プロジェクト数)。削除時にディレクトリごと purge",
+   "evidence": "spec/feature/snapshots.md:7-23; src/snapshots/ports.ts:6-11"
+  },
+  {
+   "kind": "in-memory",
+   "location": "src/adapters/http/cloudflare-access-keys.ts AccessKeyCache",
+   "holds": "Cloudflare Access の JWKS (RSA 鍵) 10 分 TTL、未知 kid の再取得 60 秒に 1 回、同時取得は 1 本に集約",
+   "evidence": "src/adapters/http/cloudflare-access-keys.ts:9-12,46-85"
+  },
+  {
+   "kind": "in-memory",
+   "location": "src/snapshots/application/refresh-use-case.ts createRefresher running Set",
+   "holds": "更新中プロジェクトの排他ロック (プロセス内のみ)",
+   "evidence": "src/snapshots/application/refresh-use-case.ts:68-79"
+  },
+  {
+   "kind": "gitignored-dir",
+   "location": "data/, logs/, .anatomia/",
+   "holds": "実データはコミットしない (data/ を消せば初期化)",
+   "evidence": ".gitignore; README.md:143-146"
+  }
+ ],
+ "integrationsOut": [
+  {
+   "target": "git (登録 checkout)",
+   "mechanism": "cli-execFile",
+   "purpose": "HEAD sha/日時・branch・tag 一覧 (最新 v tag)・remote -v (origin のホスト名だけ)。4 コマンドを Promise.all。別途 anatomia ソースが ls-files -z で index 一覧",
+   "syncOrAsync": "refresh 内で同期待ち (手動 API は応答まで待つ)",
+   "timeoutRetry": "BREVIARIUM_SOURCE_TIMEOUT_MS (既定 5000ms) / retry なし / maxBuffer 64MB / GIT_OPTIONAL_LOCKS=0, GIT_TERMINAL_PROMPT=0",
+   "evidence": "src/adapters/sources/git-source.ts:19-40,46-48,56-61; src/adapters/sources/anatomia-source.ts:32"
+  },
+  {
+   "target": "Praeforma",
+   "mechanism": "http",
+   "purpose": "GET /api/projects → ux-goal / domains / specs / spec-versions (並列 4 本) で praeforma/ux-design・domains・specs の検査と整備項目",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms AbortSignal.timeout / retry なし / JSON 以外は失敗",
+   "evidence": "src/adapters/sources/praeforma-source.ts:12-18,34-38; src/adapters/sources/http-json.ts:48-73"
+  },
+  {
+   "target": "Praeforma (acceptance summary)",
+   "mechanism": "http",
+   "purpose": "GET /api/projects/:pid/acceptance/summary で praeforma/acceptance。Pf 側に実在 (Praeforma/server/src/lib/__tests__/acceptance-summary-route.test.ts:1)",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms / retry なし / 404・HTML は理由付き failed",
+   "evidence": "src/adapters/sources/praeforma-acceptance-source.ts:10-12,18-23,37"
+  },
+  {
+   "target": "Anatomia (対象リポのファイル)",
+   "mechanism": "file",
+   "purpose": "spec/domains/*.domain.json (最大 500)・spec/data/generated/anatomia/manifest.json を読み、git index に pathPattern を当てて所属率 (CLI は使わない)",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "git ls-files は 5000ms",
+   "evidence": "src/adapters/sources/anatomia-source.ts:10-12,23-43; spec/feature/grading.md:62-76"
+  },
+  {
+   "target": "Anatomia CLI (${ARS_ROOT}/Anatomia/bin/anatomia.mjs)",
+   "mechanism": "cli-execFile",
+   "purpose": "node <CLI> domains program --project <id> --json → 層割当率 anatomia/layer-assignment (件数のみ保存)。env ANATOMIA_VESTIGIUM=0 でテレメトリ停止。cwd は CLI のディレクトリ。unknown project は stderr 正規表現で判定。制約: bin/anatomia.mjs は ../dist/adapters/cli.js を import するため Anatomia 側で build 済みが前提 (/home/user/Anatomia/bin/anatomia.mjs:3; この checkout に dist なし)",
+   "syncOrAsync": "refresh 内で同期 (1 プロセス)",
+   "timeoutRetry": "BREVIARIUM_ANATOMIA_CLI_TIMEOUT_MS 既定 120000ms (1000〜600000) / retry なし / 超過は failed で前回値保持",
+   "evidence": "src/adapters/sources/anatomia-cli-source.ts:14-34,42-56; src/adapters/sources/node-cli-runner.ts:94-106; src/adapters/config/load-config.ts:147"
+  },
+  {
+   "target": "Revisor CLI (${ARS_ROOT}/Revisor/src/cli.mjs)",
+   "mechanism": "cli-execFile",
+   "purpose": "repo list --json (登録有無) → pr list --repository <owner/name> --json → merged 最新 5 件を pr show <n> --json で 1 件ずつ直列 (Revisor DB を同時に開かないため) → version show --repo <repoPath>。anatomia/verify・revisor/merge-risk・整備「Revisor 登録」に使う。env から GIT_CONFIG_COUNT/KEY_n/VALUE_n を除去 (Cc セッションの git 設定を漏らさない)。Revisor に Release 一覧が無いので Release は gh へ",
+   "syncOrAsync": "refresh 内で同期、最大 8 プロセスを直列",
+   "timeoutRetry": "REVISOR_CLI_TIMEOUT_MS 60000ms × 各回 / retry なし / 出力上限 64MB (pr list は PR 本文を含む)",
+   "evidence": "src/adapters/sources/revisor-source.ts:11,13-27,34-39,46-53,61-83; spec/feature/workflow.md:32-34; spec/tasks/2026-09-26-breviarium-evidence-sources.md:96-97"
+  },
+  {
+   "target": "GitHub (gh CLI on PATH)",
+   "mechanism": "cli-execFile",
+   "purpose": "gh release list --repo <owner/name> --exclude-drafts --limit 100 --json tagName,publishedAt,isPrerelease → 状態「リリース済み」の唯一の根拠。gh のログインは運用側。GH_PROMPT_DISABLED=1, GH_NO_UPDATE_NOTIFIER=1, NO_COLOR=1",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "BREVIARIUM_SOURCE_TIMEOUT_MS 5000ms (HTTP と同じ値をネットワーク CLI に適用) / retry なし",
+   "evidence": "src/adapters/sources/github-releases-source.ts:10-22,41-55; src/adapters/sources/create-sources.ts:59"
+  },
+  {
+   "target": "Concordia",
+   "mechanism": "http",
+   "purpose": "GET /v1/project-codes (登録・ddd_enabled・tests_required・domain_review・contract_enabled・revisor_workflow) と GET /v1/prs?repository= (並列。応答は repository で絞られないので repo_origin でクライアント側フィルタ)",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms / retry なし",
+   "evidence": "src/adapters/sources/concordia-source.ts:13-31; src/inspections/extractors/concordia.ts:33-50,52-75"
+  },
+  {
+   "target": "Concordia (domain-review posts)",
+   "mechanism": "http",
+   "purpose": "GET /v1/domain-review/posts?code=<略称>&limit=20 → 投稿数と最新 posted_at (analyze.ux-review)。Cc 側に実在 (Concordia/src/api/domain-review.ts:12,186 「Breviarium が最新レビューの日時を読む」)",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms / retry なし / 404 は「未配備」の failed",
+   "evidence": "src/adapters/sources/concordia-reviews-source.ts:10-18,26-39"
+  },
+  {
+   "target": "Actio",
+   "mechanism": "http",
+   "purpose": "GET /api/projects/cc/<code>/sprints (集計のみ) → 状態「スプリント N 週目」・PDCA ループ・terpsichore/sprint-health・整備「Actio チーム所属」。Actio 側に実在 (Actio/modules/task/team/project-routes.ts:5 「Breviarium 連携、loopback / 管理者のみ」)。404 unknown_project / 403 / 501 は理由付き failed",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms / retry なし",
+   "evidence": "src/adapters/sources/actio-source.ts:14-17,23-31,38-52; spec/feature/sprints.md:22-36"
+  },
+  {
+   "target": "Excubitor",
+   "mechanism": "http",
+   "purpose": "GET /api/v1/services (対象サービスの有無・state・autostart・全 code) → 載っていれば GET /api/v1/services/<code>/env-config (ready と missing 件数) → 状態「運用中」と整備「Excubitor 登録」「関連設定」。env-config 失敗は失敗にしない",
+   "syncOrAsync": "refresh 内で同期 (2 本直列)",
+   "timeoutRetry": "5000ms / retry なし",
+   "evidence": "src/adapters/sources/excubitor-source.ts:10-20,27-33,41-58; src/inspections/extractors/excubitor.ts:39-57"
+  },
+  {
+   "target": "Elegantia",
+   "mechanism": "http",
+   "purpose": "GET /api/overview?product=<elegantiaProduct> → elegantia/quality と analyze.quality",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "5000ms / retry なし",
+   "evidence": "src/adapters/sources/elegantia-source.ts:10-25"
+  },
+  {
+   "target": "Voluptas (ローカルデータ)",
+   "mechanism": "file",
+   "purpose": "${BREVIARIUM_VOLUPTAS_DATA_DIR}/<voluptasPath> を walk (最大 5000 ファイル・深さ 6、symlink 無視) し JSON 件数と最新 mtime だけ (ファイル名は回答者名を含み得るので保存しない)",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "なし (件数上限で打ち切り)",
+   "evidence": "src/adapters/sources/voluptas-source.ts:10-18,20-49,55-71"
+  },
+  {
+   "target": "対象リポの成果物 (Omnipotens / Vitia / Discutere / README / spec)",
+   "mechanism": "file",
+   "purpose": "README・spec/ux/product.md・spec/feature 件数・spec/plan/03〜26 (frontmatter status)・spec/data/omnipotens-summary.json・omnipotens-run-plan.json・vitia-game-experience-audit.json・report/omnipotens-final.html・excubitor.catalog.yaml を読む (書かない)。他ツールのファイルレイアウト知識を Br が内蔵",
+   "syncOrAsync": "refresh 内で同期",
+   "timeoutRetry": "テキスト上限 4MB",
+   "evidence": "src/adapters/sources/repo-artifacts-source.ts:9-12,22-37; src/adapters/sources/repo-files.ts:15"
+  },
+  {
+   "target": "Cloudflare Access JWKS",
+   "mechanism": "http",
+   "purpose": "GET https://<team>.cloudflareaccess.com/cdn-cgi/access/certs で RS256 公開鍵 (JWT の jku/iss は使わない)",
+   "syncOrAsync": "要求処理中に同期 (鍵キャッシュ切れ時)",
+   "timeoutRetry": "5000ms / 10 分キャッシュ / 未知 kid 再取得 60 秒に 1 回 / 失敗時は直前の鍵を継続",
+   "evidence": "src/adapters/http/cloudflare-access-keys.ts:9-21,41-85"
+  },
+  {
+   "target": "Praeforma / Anatomia / Actio (ブラウザのリンクのみ)",
+   "mechanism": "other",
+   "purpose": "画面に「Praeforma で開く /projects/<id>」「Anatomia で開く /?project=<id>」「Actio の計画を開く /tasks/planning」。local は topology env (PRAEFORMA_URL / ANATOMIA_URL / ACTIO_FRONTEND_URL→ACTIO_URL)、viewer は BREVIARIUM_LINK_* の公開 URL",
+   "syncOrAsync": "なし (リンク)",
+   "timeoutRetry": "なし",
+   "evidence": "spec/feature/web-ui.md:36-51; src/adapters/config/service-links-config.ts:21-31"
+  }
+ ],
+ "integrationsIn": [
+  {
+   "source": "Excubitor",
+   "mechanism": "env-injection",
+   "purpose": "起動 (node src/main.ts、autostart なし、restart no)、health GET http://127.0.0.1:4370/health 30 秒、catalog env と topology env (PRAEFORMA_URL / CONCORDIA_URL / ACTIO_URL 等の provides) と EXCUBITOR_SERVICE_CONFIG_JSON (cloudflareAccess) の注入。LUDIARS_ALLOWED_HOSTS は Ex の global env",
+   "evidence": "excubitor.catalog.yaml:33-55,76-81; src/adapters/config/source-urls.ts:6-21; src/adapters/config/cloudflare-access-config.ts:26-54"
+  },
+  {
+   "source": "Cloudflare Tunnel + Access (閲覧者ブラウザ)",
+   "mechanism": "http",
+   "purpose": "https://br${DOMAIN_ROOT} → loopback 転送 (Host 保持)。Cf-Access-Jwt-Assertion を検証し viewer として GET/HEAD のみ許可",
+   "evidence": "spec/feature/web-entrance.md:9-19,44-57; README.md:85-100"
+  },
+  {
+   "source": "運営者 (loopback のブラウザ / curl)",
+   "mechanism": "http",
+   "purpose": "登録・編集・削除・手動 refresh (POST) は loopback からだけ",
+   "evidence": "spec/feature/web-entrance.md:69-79; README.md:102-103"
+  },
+  {
+   "source": "Concordia 委託 (Lictor セッション) / Actio タスク",
+   "mechanism": "file",
+   "purpose": "実装タスクは Concordia delegation run から委託され、spec/tasks/*.md に source_session (lictor-…)・delegation_run_id・actio_task_id を持つ Cc タスク形式で記録される (本文の正本は Actio)",
+   "evidence": "spec/tasks/2026-09-26-breviarium-cf-access.md:1-16; spec/tasks/2026-09-26-breviarium-foundation.md:1-16"
+  },
+  {
+   "source": "Revisor (PR / 版管理)",
+   "mechanism": "git",
+   "purpose": "このリポ自体が Revisor 管理 (.revisor-version、PR #1995/#1999/#2006/#2013/#2017 のマージ、bootstrap v0.1.0 の自動 Release)。Revisor の PR ゲートで Anatomia verify が走る",
+   "evidence": ".revisor-version; spec/tasks/2026-09-26-breviarium-evidence-sources.md:14; spec/feature/workflow.md:37-38"
+  },
+  {
+   "source": "Anatomia verify / plan",
+   "mechanism": "cli-execFile",
+   "purpose": "各 PR で `anatomia verify --repo` 5 ゲート (rule_conformance / duplication / spec_linkage / coupling_delta / convention_drift) を通す。spec/domains/*.domain.json と `// @implements SPEC-br-*` マーカーで spec↔code リンク",
+   "evidence": "spec/tasks/2026-09-26-breviarium-foundation.md:90-91; spec/domains/*.domain.json; src/main.ts:1"
+  },
+  {
+   "source": "Augur (contracts lint / report)",
+   "mechanism": "cli-execFile",
+   "purpose": "augur.contracts.json (46 契約) の lint。contract-wrap 注入は行っていないため report は全件 uncovered (not-injected)",
+   "evidence": "augur.contracts.json:1-6; spec/tasks/2026-09-26-breviarium-cf-access.md:107,117-119"
+  },
+  {
+   "source": "Concordia (cc.acceptance.json)",
+   "mechanism": "file",
+   "purpose": "source→tests→contracts の 168 対応を Cc の受入チェックが読む (推測: Cc 側の消費経路はこのリポからは見えない)",
+   "evidence": "cc.acceptance.json:1-4"
+  }
+ ],
+ "deployment": {
+  "port": "4370 (catalog が正本、コードは BREVIARIUM_PORT env から読む)。excubitor.catalog.yaml:38, src/adapters/config/load-config.ts:121",
+  "startCommand": "node src/main.ts (型注釈を剥がして直接起動、実行時依存なし)。package.json:11-12, excubitor.catalog.yaml:35",
+  "nodeVersion": ">=24 (package.json engines:9-10; README.md:23)。本環境 Node 22.22 でもテストは走った",
+  "requiresBuild": "不要 (tsc は noEmit の typecheck のみ、dist なし)。tsconfig.json:19; package.json:13。ただし呼び出し先の Anatomia CLI は dist build が必要 (/home/user/Anatomia/bin/anatomia.mjs:3)",
+  "testRunner": "node --test \"tests/**/*.test.ts\" (vitest 等なし)。実行結果: 333 件中 331 pass / 2 fail (fail は Windows パス前提のテスト、後述)。package.json:14",
+  "healthCheck": "GET http://127.0.0.1:4370/health 30 秒間隔・grace 10 秒 (Excubitor)。生存のみでソース到達性は見ない。excubitor.catalog.yaml:45-49; src/adapters/http/health.ts:8-13",
+  "authMechanism": "loopback 待受強制 (BREVIARIUM_HOST が 127.0.0.1/::1/localhost 以外は起動拒否) + Host/Origin ガード (LUDIARS_ALLOWED_HOSTS、BREVIARIUM_PUBLIC_URL は同 Host のときだけ) + Cloudflare Access JWT (RS256、node:crypto、iss/aud/exp/nbf) → viewer は GET/HEAD のみ。Cernere 認証は範囲外。src/adapters/config/load-config.ts:75-81; src/adapters/http/request-admission.ts:21-28; spec/ux/product.md:59",
+  "autostart": "false、restart_policy \"no\"、tier personal、worktree からは起動しない。excubitor.catalog.yaml:36-37; README.md:20-21",
+  "configSources": "優先順: 明示 BREVIARIUM_<SRC>_URL > Excubitor topology env <SRC>_URL (各サービス catalog の provides) > 未接続。CLI パスは BREVIARIUM_ANATOMIA_CLI / BREVIARIUM_REVISOR_CLI (catalog で ${ARS_ROOT}/…)。CF Access は BREVIARIUM_CF_ACCESS_TEAM_DOMAIN+AUD の組 > EXCUBITOR_SERVICE_CONFIG_JSON.cloudflareAccess。.env や Vault 読み込みのコードは無い。旧名 BR_REFRESH_INTERVAL_SEC / BREVIARIUM_VOLPUTAS_DATA_DIR も互換で読む。src/adapters/config/source-urls.ts:12-21; load-config.ts:83-92,120-155; cloudflare-access-config.ts:31-36",
+  "publicExposure": "frontend_url https://br${DOMAIN_ROOT} (Cloudflare Tunnel → 127.0.0.1:4370、Access Allow ポリシー)。CF 側設定は人間。実 CF 経由の確認は未実施。excubitor.catalog.yaml:30-32,40-44; spec/feature/web-entrance.md:7,110"
+ },
+ "sharedConventions": {
+  "architectureStyle": "ヘキサゴナル / DDD 風レイヤ分割: shared (Result/Clock) ・ registry / workflow / inspections / snapshots (各 domain=純関数, application=use case, ports) ・ adapters (config / storage / sources / http / scheduler) ・ main.ts (composition root)。依存の向きを spec で固定、読み取り側はソース adapter を持たない。Conflux と同型。spec/architecture/overview.md:3-38",
+  "specLayout": "spec/{ux, architecture, feature, domains, tasks} + spec/domains/*.domain.json (Anatomia 宣言 5 件)。AIFormat の data/feature/interface/setup/test 分類ではない (Anatomia の CLAUDE.md が求める構成とは異なる)。各 spec H1 に {#SPEC-br-*} アンカー、コードに // @implements SPEC-br-* マーカー。spec/feature/*.md:1; src/adapters/sources/git-source.ts:1",
+  "augurContractsImportFrom": "@ludiars/log-weaver (augur.contracts.json:4)。ただし実行時依存なしを守るため注入していない (contracts/*.contract.ts は述語のみ、tests/shared/contracts.test.ts で手動検証)",
+  "augurInject": "なし (augur.inject.json は存在しない)。ログは process.stderr.write('[breviarium] …') のみ (src/main.ts:17-19)",
+  "ccAcceptance": "cc.acceptance.json version 1、implementations 168 件 (src 130 + contracts 48 相当)、tests 欠落 0、distinct contracts 46",
+  "libVendored": [],
+  "reviewAndTaskDocs": "spec/tasks/YYYY-MM-DD-breviarium-<slug>.md (6 件、全て 2026-09-26)。Concordia タスク形式の frontmatter (task / project / kind / status: delegated / created / source_session / delegation_run_id / actio_task_id) + 目的と価値 ID / 分解と着地ドメイン / 不変条件 / 変更した境界 / 再利用探索の採否 / 設計上の判断 / 復旧方法 / 検証 (実施・未実施) / 受け入れ条件 (C-n)。CLAUDE.md / AGENTS.md / DESIGN.md / lib/ は無い"
+ },
+ "size": {
+  "srcFiles": 207,
+  "specLines": 1565,
+  "notes": "207 = src 130 + tests 29 (support 2 含む) + contracts 48。spec 15 ファイル (feature 7 / tasks 6 / ux 1 / architecture 1) + domains JSON 5。テスト 333 件 / 72 suite (node --test 実測)。依存は devDependencies の typescript / @types/node のみ、node_modules は 3 パッケージ"
+ },
+ "crossCuttingReimplementations": [
+  {
+   "concern": "host/origin guard (DNS rebinding 対策、先頭 . のドメイン許可、公開 origin は同 Host のときだけ)",
+   "file": "src/adapters/http/host-origin-guard.ts",
+   "notes": "Conflux から写した (spec/tasks/2026-09-26-breviarium-foundation.md:65「Conflux の HTTP 基盤 … を写した」)。Lares にも同名ファイルあり (cf-access.md:17)"
+  },
+  {
+   "concern": "Cloudflare Access JWT 検証 (RS256 / JWKS キャッシュ / claims / 入場判定)",
+   "file": "src/adapters/http/cloudflare-access-{jwt,claims,keys,verifier,guard}.ts",
+   "notes": "Elegantia src/runtime/{cf-jwt,cf-access,access-level}.ts と Lares の形を写し、jose 不採用・共有パッケージ化不採用 (spec/tasks/2026-09-26-breviarium-cf-access.md:17-18,72-76)。3 リポ目の再実装"
+  },
+  {
+   "concern": "loopback 待受強制",
+   "file": "src/adapters/config/load-config.ts:75-81",
+   "notes": "BREVIARIUM_HOST が 127.0.0.1/::1/localhost 以外は ConfigError"
+  },
+  {
+   "concern": "設定ローダ (必須 env fail-fast、整数範囲、旧名互換、ConfigError への集約)",
+   "file": "src/adapters/config/load-config.ts, source-urls.ts, public-origin.ts, web-access.ts, cloudflare-access-config.ts, service-links-config.ts",
+   "notes": "web-access.ts:6「same shape as Conflux / Lares」。EXCUBITOR_SERVICE_CONFIG_JSON の読み方は Lares の写し (cf-access.md:73)"
+  },
+  {
+   "concern": "他サービス URL 解決 (BREVIARIUM_<X>_URL > <X>_URL topology)",
+   "file": "src/adapters/config/source-urls.ts:12-21",
+   "notes": "Conflux の CONFLUX_CC_URL > CONCORDIA_URL と同じ規則 (Conflux/excubitor.catalog.yaml:7-9)"
+  },
+  {
+   "concern": "health (configured / not_connected、URL を出さない)",
+   "file": "src/adapters/http/health.ts:35-54",
+   "notes": "Conflux の形に合わせて書き直し (foundation.md:66)"
+  },
+  {
+   "concern": "contract runtime (述語モジュール + contract-types)",
+   "file": "contracts/contract-types.ts, contracts/*.contract.ts, tests/shared/contracts.test.ts",
+   "notes": "contract-types.ts は Conflux から写し (foundation.md:65)。log-weaver 非注入のため各リポで述語の手動テストを書く運用"
+  },
+  {
+   "concern": "retry / timeout (HTTP: AbortSignal.timeout、CLI: execFile timeout + maxBuffer、retry なし)",
+   "file": "src/adapters/sources/http-json.ts:48-73, node-cli-runner.ts:66-92, git-source.ts:19-40",
+   "notes": "エラー文からホスト・パスを落とす規則をここで担保"
+  },
+  {
+   "concern": "原子的 JSON ファイル保存 (temp + rename)",
+   "file": "src/adapters/storage/atomic-json.ts:18-32",
+   "notes": "SQLite ではなくファイル。Conflux の JSON 保存の形を踏襲 (foundation.md:66)"
+  },
+  {
+   "concern": "excubitor.catalog.yaml の YAML パース (ライブラリなし行単位)",
+   "file": "src/inspections/extractors/service-catalog.ts:74-99",
+   "notes": "Excubitor が持つ catalog ローダの縮小再実装。Revisor も src/catalog.mjs を持つ (Revisor/src/cli.mjs:2)"
+  },
+  {
+   "concern": "Anatomia ドメイン所属判定 (membership.pathPattern を git index に当てる)",
+   "file": "src/inspections/domain/membership-coverage.ts; spec/feature/grading.md:62-76",
+   "notes": "「Anatomia と同じく JS の正規表現」と明記 (grading.md:72)。実装ファイルの拡張子・テスト除外規則も Br 側で定義"
+  },
+  {
+   "concern": "semver Release 分類 (initial / major / minor / patch / prerelease / not-semver)",
+   "file": "src/workflow/domain/explicit-release.ts",
+   "notes": "Revisor の classifyReleaseKind と同じ規則を再実装 (spec/feature/workflow.md:35)"
+  },
+  {
+   "concern": "SSR ルータ / HTML エスケープ / node:http アダプタ",
+   "file": "src/adapters/http/router.ts, html/escape.ts, node-server.ts, http-types.ts",
+   "notes": "Conflux から写し、router の % デコード失敗を 400 にする修正だけ追加 (foundation.md:65)"
+  },
+  {
+   "concern": "JST 暦日・ISO 正規化・Result 型",
+   "file": "src/shared/time.ts, src/shared/result.ts",
+   "notes": "業務判断なしの共有カーネル。他リポにも同種があると推測"
+  },
+  {
+   "concern": "Node CLI 実行 (process.execPath + [script, ...args]、cwd=CLI dir、env 調整、stderr 非保存)",
+   "file": "src/adapters/sources/node-cli-runner.ts:94-115",
+   "notes": "Anatomia / Revisor / gh の 3 CLI を同じ runner で呼ぶ"
+  }
+ ],
+ "painPoints": [
+  {
+   "description": "Augur の contract-wrap (@ludiars/log-weaver) を注入していない。実行時依存なし・node src/main.ts 起動を壊すため。結果 `augur contracts report --acceptance` は 46 契約すべて uncovered (not-injected) で、代わりに tests/shared/contracts.test.ts で述語を手動検証する二重運用",
+   "kind": "workaround",
+   "evidence": "spec/tasks/2026-09-26-breviarium-cf-access.md:117-119; spec/tasks/2026-09-26-breviarium-evidence-sources.md:145-146; augur.contracts.json:4"
+  },
+  {
+   "description": "`augur plan` は毎回汎用提案 1 件 (Characterize current behavior) しか返さず、Anatomia `test-suggestions` はこのビルドに無い (Unknown subcommand)。6 タスクすべてで「タスク本文のテスト一覧に沿って計画した」と記録 → AI 支援ツールが計画段階で機能していない",
+   "kind": "known-issue",
+   "evidence": "spec/tasks/2026-09-26-breviarium-cf-access.md:115-116; spec/tasks/2026-09-26-breviarium-sprints.md:125-126; spec/tasks/2026-09-26-breviarium-foundation.md:98"
+  },
+  {
+   "description": "Anatomia verify の spec_linkage が削除した関数を orphan として数える (post-image が空だと diff の生テキストを parse)。`--project` 指定は登録 rootPath が --repo より優先され worktree の新規ファイルを見られず、worktree PR の検証に使えない",
+   "kind": "known-issue",
+   "evidence": "spec/tasks/2026-09-26-breviarium-pdca-workflow.md:120-123"
+  },
+  {
+   "description": "テストが Windows 絶対パス (E:/Tools/…) を前提にしており、Linux では path.isAbsolute が false → 333 件中 2 件が失敗 (http-app.test.ts「reports the Anatomia and Revisor CLIs…」、contracts.test.ts「C-13 / C-14 with the CLIs…」)。hermetic だが OS 非依存ではない",
+   "kind": "known-issue",
+   "evidence": "tests/adapters/http-app.test.ts:274-277; tests/shared/contracts.test.ts:519-521; src/adapters/config/load-config.ts:95-100 (npm test 実測: 331 pass / 2 fail)"
+  },
+  {
+   "description": "Anatomia CLI の呼び出しは Anatomia 側の dist build が前提 (bin/anatomia.mjs が ../dist/adapters/cli.js を import)。未ビルドだと assertCliFile は通り、起動で非 0 終了 → 毎時 'exit' 失敗で前回値保持のまま (推測: 失敗の種類は exit になる)",
+   "kind": "ops-burden",
+   "evidence": "/home/user/Anatomia/bin/anatomia.mjs:3; src/adapters/sources/node-cli-runner.ts:57-64,100-106; excubitor.catalog.yaml:62"
+  },
+  {
+   "description": "Excubitor の catalog が EXCUBITOR_URL を provides せず、Elegantia も ELEGANTIA_URL を provides しない → 明示 env を置かない限り excubitor / elegantia は永久に未接続 (状態「運用中」を判定できない)。どちら側で直すかは未決",
+   "kind": "planned-but-missing",
+   "evidence": "README.md:40,43; spec/architecture/overview.md:61-62; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:85; spec/tasks/2026-09-26-breviarium-foundation.md:72"
+  },
+  {
+   "description": "実環境での確認が一度も行われていない: 実 CF Tunnel/Access (E-8 未実施)、実 Actio sprints API・実 Cc posts API・実 Pf acceptance API の成功系、実 Excubitor (catalog の port で接続できなかった)、起動テスト、実機の幅別レイアウト。すべて「サービスを起動しない指示」のため fake fetch / Router.handle のみ",
+   "kind": "known-issue",
+   "evidence": "spec/feature/web-entrance.md:7,110; spec/tasks/2026-09-26-breviarium-sprints.md:122-124; spec/tasks/2026-09-26-breviarium-evidence-sources.md:140-142; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:128-133"
+  },
+  {
+   "description": "Anatomia CLI `domains program` が大きいプロジェクトで 120 秒を超える想定があり、BREVIARIUM_ANATOMIA_CLI_TIMEOUT_MS (最大 600 秒) で延ばす運用。超えた回は failed で前回値保持",
+   "kind": "perf",
+   "evidence": "README.md:47; src/adapters/config/load-config.ts:30-31,147; src/adapters/sources/anatomia-cli-source.ts:19-22"
+  },
+  {
+   "description": "Revisor CLI は 1 refresh で最大 8 プロセス (repo list / pr list / pr show×5 / version show) を直列起動、各 60 秒上限。pr show は毎回 Revisor DB を開くため並列化できない。pr list には PR 本文が全部入るため出力上限 64MB",
+   "kind": "perf",
+   "evidence": "src/adapters/sources/revisor-source.ts:10-11,34-39,70-77; src/adapters/sources/node-cli-runner.ts:48-49; spec/tasks/2026-09-26-breviarium-evidence-sources.md:96-97"
+  },
+  {
+   "description": "gh (GitHub へのネットワーク CLI) のタイムアウトが HTTP ソースと同じ BREVIARIUM_SOURCE_TIMEOUT_MS=5000ms。GitHub が遅いと毎時 failed になり「リリース済み」判定が前回値のまま、一度も取れなければ永久に startup/sprint 側",
+   "kind": "perf",
+   "evidence": "src/adapters/sources/create-sources.ts:59; src/adapters/sources/github-releases-source.ts:14-17; README.md:155-156"
+  },
+  {
+   "description": "スナップショットの sourceVersion を上げるたび (git 3 / anatomia 2 / repo-artifacts 2 / excubitor 2 / revisor 2) に既存データが次の更新まで「未取得」扱いになる。移行コードを持たない方針",
+   "kind": "ops-burden",
+   "evidence": "spec/feature/snapshots.md:21-23; README.md:151; src/snapshots/domain/model.ts:47-68"
+  },
+  {
+   "description": "env 名の互換エイリアスが蓄積: BR_REFRESH_INTERVAL_SEC (旧名)、BREVIARIUM_VOLPUTAS_DATA_DIR (綴り誤りの旧名、実ディレクトリ名 VolputasData に合わせた経緯)。廃止済み設定 3 つ (STALE_AFTER_DAYS 等) は読まないが README に残置",
+   "kind": "ops-burden",
+   "evidence": "src/adapters/config/load-config.ts:83-92,127-131; spec/tasks/2026-09-26-breviarium-foundation.md:77; README.md:55-56; git log abf87dc"
+  },
+  {
+   "description": "Actio の集計契約にタスク更新日時・見積り済み件数・close 済みスプリント履歴・振り返りメモが無いため、指標 daily / refinement は常に「—」、retro 段は「終了日後に Di ペーパー更新」という代理判定。Actio 側の契約拡張が必要 (remaining)",
+   "kind": "planned-but-missing",
+   "evidence": "spec/feature/workflow.md:101-109; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:82-84"
+  },
+  {
+   "description": "Concordia の /v1/prs は repository クエリで絞られず、/v1/domain-review/posts も code で絞られない前提で、Br がクライアント側で repo_origin / code フィルタ (Cc 側の API 仕様への不信を Br が吸収)",
+   "kind": "workaround",
+   "evidence": "src/inspections/extractors/concordia.ts:33-36; src/inspections/extractors/concordia-reviews.ts:10-14"
+  },
+  {
+   "description": "Breviarium 自身の anatomia/layer-assignment は .anatomia/layers.json が無く (.gitignore 対象) 0/684 symbol → D。層定義を宣言するかは範囲外のまま",
+   "kind": "known-issue",
+   "evidence": "spec/tasks/2026-09-26-breviarium-evidence-sources.md:93,134; .gitignore"
+  },
+  {
+   "description": "Conflux の試遊成果物・コメントはソース未接続のため、PDCA の sprint.evaluate (スプリントレビュー) は Voluptas の最新回答日時だけで判定",
+   "kind": "planned-but-missing",
+   "evidence": "spec/feature/workflow.md:88,100; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:89"
+  },
+  {
+   "description": "Excubitor のサービス code は略称と違うことが多い (breviarium vs br) ため、実運用では bindings.excubitorService の手動登録が毎プロジェクトで必要。Anatomia project id・Actio code も同様に手動 binding",
+   "kind": "ops-burden",
+   "evidence": "spec/tasks/2026-09-26-breviarium-pdca-workflow.md:86; spec/feature/project-registry.md:25-27"
+  },
+  {
+   "description": "同じ「PR のマージ」情報を Revisor CLI と Cc API の両方から取り、Do 段で PR 番号で突き合わせる。どちらも直近件数しか持たず下限として扱う",
+   "kind": "workaround",
+   "evidence": "spec/feature/workflow.md:99; src/inspections/domain/merged-prs.ts"
+  },
+  {
+   "description": "spec の分類フォルダが ux/architecture/feature/domains/tasks で、Anatomia の CLAUDE.md が求める AIFormat 分類 (data/feature/interface/setup/test) と一致しない (推測: LUDIARS 共通 CI の構造チェック対象外か、Br には適用されていない)",
+   "kind": "known-issue",
+   "evidence": "spec/ ディレクトリ構成; /home/user/Anatomia/CLAUDE.md「spec/ は AIFormat の分類フォルダに揃える」"
+  }
+ ],
+ "unconnectedOrPlanned": [
+  {
+   "description": "ソース excubitor: Excubitor catalog に provides EXCUBITOR_URL が無く、BREVIARIUM_EXCUBITOR_URL を明示するまで未接続 → 状態「運用中」は判定されない",
+   "evidence": "README.md:43; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:85"
+  },
+  {
+   "description": "ソース elegantia: Elegantia catalog に provides ELEGANTIA_URL が無く未接続 → elegantia/quality と analyze.quality は「—」",
+   "evidence": "README.md:40; spec/architecture/overview.md:61-62"
+  },
+  {
+   "description": "Conflux の試遊成果物・コメント (sprint.evaluate の証跡) は未接続",
+   "evidence": "spec/feature/workflow.md:88,100"
+  },
+  {
+   "description": "Actio 集計の拡張 (タスク更新日時・見積り済み件数・close 履歴・振り返りメモ) は Actio 側の後続作業 (remaining)",
+   "evidence": "spec/feature/workflow.md:101-109; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:82-84"
+  },
+  {
+   "description": "Cernere 認証、Corpus 連携、Tela オーバーレイは初版の範囲外",
+   "evidence": "spec/ux/product.md:59"
+  },
+  {
+   "description": "実 Cloudflare Tunnel + Access 経由の確認 (E-8) は CF 側設定後に人間の許可を得て行う予定で未実施",
+   "evidence": "spec/feature/web-entrance.md:110; README.md:85-100"
+  },
+  {
+   "description": "外部リンク (Praeforma / Anatomia / Actio) は PRAEFORMA_URL / ANATOMIA_URL / ACTIO_FRONTEND_URL (topology) と BREVIARIUM_LINK_* (catalog) が揃って初めて出る。Praeforma ↔ Anatomia の深リンクは各リポの web ルート定義を読んで決め打ち",
+   "evidence": "spec/feature/web-ui.md:40-49; excubitor.catalog.yaml:71-75"
+  },
+  {
+   "description": "catalog は provides BREVIARIUM_URL を宣言するが、このリポ内に消費者の記述は無い (推測: 現時点で誰も読んでいない)",
+   "evidence": "excubitor.catalog.yaml:80-81"
+  },
+  {
+   "description": "Praeforma の acceptance summary API と Concordia の domain-review posts API は Br 実装時点で並行委託中 (Cc は 404 を確認)。現在は両リポに実装が存在するが、Br 側からの成功系は未確認",
+   "evidence": "spec/tasks/2026-09-26-breviarium-evidence-sources.md:136,140-141; /home/user/Concordia/src/api/domain-review.ts:186; /home/user/Praeforma/server/src/lib/__tests__/acceptance-summary-route.test.ts:1"
+  },
+  {
+   "description": "Breviarium 自身の Anatomia 登録・Revisor 登録・Cc /projects 登録は「立ち上げ手順側の作業」として初版では未実施 (後続タスクで `plan --project breviarium` が走っているため Anatomia 登録は解消済みと推測)",
+   "evidence": "spec/tasks/2026-09-26-breviarium-foundation.md:97,101; spec/tasks/2026-09-26-breviarium-cf-access.md:32"
+  }
+ ],
+ "overlapsSuspected": [
+  {
+   "withTool": "Anatomia",
+   "concept": "domain / domain-coverage / spec↔code リンク",
+   "why": "Br は Anatomia の宣言 (spec/domains/*.domain.json) と生成 manifest を対象リポから直接読み、membership.pathPattern のマッチを git index に対して自前で再計算する (所属率)。Anatomia 本体に同じ計算 (KG 派生ビュー・ドメイン検出) があり、Br は CLI を層割当率にしか使わない。Anatomia が所属率を API/CLI で出せば Br の再実装 (membership-coverage.ts + 実装ファイル定義) は不要",
+   "evidence": "spec/feature/grading.md:62-76; src/adapters/sources/anatomia-source.ts:18-22; src/inspections/domain/membership-coverage.ts"
+  },
+  {
+   "withTool": "Revisor",
+   "concept": "release / version / PR gate / merge-risk",
+   "why": "Revisor が版ファイル・Release 作成・PR ゲート結果を持つが Release 一覧 API が無いため Br は gh を直接叩き、Revisor の classifyReleaseKind と同じ semver 分類を explicit-release.ts に再実装。PR の gate/risk は Revisor CLI を 8 回 execFile して読む (HTTP API ではない)",
+   "evidence": "spec/feature/workflow.md:31-41; src/workflow/domain/explicit-release.ts; src/adapters/sources/revisor-source.ts:55-60"
+  },
+  {
+   "withTool": "Concordia",
+   "concept": "project code / repository / PR / domain review / harness flags",
+   "why": "Cc の project-codes が略称の正本で、Br の登録 code・Actio code・posts の code に流用。PR 一覧は Cc と Revisor の二重取得。ddd_enabled/tests_required/domain_review を「concordia/harness」として Br がクラス付け (Cc 自身の設定をスコア化)。cc.acceptance.json と augur.contracts.json の contracts 列が同じ対応を二重に記述",
+   "evidence": "spec/feature/project-registry.md:17; spec/feature/grading.md:52; spec/feature/workflow.md:99; cc.acceptance.json:3-4; augur.contracts.json:6"
+  },
+  {
+   "withTool": "Actio",
+   "concept": "sprint / team / task 消化率",
+   "why": "Actio が正本のスプリントに対し、消化率・経過率・健全クラス (terpsichore/sprint-health) と「スプリント N 週目」を Br 側で計算。Actio が集計 API を Br 専用に持つ (Actio project-routes.ts:5「Breviarium 連携」) ため、健全さの定義が Actio 外 (Br) にある",
+   "evidence": "spec/feature/sprints.md:80-114; /home/user/Actio/modules/task/team/project-routes.ts:5"
+  },
+  {
+   "withTool": "Excubitor",
+   "concept": "service / catalog / env readiness / 運用中",
+   "why": "Br は各リポの excubitor.catalog.yaml を独自パーサで読み、Ex の /api/v1/services と照合し、env-config の ready まで読んで「Excubitor 登録」「関連設定」を判定。Ex が既に知っている情報 (catalog 整合・env 不足) を Br が再判定している。Ex 側に provides が無いため接続自体も未",
+   "evidence": "src/inspections/extractors/service-catalog.ts:74-99; spec/feature/workflow.md:68-73; src/adapters/sources/excubitor-source.ts:35-40"
+  },
+  {
+   "withTool": "Praeforma",
+   "concept": "spec / domain / ux-goal / acceptance の充足率",
+   "why": "Pf のデータ (ux-goal の空欄率、description のあるドメイン率、draft 以外の仕様率、受入 passed 率) を Br が A〜D に換算。Pf が自分のプロジェクトに対し同種のサマリーを出すならそちらが正本になり得る",
+   "evidence": "spec/feature/grading.md:36-39; src/adapters/sources/praeforma-source.ts:11-18"
+  },
+  {
+   "withTool": "Conflux",
+   "concept": "HTTP 基盤 (router / host-origin-guard / node-server / escape / contract-types)・設定・health・JSON 保存",
+   "why": "Conflux から丸ごと写し (共有パッケージ化は「実行時依存なし」で不採用)。同じ Node 24 ・実行時依存なしの方針のリポ間で同一コードが複製されている",
+   "evidence": "spec/tasks/2026-09-26-breviarium-foundation.md:63-67; spec/architecture/overview.md:3-4,66"
+  },
+  {
+   "withTool": "Elegantia / Lares",
+   "concept": "Cloudflare Access JWT 検証・access-level・public-origin",
+   "why": "Elegantia cf-jwt/cf-access と Lares の web/* の形を写した 3 つ目の実装。verdict を valid/invalid/unavailable の 3 値に変える等で挙動が微妙に分岐",
+   "evidence": "spec/tasks/2026-09-26-breviarium-cf-access.md:17-18,72-76"
+  },
+  {
+   "withTool": "Omnipotens / Vitia / Discutere",
+   "concept": "解析成果物 (spec/plan/NN, spec/data/omnipotens-*.json, vitia audit, Di ペーパー)",
+   "why": "Br が各ツールのファイル配置とスキーマ (frontmatter status、vitiaScores、lens score) を内蔵し、リポのファイルを直接読んでクラス付け。ツール側の形が変わると Br の extractor が壊れる",
+   "evidence": "src/adapters/sources/repo-artifacts-source.ts:9-12,22-37; src/inspections/domain/plan-status.ts:50; spec/feature/grading.md:44-49"
+  },
+  {
+   "withTool": "Augur",
+   "concept": "contract (観測契約) と acceptance の対応",
+   "why": "augur.contracts.json (46 契約、importFrom log-weaver) と cc.acceptance.json (contracts 配列) が同じ source↔contract 対応を二重に持ち、注入していないので契約の実行時観測は 0",
+   "evidence": "augur.contracts.json:1-6; cc.acceptance.json:3-9; spec/tasks/2026-09-26-breviarium-cf-access.md:117-119"
+  }
+ ],
+ "accessBottlenecks": [
+  {
+   "description": "Anatomia / Revisor CLI を execFile で呼ぶ設計の帰結として、Breviarium は Anatomia・Revisor の checkout (${ARS_ROOT}/…、Anatomia は dist build 済み)、登録 repoPath の絶対パス、Voluptas データディレクトリ、ログイン済み gh が同じ機械にあることを前提にする。したがって運営者の開発機でしか動かず、別ホストへの配備や複数インスタンスができない。設計理由は「読み取りサブコマンドだけ・引数配列でシェルを通さない・cwd を CLI ディレクトリにする・env (ANATOMIA_VESTIGIUM=0、GIT_CONFIG_* 除去) を制御できる・CLI の既定パスをコードに持たない」(タスク本文の指示に従った)",
+   "evidence": "spec/architecture/overview.md:49-50,60; excubitor.catalog.yaml:60-67; src/adapters/sources/node-cli-runner.ts:94-106; spec/tasks/2026-09-26-breviarium-evidence-sources.md:62-65,89-90,96"
+  },
+  {
+   "description": "定期更新はプロジェクトを 1 つずつ直列に回し、周回中の tick は no-op。1 プロジェクト内は 14 ソース並列だが Revisor (最大 8 × 60 秒直列) と Anatomia CLI (120 秒、最大 600 秒) が律速 → 最悪 1 プロジェクト 10 分超、N プロジェクトで 1 時間の間隔を超えると実効間隔がずれる",
+   "evidence": "src/adapters/scheduler/refresh-scheduler.ts:25-56; src/snapshots/application/refresh-use-case.ts:55-63; src/adapters/sources/revisor-source.ts:11,34-39; src/adapters/config/load-config.ts:147"
+  },
+  {
+   "description": "手動 refresh (画面の更新ボタン / POST) は全ソース完了まで同期で待ち、定期周回と重なると 409 refresh_in_progress で人間が再試行する。バックグラウンド化・キュー化は無い",
+   "evidence": "spec/feature/snapshots.md:33,72-74; src/snapshots/application/refresh-use-case.ts:68-79; spec/feature/web-ui.md:20"
+  },
+  {
+   "description": "HTTP ソース・CLI とも retry なしの単発。gh は 5 秒タイムアウトでネットワーク越し。失敗は前回値保持で隠れるため、鮮度表を見ない限り古いまま",
+   "evidence": "src/adapters/sources/http-json.ts:48-73; src/adapters/sources/create-sources.ts:59; spec/feature/snapshots.md:56-64"
+  },
+  {
+   "description": "書き込み (登録・更新・refresh) は loopback からだけ。閲覧者は CF Access 経由の GET/HEAD のみで、公開には CF Tunnel の public hostname・Access application・AUD を人間が設定し Ex の runtime-config に team/AUD を保存して再起動する手順が必要 (4 ステップ、未検証)",
+   "evidence": "README.md:85-100; spec/feature/web-entrance.md:19,69-79"
+  },
+  {
+   "description": "ソース URL・CLI パス・binding が揃わないと「未接続」のまま推測しない方針のため、プロジェクト 1 件につき最大 7 つの binding (Pf id / Elegantia product / Voluptas path / githubRepo / Actio code / Anatomia project / Excubitor service) を人間が手入力する初期設定コスト",
+   "evidence": "README.md:63,128-134; spec/feature/project-registry.md:21-29"
+  },
+  {
+   "description": "排他ロックとレジスタはプロセス内メモリ (running Set、ProjectFileStore のメモリ保持) で、単一プロセス前提。ファイルは丸ごと書き戻し",
+   "evidence": "src/snapshots/application/refresh-use-case.ts:68-79; src/adapters/storage/project-file-store.ts:25-28"
+  },
+  {
+   "description": "Excubitor と Elegantia は provides が無いため既定構成では永久に未接続。「運用中」状態と品質評価がダッシュボードに出ない (手で env を足すまで)",
+   "evidence": "README.md:40,43; spec/tasks/2026-09-26-breviarium-pdca-workflow.md:85"
+  },
+  {
+   "description": "起動 (loadConfig) は不正 env 1 つで fail-fast (CF の team/AUD 片方だけ、BREVIARIUM_PUBLIC_URL に末尾 / 等)。Ex 経由でしか起動しない運用と合わせ、設定ミスの切り分けに再起動サイクルが要る",
+   "evidence": "src/adapters/config/load-config.ts:102-118; spec/feature/web-entrance.md:23-33"
+  },
+  {
+   "description": "Revisor pr list の出力に PR 本文が全部含まれ (上限 64MB)、Anatomia domains program も全 module を返す → 件数だけ欲しい Br が大きな JSON を毎時受け取る (推測: 件数専用の軽量サブコマンド/API があれば短縮できる)",
+   "evidence": "src/adapters/sources/node-cli-runner.ts:48-49; src/inspections/extractors/revisor.ts:31-35; src/inspections/extractors/anatomia-coverage.ts:11-15"
+  }
+ ]
+}

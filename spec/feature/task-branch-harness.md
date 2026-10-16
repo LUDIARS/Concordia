@@ -50,7 +50,9 @@ src/control/spawn-target.ts の新規 worktree 作成に HEAD 指定がある。
 
 受入条件: 設定の独立保存、未選択の編集拒否、流れ間の切替、変更保持、main本体保護、他セッション保護、起点不一致拒否、切替後の登録更新、PR境界維持をテストに記述する。KD/Mp の設定反映はAPI配備後に行い、未配備を有効と報告しない。
 
-実GitでCF-ISOLATEを検証するfixtureは、一時リポジトリと自動片付け対象の空のhookディレクトリを所有し、最初のcommitやworktree操作より前にリポジトリ内の`core.hooksPath`を設定する。利用者の共通hook（Git LFS等）を起動せず、選択したローカル起点・切替後の祖先関係・未コミット変更の検出を実Gitで確認する。本番adapterのhook実行・コマンド期限や、利用者のGit設定は変更しない。
+実GitでCF-ISOLATEを検証するfixtureは、一時リポジトリと自動片付け対象の空のhookディレクトリを所有する。CF-FIXTURE-HOOKS: 初回commit、worktree追加、inspect、switchを含むfixtureの全Git呼び出しで`-c core.hooksPath=<空ディレクトリ>`を渡し、親の`GIT_CONFIG_COUNT/KEY_n/VALUE_n`より優先させる。adapterにはfixture専用runnerを注入し、全体の`process.env`や利用者のGit設定を書き換えない。本番の既定runnerのhook実行・コマンド期限は維持する。利用者の共通hook（Git LFS等）を起動せず、選択したローカル起点・切替後の祖先関係・未コミット変更の検出を実Gitで確認する。
+
+関連タスク: `actio:54ea56ed-94b4-4206-bf5f-da00be1b2ed9`。価値 UX-CC-W1/W3、シナリオ S1/S4、所属 harness-reliability。用語「fixture runner」は当該使い捨てリポジトリだけの実行境界で、hook設定と一時ファイルの所有者はテスト。回帰テストは親設定のsentinel hookが実行可能なことを確認した後、commit/worktree追加/新規・既存branch切替でsentinelが再作成されないことを確認する。テスト実行はRevisorに委ねる。復旧は当該変更のrevertで、永続データ移行はない。
 
 ## 実装結果と復旧
 

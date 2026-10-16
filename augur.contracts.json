@@ -3,6 +3,7 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "conflux-fixture-C-1", "criterion": "C-1 confluxFixtureGitArgs(args, hooks): fixture の全 Git コマンドに空 hook ディレクトリを command scope で指定し、親設定より優先する", "symbol": "confluxFixtureGitArgs", "file": "tests/harness-reliability/conflux-fixture-git.ts", "module": "tests/harness-reliability/conflux-fixture-git.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "remaining-guidance-C-1", "criterion": "C-1 buildStatusReportGuidance(endpoint): 人間判断・権限待ちを kind=wait、実行可能作業を kind=work と案内し、両方の JSON 例を示す", "symbol": "buildStatusReportGuidance", "file": "src/delegation/status-report-policy.ts", "module": "src/delegation/remaining-guidance.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-13", "criterion": "C-13 compareMigrations(left, right, ancestor): 同番号で定義が異なり少なくとも片側が祖先にない定義の場合だけ衝突を返す", "symbol": "compareMigrations", "file": "src/developer-tools/migration-preflight/compare.ts", "module": "src/developer-tools/migration-preflight/compare.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "HR-sampling-budget", "criterion": "HR-sampling-budget: cap and time-slot exclusion hold for observed sampling decisions", "symbol": "sampleDecision", "file": "src/harness/reliability/guidance.ts", "module": "src/harness/reliability/contracts/sampling.contract.ts", "mode": "observe", "sample": 1 },

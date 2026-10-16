@@ -1,6 +1,6 @@
 {
   "service": "concordia",
-  "include": ["src/**/*.ts", "tools/**/*.mjs"],
+  "include": ["src/**/*.ts", "tools/**/*.mjs", "tests/harness-reliability/conflux-fixture-git.ts"],
   "exclude": [
     "**/*.test.ts",
     "**/*.test.mjs",

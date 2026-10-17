@@ -307,6 +307,7 @@ import { loadSecretBox } from "../shared/secret-box.js";
 import { readActioChatSecret } from "../platform/actio-chat-config.js";
 import { readChatDestinations, destinationMatches } from "../platform/actio-chat-destination.js";
 import { createBacklogAdmission } from "../platform/actio-chat-admission.js";
+import { createChatScopeCache } from "../platform/actio-chat-scope-cache.js";
 import { StaffRepo } from "../db/staff-repo.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createFederationRuntime } from "../federation/runtime.js";
@@ -2255,6 +2256,7 @@ export async function startBackend(): Promise<BackendHandle> {
     dailyGoals: dailyGoalRuntime.service,
     actioChat: {
       secret: () => actioChatSharedSecret,
+      scopeCache: createChatScopeCache(),
       credentials: input => {
           const team = teamsRepo.find(input.teamId);
           if (!team) return null;

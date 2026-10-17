@@ -1949,10 +1949,21 @@
     {
       "source": "src/platform/actio-chat-proxy.ts",
       "tests": [
-        "src/platform/actio-chat-policy.test.ts"
+        "src/platform/actio-chat-policy.test.ts",
+        "src/platform/actio-chat-scope-cache.test.ts"
       ],
       "contracts": [
-        "CC-ACTIO-CHAT-01"
+        "CC-ACTIO-CHAT-01",
+        "CC-ACTIO-CHAT-02"
+      ]
+    },
+    {
+      "source": "src/platform/actio-chat-scope-cache.ts",
+      "tests": [
+        "src/platform/actio-chat-scope-cache.test.ts"
+      ],
+      "contracts": [
+        "CC-ACTIO-CHAT-02"
       ]
     },
     {

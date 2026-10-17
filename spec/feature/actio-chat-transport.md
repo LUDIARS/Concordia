@@ -35,3 +35,14 @@ CC-INV-02: guild/channel admission and no role escalation; CC-INV-03: no resend 
 Membership: src/discord/actio-backlog-command*.ts and tests share chat-platforms; src/platform/actio-chat-admission*.ts likewise; commands, command-port and subsidiary-scope already share that domain. Bootstrap core remains runtime-orchestration with paired test mapping.
 
 Implementation references: `src/platform/actio-chat-admission.ts` resolves the live catalog endpoint and authenticated channel admission. `src/discord/actio-backlog-command.ts` implements input validation and single-attempt public receipts. `src/discord/commands.ts` and `src/discord/subsidiary-scope.ts` register and dispatch the same command set.
+
+## CC-ACTIO-CHAT-02 — 所属確認の再利用 (応答 1 秒以内)
+
+neco 指示 (2026-10-17)「全ての Web/API でレスポンスが 1 秒を超えるのは修正対象」。`POST /v1/actio-chat/request` は Discord の channel 所属確認 (対象 channel と parent_id で最大 2 回) を毎回順に取り直してから本要求を送っており、実測 0.95〜1.24 秒だった (Elegantia AP03「呼び出しのたびに外部を取り直す」)。
+
+- channel の所属 guild と Slack token の所属 team は変わらないため、確認できた値だけを `src/platform/actio-chat-scope-cache.ts` が 10 分間メモリに保持する。key は platform・token の SHA-256・channel ID (Slack は `auth.test`) で、token そのものは key に残さない。上限 500 件、古いものから捨てる。
+- 照合 (CC-INV-02) は毎回行う。キャッシュした guild / team が要求の workspaceId と違えば従来どおり 403 で、本要求は送らない。
+- 失敗した確認 (非 2xx・guild_id 無し・Slack ok=false) は覚えない。次の要求で取り直す。
+- token の失効や Bot の退出は、本要求そのものが Discord / Slack から拒否されることで表に出る (CC-INV-06)。最長 10 分は所属確認を省くが、権限の拡大にはならない。
+- 状態は Cc プロセスのメモリだけで、再起動で消える。復旧はキャッシュの削除 = Cc 再起動 (Excubitor 経由)。
+- 受入: 同じ channel への 2 回目の要求で所属確認を呼ばない / 別 guild のキャッシュは 403 / 失敗は覚えない / token ごとに分離・TTL で失効 / Slack も token ごとに 1 回。テストは `src/platform/actio-chat-scope-cache.test.ts` (chat-platforms 所属)。

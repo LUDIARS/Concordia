@@ -181,6 +181,34 @@ describe("delegation completed evidence", () => {
     expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
+  // Actio f096debe / 0a1f4613: a run launched on a shared main checkout delivers through
+  // other repositories' worktrees, so its own merged child PR is the evidence.
+  it("accepts a run launched on a shared main checkout when its child PR merged", async () => {
+    const { app, repo, prs } = makeApp(await makeFeatureWorktree(), "feat/cross-repo");
+    repo.claimChildSession("source-run", "child-session");
+    const childPr = prs.upsertFromStat({
+      repo_origin: "https://github.com/example/other.git",
+      number: 7,
+      author_session_id: "child-session",
+    });
+    prs.reconcile({ repo_origin: childPr.repo_origin, number: childPr.number, state: "merged" });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it("rejects a run launched on a shared main checkout without a merged child PR", async () => {
+    const { app, repo } = makeApp(await makeFeatureWorktree(), "feat/cross-repo");
+    repo.claimChildSession("source-run", "child-session");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.error).toContain("shared main/develop checkout");
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
   it("rejects completed when the recorded checkout is missing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "concordia-completion-evidence-missing-"));
     tempRoots.push(cwd);

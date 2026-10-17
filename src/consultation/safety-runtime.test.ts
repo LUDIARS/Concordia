@@ -6,7 +6,7 @@ import type { HarnessAuditRow } from "../db/harness-audit-repo.js";
 it("records unavailable department ownership without persisting request content", async () => {
   const record = vi.fn(() => ({ id: "audit" }) as HarnessAuditRow);
   const service = createConsultationSafety({
-    sessions: { findSession: () => ({ department_id: "missing" }) } as Pick<SessionsRepo, "findSession">,
+    sessions: { findSession: () => ({ department_id: "missing" }) } as unknown as Pick<SessionsRepo, "findSession">,
     departments: { find: () => null }, audit: { record }, roots: () => [],
   });
   expect(await service.check({ sessionId: "s", phase: "prompt", text: "private-content" }))

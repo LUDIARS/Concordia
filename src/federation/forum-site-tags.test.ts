@@ -117,7 +117,7 @@ describe("federation forum site tag candidates", () => {
 describe("/spawn site: と担当プロジェクト (2026-10-07)", () => {
   let db: Database.Database;
   beforeEach(() => { db = makeTestDb(); });
-  const settings = () => { const values = new Map<string, string>(); return { get: (k: string) => values.get(k) ?? null, set: (k: string, v: string) => { values.set(k, v); } }; };
+  const settings = () => { const values = new Map<string, string>(); return { get: (k: string) => values.get(k) ?? null, set: (k: string, v: string) => { values.set(k, v); }, delete: (k: string) => { values.delete(k); }, transaction: <T,>(update: () => T) => update(), getBoolean: (k: string, fallback: boolean) => { const v = values.get(k); return v === undefined ? fallback : v === "true"; }, setBoolean: (k: string, v: boolean) => { values.set(k, String(v)); } }; };
 
   it("担当プロジェクトから拠点を引き、listener が無ければ拠点へ渡さず理由を返す", () => {
     const sites = makeFederationSitesRepo(db, secretBox);

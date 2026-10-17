@@ -47,7 +47,7 @@ const report = (patch: Partial<BountyReportRow>): BountyReportRow => ({
   closed_by: null, received_at: 1, triaged_at: null, deployed_at: null, withdrawn_at: null, updated_at: 1, triage_run_id: null,
   triage_started_at: null, triage_failures: 0, triage_escalated_at: null, info_requested_at: null, appeal_requested_at: null,
   appeal_reason: null, appeal_decided_at: null, actio_task_attempted_at: null, hotfix_run_id: null, hotfix_started_at: null,
-  reward_state: null, reward_note: null, reward_tokens: null, actio_done_notified_at: null, ...patch,
+  reward_state: null, reward_note: null, reward_tokens: null, actio_done_notified_at: null, event_id: null, ...patch,
 });
 
 describe("createBountyNotifier (bug-bounty.md §7)", () => {

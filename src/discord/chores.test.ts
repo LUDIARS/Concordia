@@ -138,7 +138,7 @@ describe("Discord chores", () => {
       return new Response(JSON.stringify({ run }), { status: 202 });
     });
     vi.stubGlobal("fetch", fetcher);
-    const send = vi.fn(async () => ({ id: "notice" }));
+    const send = vi.fn(async (_options: unknown) => ({ id: "notice" }));
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", send, messages: { fetch: vi.fn() } };
     const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
     const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });

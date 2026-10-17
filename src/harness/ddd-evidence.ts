@@ -1,7 +1,7 @@
 /** @implements spec/feature/project-harness-policy.md — filesystem adapter */
 import { readdirSync, readFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { relative, resolve, isAbsolute } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { dirname, relative, resolve, isAbsolute } from "node:path";
 
 /** Repository-relative candidate path, or null when it escapes the root. */
 function candidatePath(root: string, filePath: string): string | null {
@@ -31,6 +31,22 @@ export function hasDddEvidence(root: string, filePath: string): boolean {
   } catch {
     // Caller reports missing/malformed evidence as an explicit gate denial.
     return false;
+  }
+}
+
+/**
+ * The checkout whose spec/domains and spec/ux judge an edit: the nearest ancestor of the
+ * edited file holding a `.git` entry (a worktree has a `.git` file). The session's
+ * registered root can be the main checkout while the edit lands in a worktree that has
+ * just added its own domain declaration (Actio cbabb7a8). Falls back to `fallbackRoot`.
+ */
+export async function resolveDddEvidenceRoot(fallbackRoot: string, filePath: string): Promise<string> {
+  let dir = dirname(resolve(fallbackRoot, filePath));
+  for (;;) {
+    if (await stat(resolve(dir, ".git")).then(() => true, () => false)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return fallbackRoot;
+    dir = parent;
   }
 }
 

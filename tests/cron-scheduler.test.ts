@@ -40,7 +40,7 @@ describe("startCronScheduler", () => {
 
   // 日報は本社だけで更新する (2026-10-14 neco 指示、 SPEC-FED-SITE-ACTIVITY)。
   it("skips HQ-only jobs on a site and runs them at HQ", async () => {
-    const invoke = vi.fn(async () => okResult());
+    const invoke = vi.fn(async (_input: unknown) => okResult());
     let site = true;
     handle = startCronScheduler(
       { delegationService: fakeDelegationService(invoke), isSiteRole: () => site },

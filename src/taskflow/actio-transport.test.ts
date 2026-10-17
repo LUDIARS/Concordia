@@ -130,6 +130,27 @@ describe("ActioTransport", () => {
     await expect(missing.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("Actio task service unavailable");
   });
 
+  it("reports a failed catalog lookup apart from a stopped Actio", async () => {
+    const findService = vi.fn(async () => { throw new Error("excubitor timeout"); });
+    const transport = new ActioTransport({ findService } as never, () => "token", vi.fn() as never);
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("Actio service lookup failed");
+  });
+
+  it("reuses a recently resolved port while the catalog lookup fails, then gives up after the TTL", async () => {
+    const findService = vi.fn()
+      .mockResolvedValueOnce(RUNNING)
+      .mockRejectedValue(new Error("excubitor timeout"));
+    const fetchImpl = vi.fn(async (_url: string) => json({ id: "owner-1" }));
+    let now = 1_000;
+    const transport = new ActioTransport({ findService } as never, () => "token", fetchImpl as never, 10_000, () => now);
+    await transport.request(BINDING, "GET", "/api/tasks");
+    now += 60_000;
+    await transport.request(BINDING, "GET", "/api/tasks");
+    expect(fetchImpl.mock.calls.at(-1)?.[0]).toMatch(/^http:\/\/127\.0\.0\.1:5175\//);
+    now += 10 * 60_000;
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("Actio service lookup failed");
+  });
+
   it("surfaces the rejected status without leaking the response body", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({ id: "owner-1" }))

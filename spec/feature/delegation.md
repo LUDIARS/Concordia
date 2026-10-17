@@ -803,8 +803,12 @@ git commit しなくてよい)」 節を足す。 **知らなければ仕組み�
 
 ただし、自身の feature branch を持たず実装を直下の子セッションへ委託した run は、
 記録済みの `child_session_id` が著者である merged PR を一件以上確認できれば完了できる。
-この代替証跡は `spawn_branch` がない run にだけ適用し、孫以降のセッションは探索しない。
-feature branch を記録した run は、子 PR の有無にかかわらず上記の Git 証跡を満たす必要がある。
+この代替証跡は `spawn_branch` がない run と、起動 checkout が共有の `main` / `develop`
+のままの run (workspace root や再利用した main で起動し、各リポの worktree と PR で成果を出した
+横断作業、 Actio `f096debe` / `0a1f4613`) にだけ適用し、孫以降のセッションは探索しない。
+どちらも契約ファイルの突合を先に行い、突合の不一致は代替証跡で上書きしない。
+起動 checkout が feature branch 上にある run は、子 PR の有無にかかわらず上記の Git 証跡
+(記録 branch との一致・新規 commit) を満たす必要がある。
 
 #### レビュー専用テンプレの除外
 

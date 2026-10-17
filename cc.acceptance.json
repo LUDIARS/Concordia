@@ -4184,6 +4184,13 @@
       "contracts": []
     },
     {
+      "source": "tools/consult-fetch-link-command.d.mts",
+      "tests": [
+        "src/consultation/consult-fetch-link.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "tools/consult-fetch-link-command.mjs",
       "tests": [
         "tools/consult-fetch-link-command.test.mjs",
@@ -4997,7 +5004,7 @@
     {"source":"src/director/patrol-runtime.ts","tests":["src/director/patrol-runtime.test.ts"],"contracts":[]},
     {"source":"src/discord/test-forum-qa.ts","tests":["src/discord/test-forum-qa.test.ts"],"contracts":[]},
     {"source":"src/domain-review/graph-image.ts","tests":["src/domain-review/service.test.ts","tests/runtime-sync-io.test.ts"],"contracts":[]},
-    {"source":"src/harness/ddd-evidence.ts","tests":["tests/harness-reliability/code-acceptance.test.ts","src/api/harness-session.test.ts"],"contracts":[]},
+    {"source":"src/harness/ddd-evidence.ts","tests":["tests/harness-reliability/code-acceptance.test.ts","src/api/harness-session.test.ts","src/harness/ddd-evidence.test.ts"],"contracts":[]},
     {"source":"src/harness/reliability/code-acceptance.ts","tests":["tests/harness-reliability/code-acceptance.test.ts"],"contracts":[]},
     {"source":"src/processes/manager.ts","tests":["tests/processes.test.ts"],"contracts":[]},
     {"source":"src/processes/runner.ts","tests":["tests/processes.test.ts"],"contracts":[]},
@@ -5049,6 +5056,7 @@
     {"source": "src/taskflow/task-instructions.ts", "tests": ["src/taskflow/plan-approved-instruction.test.ts"], "contracts": []},
     {"source": "src/bootstrap/core.ts", "tests": ["src/taskflow/plan-approved-instruction.test.ts"], "contracts": []},
     {"source":"src/contract/delegation-model-scope.ts","tests":["src/contract/delegation-model-scope.test.ts"],"contracts":["SPEC-CONTRACT-MODEL-SAME-PROVIDER"]},
+    {"source":"src/contract/delegation-target-scope.ts","tests":["src/contract/delegation-target-scope.test.ts"],"contracts":[]},
     {"source": "src/rules/patrol-policy.ts", "tests": ["src/rules/patrol-policy.test.ts", "src/rules/execute-patrol.test.ts"], "contracts": ["CC-PATROL-01", "CC-PATROL-05", "CC-PATROL-06", "CC-PATROL-07"]},
     {"source": "src/rules/patrol-config.ts", "tests": ["src/rules/patrol-config.test.ts", "src/api/rules-patrol.test.ts"], "contracts": ["CC-PATROL-05", "CC-PATROL-07", "CC-PATROL-08"]},
     {"source": "src/rules/rule-validation.ts", "tests": ["src/api/rules-patrol.test.ts"], "contracts": ["CC-PATROL-05", "CC-PATROL-08"]},

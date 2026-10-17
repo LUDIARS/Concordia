@@ -80,6 +80,19 @@ describe("artifact egress under final-only output (CC-EXPLICIT-ARTIFACT-01)", ()
     expect(f.put).not.toHaveBeenCalled();
   });
 
+  it("logs a dropped meta-channel post instead of discarding it silently (Actio 84c50291)", async () => {
+    const meta = fixture({ channel: "consultation" });
+    handleEvent(meta.deps, meta.event);
+    await flush();
+    expect(meta.send).not.toHaveBeenCalled();
+    expect(meta.deps.log.warn).toHaveBeenCalledWith(expect.stringContaining("channel=consultation"));
+
+    const ownChatter = fixture({ metadata: {} });
+    handleEvent(ownChatter.deps, ownChatter.event);
+    await flush();
+    expect(ownChatter.deps.log.warn).not.toHaveBeenCalled();
+  });
+
   it("does not leak a caption when all files are rejected, missing or oversized", async () => {
     const f = fixture();
     vi.mocked(buildAttachFiles).mockResolvedValue([]);

@@ -52,13 +52,19 @@ import {
 import { scanFinishedRuns } from "../delegation/finished-run-reaper.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { contractModelOverrides } from "../contract/delegation-model-scope.js";
+import { contractAppliesToDelegation } from "../contract/delegation-target-scope.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
 import { findGarbledReportFields, GARBLED_REPORT_HINT } from "../delegation/report-encoding.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
-import { verifyBranchExemptCompletion, verifyCompletionEvidence, type CompletionEvidenceVerdict } from "../delegation/completion-evidence.js";
+import {
+  MERGED_PR_SUBSTITUTABLE_REASONS,
+  verifyBranchExemptCompletion,
+  verifyCompletionEvidence,
+  type CompletionEvidenceVerdict,
+} from "../delegation/completion-evidence.js";
 import { describeRunStatusForQuery, resolveCompletionEvidencePolicy } from "../delegation/status-report-policy.js";
 import { continuationAnswerContext } from "../delegation/continuation-answers.js";
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
@@ -833,7 +839,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       }
     }
     const parentSession = parentSessionId && deps.sessions ? deps.sessions.findSession(parentSessionId) : null;
-    const contract = parentSession ? parseContractMetadata(parentSession.metadata ?? null) : null;
+    // 呼び出し側が親の作業リポ外の cwd を明示した委託には、 親の作業契約を持ち込まない (Actio 442bd0cc)。
+    const contract = parentSession && contractAppliesToDelegation(parentSession.repo_path, parsed.data.cwd)
+      ? parseContractMetadata(parentSession.metadata ?? null) : null;
     // 契約の model / effort は親と同じ provider 系統の委託にだけ入れる (Actio 042b0e71)。
     const delegationProvider = parsed.data.overrides?.provider
       ?? deps.repo.findTemplateByCallName(parsed.data.call_name)?.target_provider
@@ -847,7 +855,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const result = await deps.service.invoke({
       call_name: parsed.data.call_name,
       args: parsed.data.args,
-      cwd: contract?.work_location?.value === "repo-root" ? deps.sessions?.findSession(parentSessionId!)?.repo_path : parsed.data.cwd,
+      cwd: contract?.work_location?.value === "repo-root" ? parentSession?.repo_path : parsed.data.cwd,
       contract_branch: contract?.work_branch?.value,
       branch: parsed.data.branch,
       worktree: contract ? contract.work_location?.value === "worktree" : parsed.data.worktree,
@@ -979,9 +987,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         workspaceRoots: deps.workspaceRoots?.() ?? [],
       });
       recordEvidence(evidence);
+      // 共有 checkout (workspace root / 再利用した main) で起動した run は、 別リポの
+      // worktree と PR で成果を出すので起動 checkout に branch 証跡が残らない。 その場合は
+      // この run の子セッションが提出してマージされた PR を証跡にする (Actio f096debe / 0a1f4613)。
       const hasMergedChildPr = !evidence.ok
-        && evidence.reason === "spawned checkout has no recorded feature branch"
-        && !row.spawn_branch
+        && MERGED_PR_SUBSTITUTABLE_REASONS.has(evidence.reason)
         && row.child_session_id !== null
         && deps.prs?.list({
           author_session_id: row.child_session_id,

@@ -48,6 +48,10 @@ updated: 2026-08-13
    系統が違う・判定できない委託には呼び出し側の指定 (無ければテンプレート既定) を使う
    (Claude 親から Codex テンプレートへ `--model claude-opus-5-5` が渡り 400 で止まった、Actio 042b0e71。
    `src/contract/delegation-model-scope.ts`、**Requirement ID: `SPEC-CONTRACT-MODEL-SAME-PROVIDER`**)。
+   また、呼び出し側が親セッションの作業リポ (`repo_path`) の外の `cwd` を明示した委託には、
+   契約 (work_location / work_branch / model / effort) を一切適用しない。親が別リポで作った契約が
+   明示した作業先・ブランチ・worktree・モデルを上書きし、子が親のリポ・親のブランチで起動した
+   (Actio 442bd0cc。`src/contract/delegation-target-scope.ts`)。
 5. Cc は LLM を内包しない原則を維持する。 judge は既存 model-review の小型 judge 経路
    (黒箱側) を使い、 Cc 本体は seed 判定・スキーマ検証・質問カードの取り次ぎだけを行う。
 

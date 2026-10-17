@@ -26,7 +26,7 @@ function sqliteLedger(): SqlitePackageUpdateLedger {
 
 describe("package update notices", () => {
   it("posts each message in order and reports the count", async () => {
-    const post = vi.fn(async () => {});
+    const post = vi.fn(async (_content: string) => {});
     await expect(handlePackageUpdates({ event, ledger: memoryLedger(), post }))
       .resolves.toEqual({ delivered: 2, failed: [], duplicate: false });
     expect(post.mock.calls.map((call) => call[0])).toEqual(["pkg-a 1.2.0", "pkg-b 0.3.1"]);
@@ -34,7 +34,7 @@ describe("package update notices", () => {
 
   it("does not post the same (runId, index) twice", async () => {
     const ledger = sqliteLedger();
-    const post = vi.fn(async () => {});
+    const post = vi.fn(async (_content: string) => {});
     await handlePackageUpdates({ event, ledger, post });
     await expect(handlePackageUpdates({ event, ledger, post }))
       .resolves.toEqual({ delivered: 0, failed: [], duplicate: true });
@@ -44,7 +44,7 @@ describe("package update notices", () => {
   it("delivers only the new indices of a known run", async () => {
     const ledger = memoryLedger();
     ledger.claim("run-1", 0);
-    const post = vi.fn(async () => {});
+    const post = vi.fn(async (_content: string) => {});
     await expect(handlePackageUpdates({ event, ledger, post }))
       .resolves.toEqual({ delivered: 1, failed: [], duplicate: false });
     expect(post).toHaveBeenCalledWith("pkg-b 0.3.1");
@@ -61,10 +61,10 @@ describe("package update notices", () => {
   });
 
   it("neutralizes mentions before posting", async () => {
-    const post = vi.fn(async () => {});
+    const post = vi.fn(async (_content: string) => {});
     const hostile: PackageUpdateEvent = { ...event, messages: [{ text: "@everyone @here <@123> <@&456> <#789> <:x:1> ok", private: false }] };
     await handlePackageUpdates({ event: hostile, ledger: memoryLedger(), post });
-    const posted = post.mock.calls[0]?.[0] as string;
+    const posted = post.mock.calls[0]?.[0] ?? "";
     expect(posted).not.toMatch(/@everyone|@here|<@|<#|<:/);
     expect(posted.replace(/​/g, "")).toBe("@everyone @here <@123> <@&456> <#789> <:x:1> ok");
     expect(neutralizePackageUpdateText("user@example.com")).toBe("user@example.com");

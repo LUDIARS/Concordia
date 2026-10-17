@@ -103,7 +103,18 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     attachmentCount: chatMeta.attachment_paths?.length ?? 0,
   };
   // Envelope check only: the accepted file count is checked again before sending.
-  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy, chatPost)) return;
+  if (chatPolicy && !shouldRelaySessionChatPost(chatPolicy, chatPost)) {
+    // Meta-channel posts from a final-only session stay blocked (a private consultation
+    // must not leak there), but never silently: the sender only saw a successful POST
+    // (Actio 84c50291). The session's own intermediate chatter is too frequent to log.
+    if (row.channel !== "system") {
+      deps.log.warn(
+        `egress.handleChatPosted dropped a meta-channel post from a final-only session message_id=${row.id} ` +
+        `channel=${row.channel} row_session_id=${sessionId ?? "null"}`,
+      );
+    }
+    return;
+  }
   const artifactOnly = chatPolicy?.intermediate === false;
   if (artifactOnly && (session?.status !== "active" || sessionRow?.status !== "active")) return;
   if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) {

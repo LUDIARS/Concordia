@@ -20,7 +20,7 @@ The incident details have not been supplied. This change reduces new copies; it 
 
 `CONCORDIA_ACTIO_TASK_BINDINGS` is a JSON array. Each entry declares `repoPath` (absolute main clone path), `project` (repository name), `projectId` (Actio project reference), `ownerId` (authenticated Actio owner), `tokenEnv` (the name of an injected bearer-token environment variable), `subsidiaryId` (null for headquarters), and `teamId` (null for personal tasks). Subsidiary entries require an Actio team. Credentials must come from the existing secret injection mechanism; do not place token values in the binding or repository.
 
-The Actio endpoint is resolved from the Excubitor catalog at request time. `/api/auth/me` must report the configured owner before task I/O. Reads and writes additionally check project, owner, team and workflow source. Missing/ambiguous bindings and identity mismatches stop task operations. A Git worktree is resolved to its main clone using Git metadata only.
+The Actio endpoint is resolved from the Excubitor catalog at request time. A catalog lookup that fails (Excubitor slow or unreachable) is reported as `actio_service_lookup_failed`, distinct from `actio_unavailable` (Excubitor reports Actio as not running); while the lookup fails, a port resolved within the last 5 minutes is reused (Actio c1ab40b2 / 7b767874 / 5cef69ae / 60ba8f11). `/api/auth/me` must report the configured owner before task I/O. Reads and writes additionally check project, owner, team and workflow source. Missing/ambiguous bindings and identity mismatches stop task operations. A Git worktree is resolved to its main clone using Git metadata only.
 
 Example (identifiers are placeholders):
 

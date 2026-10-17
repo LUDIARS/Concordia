@@ -14,7 +14,7 @@ function ledger(): PackageUpdateLedger {
 }
 
 function router(overrides: { configured?: boolean } = {}) {
-  const post = vi.fn(async () => {});
+  const post = vi.fn(async (_content: string) => {});
   const app = packageUpdatesRouter({
     ledger: ledger(),
     configured: () => overrides.configured ?? true,

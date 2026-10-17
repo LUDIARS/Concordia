@@ -12,6 +12,9 @@ describe("safe taskflow failure descriptions", () => {
     ["Actio task request outcome unknown; reconcile using the same task identity", "actio_outcome_unknown", 503],
     ["Actio task request rejected (422)", "actio_request_rejected", 502],
     ["Invalid Actio task response", "actio_response_invalid", 502],
+    ["Actio service lookup failed", "actio_service_lookup_failed", 503],
+    ["Actio task service unavailable", "actio_unavailable", 503],
+    ["Invalid Actio team list response", "actio_response_invalid", 502],
   ])("classifies %s", (message, code, status) => {
     expect(describeTaskflowFailure(new Error(message))).toMatchObject({ code, status });
   });

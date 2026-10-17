@@ -1,5 +1,5 @@
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:82455b49 */
-import augurContract_3b767fc4 from './conflux-fixture-git.contract.ts'; /* augur-inject:contract-predicate:ed4c6e6e */
+import augurContract_3b767fc4 from './conflux-fixture-git.contract.js'; /* augur-inject:contract-predicate:ed4c6e6e */
 /** Command scope outranks inherited GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS. */
 export function confluxFixtureGitArgs(args: string[], hooks: string): string[] {
   return ["-c", `core.hooksPath=${hooks}`, ...args];

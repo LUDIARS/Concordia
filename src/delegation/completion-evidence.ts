@@ -52,6 +52,20 @@ const GIT_BIN = process.platform === "win32" ? "git.exe" : "git";
 const GIT_TIMEOUT_MS = 30_000;
 const PROTECTED_BRANCHES = new Set(["main", "develop"]);
 
+/**
+ * Branch-evidence failures that a merged PR by the run's own child session may stand in
+ * for. A run launched on a shared checkout (workspace root, or a reused main) delivers
+ * through worktrees and PRs in other repositories, so its spawn checkout never carries the
+ * feature branch (Actio f096debe / 0a1f4613). A checkout that IS on a feature branch but
+ * fails the check (wrong branch, no commit, detached, missing) is not here: a merged PR
+ * must not override invalid evidence from a branch-owned worktree.
+ */
+const SHARED_CHECKOUT_REASON = "spawned checkout is a shared main/develop checkout, not its recorded non-protected feature branch";
+export const MERGED_PR_SUBSTITUTABLE_REASONS: ReadonlySet<string> = new Set([
+  "spawned checkout has no recorded feature branch",
+  SHARED_CHECKOUT_REASON,
+]);
+
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync(GIT_BIN, ["-C", cwd, ...args], {
     timeout: GIT_TIMEOUT_MS,
@@ -100,14 +114,13 @@ export async function verifyCompletionEvidence(
   if (!(await pathExists(cwd)) || !(await pathExists(join(cwd, ".git")))) {
     return { ok: false, reason: "spawned checkout is missing or is not a Git worktree" };
   }
-  if (!run.spawn_branch) {
-    // The API has a legacy merged-PR fallback for branchless child runs. Check
-    // contracts before returning that branch verdict so the fallback cannot
-    // bypass an acceptance mismatch.
+  // The API accepts a merged child PR in place of these branch verdicts. Check
+  // contracts before returning one so that fallback cannot bypass an acceptance mismatch.
+  const branchFailure = async (reason: string): Promise<CompletionEvidenceVerdict> => {
     const acceptance = await verifyContractAcceptance(cwd, run, options);
-    if (!acceptance.ok) return acceptance;
-    return { ok: false, reason: "spawned checkout has no recorded feature branch" };
-  }
+    return acceptance.ok ? { ok: false, reason } : acceptance;
+  };
+  if (!run.spawn_branch) return branchFailure("spawned checkout has no recorded feature branch");
 
   let branch: string;
   try {
@@ -115,7 +128,8 @@ export async function verifyCompletionEvidence(
   } catch {
     return { ok: false, reason: "spawned checkout Git metadata could not be read" };
   }
-  if (branch === "HEAD" || branch !== run.spawn_branch || PROTECTED_BRANCHES.has(branch)) {
+  if (PROTECTED_BRANCHES.has(branch)) return branchFailure(SHARED_CHECKOUT_REASON);
+  if (branch === "HEAD" || branch !== run.spawn_branch) {
     return { ok: false, reason: "spawned checkout is not on its recorded non-protected feature branch" };
   }
   if (await countCommitsSinceBase(cwd) < 1) {

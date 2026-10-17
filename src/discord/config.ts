@@ -22,6 +22,7 @@ export interface DiscordConfigSnapshot {
   sessionForumId: string;
   testForumId: string;
   taskWorkflowForumId: string;
+  cloudForumId?: string;
   metaCategoryId: string;
   sessionsCategoryId: string;
   statusCategoryId: string;
@@ -47,6 +48,7 @@ const META_CATEGORY_KEY = "meta_category_id";
 const SESSION_FORUM_KEY = "session_forum_id";
 const TEST_FORUM_KEY = "test_forum_id";
 const TASK_WORKFLOW_FORUM_KEY = "task_workflow_forum_id";
+const CLOUD_FORUM_KEY = "cloud_forum_id";
 const SESSIONS_CATEGORY_KEY = "sessions_category_id";
 const STATUS_CATEGORY_KEY = "status_category_id";
 const ARCHIVE_CATEGORY_KEY = "archive_category_id";
@@ -85,6 +87,9 @@ const TASK_WORKFLOW_FORUM_TOPIC =
 
 export const TEST_FORUM_TOPIC =
   "Open/Draft PR の現在の head commit と worktree を起動時に同期します。更新・close・merge・worktree削除で古いスレッドを閉じます。";
+
+export const CLOUD_FORUM_TOPIC =
+  "クラウド作業ごとに進捗・途中画像・確認事項をまとめます。通信途絶と作業完了は別の状態です。質問への回答は対象の作業と質問を確認して行ってください。";
 
 export const SESSION_STATE_TAG_NAMES = {
   working: "作業中",
@@ -125,6 +130,8 @@ export interface EnsureLayoutOptions {
    * 省略時は「Session」。 名前は表示だけで、 フォーラムは保存済み id で同定する (CC-DEPT-INV-09)。
    */
   sessionForumName?: string;
+  /** 本社のクラウド観測窓口。子会社 slim 構成では既定で作らない。 */
+  includeCloudForum?: boolean;
 }
 
 export async function ensureDiscordLayout(
@@ -196,6 +203,10 @@ export async function ensureDiscordLayout(
       )
     : "";
   // コストはカテゴリ外のルートチャンネル。既存配置も ensure 時にルートへ戻す。
+  const cloudForumId = forumMode && (opts.includeCloudForum ?? includeMetaChannels)
+    ? await ensureForum(guild, repo, CLOUD_FORUM_KEY, "クラウド", CLOUD_FORUM_TOPIC,
+      ["作業中", "回答待ち", "通信途絶", "結果報告", "失敗報告"])
+    : "";
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", null);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
@@ -244,6 +255,7 @@ export async function ensureDiscordLayout(
     sessionForumId,
     testForumId,
     taskWorkflowForumId,
+    cloudForumId,
     metaCategoryId,
     sessionsCategoryId,
     statusCategoryId,

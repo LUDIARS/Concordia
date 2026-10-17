@@ -70,6 +70,20 @@ function makeFakeRepo(): DiscordConfigRepo {
 }
 
 describe("ensureDiscordLayout", () => {
+  it("クラウド観測フォーラムを再利用し、slim構成には自動追加しない", async () => {
+    const { guild, created, channels } = makeFakeGuild();
+    const repo = makeFakeRepo();
+    const first = await ensureDiscordLayout(guild, repo);
+    const second = await ensureDiscordLayout(guild, repo);
+    expect(first.cloudForumId).toBeTruthy();
+    expect(second.cloudForumId).toBe(first.cloudForumId);
+    expect(created.filter(c => c.name === "クラウド")).toHaveLength(1);
+    expect(channels.get(first.cloudForumId!)?.availableTags?.map(t => t.name)).toContain("回答待ち");
+    const slim = makeFakeGuild();
+    const snapshot = await ensureDiscordLayout(slim.guild, makeFakeRepo(), { includeMetaChannels: false });
+    expect(snapshot.cloudForumId).toBe("");
+    expect(slim.created.some(c => c.name === "クラウド")).toBe(false);
+  });
   it("既定 (本社) は雑談 meta / pr-queue / チーム管理 / errors を全部作る", async () => {
     const { guild, created, channels } = makeFakeGuild();
     const snap = await ensureDiscordLayout(guild, makeFakeRepo());

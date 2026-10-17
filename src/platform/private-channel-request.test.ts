@@ -30,11 +30,16 @@ describe("requestPrivateChannel", () => {
   });
 
   it("rejects malformed viewers, missing viewers, empty names and long text", () => {
-    expect(requestPrivateChannel(ports(), { name: "r", viewer_user_ids: ["abc"] })).toEqual({ ok: false, error: "invalid_viewer_user_ids" });
-    expect(requestPrivateChannel(ports(), { name: "r", viewer_user_ids: [] })).toEqual({ ok: false, error: "no_viewers" });
-    expect(requestPrivateChannel(ports(null), { name: "r" })).toEqual({ ok: false, error: "no_viewers" });
-    expect(requestPrivateChannel(ports(), { name: "!!!" })).toEqual({ ok: false, error: "invalid_name" });
-    expect(requestPrivateChannel(ports(), { name: "r", text: "あ".repeat(2_001) })).toEqual({ ok: false, error: "invalid_text" });
+    // Rejected requests must not write: share one migrated DB instead of rebuilding it five times.
+    const p = ports();
+    const create = vi.spyOn(p.repo, "create");
+    expect(requestPrivateChannel(p, { name: "r", viewer_user_ids: ["abc"] })).toEqual({ ok: false, error: "invalid_viewer_user_ids" });
+    expect(requestPrivateChannel(p, { name: "r", viewer_user_ids: [] })).toEqual({ ok: false, error: "no_viewers" });
+    expect(requestPrivateChannel({ ...p, adminUserId: () => null }, { name: "r" })).toEqual({ ok: false, error: "no_viewers" });
+    expect(requestPrivateChannel(p, { name: "!!!" })).toEqual({ ok: false, error: "invalid_name" });
+    expect(requestPrivateChannel(p, { name: "r", text: "あ".repeat(2_001) })).toEqual({ ok: false, error: "invalid_text" });
+    expect(create).not.toHaveBeenCalled();
+    expect(p.requestProvision).not.toHaveBeenCalled();
   });
 
   it("dedupes viewers", () => {

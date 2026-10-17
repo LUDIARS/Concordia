@@ -6,6 +6,7 @@ import { CATEGORIES, CATEGORY_LABELS, EMPTY_FORM, type Category, type Provider }
 import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/RunCards.js";
 import { useDelegationState } from "./delegation/useDelegationState.js";
 import { TemplateOverrides } from "./delegation/TemplateOverrides.js";
+import { CloudWorkPanel } from "./delegation/CloudWorkPanel.js";
 
 export function Delegation() {
   const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced, refresh } = useDelegationState();
@@ -16,6 +17,7 @@ export function Delegation() {
   const visibleTemplates = categoryFilter ? templates.filter((t) => t.category === categoryFilter) : templates;
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <CloudWorkPanel />
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Delegation Templates</h1>
         <p className="text-subtle text-sm">

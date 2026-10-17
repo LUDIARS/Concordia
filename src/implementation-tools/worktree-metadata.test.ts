@@ -13,7 +13,8 @@ describe("ignored worktree metadata", () => {
     await worktreeGit(root, ["init", "-b", "main"]);
     record = { version: 1, owner: "a".repeat(64), projectCode: "El", actioProjectId: "El",
       mainRepo: root, worktree: root, branch: "feat/new", baseCommit: "b".repeat(40) };
-  });
+  // Git initialization can exceed the default hook budget under review load.
+  }, 60_000);
   // Windows では git の子プロセスが終わった直後も一時フォルダを掴んでいることがあり (EBUSY)、
   // 負荷の高い審査では 10 秒の既定の上限も超える。 消すのはやり直し、上限を延ばす。
   afterEach(async () => {
@@ -39,7 +40,8 @@ describe("ignored worktree metadata", () => {
     await expect(keepWorktreeRecord(root, "worktree.json", { ...record, token: "secret" } as WorktreeRecord, worktreeGit))
       .rejects.toThrow();
     expect(JSON.parse(await readFile(join(root, ".local/concordia/worktree.json"), "utf8"))).toEqual(record);
-  });
+    // Like the retry test above, this invokes Git repeatedly; assertions stay unchanged.
+  }, 60_000);
 
   it("refuses a tracked metadata area before modifying Git exclusions", async () => {
     await mkdir(join(root, ".local/concordia"), { recursive: true });

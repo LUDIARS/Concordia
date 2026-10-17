@@ -147,6 +147,7 @@ import { createTestForumDiscordAdapter, refreshTestForumControls } from "./test-
 import { createTestForumQaHooks } from "./test-forum-qa.js";
 import { resolveSessionMentions } from "./test-forum-mentions.js";
 import { handleTestForumMessage } from "./test-forum-message.js";
+import { startCloudForum } from "./cloud-forum-runtime.js";
 import { callConcordia } from "./commands/_util.js";
 import { createConversationIngressPort } from "./conversation-ingress.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
@@ -1048,6 +1049,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
   let choresDiscord: ChoresDiscord | null = null;
+  let cloudObservationForum: ReturnType<typeof startCloudForum> | null = null;
   let humanRequestDiscord: HumanRequestDiscord | null = null;
   let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
@@ -1213,6 +1215,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const clearRuntimeTimers = (): void => {
     choresDiscord?.stopChores();
     choresDiscord = null;
+    if (cloudObservationForum) {
+      void cloudObservationForum.stop().catch(() => log.warn("cloud observation shutdown failed"));
+      cloudObservationForum = null;
+    }
     humanRequestDiscord?.stop();
     humanRequestDiscord = null;
     managementDiscord?.stop();
@@ -1262,6 +1268,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      if (!subsidiaryId && process.env.CONCORDIA_CLOUD_OBSERVATION_ENABLED === "true") {
+        await cloudObservationForum?.stop();
+        cloudObservationForum = startCloudForum({ root: process.env.CONCORDIA_ARTIFACT_ROOT ?? "",
+          guild, forumId: layout.cloudForumId ?? "", config: configRepo,
+          allowed: userId => isSessionControlUserAllowed?.(userId) === true, warn: message => log.warn(message) });
+      }
       await serviceStatusDiscord?.stop();
       const serviceStatusChannel = guild.channels.cache.get(layout.serviceStatusChannelId ?? "");
       if (serviceStatusChannel?.type === ChannelType.GuildText) {
@@ -1869,6 +1881,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    if (cloudObservationForum?.handles(msg)) {
+      void cloudObservationForum.answer(msg).catch(() => log.warn("cloud observation answer rejected or delivery incomplete"));
+      return;
+    }
     // デイリーゴールチャンネル (とその聞き返しスレッド) の投稿は登録の入口。 他の ingress へ回さない。
     if (dailyGoalDiscord?.handlesMessage(msg)) {
       void dailyGoalDiscord.message(msg).catch((error) => log.warn(`daily goal post failed: ${String(error)}`));

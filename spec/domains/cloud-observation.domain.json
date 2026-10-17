@@ -1,0 +1,8 @@
+{
+  "name": "cloud-observation",
+  "description": "クラウド作業の生存・工程・質問回答を観測する支援境界。成果検証やActio状態は所有しない。",
+  "membership": [{ "pathPattern": "(^|/)src/cloud-observation/[^/]+\\.ts$" }],
+  "specRefs": ["spec/feature/cloud-observation.md", "spec/ux/product.md", "spec/architecture/ddd.md"],
+  "presetRules": [],
+  "templateRules": []
+}

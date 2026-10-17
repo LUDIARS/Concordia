@@ -1,4 +1,6 @@
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
+import { cloudWorkRouter } from "./cloud-work.js";
+import { createCloudWorkRuntime } from "../cloud-work/runtime.js";
 import { serviceStatusRouter } from "./service-status.js";
 import { serviceStatusClient } from "../service-status/client.js";
 import { choresRouter } from "./chores.js";
@@ -32,7 +34,7 @@ const PUBLISHED_CONSULTATION_SCAN_LIMIT = 500;
 import { confinementArgsFor, consultEffortOptions, consultModelForRole, consultTemplateFor } from "../consultation/consult-model.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { reportError } from "../errors.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
@@ -823,6 +825,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       now: () => Date.now(),
     }));
   }
+  app.route("/v1/delegation/cloud", cloudWorkRouter({
+    sessions: deps.repo,
+    authorizeSubmit: async (sessionId, scope) => {
+      if (deps.costStatus?.().blocked || (usageBudgetGate && (await usageBudgetGate.check(sessionId)).deny)) {
+        throw new Error("cloud_budget_exhausted");
+      }
+      if (!sessionCaps.check(scope.subsidiaryId).allowed) throw new Error("cloud_company_capacity_exhausted");
+      if (hasPendingQuestion(sessionId)) throw new Error("cloud_pending_human_question");
+    },
+    runtime: createCloudWorkRuntime({ root: join(dirname(deps.config.dbPath), "cloud-work"), tasks: deps.taskStore, submitLocalPr: deps.submitDirectLocalPr }),
+  }));
   app.route("/v1/delegation", delegationRouter({
     checkSessionCap: (subsidiaryId) => sessionCaps.check(subsidiaryId),
     residents:deps.residentSidecars,

@@ -5,6 +5,27 @@
 # federation_listen_port: 11112
 # management_listen_port: 11113 (dots 専用の入口、spec/feature/cdgd-management.md CC-MGMT-07)
 services:
+  - code: concordia-cloud-artifact
+    name: Concordia cloud artifact receiver
+    tier: personal
+    project_code: concordia
+    component: backend
+    port: 11114
+    repo: LUDIARS/Concordia
+    runtime: node
+    cwd: ${ARS_ROOT}/Concordia
+    command: node dist/cloud-work/artifact-ingress-server.js
+    autostart: false
+    restart_policy: "no"
+    log_path: ${ARS_ROOT}/logs/concordia-cloud-artifact
+    health:
+      type: process
+      interval_sec: 30
+    env:
+      NODE_ENV: production
+      CONCORDIA_ARTIFACT_PORT: "11114"
+      CONCORDIA_ARTIFACT_ROOT: ${ARS_ROOT}/artifact
+      # Tailscale IPv4 only. Grants are provisioned locally; no remote issuance API.
   - code: concordia
     name: Concordia (AI 協調)
     viewer:
@@ -31,6 +52,10 @@ services:
     env:
       NODE_ENV: production
       CONCORDIA_MEETING_LINK_ENABLED: "true"
+      CONCORDIA_CLOUD_OBSERVATION_ENABLED: "true"
+      CONCORDIA_CLOUD_OBSERVATION_HOST: tailscale
+      CONCORDIA_ARTIFACT_PORT: "11114"
+      CONCORDIA_ARTIFACT_ROOT: ${ARS_ROOT}/artifact
       CONCORDIA_MEETING_LINK_GUILD_ID: "1136199339417534606"
       CONCORDIA_MEETING_LINK_PUBLIC_URL: "https://ae.ai-run-do.com"
       CONCORDIA_COST_MODE: worker

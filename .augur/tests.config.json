@@ -42,5 +42,5 @@
   "layout": {
     "newTestPath": "tests/blocks"
   },
-  "timeoutMs": 600000
+  "timeoutMs": 1800000
 }

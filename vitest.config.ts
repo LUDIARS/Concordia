@@ -11,6 +11,13 @@ export default defineConfig({
       "lib/lapilli/**",
       "lib/aop-metrics/src/**/*.test.ts",
       "lib/blackbox/src/**/*.test.ts",
+      // node:test で書かれ、.augur/tests.jsonl で `node --test` (runner=command) として登録されているもの。
+      // vitest で読むと shebang 付きモジュールの import で SyntaxError になり、全体実行を落とす。
+      "tools/internal-agent-hook.test.mjs",
+      "tools/concordia-hook-migration.test.mjs",
+      "tools/consultation-harness.test.mjs",
+      "tools/concordia-hook-runtime.test.mjs",
+      "tools/concordia-hook-mcp.test.mjs",
     ],
     setupFiles: ["./tests/helpers/setup.ts"],
     // 子プロセス fork の worker pool は使わない。 fork worker はクラッシュ時に孤児

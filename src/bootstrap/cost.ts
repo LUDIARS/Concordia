@@ -138,6 +138,8 @@ export interface CostRuntimeDeps {
   sessionsRepo: SessionsRepo;
   getDailyTokenBudget: () => number;
   log?: { info: (msg: string) => void; warn: (msg: string) => void };
+  /** 上限サンプルの元になる集計。既定は collectCostReport (テストで差し替える)。 */
+  collectReport?: typeof collectCostReport;
 }
 
 export interface CostRuntime {
@@ -191,7 +193,7 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
   const sampleLimitsOnce = async (): Promise<void> => {
     try {
       const nowSec = Math.floor(Date.now() / 1000);
-      const report = await collectCostReport(deps.sessionsRepo, { oauthLog: deps.log });
+      const report = await (deps.collectReport ?? collectCostReport)(deps.sessionsRepo, { oauthLog: deps.log });
       const previous = limitSamplesRepo.listLatestByProvider();
       limitSamplesRepo.insertMany(collectLimitSamples(report, nowSec));
       limitSamplesRepo.pruneOlderThan(nowSec - LIMIT_SAMPLE_RETENTION_SEC);

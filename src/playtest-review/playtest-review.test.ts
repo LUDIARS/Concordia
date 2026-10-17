@@ -85,7 +85,7 @@ describe("playtest-review delivery", () => {
     const outcome = await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: BOTH, delivery: delivery(), tabula });
     expect(outcome.tabula).toEqual({ url: "https://tabula.example.com/p/p1" });
     const page = importPage.mock.calls[0]?.[1] as { key: string; title: string; text: string; tags: string[] };
-    expect(page.key).toBe(playtest:${PLAYTEST_EVENT.runId});
+    expect(page.key).toBe(`playtest:${PLAYTEST_EVENT.runId}`);
     expect(page.text).toContain("👎 悪い点");
     expect(page.tags).toContain("ai-playtest");
     expect(playtestTabulaPage(PLAYTEST_EVENT, "x").title).toBe("AI プレイテスト: Sample (novice)");

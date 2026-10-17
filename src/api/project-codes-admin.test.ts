@@ -84,6 +84,17 @@ describe("projectCodesRouter admin surface", () => {
     expect(body.entries[0].revisor).toEqual({ registered: false, workflow: null });
   });
 
+  it("answers without waiting for a slow Revisor and reports it as unknown", async () => {
+    const app = projectCodesRouter(adminDeps({
+      revisor: { listRepositories: () => new Promise(() => undefined), setRepositoryWorkflow: vi.fn() },
+    }) as never);
+    const started = Date.now();
+    const body = await (await app.request("/admin")).json();
+    expect(Date.now() - started).toBeLessThan(100);
+    expect(body.revisor_available).toBe(false);
+    expect(body.entries[0].revisor).toBeNull();
+  });
+
   it("moves the repository between teams by repo_origin", async () => {
     const deps = adminDeps();
     const app = projectCodesRouter(deps as never);

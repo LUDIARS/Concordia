@@ -34,7 +34,11 @@ session title、forum routing の正本には使わない。
 ### 管理 UI
 
 - `GET /v1/project-codes/admin` は loopback 管理面に、監査項目、repo origin、所属チーム、
-  所属会社、Revisor workflow を含む一覧を返す。
+  所属会社、Revisor workflow を含む一覧を返す。応答は Revisor を待たない (目標 100ms 以内)。
+  Revisor 登録一覧は直近の成功結果を返し、30 秒より古ければ裏で 1 本だけ取り直す。
+  未取得時は最大 50ms だけ待ち、取れなければ `revisor_available: false` (unknown) で返す。
+  5 分より古い成功結果は使わない。`PUT .../revisor-workflow` の成功後はキャッシュを捨てる。
+  push 可否判定はこのキャッシュを使わず、毎回 Revisor へ問い合わせる。
 - 管理 UI の新規登録では project、GitHub URL、Revisor workflow を任意指定できる。
   workflow は registry 登録後に既存の Revisor repository へ設定し、未登録・到達不能なら
   registry 登録を維持したままモード設定の失敗を表示する。

@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/pr/revisor-repository-snapshot.ts", "tests": ["src/pr/revisor-repository-snapshot.test.ts", "src/api/project-codes-admin.test.ts"], "contracts": [] },
     { "source": "src/api/implementation-tools.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03", "CC-BIND-04"] },
     { "source": "src/implementation-tools/bind-failure.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03"] },
     { "source": "src/implementation-tools/service.ts", "tests": ["src/implementation-tools/service.test.ts"], "contracts": ["CC-BIND-01", "CC-BIND-02", "CC-BIND-04"] },

@@ -21,6 +21,7 @@ import type {
   RevisorRepositoryAdmin,
   RevisorRepositoryRecord,
 } from "../pr/revisor-repository-client.js";
+import { createRevisorRepositorySnapshot } from "../pr/revisor-repository-snapshot.js";
 
 // @implements spec/feature/project-code-registry.md — 操作面 / 管理 UI
 
@@ -116,6 +117,9 @@ export interface ProjectCodesRouterDeps {
 
 export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
   const app = new Hono();
+  // 一覧表示は Revisor を待たない (直近の成功結果 + 裏で更新)。 起動直後の表示に備えて先に温める。
+  const revisorSnapshot = deps.revisor ? createRevisorRepositorySnapshot(deps.revisor) : null;
+  void revisorSnapshot?.read();
 
   app.get("/", (c) => {
     const rows = deps.repo.list();
@@ -150,7 +154,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       // 通知設定の個別選択に使うので有効フラグだけ足す。 Bot token など配送の秘密は返さない。
       .map((row) => ({ id: row.id, name: row.display_name || row.name, enabled: row.enabled === 1 }));
     const subsidiaryName = new Map(subsidiaries.map((row) => [row.id, row.name]));
-    const revisorRepos = await listRevisorRepositories(deps);
+    const revisorRepos = { list: revisorSnapshot ? await revisorSnapshot.read() : null };
     // 改名履歴を持たない repo 実装 (テスト用の差し替えなど) では空として扱う。
     const renamedFrom = deps.repo.renamedFrom?.() ?? new Map<string, string[]>();
 
@@ -356,6 +360,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     const updated = await deps.revisor.setRepositoryWorkflow(record, parsed.data.workflow)
       .then(() => true, () => false);
     if (!updated) return c.json({ error: "revisor_workflow_update_failed" }, 502);
+    revisorSnapshot?.invalidate();
     deps.repo.setRevisorWorkflow(row.code, parsed.data.workflow);
     return c.json({ ok: true, workflow: parsed.data.workflow });
   });

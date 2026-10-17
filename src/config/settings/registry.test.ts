@@ -43,6 +43,19 @@ describe("相談と公式モデル一覧のenv専用設定", () => {
   });
 });
 
+describe("公開ホスト (SSO) のenv専用設定", () => {
+  it("core.web_public_host is unset by default, reads env and cannot be edited", () => {
+    expect(getSetting("core.web_public_host", reader(), NO_ENV))
+      .toMatchObject({ section: "core", envName: "CONCORDIA_WEB_PUBLIC_HOST", dbKey: null, value: null, editable: false });
+    expect(getSetting("core.web_public_host", reader(), env({ CONCORDIA_WEB_PUBLIC_HOST: "cc.example.com" })))
+      .toMatchObject({ value: "cc.example.com", source: "env" });
+    const writer = recordingWriter();
+    expect(applySettingUpdate("core.web_public_host", "x.example.com", writer))
+      .toMatchObject({ ok: false, error: { code: "not_editable", key: "core.web_public_host" } });
+    expect(writer.calls).toEqual([]);
+  });
+});
+
 function env(values: Record<string, string>): NodeJS.ProcessEnv {
   return values as NodeJS.ProcessEnv;
 }

@@ -21,6 +21,17 @@ export const CORE_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
   },
   {
+    key: "core.web_public_host",
+    section: "core",
+    label: "公開ホスト (SSO)",
+    description: "この Host で届いた要求に Cernere の企業セッションを求める (spec/feature/web-sso.md)。 未設定なら無効で従来どおり。 設定時は CERNERE_URL と CONCORDIA_CERNERE_PROJECT_KEY / CLIENT_ID / CLIENT_SECRET が揃わないと起動しない。 変更には再起動が要る。",
+    kind: "string",
+    envName: "CONCORDIA_WEB_PUBLIC_HOST",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
+  {
     key: "core.port",
     section: "core",
     label: "bind ポート",

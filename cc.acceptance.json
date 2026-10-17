@@ -5095,6 +5095,10 @@
     {"source": "src/api/package-updates.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
     {"source": "src/api/register-core.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
     {"source": "src/bootstrap/core.ts", "tests": ["src/api/package-updates.test.ts"], "contracts": []},
-    {"source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts", "src/deploy/package-updates.test.ts"], "contracts": []}
+    {"source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts", "src/deploy/package-updates.test.ts"], "contracts": []},
+    {"source":"src/federation/ontime-runtime.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
+    {"source":"src/federation/egress-delivery.contract.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
+    {"source":"src/federation/egress-delivery.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
+    {"source":"src/federation/runtime.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]}
   ]
 }

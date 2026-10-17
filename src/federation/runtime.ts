@@ -45,6 +45,7 @@ import type { InquiryRunner } from "./inquiry-runner.js";
 import type { DepartmentRoute } from "./department-routing.js";
 import { VillaClient, type VillaPc } from "../villa/client.js";
 import type { FederationEgressDelivery } from "./protocol.js";
+import { prepareEgressDelivery } from "./egress-delivery.js";
 import type { FederationSiteEgressInput } from "./site-client.js";
 import { createHqSessionMirror, type MirrorPostOpener } from "./hq-session-mirror.js";
 import { createSiteActivityStore } from "./site-activity-store.js";
@@ -351,7 +352,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           if (!egressExecutor) return { ok: false, error: "HQ Discord egress is unavailable" };
           // メンションは起動した側にだけ付ける: 本社から起動したスレッドの依頼者だけを本社が選ぶ。
           const mentionUserId = requesterMentionFor(thread, request);
-          return egressExecutor({ ...request, ...(mentionUserId ? { mention_user_id: mentionUserId } : {}) });
+          return egressExecutor(prepareEgressDelivery(request, mentionUserId));
         },
         handleMirrorOpen: (siteId, request) => sessionMirror.open(siteId, request),
         handleActivityReport: (siteId, report) => {

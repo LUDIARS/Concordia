@@ -18,6 +18,8 @@ import { RuleVersionsRepo } from "../db/rule-versions-repo.js";
 import type { RuleRow, RulesRepo } from "../db/rules-repo.js";
 import { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import { runLearningPass, type LearningPassReport } from "./patrol-learning-loop.js";
+import { createLearningJournalSync } from "./patrol-learning-journal.js";
+import type { MemoriaJournalPort } from "../daily-goal-run/memoria-journal.js";
 import { validateRuleDefinition } from "./rule-validation.js";
 import { parseActionConfig } from "./patrol-config.js";
 import { resolveChannelFor } from "./patrol-channel.js";
@@ -149,6 +151,8 @@ export function buildPatrolRuntime(deps: {
   owners?: PatrolOwnersPort;
   /** 持ち主の guild (null = 本社 guild)。 個別チャンネルの配送先を持ち主の guild に限る。 */
   ownerGuild?: (subsidiaryId: string | null) => string | null;
+  /** 学習の記録を載せる Memoria の日記。 未注入なら載せない。 */
+  learningJournal?: Pick<MemoriaJournalPort, "putDiarySection"> | null;
 }): PatrolRuntime {
   const runs = new RuleRunsRepo(deps.db);
   const conversations = new RuleConversationsRepo(deps.db);
@@ -224,9 +228,13 @@ export function buildPatrolRuntime(deps: {
     }
     return null;
   };
+  const journal = deps.learningJournal
+    ? createLearningJournalSync({ repo: learningRepo, journal: deps.learningJournal, ...(deps.log ? { log: deps.log } : {}) })
+    : null;
   const learning = {
     repo: learningRepo,
     run: () => runLearningPass({
+      journal,
       repo: learningRepo,
       rules: deps.rules,
       versions,

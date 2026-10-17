@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { fmtSec, rulesApi, RUN_STATUS_LABEL, type PreviewView, type RuleView, type SubsidiaryOption, type VersionView } from "./rules-api.js";
+import { LearningLog } from "./LearningLog.js";
+import { fmtSec, rulesApi, RUN_STATUS_LABEL, type LearningRunView, type PreviewView, type RuleView, type SubsidiaryOption, type VersionView } from "./rules-api.js";
 
 // ルール一覧 (spec/feature/patrol-chat.md §9)。 旧ルールは legacy-observe (投稿しない) と明示する。
 // 試し見は副作用・生成なしで候補と理由を出す。 rollback は設定だけを戻し、 過去の投稿は変えない。
@@ -24,6 +25,7 @@ export function RuleList({ rules, subsidiaries = [], onEdit, onChanged, onShowRu
   const [message, setMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; view: PreviewView } | null>(null);
   const [versions, setVersions] = useState<{ rule: RuleView; rows: VersionView[] } | null>(null);
+  const [learning, setLearning] = useState<{ id: string; runs: LearningRunView[] } | null>(null);
   const active = rules.filter((r) => !r.removed_at);
 
   const toggle = async (r: RuleView) => {
@@ -39,6 +41,11 @@ export function RuleList({ rules, subsidiaries = [], onEdit, onChanged, onShowRu
   const showVersions = async (r: RuleView) => {
     const res = await rulesApi.versions(r.id);
     if (res.ok) setVersions({ rule: r, rows: res.data.versions });
+  };
+  const showLearning = async (r: RuleView) => {
+    const res = await rulesApi.learning(r.id);
+    if (res.ok) setLearning({ id: r.id, runs: res.data.runs });
+    else setMessage(`${r.id}: ${res.error}`);
   };
   const rollback = async (rule: RuleView, to: number) => {
     const res = await rulesApi.rollback(rule.id, rule.revision, to);
@@ -107,6 +114,7 @@ export function RuleList({ rules, subsidiaries = [], onEdit, onChanged, onShowRu
                     <>
                       <button type="button" className="px-2 py-1 rounded border border-border" onClick={() => void runPreview(r)}>試し見</button>
                       <button type="button" className="px-2 py-1 rounded border border-border" onClick={() => void showVersions(r)}>版</button>
+                      <button type="button" className="px-2 py-1 rounded border border-border" onClick={() => void showLearning(r)}>学習</button>
                     </>
                   )}
                 </td>
@@ -132,6 +140,8 @@ export function RuleList({ rules, subsidiaries = [], onEdit, onChanged, onShowRu
           <button type="button" className="text-xs underline" onClick={() => setPreview(null)}>閉じる</button>
         </section>
       )}
+
+      {learning && <LearningLog ruleId={learning.id} runs={learning.runs} onClose={() => setLearning(null)} />}
 
       {versions && (
         <section className="border border-border rounded p-3 space-y-1 text-sm" data-testid="rule-versions">

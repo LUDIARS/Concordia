@@ -35,6 +35,18 @@ export interface LearningRunRow {
   created_at: number;
 }
 
+/** 学習 run が使った会話 1 件 (発言: text = 発言本文 / 会話: text = 巡回の投稿、 replies = 返信)。 */
+export interface LearningSourceRow {
+  kind: FragmentKind;
+  /** JSON (断片の要点: ジャンル・反応の人数など)。 */
+  signal: string | null;
+  created_at: number;
+  text: string | null;
+  /** 発言が返信だったときの返信先の本文。 */
+  reply_to_text: string | null;
+  replies: string[];
+}
+
 /** 断片を作る前の、 巡回会話へ受理された人間の返信。 */
 export interface PendingReplyForFragment {
   inbound_chat_id: number;
@@ -166,6 +178,55 @@ export class PatrolLearningRepo {
     return this.db.prepare(
       `SELECT * FROM patrol_learning_runs WHERE rule_id = ? ORDER BY created_at DESC LIMIT ?`,
     ).all(ruleId, Math.min(Math.max(1, limit), 100)) as LearningRunRow[];
+  }
+
+  /** 学習 run のある直近の日 (新しい順)。 */
+  recentLearningDays(limit: number): string[] {
+    return (this.db.prepare(
+      `SELECT DISTINCT day FROM patrol_learning_runs ORDER BY day DESC LIMIT ?`,
+    ).all(Math.min(Math.max(1, limit), 60)) as Array<{ day: string }>).map((r) => r.day);
+  }
+
+  /** その日の全 rule の学習 run (Memoria の日記へ載せる)。 */
+  listRunsByDay(day: string): LearningRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM patrol_learning_runs WHERE day = ? ORDER BY rule_id ASC`,
+    ).all(day) as LearningRunRow[];
+  }
+
+  /**
+   * 学習 run が使った会話 (断片の元の発言)。 断片は原文を持たないので、 表示のときだけ会話記録から引く。
+   * 発言者の名前は返さない。 消えた発言は text = null。
+   */
+  sourcesForRun(runId: string): LearningSourceRow[] {
+    const fragments = this.db.prepare(
+      `SELECT kind, source_key, signal, created_at FROM patrol_learning_fragments
+        WHERE consumed_by = ? ORDER BY created_at, id`,
+    ).all(runId) as Array<{ kind: FragmentKind; source_key: string; signal: string | null; created_at: number }>;
+    const message = this.db.prepare(
+      `SELECT cm.text AS text, parent.text AS reply_to_text
+         FROM chat_messages cm LEFT JOIN chat_messages parent ON parent.id = cm.in_reply_to
+        WHERE cm.id = ?`,
+    );
+    const root = this.db.prepare(
+      `SELECT cm.text AS text FROM rule_conversations rc JOIN chat_messages cm ON cm.id = rc.root_chat_id
+        WHERE rc.conversation_id = ?`,
+    );
+    const replies = this.db.prepare(
+      `SELECT cm.text AS text FROM rule_inbound ri JOIN chat_messages cm ON cm.id = ri.inbound_chat_id
+        WHERE ri.conversation_id = ? ORDER BY ri.inbound_chat_id LIMIT 10`,
+    );
+    return fragments.map((f) => {
+      const base = { kind: f.kind, signal: f.signal, created_at: f.created_at };
+      if (f.kind === "message") {
+        const row = message.get(Number(f.source_key.slice("msg:".length))) as { text: string; reply_to_text: string | null } | undefined;
+        return { ...base, text: row?.text ?? null, reply_to_text: row?.reply_to_text ?? null, replies: [] };
+      }
+      const conversationId = f.source_key.slice("conv:".length);
+      const post = root.get(conversationId) as { text: string } | undefined;
+      const rows = replies.all(conversationId) as Array<{ text: string }>;
+      return { ...base, text: post?.text ?? null, reply_to_text: null, replies: rows.map((r) => r.text) };
+    });
   }
 
   recentFragments(ruleId: string, limit = 50): LearningFragmentRow[] {

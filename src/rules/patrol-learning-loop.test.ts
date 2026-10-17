@@ -7,6 +7,7 @@ import { RuleVersionsRepo } from "../db/rule-versions-repo.js";
 import { RulesRepo, type RuleRow } from "../db/rules-repo.js";
 import { applyMigrations } from "../db/schema.js";
 import { runLearningPass, type LearningLoopDeps } from "./patrol-learning-loop.js";
+import { PATROL_LEARNING_JOURNAL_SOURCE, createLearningJournalSync } from "./patrol-learning-journal.js";
 import type { ReviewResult } from "./review.js";
 
 const open: Database.Database[] = [];
@@ -126,6 +127,31 @@ describe("daily learning (auto-applied)", () => {
     const again = await runLearningPass(h.deps);
     expect(again.learned).toBeNull();
     expect(h.repo.listRuns("glab")).toHaveLength(1);
+  });
+
+  it("puts the day's learning into the Memoria diary once, and resends after a failure", async () => {
+    const h = setup();
+    await withFragments(h);
+    const put = vi.fn(async () => ({ ok: false as const, kind: "unknown" as const, error: "down" }));
+    h.deps.journal = createLearningJournalSync({ repo: h.repo, journal: { putDiarySection: put } });
+    h.clock.sec = at(4, 5);
+    await runLearningPass(h.deps);
+    expect(put).toHaveBeenCalledTimes(1);
+    const [day, source, body] = put.mock.calls[0] as unknown as [string, string, { title: string; markdown: string }];
+    expect(source).toBe(PATROL_LEARNING_JOURNAL_SOURCE);
+    expect(body.title).toBe(`巡回チャットの学習 (${day})`);
+    expect(body.markdown).toContain("### glab — 反映した");
+    expect(body.markdown).toContain("優先するジャンル: game");
+    // 学習に使った会話 (返信と返信先の投稿) も載る。 発言者の名前は載らない
+    expect(body.markdown).toContain("発言 「秘密の本文 1」 ← 返信先 「話題」");
+    expect(body.markdown).toContain("発言 「雑談 2」");
+    expect(body.markdown).not.toContain("部員");
+    expect(h.repo.sourcesForRun(h.repo.listRuns("glab")[0].run_id)).toHaveLength(4);
+    // 届かなかったので次の pass でもう一度送る。 届いたら同じ内容は送らない
+    put.mockResolvedValue({ ok: true, value: {} } as never);
+    await runLearningPass(h.deps);
+    await runLearningPass(h.deps);
+    expect(put).toHaveBeenCalledTimes(2);
   });
 
   it("skips the day with too few fragments", async () => {

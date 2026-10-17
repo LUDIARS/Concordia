@@ -26,6 +26,7 @@ import {
   topKeywords,
   type ConversationSignal,
 } from "./patrol-learning.js";
+import type { LearningJournalSync } from "./patrol-learning-journal.js";
 import { dayStartSec, type PatrolReactionsPort } from "./patrol-ports.js";
 import type { OneShotRunner } from "./render-patrol.js";
 import type { ReviewResult } from "./review.js";
@@ -44,6 +45,8 @@ export interface LearningLoopDeps {
   ruleForChannel?: (discordChannelId: string) => RuleRow | null;
   /** 巡回が止まっている間は学習もしない。 */
   disabled?: () => boolean;
+  /** その日の学習の記録を Memoria の日記へ載せる (未注入なら載せない)。 */
+  journal?: LearningJournalSync | null;
   nowMs: () => number;
   newId: () => string;
   log?: { warn: (msg: string) => void };
@@ -118,11 +121,18 @@ export async function runLearningPass(deps: LearningLoopDeps): Promise<LearningP
   }
 
   // 3. 1 日ごとの学習 (1 pass で 1 rule まで)
-  if (!isLearningHour(now)) return report;
-  const day = localDay(now);
-  const target = deps.rules.list({ execution_mode: "patrol" })
-    .find((r) => r.enabled && !r.removed_at && learningEnabled(r) && !deps.repo.hasRun(r.id, day));
-  if (target) report.learned = await learnRule(deps, target, day, now);
+  if (isLearningHour(now)) {
+    const day = localDay(now);
+    const target = deps.rules.list({ execution_mode: "patrol" })
+      .find((r) => r.enabled && !r.removed_at && learningEnabled(r) && !deps.repo.hasRun(r.id, day));
+    if (target) report.learned = await learnRule(deps, target, day, now);
+  }
+  // 変わった日だけ送る。 送れなければ次の pass でもう一度送る。 学習そのものは止めない。
+  try {
+    await deps.journal?.sync();
+  } catch (err) {
+    deps.log?.warn(`patrol learning journal: ${(err as Error).message}`);
+  }
   return report;
 }
 

@@ -31,7 +31,7 @@ export interface PatrolApiDeps {
   events: RuleServiceEventsRepo;
   sources: MaterialSourceRegistry;
   /** 学習の断片と run (未配線なら /:id/learning は空)。 */
-  learning?: Pick<PatrolLearningRepo, "listRuns" | "recentFragments">;
+  learning?: Pick<PatrolLearningRepo, "listRuns" | "recentFragments" | "sourcesForRun">;
 }
 
 const RUN_STATUSES: readonly RunStatus[] = [
@@ -115,13 +115,19 @@ export function registerPatrolRoutes(
   });
 
   // 学習の結果 (spec/plan/2026-10-15-patrol-learning-design.md)。 断片は要点だけで、 原文は持たない。
+  // 学習に使った会話 (sources) は表示のときだけ会話記録から引く。 発言者の名前は出さない。
   app.get("/:id/learning", (c) => {
     const id = c.req.param("id");
     if (!deps.rules.find(id)) return c.json({ error: "not_found" }, 404);
     const runs = deps.learning?.listRuns(id, 30) ?? [];
     const fragments = deps.learning?.recentFragments(id, 50) ?? [];
     return c.json({
-      runs: runs.map((r) => ({ ...r, proposal: parseJson(r.proposal), applied: parseJson(r.applied) })),
+      runs: runs.map((r) => ({
+        ...r,
+        proposal: parseJson(r.proposal),
+        applied: parseJson(r.applied),
+        sources: (deps.learning?.sourcesForRun(r.run_id) ?? []).map((s) => ({ ...s, signal: parseJson(s.signal) })),
+      })),
       fragments: fragments.map((f) => ({ ...f, signal: parseJson(f.signal) })),
     });
   });

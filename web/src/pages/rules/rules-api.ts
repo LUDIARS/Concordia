@@ -159,6 +159,31 @@ export interface VersionView {
   snapshot: Record<string, unknown>;
 }
 
+/** 1 日 1 回の学習の結果 (GET /v1/rules/:id/learning)。 */
+export interface LearningRunView {
+  run_id: string;
+  day: string;
+  status: "applied" | "skipped" | "rejected" | "failed";
+  fragment_count: number;
+  proposal: { summary?: string } & Record<string, unknown> | null;
+  applied: Record<string, unknown> | null;
+  reason: string | null;
+  revision: number | null;
+  created_at: number;
+  /** 学習に使った会話 (発言者の名前は含まない)。 */
+  sources?: LearningSourceView[];
+}
+
+/** 学習に使った会話 1 件。 message = 発言 (text) と返信先、 conversation = 巡回の投稿 (text) と返信。 */
+export interface LearningSourceView {
+  kind: "message" | "conversation";
+  signal: Record<string, unknown> | null;
+  created_at: number;
+  text: string | null;
+  reply_to_text: string | null;
+  replies: string[];
+}
+
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
@@ -199,6 +224,7 @@ export const rulesApi = {
   toggle: (id: string) => call<{ rule: RuleView }>("POST", `/v1/rules/${encodeURIComponent(id)}/toggle`),
   preview: (body: { rule_id?: string; action_config?: unknown }) => call<{ preview: PreviewView }>("POST", "/v1/rules/preview", body),
   versions: (id: string) => call<{ versions: VersionView[] }>("GET", `/v1/rules/${encodeURIComponent(id)}/versions`),
+  learning: (id: string) => call<{ runs: LearningRunView[] }>("GET", `/v1/rules/${encodeURIComponent(id)}/learning`),
   rollback: (id: string, expected_revision: number, to_revision: number) =>
     call<{ rule: RuleView }>("POST", `/v1/rules/${encodeURIComponent(id)}/rollback`, { expected_revision, to_revision }),
   runs: (q: { rule_id?: string; status?: string; cursor?: string | null }) => {

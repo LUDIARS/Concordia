@@ -353,7 +353,8 @@ import { collectWalkMaterials } from "../director/walk-materials.js";
 import { WalksRepo } from "../db/walks-repo.js";
 import { startParttimerClockout } from "../control/parttimer-clockout.js";
 import { createSubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
-import { concordiaBaseUrl } from "../config/service-urls.js";
+import { concordiaBaseUrl, memoriaBaseUrl } from "../config/service-urls.js";
+import { createMemoriaJournalHttp } from "../daily-goal-run/memoria-journal.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { inFlightRequestCount, snapshotInFlightRequests } from "../shared/inflight-requests.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
@@ -698,6 +699,8 @@ export async function startBackend(): Promise<BackendHandle> {
     chat,
     rules,
     tendentiaUrl: process.env.TENDENTIA_URL?.trim() || null,
+    // 学習の記録は Memoria の日記にも載せる (閲覧用の写し。 正本は Cc)。
+    learningJournal: createMemoriaJournalHttp({ baseUrl: memoriaBaseUrl() }),
     // 個別チャンネル指定 (GLab 等の子会社 guild を含む) は本社 Bot の token で直接送る。
     // discordConfig / secretBox / subsidiaryRepo は下で組み立てるので、 呼び出し時に解決する。
     externalPoster: makeExternalChannelPoster({

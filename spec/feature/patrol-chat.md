@@ -155,6 +155,19 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   反応は人数で数える (`reactorsByMessage`: 同じ人の複数絵文字は 1 人、取り消しは反映)。後続の発言は人間起源だけを数える。
 - 生成直前に追投稿の条件を再評価し、返信が来ていれば取り消す。
 
+## 学習の記録
+
+- 正本は Cc の `patrol_learning_runs` (rule × 日で 1 行。結果・要約・実際に変えた設定・材料にした断片の数・反映後の版)。
+- Cc の画面: ルール一覧の巡回ルールの「学習」で、日ごとの記録を新しい順に見せる (`GET /v1/rules/:id/learning`)。
+- 学習に使った会話: 学習 run が使った断片の元の発言を、表示のときだけ会話記録から引く (`sourcesForRun`)。
+  発言 (返信・投稿先チャンネルの発言) は本文と返信先、会話は巡回の投稿・返信 (最大 10 件)・反応の人数。
+  発言者の名前は出さない。会話記録から消えた発言は「残っていません」と出す。断片そのものは原文を持たないまま。
+- Memoria: 学習の pass ごとに、直近 7 日の学習した日を見て、日ごとに全 rule の記録 (使った会話を含む) を日記の節
+  `concordia-patrol-learning` へ置き換えで載せる (`PUT /api/diary/:date/sections/concordia-patrol-learning`)。
+  Memoria は閲覧用の写しで、Cc の状態を変えない。
+  - 前回送った内容 (run ID と結果の組) と同じ日は送らない。起動直後は送った記録が無いので、既にある日の分もここで載る。
+  - 送れなかったらその pass はそこで止め、次の pass で送り直す。置き換えなので重複しない。
+
 ## API
 
 | API | 用途 |
@@ -163,6 +176,7 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 | PUT `/v1/rules` / PATCH `/v1/rules/:id` | 検証付き追加・版付き更新 |
 | POST `/v1/rules/:id/toggle` | 有効化前に再検証。無効化は未着手 run を見送りに |
 | GET `/v1/rules/:id/versions` / POST `/v1/rules/:id/rollback` | 版履歴 / 指定版の定義を新しい版として復元 (有効状態は変えない) |
+| GET `/v1/rules/:id/learning` | 1 日ごとの学習の記録と学習に使った会話 (`sources`)、直近の断片 (断片は原文を持たない) |
 | GET `/v1/rules/sources` | 素材元の ready/unavailable と最終取得 |
 | POST `/v1/rules/preview` | 副作用・生成なしで候補と理由 |
 | GET `/v1/rules/runs` / `/v1/rules/runs/:runId` | 実行履歴 (cursor) / 選択根拠・本文・配達・会話・版 |

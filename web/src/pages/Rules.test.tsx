@@ -54,6 +54,18 @@ function stub(overrides: { patch?: () => Response; subsidiaries?: boolean } = {}
       ] }));
     }
     if (url === "/v1/admin/rules-enabled") return new Response(JSON.stringify({ enabled: false }));
+    if (url === "/v1/rules/tendentia-tech-patrol/learning") {
+      return new Response(JSON.stringify({ runs: [
+        { run_id: "l2", day: "2026-10-17", status: "applied", fragment_count: 4, proposal: { summary: "ゲームに寄せる" },
+          applied: { prefer_genres: ["game", "tech"], prefer_ratio: 0.75 }, reason: "ゲームに寄せる", revision: 6, created_at: 2,
+          sources: [
+            { kind: "message", signal: null, created_at: 1, text: "もっとゲームの話", reply_to_text: "新作の話題", replies: [] },
+            { kind: "conversation", signal: { replies: 1, reactors: 2, fine: 2, bad: 0 }, created_at: 1, text: "UNIX 哲学", reply_to_text: null, replies: ["いいね"] },
+          ] },
+        { run_id: "l1", day: "2026-10-16", status: "skipped", fragment_count: 2, proposal: null, applied: null,
+          reason: "not enough fragments (2/3)", revision: null, created_at: 1 },
+      ] }));
+    }
     if (url.startsWith("/v1/rules/tendentia-tech-patrol") && method === "PATCH") {
       return overrides.patch?.() ?? new Response(JSON.stringify({ rule: { ...patrolRule, revision: 4 } }));
     }
@@ -145,6 +157,31 @@ describe("Rules page", () => {
     stub();
     const { container, root } = await render();
     expect(container.querySelector('select[aria-label="持ち主"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("shows the daily learning log with the settings each day changed", async () => {
+    stub();
+    const { container, root } = await render();
+    await click(byText(container, "学習"));
+    const panel = container.querySelector('[data-testid="rule-learning"]');
+    expect(panel?.textContent).toContain("学習の記録: tendentia-tech-patrol");
+    const applied = container.querySelector('[data-testid="learning-2026-10-17"]')?.textContent ?? "";
+    expect(applied).toContain("反映した");
+    expect(applied).toContain("要約: ゲームに寄せる");
+    expect(applied).not.toContain("理由:");
+    expect(applied).toContain("優先するジャンル: game、tech");
+    expect(applied).toContain("rev 6");
+    expect(applied).toContain("学習に使った会話 (2 件)");
+    const sources = container.querySelector('[data-testid="learning-sources-2026-10-17"]')?.textContent ?? "";
+    expect(sources).toContain("発言 「もっとゲームの話」");
+    expect(sources).toContain("← 返信先 「新作の話題」");
+    expect(sources).toContain("投稿 「UNIX 哲学」");
+    expect(sources).toContain("返信 1 件・反応 2 人");
+    expect(sources).toContain("返信 「いいね」");
+    expect(container.querySelector('[data-testid="learning-2026-10-16"]')?.textContent).toContain("理由: not enough fragments (2/3)");
+    await click(byText(panel as HTMLElement, "閉じる"));
+    expect(container.querySelector('[data-testid="rule-learning"]')).toBeNull();
     act(() => root.unmount());
   });
 

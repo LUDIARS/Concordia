@@ -159,6 +159,9 @@ import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { SqliteReleaseNoticeLedger, createReleaseNoticeLookup } from "../deploy/release-published-runtime.js";
+import { createRecentRunLedger } from "../playtest-review/recent-run-ledger.js";
+import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "../playtest-review/playtest-review-targets.js";
+import { createPlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
 import { SqlitePackageUpdateLedger } from "../deploy/package-updates-runtime.js";
 import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
 import { handleProjectPushed } from "../deploy/project-created.js";
@@ -1333,6 +1336,51 @@ export async function startBackend(): Promise<BackendHandle> {
     log: createChildLogger("package-updates"),
   };
   /**
+   * Ingenium の AI プレイテスト感想 (spec/feature/playtest-review-notify.md)。 宛先は本社の
+   * 「AI プレイテスト通知チャンネル」(Cc Bot) と slack store の playtest_webhook_url_enc だけ。
+   * 送り手は宛先も秘密も持たない (CC-PLAYTEST-INV-01)。 transport はデプロイ通知と共有する。
+   * 設定「Tabula にも投稿する」が有効なら、 技術相談と同じ Tabula の接続先へ共有ページとして載せる (CC-PLAYTEST-INV-05)。
+   */
+  const playtestReview = {
+    ledger: createRecentRunLedger(),
+    targets: createPlaytestReviewTargets({
+      discordChannelConfigured: () => Boolean(readDiscordSetting(discordConfig, secretBox, "playtest_notify_channel_id")),
+      slackWebhookConfigured: () => Boolean(slackConfig.get("playtest_webhook_url_enc")),
+    }),
+    delivery: createDeploymentDelivery({
+      webhookUrl: (name) => {
+        if (name !== PLAYTEST_SLACK_WEBHOOK) return null;
+        const encrypted = slackConfig.get("playtest_webhook_url_enc");
+        if (!encrypted) return null;
+        try { return secretBox.decrypt(encrypted); } catch { return null; }
+      },
+      postCcChannel: async (content) => {
+        const channelId = readDiscordSetting(discordConfig, secretBox, "playtest_notify_channel_id");
+        if (!channelId) throw new Error("playtest Discord channel is not configured");
+        const token = resolveDiscordConfig(discordConfig, secretBox).token;
+        if (!token) throw new Error("Discord bot token is not configured");
+        const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: "POST",
+          headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+        });
+        if (!response.ok) throw new Error(`playtest Discord channel rejected request (${response.status})`);
+      },
+      decryptBotToken: (encrypted) => secretBox.decrypt(encrypted),
+      hqBotToken: () => resolveDiscordConfig(discordConfig, secretBox).token ?? null,
+    }),
+    tabula: createPlaytestReviewTabula({
+      enabled: () => { const raw = readMetaSetting("playtest_notify.tabula_enabled"); return raw === "1" || raw === "true"; },
+      connection: () => readTabulaConnection({ url: readMetaSetting("services.tabula_url"), token: readMetaSetting("services.tabula_import_token") }),
+      importPage: (connection, page) => importSharedPage(connection, page),
+    }),
+    authorize: (header: string | undefined) => {
+      const expected = discordConfig.get("excubitor_dispatch_token");
+      return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
+    },
+    log: createChildLogger("playtest-review"),
+  };
+  /**
    * 新規プロジェクトの本社通知 (spec/feature/project-created-notify.md)。
    * 宛先と Bot 送信はリリース通知と同じ本社チャンネルを流用する。
    */
@@ -2389,6 +2437,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
     releasePublished,
+    playtestReview,
     packageUpdates,
     projectNotice: {
       arm: (event) => { projectNoticeLedger.arm(event, Date.now()); },

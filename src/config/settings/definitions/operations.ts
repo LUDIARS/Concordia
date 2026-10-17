@@ -245,6 +245,36 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: null,
     editable: true,
   },
+  // AI プレイテスト感想 (spec/feature/playtest-review-notify.md) の Slack 宛先。 送り手 (Ingenium) は
+  // URL を持たず、 ここで slack store に secret-box 暗号化して保存した URL を配送時にだけ復号する。
+  {
+    key: "playtest_notify.webhook_slack",
+    section: "playtest-notify",
+    label: "AI プレイテスト通知 Slack webhook",
+    description:
+      "Ingenium の AI プレイテスト感想を投稿する Slack incoming webhook URL。 正本は DB (slack_config) で"
+      + " secret-box 暗号化。 未設定なら Slack へは投稿しない。",
+    kind: "secret",
+    envName: null,
+    dbKey: "playtest_webhook_url_enc",
+    dbStore: "slack",
+    defaultValue: null,
+    editable: true,
+  },
+  {
+    key: "playtest_notify.tabula_enabled",
+    section: "playtest-notify",
+    label: "AI プレイテスト感想を Tabula にも投稿する",
+    description:
+      "ON にすると、 Discord / Slack と同じ投稿文を Tabula に共有ページとして載せる (同じ run は 1 ページ)。"
+      + " 接続先と取り込みトークンは「兄弟サービス」の Tabula の設定 (技術相談と共用) を使う。 未設定なら失敗として返す。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "playtest_notify.tabula_enabled",
+    dbStore: "meta",
+    defaultValue: false,
+    editable: true,
+  },
 ] as const;
 
 /**

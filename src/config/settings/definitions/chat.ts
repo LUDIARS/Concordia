@@ -21,6 +21,19 @@ export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
+    // AI プレイテスト感想 (Ingenium ingenium playtest、spec/feature/playtest-review-notify.md) の投稿先。
+    key: "discord.playtest_notify_channel_id",
+    section: "discord",
+    label: "AI プレイテスト通知チャンネル",
+    description: "Ingenium の AI プレイテスト感想 (良い点・悪い点) を Concordia Bot で投稿する本社の Discord チャンネル ID。未設定なら Discord へは投稿しない。",
+    kind: "string",
+    envName: null,
+    dbKey: "playtest_notify_channel_id",
+    dbStore: "discord",
+    defaultValue: null,
+    editable: true,
+  },
+  {
     key: "discord.deploy_notify_channel_id",
     section: "discord",
     label: "デプロイ通知チャンネル",

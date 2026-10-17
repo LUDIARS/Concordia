@@ -49,6 +49,7 @@ export type SettingSectionId =
   | "cache"
   | "pr-queue"
   | "deploy-notify"
+  | "playtest-notify"
   | "github"
   | "federation"
   | "management"

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/playtest-review/playtest-review-notice.ts", "tests": ["src/playtest-review/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-04"] },
+    { "source": "src/playtest-review/recent-run-ledger.ts", "tests": ["src/playtest-review/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-02"] },
+    { "source": "src/playtest-review/handle-playtest-review.ts", "tests": ["src/playtest-review/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-01", "CC-PLAYTEST-INV-02", "CC-PLAYTEST-INV-04", "CC-PLAYTEST-INV-05"] },
+    { "source": "src/playtest-review/playtest-review-tabula.ts", "tests": ["src/playtest-review/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-05"] },
+    { "source": "src/playtest-review/playtest-review-targets.ts", "tests": ["src/playtest-review/playtest-review.test.ts", "src/api/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-01"] },
+    { "source": "src/api/playtest-review.ts", "tests": ["src/api/playtest-review.test.ts"], "contracts": ["CC-PLAYTEST-INV-01", "CC-PLAYTEST-INV-03"] },
     { "source": "src/pr/revisor-repository-snapshot.ts", "tests": ["src/pr/revisor-repository-snapshot.test.ts", "src/api/project-codes-admin.test.ts"], "contracts": [] },
     { "source": "src/api/implementation-tools.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03", "CC-BIND-04"] },
     { "source": "src/implementation-tools/bind-failure.ts", "tests": ["src/api/implementation-tools.test.ts"], "contracts": ["CC-BIND-03"] },

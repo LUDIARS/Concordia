@@ -1,0 +1,15 @@
+{
+  "name": "playtest-review-notify",
+  "description": "Ingenium の AI プレイテスト感想 (良い点・悪い点必須) を受け、run ごとに 1 回だけ、Cc の設定にある本社の Discord チャンネルと Slack webhook へ投稿する。送り手は宛先も秘密も持たない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/playtest-review/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/playtest-review(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)spec/feature/playtest-review-notify\\.md$" }
+  ],
+  "cardTemplate": "Describe the strict intake (good and bad required), the in-process at-most-once claim by runId, the settings-owned HQ destinations (Discord channel + Slack webhook) and the shared deployment transport.",
+  "mechanics": ["non-blocking-delivery"],
+  "specRefs": ["spec/feature/playtest-review-notify.md", "spec/ux/product.md#UX-CC-W11"],
+  "rationale": "宛先と秘密を Cc の設定に閉じ、送り手 (Ingenium) が Discord / Slack の URL を持たない。配送はデプロイ通知と同じ transport を共有して二重実装を避け、台帳は DB migration を足さずにプロセス内で持つ (再起動を跨ぐ重複は防がないと明記)。"
+}

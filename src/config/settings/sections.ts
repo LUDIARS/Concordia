@@ -31,6 +31,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
   { id: "cache", label: "キャッシュ", description: "HTTP キャッシュと Redis。" },
   { id: "pr-queue", label: "PR キュー", description: "GitHub PR 同期と Revisor 連携。" },
   { id: "deploy-notify", label: "デプロイ通知", description: "service.deployed (Excubitor 反映検知) の webhook 配送先。" },
+  { id: "playtest-notify", label: "AI プレイテスト通知", description: "Ingenium の AI プレイテスト感想の Slack 配送先と Tabula への投稿 (Discord は Discord 設定のチャンネル)。" },
   { id: "github", label: "GitHub Issue ワークフロー", description: "Cc ラベルの付いた Issue を修正 → 審査 → GitHub PR まで回す設定。" },
   { id: "federation", label: "マルチ拠点連合", description: "本社 / 拠点ロールの連合リンク。" },
   { id: "management", label: "CDGD マネジメント", description: "dots 専用の入口 (リモート PC からの 6 操作だけを通す listener)。" },

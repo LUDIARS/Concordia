@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import "@testing-library/jest-dom/vitest";
+// Register jest-dom on this file's expect. The "@testing-library/jest-dom/vitest" entry
+// imports vitest from web/node_modules, which differs from the root runner's vitest,
+// so under the root vitest run its matchers land on a different expect.
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { InboxItem, InboxResult } from "../api.js";
@@ -12,6 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   inboxMarkRead: vi.fn(),
   inboxSnooze: vi.fn(),
 }));
+
+expect.extend(jestDomMatchers);
 
 vi.mock("../api.js", () => ({ api: apiMocks }));
 vi.mock("../lib/client-id.js", () => ({ clientId: () => "browser-1" }));

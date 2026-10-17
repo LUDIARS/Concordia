@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { SessionSpawnDialog } from "./SessionSpawnDialog.js";
 
 vi.mock("../../components/DelegationSpawnForm.js", () => ({
   DelegationSpawnForm: ({ subsidiaryId, department, onSpawned }: { subsidiaryId: string | null; department: { id: string } | null; onSpawned: () => void }) =>
@@ -10,8 +9,10 @@ vi.mock("../../components/DelegationSpawnForm.js", () => ({
 }));
 
 beforeEach(() => {
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: vi.fn() });
-  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: vi.fn() });
+  // Mirror the real dialog: showModal opens it. jsdom hides <dialog> without [open], which
+  // makes its options inaccessible to role queries.
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: vi.fn(function (this: HTMLDialogElement) { this.setAttribute("open", ""); }) });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: vi.fn(function (this: HTMLDialogElement) { this.removeAttribute("open"); }) });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -21,6 +22,11 @@ describe("session spawn location dialog", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: unknown) => new Response(JSON.stringify(String(url).includes("departments")
       ? { departments: [{ id: "hq-dev", subsidiary_id: null, name: "本社開発", archived: false }, { id: "sub-general", subsidiary_id: "sub", name: "子会社総務", archived: false }] }
       : { subsidiaries: [{ id: "sub", name: "Subsidiary", display_name: "子会社 A" }] }))));
+    // The root vitest run shares the module registry across files (isolate: false), so an earlier
+    // file may already hold SessionSpawnDialog bound to the real DelegationSpawnForm. Reload it
+    // after the mock is registered.
+    vi.resetModules();
+    const { SessionSpawnDialog } = await import("./SessionSpawnDialog.js");
     const onClose = vi.fn();
     render(<SessionSpawnDialog onClose={onClose} />);
     await screen.findByRole("option", { name: "本社開発" });

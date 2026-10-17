@@ -234,6 +234,38 @@ can be filed from either team; a team's backlog only shows tasks on that team.
 Recovery: pass `actio_team_id` with one of `candidate_team_ids`, or omit it for a team-less task.
 Rollback reverts these files; no data migration is involved.
 
+## Paged Actio task lists (CC-AT-PAGE-01, CC-AT-PAGE-02)
+
+Actio task: `actio:132eb405-9ca2-4e25-86c5-a65b6c782af5` (2026-10-17). Actio's `GET /api/tasks`
+moves to summaries (no `description` / `requirements` / `completionEvidence` / `publicSummary`;
+`pluginPayload` stays) with keyset pages: `{ tasks, nextCursor }`, `limit` default 100 and maximum
+500, opaque `cursor`. Older Actio returns `{ tasks }` with full rows and no `nextCursor`. Cc is
+changed first and works against both, so it can ship before the Actio change.
+
+- Pager (`src/taskflow/actio-task-pages.ts`): every list request keeps the caller's filters and
+  sends `limit=500`; `cursor` is sent only for a continuation page (CC-AT-PAGE-01,
+  `actioTaskPagePath`). A missing, `null` or empty `nextCursor` marks the last page, which is how
+  an older Actio response ends after one page (CC-AT-PAGE-02, `nextActioTaskCursor`). A repeated
+  cursor, a response without a `tasks` array, or more than 1000 pages is refused instead of looping.
+- Workflow client (`src/taskflow/actio-task-client.ts`): `list()` reads every page; `description`
+  is optional on listed rows. Work that needs the body reads `GET /api/tasks/:id`: the duplicate
+  check in `create()` reads the full task before comparing content when the listed row has no
+  description. Listed documents (`scan` / `findForProject`) may carry an empty body; readers that
+  show or edit a body go through `read()` / `get()`.
+- Fallback sync (`src/fallback-tasks/actio-client.ts`): `findByConcordiaId` pages through
+  `scope=all&pluginId=concordia` and stops at the first page holding the `pluginRef`. Actio has no
+  `pluginRef` filter, so the page walk is the narrowing. A malformed list is reported as
+  `unavailable` (retried later), never as "not found".
+- Migration input (`src/developer-tools/actio-sync-migration/sources.ts`): reads every page with
+  `include=description`, because the plan compares bodies.
+- Other `GET /api/tasks` callers in Cc read Memoria (`src/memoria/client.ts`,
+  `src/morning/scheduler.ts`, `src/discord/commands/mmtask.ts`, the Memoria pull procedure in
+  `src/delegation/parttimer-prompts.ts`); they are a different API and are unchanged. Actio reads by
+  id (`src/bounty/actio-adapter.ts`, `getReference`, dependency reads in `planning()`) are unchanged.
+
+Rollout: merge and deploy this Cc change, then the Actio contract. Rollback reverts these files;
+no data migration is involved.
+
 ## CC-TASK-MERGE-END-01: マージまで委託を継続する
 
 価値 UX-CC-PRODUCT。利用者が失うと困る状態は、PR提出後に委託セッションが終了し競合修正・再審査・マージが取り残されること。

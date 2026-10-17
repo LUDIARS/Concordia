@@ -184,6 +184,39 @@ describe("ActioWorkflowClient", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  /** Newer Actio lists summaries over pages; older Actio sends full rows on one page. */
+  it("follows nextCursor over summary pages of a newer Actio", async () => {
+    const summary = (id: string): Partial<ActioWorkflowTask> => {
+      const { description: _omitted, ...rest } = task({ id });
+      return rest;
+    };
+    const { transport: t, request } = transport(
+      { tasks: [summary("task-1")], nextCursor: "c-2" },
+      { tasks: [summary("task-2")], nextCursor: null },
+    );
+
+    expect((await new ActioWorkflowClient(t).list(BINDING)).map((item) => item.id)).toEqual(["task-1", "task-2"]);
+    const paths = request.mock.calls.map((call) => new URLSearchParams(call[2].split("?")[1]));
+    expect(paths.map((params) => params.get("limit"))).toEqual(["500", "500"]);
+    expect(paths.map((params) => params.get("cursor"))).toEqual([null, "c-2"]);
+    expect(paths[1]!.get("project")).toBe(BINDING.projectId);
+  });
+
+  it("reads the full task before comparing a duplicate found in a summary listing", async () => {
+    const { description: _omitted, ...listed } = task();
+    const { transport: t, request } = transport({ tasks: [listed], nextCursor: null }, { task: task() });
+
+    expect(await new ActioWorkflowClient(t).create(BINDING, CREATE)).toEqual({ task: task(), existed: true });
+    expect(request.mock.calls[1]!.slice(1, 3)).toEqual(["GET", "/api/tasks/task-1"]);
+  });
+
+  it("still refuses a summary-listed duplicate whose full body differs", async () => {
+    const { description: _omitted, ...listed } = task();
+    const { transport: t } = transport({ tasks: [listed] }, { task: task({ description: "別の本文" }) });
+
+    await expect(new ActioWorkflowClient(t).create(BINDING, CREATE)).rejects.toThrow("different content");
+  });
+
   it("refuses to reuse a request identity with different content", async () => {
     const { transport: t } = transport({ tasks: [task({ description: "別の本文" })] });
 

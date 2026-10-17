@@ -5100,6 +5100,13 @@
     {"source":"src/federation/ontime-runtime.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
     {"source":"src/federation/egress-delivery.contract.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
     {"source":"src/federation/egress-delivery.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
-    {"source":"src/federation/runtime.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]}
+    {"source":"src/federation/runtime.ts","tests":["src/federation/remote-question.test.ts"],"contracts":["CC-FED-EGRESS-MENTION-01"]},
+    {"source":"src/taskflow/actio-task-pages.ts","tests":["src/taskflow/actio-task-pages.test.ts","src/taskflow/actio-task-client.test.ts","src/fallback-tasks/actio-client.test.ts","src/developer-tools/actio-sync-migration/sources.test.ts"],"contracts":["CC-AT-PAGE-01","CC-AT-PAGE-02"]},
+    {"source":"src/taskflow/actio-task-page-path.contract.ts","tests":["src/taskflow/actio-task-pages.test.ts"],"contracts":["CC-AT-PAGE-01"]},
+    {"source":"src/taskflow/actio-task-next-cursor.contract.ts","tests":["src/taskflow/actio-task-pages.test.ts"],"contracts":["CC-AT-PAGE-02"]},
+    {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-task-client.test.ts","src/taskflow/actio-task-pages.test.ts"],"contracts":["CC-AT-PAGE-01","CC-AT-PAGE-02"]},
+    {"source":"src/fallback-tasks/actio-client.ts","tests":["src/fallback-tasks/actio-client.test.ts"],"contracts":["CC-AT-PAGE-01","CC-AT-PAGE-02"]},
+    {"source":"src/developer-tools/actio-sync-migration/sources.ts","tests":["src/developer-tools/actio-sync-migration/sources.test.ts","src/developer-tools/actio-sync-migration/run.test.ts"],"contracts":["CC-TF-SYNC-06","CC-AT-PAGE-01"]},
+    {"source":"src/taskflow/sync-migration-types.ts","tests":["src/developer-tools/actio-sync-migration/sources.test.ts","src/developer-tools/actio-sync-migration/run.test.ts"],"contracts":["CC-TF-SYNC-06"]}
   ]
 }

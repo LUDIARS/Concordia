@@ -24,3 +24,7 @@ pluginRef を照合し、既存 Task があれば再利用する。Actio 不在�
 復旧後に再試行する。POST の結果が不明な場合は `unknown` とし、照合で発見できるまで
 POST を重ねない。同期済みでも Cc の Task は削除しない。
 `unknown` の Task をローカル更新しても不明状態は維持し、照合できるまで再 POST しない。
+pluginRef の照合は `GET /api/tasks?scope=all&pluginId=concordia` を `nextCursor` で辿り、
+一致した行のあるページで止める。`nextCursor` の無い旧 Actio は 1 ページで終わる。一覧の形が
+不正なら「見つからない」とせず `unavailable` として後で再試行する
+(詳細は `spec/feature/task-workflow-v3.md` の CC-AT-PAGE-01 / CC-AT-PAGE-02)。

@@ -1,4 +1,6 @@
+import { z } from "zod";
 import type { ExcubitorClient } from "../excubitor/client.js";
+import { actioTaskPages } from "../taskflow/actio-task-pages.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import type { CcTaskRow } from "./types.js";
 
@@ -11,7 +13,8 @@ export class ActioTaskError extends Error {
   }
 }
 
-interface ActioTask { id: string; pluginRef?: string | null }
+const ActioTaskSummary = z.object({ id: z.string(), pluginRef: z.string().nullable().optional() });
+type ActioTask = z.infer<typeof ActioTaskSummary>;
 
 /** @implements spec/feature/cc-task-fallback.md */
 export class ActioTaskClient {
@@ -21,11 +24,20 @@ export class ActioTaskClient {
     private readonly timeoutMs = 5_000,
   ) {}
 
+  /** Pages through the Concordia-plugin tasks and stops at the first page that holds the match. */
   async findByConcordiaId(id: string): Promise<ActioTask | null> {
-    const tasks = await this.request<{ tasks?: ActioTask[] }>(
-      "GET", `/api/tasks?scope=all&pluginId=concordia`, undefined, "unavailable",
-    );
-    return (tasks.tasks ?? []).find((task) => task.pluginRef === id) ?? null;
+    const query = new URLSearchParams({ scope: "all", pluginId: "concordia" });
+    const pages = actioTaskPages((path) => this.request("GET", path, undefined, "unavailable"), query, ActioTaskSummary);
+    try {
+      for await (const page of pages) {
+        const found = page.find((task) => task.pluginRef === id);
+        if (found) return found;
+      }
+    } catch (error) {
+      if (error instanceof ActioTaskError) throw error;
+      throw new ActioTaskError("Invalid Actio task list response", "unavailable");
+    }
+    return null;
   }
 
   async create(task: CcTaskRow): Promise<ActioTask> {

@@ -10,9 +10,11 @@ import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
 import type { PlanningTask } from "./continuation-plan.js";
 import { appendTaskInstruction, endTaskRun, startTaskRun, taskRuns } from "./task-runs.js";
+import { readAllActioTasks } from "./actio-task-pages.js";
 
 const Task = z.object({
-  id: z.string().min(1), title: z.string(), description: z.string().nullable(),
+  // Newer Actio lists summaries without description; GET /api/tasks/:id still returns it.
+  id: z.string().min(1), title: z.string(), description: z.string().nullable().optional(),
   projectId: z.string().nullable(), ownerId: z.string(), teamId: z.string().nullable(),
   assigneeId: z.string().nullable().optional(),
   status: z.enum(["open", "in_progress", "blocked", "done", "cancelled"]),
@@ -53,9 +55,8 @@ export class ActioWorkflowClient {
   async list(binding: ActioBinding): Promise<ActioWorkflowTask[]> {
     const query = new URLSearchParams({ scope: "owned", project: binding.projectId, pluginId: ACTIO_WORKFLOW_SOURCE });
     if (binding.teamId) query.set("team_id", binding.teamId);
-    const result = z.object({ tasks: z.array(Task) }).safeParse(await this.transport.request(binding, "GET", `/api/tasks?${query}`));
-    if (!result.success) throw new Error("Invalid Actio task list response");
-    return result.data.tasks
+    const tasks = await readAllActioTasks((path) => this.transport.request(binding, "GET", path), query, Task);
+    return tasks
       .filter((task) => !isOtherTeamTaskOfTeamlessListing(binding, task))
       .map((task) => this.scoped(binding, task));
   }
@@ -95,7 +96,11 @@ export class ActioWorkflowClient {
         throw new Error("Actio task request identity reused with different content");
       }
     };
-    const existing = (await this.list(binding)).find((task) => task.sourceRef === sourceRef);
+    const listed = (await this.list(binding)).find((task) => task.sourceRef === sourceRef);
+    // A summary listing has no description; read the full task before comparing or returning it.
+    const existing = listed && listed.description === undefined
+      ? this.decode(binding, await this.transport.request(binding, "GET", `/api/tasks/${encodeURIComponent(listed.id)}`))
+      : listed;
     if (existing) {
       if (!input.reuseExisting) verifyContent(existing);
       return { task: existing, existed: true };

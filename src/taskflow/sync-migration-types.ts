@@ -4,7 +4,7 @@
  */
 export type ActioTaskStatus = "open" | "in_progress" | "blocked" | "done" | "cancelled";
 
-/** Actio `GET /api/tasks?scope=all` の 1 件 (移行に使う項目だけ)。 */
+/** Actio `GET /api/tasks?scope=all&include=description` の 1 件 (移行に使う項目だけ)。全ページを辿って集める。 */
 export interface MigrationActioTask {
   id: string;
   title: string;

@@ -5,6 +5,7 @@
 import Database from "better-sqlite3";
 import { z } from "zod";
 import type { MigrationActioTask, MigrationProject, MigrationRun, MigrationStateRow } from "../../taskflow/sync-migration-types.js";
+import { readAllActioTasks } from "../../taskflow/actio-task-pages.js";
 
 const Task = z.object({
   id: z.string(), title: z.string(), description: z.string().nullable(),
@@ -25,8 +26,10 @@ const Project = z.object({
 export type HttpGet = (url: string) => Promise<unknown>;
 export type ActioTaskWithOwner = z.infer<typeof Task>;
 
+/** Every task across all pages. The plan compares bodies, so description is opted in explicitly. */
 export async function readActioTasks(get: HttpGet, actioUrl: string): Promise<MigrationActioTask[]> {
-  return z.object({ tasks: z.array(Task) }).parse(await get(`${actioUrl}/api/tasks?scope=all`)).tasks;
+  const query = new URLSearchParams({ scope: "all", include: "description" });
+  return readAllActioTasks((path) => get(`${actioUrl}${path}`), query, Task);
 }
 
 export async function readActioTask(get: HttpGet, actioUrl: string, id: string): Promise<ActioTaskWithOwner> {

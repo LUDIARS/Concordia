@@ -37,8 +37,8 @@ import {
   type ForumSpawnMissingField,
   type ForumSpawnSiteChoice,
 } from "./forum-spawn-intake.js";
-import type { SpawnSitePort } from "./command-port.js";
-import { siteSpawnFailureMessage } from "./commands/spawn-site.js";
+import type { SpawnSitePort } from "./spawn-site-port.js";
+import { siteSpawnFailureMessage } from "./spawn-site-port.js";
 import { markSiteTitle } from "../federation/forum-site-routing.js";
 import { formatForumRequestRecap } from "./request-recap.js";
 import {

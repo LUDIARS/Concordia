@@ -21,7 +21,7 @@ export {
   type ForumModelUsageDeps,
   type ForumModelUsageSnapshot,
 } from "../delegation/forum-model-usage.js";
-import { suggestForumModel, type ForumModelSuggestion } from "./forum-model-suggest.js";
+import { suggestForumModel, type ForumModelSuggestion } from "../delegation/forum-model-suggest.js";
 import type { ForumModelChoice } from "./forum-spawn.js";
 
 /** 残量を集めてサジェストまで一気に行う (bot.ts の質問カード掲出から呼ぶ)。 */

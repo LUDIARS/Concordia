@@ -68,18 +68,4 @@ export function reportHumanTodos(deps: HumanTodoReportDeps, session: SessionRow)
   return decision;
 }
 
-/**
- * 配信できなかった報告の記録を戻す。記録がその後別の内容に更新されていれば触らない
- * (新しい報告の記録を古い配信失敗で消さない)。
- */
-export function releaseHumanTodoReport(
-  repo: Pick<SessionsRepo, "updateMetadata">,
-  sessionId: string,
-  digest: string,
-): void {
-  repo.updateMetadata(sessionId, (metadata) => {
-    const current = metadata[HUMAN_TODO_REPORT_KEY] as { digest?: unknown } | null | undefined;
-    if (!current || current.digest !== digest) return metadata;
-    return { ...metadata, [HUMAN_TODO_REPORT_KEY]: null };
-  });
-}
+export { releaseHumanTodoReport } from "../shared/human-todo-report-record.js";

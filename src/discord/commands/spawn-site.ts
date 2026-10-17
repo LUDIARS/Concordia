@@ -8,9 +8,13 @@
  * フォーラムが無い構成 (forum mode off) だけ受付返信からスレッドを作る。 本社では起動しない。
  */
 import { ActionRowBuilder, ComponentType, StringSelectMenuBuilder, type MessageComponentInteraction } from "discord.js";
-import type { DiscordCommandSpec, SpawnSitePort } from "../command-port.js";
+import type { DiscordCommandSpec } from "../command-port.js";
+import type { SpawnSitePort } from "../spawn-site-port.js";
+import { siteSpawnFailureMessage } from "../spawn-site-port.js";
 import type { RemoteSpawnOptions } from "../../federation/remote-session-payload.js";
 import { markSiteTitle } from "../../federation/forum-site-routing.js";
+
+export { siteSpawnFailureMessage } from "../spawn-site-port.js";
 
 /**
  * `/spawn` の返信先。 通常はスラッシュコマンド、 起動先を選んだ後はその選択の interaction。
@@ -129,14 +133,6 @@ export function siteSpawnInputError(fields: SiteSpawnFields): string | null {
   return null;
 }
 
-export function siteSpawnFailureMessage(reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable"): string {
-  switch (reason) {
-    case "unknown_site": return "指定した拠点が見つかりません。拠点 ID か表示名を指定してください。";
-    case "inactive_site": return "指定した拠点は失効しています。";
-    case "ambiguous_site": return "同じ名前の拠点が複数あります。拠点 ID で指定してください。";
-    case "listener_unavailable": return "本社の連合 listener が停止しているため、拠点へ起動を渡せません。";
-  }
-}
 
 /** Discord 側の手順: スレッドを用意して拠点へ渡し、 結果を受付返信に書く。 */
 /** 拠点の印を付けられるスレッド (discord.js の ThreadChannel のうち使う部分)。 */

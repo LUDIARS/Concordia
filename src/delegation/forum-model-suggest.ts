@@ -23,13 +23,13 @@ import {
   type ForumModelNick,
   type ForumProviderFamily,
   type WeeklyQuotaWindow,
-} from "../delegation/forum-model-selection.js";
+} from "./forum-model-selection.js";
 export {
   pickProviderFamilyByCostRatio,
   remainingQuotaRatio,
   type ForumProviderFamily,
   type WeeklyQuotaWindow,
-} from "../delegation/forum-model-selection.js";
+} from "./forum-model-selection.js";
 
 /** 投稿の作業種別。 語彙照合だけで決める (機械的でよい、neco 指示)。 */
 export type ForumTaskKind = "implementation" | "design_review" | "chore";

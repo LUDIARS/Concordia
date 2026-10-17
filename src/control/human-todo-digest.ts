@@ -14,8 +14,9 @@
  */
 import { createHash } from "node:crypto";
 import type { HumanWaitState } from "./human-wait.js";
+import { HUMAN_TODO_REPORT_KEY } from "../shared/human-todo-report-record.js";
 
-export const HUMAN_TODO_REPORT_KEY = "cc_human_todo_report";
+export { HUMAN_TODO_REPORT_KEY } from "../shared/human-todo-report-record.js";
 
 /** 1 項目の本文上限。Discord 1 通に収め、長い質問文で他の項目を押し出さない。 */
 const ITEM_TEXT_LIMIT = 300;

@@ -12,7 +12,7 @@
  */
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ConcordiaEvent } from "../events.js";
-import { releaseHumanTodoReport } from "../control/human-todo-report.js";
+import { releaseHumanTodoReport } from "../shared/human-todo-report-record.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 /** 現在ピン留めしている報告の場所を記録する session metadata キー。 */

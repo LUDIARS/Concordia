@@ -15,29 +15,12 @@ import { toTokenResolver } from "./revisor-token.js";
 import type { PrSourceLink } from "./session-source-links.js";
 import { requestRevisorJson, RevisorRequestError } from "./revisor-http.js";
 import { listRepositoryOpenPrs } from "./revisor-repository-open-prs.js";
+import type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-types.js";
+
+export type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-types.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
-
-export interface RevisorRepositoryRegistration {
-  repository: string;
-  rootPath: string;
-  baseRef: string;
-}
-
-export interface RevisorLocalPrSummary {
-  id: string;
-  number: number;
-  repository: string;
-  headRef: string;
-  status: string;
-  checkStatus: string;
-  sessionId?: string | null;
-  reviewLane?: "standard" | "fast";
-  /** 提出時の説明。 GitHub PR 本文へ「審査を通った説明」をそのまま載せるために使う。 */
-  title?: string;
-  body?: string;
-}
 
 export interface SubmitLocalPrInput {
   repository: string;

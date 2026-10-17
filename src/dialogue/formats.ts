@@ -7,22 +7,10 @@
  */
 
 import { PLANNING_ADJUSTMENT_FORMAT } from "./planning-adjustment.js";
+import { USE_CASE_FORMAT_KEYS, type UseCaseFormat, type UseCaseFormatKey } from "./format-types.js";
 
-export type UseCaseWorkMode = "edit" | "read-only";
-
-export interface UseCaseFormat {
-  key: UseCaseFormatKey;
-  name: string;
-  workMode: UseCaseWorkMode;
-  useRequesterProfile: boolean;
-  /** 回答前に事前ヒアリング (知りたいこと・技術レベル・役職・目的) を揃えるか (tech-consultation.md §3)。 */
-  intake: boolean;
-  summary: string;
-  preData: string;
-}
-
-export const USE_CASE_FORMAT_KEYS = ["chores", "qa", "sparring", "research-report", "planning-adjustment"] as const;
-export type UseCaseFormatKey = typeof USE_CASE_FORMAT_KEYS[number];
+export { USE_CASE_FORMAT_KEYS } from "./format-types.js";
+export type { UseCaseFormat, UseCaseFormatKey, UseCaseWorkMode } from "./format-types.js";
 
 export const USE_CASE_FORMATS: Readonly<Record<UseCaseFormatKey, UseCaseFormat>> = {
   "planning-adjustment": PLANNING_ADJUSTMENT_FORMAT,

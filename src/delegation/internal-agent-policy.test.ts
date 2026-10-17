@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { selectInternalAgent } from "./internal-agent-policy.js";
-import { suggestForumModel } from "../discord/forum-model-suggest.js";
+import { suggestForumModel } from "./forum-model-suggest.js";
 import { forumModelChoices } from "./forum-model-selection.js";
 const templates = [
   { call_name: "opus", is_active: true, target_provider: "claude", model: "claude-opus-5" },

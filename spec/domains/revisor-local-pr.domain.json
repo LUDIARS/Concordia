@@ -32,6 +32,9 @@
       "pathPattern": "(^|/)src/pr/revisor-local-pr-client(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/pr/revisor-local-pr-types\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome|test-workflow-client|read-cache)(\\.test)?\\.ts$"
     },
     {

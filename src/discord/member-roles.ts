@@ -10,6 +10,10 @@
  * @implements SPEC-USAGE-BUDGET-MULTIPLIER
  */
 
+import type { GuildRoleList } from "../cost/guild-role-list.js";
+
+export type { GuildRoleList } from "../cost/guild-role-list.js";
+
 /** Discord の Unknown Member。 */
 const UNKNOWN_MEMBER = 10007;
 
@@ -33,12 +37,6 @@ export interface RoleGuildLike {
 
 export interface RoleClientLike {
   guilds: { cache: CacheLike<RoleGuildLike> };
-}
-
-export interface GuildRoleList {
-  guild_id: string;
-  guild_name: string;
-  roles: Array<{ id: string; name: string }>;
 }
 
 function guildsOf(clients: readonly RoleClientLike[]): RoleGuildLike[] {

@@ -29,6 +29,9 @@
       "pathPattern": "(^|/)src/discord/commands/consult(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/discord/commands/consult-deps\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)tests/consultation[^/]*\\.test\\.ts$"
     },
     {

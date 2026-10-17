@@ -11,21 +11,12 @@ import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.j
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
-import type { ConsultCommandDeps } from "./commands/consult.js";
+import type { ConsultCommandDeps } from "./commands/consult-deps.js";
 import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
+import type { SpawnSitePort } from "./spawn-site-port.js";
 
-/** `/spawn site:` が使う連合の口 (federation runtime の listSpawnSites / routeSiteSpawn)。 */
-export interface SpawnSitePort {
-  list(): Array<{ siteId: string; name: string }>;
-  /** project を担当する有効な拠点 (空なら本社で起動)。 */
-  forProject(project: string): Array<{ siteId: string; name: string }>;
-  route(input: {
-    site: string; guildId: string; channelId: string; authorId: string | null; title: string; body: string;
-    options: import("../federation/remote-session-payload.js").RemoteSpawnOptions;
-    runtimeRules?: readonly string[];
-  }): { ok: true; siteId: string; siteName: string } | { ok: false; reason: "unknown_site" | "inactive_site" | "ambiguous_site" | "listener_unavailable" };
-}
+export type { SpawnSitePort } from "./spawn-site-port.js";
 
 export interface DiscordCommandDeps {
   /** `/spawn site:` の拠点候補と起動の受け渡し。 未注入 (子会社 Bot・連合なし) なら site 指定は断る。 */

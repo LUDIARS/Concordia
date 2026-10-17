@@ -152,7 +152,7 @@ import { mountBountyRoutes, type BountyFlowRoutesDeps } from "./bounty-routes.js
 import type { BountyOperatorVerifier } from "./bounty-actor.js";
 import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import { usageBudgetsRouter } from "./usage-budgets.js";
-import type { GuildRoleList } from "../discord/member-roles.js";
+import type { GuildRoleList } from "../cost/guild-role-list.js";
 import type { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import type { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
 import { budgetNoticeText } from "../cost/usage-budget.js";

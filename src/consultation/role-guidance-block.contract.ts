@@ -1,4 +1,4 @@
-import { ROLE_GUIDANCE_MAX_CHARS, stripSkillFrontmatter, type RoleGuidanceBlockInput } from "./role-guidance.js";
+import { ROLE_GUIDANCE_MAX_CHARS, removeSkillFrontmatter, type RoleGuidanceBlockInput } from "./role-guidance-text.js";
 
 /** @implements SPEC-CONSULT-PROJECTLESS */
 /**
@@ -9,7 +9,7 @@ export default {
   post(result: unknown, input?: RoleGuidanceBlockInput): boolean {
     if (!input) return false;
     const skills = input.skills
-      .map((skill) => ({ name: skill.name, body: stripSkillFrontmatter(skill.text) }))
+      .map((skill) => ({ name: skill.name, body: removeSkillFrontmatter(skill.text) }))
       .filter((skill) => skill.body.length > 0);
     const hasContent = Boolean(input.claudeMd?.trim()) || skills.length > 0;
     if (result === null) return !hasContent;

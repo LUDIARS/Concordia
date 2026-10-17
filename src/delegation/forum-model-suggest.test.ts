@@ -7,7 +7,7 @@ import {
   remainingQuotaRatio,
   suggestForumModel,
 } from "./forum-model-suggest.js";
-import type { ForumModelChoice } from "./forum-spawn.js";
+import type { ForumModelChoice } from "./forum-model-selection.js";
 
 // 2026-09-03 neco 指示: モデル/Effort は機械的にサジェストする。
 //  実装・修正 → Opus / Sol mid、 設計・レビュー → Fable / Opus、 雑用 → Sonnet / Terra。

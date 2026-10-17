@@ -9,6 +9,7 @@
     { "pathPattern": "(^|/)src/control/nudge-delivery(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/auto-confirm-strikes(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/human-todo-(digest|report)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/shared/human-todo-report-record\\.ts$" },
     {
       "pathPattern": "(^|/)src/control/stalled-session-nudge(\\.test)?\\.ts$"
     },

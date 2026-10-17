@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { GateDecision } from "./gate.js";
@@ -46,6 +47,22 @@ describe("webSsoMiddleware", () => {
     expect(await res.text()).toBe("down");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("set-cookie")).toMatch(/Max-Age=0/);
+  });
+
+  it("node-server の軽量 Response 下 (本番構成) でも拒否応答のヘッダを落とさない", async () => {
+    // getRequestListener swaps global Request/Response for its lightweight versions, as in production.
+    const saved = (["Request", "Response"] as const).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)!] as const);
+    try {
+      getRequestListener(() => new Response());
+      const res = await appWith(gateReturning({ kind: "deny", status: 401, reason: "login", setCookie: "__Host-cc-sso=; Max-Age=0" })).request("/");
+      expect(res.status).toBe(401);
+      // Reading the body first rebuilds the lightweight Response from its original init.
+      expect(await res.text()).toBe("login");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("set-cookie")).toMatch(/Max-Age=0/);
+    } finally {
+      for (const [name, descriptor] of saved) Object.defineProperty(globalThis, name, descriptor);
+    }
   });
 });
 

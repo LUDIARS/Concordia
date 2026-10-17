@@ -19,7 +19,9 @@ runtime state. The source repositories own the facts and must be checked again.
 
 - CC-DESIGN-01: map inputs must be nonempty, belong to the nine named repositories,
   agree with their filename, and provide the fields consumed by the renderer.
-  Malformed data fails before any digest is written.
+  Malformed data fails before any digest is written. `repo` is the bare repository
+  name; a longer descriptive label goes in an extra field (the supplied
+  `map-Anatomia.json` keeps its original label as `repoLabel`).
 - CC-DESIGN-02: a complete digest requires nine maps and both scouts. Partial
   generation requires `--allow-partial`; every digest lists present/missing maps
   and scouts. Partial output is never labelled a complete review.

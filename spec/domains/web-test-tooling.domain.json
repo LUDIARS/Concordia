@@ -11,6 +11,9 @@
       "pathPattern": "(^|/)web/src/setupTests\\.ts$"
     },
     {
+      "pathPattern": "(^|/)web/src/rootTestSetup\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)web/src/.+\\.test\\.tsx?$"
     }
   ],

@@ -4113,7 +4113,12 @@
     },
     {
       "source": "vitest.config.ts",
-      "tests": ["src/chores/cli.test.ts", "src/rules/claude-runner.test.ts"],
+      "tests": ["src/chores/cli.test.ts", "src/rules/claude-runner.test.ts", "web/src/pages/session-chat/ChatMarkdown.test.tsx"],
+      "contracts": []
+    },
+    {
+      "source": "web/src/rootTestSetup.ts",
+      "tests": ["web/src/pages/session-chat/ChatMarkdown.test.tsx", "web/src/pages/cost/SessionCapBlock.test.tsx"],
       "contracts": []
     },
     {

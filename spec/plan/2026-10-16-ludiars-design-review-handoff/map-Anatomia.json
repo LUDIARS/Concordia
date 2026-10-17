@@ -1,5 +1,6 @@
 {
- "repo": "Anatomia (LUDIARS/Anatomia, 略称 An) — /home/user/Anatomia",
+ "repo": "Anatomia",
+ "repoLabel": "Anatomia (LUDIARS/Anatomia, 略称 An) — /home/user/Anatomia",
  "abbreviation": "An",
  "purpose": "コードを関数粒度の正規化 Merkle-AST (Anchor ID) に解剖し、コードグラフ・ドメイン検出・コード↔仕様リンクを重ねて「生成前 supply (着地点/ルール/手本/影響半径/重複回避) → 生成後 verify (5 ゲート)」のループを AI ホストに提供する建築規約オラクル (DESIGN.md:41-56, README.md:3-18)。利用者は (a) Claude Code / Famulus / Concordia など MCP ホストと Castra の hooks (生成前後に自動で叩く)、(b) Revisor (PR レビュー時に pr-review / verify を CLI で叩く)、(c) 人間 (web 管理パネル 4200 でドメイン/シーン/入口を閲覧、Gate A/B/C でドメインを承認)。副次的に横断 cost-feed の受信ハブ、横断ドメインマップ検索 (plan の前段)、Augur への集中テスト提案依頼も担う。",
  "coreConcepts": [

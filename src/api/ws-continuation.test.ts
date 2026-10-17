@@ -1,4 +1,4 @@
-import {describe,it,expect,vi} from "vitest";
+import {afterAll,describe,it,expect,vi} from "vitest";
 import {EventEmitter} from "node:events";
 import type {Server as HttpServer} from "node:http";
 import {attachWsServer} from "./ws.js";
@@ -24,6 +24,9 @@ vi.mock("ws",()=>({
 }));
 // This test observes the real TaskflowRuntime event dispatch, not its DB policy.
 vi.mock("../taskflow/completion-blackbox.js",()=>({CompletionBlackbox:class {}}));
+// The same shared cache would hand these mocks to later files (ws.WebSocket={OPEN:1} breaks
+// `new WebSocket`, and TaskflowRuntime would keep the stub blackbox). Drop them and the modules bound to them.
+afterAll(()=>{vi.doUnmock("ws");vi.doUnmock("../taskflow/completion-blackbox.js");vi.resetModules();});
 
 class Client extends EventEmitter {
   readyState=1;send=vi.fn();ping=vi.fn();

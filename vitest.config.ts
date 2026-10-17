@@ -35,5 +35,26 @@ export default defineConfig({
         singleThread: true,
       },
     },
+    // singleThread + isolate: false では、jsdom の web/src テストは 1 つの jsdom 環境にまとめて流れ、
+    // DOM が file 間で残る。ルート実行は globals を有効にしないので Testing Library の自動 cleanup も
+    // 効かず、cleanup を呼ばない file の描画 (<table> 等) が次の file に見え、結果が実行順で変わる。
+    // web だけ別 project にして、file ごとに再実行される setup で cleanup を登録する。
+    // 隔離 (isolate: true) にはしない: worker が使い回されるため、外部化された Testing Library が
+    // 最初の file の document を握ったままになり、かえって後続の file が壊れる。
+    // ファイル指定の実行 (.augur/tests.jsonl の runner=vitest) はどちらの project にもそのまま効く。
+    projects: [
+      {
+        extends: true,
+        test: { name: "node", exclude: ["web/src/**"] },
+      },
+      {
+        extends: true,
+        test: {
+          name: "web",
+          include: ["web/src/**/*.test.{ts,tsx}"],
+          setupFiles: ["./web/src/rootTestSetup.ts"],
+        },
+      },
+    ],
   },
 });

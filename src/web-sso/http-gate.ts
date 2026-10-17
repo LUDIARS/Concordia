@@ -38,10 +38,11 @@ export function webSsoMiddleware(gate: WebSsoGate): MiddlewareHandler {
     if (decision.kind === "local") return next();
     if (decision.kind === "deny") {
       log.warn({ path: c.req.path, status: decision.status }, "public host request denied");
-      const res = c.text(decision.reason, decision.status);
-      if (decision.setCookie) res.headers.append("set-cookie", decision.setCookie);
-      res.headers.set("cache-control", "no-store");
-      return res;
+      // Headers go through the context so they are part of the Response init: @hono/node-server's
+      // lightweight global Response rebuilds itself from that init once its body is read, dropping later edits.
+      if (decision.setCookie) c.header("set-cookie", decision.setCookie, { append: true });
+      c.header("cache-control", "no-store");
+      return c.text(decision.reason, decision.status);
     }
     await next();
     if (!decision.setCookie) return;

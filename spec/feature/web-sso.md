@@ -43,6 +43,6 @@ Cernere の Cloudflare 企業認証 (Cr `spec/feature/cloudflare-enterprise-sso.
 
 ## 境界と戻し方
 
-- HTTP: `buildApp` の先頭ミドルウェア (応答キャッシュより前)。WS: `/ws` の upgrade で同じ判定。WS では Cookie を発行できないので login はせず、先に HTTP で画面を開いて置かれた Cookie だけを見る。
+- HTTP: `buildApp` の先頭ミドルウェア (応答キャッシュより前)。拒否応答の `cache-control: no-store` と Cookie 消去は、作った Response を後から書き換えず `c.header()` で応答の init に入れる。本番の `@hono/node-server` は global Response を軽量版に差し替え、本文を読むと init から作り直すため、後から足したヘッダーは消える (`src/web-sso/http-gate.test.ts` が同じ構成で検証する)。WS: `/ws` の upgrade で同じ判定。WS では Cookie を発行できないので login はせず、先に HTTP で画面を開いて置かれた Cookie だけを見る。
 - Cernere への問い合わせは project WS (`/ws/project`) 1 本。project token は期限まで使い回す。拒否 (401/403) と不通 (503) を分けて返す。
 - 戻し方: `CONCORDIA_WEB_PUBLIC_HOST` を外すと今までの動作 (公開ホストは無い) に戻る。

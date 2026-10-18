@@ -291,7 +291,8 @@ import { startPrFullSync } from "../pr/full-sync.js";
 import { startErrorFixDispatcher } from "../control/error-fix.js";
 import { buildApp } from "../app.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
-import { readLineChannelSecrets } from "../line-webhook/channel-secrets.js";
+import { readLineChannelSecrets, readServiceRelayToken } from "../line-webhook/channel-secrets.js";
+import { SqliteLineTalkLinkStore } from "../line-webhook/talk-links.js";
 import { createDiscordChatRelayFromStore } from "../discord-chat-relay/runtime.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
@@ -2329,12 +2330,17 @@ export async function startBackend(): Promise<BackendHandle> {
   const webSsoConfig = readWebSsoConfig(process.env);
   const webSso = webSsoConfig ? createWebSsoGate(webSsoConfig) : null;
   if (webSsoConfig) log.info({ publicHost: webSsoConfig.publicHost }, "public host requires a Cernere enterprise session");
+  // LINE の共用チャネルのトークごとの紐付け。 受け口と管理 API で同じものを使う。
+  const lineTalkLinks = new SqliteLineTalkLinkStore(db);
   const app = buildApp({
     webSso,
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
-      secrets: (target) => readLineChannelSecrets(adminState.store, target),
+      secrets: (channel) => readLineChannelSecrets(adminState.store, channel),
+      relayToken: (service) => readServiceRelayToken(adminState.store, service),
+      talkLinks: lineTalkLinks,
     },
+    lineTalkLinks,
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,

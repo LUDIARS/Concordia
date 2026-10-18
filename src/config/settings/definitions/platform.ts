@@ -107,13 +107,14 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "string-list", envName: null, dbKey: "services.chat_knowledge_public_projects",
     defaultValue: null, editable: true,
   },
-  // LINE webhook の転送先 (spec/feature/line-webhook-relay.md)。 秘密値ではない。 受け口が要求ごとに読む。
+  // LINE webhook のサービス (spec/feature/line-webhook-relay.md)。 秘密値ではない。 受け口が要求ごとに読む。
   {
     key: "services.line_webhook_targets", section: "services",
-    label: "LINE webhook 転送先",
-    description: "POST /hooks/line/<name> で受けた LINE webhook の転送先。 1 行 1 件の JSON で書く "
-      + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/line/webhook\",\"host\":\"mf-hook.example.test\",\"enabled\":true})。 "
-      + "name は英小文字・数字・ハイフン、 url は http / https、 host は任意で転送時の Host ヘッダ。 保存すると再起動なしで効く。",
+    label: "LINE webhook サービス",
+    description: "POST /hooks/line/<channel> で受けた LINE webhook を振り分けるサービス。 1 行 1 件の JSON で書く "
+      + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/line/webhook\",\"host\":\"mf-hook.example.test\",\"enabled\":true,\"channel\":\"ludiars\",\"keywords\":[\"おてつだい\"]})。 "
+      + "name / channel は英小文字・数字・ハイフン (channel を省くと name と同じ)、 url は http / https、 host は任意で転送時の Host ヘッダ、 "
+      + "keywords は呼びかけの言葉 (任意)。 保存すると再起動なしで効く。",
     kind: "string-list", envName: null, dbKey: "services.line_webhook_targets",
     defaultValue: null, editable: true,
     validateItems: validateLineWebhookTargetEntries,

@@ -88,6 +88,9 @@ import { githubRouter, type GithubRouterDeps } from "./github.js";
 import { githubAdminRouter, type GithubAdminRouterDeps } from "./github-admin.js";
 import { lineWebhookAdminRouter } from "../line-webhook/admin-route.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
+import { MemoryLineTalkLinkStore, type LineTalkLinkStore } from "../line-webhook/talk-links.js";
+
+const LINE_WEBHOOK_TARGETS_KEY = "services.line_webhook_targets";
 import { discordChatRelayAdminRouter } from "../discord-chat-relay/admin-route.js";
 import { DISCORD_CHAT_RELAY_TARGETS_KEY } from "../discord-chat-relay/runtime.js";
 import { readDiscordChatRelayTargets } from "../discord-chat-relay/targets.js";
@@ -439,6 +442,8 @@ export interface CoreRuntimeDeps {
   /** CDGD マネジメント層 (spec/feature/cdgd-management.md)。 */
   management?: ManagementService;
   adminState: AdminState;
+  /** LINE の共用チャネルのトークごとの紐付け (spec/feature/line-webhook-relay.md)。 未注入ならメモリ。 */
+  lineTalkLinks?: LineTalkLinkStore;
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
   config: ConcordiaConfig;
@@ -727,16 +732,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       actors: github.actors,
     }));
   }
-  // LINE チャネルの秘密値 (spec/feature/line-webhook-relay.md §チャネルの秘密値)。 AdminState.store が暗号化する。
+  // LINE webhook の管理 API (spec/feature/line-webhook-relay.md §管理 API と設定画面)。 AdminState.store が暗号化する。
+  const readLineTargetsSetting = (): string | null => {
+    try {
+      return deps.adminState.store.get(LINE_WEBHOOK_TARGETS_KEY);
+    } catch {
+      return null;
+    }
+  };
   app.route("/v1/admin/line-webhook", lineWebhookAdminRouter({
-    targets: () => {
-      try {
-        return readLineWebhookTargets(deps.adminState.store.get("services.line_webhook_targets"));
-      } catch {
-        return [];
-      }
-    },
+    targets: () => readLineWebhookTargets(readLineTargetsSetting()),
     store: deps.adminState.store,
+    talkLinks: deps.lineTalkLinks ?? new MemoryLineTalkLinkStore(),
+    readTargetsSetting: readLineTargetsSetting,
+    writeTargetsSetting: (entries) => deps.adminState.store.set(LINE_WEBHOOK_TARGETS_KEY, JSON.stringify(entries)),
   }));
   // Discord チャット中継の中継トークン (spec/feature/discord-chat-relay.md §中継トークン)。 LINE と同じ置き場所・扱い。
   app.route("/v1/admin/discord-chat-relay", discordChatRelayAdminRouter({

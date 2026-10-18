@@ -912,16 +912,30 @@ export const api = {
     del<{ ok: boolean }>(
       `/v1/admin/github/webhook-secret${options.repo ? `?repo=${encodeURIComponent(options.repo)}` : ""}`,
     ),
-  /** @implements spec/feature/line-webhook-relay.md — チャネルの秘密値 */
-  lineWebhookTargets: () => get<{ targets: LineWebhookTargetSecrets[] }>("/v1/admin/line-webhook/targets"),
+  /** @implements spec/feature/line-webhook-relay.md — 管理 API と設定画面 */
+  lineWebhookChannels: () => get<{ channels: LineWebhookChannel[] }>("/v1/admin/line-webhook/channels"),
   /** 値は書き込むだけで、 応答は設定済みかどうかだけ。 */
-  lineWebhookSetSecret: (target: string, field: LineChannelSecretField, value: string) =>
+  lineWebhookSetChannelSecret: (channel: string, field: LineChannelSecretField, value: string) =>
     put<{ ok: boolean }>(
-      `/v1/admin/line-webhook/targets/${encodeURIComponent(target)}/secrets/${field}`,
+      `/v1/admin/line-webhook/channels/${encodeURIComponent(channel)}/secrets/${field}`,
       { value },
     ),
-  lineWebhookClearSecret: (target: string, field: LineChannelSecretField) =>
-    del<{ ok: boolean }>(`/v1/admin/line-webhook/targets/${encodeURIComponent(target)}/secrets/${field}`),
+  lineWebhookClearChannelSecret: (channel: string, field: LineChannelSecretField) =>
+    del<{ ok: boolean }>(`/v1/admin/line-webhook/channels/${encodeURIComponent(channel)}/secrets/${field}`),
+  lineWebhookServices: () => get<{ services: LineWebhookService[] }>("/v1/admin/line-webhook/services"),
+  lineWebhookSetRelayToken: (service: string, value: string) =>
+    put<{ ok: boolean }>(`/v1/admin/line-webhook/services/${encodeURIComponent(service)}/relay-token`, { value }),
+  lineWebhookClearRelayToken: (service: string) =>
+    del<{ ok: boolean }>(`/v1/admin/line-webhook/services/${encodeURIComponent(service)}/relay-token`),
+  lineWebhookSetKeywords: (service: string, keywords: string[]) =>
+    put<{ ok: boolean; keywords: string[] }>(
+      `/v1/admin/line-webhook/services/${encodeURIComponent(service)}/keywords`,
+      { keywords },
+    ),
+  lineWebhookLinks: () => get<{ links: LineTalkLink[] }>("/v1/admin/line-webhook/links"),
+  lineWebhookSetDefaultLink: (id: number) =>
+    put<{ ok: boolean }>(`/v1/admin/line-webhook/links/${id}/default`, {}),
+  lineWebhookRemoveLink: (id: number) => del<{ ok: boolean }>(`/v1/admin/line-webhook/links/${id}`),
   /** @implements spec/feature/discord-chat-relay.md — 中継トークン */
   discordChatRelayTargets: () =>
     get<{ targets: DiscordChatRelayTargetSecrets[] }>("/v1/admin/discord-chat-relay/targets"),
@@ -2144,15 +2158,36 @@ export interface BountyJudgementChange {
   reason: string;
 }
 
-export type LineChannelSecretField = "channel_secret" | "channel_access_token" | "relay_token";
+export type LineChannelSecretField = "channel_secret" | "channel_access_token";
 
-/** LINE webhook の target ごとの秘密値の状態。 値そのものは返らない。 */
-export interface LineWebhookTargetSecrets {
+/** LINE の共用チャネル。 秘密値は設定済みかどうかだけが返る。 */
+export interface LineWebhookChannel {
   name: string;
-  enabled: boolean;
+  /** `/hooks/line/<name>` (公開ホストの後ろに付ける経路)。 */
+  webhook_path: string;
+  services: string[];
   channel_secret_set: boolean;
   channel_access_token_set: boolean;
+}
+
+/** LINE webhook のサービス。 中継トークンは設定済みかどうかだけが返る。 */
+export interface LineWebhookService {
+  name: string;
+  channel: string;
+  enabled: boolean;
+  keywords: string[];
   relay_token_set: boolean;
+}
+
+/** トークごとの紐付け。 トーク ID は先頭数文字だけ。 */
+export interface LineTalkLink {
+  id: number;
+  channel: string;
+  talk_kind: "group" | "room" | "user" | "unknown";
+  talk_id_prefix: string;
+  service: string;
+  is_default: boolean;
+  linked_at: number;
 }
 
 /** Discord チャット中継の target ごとの状態。 中継トークンの値そのものは返らない。 */

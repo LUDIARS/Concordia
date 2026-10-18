@@ -109,7 +109,7 @@ const SECTIONS: SettingsSection[] = [
   {
     id: "line-webhook",
     label: "LINE / Discord 中継",
-    hint: "LINE のチャネルの秘密値と、 LINE・Discord の中継トークン (target ごと)",
+    hint: "LINE の共用チャネルの秘密値・サービスの中継トークンと呼びかけの言葉・トークごとの紐付けと、 Discord の中継トークン",
     render: () => (
       <div className="space-y-3">
         <section className="border border-border rounded p-4"><LineWebhookSecretsSection /></section>

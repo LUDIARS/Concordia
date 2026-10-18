@@ -1,6 +1,6 @@
 {
   "name": "line-webhook-relay",
-  "description": "LINE Messaging API の webhook を Cc の 1 か所で受け、設定に登録した転送先サービスへ本文のバイト列のまま転送する。Cc で唯一の未認証経路。署名検証はしない (channel secret はサービス側が正本)。将来 Conexus へ移す。",
+  "description": "LINE Messaging API の webhook を Cc の 1 か所で受け、チャネルシークレットで署名を検証し、共用チャネルのイベントをグループ + 呼びかけの言葉でサービスへ振り分けて中継トークン付きで転送し、サービスの返事を LINE へ返信する。Cc で唯一の未認証経路。将来 Conexus へ移す。",
   "presetRules": [],
   "templateRules": [],
   "membership": [

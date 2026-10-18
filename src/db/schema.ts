@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 142;
+export const SCHEMA_VERSION = 144;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3708,6 +3708,27 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         last_error      TEXT,
         cursor          TEXT
       );
+    `);
+  },
+},
+{
+  // 143 は並行中の notion-map が使うので飛ばす (migrator は欠番を許す)。
+  version: 144,
+  name: "line-talk-links",
+  source: "line_talk_links (spec/feature/line-webhook-relay.md トークごとの紐付け)",
+  up(db) {
+    // 共用 LINE チャネルのトーク (group / room / user) ごとに、 つながったサービスとふだんの相手。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS line_talk_links (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel    TEXT NOT NULL,
+        talk_id    TEXT NOT NULL,
+        service    TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+        linked_at  INTEGER NOT NULL,
+        UNIQUE(channel, talk_id, service)
+      );
+      CREATE INDEX IF NOT EXISTS idx_line_talk_links_talk ON line_talk_links(channel, talk_id);
     `);
   },
 },

@@ -84,6 +84,20 @@ export function RunHistory({ ruleId, onRuleIdChange }: { ruleId: string; onRuleI
           {detail.run.decision?.candidateCount !== undefined && (
             <p className="text-xs text-subtle">候補 {detail.run.decision.candidateCount} 件 · seed {detail.run.seed ?? "—"}</p>
           )}
+          {detail.run.decision?.knowledge && detail.run.decision.knowledge.length > 0 && (
+            <div className="text-xs" data-testid="run-knowledge">
+              <p>使った知識:</p>
+              <ul className="list-disc pl-5">
+                {detail.run.decision.knowledge.map((k, i) => (
+                  <li key={`${k.title}:${i}`}>
+                    {k.url ? <a className="underline" href={k.url} target="_blank" rel="noreferrer">{k.title}</a> : k.title}
+                    {k.path ? ` (${k.repo ?? ""} ${k.path})` : ""}
+                    {k.scope === "hq" ? " · 本社限定" : " · 公開"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {detail.run.rendered_text && <p>本文: {detail.run.rendered_text}</p>}
           <p className="text-xs">
             Cc への投稿: {detail.run.chat_message_id ? `#${detail.run.chat_message_id}` : "なし"} · 配達: {detail.run.delivery_ref ?? (detail.run.status === "delivery_unknown" ? "結果不明 (自動では再送しません)" : "未確認")}

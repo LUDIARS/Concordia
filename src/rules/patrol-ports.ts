@@ -12,6 +12,8 @@ import type { MaterialSourceRegistry } from "./material-registry.js";
 import type { SubsidiaryPatrolDefaults } from "./patrol-config.js";
 import type { RecentTopic } from "./patrol-topics.js";
 import type { RenderInput, RenderResult } from "./render-patrol.js";
+import type { KnowledgeQuery } from "./knowledge-select.js";
+import type { KnowledgeChunk } from "./knowledge-types.js";
 
 /** 巡回の bot 発言に付ける metadata.source。 自分の出力を素材・返信として再投入しない目印 (CC-PATROL-04)。 */
 export const PATROL_MESSAGE_SOURCE = "patrol";
@@ -77,6 +79,8 @@ export interface PatrolPorts {
   owners?: PatrolOwnersPort;
   /** 直近 3 日に話した内容 (投稿した素材の題・会話の話題キーワード)。 未配線なら減点しない。 */
   topicMemory?: (ruleId: string, nowSec: number) => RecentTopic[];
+  /** 知識の断片の選択 (spec/feature/patrol-chat.md「知識」)。 未配線なら知識なしで話す。 */
+  knowledge?: { select(query: KnowledgeQuery): KnowledgeChunk[] };
   rules: Pick<RulesRepo, "find" | "setNextDue" | "markAttempt" | "log">;
   runs: RuleRunsRepo;
   conversations: RuleConversationsRepo;

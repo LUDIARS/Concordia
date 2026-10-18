@@ -15,6 +15,8 @@ import { acceptInbound } from "./patrol-inbound.js";
 import { reconcileDeliveries, recoverStaleRuns } from "./patrol-maintenance.js";
 import { DELIVERY_UNKNOWN_AFTER_SEC, PATROL_LEASE_SEC, type PatrolPorts } from "./patrol-ports.js";
 import type { RenderInput, RenderResult } from "./render-patrol.js";
+import type { KnowledgeQuery } from "./knowledge-select.js";
+import type { KnowledgeChunk } from "./knowledge-types.js";
 
 const open: Database.Database[] = [];
 afterEach(() => { for (const db of open.splice(0)) db.close(); });
@@ -441,6 +443,44 @@ describe("patrol rules owned by a subsidiary", () => {
     const hhmm = (h: number) => `${String((h + 24) % 24).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     const h = owned({ quiet_hours: { start: hhmm(d.getHours() - 1), end: hhmm(d.getHours() + 1) } });
     expect(await h.tick()).toEqual({ kind: "idle", reason: "quiet hours (新規投稿しない時間帯)" });
+  });
+});
+
+describe("patrol knowledge (spec/feature/patrol-chat.md 知識)", () => {
+  const hqChunk: KnowledgeChunk = {
+    id: 1, source_kind: "notion", doc_type: "notion-page", doc_key: "notion:p1", seq: 0, title: "社内メモ",
+    url: "https://example.test/p1", repo: null, path: null, scope: "hq", body: "本社だけの話", source_updated_at: null, fetched_at: 1,
+  };
+  const publicChunk: KnowledgeChunk = {
+    ...hqChunk, id: 2, source_kind: "ludiars", doc_type: "readme", doc_key: "repo:Ex:README.md", title: "Examplia README",
+    url: null, repo: "Examplia", path: "README.md", scope: "public", body: "公開の説明",
+  };
+
+  it("passes selected knowledge to render and records its sources in the run", async () => {
+    const h = harness();
+    const select = vi.fn((q: KnowledgeQuery) => (q.allowHq ? [hqChunk, publicChunk] : [publicChunk]));
+    h.ports.knowledge = { select };
+    await h.tick();
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ allowHq: true }));
+    expect(h.render.mock.calls[0]![0].knowledge).toEqual([
+      { title: "社内メモ", body: "本社だけの話" }, { title: "Examplia README", body: "公開の説明" },
+    ]);
+    const [run] = h.runs.list({ rule_id: "patrol" }).runs;
+    const decision = JSON.parse(run!.decision!);
+    expect(decision.knowledge.map((k: { title: string; scope: string }) => [k.title, k.scope])).toEqual([["社内メモ", "hq"], ["Examplia README", "public"]]);
+    expect(JSON.stringify(decision)).not.toContain("本社だけの話");
+  });
+
+  it("never passes hq knowledge on a public route, even if the port returns it", async () => {
+    const h = harness();
+    h.rules.updateWithRevision("patrol", 1, {
+      action_config: JSON.stringify({ kind: "material-chat", source_ids: ["fake"], scope_key: "public", quiet_hours: null }),
+    });
+    const select = vi.fn(() => [hqChunk, publicChunk]);
+    h.ports.knowledge = { select };
+    await h.tick();
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ allowHq: false }));
+    expect(h.render.mock.calls[0]![0].knowledge).toEqual([{ title: "Examplia README", body: "公開の説明" }]);
   });
 });
 

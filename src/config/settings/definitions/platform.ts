@@ -89,6 +89,23 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "secret", envName: null, dbKey: "services.google_drive_service_account",
     defaultValue: null, editable: true,
   },
+  // 巡回チャットの知識 (spec/feature/patrol-chat.md「知識」)。 秘密は env から読まず DB + 設定画面の 1 系統。
+  {
+    key: "services.notion_token", section: "services",
+    label: "Notion 連携トークン (巡回チャットの知識)",
+    description: "Cc 用の Notion 連携 (internal integration) のトークン。 連携に共有したページを巡回チャットの知識として 1 日 1 回取り込む (本社限定)。 "
+      + "schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。 未設定なら Notion の取り込みだけ止まり、 前回の分は残る。",
+    kind: "secret", envName: null, dbKey: "services.notion_token",
+    defaultValue: null, editable: true,
+  },
+  {
+    key: "services.chat_knowledge_public_projects", section: "services",
+    label: "巡回チャットの知識で公開とするプロジェクト",
+    description: "1 行 1 件の略称かプロジェクト名。 ここに載せたプロジェクトの README・spec・マージの断片だけを子会社・公開の宛先でも使う。 "
+      + "載っていないもの (非公開・判断できないもの) と MELPOT 所属・Notion は本社の宛先だけで使う。",
+    kind: "string-list", envName: null, dbKey: "services.chat_knowledge_public_projects",
+    defaultValue: null, editable: true,
+  },
   // LINE webhook の転送先 (spec/feature/line-webhook-relay.md)。 秘密値ではない。 受け口が要求ごとに読む。
   {
     key: "services.line_webhook_targets", section: "services",

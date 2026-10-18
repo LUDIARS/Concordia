@@ -39,6 +39,47 @@ function withCharacterDecision(decision: string, characterId: string | null): st
   }
 }
 
+/** run.decision に生成へ入れた知識の出典を足す (本文は残さない)。 /rules の実行履歴で見える。 */
+function withKnowledgeDecision(decision: string | null, refs: KnowledgeSourceRef[]): string | null {
+  if (refs.length === 0) return decision;
+  try {
+    return JSON.stringify({ ...(JSON.parse(decision ?? "{}") as Record<string, unknown>), knowledge: refs });
+  } catch {
+    return decision;
+  }
+}
+
+/**
+ * 生成に入れる知識を選ぶ。 本社の宛先だけが hq の断片を使える (CC-PATROL-05)。
+ * port が返したものも宛先で絞り直す (選択側の取りこぼしで本社限定の断片を外へ出さない)。
+ */
+function knowledgeFor(
+  ctx: RunContext,
+  render: { material: RenderMaterial | null; replies: string[]; previousBotText: string | null },
+): KnowledgeChunk[] {
+  if (!ctx.ports.knowledge) return [];
+  const allowHq = allowsHqKnowledge({
+    subsidiaryId: ctx.rule.subsidiary_id ?? null,
+    scopeKey: ctx.config.scope_key,
+    discordChannelId: ctx.config.discord_channel_id,
+  });
+  const texts = [
+    render.material?.title ?? "", render.material?.excerpt ?? "", render.previousBotText ?? "", ...render.replies,
+  ].filter((t) => t.trim());
+  try {
+    return ctx.ports.knowledge.select({ texts, allowHq }).filter((c) => allowHq || c.scope === "public");
+  } catch {
+    // 知識が読めなくても会話は止めない (材料が無いだけ)
+    return [];
+  }
+}
+
+function knowledgeRefs(chunks: KnowledgeChunk[]): KnowledgeSourceRef[] {
+  return chunks.map((c) => ({
+    source_kind: c.source_kind, doc_type: c.doc_type, title: c.title, url: c.url, repo: c.repo, path: c.path, scope: c.scope,
+  }));
+}
+
 function characterOfDecision(decision: string | null): string | null {
   try {
     const id = (JSON.parse(decision ?? "{}") as { character?: unknown }).character;
@@ -48,6 +89,8 @@ function characterOfDecision(decision: string | null): string | null {
   }
 }
 import type { RenderKind, RenderMaterial } from "./render-patrol.js";
+import { allowsHqKnowledge } from "./knowledge-scope.js";
+import type { KnowledgeChunk, KnowledgeSourceRef } from "./knowledge-types.js";
 
 export type ExecuteOutcome =
   | { status: "posted"; runId: string; chatMessageId: number }
@@ -115,6 +158,8 @@ async function renderAndCommit(
   if (!ports.runs.transition(run.run_id, ports.leaseOwner, ["claimed", "material_selected"], "rendering", { render_attempts_inc: 1 }, nowSecOf(ports))) {
     return { ok: false, outcome: { status: "skipped", runId: run.run_id, reason: "lease lost before render" } };
   }
+  const knowledge = knowledgeFor(ctx, render);
+  const refs = knowledgeRefs(knowledge);
   const result = await ports.render({
     mode: ctx.config.renderer,
     kind: render.kind,
@@ -127,18 +172,23 @@ async function renderAndCommit(
     persona: render.persona,
     personaHint: ctx.config.persona_hint,
     character: render.character ?? null,
+    ...(knowledge.length ? { knowledge: knowledge.map((c) => ({ title: c.title, body: c.body })) } : {}),
   });
   if (!result.ok) {
+    const failedDecision = withKnowledgeDecision(ports.runs.find(run.run_id)?.decision ?? null, refs);
     ports.runs.transition(run.run_id, ports.leaseOwner, ["rendering"], "failed",
-      { reason: result.error, error_code: "render_failed", llm_calls_inc: result.llmCalls }, nowSecOf(ports));
+      {
+        reason: result.error, error_code: "render_failed", llm_calls_inc: result.llmCalls,
+        ...(failedDecision !== null && refs.length ? { decision: failedDecision } : {}),
+      }, nowSecOf(ports));
     ports.rules.log({ rule_id: ctx.rule.id, action: "error", actor: "engine", detail: `${run.action_kind}: ${result.error}` });
     return { ok: false, outcome: { status: "failed", runId: run.run_id, reason: result.error } };
   }
   // 名乗りは本文と一緒に run へ保存し、 復旧で投稿を確定するときも同じ名前で出す
-  const decision = withCharacterDecision(
+  const decision = withKnowledgeDecision(withCharacterDecision(
     withPersonaDecision(ports.runs.find(run.run_id)?.decision ?? null, result.persona),
     render.character?.id ?? null,
-  );
+  ), refs) ?? undefined;
   if (!ports.runs.transition(run.run_id, ports.leaseOwner, ["rendering"], "rendered",
     { rendered_text: result.text, decision, llm_calls_inc: result.llmCalls }, nowSecOf(ports))) {
     return { ok: false, outcome: { status: "skipped", runId: run.run_id, reason: "lease lost after render" } };

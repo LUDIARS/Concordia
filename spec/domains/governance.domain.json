@@ -65,7 +65,7 @@
       "pathPattern": "(^|/)tests/departments-[^/]+\\.test\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/db/rule-(runs|conversations|versions|service-events)-repo(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/db/(rule-(runs|conversations|versions|service-events)|chat-knowledge)-repo(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/api/rules(-patrol)?(\\.test)?\\.ts$"

@@ -24,6 +24,8 @@ import { validateRuleDefinition } from "../rules/rule-validation.js";
 import type { SubsidiaryPatrolDefaults } from "../rules/patrol-config.js";
 import type { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import { eventBus } from "../events.js";
+import type { KnowledgeIngest } from "../rules/knowledge-ingest.js";
+import { KNOWLEDGE_SOURCE_KINDS, type KnowledgeSourceKind } from "../rules/knowledge-types.js";
 
 export interface PatrolApiDeps {
   runs: RuleRunsRepo;
@@ -32,7 +34,13 @@ export interface PatrolApiDeps {
   sources: MaterialSourceRegistry;
   /** 学習の断片と run (未配線なら /:id/learning は空)。 */
   learning?: Pick<PatrolLearningRepo, "listRuns" | "recentFragments" | "sourcesForRun">;
+  /** 知識の取り込み (未配線なら /knowledge は 503)。 */
+  knowledge?: Pick<KnowledgeIngest, "status" | "refresh"> | null;
 }
+
+const KnowledgeRefreshSchema = z.object({
+  kinds: z.array(z.enum(KNOWLEDGE_SOURCE_KINDS as [KnowledgeSourceKind, ...KnowledgeSourceKind[]])).min(1).optional(),
+}).strict();
 
 const RUN_STATUSES: readonly RunStatus[] = [
   "claimed", "material_selected", "rendering", "rendered", "delivery_pending",
@@ -80,6 +88,22 @@ export function registerPatrolRoutes(
   },
 ): void {
   app.get("/sources", (c) => c.json({ sources: deps.sources.statuses() }));
+
+  // 知識の取り込み状態 (種類ごとの件数・最終取得・失敗理由) と手動の取り直し。 秘密値は返さない。
+  app.get("/knowledge", (c) => {
+    if (!deps.knowledge) return c.json({ error: "knowledge_unavailable" }, 503);
+    return c.json({ sources: deps.knowledge.status() });
+  });
+
+  app.post("/knowledge/refresh", async (c) => {
+    if (!deps.knowledge) return c.json({ error: "knowledge_unavailable" }, 503);
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = KnowledgeRefreshSchema.safeParse(body ?? {});
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    // Notion はページ数しだいで数分かかる (3 req/s)。 受け付けて裏で回し、 画面は状態を読み直す
+    void deps.knowledge.refresh(parsed.data.kinds).catch(() => undefined);
+    return c.json({ accepted: true, sources: deps.knowledge.status() }, 202);
+  });
 
   app.post("/preview", async (c) => {
     const body = await c.req.json().catch(() => null);

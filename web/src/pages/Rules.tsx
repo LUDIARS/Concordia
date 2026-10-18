@@ -4,6 +4,7 @@ import { RuleList } from "./rules/RuleList.js";
 import { RunHistory } from "./rules/RunHistory.js";
 import { fmtSec, rulesApi, type RuleView, type SourceView, type SubsidiaryOption } from "./rules/rules-api.js";
 import { SubsidiaryDefaults } from "./rules/SubsidiaryDefaults.js";
+import { KnowledgePanel } from "./rules/KnowledgePanel.js";
 
 // ルールと巡回チャット (spec/feature/patrol-chat.md §9)。 上部にエンジンの ON/OFF と素材元の状態、
 // 下に「ルール」と「実行履歴」。 候補不足・認証不足を保存成功と混同しないよう、 素材元の状態を常に出す。
@@ -75,9 +76,10 @@ export function Rules() {
             </div>
           </div>
         ))}
+        <KnowledgePanel />
       </section>
 
-      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+      {error &&<p className="text-sm text-red-600" role="alert">{error}</p>}
 
       <nav className="flex gap-2 text-sm" role="tablist">
         <button type="button" role="tab" aria-selected={tab === "rules"} className={`px-3 py-1 rounded ${tab === "rules" ? "bg-accent text-white" : "border border-border"}`} onClick={() => setTab("rules")}>ルール</button>

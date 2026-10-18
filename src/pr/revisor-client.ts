@@ -146,6 +146,21 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
   }
 
   /**
+   * マージ済みの local PR (巡回チャットの知識、 spec/feature/patrol-chat.md「知識」)。
+   * 決着時刻は updatedAt で代える (Revisor の一覧にマージ時刻の列は無い)。 sinceMs より前は返さない。
+   */
+  async listMergedLocalPrsSince(sinceMs: number): Promise<Array<{ repository: string; title: string; mergedAtMs: number }>> {
+    const port = await this.resolvePort();
+    const rows = (await this.fetchListing(port, "?state=merged", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr);
+    return rows.flatMap((pr) => {
+      const at = Date.parse(pr.updatedAt);
+      return pr.status === "merged" && Number.isFinite(at) && at >= sinceMs
+        ? [{ repository: pr.repository, title: pr.title, mergedAtMs: at }]
+        : [];
+    });
+  }
+
+  /**
    * open の詳細一覧 → 同じリポジトリの直近の決着済み (単一取得) の順で探す
    * (`revisor-branch-lookup.ts`)。 全件の詳細一覧は読まない。
    */

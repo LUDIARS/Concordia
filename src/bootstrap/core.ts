@@ -15,7 +15,7 @@ import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { readWebSsoConfig } from "../web-sso/config.js";
 import { createWebSsoGate } from "../web-sso/http-gate.js";
-import { basename, dirname, join, normalize, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { UsageBudgetsRepo } from "../db/usage-budgets-repo.js";
 import { UsageBudgetTracker } from "../cost/usage-budget-tracker.js";
@@ -212,6 +212,8 @@ import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { buildPatrolRuntime } from "../rules/patrol-runtime.js";
+import { KNOWLEDGE_TICK_MS, buildKnowledgeRuntime, parseStringListSetting } from "../rules/knowledge-runtime.js";
+import { loadConfidentialTerms } from "../consultation/confidential-terms.js";
 import { makeExternalChannelPoster } from "../rules/patrol-external-delivery.js";
 import { parseSubsidiaryDefaults } from "../rules/patrol-config.js";
 import { SubsidiaryPatrolDefaultsRepo } from "../db/subsidiary-patrol-defaults-repo.js";
@@ -696,10 +698,32 @@ export async function startBackend(): Promise<BackendHandle> {
   // 巡回チャットの子会社ごとの既定値 (spec/plan/2026-10-15-patrol-subsidiary-rules-design.md §2)。
   const subsidiaryPatrolDefaults = new SubsidiaryPatrolDefaultsRepo(db);
   // 巡回チャット (spec/feature/patrol-chat.md)。 Tendentia の接続先は Excubitor topology が配る TENDENTIA_URL。
+  // 巡回チャットの知識 (spec/feature/patrol-chat.md「知識」)。 LUDIARS 内部・Revisor・Notion を定期的に取り込んで DB に置く。
+  // projectCodesRepo / adminState / readMetaSetting / revisorClient は下で組み立てるので、 呼び出し時に解決する。
+  const chatKnowledge = buildKnowledgeRuntime({
+    db,
+    projects: () => projectCodesRepo.list().map((row) => ({
+      code: row.code,
+      project: row.project,
+      repoOrigin: row.repo_origin,
+      repoPath: isAbsolute(row.repo_path) ? row.repo_path : join(adminState.getWorkspaceRoot() || process.cwd(), row.repo_path),
+    })),
+    publicProjects: () => parseStringListSetting(readMetaSetting("services.chat_knowledge_public_projects")),
+    notionToken: () => readMetaSetting("services.notion_token"),
+    mergedPrs: (sinceMs) => revisorClient.listMergedLocalPrsSince(sinceMs),
+    confidentialTerms: () => loadConfidentialTerms(process.env.CONCORDIA_CONFIDENTIAL_TERMS_FILE?.trim()
+      || join(adminState.getWorkspaceRoot() || process.cwd(), ".claude", "state", "confidential-terms.json")),
+    log: { warn: (m) => log.warn(m) },
+  });
+  const chatKnowledgeTimer = setInterval(() => {
+    void chatKnowledge.ingest.tick().catch((err: unknown) => log.warn({ err }, "chat knowledge tick failed"));
+  }, KNOWLEDGE_TICK_MS);
+  chatKnowledgeTimer.unref?.();
   const patrolRuntime = buildPatrolRuntime({
     db,
     chat,
     rules,
+    knowledge: chatKnowledge,
     tendentiaUrl: process.env.TENDENTIA_URL?.trim() || null,
     // 学習の記録は Memoria の日記にも載せる (閲覧用の写し。 正本は Cc)。
     learningJournal: createMemoriaJournalHttp({ baseUrl: memoriaBaseUrl() }),

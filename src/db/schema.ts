@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 141;
+export const SCHEMA_VERSION = 142;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3672,6 +3672,41 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         revision       INTEGER,
         created_at     INTEGER NOT NULL,
         UNIQUE(rule_id, day)
+      );
+    `);
+  },
+},
+{
+  version: 142,
+  name: "chat-knowledge",
+  source: "chat_knowledge_chunks + chat_knowledge_sources (spec/feature/patrol-chat.md 知識)",
+  up(db) {
+    // 巡回チャットが話すときの知識。 断片ごとに出典と公開範囲 (hq / public) を持つ。 取り込みは出典の種類ごとに状態を持つ。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_knowledge_chunks (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_kind       TEXT NOT NULL,
+        doc_type          TEXT NOT NULL,
+        doc_key           TEXT NOT NULL,
+        seq               INTEGER NOT NULL,
+        title             TEXT NOT NULL,
+        url               TEXT,
+        repo              TEXT,
+        path              TEXT,
+        scope             TEXT NOT NULL CHECK (scope IN ('hq', 'public')),
+        body              TEXT NOT NULL,
+        source_updated_at INTEGER,
+        fetched_at        INTEGER NOT NULL,
+        UNIQUE(doc_key, seq)
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_knowledge_chunks_source ON chat_knowledge_chunks(source_kind, doc_key);
+
+      CREATE TABLE IF NOT EXISTS chat_knowledge_sources (
+        source_kind     TEXT PRIMARY KEY,
+        last_attempt_at INTEGER,
+        last_success_at INTEGER,
+        last_error      TEXT,
+        cursor          TEXT
       );
     `);
   },

@@ -30,6 +30,8 @@ import { TENDENTIA_SOURCE_ID, makeTendentiaSource } from "./material-tendentia.j
 import { PATROL_AUTHOR_LABEL, dayStartSec, type PatrolOwnersPort, type PatrolPorts } from "./patrol-ports.js";
 import type { ExternalChannelPoster } from "./patrol-external-delivery.js";
 import { renderPatrol } from "./render-patrol.js";
+import type { KnowledgeIngest } from "./knowledge-ingest.js";
+import type { KnowledgeRuntime } from "./knowledge-runtime.js";
 
 export const CORPUS_ACTIVITY_SOURCE_ID = "corpus-activity";
 
@@ -46,6 +48,8 @@ export interface PatrolRuntime {
     events: RuleServiceEventsRepo;
     sources: MaterialSourceRegistry;
     learning: PatrolLearningRepo;
+    /** 知識の取り込み状態と手動の取り直し。 未配線なら null。 */
+    knowledge: KnowledgeIngest | null;
   };
 }
 
@@ -153,6 +157,8 @@ export function buildPatrolRuntime(deps: {
   ownerGuild?: (subsidiaryId: string | null) => string | null;
   /** 学習の記録を載せる Memoria の日記。 未注入なら載せない。 */
   learningJournal?: Pick<MemoriaJournalPort, "putDiarySection"> | null;
+  /** 知識 (LUDIARS 内部・Notion の断片)。 未注入なら知識なしで話す。 */
+  knowledge?: KnowledgeRuntime | null;
 }): PatrolRuntime {
   const runs = new RuleRunsRepo(deps.db);
   const conversations = new RuleConversationsRepo(deps.db);
@@ -164,6 +170,7 @@ export function buildPatrolRuntime(deps: {
   const learningRepo = new PatrolLearningRepo(deps.db);
   const ports: Omit<PatrolPorts, "runtimeDisabled"> = {
     ...(deps.owners ? { owners: deps.owners } : {}),
+    ...(deps.knowledge ? { knowledge: { select: (query) => deps.knowledge!.select(query) } } : {}),
     // 直近 3 日に話した内容: 投稿した素材の題と、 会話の断片の話題キーワード。 何日前かはローカル日付で数える。
     topicMemory: (ruleId, nowSec) => {
       const since = dayStartSec(nowSec) - 2 * 86400;
@@ -256,5 +263,8 @@ export function buildPatrolRuntime(deps: {
     const rule = ruleForChannel(discordChannelId);
     return rule ? resolveChannelFor(rule) : null;
   };
-  return { ports, versions, learning, channelFor, api: { runs, conversations, events, sources, learning: learningRepo } };
+  return {
+    ports, versions, learning, channelFor,
+    api: { runs, conversations, events, sources, learning: learningRepo, knowledge: deps.knowledge?.ingest ?? null },
+  };
 }

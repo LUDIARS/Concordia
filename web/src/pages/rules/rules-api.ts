@@ -103,6 +103,29 @@ export interface SourceView {
   lastError: string | null;
 }
 
+export type KnowledgeSourceKind = "ludiars" | "revisor" | "notion";
+
+export interface KnowledgeRefView {
+  source_kind: KnowledgeSourceKind;
+  doc_type: string;
+  title: string;
+  url: string | null;
+  repo: string | null;
+  path: string | null;
+  scope: "hq" | "public";
+}
+
+/** 知識の取り込み状態 (種類ごと)。 */
+export interface KnowledgeSourceView {
+  kind: KnowledgeSourceKind;
+  configured: boolean;
+  last_attempt_at: number | null;
+  last_success_at: number | null;
+  last_error: string | null;
+  running: boolean;
+  counts: Array<{ doc_type: string; scope: "hq" | "public"; docs: number; chunks: number }>;
+}
+
 export interface RunView {
   run_id: string;
   rule_id: string;
@@ -115,7 +138,13 @@ export interface RunView {
   source_ref: string | null;
   material: { title?: string; excerpt?: string; url?: string; serviceCode?: string } | null;
   seed: number | null;
-  decision: { candidateCount?: number; scored?: Array<{ itemId: string; score: number }>; sourceErrors?: string[] } | null;
+  decision: {
+    candidateCount?: number;
+    scored?: Array<{ itemId: string; score: number }>;
+    sourceErrors?: string[];
+    /** 生成に入れた知識の出典 (本文は残さない)。 */
+    knowledge?: KnowledgeRefView[];
+  } | null;
   reason: string | null;
   status: string;
   render_attempts: number;
@@ -217,6 +246,9 @@ export const rulesApi = {
   setPatrolDefaults: (id: string, defaults: PatrolDefaults) =>
     call<{ defaults: PatrolDefaults }>("PUT", `/v1/subsidiaries/${encodeURIComponent(id)}/patrol-defaults`, { actor: "web", defaults }),
   sources: () => call<{ sources: SourceView[] }>("GET", "/v1/rules/sources"),
+  knowledge: () => call<{ sources: KnowledgeSourceView[] }>("GET", "/v1/rules/knowledge"),
+  refreshKnowledge: (kinds?: KnowledgeSourceKind[]) =>
+    call<{ accepted: boolean; sources: KnowledgeSourceView[] }>("POST", "/v1/rules/knowledge/refresh", kinds ? { kinds } : {}),
   engineEnabled: () => call<{ enabled: boolean }>("GET", "/v1/admin/rules-enabled"),
   setEngineEnabled: (enabled: boolean) => call<{ enabled: boolean }>("PUT", "/v1/admin/rules-enabled", { enabled }),
   create: (rule: Record<string, unknown>) => call<{ rule: RuleView }>("PUT", "/v1/rules", rule),

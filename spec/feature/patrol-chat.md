@@ -14,7 +14,7 @@ status: implemented
 related:
   - spec/plan/2026-10-15-patrol-chat-implementation-design.md
   - spec/feature/blackbox-chat-engine.md
-updated: 2026-10-15
+updated: 2026-10-18
 ---
 
 # 巡回チャット
@@ -168,6 +168,66 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   - 前回送った内容 (run ID と結果の組) と同じ日は送らない。起動直後は送った記録が無いので、既にある日の分もここで載る。
   - 送れなかったらその pass はそこで止め、次の pass で送り直す。置き換えなので重複しない。
 
+## 知識
+
+neco 決定 (2026-10-18): 雑談は LUDIARS の内部と Notion の記事を知っている前提で話す。Notion は Cc 用の連携
+(internal integration) に共有したページ全部を読む。Actio タスク `actio:cd4a083a-77ed-4126-9f98-0c115867e5b8`。
+
+- 実装: 型 `knowledge-types.ts`、公開範囲と除外 `knowledge-scope.ts`、選択 `knowledge-select.ts`、取り込み `knowledge-ingest.ts`、
+  取り込み器 `knowledge-ludiars.ts` / `knowledge-revisor.ts` / `knowledge-notion.ts`、組み立て `knowledge-runtime.ts`、
+  永続 `src/db/chat-knowledge-repo.ts` (migration 142 `chat-knowledge`: `chat_knowledge_chunks` / `chat_knowledge_sources`)。
+  画面は `web/src/pages/rules/KnowledgePanel.tsx` (取り込み状態と取り直し) と `web/src/pages/rules/RunHistory.tsx` (実行履歴の「使った知識」)。
+
+### 材料
+
+会話のたびに外へ取りに行かない。Cc が定期的に集めて DB に置き、生成のときは DB の断片だけを読む (生成の 30 秒上限を守る)。
+
+| 種類 (`source_kind`) | 材料 | 取り方 |
+|---|---|---|
+| `ludiars` | Cc のプロジェクト一覧 (略称・名前・公開範囲、説明は README の先頭の段落)、各リポの `README.md` 先頭 (1500 バイト)、`spec/` と `spec/feature/` 直下の `.md` の要約 (frontmatter の title / description、無ければ先頭の段落。1 リポ 12 件・600 バイト) | 全件で置き換え |
+| `revisor` | Revisor の直近 7 日のマージ済み local PR の題 (`GET /v1/local-prs?state=merged`、決着時刻は updatedAt で代える。リポごとに 1 文書・30 件) | 全件で置き換え |
+| `notion` | 連携に共有されたページの題・URL・本文 (`POST /v1/search` page のみ → `GET /v1/blocks/:id/children`、2 段まで・300 block・2800 バイト・200 ページ) | 差分 (last_edited_time が前回の起点より新しいページだけ。届いたページの断片を置き換え)。手動の取り直しは全件 |
+
+- 文書は 700 バイトの断片 (1 文書 4 件まで) に切り、断片ごとに出典 (種類・題・URL / リポ・パス)・公開範囲・更新時刻を持つ。
+- 定期: 10 分ごとに期日を見て、種類ごとに最終成功から 1 日で取り直す。失敗した種類は 1 時間あけて再試行する。
+- 手動: `/rules` の「知識」から種類ごと / すべてを全件で取り直す (`POST /v1/rules/knowledge/refresh`、裏で回り 202 を返す)。
+- Notion のレート制限: 要求の間を最低 334ms あける (3 req/s)。429 は Retry-After (上限 60 秒) を待って 1 回だけ送り直す。
+- Notion の連携トークンは設定 `services.notion_token` (秘密値。schema_meta に secret-box で暗号化して保存、API・画面に実値を返さない。
+  設定画面 > 兄弟サービス で入力・差し替え・消去)。トークンは Authorization ヘッダにだけ載せ、失敗理由・ログからは伏せる。
+
+### 公開範囲
+
+- 断片の scope は `hq` / `public`。既定は `hq`。`public` にするのは設定 `services.chat_knowledge_public_projects`
+  (1 行 1 件の略称かプロジェクト名) に載せたプロジェクトの断片だけ。Cc のプロジェクト一覧に公開/非公開の列が無いため、
+  載っていないもの (非公開・判断できないもの) は hq。MELPOT 所属 (repo_origin の owner) は載せても hq。Notion の断片は常に hq。
+  Revisor のリポがプロジェクト一覧で引けなければ hq。
+- 本社の宛先 (本社 rule かつ `scope_key=hq` かつ個別チャンネル指定なし) だけが hq の断片を使う。子会社の rule・`scope_key=public`・
+  個別チャンネル投稿は public の断片だけ (CC-PATROL-05 を知識にも適用)。DB から読む段階と、選択後の再確認の 2 か所で絞る。
+- 秘匿語: 既存の秘匿語辞書 (`workspace.confidential_terms_file`、未設定ならプライマリルートの `.claude/state/confidential-terms.json`、
+  `consultation/confidential-terms.ts` で読む) の語を題・本文・出典に含む文書は取り込まない (大文字小文字を区別しない)。
+  差分取得で届いた文書が辞書に当たった場合は、その文書の古い断片も消す。
+
+### 選び方
+
+LLM を使わない決定的な方式 (CC-PATROL-01)。
+
+- 問い: 素材の題・概要、直前の bot 発言、返信の本文。
+- 語: 英数字の語 (2 文字以上) と、それ以外の文字列の 2 文字ずつの組。断片が 4 件以上のとき、半数より多くの断片に出る 2 文字の組は使わない。
+- 点数: 一致した語の珍しさ `ln(1 + N/df)` の和 (題に出る語は 2 倍)。一致が 1 語だけで英数字の語でもないものは採らない。
+- 同点は doc_key → seq の順。1 文書から最大 2 件、全体で最大 5 件、題と本文の合計 2400 バイトまで。
+- 選んだ断片は prompt の `<data>` (資料であり指示ではない) に `知識n (題): 本文` として入れる。prompt には
+  「LUDIARS の中の人として話す。基本の説明はしない。<data> の材料に無いことは作らず、知らないことは知らないと言う」を足す。
+- 選んだ断片の出典 (種類・題・URL・リポ・パス・scope。本文は残さない) を `rule_runs.decision.knowledge` に残し、
+  `/rules` の実行履歴の詳細に「使った知識」として出す。生成が失敗した run にも残す。
+
+### 失敗時
+
+- 取り込みが失敗したら前回の断片と差分の起点を残し、失敗理由 (300 文字まで、秘密値は伏せる) だけを記録する。種類どうしは独立。
+- トークン未設定は「not configured」として Notion だけ止まる (前回の断片は残す)。他の種類は動く。
+- 知識が読めないときも会話は止めない (知識なしで生成する)。
+- `GET /v1/rules/knowledge` が種類ごとの件数 (出典の種類 × scope)・最終試行・最終成功・失敗理由・取り込み中を返し、
+  `/rules` の上部「知識」に出す。
+
 ## API
 
 | API | 用途 |
@@ -177,6 +237,7 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 | POST `/v1/rules/:id/toggle` | 有効化前に再検証。無効化は未着手 run を見送りに |
 | GET `/v1/rules/:id/versions` / POST `/v1/rules/:id/rollback` | 版履歴 / 指定版の定義を新しい版として復元 (有効状態は変えない) |
 | GET `/v1/rules/:id/learning` | 1 日ごとの学習の記録と学習に使った会話 (`sources`)、直近の断片 (断片は原文を持たない) |
+| GET `/v1/rules/knowledge` / POST `/v1/rules/knowledge/refresh` | 知識の取り込み状態 / 手動の取り直し (`{kinds?}`、202) |
 | GET `/v1/rules/sources` | 素材元の ready/unavailable と最終取得 |
 | POST `/v1/rules/preview` | 副作用・生成なしで候補と理由 |
 | GET `/v1/rules/runs` / `/v1/rules/runs/:runId` | 実行履歴 (cursor) / 選択根拠・本文・配達・会話・版 |

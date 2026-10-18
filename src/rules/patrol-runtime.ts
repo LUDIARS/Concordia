@@ -31,7 +31,8 @@ import { PATROL_AUTHOR_LABEL, dayStartSec, type PatrolOwnersPort, type PatrolPor
 import type { ExternalChannelPoster } from "./patrol-external-delivery.js";
 import { renderPatrol } from "./render-patrol.js";
 import type { KnowledgeIngest } from "./knowledge-ingest.js";
-import type { KnowledgeRuntime } from "./knowledge-runtime.js";
+import type { KnowledgeRuntime, NotionRootStatus } from "./knowledge-runtime.js";
+import type { KnowledgeQuery } from "./knowledge-select.js";
 
 export const CORPUS_ACTIVITY_SOURCE_ID = "corpus-activity";
 
@@ -50,6 +51,8 @@ export interface PatrolRuntime {
     learning: PatrolLearningRepo;
     /** 知識の取り込み状態と手動の取り直し。 未配線なら null。 */
     knowledge: KnowledgeIngest | null;
+    /** Notion 記事マップの起点ごとの状態。 未配線なら null。 */
+    notionRoots: (() => NotionRootStatus[]) | null;
   };
 }
 
@@ -242,6 +245,7 @@ export function buildPatrolRuntime(deps: {
     repo: learningRepo,
     run: () => runLearningPass({
       journal,
+      ...(deps.knowledge ? { knowledge: { select: (query: KnowledgeQuery) => deps.knowledge!.select(query) } } : {}),
       repo: learningRepo,
       rules: deps.rules,
       versions,
@@ -265,6 +269,10 @@ export function buildPatrolRuntime(deps: {
   };
   return {
     ports, versions, learning, channelFor,
-    api: { runs, conversations, events, sources, learning: learningRepo, knowledge: deps.knowledge?.ingest ?? null },
+    api: {
+      runs, conversations, events, sources, learning: learningRepo,
+      knowledge: deps.knowledge?.ingest ?? null,
+      notionRoots: deps.knowledge ? () => deps.knowledge!.notionRoots() : null,
+    },
   };
 }

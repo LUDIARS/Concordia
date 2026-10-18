@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatKnowledgeRepo } from "../db/chat-knowledge-repo.js";
 import { applyMigrations } from "../db/schema.js";
-import { KNOWLEDGE_REFRESH_SEC, createKnowledgeIngest, redactReason } from "./knowledge-ingest.js";
+import { KNOWLEDGE_REFRESH_SEC, KNOWLEDGE_REFRESH_SEC_BY_KIND, createKnowledgeIngest, redactReason } from "./knowledge-ingest.js";
 import type { KnowledgeCollector, KnowledgeDoc } from "./knowledge-types.js";
 
 const open: Database.Database[] = [];
@@ -46,11 +46,33 @@ describe("knowledge ingest", () => {
       .mockResolvedValueOnce({ docs: [doc("notion:b", "b2")], full: false, cursor: "c2" });
     const h = harness({ notion: collector });
     await h.ingest.tick();
-    h.clock.ms += (KNOWLEDGE_REFRESH_SEC + 1) * 1000;
+    h.clock.ms += (KNOWLEDGE_REFRESH_SEC_BY_KIND.notion + 1) * 1000;
     await h.ingest.tick();
     expect(collector.mock.calls[1]![0]).toEqual({ cursor: "c1", full: false });
     expect(h.repo.list({ publicOnly: false }).map((c) => c.body)).toEqual(["a1", "b2"]);
     expect(h.repo.source("notion")?.cursor).toBe("c2");
+  });
+
+  it("refreshes the Notion map weekly and the others daily", async () => {
+    const notion = vi.fn<KnowledgeCollector>(async () => ({ docs: [doc("notion:a", "a")], full: false, cursor: null }));
+    const ludiars = vi.fn<KnowledgeCollector>(async () => ({ docs: [doc("project:Ex", "p", "public")], full: true, cursor: null }));
+    const h = harness({ notion, ludiars });
+    await h.ingest.tick();
+    h.clock.ms += (KNOWLEDGE_REFRESH_SEC + 1) * 1000;
+    await h.ingest.tick();
+    expect(ludiars).toHaveBeenCalledTimes(2);
+    expect(notion).toHaveBeenCalledTimes(1);
+    expect(KNOWLEDGE_REFRESH_SEC_BY_KIND.notion).toBe(7 * KNOWLEDGE_REFRESH_SEC);
+  });
+
+  it("drops documents that are no longer in the retained set (pages that left the Notion map)", async () => {
+    const collector = vi.fn<KnowledgeCollector>()
+      .mockResolvedValueOnce({ docs: [doc("notion:a", "a1"), doc("notion:b", "b1")], full: false, cursor: null })
+      .mockResolvedValueOnce({ docs: [], full: false, cursor: null, retainDocKeys: ["notion:b"] });
+    const h = harness({ notion: collector });
+    await h.ingest.refresh(["notion"]);
+    await h.ingest.refresh(["notion"]);
+    expect(h.repo.list({ publicOnly: false }).map((c) => c.doc_key)).toEqual(["notion:b"]);
   });
 
   it("keeps the previous chunks and records the reason when a refresh fails", async () => {

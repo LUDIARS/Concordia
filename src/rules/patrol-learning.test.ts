@@ -6,6 +6,7 @@ import {
   buildLearningPrompt,
   digestFragments,
   isLearningHour,
+  learningKnowledgeRefs,
   localDay,
   parseLearningProposal,
   parseMessageSignal,
@@ -46,6 +47,34 @@ describe("daily digest", () => {
       avgReactors: 1.5, avgReplies: 1, quietConversations: 1,
     });
     expect(buildLearningPrompt(d, current)).toContain("<data>");
+  });
+
+  it("collects the trend titles of conversations that got reactions", () => {
+    const d = digestFragments([
+      { kind: "conversation", signal: { replies: 1, followups: 0, reactors: 0, fine: 0, bad: 0, title: "例の新作ゲーム" } },
+      { kind: "conversation", signal: { replies: 0, followups: 0, reactors: 0, fine: 0, bad: 0, title: "反応の無い話題" } },
+      { kind: "conversation", signal: { replies: 0, followups: 0, reactors: 2, fine: 2, bad: 0, title: "例の新作ゲーム" } },
+    ]);
+    expect(d.engagedTopics).toEqual(["例の新作ゲーム"]);
+  });
+});
+
+describe("related knowledge in learning", () => {
+  it("puts related knowledge into the prompt data only when given", () => {
+    const d = digestFragments([]);
+    expect(buildLearningPrompt(d, current)).not.toContain("related_knowledge");
+    const prompt = buildLearningPrompt(d, current, [{ title: "例の資料", body: "関連する内容" }]);
+    expect(prompt).toContain("related_knowledge");
+    expect(prompt).toContain("関連する内容");
+    expect(prompt).toContain("次に寄せる関連話題");
+  });
+
+  it("keeps only doc_key and title of the knowledge used", () => {
+    expect(learningKnowledgeRefs([
+      { doc_key: "notion:a", title: "題 A", body: "本文" } as { doc_key: string; title: string },
+      { doc_key: "notion:a", title: "題 A" },
+      { doc_key: "repo:Ex:README.md", title: "題 B" },
+    ])).toEqual([{ doc_key: "notion:a", title: "題 A" }, { doc_key: "repo:Ex:README.md", title: "題 B" }]);
   });
 });
 

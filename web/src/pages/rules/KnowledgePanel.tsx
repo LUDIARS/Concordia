@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { fmtSec, rulesApi, type KnowledgeSourceKind, type KnowledgeSourceView } from "./rules-api.js";
+import { fmtSec, rulesApi, type KnowledgeSourceKind, type KnowledgeSourceView, type NotionRootView } from "./rules-api.js";
 
 // 巡回チャットの知識の取り込み状態 (spec/feature/patrol-chat.md「知識」)。 種類ごとの件数・最終取得・失敗理由と、
 // 手動の取り直し。 取り直しは裏で回るので、 少し待ってから状態を読み直す。 トークンなどの秘密値は出さない (API も返さない)。
+// Notion は記事マップの起点ごとに、 ページ数・除外数 (個人ページ等。 中身は保存しない)・最終取得・失敗理由を出す。
 
 const KIND_LABEL: Record<KnowledgeSourceKind, string> = {
   ludiars: "LUDIARS 内部 (一覧・README・spec)",
   revisor: "直近 7 日のマージ",
-  notion: "Notion",
+  notion: "Notion 記事マップ",
 };
 
 const RELOAD_AFTER_MS = 3000;
@@ -21,11 +22,12 @@ function summarize(counts: KnowledgeSourceView["counts"]): string {
 
 export function KnowledgePanel() {
   const [sources, setSources] = useState<KnowledgeSourceView[] | null>(null);
+  const [roots, setRoots] = useState<NotionRootView[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     const res = await rulesApi.knowledge();
-    if (res.ok) { setSources(res.data.sources); setError(null); }
+    if (res.ok) { setSources(res.data.sources); setRoots(res.data.notion_roots ?? []); setError(null); }
     else setError(res.error);
   };
 
@@ -35,6 +37,7 @@ export function KnowledgePanel() {
     const res = await rulesApi.refreshKnowledge(kind ? [kind] : undefined);
     if (!res.ok) { setError(res.error); return; }
     setSources(res.data.sources);
+    setRoots(res.data.notion_roots ?? []);
     setTimeout(() => void load(), RELOAD_AFTER_MS);
   };
 
@@ -61,6 +64,20 @@ export function KnowledgePanel() {
           </li>
         ))}
       </ul>
+      {roots.length > 0 && (
+        <ul className="space-y-0.5 pl-3" data-testid="knowledge-notion-roots">
+          {roots.map((r) => (
+            <li key={r.root_id} data-testid={`notion-root-${r.root_id}`} className="text-xs text-subtle">
+              {r.title ?? r.root_id}
+              {" · "}{r.pages} ページ · 除外 {r.excluded}
+              {" · "}最終取得 {fmtSec(r.last_success_at)}
+              {r.pending_analyses > 0 && ` · 解析待ち ${r.pending_analyses}`}
+              {r.has_summary && " · まとめあり"}
+              {r.last_error && <span className="text-red-600"> · {r.last_error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

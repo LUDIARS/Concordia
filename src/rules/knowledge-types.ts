@@ -54,13 +54,21 @@ export interface KnowledgeChunk {
 export interface KnowledgeCollection {
   docs: KnowledgeDoc[];
   full: boolean;
-  /** 次回の差分取得の起点 (Notion の last_edited_time)。 */
+  /** 次回の差分取得の起点。 */
   cursor: string | null;
+  /**
+   * 指定があれば、 この種類の断片のうち doc_key がこの中に無いものを消す (Notion 記事マップから外れたページ)。
+   * 差分 (`full=false`) でも、 前回から無くなった文書を残さないために使う。
+   */
+  retainDocKeys?: string[];
 }
 
 /** 取り込み器。 未設定 (Notion のトークンなし) は `not-configured` を投げずに返す。 */
 export type KnowledgeCollector = (opts: { cursor: string | null; full: boolean }) =>
   Promise<KnowledgeCollection | { notConfigured: string }>;
+
+/** Notion 記事マップのページの要約の断片の seq (本文の断片 0..n と分ける)。 */
+export const NOTION_SUMMARY_SEQ = 99;
 
 /** 生成に渡す知識 1 件 (出典と本文)。 */
 export interface RenderKnowledge {

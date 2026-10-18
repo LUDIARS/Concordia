@@ -50,22 +50,22 @@ function withKnowledgeDecision(decision: string | null, refs: KnowledgeSourceRef
 }
 
 /**
- * 生成に入れる知識を選ぶ。 本社の宛先だけが hq の断片を使える (CC-PATROL-05)。
+ * 生成に入れる知識を選ぶ。 使うのは reply (人間の返信への応答) だけで、 返信本文と直前の自分の発言の語で引く
+ * (knowledge-usage.ts。 定期 pick / event / 追投稿はトレンド素材だけで話す)。 本社の宛先だけが hq の断片を使える (CC-PATROL-05)。
  * port が返したものも宛先で絞り直す (選択側の取りこぼしで本社限定の断片を外へ出さない)。
  */
 function knowledgeFor(
   ctx: RunContext,
-  render: { material: RenderMaterial | null; replies: string[]; previousBotText: string | null },
+  render: { kind: RenderKind; replies: string[]; previousBotText: string | null },
 ): KnowledgeChunk[] {
   if (!ctx.ports.knowledge) return [];
+  const texts = knowledgeTextsFor(render.kind, render);
+  if (texts === null || texts.length === 0) return [];
   const allowHq = allowsHqKnowledge({
     subsidiaryId: ctx.rule.subsidiary_id ?? null,
     scopeKey: ctx.config.scope_key,
     discordChannelId: ctx.config.discord_channel_id,
   });
-  const texts = [
-    render.material?.title ?? "", render.material?.excerpt ?? "", render.previousBotText ?? "", ...render.replies,
-  ].filter((t) => t.trim());
   try {
     return ctx.ports.knowledge.select({ texts, allowHq }).filter((c) => allowHq || c.scope === "public");
   } catch {
@@ -90,6 +90,7 @@ function characterOfDecision(decision: string | null): string | null {
 }
 import type { RenderKind, RenderMaterial } from "./render-patrol.js";
 import { allowsHqKnowledge } from "./knowledge-scope.js";
+import { knowledgeTextsFor } from "./knowledge-usage.js";
 import type { KnowledgeChunk, KnowledgeSourceRef } from "./knowledge-types.js";
 
 export type ExecuteOutcome =

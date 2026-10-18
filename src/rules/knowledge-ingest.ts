@@ -3,7 +3,7 @@
  *
  *   取り込み器 → 秘匿語で文書を除く → 断片に切る → 種類ごと (全件) / 文書ごと (差分) に置き換え → 状態を記録
  *
- * - 定期: 種類ごとに最終成功から 1 日で取り直す。 失敗した種類は 1 時間あけて再試行する
+ * - 定期: 種類ごとに最終成功から 1 日 (Notion 記事マップは 1 週) で取り直す。 失敗した種類は 1 時間あけて再試行する
  * - 手動: 指定した種類 (省略時は全部) を全件で取り直す
  * - 失敗は前回の断片を残し、 失敗理由だけを記録する。 種類どうしは独立 (Notion が止まっても他は動く)
  * - 失敗理由に秘密値 (Notion のトークン) が混ざっても伏せてから残す
@@ -23,6 +23,12 @@ import augurContract_b3fb8c13 from './knowledge-ingest.contract.js'; /* augur-in
 
 export const KNOWLEDGE_REFRESH_SEC = 86_400;
 export const KNOWLEDGE_RETRY_SEC = 3_600;
+/** 種類ごとの取り直しの間隔。 Notion 記事マップは週 1 回 (neco 決定 2026-10-18)。 */
+export const KNOWLEDGE_REFRESH_SEC_BY_KIND: Record<KnowledgeSourceKind, number> = {
+  ludiars: KNOWLEDGE_REFRESH_SEC,
+  revisor: KNOWLEDGE_REFRESH_SEC,
+  notion: 7 * KNOWLEDGE_REFRESH_SEC,
+};
 
 export type RefreshOutcome =
   | { kind: KnowledgeSourceKind; status: "refreshed"; docs: number; chunks: number; excluded: number; full: boolean }
@@ -123,6 +129,7 @@ export function createKnowledgeIngest(deps: KnowledgeIngestDeps): KnowledgeInges
         // 差分: 届いた文書は秘匿語で除いたものも含めて古い断片を消す (除いた文書の古い版を残さない)
         deps.repo.replaceDocs(kind, collected.docs.map((d) => d.docKey), chunks, at);
       }
+      if (collected.retainDocKeys) deps.repo.retainDocs(kind, collected.retainDocKeys);
       deps.repo.markSuccess(kind, collected.cursor, at);
       return { kind, status: "refreshed", docs: docs.length, chunks: chunks.length, excluded, full: collected.full };
     } catch (err) {
@@ -138,7 +145,7 @@ export function createKnowledgeIngest(deps: KnowledgeIngestDeps): KnowledgeInges
   const due = (kind: KnowledgeSourceKind, now: number): boolean => {
     const row = deps.repo.source(kind);
     if (!row?.last_success_at) return !row?.last_attempt_at || now - row.last_attempt_at >= KNOWLEDGE_RETRY_SEC;
-    if (now - row.last_success_at >= KNOWLEDGE_REFRESH_SEC) {
+    if (now - row.last_success_at >= KNOWLEDGE_REFRESH_SEC_BY_KIND[kind]) {
       return !row.last_attempt_at || row.last_attempt_at <= row.last_success_at || now - row.last_attempt_at >= KNOWLEDGE_RETRY_SEC;
     }
     return false;

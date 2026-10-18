@@ -13,6 +13,7 @@
  *
  * - CC-CONSULT-INV-06: プロジェクト無しで相談用ディレクトリに入るのは、 読み取り専用で担当プロジェクトを持たない部署だけ。
  * - CC-CONSULT-INV-07: 子会社のその起動は本社の作業領域を cwd にせず、 呼び出し側が場所を選べない。
+ * - 本社の相談だけ、 開始時の文脈に社内資料の地図 (Notion 記事マップ) を添える。 子会社には渡さない (§6.5)。
  *
  * @implements SPEC-CONSULT-PROJECTLESS
  */
@@ -68,6 +69,11 @@ export interface ProjectlessConsultLaunchPorts {
    * (シェルの制限はフックが担う)。 省略時は false (シェルを外したまま)。
    */
   codexPreToolHookTrusted?(codexHome: string): Promise<boolean>;
+  /**
+   * 本社の相談の開始時に添える社内資料の地図 (Notion 記事マップの概観・まとめ・ページ一覧。 題名・パス・要約・キーワード・URL まで)。
+   * 読み取り専用の文脈で、 相談に許すコマンドは増やさない。 子会社の相談では呼ばない (hq の資料)。 省略時・null は添えない。
+   */
+  knowledgeContext?(): string | null;
 }
 
 export type ProjectlessConsultLaunch =
@@ -93,6 +99,15 @@ export type ProjectlessConsultLaunch =
     env: Readonly<Record<string, string>>;
   }
   | { kind: "error"; status: 400 | 503; error: string };
+
+/** 本社の相談に添える社内資料の地図。 読めなくても相談は始める。 */
+function readKnowledgeContext(ports: ProjectlessConsultLaunchPorts): string | null {
+  try {
+    return ports.knowledgeContext?.() ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function resolveProjectlessConsultLaunch(
   request: ProjectlessConsultLaunchRequest,
@@ -139,6 +154,7 @@ export async function resolveProjectlessConsultLaunch(
   };
   return {
     kind: "consult-workspace", cwd, dataDir, claudeArgs: projectlessConsultClaudeArgs(allTools), allTools,
-    restriction: projectlessConsultRestriction(), claudeConfigReady, codexHomeReady, codexFetchLinkReady, env,
+    restriction: [projectlessConsultRestriction(), inSubsidiary ? null : readKnowledgeContext(ports)].filter(Boolean).join("\n\n"),
+    claudeConfigReady, codexHomeReady, codexFetchLinkReady, env,
   };
 }

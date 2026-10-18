@@ -456,31 +456,72 @@ describe("patrol knowledge (spec/feature/patrol-chat.md 知識)", () => {
     url: null, repo: "Examplia", path: "README.md", scope: "public", body: "公開の説明",
   };
 
-  it("passes selected knowledge to render and records its sources in the run", async () => {
+  /** 定期の投稿 (pick) をしてから、 その投稿へ人間が返信して reply を回す。 */
+  async function replyWith(select: (q: KnowledgeQuery) => KnowledgeChunk[], scopeKey: "hq" | "public" = "hq") {
     const h = harness();
-    const select = vi.fn((q: KnowledgeQuery) => (q.allowHq ? [hqChunk, publicChunk] : [publicChunk]));
+    if (scopeKey === "public") {
+      h.rules.updateWithRevision("patrol", 1, {
+        action_config: JSON.stringify({ kind: "material-chat", source_ids: ["fake"], scope_key: "public", quiet_hours: null }),
+      });
+    }
+    const spy = vi.fn(select);
+    h.ports.knowledge = { select: spy };
+    await h.tick();
+    const pickCalls = spy.mock.calls.length;
+    const root = h.runs.list({}).runs[0]!.chat_message_id!;
+    const reply = h.humanPost("社内メモの続きが知りたい", root);
+    expect(acceptInbound(h.ports, reply.id)).toMatchObject({ accepted: true });
+    const r = await runPatrolCycle(h.ports, h.current(), { frequency: 1 });
+    expect(r).toMatchObject({ kind: "acted", action: "reply" });
+    return { h, spy, pickCalls };
+  }
+
+  it("does not pass knowledge to a pick (the topic is the trend)", async () => {
+    const h = harness();
+    const select = vi.fn(() => [hqChunk, publicChunk]);
     h.ports.knowledge = { select };
     await h.tick();
-    expect(select).toHaveBeenCalledWith(expect.objectContaining({ allowHq: true }));
-    expect(h.render.mock.calls[0]![0].knowledge).toEqual([
+    expect(select).not.toHaveBeenCalled();
+    expect(h.render.mock.calls[0]![0].knowledge).toBeUndefined();
+    const [run] = h.runs.list({ rule_id: "patrol" }).runs;
+    expect(JSON.parse(run!.decision ?? "{}").knowledge).toBeUndefined();
+  });
+
+  it("does not pass knowledge to a service event", async () => {
+    const h = harness();
+    const select = vi.fn(() => [hqChunk]);
+    h.ports.knowledge = { select };
+    h.rules.updateWithRevision("patrol", 1, {
+      trigger_type: "event", tick_sec: null, event_kind: "service.event",
+      action_config: JSON.stringify({ kind: "material-chat", source_ids: [], scope_key: "hq", renderer: "template", filters: { service_codes: ["Mm"] }, quiet_hours: null }),
+    });
+    h.events.receive({ source_event_id: "x:1", service_code: "Mm", feature_key: null, event_kind: "release", title: "Examplia 1.2", summary: "s", url: null, scope_key: "hq", occurred_at: 1 }, 1);
+    expect(await runPatrolCycle(h.ports, h.current(), { frequency: 1 })).toMatchObject({ kind: "acted", action: "event" });
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it("passes knowledge to a reply, queried by the reply and the previous bot text, and records its sources", async () => {
+    const { h, spy, pickCalls } = await replyWith((q) => (q.allowHq ? [hqChunk, publicChunk] : [publicChunk]));
+    expect(pickCalls).toBe(0);
+    const query = spy.mock.calls.at(-1)![0];
+    expect(query.allowHq).toBe(true);
+    expect(query.texts).toContain("社内メモの続きが知りたい");
+    expect(query.texts.length).toBe(2);
+    const input = h.render.mock.calls.at(-1)![0];
+    expect(input.kind).toBe("reply");
+    expect(input.knowledge).toEqual([
       { title: "社内メモ", body: "本社だけの話" }, { title: "Examplia README", body: "公開の説明" },
     ]);
-    const [run] = h.runs.list({ rule_id: "patrol" }).runs;
-    const decision = JSON.parse(run!.decision!);
+    const replyRun = h.runs.list({}).runs[0]!;
+    const decision = JSON.parse(replyRun.decision!);
     expect(decision.knowledge.map((k: { title: string; scope: string }) => [k.title, k.scope])).toEqual([["社内メモ", "hq"], ["Examplia README", "public"]]);
     expect(JSON.stringify(decision)).not.toContain("本社だけの話");
   });
 
   it("never passes hq knowledge on a public route, even if the port returns it", async () => {
-    const h = harness();
-    h.rules.updateWithRevision("patrol", 1, {
-      action_config: JSON.stringify({ kind: "material-chat", source_ids: ["fake"], scope_key: "public", quiet_hours: null }),
-    });
-    const select = vi.fn(() => [hqChunk, publicChunk]);
-    h.ports.knowledge = { select };
-    await h.tick();
-    expect(select).toHaveBeenCalledWith(expect.objectContaining({ allowHq: false }));
-    expect(h.render.mock.calls[0]![0].knowledge).toEqual([{ title: "Examplia README", body: "公開の説明" }]);
+    const { h, spy } = await replyWith(() => [hqChunk, publicChunk], "public");
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ allowHq: false }));
+    expect(h.render.mock.calls.at(-1)![0].knowledge).toEqual([{ title: "Examplia README", body: "公開の説明" }]);
   });
 });
 

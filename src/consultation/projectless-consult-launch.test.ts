@@ -155,3 +155,43 @@ describe("resolveProjectlessConsultLaunch", () => {
     expect(settings.autoMemoryEnabled).toBe(false);
   });
 });
+
+describe("resolveProjectlessConsultLaunch — 社内資料の地図の共有 (tech-consultation.md §6.5)", () => {
+  const MAP = "## 社内資料の地図 (Notion 記事マップ、読み取り専用)\n- 例の授業資料 > 第1回 | 要約 | https://example.test/p1";
+
+  it("本社の相談は開始時の文脈に地図を添え、 相談に許すコマンドとツールは変えない", async () => {
+    const knowledgeContext = vi.fn(() => MAP);
+    const p = { ...ports(), knowledgeContext };
+    const result = await resolveProjectlessConsultLaunch(
+      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [], roleTitle: "エンジニア" }, p,
+    );
+    if (result.kind !== "consult-workspace") throw new Error("expected consult workspace");
+    expect(result.restriction).toContain("プロジェクトを持たない相談");
+    expect(result.restriction).toContain("社内資料の地図");
+    expect(result.restriction).toContain("https://example.test/p1");
+    expect(result.claudeArgs).toEqual(PROJECTLESS_CONSULT_CLAUDE_ARGS);
+    const settings = (p.prepareWorkspace.mock.calls[0] as unknown[])[1] as { permissions: { allow: string[] } };
+    // 許すシェルは公開リンクの取得コマンドだけのまま
+    expect(settings.permissions.allow.filter((rule) => rule.startsWith("Bash("))).toEqual([
+      "Bash(node /srv/cw/_source/tools/fetch-link/fetch-link.mjs:*)",
+    ]);
+  });
+
+  it("子会社の相談には地図を渡さない (呼びもしない)", async () => {
+    const knowledgeContext = vi.fn(() => MAP);
+    const result = await resolveProjectlessConsultLaunch(
+      { subsidiaryId: "glab", department: department(), specifiedScope: [], roleTitle: "エンジニア" }, { ...ports(), knowledgeContext },
+    );
+    if (result.kind !== "consult-workspace") throw new Error("expected consult workspace");
+    expect(knowledgeContext).not.toHaveBeenCalled();
+    expect(result.restriction).not.toContain("社内資料の地図");
+  });
+
+  it("地図が読めなくても相談は始める", async () => {
+    const result = await resolveProjectlessConsultLaunch(
+      { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [], roleTitle: "エンジニア" },
+      { ...ports(), knowledgeContext: () => { throw new Error("db closed"); } },
+    );
+    expect(result).toMatchObject({ kind: "consult-workspace", restriction: expect.not.stringContaining("社内資料の地図") });
+  });
+});

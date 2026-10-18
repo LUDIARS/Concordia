@@ -126,6 +126,19 @@ export interface KnowledgeSourceView {
   counts: Array<{ doc_type: string; scope: "hq" | "public"; docs: number; chunks: number }>;
 }
 
+/** Notion 記事マップの起点ごとの状態。 */
+export interface NotionRootView {
+  root_id: string;
+  title: string | null;
+  pages: number;
+  excluded: number;
+  last_attempt_at: number | null;
+  last_success_at: number | null;
+  last_error: string | null;
+  has_summary: boolean;
+  pending_analyses: number;
+}
+
 export interface RunView {
   run_id: string;
   rule_id: string;
@@ -246,9 +259,9 @@ export const rulesApi = {
   setPatrolDefaults: (id: string, defaults: PatrolDefaults) =>
     call<{ defaults: PatrolDefaults }>("PUT", `/v1/subsidiaries/${encodeURIComponent(id)}/patrol-defaults`, { actor: "web", defaults }),
   sources: () => call<{ sources: SourceView[] }>("GET", "/v1/rules/sources"),
-  knowledge: () => call<{ sources: KnowledgeSourceView[] }>("GET", "/v1/rules/knowledge"),
+  knowledge: () => call<{ sources: KnowledgeSourceView[]; notion_roots?: NotionRootView[] }>("GET", "/v1/rules/knowledge"),
   refreshKnowledge: (kinds?: KnowledgeSourceKind[]) =>
-    call<{ accepted: boolean; sources: KnowledgeSourceView[] }>("POST", "/v1/rules/knowledge/refresh", kinds ? { kinds } : {}),
+    call<{ accepted: boolean; sources: KnowledgeSourceView[]; notion_roots?: NotionRootView[] }>("POST", "/v1/rules/knowledge/refresh", kinds ? { kinds } : {}),
   engineEnabled: () => call<{ enabled: boolean }>("GET", "/v1/admin/rules-enabled"),
   setEngineEnabled: (enabled: boolean) => call<{ enabled: boolean }>("PUT", "/v1/admin/rules-enabled", { enabled }),
   create: (rule: Record<string, unknown>) => call<{ rule: RuleView }>("PUT", "/v1/rules", rule),

@@ -82,6 +82,17 @@ export interface RunClaudeOptions {
   dangerouslySkipPermissions?: boolean;
   /** timeout 上書き (ms)。 未指定で CONCORDIA_CLAUDE_TIMEOUT_MS / 120s。 */
   timeoutMs?: number;
+  /**
+   * 許すツールの名前 (例 Notion コネクタの読み取りツール)。 指定すると組み込みツールを外し、 このツールだけを確認なしで許す
+   * (ほかのツールは -p では許可を求められず使えない)。 conversationOnly とは併用しない。
+   */
+  allowedTools?: readonly string[];
+}
+
+/** allowedTools を指定したときの claude の引数 (組み込みツールなし・スラッシュコマンドなし・指定ツールだけ許す)。 */
+export function allowedToolArgs(tools: readonly string[]): string[] {
+  const names = tools.map((t) => t.trim()).filter((t) => /^[A-Za-z0-9_.:-]+$/.test(t));
+  return names.length ? ["--tools=", "--disable-slash-commands", "--allowedTools", names.join(",")] : [];
 }
 
 export type RunClaudeFn = (
@@ -126,6 +137,7 @@ export async function runClaude(
 
     const args = ["-p"];
     if (opts.conversationOnly) args.push("--tools=", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode");
+    else if (opts.allowedTools?.length) args.push(...allowedToolArgs(opts.allowedTools));
 
     if (opts.dangerouslySkipPermissions && !opts.conversationOnly) args.push("--dangerously-skip-permissions");
 

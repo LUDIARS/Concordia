@@ -453,6 +453,23 @@ consultation (`src/consultation/consult-role-skills.ts`)。役職の区分 = con
 `drive-transfer-port.ts`、認証 `google-service-account-token.ts`)、API = `src/api/consultation-drive.ts`、
 Discord のコマンド = `src/discord/consult-drive.ts`。
 
+### 6.5 社内資料の地図 (Notion 記事マップ) の共有
+
+neco 指示 (2026-10-18)「クロール終わってマップとまとめを作ったら Consult にも共有」。巡回チャットの知識の Notion 記事マップ
+(spec/feature/patrol-chat.md「知識」の「Notion 記事マップ」) を、本社の相談セッションが引けるようにする。
+
+- 手段: 相談の開始時の文脈 (作業範囲の説明 `projectlessConsultRestriction()` の直後) に、マップの概観・起点ごとのまとめ・ページの一覧を
+  読み取り専用の資料として添える。相談に許すコマンドは増やさない (取得コマンドは公開リンクの `consult-fetch-link` 1 本のまま、
+  CC-CONSULT-INV-07)。相談の安全判定 (`safety-policy.ts` / `consultation-harness.mjs`) も変えない。
+  スキルに取得コマンドを足す案は、相談フォルダのリポにスクリプトを置く必要があり Cc だけで閉じないため採らなかった。
+- 渡すもの: 題名・パス・要約・キーワード・まとめ・ページ URL まで (`buildConsultNotionMapContext`、16 KB まで。越えたら後ろのページから
+  省いて省いた件数を書く)。本文の断片は渡さない。除外したページ (個人ページ・チーム・タスクリスト等) はマップに保存しないので出ない。
+- 公開範囲: 記事マップは hq。本社の相談 (`subsidiaryId=null`) だけに添え、子会社の相談では呼ばない (`resolveProjectlessConsultLaunch`)。
+  CC-CONSULT-INV-08 (社内のプロジェクト名を回答に持ち込まない) の例外として、本社の相談にだけ neco の指示で社内資料の目次を渡す。
+- 失敗時: マップが空・読めないときは添えずに相談を始める。
+- 状態所有者: 文脈の組み立て = `src/rules/notion-map-consult.ts`、本社だけに添える判断 = `src/consultation/projectless-consult-launch.ts`
+  (`knowledgeContext` port)、配線 = `src/api/register-core.ts` (`consultKnowledgeContext`) / `src/bootstrap/core.ts`。
+
 ## 7. 相談チャンネルの後始末
 
 **Requirement ID: `SPEC-CONSULT-CLOSURE`**

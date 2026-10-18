@@ -61,6 +61,8 @@ export interface ClosedConversationForFragment {
   root_chat_id: number;
   reply_count: number;
   unprompted_count: number;
+  /** 会話の最初の投稿の素材の題 (トレンドの題)。 分からなければ null。 */
+  material_title: string | null;
 }
 
 export class PatrolLearningRepo {
@@ -102,7 +104,10 @@ export class PatrolLearningRepo {
   /** まだ断片にしていない、 閉じた会話 (since 以降に作られたもの)。 */
   closedConversations(sinceSec: number, limit: number): ClosedConversationForFragment[] {
     return this.db.prepare(
-      `SELECT rc.conversation_id, rc.rule_id, rc.root_chat_id, rc.reply_count, rc.unprompted_count
+      `SELECT rc.conversation_id, rc.rule_id, rc.root_chat_id, rc.reply_count, rc.unprompted_count,
+              (SELECT json_extract(rr.material_snapshot, '$.title') FROM rule_runs rr
+                WHERE rr.chat_message_id = rc.root_chat_id AND rr.material_snapshot IS NOT NULL AND json_valid(rr.material_snapshot)
+                LIMIT 1) AS material_title
          FROM rule_conversations rc
          LEFT JOIN patrol_learning_fragments f ON f.source_key = 'conv:' || rc.conversation_id
         WHERE f.id IS NULL AND rc.status <> 'open' AND rc.created_at >= ?

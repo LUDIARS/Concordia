@@ -25,6 +25,7 @@ import type { SubsidiaryPatrolDefaults } from "../rules/patrol-config.js";
 import type { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import { eventBus } from "../events.js";
 import type { KnowledgeIngest } from "../rules/knowledge-ingest.js";
+import type { NotionRootStatus } from "../rules/knowledge-runtime.js";
 import { KNOWLEDGE_SOURCE_KINDS, type KnowledgeSourceKind } from "../rules/knowledge-types.js";
 
 export interface PatrolApiDeps {
@@ -36,6 +37,8 @@ export interface PatrolApiDeps {
   learning?: Pick<PatrolLearningRepo, "listRuns" | "recentFragments" | "sourcesForRun">;
   /** 知識の取り込み (未配線なら /knowledge は 503)。 */
   knowledge?: Pick<KnowledgeIngest, "status" | "refresh"> | null;
+  /** Notion 記事マップの起点ごとの状態 (ページ数・除外数・最終取得・失敗理由)。 未配線なら空。 */
+  notionRoots?: (() => NotionRootStatus[]) | null;
 }
 
 const KnowledgeRefreshSchema = z.object({
@@ -92,7 +95,7 @@ export function registerPatrolRoutes(
   // 知識の取り込み状態 (種類ごとの件数・最終取得・失敗理由) と手動の取り直し。 秘密値は返さない。
   app.get("/knowledge", (c) => {
     if (!deps.knowledge) return c.json({ error: "knowledge_unavailable" }, 503);
-    return c.json({ sources: deps.knowledge.status() });
+    return c.json({ sources: deps.knowledge.status(), notion_roots: deps.notionRoots?.() ?? [] });
   });
 
   app.post("/knowledge/refresh", async (c) => {
@@ -102,7 +105,7 @@ export function registerPatrolRoutes(
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     // Notion はページ数しだいで数分かかる (3 req/s)。 受け付けて裏で回し、 画面は状態を読み直す
     void deps.knowledge.refresh(parsed.data.kinds).catch(() => undefined);
-    return c.json({ accepted: true, sources: deps.knowledge.status() }, 202);
+    return c.json({ accepted: true, sources: deps.knowledge.status(), notion_roots: deps.notionRoots?.() ?? [] }, 202);
   });
 
   app.post("/preview", async (c) => {

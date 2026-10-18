@@ -712,14 +712,39 @@ export async function startBackend(): Promise<BackendHandle> {
       repoPath: isAbsolute(row.repo_path) ? row.repo_path : join(adminState.getWorkspaceRoot() || process.cwd(), row.repo_path),
     })),
     publicProjects: () => parseStringListSetting(readMetaSetting("services.chat_knowledge_public_projects")),
-    notionToken: () => readMetaSetting("services.notion_token"),
+    // Notion 記事マップ (起点・除外・上限は秘密でない設定。 起点が未設定なら既定の起点)。
+    notionRoots: () => {
+      const roots = parseStringListSetting(readMetaSetting("services.notion_map_roots"));
+      return roots.length ? roots : null;
+    },
+    notionExcludes: () => parseStringListSetting(readMetaSetting("services.notion_map_exclude")),
+    notionLimits: () => {
+      const num = (key: string) => {
+        const v = Number(readMetaSetting(key));
+        return Number.isFinite(v) && v > 0 ? v : undefined;
+      };
+      const out: { maxDepth?: number; maxPages?: number; pageTextBytes?: number } = {};
+      const depth = num("services.notion_map_max_depth");
+      const pages = num("services.notion_map_max_pages");
+      const bytes = num("services.notion_map_page_bytes");
+      if (depth !== undefined) out.maxDepth = depth;
+      if (pages !== undefined) out.maxPages = pages;
+      if (bytes !== undefined) out.pageTextBytes = bytes;
+      return out;
+    },
+    // 記事マップの要約・まとめは既存の one-shot runner (haiku、 tools 無効・会話専用)。
+    runner: (prompt, opts) => runClaude(prompt, opts),
+    // Notion の取得 (MCP 経路): 利用者の claude.ai Notion コネクタの読み取りツールだけを許した claude -p。 トークンは使わない。
+    notionRunner: (prompt, opts) => runClaude(prompt, opts),
     mergedPrs: (sinceMs) => revisorClient.listMergedLocalPrsSince(sinceMs),
     confidentialTerms: () => loadConfidentialTerms(process.env.CONCORDIA_CONFIDENTIAL_TERMS_FILE?.trim()
       || join(adminState.getWorkspaceRoot() || process.cwd(), ".claude", "state", "confidential-terms.json")),
     log: { warn: (m) => log.warn(m) },
   });
   const chatKnowledgeTimer = setInterval(() => {
-    void chatKnowledge.ingest.tick().catch((err: unknown) => log.warn({ err }, "chat knowledge tick failed"));
+    void chatKnowledge.ingest.tick()
+      .then(() => chatKnowledge.analyzer?.tick())
+      .catch((err: unknown) => log.warn({ err }, "chat knowledge tick failed"));
   }, KNOWLEDGE_TICK_MS);
   chatKnowledgeTimer.unref?.();
   const patrolRuntime = buildPatrolRuntime({
@@ -2440,6 +2465,8 @@ export async function startBackend(): Promise<BackendHandle> {
     // 既定は Castra (E:/Document/Ars) の外の E:/Document/Consult。 Castra のメモリやワークフローを引き継がない
     // (2026-10-02 neco 指示)。 Concordia はワークスペース直下 (E:/Document/Ars/Concordia) で動くので 2 つ上に置く。
     consultWorkspaceRoot,
+    // 本社の相談の開始時に添える社内資料の地図 (Notion 記事マップ。 tech-consultation.md §6.5)。
+    consultKnowledgeContext: () => chatKnowledge.consultContext(),
     consultationPublications,
     consultationDrive,
     privateConsultations: new PrivateConsultationsRepo(db),

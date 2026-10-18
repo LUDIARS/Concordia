@@ -5,7 +5,13 @@
  */
 
 import type Database from "better-sqlite3";
-import type { KnowledgeChunk, KnowledgeDocType, KnowledgeScope, KnowledgeSourceKind } from "../rules/knowledge-types.js";
+import {
+  NOTION_SUMMARY_SEQ,
+  type KnowledgeChunk,
+  type KnowledgeDocType,
+  type KnowledgeScope,
+  type KnowledgeSourceKind,
+} from "../rules/knowledge-types.js";
 
 export interface KnowledgeChunkInput {
   doc_type: KnowledgeDocType;
@@ -54,6 +60,38 @@ export class ChatKnowledgeRepo {
       for (const key of new Set(docKeys)) del.run(kind, key);
       this.insertMany(kind, chunks, fetchedAt);
     })();
+  }
+
+  /** doc_key が keep に無い断片を消す (keep は種類の中で残す文書の全部)。 */
+  retainDocs(kind: KnowledgeSourceKind, keep: readonly string[]): number {
+    const set = new Set(keep);
+    const keys = (this.db.prepare(`SELECT DISTINCT doc_key FROM chat_knowledge_chunks WHERE source_kind = ?`).all(kind) as Array<{ doc_key: string }>)
+      .map((r) => r.doc_key).filter((k) => !set.has(k));
+    if (keys.length === 0) return 0;
+    const del = this.db.prepare(`DELETE FROM chat_knowledge_chunks WHERE source_kind = ? AND doc_key = ?`);
+    this.db.transaction(() => { for (const key of keys) del.run(kind, key); })();
+    return keys.length;
+  }
+
+  /** 1 文書の断片 (seq 順)。 */
+  docChunks(docKey: string): KnowledgeChunk[] {
+    return this.db.prepare(`SELECT * FROM chat_knowledge_chunks WHERE doc_key = ? ORDER BY seq`).all(docKey) as KnowledgeChunk[];
+  }
+
+  /** 文書ごとの代表の断片 (要約の断片があればそれ、 無ければ seq の最小)。 隣のページの補助取得に使う。 */
+  leadChunks(docKeys: readonly string[]): KnowledgeChunk[] {
+    const out: KnowledgeChunk[] = [];
+    for (const key of docKeys) {
+      const chunks = this.docChunks(key);
+      const lead = chunks.find((c) => c.seq === NOTION_SUMMARY_SEQ) ?? chunks[0];
+      if (lead) out.push(lead);
+    }
+    return out;
+  }
+
+  /** 1 件の断片を書く (Notion のページの要約の断片)。 */
+  upsertChunk(kind: KnowledgeSourceKind, chunk: KnowledgeChunkInput, fetchedAt: number): void {
+    this.insertMany(kind, [chunk], fetchedAt);
   }
 
   private insertMany(kind: KnowledgeSourceKind, chunks: KnowledgeChunkInput[], fetchedAt: number): void {

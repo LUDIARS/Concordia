@@ -36,6 +36,22 @@ describe("KnowledgePanel", () => {
     expect(notion).toContain("notion token is not set");
   });
 
+  it("shows each Notion map root with pages, excluded count, last fetch and failure", async () => {
+    const notion_roots = [
+      { root_id: "r1", title: "例の授業資料", pages: 12, excluded: 3, last_attempt_at: 10, last_success_at: 10, last_error: null, has_summary: true, pending_analyses: 2 },
+      { root_id: "r2", title: null, pages: 0, excluded: 0, last_attempt_at: 10, last_success_at: null, last_error: "root page is not shared with the integration or was removed", has_summary: false, pending_analyses: 0 },
+    ];
+    const { el } = await mount(() => new Response(JSON.stringify({ sources, notion_roots })));
+    const r1 = el.querySelector("[data-testid=notion-root-r1]")?.textContent ?? "";
+    expect(r1).toContain("例の授業資料");
+    expect(r1).toContain("12 ページ · 除外 3");
+    expect(r1).toContain("解析待ち 2");
+    expect(r1).toContain("まとめあり");
+    const r2 = el.querySelector("[data-testid=notion-root-r2]")?.textContent ?? "";
+    expect(r2).toContain("r2");
+    expect(r2).toContain("not shared");
+  });
+
   it("asks for a refresh of one kind", async () => {
     const { el, calls } = await mount((url) => url.endsWith("/refresh")
       ? new Response(JSON.stringify({ accepted: true, sources }), { status: 202 })

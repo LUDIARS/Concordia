@@ -170,13 +170,38 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
 
 ## 知識
 
-neco 決定 (2026-10-18): 雑談は LUDIARS の内部と Notion の記事を知っている前提で話す。Notion は Cc 用の連携
-(internal integration) に共有したページ全部を読む。Actio タスク `actio:cd4a083a-77ed-4126-9f98-0c115867e5b8`。
+neco 決定 (2026-10-18): 雑談のトリガーと話題の主体はあくまでトレンド。知識 (LUDIARS の内部と Notion の記事) は
+「関連話題の学習」と「返信時の調査」にだけ使う。Notion は決まった起点 (ゲーム開発攻略ページと各学年の授業資料) だけを
+クロールして解析した「Notion 記事マップ」を持つ。生徒の個人ページ・チームページ・タスクリストは読まない。
+neco 指示 (2026-10-18)「Notion はトークンを使わず MCP とクロールで対応」: Notion の公式 API と連携トークンは使わない。
+Actio タスク `actio:cd4a083a-77ed-4126-9f98-0c115867e5b8`。
 
-- 実装: 型 `knowledge-types.ts`、公開範囲と除外 `knowledge-scope.ts`、選択 `knowledge-select.ts`、取り込み `knowledge-ingest.ts`、
-  取り込み器 `knowledge-ludiars.ts` / `knowledge-revisor.ts` / `knowledge-notion.ts`、組み立て `knowledge-runtime.ts`、
-  永続 `src/db/chat-knowledge-repo.ts` (migration 142 `chat-knowledge`: `chat_knowledge_chunks` / `chat_knowledge_sources`)。
-  画面は `web/src/pages/rules/KnowledgePanel.tsx` (取り込み状態と取り直し) と `web/src/pages/rules/RunHistory.tsx` (実行履歴の「使った知識」)。
+- 実装: 型 `knowledge-types.ts`、公開範囲と除外 `knowledge-scope.ts`、選択 `knowledge-select.ts`、使いどころと隣のページ `knowledge-usage.ts`、
+  取り込み `knowledge-ingest.ts`、取り込み器 `knowledge-ludiars.ts` / `knowledge-revisor.ts`、要求の間隔 `knowledge-notion.ts`、
+  Notion の取得経路: 型 `notion-source-types.ts`・公開ページのクロール `notion-source-public.ts`・MCP `notion-source-mcp.ts`・経路の選び方 `notion-source-route.ts`
+  (MCP の runner は `claude-runner.ts` の `allowedTools`)、
+  記事マップ: 型と既定値 `notion-map-types.ts`・規則 `notion-map-rules.ts`・クロール `notion-map-crawl.ts`・解析とまとめ `notion-map-analyze.ts`・
+  相談への共有 `notion-map-consult.ts`、組み立て `knowledge-runtime.ts`、
+  永続 `src/db/chat-knowledge-repo.ts` (migration 142 `chat-knowledge`: `chat_knowledge_chunks` / `chat_knowledge_sources`) と
+  `src/db/notion-map-repo.ts` (ページと辺) / `src/db/notion-map-roots-repo.ts` (起点の状態・まとめ・概観)
+  (migration 143 `notion-map`: `notion_map_pages` / `notion_map_edges` / `notion_map_roots` / `notion_map_meta`。migration 142 時点の
+  `services.notion_token` の保存値も消す)。
+  学習への組み込みは `patrol-learning.ts` (材料の要約 `digestFragments`・学習の prompt `buildLearningPrompt`・出典 `learningKnowledgeRefs`。
+  発言の断片の prompt `buildExtractPrompt` は変えない) と `patrol-learning-loop.ts`。
+  画面は `web/src/pages/rules/KnowledgePanel.tsx` (取り込み状態・起点ごとの状態と取り直し) と `web/src/pages/rules/RunHistory.tsx` (実行履歴の「使った知識」)。
+
+### 使いどころ
+
+| 場面 | 知識 |
+|---|---|
+| 定期 pick / service event / 追投稿 (followup) | 渡さない。トレンド素材だけで話す |
+| reply (人間の返信への応答) | 返信本文と直前の自分の発言の語で引き、`<data>` に入れる (`knowledgeTextsFor`) |
+| 1 日ごとの学習 (patrol-learning) | 反応 (返信・リアクション) があった会話のトレンドの題と、会話によく出た語で引き、学習の材料 (`related_knowledge`) に足す |
+
+- 学習: 「次に寄せる関連話題」を学習結果の方針 (`learned_instructions`) に書けるようにする。学習は既存の仕組みと上限 (1 日 1 回・
+  方針 400 字・範囲の検証) の中で行う。学習結果 (`patrol_learning_runs.proposal.related_knowledge`) には断片の出典 (doc_key と題) だけを残し、
+  断片の本文は残さない (`learningKnowledgeRefs`)。会話の断片には会話の最初の投稿の素材の題 (公開のトレンドの題) を `title` として持つ。
+- 公開範囲の扱い (hq の断片を public の経路で使わない) は reply・学習とも同じ。
 
 ### 材料
 
@@ -184,16 +209,57 @@ neco 決定 (2026-10-18): 雑談は LUDIARS の内部と Notion の記事を知�
 
 | 種類 (`source_kind`) | 材料 | 取り方 |
 |---|---|---|
-| `ludiars` | Cc のプロジェクト一覧 (略称・名前・公開範囲、説明は README の先頭の段落)、各リポの `README.md` 先頭 (1500 バイト)、`spec/` と `spec/feature/` 直下の `.md` の要約 (frontmatter の title / description、無ければ先頭の段落。1 リポ 12 件・600 バイト) | 全件で置き換え |
-| `revisor` | Revisor の直近 7 日のマージ済み local PR の題 (`GET /v1/local-prs?state=merged`、決着時刻は updatedAt で代える。リポごとに 1 文書・30 件) | 全件で置き換え |
-| `notion` | 連携に共有されたページの題・URL・本文 (`POST /v1/search` page のみ → `GET /v1/blocks/:id/children`、2 段まで・300 block・2800 バイト・200 ページ) | 差分 (last_edited_time が前回の起点より新しいページだけ。届いたページの断片を置き換え)。手動の取り直しは全件 |
+| `ludiars` | Cc のプロジェクト一覧 (略称・名前・公開範囲、説明は README の先頭の段落)、各リポの `README.md` 先頭 (1500 バイト)、`spec/` と `spec/feature/` 直下の `.md` の要約 (frontmatter の title / description、無ければ先頭の段落。1 リポ 12 件・600 バイト) | 全件で置き換え。1 日 1 回 |
+| `revisor` | Revisor の直近 7 日のマージ済み local PR の題 (`GET /v1/local-prs?state=merged`、決着時刻は updatedAt で代える。リポごとに 1 文書・30 件) | 全件で置き換え。1 日 1 回 |
+| `notion` | Notion 記事マップ (下記)。ページごとの題・パス・本文の断片と、解析後の要約の断片 (seq 99) | ページの差分。週 1 回 |
 
 - 文書は 700 バイトの断片 (1 文書 4 件まで) に切り、断片ごとに出典 (種類・題・URL / リポ・パス)・公開範囲・更新時刻を持つ。
-- 定期: 10 分ごとに期日を見て、種類ごとに最終成功から 1 日で取り直す。失敗した種類は 1 時間あけて再試行する。
+- 定期: 10 分ごとに期日を見て、種類ごとに最終成功から 1 日 (`notion` は 7 日) で取り直す。失敗した種類は 1 時間あけて再試行する。
+  同じ定期処理の後ろで記事マップの解析を少しずつ進める。
 - 手動: `/rules` の「知識」から種類ごと / すべてを全件で取り直す (`POST /v1/rules/knowledge/refresh`、裏で回り 202 を返す)。
-- Notion のレート制限: 要求の間を最低 334ms あける (3 req/s)。429 は Retry-After (上限 60 秒) を待って 1 回だけ送り直す。
-- Notion の連携トークンは設定 `services.notion_token` (秘密値。schema_meta に secret-box で暗号化して保存、API・画面に実値を返さない。
-  設定画面 > 兄弟サービス で入力・差し替え・消去)。トークンは Authorization ヘッダにだけ載せ、失敗理由・ログからは伏せる。
+- Notion の公式 API と連携トークンは使わない。トークンの設定項目・画面の入力欄は無い (migration 143 で以前の保存値も消す)。
+
+### Notion 記事マップ
+
+連携に共有されたページ全部を search で読む方式は取りやめ、決まった起点からだけクロールする。
+
+- 起点: 設定 `services.notion_map_roots` (秘密でない。1 行 1 件、先頭は 32 桁のページ ID か公開ページの URL (`https://*.notion.site/…-<ID>`)、
+  後ろの名前は注記)。未設定なら既定の 8 件 (ゲーム開発攻略ページ・21 生用授業資料・22 生用授業資料 A クラス・22 生向け共通資料・
+  23 生向け 2 年次授業資料・24 生向け 2 年次授業資料・過去の授業資料一覧・25 生。25 生は「授業内容」ページの ID が分からないため 25 生を起点にし、
+  除外規則で生徒・チームのページを外す)。設定から外した起点のページ・辺・断片は次の取り込みで消す。
+- 取得の経路 (port `NotionPageSource`、差し替え可能。1 回に 1 ページ):
+  - 公開ページのクロール (`notion-source-public.ts`): 公開 URL (https の `*.notion.site`) が分かるページの HTML を取り、`.notion-page-content`
+    (無ければ body) の本文と、同じ origin でパスの末尾が 32 桁の ID のリンク (子ページ) を取り出す (Canalis の `src/crawl/notion-public` の
+    抽出規則を参考に、Cc ではブラウザを起動せず HTML の文字列から決定的に取る)。最終更新は分からない (本文の指紋で差分を見る)。
+    要求の間は最低 334ms あける。本文が取れない (クライアント描画で空・ボット確認画面・HTTP エラー) ときは MCP に回す。
+  - MCP (`notion-source-mcp.ts`): 既存の claude -p の one-shot runner で、利用者の claude.ai Notion コネクタの読み取りツール
+    (`mcp__claude_ai_Notion__notion-fetch`・`mcp__claude_ai_Notion__notion-search`) だけを許して呼ぶ (`--tools=` で組み込みツールを外し、
+    `--allowedTools` でこの 2 つだけを許す。書き込み系は許さない)。1 回の呼び出しで 1 ページ、120 秒まで。本文 (ページごとの本文バイトまで)・
+    子ページ一覧 (子データベースの行を含む、100 件まで)・本文中の他ページへの参照・最終更新を JSON で返させ、型と長さを通らない応答は失敗として扱う。
+  - 選び方 (`notionRoutesFor`): 公開 URL が分かるページは公開ページのクロール → 取れなければ MCP。それ以外は MCP だけ。
+  - 上限は設定: 深さ `services.notion_map_max_depth` (既定 6)・起点ごとのページ数 `services.notion_map_max_pages` (既定 400)・
+    ページごとの本文バイト `services.notion_map_page_bytes` (既定 6000)。
+- 差分: 毎回 (週 1 回) 全ページを取り、最終更新 (分からなければ本文の指紋) が前回と同じページは解析し直さない (前回の要約・キーワードを残す)。
+  手動の取り直しは全ページを解析し直す。
+- 除外 (個人情報): 題名か起点からのパスに「個人ページ」「チーム」「タスクリスト」「チームテンプレート」を含むページとその配下は読まない
+  (設定 `services.notion_map_exclude` で語を足せる。大文字小文字・全角半角を区別しない)。親の一覧で題が分かる子ページは取りに行く前に判定する。
+  秘匿語の辞書に当たるページも同じ扱い。除外したページは題名・本文とも保存せず、起点ごとの件数だけを数える。
+  MCP には本文に人名・メンションの表示名を入れないよう頼む。
+- 反映後に人がやること: 無し。claude.ai の Notion コネクタは接続済みの前提 (起点ページを連携に「接続」する作業は要らない)。
+- 解析: ページごとに題・パス (学年・回・Wiki の章)・短い要約 (200 字)・キーワード (8 個) と、ページ間の参照を持つ。
+  - 要約とキーワードだけ `claude -p` haiku (tools 無効・会話専用、既存の one-shot runner) で作る。変わったページ (解析待ち) のときだけ、
+    定期処理 1 回で 6 ページまで。失敗したら要約なしで題・本文の断片だけを残し、1 時間あけてやり直す。
+  - 作った要約は知識の断片 (seq 99、`要約: … / キーワード: …`) にも置き、選択で引けるようにする。
+- マップ: ページ間の参照 (`child` 親 → 子 (子データベースの行を含む)、`link` 本文中の他ページへの参照) を辺として持つ。
+  reply で知識を引いたとき、引いた Notion のページの隣 (どちら向きの辺でも、マップにあるページだけ) を doc_key の順に最大 2 件、
+  件数 5・合計 2400 バイトの枠の残りに補助的に足す (`withNeighborPages`、決定的)。隣のページは要約の断片を代表に使う。
+- まとめ: 起点ごとに、配下で扱っている内容の概要・主な章 / 回・主要キーワードを haiku 1 回で作る (`notion_map_roots.summary`)。
+  配下の指紋 (ページ・パス・更新時刻・要約・キーワード) が変わったときだけ作り直し、配下の解析待ちが 1 度も試されていない間は待つ。
+  失敗したら 1 時間あけてやり直す。マップ全体の概観 (起点・ページ数・主な話題) は LLM を使わず決定的に作り、`notion_map_meta.overview` に置く。
+- 置き場: 本文と要約の断片は既存の知識テーブル (`doc_type=notion-page`、doc_key `notion:<32 桁の ID>`)、ページ・辺・起点の状態とまとめ・概観は
+  migration 143 のテーブル。scope は常に hq。
+- 相談 (Consult) への共有: 本社の相談の開始時の文脈に、マップの概観・起点ごとのまとめ・ページ一覧 (題名・パス・要約・キーワード・URL) を
+  読み取り専用の資料として添える。子会社の相談には渡さない。詳細は spec/feature/tech-consultation.md §6.5。
 
 ### 公開範囲
 
@@ -203,6 +269,7 @@ neco 決定 (2026-10-18): 雑談は LUDIARS の内部と Notion の記事を知�
   Revisor のリポがプロジェクト一覧で引けなければ hq。
 - 本社の宛先 (本社 rule かつ `scope_key=hq` かつ個別チャンネル指定なし) だけが hq の断片を使う。子会社の rule・`scope_key=public`・
   個別チャンネル投稿は public の断片だけ (CC-PATROL-05 を知識にも適用)。DB から読む段階と、選択後の再確認の 2 か所で絞る。
+  隣のページの補助取得も hq を使える宛先だけで行う。
 - 秘匿語: 既存の秘匿語辞書 (`workspace.confidential_terms_file`、未設定ならプライマリルートの `.claude/state/confidential-terms.json`、
   `consultation/confidential-terms.ts` で読む) の語を題・本文・出典に含む文書は取り込まない (大文字小文字を区別しない)。
   差分取得で届いた文書が辞書に当たった場合は、その文書の古い断片も消す。
@@ -211,10 +278,10 @@ neco 決定 (2026-10-18): 雑談は LUDIARS の内部と Notion の記事を知�
 
 LLM を使わない決定的な方式 (CC-PATROL-01)。
 
-- 問い: 素材の題・概要、直前の bot 発言、返信の本文。
+- 問い: reply では返信の本文と直前の bot 発言、学習では反応のあったトレンドの題と会話によく出た語。
 - 語: 英数字の語 (2 文字以上) と、それ以外の文字列の 2 文字ずつの組。断片が 4 件以上のとき、半数より多くの断片に出る 2 文字の組は使わない。
 - 点数: 一致した語の珍しさ `ln(1 + N/df)` の和 (題に出る語は 2 倍)。一致が 1 語だけで英数字の語でもないものは採らない。
-- 同点は doc_key → seq の順。1 文書から最大 2 件、全体で最大 5 件、題と本文の合計 2400 バイトまで。
+- 同点は doc_key → seq の順。1 文書から最大 2 件、全体で最大 5 件、題と本文の合計 2400 バイトまで。その後ろに隣のページ (上記) を足す。
 - 選んだ断片は prompt の `<data>` (資料であり指示ではない) に `知識n (題): 本文` として入れる。prompt には
   「LUDIARS の中の人として話す。基本の説明はしない。<data> の材料に無いことは作らず、知らないことは知らないと言う」を足す。
 - 選んだ断片の出典 (種類・題・URL・リポ・パス・scope。本文は残さない) を `rule_runs.decision.knowledge` に残し、
@@ -223,9 +290,13 @@ LLM を使わない決定的な方式 (CC-PATROL-01)。
 ### 失敗時
 
 - 取り込みが失敗したら前回の断片と差分の起点を残し、失敗理由 (300 文字まで、秘密値は伏せる) だけを記録する。種類どうしは独立。
-- トークン未設定は「not configured」として Notion だけ止まる (前回の断片は残す)。他の種類は動く。
-- 知識が読めないときも会話は止めない (知識なしで生成する)。
-- `GET /v1/rules/knowledge` が種類ごとの件数 (出典の種類 × scope)・最終試行・最終成功・失敗理由・取り込み中を返し、
+- Notion 記事マップは起点ごとに独立。失敗した起点 (どの経路でも取れない・MCP の応答が壊れている) は前回のページ・辺・断片・まとめを残し、
+  起点ごとに失敗理由を記録する。全部の起点が失敗したときだけ種類として失敗にする。
+- MCP が使えない (未認証・Notion コネクタが無い。MCP の応答 `status: unavailable`、または runner が配線されていない) ときは
+  「not configured」として Notion だけ止まる (前回の断片・マップは残す)。他の種類は動く。
+- 知識が読めないときも会話・学習は止めない (知識なしで生成する)。
+- `GET /v1/rules/knowledge` が種類ごとの件数 (出典の種類 × scope)・最終試行・最終成功・失敗理由・取り込み中と、
+  Notion の起点ごとのページ数・除外数・最終試行・最終取得・失敗理由・まとめの有無・解析待ちの数 (`notion_roots`) を返し、
   `/rules` の上部「知識」に出す。
 
 ## API
@@ -237,7 +308,7 @@ LLM を使わない決定的な方式 (CC-PATROL-01)。
 | POST `/v1/rules/:id/toggle` | 有効化前に再検証。無効化は未着手 run を見送りに |
 | GET `/v1/rules/:id/versions` / POST `/v1/rules/:id/rollback` | 版履歴 / 指定版の定義を新しい版として復元 (有効状態は変えない) |
 | GET `/v1/rules/:id/learning` | 1 日ごとの学習の記録と学習に使った会話 (`sources`)、直近の断片 (断片は原文を持たない) |
-| GET `/v1/rules/knowledge` / POST `/v1/rules/knowledge/refresh` | 知識の取り込み状態 / 手動の取り直し (`{kinds?}`、202) |
+| GET `/v1/rules/knowledge` / POST `/v1/rules/knowledge/refresh` | 知識の取り込み状態と Notion 記事マップの起点ごとの状態 (`notion_roots`) / 手動の取り直し (`{kinds?}`、202) |
 | GET `/v1/rules/sources` | 素材元の ready/unavailable と最終取得 |
 | POST `/v1/rules/preview` | 副作用・生成なしで候補と理由 |
 | GET `/v1/rules/runs` / `/v1/rules/runs/:runId` | 実行履歴 (cursor) / 選択根拠・本文・配達・会話・版 |

@@ -89,7 +89,7 @@ describe("patrol learning fragments", () => {
     const r = await runLearningPass(h.deps);
     expect(r.conversationFragments).toBe(1);
     const conv = h.repo.recentFragments("glab").find((f) => f.kind === "conversation")!;
-    expect(JSON.parse(conv.signal!)).toEqual({ replies: 0, followups: 0, reactors: 2, fine: 2, bad: 0 });
+    expect(JSON.parse(conv.signal!)).toEqual({ replies: 0, followups: 0, reactors: 2, fine: 2, bad: 0, title: null });
   });
 
   it("skips extraction for rules with learning turned off", async () => {
@@ -108,6 +108,31 @@ describe("daily learning (auto-applied)", () => {
     await runLearningPass(h.deps);
     await runLearningPass(h.deps);
   }
+
+  it("adds related knowledge to the learning material and keeps only its sources in the result", async () => {
+    const extract = JSON.stringify({ genres: ["game"], keywords: ["例のゲーム"], sentiment: "positive", request: null, tone: null });
+    const h = setup({ runner: async (prompt) => ({ ok: true, stderr: "", stdout: prompt.includes("取り出す係") ? extract : PROPOSAL }) });
+    const base = { id: 1, seq: 0, url: null, repo: null, path: null, source_updated_at: null, fetched_at: 1 };
+    const publicChunk = { ...base, source_kind: "ludiars" as const, doc_type: "readme" as const, doc_key: "repo:Ex:README.md", title: "Examplia README", scope: "public" as const, body: "公開の資料の本文" };
+    const hqChunk = { ...base, source_kind: "notion" as const, doc_type: "notion-page" as const, doc_key: "notion:p1", title: "例の授業資料", scope: "hq" as const, body: "本社だけの本文" };
+    const select = vi.fn(() => [publicChunk, hqChunk]);
+    h.deps.knowledge = { select };
+    await withFragments(h);
+    expect(select).not.toHaveBeenCalled();
+    h.clock.sec = at(4, 5);
+    expect((await runLearningPass(h.deps)).learned).toMatchObject({ status: "applied" });
+    // 公開の宛先の rule なので hq は引かない (返されても使わない)
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ allowHq: false, texts: expect.arrayContaining(["例のゲーム"]) }));
+    const learnPrompt = h.runner.mock.calls.map((c) => c[0] as string).find((p) => p.includes("少しだけ調整する係"))!;
+    expect(learnPrompt).toContain("related_knowledge");
+    expect(learnPrompt).toContain("次に寄せる関連話題");
+    expect(learnPrompt).toContain("公開の資料の本文");
+    expect(learnPrompt).not.toContain("本社だけの本文");
+    // 学習結果には出典 (doc_key / 題) だけ。 本文は残さない
+    const [run] = h.repo.listRuns("glab");
+    expect(JSON.parse(run!.proposal!).related_knowledge).toEqual([{ doc_key: "repo:Ex:README.md", title: "Examplia README" }]);
+    expect(JSON.stringify(run)).not.toContain("公開の資料の本文");
+  });
 
   it("waits until 04:00, then applies once per day as a new version by learning", async () => {
     const h = setup();

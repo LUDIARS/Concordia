@@ -4,7 +4,9 @@
  * 1 回の pass で:
  *   1. 受理済みの返信から発言の断片を作る (最大 2 件、 rule ごと 1 日 20 件まで。 LLM 1 回ずつ、 再試行なし)
  *   2. 閉じた会話から決定的な断片を作る (反応の人数・返信数)
- *   3. ローカル 04:00 以降なら、 その日まだ学習していない rule を 1 本だけ学習して自動反映する
+ *   3. ローカル 04:00 以降なら、 その日まだ学習していない rule を 1 本だけ学習して自動反映する。
+ *      反応の良かったトレンドの題・語に関係する知識の断片を材料に足し、 「次に寄せる関連話題」を方針に書けるようにする
+ *      (spec/feature/patrol-chat.md「知識」)。 学習結果には断片の出典 (doc_key / 題) だけを残し、 本文は残さない
  *
  * 返信の応答 (patrol-cycle) とは別の流れで動き、 返信を待たせない。
  */
@@ -12,7 +14,10 @@
 import type { PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import type { RuleVersionsRepo } from "../db/rule-versions-repo.js";
 import type { RuleRow, RulesRepo } from "../db/rules-repo.js";
-import { PatrolActionConfigInput, parseActionConfig, type SubsidiaryPatrolDefaults } from "./patrol-config.js";
+import { PatrolActionConfigInput, parseActionConfig, type PatrolActionConfig, type SubsidiaryPatrolDefaults } from "./patrol-config.js";
+import { allowsHqKnowledge } from "./knowledge-scope.js";
+import type { KnowledgeQuery } from "./knowledge-select.js";
+import type { KnowledgeChunk } from "./knowledge-types.js";
 import {
   LEARNING_LIMITS,
   applyLearningProposal,
@@ -20,11 +25,13 @@ import {
   buildLearningPrompt,
   digestFragments,
   isLearningHour,
+  learningKnowledgeRefs,
   localDay,
   parseLearningProposal,
   parseMessageSignal,
   topKeywords,
   type ConversationSignal,
+  type FragmentDigest,
 } from "./patrol-learning.js";
 import type { LearningJournalSync } from "./patrol-learning-journal.js";
 import { dayStartSec, type PatrolReactionsPort } from "./patrol-ports.js";
@@ -43,6 +50,8 @@ export interface LearningLoopDeps {
   inherit: (rule: RuleRow) => SubsidiaryPatrolDefaults | null;
   /** 投稿先チャンネル (個別チャンネル) の rule。 返信でない会話の断片をどの rule に付けるか。 */
   ruleForChannel?: (discordChannelId: string) => RuleRow | null;
+  /** 知識の断片の選択 (spec/feature/patrol-chat.md「知識」)。 未注入なら知識なしで学習する。 */
+  knowledge?: { select(query: KnowledgeQuery): KnowledgeChunk[] } | null;
   /** 巡回が止まっている間は学習もしない。 */
   disabled?: () => boolean;
   /** その日の学習の記録を Memoria の日記へ載せる (未注入なら載せない)。 */
@@ -114,6 +123,7 @@ export async function runLearningPass(deps: LearningLoopDeps): Promise<LearningP
     const r = deps.reactions?.reactorsByMessage(conv.root_chat_id) ?? { distinct: 0, fine: 0, bad: 0 };
     const signal: ConversationSignal = {
       replies: conv.reply_count, followups: conv.unprompted_count, reactors: r.distinct, fine: r.fine, bad: r.bad,
+      title: conv.material_title ?? null,
     };
     if (deps.repo.insertFragment({ rule_id: conv.rule_id, kind: "conversation", source_key: `conv:${conv.conversation_id}`, status: "ok", signal, now })) {
       report.conversationFragments++;
@@ -164,10 +174,13 @@ async function learnRule(deps: LearningLoopDeps, rule: RuleRow, day: string, now
   if (!effective.ok) return record("failed", effective.reason);
   const current = { tick_sec: rule.tick_sec ?? 1800, config: raw, effectiveRootLimit: effective.config.root_limit_per_day };
   const digest = digestFragments(fragments.map((f) => ({ kind: f.kind, signal: f.signal ? JSON.parse(f.signal) : null })));
+  const related = relatedKnowledge(deps, rule, effective.config, digest);
+  const refs = learningKnowledgeRefs(related);
+  const withRefs = (proposal: unknown) => (refs.length && proposal && typeof proposal === "object" ? { ...proposal, related_knowledge: refs } : proposal);
 
   let output: string;
   try {
-    const res = await deps.runner(buildLearningPrompt(digest, current), { model: "haiku", timeoutMs: LEARN_TIMEOUT_MS, conversationOnly: true });
+    const res = await deps.runner(buildLearningPrompt(digest, current, related.map((c) => ({ title: c.title, body: c.body }))), { model: "haiku", timeoutMs: LEARN_TIMEOUT_MS, conversationOnly: true });
     if (!res.ok) return record("failed", `learning render failed: ${res.stderr.slice(0, 160)}`);
     output = res.stdout;
   } catch (err) {
@@ -184,19 +197,39 @@ async function learnRule(deps: LearningLoopDeps, rule: RuleRow, day: string, now
     applied.changes.learned_keywords = keywords;
   }
   if (Object.keys(applied.changes).length === 0) {
-    return record("skipped", "no change", { proposal, consume: true });
+    return record("skipped", "no change", { proposal: withRefs(proposal), consume: true });
   }
   const configJson = JSON.stringify(applied.config);
   const review = deps.validate(rule, configJson, applied.tick_sec);
-  if (!review.ok) return record("rejected", review.reason, { proposal, consume: true });
+  if (!review.ok) return record("rejected", review.reason, { proposal: withRefs(proposal), consume: true });
 
   const updated = deps.rules.updateWithRevision(rule.id, rule.revision, {
     action_config: configJson,
     tick_sec: applied.tick_sec,
     cooldown_sec: applied.tick_sec,
   });
-  if (!updated) return record("failed", "revision conflict", { proposal });
+  if (!updated) return record("failed", "revision conflict", { proposal: withRefs(proposal) });
   if (applied.tick_sec !== rule.tick_sec) deps.rules.setNextDue(rule.id, null);
   deps.versions?.record(updated, "learning", `learned ${day}: ${proposal.summary}`.slice(0, 300));
-  return record("applied", proposal.summary || null, { proposal, applied: applied.changes, revision: updated.revision, consume: true });
+  return record("applied", proposal.summary || null, { proposal: withRefs(proposal), applied: applied.changes, revision: updated.revision, consume: true });
+}
+
+/**
+ * 反応の良かったトレンドの題と、 会話によく出た語で知識を引く。 宛先の公開範囲は生成と同じ (CC-PATROL-05)。
+ * 読めなくても学習は止めない。
+ */
+function relatedKnowledge(deps: LearningLoopDeps, rule: RuleRow, config: PatrolActionConfig, digest: FragmentDigest): KnowledgeChunk[] {
+  if (!deps.knowledge) return [];
+  const texts = [...digest.engagedTopics, ...topKeywords(digest.keywordCounts, 10)].filter((t) => t.trim());
+  if (texts.length === 0) return [];
+  const allowHq = allowsHqKnowledge({
+    subsidiaryId: rule.subsidiary_id ?? null,
+    scopeKey: config.scope_key,
+    discordChannelId: config.discord_channel_id,
+  });
+  try {
+    return deps.knowledge.select({ texts, allowHq }).filter((c) => allowHq || c.scope === "public");
+  } catch {
+    return [];
+  }
 }

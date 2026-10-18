@@ -345,6 +345,11 @@ export interface CoreDelegationDeps {
    * 既定は E:/Document/Consult (役職ごとのフォルダと相談専用の Claude 設定フォルダ)。 未注入ならその起動は 503。
    */
   consultWorkspaceRoot?: string;
+  /**
+   * 本社の相談の開始時に添える社内資料の地図 (Notion 記事マップ。 spec/feature/tech-consultation.md §6.5)。
+   * 未注入なら添えない。 子会社の相談では呼ばない。
+   */
+  consultKnowledgeContext?: () => string | null;
   /** ユーザー / チームの月次予算 (spec/feature/usage-budgets.md)。 未注入なら API も起動時の判定も無い。 */
   usageBudgets?: {
     repo: UsageBudgetsRepo;
@@ -1374,6 +1379,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         prepareCodexHome: (codexHome) => prepareConsultCodexHome(codexHome),
         // フックが信頼済みなら Astra に公開リンクの取得コマンドを許す (シェルの制限はフックが担う。 consult-fetch-link.ts)。
         codexPreToolHookTrusted: (codexHome) => readConsultCodexPreToolHookTrusted(codexHome),
+        // 本社の相談の開始時に社内資料の地図を添える (読み取り専用の文脈。 相談に許すコマンドは増やさない)。
+        ...(deps.consultKnowledgeContext ? { knowledgeContext: deps.consultKnowledgeContext } : {}),
       })
       : { kind: "none" as const };
     if (projectlessConsult.kind === "error") return c.json({ error: projectlessConsult.error }, projectlessConsult.status);

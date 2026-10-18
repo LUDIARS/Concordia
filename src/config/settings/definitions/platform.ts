@@ -6,6 +6,8 @@
  */
 
 import { validateLineWebhookTargetEntries } from "../../../line-webhook/targets.js";
+import { normalizeNotionId } from "../../../rules/notion-map-rules.js";
+import { NOTION_MAP_DEFAULT_LIMITS, NOTION_MAP_DEFAULT_ROOTS } from "../../../rules/notion-map-types.js";
 import { validateDiscordChatRelayTargetEntries } from "../../../discord-chat-relay/targets.js";
 import type { SettingDefinition } from "../types.js";
 
@@ -90,15 +92,7 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "secret", envName: null, dbKey: "services.google_drive_service_account",
     defaultValue: null, editable: true,
   },
-  // 巡回チャットの知識 (spec/feature/patrol-chat.md「知識」)。 秘密は env から読まず DB + 設定画面の 1 系統。
-  {
-    key: "services.notion_token", section: "services",
-    label: "Notion 連携トークン (巡回チャットの知識)",
-    description: "Cc 用の Notion 連携 (internal integration) のトークン。 連携に共有したページを巡回チャットの知識として 1 日 1 回取り込む (本社限定)。 "
-      + "schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。 未設定なら Notion の取り込みだけ止まり、 前回の分は残る。",
-    kind: "secret", envName: null, dbKey: "services.notion_token",
-    defaultValue: null, editable: true,
-  },
+  // 巡回チャットの知識 (spec/feature/patrol-chat.md「知識」)。
   {
     key: "services.chat_knowledge_public_projects", section: "services",
     label: "巡回チャットの知識で公開とするプロジェクト",
@@ -106,6 +100,47 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
       + "載っていないもの (非公開・判断できないもの) と MELPOT 所属・Notion は本社の宛先だけで使う。",
     kind: "string-list", envName: null, dbKey: "services.chat_knowledge_public_projects",
     defaultValue: null, editable: true,
+  },
+  // Notion 記事マップ (spec/feature/patrol-chat.md「知識」)。 起点・除外・上限は秘密値ではない。
+  {
+    key: "services.notion_map_roots", section: "services",
+    label: "Notion 記事マップの起点ページ",
+    description: "1 行 1 件。 先頭は 32 桁のページ ID か公開ページの URL、 後ろの名前は注記。 起点から子ページ・子データベースを下ってクロールする。 "
+      + "公開ページは URL (*.notion.site) を先頭に書けばクロールで読む。 それ以外は claude.ai の Notion コネクタ (MCP) で読む。 "
+      + "未設定なら既定の起点 (ゲーム開発攻略ページと各学年の授業資料)。",
+    kind: "string-list", envName: null, dbKey: "services.notion_map_roots",
+    defaultValue: [...NOTION_MAP_DEFAULT_ROOTS], editable: true,
+    validateItems: (items) => (items.every((item) => normalizeNotionId(item.trim().split(/\s+/)[0] ?? "") !== null)
+      ? null : "each line must start with a 32-digit Notion page id"),
+  },
+  {
+    key: "services.notion_map_exclude", section: "services",
+    label: "Notion 記事マップの除外語 (追加)",
+    description: "1 行 1 語。 題名やパスにこの語を含むページとその配下は読まない (保存もしない)。 "
+      + "「個人ページ」「チーム」「タスクリスト」「チームテンプレート」は常に除外する。",
+    kind: "string-list", envName: null, dbKey: "services.notion_map_exclude",
+    defaultValue: null, editable: true,
+  },
+  {
+    key: "services.notion_map_max_depth", section: "services",
+    label: "Notion 記事マップの深さの上限",
+    description: "起点を 0 として下る段数。",
+    kind: "integer", envName: null, dbKey: "services.notion_map_max_depth",
+    defaultValue: NOTION_MAP_DEFAULT_LIMITS.maxDepth, editable: true, minValue: 1, maxValue: 12,
+  },
+  {
+    key: "services.notion_map_max_pages", section: "services",
+    label: "Notion 記事マップの起点ごとのページ数の上限",
+    description: "起点 1 つから読むページの数。 3 req/s の制限があるので、 増やすとクロールが長くなる。",
+    kind: "integer", envName: null, dbKey: "services.notion_map_max_pages",
+    defaultValue: NOTION_MAP_DEFAULT_LIMITS.maxPages, editable: true, minValue: 1, maxValue: 2000,
+  },
+  {
+    key: "services.notion_map_page_bytes", section: "services",
+    label: "Notion 記事マップのページごとの本文バイトの上限",
+    description: "ページ 1 件から読む本文のバイト数。",
+    kind: "integer", envName: null, dbKey: "services.notion_map_page_bytes",
+    defaultValue: NOTION_MAP_DEFAULT_LIMITS.pageTextBytes, editable: true, minValue: 500, maxValue: 50000,
   },
   // LINE webhook のサービス (spec/feature/line-webhook-relay.md)。 秘密値ではない。 受け口が要求ごとに読む。
   {

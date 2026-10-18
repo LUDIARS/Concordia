@@ -3712,7 +3712,62 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   },
 },
 {
-  // 143 は並行中の notion-map が使うので飛ばす (migrator は欠番を許す)。
+  version: 143,
+  name: "notion-map",
+  source: "notion_map_pages + notion_map_edges + notion_map_roots + notion_map_meta, drop services.notion_token (spec/feature/patrol-chat.md 知識 / Notion 記事マップ)",
+  up(db) {
+    // Notion 記事マップ。 決まった起点からクロールしたページ (除外したページは置かない)・ページ間の参照・起点ごとの状態とまとめ・全体の概観。
+    // 本文の断片は chat_knowledge_chunks (doc_type notion-page) に置く。
+    // Notion は MCP とクロールで取る (トークンを使わない、 neco 指示 2026-10-18)。 migration 142 時点の連携トークンの保存値を残さない。
+    db.prepare(`DELETE FROM schema_meta WHERE key = 'services.notion_token'`).run();
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notion_map_pages (
+        page_id               TEXT PRIMARY KEY,
+        root_id               TEXT NOT NULL,
+        title                 TEXT NOT NULL,
+        url                   TEXT,
+        path                  TEXT NOT NULL,
+        depth                 INTEGER NOT NULL,
+        last_edited_ms        INTEGER,
+        content_hash          TEXT,
+        summary               TEXT,
+        keywords              TEXT NOT NULL DEFAULT '[]',
+        analysis_pending      INTEGER NOT NULL DEFAULT 1,
+        analysis_attempted_at INTEGER,
+        fetched_at            INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notion_map_pages_root ON notion_map_pages(root_id);
+
+      CREATE TABLE IF NOT EXISTS notion_map_edges (
+        from_page TEXT NOT NULL,
+        to_page   TEXT NOT NULL,
+        kind      TEXT NOT NULL CHECK (kind IN ('child', 'link')),
+        PRIMARY KEY (from_page, to_page, kind)
+      );
+      CREATE INDEX IF NOT EXISTS idx_notion_map_edges_to ON notion_map_edges(to_page);
+
+      CREATE TABLE IF NOT EXISTS notion_map_roots (
+        root_id              TEXT PRIMARY KEY,
+        title                TEXT,
+        pages                INTEGER NOT NULL DEFAULT 0,
+        excluded             INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at      INTEGER,
+        last_success_at      INTEGER,
+        last_error           TEXT,
+        summary              TEXT,
+        summary_basis        TEXT,
+        summary_attempted_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS notion_map_meta (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+  },
+},
+{
   version: 144,
   name: "line-talk-links",
   source: "line_talk_links (spec/feature/line-webhook-relay.md トークごとの紐付け)",

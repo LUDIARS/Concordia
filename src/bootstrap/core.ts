@@ -292,6 +292,7 @@ import { startErrorFixDispatcher } from "../control/error-fix.js";
 import { buildApp } from "../app.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
 import { readLineChannelSecrets } from "../line-webhook/channel-secrets.js";
+import { createDiscordChatRelayFromStore } from "../discord-chat-relay/runtime.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "../discord/bot.js";
@@ -2103,6 +2104,8 @@ export async function startBackend(): Promise<BackendHandle> {
     chatRepo: chat,
     // 巡回の投稿先チャンネル (GLab / VOB 等) の会話を取り込む (neco 2026-10-15「全部拾う」)。
     patrolChannelFor: patrolRuntime.channelFor,
+    // 指定チャンネルの発言をサービスへ中継する (spec/feature/discord-chat-relay.md)。 子会社 runtime とも共有する。
+    discordChatRelay: createDiscordChatRelayFromStore(adminState.store),
     sessionsRepo: repo,
     gatewayPool: discordGatewayPool,
     revisorTestWorkflow,

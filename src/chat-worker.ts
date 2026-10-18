@@ -34,6 +34,7 @@ import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { readCostMode } from "./bootstrap/cost.js";
 import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { AdminState } from "./admin/state.js";
+import { createDiscordChatRelayFromStore } from "./discord-chat-relay/runtime.js";
 import { SqliteSettingsStore } from "./admin/settings-store.js";
 import { readFederationEnv } from "./federation/env.js";
 import { resolveFederationSiteId } from "./federation/listener-settings.js";
@@ -303,6 +304,8 @@ async function main(): Promise<void> {
     db,
     readModel,
     chatRepo: chat,
+    // 指定チャンネルの発言をサービスへ中継する (spec/feature/discord-chat-relay.md)。 子会社 runtime とも共有する。
+    discordChatRelay: createDiscordChatRelayFromStore(adminState.store),
     sessionsRepo: sessions,
     gatewayPool: discordGatewayPool,
     revisorTestWorkflow: createRevisorTestWorkflowClient(

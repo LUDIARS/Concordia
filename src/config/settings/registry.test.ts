@@ -344,6 +344,16 @@ describe("更新の検証", () => {
     expect(writer.calls).toEqual([["writeMeta", "services.line_webhook_targets", JSON.stringify([entry])]]);
   });
 
+  it("Discord チャット中継の転送先は 1 行 1 件の JSON を検証し、同じチャンネルを 2 つの転送先に書いた更新は保存しない", () => {
+    const writer = recordingWriter();
+    const entry = JSON.stringify({ name: "mf", url: "http://192.0.2.10:8080/integrations/discord", channelIds: ["123456789012345678"], enabled: true });
+    expect(applySettingUpdate("services.discord_chat_relay_targets", [entry], writer).ok).toBe(true);
+    const clash = JSON.stringify({ name: "other", url: "http://192.0.2.11/", channelIds: ["123456789012345678"], enabled: true });
+    const rejected = applySettingUpdate("services.discord_chat_relay_targets", [entry, clash], writer);
+    expect(rejected).toMatchObject({ ok: false, error: { code: "invalid_value", key: "services.discord_chat_relay_targets" } });
+    expect(writer.calls).toEqual([["writeMeta", "services.discord_chat_relay_targets", JSON.stringify([entry])]]);
+  });
+
   it("相談のファイル受け渡しの鍵を schema_meta に書き (store 側で暗号化される)、 親フォルダの設定は持たない", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("services.google_drive_service_account", "{\"type\":\"service_account\"}", writer).ok).toBe(true);

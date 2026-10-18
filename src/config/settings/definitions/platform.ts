@@ -6,6 +6,7 @@
  */
 
 import { validateLineWebhookTargetEntries } from "../../../line-webhook/targets.js";
+import { validateDiscordChatRelayTargetEntries } from "../../../discord-chat-relay/targets.js";
 import type { SettingDefinition } from "../types.js";
 
 function envString(
@@ -116,6 +117,17 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "string-list", envName: null, dbKey: "services.line_webhook_targets",
     defaultValue: null, editable: true,
     validateItems: validateLineWebhookTargetEntries,
+  },
+  // Discord チャット中継の転送先 (spec/feature/discord-chat-relay.md)。 LINE webhook 転送先と対。 秘密値ではない。
+  {
+    key: "services.discord_chat_relay_targets", section: "services",
+    label: "Discord チャット中継 転送先",
+    description: "指定チャンネル (とその中のスレッド) の人間の発言を転送し、 返事を元の発言への返信として投稿する。 1 行 1 件の JSON で書く "
+      + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/discord\",\"host\":\"mf-hook.example.test\",\"channelIds\":[\"123456789012345678\"],\"enabled\":true})。 "
+      + "1 つのチャンネルは 1 つの転送先にだけ書ける。 セッション中継のチャンネルは中継しない。 保存すると再起動なしで効く。",
+    kind: "string-list", envName: null, dbKey: "services.discord_chat_relay_targets",
+    defaultValue: null, editable: true,
+    validateItems: validateDiscordChatRelayTargetEntries,
   },
   envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
     "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),

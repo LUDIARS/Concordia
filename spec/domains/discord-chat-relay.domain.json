@@ -1,0 +1,12 @@
+{
+  "name": "discord-chat-relay",
+  "description": "Discord の指定チャンネルの人間の発言を既存の Discord ゲートウェイで拾い、設定に登録した転送先サービスへ中継トークン付きで転送し、サービスの返事を元の発言への reply として投稿する。LINE webhook のハブと対。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/discord-chat-relay/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/chat-relay-surface(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/settings/sections/DiscordChatRelaySecretsSection(\\.test)?\\.tsx$" }
+  ],
+  "specRefs": ["spec/feature/discord-chat-relay.md", "spec/feature/line-webhook-relay.md", "spec/feature/trust-boundaries.md", "spec/ux/product.md"]
+}

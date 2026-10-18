@@ -88,6 +88,9 @@ import { githubRouter, type GithubRouterDeps } from "./github.js";
 import { githubAdminRouter, type GithubAdminRouterDeps } from "./github-admin.js";
 import { lineWebhookAdminRouter } from "../line-webhook/admin-route.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
+import { discordChatRelayAdminRouter } from "../discord-chat-relay/admin-route.js";
+import { DISCORD_CHAT_RELAY_TARGETS_KEY } from "../discord-chat-relay/runtime.js";
+import { readDiscordChatRelayTargets } from "../discord-chat-relay/targets.js";
 import type { GithubConfigRepo } from "../db/github-config-repo.js";
 import {
   createSettingsDbReader,
@@ -729,6 +732,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     targets: () => {
       try {
         return readLineWebhookTargets(deps.adminState.store.get("services.line_webhook_targets"));
+      } catch {
+        return [];
+      }
+    },
+    store: deps.adminState.store,
+  }));
+  // Discord チャット中継の中継トークン (spec/feature/discord-chat-relay.md §中継トークン)。 LINE と同じ置き場所・扱い。
+  app.route("/v1/admin/discord-chat-relay", discordChatRelayAdminRouter({
+    targets: () => {
+      try {
+        return readDiscordChatRelayTargets(deps.adminState.store.get(DISCORD_CHAT_RELAY_TARGETS_KEY));
       } catch {
         return [];
       }

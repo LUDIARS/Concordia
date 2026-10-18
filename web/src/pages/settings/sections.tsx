@@ -8,3 +8,4 @@ export { CronJobsSection } from "./sections/CronJobsSection.js";
 export { AllSettingsSection } from "./sections/AllSettingsSection.js";
 export { GithubIssueWorkflowSection } from "./sections/GithubIssueWorkflowSection.js";
 export { LineWebhookSecretsSection } from "./sections/LineWebhookSecretsSection.js";
+export { DiscordChatRelaySecretsSection } from "./sections/DiscordChatRelaySecretsSection.js";

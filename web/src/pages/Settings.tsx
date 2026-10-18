@@ -14,6 +14,7 @@ import {
   CronJobsSection,
   GithubIssueWorkflowSection,
   LineWebhookSecretsSection,
+  DiscordChatRelaySecretsSection,
 } from "./settings/sections.js";
 
 // Concordia の「設定」ページ。 設定項目が増えたので左メニュー + セクション構成にした。
@@ -107,9 +108,14 @@ const SECTIONS: SettingsSection[] = [
   },
   {
     id: "line-webhook",
-    label: "LINE webhook",
-    hint: "LINE のチャネルの秘密値と中継トークン (target ごと)",
-    render: () => <section className="border border-border rounded p-4"><LineWebhookSecretsSection /></section>,
+    label: "LINE / Discord 中継",
+    hint: "LINE のチャネルの秘密値と、 LINE・Discord の中継トークン (target ごと)",
+    render: () => (
+      <div className="space-y-3">
+        <section className="border border-border rounded p-4"><LineWebhookSecretsSection /></section>
+        <section className="border border-border rounded p-4"><DiscordChatRelaySecretsSection /></section>
+      </div>
+    ),
   },
   {
     id: "web-hosts",

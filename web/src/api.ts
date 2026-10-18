@@ -922,6 +922,17 @@ export const api = {
     ),
   lineWebhookClearSecret: (target: string, field: LineChannelSecretField) =>
     del<{ ok: boolean }>(`/v1/admin/line-webhook/targets/${encodeURIComponent(target)}/secrets/${field}`),
+  /** @implements spec/feature/discord-chat-relay.md — 中継トークン */
+  discordChatRelayTargets: () =>
+    get<{ targets: DiscordChatRelayTargetSecrets[] }>("/v1/admin/discord-chat-relay/targets"),
+  /** 値は書き込むだけで、 応答は設定済みかどうかだけ。 */
+  discordChatRelaySetToken: (target: string, value: string) =>
+    put<{ ok: boolean }>(
+      `/v1/admin/discord-chat-relay/targets/${encodeURIComponent(target)}/secrets/relay_token`,
+      { value },
+    ),
+  discordChatRelayClearToken: (target: string) =>
+    del<{ ok: boolean }>(`/v1/admin/discord-chat-relay/targets/${encodeURIComponent(target)}/secrets/relay_token`),
   githubIssueRuns: (limit = 50) =>
     get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
   githubIssueRunApprove: (id: string) =>
@@ -2141,6 +2152,14 @@ export interface LineWebhookTargetSecrets {
   enabled: boolean;
   channel_secret_set: boolean;
   channel_access_token_set: boolean;
+  relay_token_set: boolean;
+}
+
+/** Discord チャット中継の target ごとの状態。 中継トークンの値そのものは返らない。 */
+export interface DiscordChatRelayTargetSecrets {
+  name: string;
+  enabled: boolean;
+  channel_ids: string[];
   relay_token_set: boolean;
 }
 

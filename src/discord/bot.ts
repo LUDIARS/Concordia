@@ -3,6 +3,8 @@ import { createDiscordPushWarning } from "./push-warning.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeting-links/discord.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
+import { createChatRelaySurface } from "./chat-relay-surface.js";
+import type { DiscordChatRelayService } from "../discord-chat-relay/relay-service.js";
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
 import { ensureBountyReportChannel } from "./bounty-report-channel.js";
@@ -289,6 +291,11 @@ export interface DiscordBotDeps {
    * 返信でない会話も取り込む (即応はしない。 追投稿の観測と学習に使う)。
    */
   patrolChannelFor?: (discordChannelId: string) => string | null;
+  /**
+   * 指定チャンネルの発言をサービスへ中継し、 返事を投稿する (spec/feature/discord-chat-relay.md)。
+   * 未配線なら中継しない。 本社/子会社の runtime で同じものを共有する (messageId の重複転送を防ぐ)。
+   */
+  discordChatRelay?: DiscordChatRelayService | null;
   sessionsRepo: SessionsRepo;
   /** 本社/子会社で token 単位の物理 Discord Client を共有する。未指定は private pool。 */
   gatewayPool?: DiscordGatewayPool;
@@ -519,6 +526,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
+  const chatRelaySurface = deps.discordChatRelay
+    ? createChatRelaySurface({
+      service: deps.discordChatRelay,
+      // セッション中継に割り当て済みのチャンネル・スレッドは中継しない (DCR-INV-02)。
+      isSessionRelayChannel: (channelId) => sessionChannelsRepo.findByChannelId(channelId) !== null,
+      botUserId: () => client.user?.id ?? null,
+      log,
+    })
+    : null;
   const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
   const reviewReportReceiptsRepo = makeDiscordReviewReportReceiptsRepo(deps.db, scope);
   // reconcile close / スレッド投稿が共有するテスト・QA hooks。 close 時は旧経路の
@@ -1881,6 +1897,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    // サービスへ中継する指定チャンネル (spec/feature/discord-chat-relay.md)。 受け持った発言は他の ingress へ回さない。
+    if (chatRelaySurface?.handlesMessage(msg)) {
+      void chatRelaySurface.message(msg).catch((error) => log.warn(`discord chat relay failed: ${(error as Error).name}`));
+      return;
+    }
     if (cloudObservationForum?.handles(msg)) {
       void cloudObservationForum.answer(msg).catch(() => log.warn("cloud observation answer rejected or delivery incomplete"));
       return;

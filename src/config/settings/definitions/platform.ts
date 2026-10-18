@@ -5,6 +5,7 @@
  * ポートの正本は Excubitor catalog で、 ここに出る既定値は env 未設定時の互換 fallback。
  */
 
+import { validateLineWebhookTargetEntries } from "../../../line-webhook/targets.js";
 import type { SettingDefinition } from "../types.js";
 
 function envString(
@@ -87,6 +88,17 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     description: "技術相談のファイル受け渡しに使うサービスアカウントの鍵 (JSON をそのまま貼る)。 相談者は自分の Drive のフォルダをこのアカウントのメールアドレスへ編集者で共有する。 schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。 未設定なら受け渡しを使わない。",
     kind: "secret", envName: null, dbKey: "services.google_drive_service_account",
     defaultValue: null, editable: true,
+  },
+  // LINE webhook の転送先 (spec/feature/line-webhook-relay.md)。 秘密値ではない。 受け口が要求ごとに読む。
+  {
+    key: "services.line_webhook_targets", section: "services",
+    label: "LINE webhook 転送先",
+    description: "POST /hooks/line/<name> で受けた LINE webhook の転送先。 1 行 1 件の JSON で書く "
+      + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/line/webhook\",\"host\":\"mf-hook.example.test\",\"enabled\":true})。 "
+      + "name は英小文字・数字・ハイフン、 url は http / https、 host は任意で転送時の Host ヘッダ。 保存すると再起動なしで効く。",
+    kind: "string-list", envName: null, dbKey: "services.line_webhook_targets",
+    defaultValue: null, editable: true,
+    validateItems: validateLineWebhookTargetEntries,
   },
   envInteger("services.lictor_sidecar_port", "services", "Lictor セッション接続ポート", "LICTOR_PORT", null,
     "LictorがMCP等へ渡す呼出元セッション専用のsidecarポート。固定の既定値は持たず、Cc本体で未設定でも異常ではない。"),

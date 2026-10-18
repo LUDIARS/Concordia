@@ -87,6 +87,9 @@ function validate(definitions: readonly SettingDefinition[]): readonly SettingDe
         throw new Error(`setting ${definition.key} has an invalid string pattern`);
       }
     }
+    if (definition.validateItems !== undefined && definition.kind !== "string-list") {
+      throw new Error(`setting ${definition.key} has validateItems but is not a string-list`);
+    }
     if (definition.listEnvFormat !== undefined && definition.kind !== "string-list") {
       throw new Error(`setting ${definition.key} has listEnvFormat but is not a string-list`);
     }

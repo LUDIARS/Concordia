@@ -165,7 +165,14 @@
     { "glob": "tests/*", "layer": "shared" },
     { "glob": "tests/helpers/*", "layer": "shared" },
     { "glob": "src/consultation/title-summary.ts", "layer": "domain-logic" },
-    { "glob": "src/consultation/title-summary.test.ts", "layer": "shared" }
+    { "glob": "src/consultation/title-summary.test.ts", "layer": "shared" },
+    { "glob": "src/line-webhook/targets.ts", "layer": "domain-logic" },
+    { "glob": "src/line-webhook/relay-headers.ts", "layer": "domain-logic" },
+    { "glob": "src/line-webhook/*.contract.ts", "layer": "domain-logic" },
+    { "glob": "src/line-webhook/relay.ts", "layer": "infrastructure" },
+    { "glob": "src/line-webhook/ontime-runtime.ts", "layer": "infrastructure" },
+    { "glob": "src/line-webhook/route.ts", "layer": "presentation" },
+    { "glob": "src/line-webhook/*.test.ts", "layer": "shared" }
   ],
 
   "mergeCouplingThreshold": 1

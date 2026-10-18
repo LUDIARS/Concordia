@@ -18,6 +18,7 @@ import { installApiInstrumentation } from "./instrumentation.js";
 import { listHaltedLoops } from "./shared/loop-bulkhead.js";
 import { beginRequest, endRequest } from "./shared/inflight-requests.js";
 import { webSsoMiddleware, type WebSsoGate } from "./web-sso/http-gate.js";
+import { registerLineWebhookRoute, type LineWebhookDeps } from "./line-webhook/route.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -42,6 +43,8 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
   costRoutes?: CostDeps | null;
   /** 公開ホストの SSO ゲート (spec/feature/web-sso.md)。無ければ公開ホストは無い。 */
   webSso?: WebSsoGate | null;
+  /** LINE webhook の転送先 (spec/feature/line-webhook-relay.md)。 無ければ受け口は常に 404。 */
+  lineWebhook?: LineWebhookDeps | null;
 };
 
 export function buildApp(deps: AppDeps): Hono {
@@ -108,6 +111,9 @@ export function buildApp(deps: AppDeps): Hono {
       perfLog.warn(requestDetails, "http request exceeded perf threshold");
     }
   });
+  // LINE webhook の受け口は認証 (公開ホストの SSO) と応答キャッシュより前に登録する。
+  // ここで応答を返すと後続のミドルウェアへは進まないので、 Cc で唯一の未認証経路になる。
+  registerLineWebhookRoute(app, deps.lineWebhook ?? { targets: () => [] });
   // 応答キャッシュより前に置く。公開ホストの要求がキャッシュから返らないように。
   if (deps.webSso) app.use("*", webSsoMiddleware(deps.webSso));
   app.use("*", httpCacheMiddleware());

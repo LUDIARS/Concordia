@@ -90,6 +90,10 @@ export interface TestAppOptions {
   costOverviewSource?: "live" | "samples";
   /** dist が src より古い状態を再現する (既定 false)。 */
   buildStale?: boolean;
+  /** 公開ホストの SSO ゲート。 未指定なら公開ホストは無い。 */
+  webSso?: AppDeps["webSso"];
+  /** LINE webhook の転送先。 未指定なら受け口は常に 404。 */
+  lineWebhook?: AppDeps["lineWebhook"];
 }
 
 export interface TestAppEnv {
@@ -260,6 +264,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     config,
     startedAt: new Date().toISOString(),
     buildStale: opts.buildStale ?? false,
+    webSso: opts.webSso ?? null,
+    lineWebhook: opts.lineWebhook ?? null,
     inboxItems: () => inboxItems(db),
     sweeperRunOnce: async () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",

@@ -335,6 +335,15 @@ describe("更新の検証", () => {
     ]);
   });
 
+  it("LINE webhook の転送先は 1 行 1 件の JSON を検証して schema_meta に書き、壊れた行があれば保存しない", () => {
+    const writer = recordingWriter();
+    const entry = JSON.stringify({ name: "mf", url: "http://192.0.2.10:8080/integrations/line/webhook", host: "mf-hook.example.test", enabled: true });
+    expect(applySettingUpdate("services.line_webhook_targets", [entry], writer).ok).toBe(true);
+    const rejected = applySettingUpdate("services.line_webhook_targets", [entry, JSON.stringify({ name: "Bad", url: "ftp://x", enabled: true })], writer);
+    expect(rejected).toMatchObject({ ok: false, error: { code: "invalid_value", key: "services.line_webhook_targets" } });
+    expect(writer.calls).toEqual([["writeMeta", "services.line_webhook_targets", JSON.stringify([entry])]]);
+  });
+
   it("相談のファイル受け渡しの鍵を schema_meta に書き (store 側で暗号化される)、 親フォルダの設定は持たない", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("services.google_drive_service_account", "{\"type\":\"service_account\"}", writer).ok).toBe(true);

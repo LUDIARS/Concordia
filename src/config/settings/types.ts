@@ -107,6 +107,11 @@ export interface SettingDefinition {
   stringPattern?: string;
   /** `stringPattern` 不一致時に API が返す人間向けの制約説明。 */
   stringPatternDescription?: string;
+  /**
+   * `kind: "string-list"` の項目ごとの形式検証。 壊れていれば理由を返し、 PUT は 400 で拒否する
+   * (1 行 1 件の構造化値を、 専用 UI を作らずに汎用の設定画面で編集させるため)。
+   */
+  validateItems?: (items: readonly string[]) => string | null;
   /** `kind: "string-list"` の env 表現。 既定は既存設定と同じ `;` 区切り。 */
   listEnvFormat?: "semicolon" | "comma-or-newline";
   /**

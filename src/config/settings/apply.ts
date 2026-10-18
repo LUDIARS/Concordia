@@ -145,6 +145,8 @@ function encodeValue(
         return { detail: "expected an array of strings" };
       }
       const cleaned = (value as string[]).map((item) => item.trim()).filter(Boolean);
+      const invalid = definition.validateItems?.(cleaned);
+      if (invalid) return { detail: invalid };
       return { stored: JSON.stringify(cleaned) };
     }
 

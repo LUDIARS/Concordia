@@ -5190,6 +5190,21 @@
     {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-task-client.test.ts","src/taskflow/actio-task-pages.test.ts"],"contracts":["CC-AT-PAGE-01","CC-AT-PAGE-02"]},
     {"source":"src/fallback-tasks/actio-client.ts","tests":["src/fallback-tasks/actio-client.test.ts"],"contracts":["CC-AT-PAGE-01","CC-AT-PAGE-02"]},
     {"source":"src/developer-tools/actio-sync-migration/sources.ts","tests":["src/developer-tools/actio-sync-migration/sources.test.ts","src/developer-tools/actio-sync-migration/run.test.ts"],"contracts":["CC-TF-SYNC-06","CC-AT-PAGE-01"]},
-    {"source":"src/taskflow/sync-migration-types.ts","tests":["src/developer-tools/actio-sync-migration/sources.test.ts","src/developer-tools/actio-sync-migration/run.test.ts"],"contracts":["CC-TF-SYNC-06"]}
+    {"source":"src/taskflow/sync-migration-types.ts","tests":["src/developer-tools/actio-sync-migration/sources.test.ts","src/developer-tools/actio-sync-migration/run.test.ts"],"contracts":["CC-TF-SYNC-06"]},
+    {"source": "src/line-webhook/targets.ts", "tests": ["src/line-webhook/targets.test.ts", "src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-1", "line-wh-C-2"]},
+    {"source": "src/line-webhook/targets-parse.contract.ts", "tests": ["src/line-webhook/targets.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "src/line-webhook/targets-resolve.contract.ts", "tests": ["src/line-webhook/targets.test.ts", "src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-2"]},
+    {"source": "src/line-webhook/relay-headers.ts", "tests": ["src/line-webhook/targets.test.ts", "src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-3"]},
+    {"source": "src/line-webhook/relay-headers.contract.ts", "tests": ["src/line-webhook/targets.test.ts", "src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-3"]},
+    {"source": "src/line-webhook/relay.ts", "tests": ["src/line-webhook/route.test.ts"], "contracts": []},
+    {"source": "src/line-webhook/route.ts", "tests": ["src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-2", "line-wh-C-3"]},
+    {"source": "src/line-webhook/ontime-runtime.ts", "tests": ["src/line-webhook/targets.test.ts", "src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-1", "line-wh-C-2", "line-wh-C-3"]},
+    {"source": "src/app.ts", "tests": ["src/line-webhook/route.test.ts"], "contracts": ["line-wh-C-2"]},
+    {"source": "src/bootstrap/core.ts", "tests": ["src/line-webhook/targets.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "src/config/settings/definitions/platform.ts", "tests": ["src/config/settings/registry.test.ts", "src/line-webhook/targets.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "src/config/settings/apply.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "src/config/settings/types.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "src/config/settings/definitions/index.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": ["line-wh-C-1"]},
+    {"source": "tests/helpers/test-app.ts", "tests": ["src/line-webhook/route.test.ts"], "contracts": []}
   ]
 }

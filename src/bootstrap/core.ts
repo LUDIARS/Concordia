@@ -288,6 +288,7 @@ import { intakeDevelopMerge } from "../release/confirm-intake.js";
 import { startPrFullSync } from "../pr/full-sync.js";
 import { startErrorFixDispatcher } from "../control/error-fix.js";
 import { buildApp } from "../app.js";
+import { readLineWebhookTargets } from "../line-webhook/targets.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "../discord/bot.js";
@@ -2302,6 +2303,7 @@ export async function startBackend(): Promise<BackendHandle> {
   if (webSsoConfig) log.info({ publicHost: webSsoConfig.publicHost }, "public host requires a Cernere enterprise session");
   const app = buildApp({
     webSso,
+    lineWebhook: { targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")) },
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,

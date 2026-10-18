@@ -13,6 +13,7 @@ import {
   WebHostsSection,
   CronJobsSection,
   GithubIssueWorkflowSection,
+  LineWebhookSecretsSection,
 } from "./settings/sections.js";
 
 // Concordia の「設定」ページ。 設定項目が増えたので左メニュー + セクション構成にした。
@@ -103,6 +104,12 @@ const SECTIONS: SettingsSection[] = [
         <GithubIssueWorkflowSection onOpenAllSettings={openAllSettings} />
       </section>
     ),
+  },
+  {
+    id: "line-webhook",
+    label: "LINE webhook",
+    hint: "LINE のチャネルの秘密値と中継トークン (target ごと)",
+    render: () => <section className="border border-border rounded p-4"><LineWebhookSecretsSection /></section>,
   },
   {
     id: "web-hosts",

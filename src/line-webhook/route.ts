@@ -3,51 +3,66 @@
  *
  * Cc の認証 (公開ホストの SSO) と応答キャッシュを通さない唯一の経路なので、
  * buildApp はこれをそれらのミドルウェアより前に登録する。 ここで返した応答は
- * 後続のミドルウェアへ進まない。 署名の検証はしない (channel secret はサービス側が正本)。
+ * 後続のミドルウェアへ進まない。 署名は target のチャネルシークレットでここで検証し、
+ * サービスには中継トークン付きで本文だけを渡す。 LINE への返信も Cc が行う。
  *
  * @implements spec/feature/line-webhook-relay.md — 受け口
  */
 
 import type { Context, Hono } from "hono";
 import { createChildLogger } from "../shared/logger.js";
+import type { LineChannelSecrets } from "./channel-secrets.js";
 import { buildRelayHeaders } from "./relay-headers.js";
 import { relayLineWebhook, type RelayInput, type RelayOutcome } from "./relay.js";
+import { parseServiceReplies, type LineReply } from "./replies.js";
+import { createLineReplySender, type LineReplySender } from "./reply-client.js";
+import { verifyLineSignature } from "./signature.js";
 import { resolveLineWebhookTarget, type LineWebhookTarget } from "./targets.js";
 
-const log = createChildLogger("line-webhook");
 export const LINE_WEBHOOK_PATH_PREFIX = "/hooks/line";
 export const MAX_LINE_WEBHOOK_BODY_BYTES = 1024 * 1024;
-/**
- * 応答ヘッダ (cache-control: no-store 含む) は必ず Response の init で渡す。 本番の
- * @hono/node-server は軽量 Response が本文を読んだ時点で init から作り直すため、
- * 後から足したヘッダは消える (spec/feature/web-sso.md §境界と戻し方)。
- */
-/** 本文を持てない status。 これらに本文付きの Response を作ると例外になる。 */
-const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+/** ログに渡すのは target・status・所要時間・バイト数・件数だけ (秘密値・本文・署名は渡さない)。 */
+export interface LineWebhookLog {
+  info(fields: Record<string, unknown>, message: string): void;
+  warn(fields: Record<string, unknown>, message: string): void;
+}
 
 export interface LineWebhookDeps {
   /** 要求ごとに読む (設定画面の変更を再起動なしで効かせる)。 */
   targets: () => readonly LineWebhookTarget[];
+  /** target の秘密値を要求ごとに読む。 無ければすべて未設定として扱う (受け口は 503)。 */
+  secrets?: (target: string) => LineChannelSecrets;
   /** テスト用の差し替え口。 既定は node:http(s) で送る。 */
   relay?: (input: RelayInput) => Promise<RelayOutcome>;
+  /** LINE reply API の呼び出し。 テストでは実 LINE を呼ばない代役に差し替える。 */
+  sendReply?: LineReplySender;
   timeoutMs?: number;
+  log?: LineWebhookLog;
 }
 
+const NO_SECRETS: LineChannelSecrets = { channelSecret: null, channelAccessToken: null, relayToken: null };
+
 export function registerLineWebhookRoute(app: Hono, deps: LineWebhookDeps): void {
-  const handler = (c: Context) => handleLineWebhook(c, deps);
+  const resolved = {
+    ...deps,
+    sendReply: deps.sendReply ?? createLineReplySender(),
+    log: deps.log ?? createChildLogger("line-webhook"),
+  };
+  const handler = (c: Context) => handleLineWebhook(c, resolved);
   // 名前の無い要求・入れ子のパスも未登録として 404 にする (Web 画面の fallback へ落とさない)。
   app.all(LINE_WEBHOOK_PATH_PREFIX, handler);
   app.all(`${LINE_WEBHOOK_PATH_PREFIX}/*`, handler);
 }
 
-async function handleLineWebhook(c: Context, deps: LineWebhookDeps): Promise<Response> {
+type ResolvedDeps = LineWebhookDeps & { sendReply: LineReplySender; log: LineWebhookLog };
+
+async function handleLineWebhook(c: Context, deps: ResolvedDeps): Promise<Response> {
   const started = Date.now();
   const name = c.req.path.slice(LINE_WEBHOOK_PATH_PREFIX.length + 1);
-  let bodyBytes = 0;
+  const fields: Record<string, unknown> = { target: name, body_bytes: 0 };
   const respond = (response: Response): Response => {
-    // 本文と署名は残さない (target・status・所要時間・本文バイト数だけ)。
-    log.info({ target: name, status: response.status, duration_ms: Date.now() - started, body_bytes: bodyBytes },
-      "line webhook relayed");
+    deps.log.info({ ...fields, status: response.status, duration_ms: Date.now() - started }, "line webhook handled");
     return response;
   };
 
@@ -56,33 +71,59 @@ async function handleLineWebhook(c: Context, deps: LineWebhookDeps): Promise<Res
 
   const body = await readBodyWithLimit(c.req.raw, MAX_LINE_WEBHOOK_BODY_BYTES);
   if (body === null) return respond(jsonResponse({ error: "payload_too_large" }, 413));
-  bodyBytes = body.byteLength;
+  fields.body_bytes = body.byteLength;
+
+  const secrets = deps.secrets?.(target.name) ?? NO_SECRETS;
+  // 中継トークンが無いとサービスは必ず 401 で落とすので、 シークレット未設定と同じく送らない。
+  if (!secrets.channelSecret || !secrets.relayToken) {
+    return respond(jsonResponse({ error: "line_channel_not_configured" }, 503));
+  }
+  if (!verifyLineSignature(secrets.channelSecret, body, c.req.header("x-line-signature"))) {
+    return respond(jsonResponse({ error: "signature_rejected" }, 401));
+  }
 
   const relay = deps.relay ?? relayLineWebhook;
   const outcome = await relay({
     url: target.url,
-    headers: buildRelayHeaders((header) => c.req.header(header), target, body.byteLength),
+    headers: buildRelayHeaders(target, secrets.relayToken, body.byteLength),
     body,
     timeoutMs: deps.timeoutMs,
   });
   if (outcome.kind === "unreachable") {
-    return respond(jsonResponse({ error: "upstream_unreachable", reason: outcome.reason }, 502));
+    fields.upstream = outcome.reason;
+    return respond(jsonResponse({ error: "upstream_failed", status: null }, 502));
   }
-  return respond(relayedResponse(outcome));
+  fields.upstream_status = outcome.status;
+  const replies = outcome.status >= 200 && outcome.status < 300 ? parseServiceReplies(outcome.body) : null;
+  if (replies === null) return respond(jsonResponse({ error: "upstream_failed", status: outcome.status }, 502));
+  fields.replies = replies.length;
+
+  // 返信は LINE への応答を待たせない。 失敗はログだけで、 LINE への 200 は変えない。
+  void sendReplies(deps, target.name, secrets.channelAccessToken, replies);
+  return respond(jsonResponse({}, 200));
 }
 
-/** 転送先のステータスと本文をそのまま返す (LINE の検証ボタンが本当の結果を見られるように)。 */
-function relayedResponse(outcome: Extract<RelayOutcome, { kind: "response" }>): Response {
-  if (outcome.status < 200 || outcome.status > 599) {
-    return jsonResponse({ error: "upstream_invalid_status" }, 502);
+async function sendReplies(
+  deps: ResolvedDeps, target: string, accessToken: string | null, replies: readonly LineReply[],
+): Promise<void> {
+  if (replies.length === 0) return;
+  if (!accessToken) {
+    deps.log.warn({ target, replies: replies.length }, "line reply skipped: channel access token not configured");
+    return;
   }
-  const headers = new Headers({ "cache-control": "no-store" });
-  if (outcome.contentType) headers.set("content-type", outcome.contentType);
-  const body = NULL_BODY_STATUSES.has(outcome.status) ? null : new Uint8Array(outcome.body);
-  return new Response(body, { status: outcome.status, headers });
+  const outcomes = await Promise.all(replies.map((reply) =>
+    deps.sendReply({ accessToken, reply }).catch(() => ({ ok: false as const, status: null }))));
+  for (const outcome of outcomes) {
+    if (!outcome.ok) deps.log.warn({ target, status: outcome.status }, "line reply failed");
+  }
 }
 
-function jsonResponse(payload: Record<string, string>, status: number): Response {
+/**
+ * 応答ヘッダ (cache-control: no-store 含む) は必ず Response の init で渡す。 本番の
+ * @hono/node-server は軽量 Response が本文を読んだ時点で init から作り直すため、
+ * 後から足したヘッダは消える (spec/feature/web-sso.md §境界と戻し方)。
+ */
+function jsonResponse(payload: Record<string, string | number | null>, status: number): Response {
   return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 

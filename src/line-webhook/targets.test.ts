@@ -5,7 +5,6 @@ import {
   resolveLineWebhookTarget,
   validateLineWebhookTargetEntries,
 } from "./targets.js";
-import { buildRelayHeaders } from "./relay-headers.js";
 
 const mf = JSON.stringify({ name: "mf", url: "http://192.0.2.10:8080/integrations/line/webhook", host: "mf-hook.example.test", enabled: true });
 const off = JSON.stringify({ name: "off", url: "https://off.example.test/hook", enabled: false });
@@ -70,32 +69,5 @@ describe("設定値の読み書き", () => {
     expect(readLineWebhookTargets(null)).toEqual([]);
     expect(readLineWebhookTargets("not json")).toEqual([]);
     expect(readLineWebhookTargets(JSON.stringify({ mf }))).toEqual([]);
-  });
-});
-
-describe("buildRelayHeaders", () => {
-  const incoming: Record<string, string> = {
-    "content-type": "application/json; charset=utf-8",
-    "x-line-signature": "c2lnbmF0dXJl",
-    "cf-connecting-ip": "198.51.100.7",
-    "cf-ray": "abc",
-    "x-forwarded-for": "198.51.100.7",
-    "x-forwarded-proto": "https",
-    cookie: "__Host-cc-sso=t",
-    authorization: "Bearer t",
-  };
-  const read = (name: string) => incoming[name.toLowerCase()];
-
-  it("Content-Type と X-Line-Signature だけを写し、host 指定時は Host を上書きする", () => {
-    expect(buildRelayHeaders(read, { host: "mf-hook.example.test" }, 12)).toEqual({
-      "content-length": "12",
-      "content-type": "application/json; charset=utf-8",
-      "x-line-signature": "c2lnbmF0dXJl",
-      host: "mf-hook.example.test",
-    });
-  });
-
-  it("host 未指定なら Host を付けない (URL のホストが使われる)", () => {
-    expect(buildRelayHeaders(read, { host: null }, 0)).not.toHaveProperty("host");
   });
 });

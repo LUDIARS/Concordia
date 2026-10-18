@@ -912,6 +912,16 @@ export const api = {
     del<{ ok: boolean }>(
       `/v1/admin/github/webhook-secret${options.repo ? `?repo=${encodeURIComponent(options.repo)}` : ""}`,
     ),
+  /** @implements spec/feature/line-webhook-relay.md — チャネルの秘密値 */
+  lineWebhookTargets: () => get<{ targets: LineWebhookTargetSecrets[] }>("/v1/admin/line-webhook/targets"),
+  /** 値は書き込むだけで、 応答は設定済みかどうかだけ。 */
+  lineWebhookSetSecret: (target: string, field: LineChannelSecretField, value: string) =>
+    put<{ ok: boolean }>(
+      `/v1/admin/line-webhook/targets/${encodeURIComponent(target)}/secrets/${field}`,
+      { value },
+    ),
+  lineWebhookClearSecret: (target: string, field: LineChannelSecretField) =>
+    del<{ ok: boolean }>(`/v1/admin/line-webhook/targets/${encodeURIComponent(target)}/secrets/${field}`),
   githubIssueRuns: (limit = 50) =>
     get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
   githubIssueRunApprove: (id: string) =>
@@ -2121,6 +2131,17 @@ export interface BountyJudgementChange {
   self_inflicted?: boolean;
   duplicate_of?: string | null;
   reason: string;
+}
+
+export type LineChannelSecretField = "channel_secret" | "channel_access_token" | "relay_token";
+
+/** LINE webhook の target ごとの秘密値の状態。 値そのものは返らない。 */
+export interface LineWebhookTargetSecrets {
+  name: string;
+  enabled: boolean;
+  channel_secret_set: boolean;
+  channel_access_token_set: boolean;
+  relay_token_set: boolean;
 }
 
 export interface GithubIssueWorkflowStatus {

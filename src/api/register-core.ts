@@ -86,6 +86,8 @@ import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import { settingsRouter } from "./settings.js";
 import { githubRouter, type GithubRouterDeps } from "./github.js";
 import { githubAdminRouter, type GithubAdminRouterDeps } from "./github-admin.js";
+import { lineWebhookAdminRouter } from "../line-webhook/admin-route.js";
+import { readLineWebhookTargets } from "../line-webhook/targets.js";
 import type { GithubConfigRepo } from "../db/github-config-repo.js";
 import {
   createSettingsDbReader,
@@ -722,6 +724,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       actors: github.actors,
     }));
   }
+  // LINE チャネルの秘密値 (spec/feature/line-webhook-relay.md §チャネルの秘密値)。 AdminState.store が暗号化する。
+  app.route("/v1/admin/line-webhook", lineWebhookAdminRouter({
+    targets: () => {
+      try {
+        return readLineWebhookTargets(deps.adminState.store.get("services.line_webhook_targets"));
+      } catch {
+        return [];
+      }
+    },
+    store: deps.adminState.store,
+  }));
   if (deps.developerTools) app.route("/v1/developer-tools", developerToolsRouter(deps.developerTools, {
     projects: () => deps.projectCodes.list().map(({ code, project, repo_path }) => ({ code, project, repo_path })),
     workspaceRoots: () => deps.adminState.getWorkspaceRoots(),

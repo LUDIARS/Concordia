@@ -3,6 +3,8 @@ import {
   NOTION_MCP_READ_TOOLS,
   buildMcpFetchPrompt,
   createMcpNotionSource,
+  describeInvalidOutput,
+  MCP_INVALID_ATTEMPTS,
   notionMcpRunOptions,
   parseMcpFetchOutput,
 } from "./notion-source-mcp.js";
@@ -86,5 +88,33 @@ describe("createMcpNotionSource", () => {
     expect(err).not.toBeInstanceOf(NotionSourceUnavailable);
     const missing = vi.fn(async () => ({ ok: true, stdout: JSON.stringify({ status: "not_found" }), stderr: "" }));
     expect(await createMcpNotionSource({ runner: missing }).fetchPage(ref, limits)).toBeNull();
+  });
+
+  it("retries an unreadable response once, then fails with a hint that carries no page text", async () => {
+    const flaky = vi.fn()
+      .mockResolvedValueOnce({ ok: true, stdout: '{"status": "ok", "page": {"text": "秘密の本文', stderr: "" })
+      .mockResolvedValueOnce({ ok: true, stdout: ok({ id: ID, title: "t", text: "本文" }), stderr: "" });
+    expect((await createMcpNotionSource({ runner: flaky }).fetchPage(ref, limits))?.text).toBe("本文");
+    expect(flaky).toHaveBeenCalledTimes(2);
+
+    const broken = vi.fn(async () => ({ ok: true, stdout: '{"status": "ok", "page": {"text": "秘密の本文"}', stderr: "" }));
+    const err = await createMcpNotionSource({ runner: broken }).fetchPage(ref, limits).catch((e: unknown) => e as Error);
+    expect(broken).toHaveBeenCalledTimes(MCP_INVALID_ATTEMPTS);
+    expect(err.message).toContain("JSON does not parse");
+    expect(err.message).not.toContain("秘密の本文");
+  });
+
+  it("does not retry a failed run", async () => {
+    const bad = vi.fn(async () => ({ ok: false, stdout: "", stderr: "timeout" }));
+    await createMcpNotionSource({ runner: bad }).fetchPage(ref, limits).catch(() => null);
+    expect(bad).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("describeInvalidOutput", () => {
+  it("names the shape and length only", () => {
+    expect(describeInvalidOutput("  ")).toBe("empty output");
+    expect(describeInvalidOutput("ページを読めませんでした")).toBe("12 chars, no JSON object");
+    expect(describeInvalidOutput('{"status": "weird"}')).toBe("19 chars, JSON in an unexpected shape");
   });
 });

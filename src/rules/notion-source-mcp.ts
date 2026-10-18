@@ -122,15 +122,39 @@ export function parseMcpFetchOutput(output: string, ref: NotionPageRef, limits: 
   };
 }
 
+/** 読めない応答のときに runner を呼ぶ回数 (初回を含む)。 */
+export const MCP_INVALID_ATTEMPTS = 2;
+
+/** 読めない応答の原因の手がかり。 本文 (ページの中身) は入れず、 長さと形だけを返す。 */
+export function describeInvalidOutput(output: string): string {
+  const text = output.trim();
+  if (text === "") return "empty output";
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return `${text.length} chars, no JSON object`;
+  try {
+    JSON.parse(text.slice(start, end + 1));
+    return `${text.length} chars, JSON in an unexpected shape`;
+  } catch {
+    return `${text.length} chars, JSON does not parse`;
+  }
+}
+
 export function createMcpNotionSource(deps: { runner: NotionToolRunner; timeoutMs?: number }): NotionPageSource {
   return {
     fetchPage: async (ref, limits) => {
-      const res = await deps.runner(buildMcpFetchPrompt(ref, limits), notionMcpRunOptions(deps.timeoutMs));
-      const outcome = parseMcpFetchOutput(res.stdout, ref, limits);
-      if (outcome.kind === "unavailable") throw new NotionSourceUnavailable(`notion connector unavailable: ${outcome.reason}`);
-      if (outcome.kind === "not_found") return null;
-      if (outcome.kind === "page") return outcome.page;
-      throw new Error(res.ok ? "notion mcp returned an unexpected response" : `notion mcp run failed: ${res.stderr.slice(0, 160)}`);
+      // 読めない応答 (LLM の出力が JSON の形を外れた) は揺らぎなので 1 回だけ取り直す。 実行の失敗は取り直さない
+      let lastOutput = "";
+      for (let attempt = 0; attempt < MCP_INVALID_ATTEMPTS; attempt++) {
+        const res = await deps.runner(buildMcpFetchPrompt(ref, limits), notionMcpRunOptions(deps.timeoutMs));
+        const outcome = parseMcpFetchOutput(res.stdout, ref, limits);
+        if (outcome.kind === "unavailable") throw new NotionSourceUnavailable(`notion connector unavailable: ${outcome.reason}`);
+        if (outcome.kind === "not_found") return null;
+        if (outcome.kind === "page") return outcome.page;
+        if (!res.ok) throw new Error(`notion mcp run failed: ${res.stderr.slice(0, 160)}`);
+        lastOutput = res.stdout;
+      }
+      throw new Error(`notion mcp returned an unexpected response (${describeInvalidOutput(lastOutput)})`);
     },
   };
 }

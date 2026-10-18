@@ -9,6 +9,7 @@ import {
 } from "../api.js";
 import { useTeamFilter } from "../lib/TeamFilterContext.js";
 import { ExecutionCell } from "./taskflow/ExecutionCell.js";
+import { TaskflowLoadError, failureGuidance } from '../lib/taskflow-failure.js';
 
 const STATUS_LABEL: Record<TaskflowTaskStatus, string> = {
   pending: "未着手",
@@ -39,7 +40,7 @@ export function Taskflow() {
   const [organization, setOrganization] = useState("all");
   const [subsidiaries, setSubsidiaries] = useState<SubsidiarySummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TaskflowLoadError | null>(null);
   const requestGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -62,7 +63,8 @@ export function Taskflow() {
       setSubsidiaries(subsidiaryResult.subsidiaries);
       setError(null);
     } catch (nextError) {
-      if (generation === requestGenerationRef.current) setError(String(nextError));
+      if (generation === requestGenerationRef.current) setError(nextError instanceof TaskflowLoadError
+        ? nextError : new TaskflowLoadError('taskflow_request_failed'));
     } finally {
       if (generation === requestGenerationRef.current) setLoading(false);
     }
@@ -153,10 +155,16 @@ export function Taskflow() {
             <option key={value} value={value}>{STATUS_LABEL[value]}</option>
           ))}
         </select>
-        <span className="text-xs text-subtle">表示 {visible.length} 件</span>
+        <span className="text-xs text-subtle">{!data && error ? '件数は未確認' : `表示 ${visible.length} 件`}</span>
       </section>
 
-      {error && <div className="text-danger text-sm">load error: {error}</div>}
+      {error && <section role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm">
+        <h2 className="font-semibold">タスク情報を更新できませんでした</h2>
+        <p>{failureGuidance(error.reason)}</p>
+        <p className="text-xs">確認コード: {error.reason}{error.status ? ` / HTTP ${error.status}` : ''}</p>
+        <p>{data ? '以下は前回取得した情報です。現在の状態は未確認です。' : '現在のタスク件数・状態は未確認です。'}</p>
+        <p>審査通知後などの処理エラーは、対象セッションの「ログ確認」で確認できます。</p>
+      </section>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
         <table className="w-full min-w-[1400px] text-sm">
@@ -236,7 +244,7 @@ export function Taskflow() {
               </tr>
             ))}
             {data && visible.length === 0 && (
-              <tr><td colSpan={9} className="p-6 text-center text-subtle">該当する task md はありません。</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center text-subtle">{error ? '前回取得時は該当するタスクがありませんでした。現在の状態は未確認です。' : '該当するタスクはありません。'}</td></tr>
             )}
           </tbody>
         </table>

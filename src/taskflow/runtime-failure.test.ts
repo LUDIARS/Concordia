@@ -91,4 +91,24 @@ describe("interactive completion failure boundary", () => {
       expect(f.events.filter((event) => event.type === "taskflow.user_decision")).toEqual([]);
     } finally { f.close(); }
   });
+
+  it("retains safe failure evidence even when another notification is suppressed", async () => {
+    const f = fixture();
+    try {
+      f.row.metadata = JSON.stringify({ human_response_confirmation: true });
+      f.revisor.listLocalPrs.mockRejectedValue(new Error('private response token=secret-value'));
+      eventBus.emit({ type: 'session.inject', target_session_id: f.row.id, source: 'revisor', text: 'review complete', ts: 1 });
+      await vi.waitFor(() => expect(JSON.parse(f.row.metadata).taskflow_last_failure).toBeDefined());
+      expect(JSON.parse(f.row.metadata).taskflow_last_failure).toMatchObject({
+        version: 1, operation: 'revisor-notice', reason: 'revisor_lookup_unavailable', status: 503,
+      });
+      expect(f.sessions.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+        session_id: f.row.id, kind: 'taskflow.failure', payload: expect.objectContaining({ operation: 'revisor-notice' }),
+      }));
+      expect(JSON.stringify(f.sessions.appendEvent.mock.calls)).not.toContain('secret-value');
+      expect(f.events.filter((event) => event.type === 'taskflow.user_decision')).toEqual([]);
+      expect(f.events.some((event) => event.type === 'session.event' && event.kind === 'taskflow.failure')).toBe(true);
+      expect(JSON.parse(f.row.metadata).human_response_confirmation).toBe(true);
+    } finally { f.close(); }
+  });
 });

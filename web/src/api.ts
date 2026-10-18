@@ -2,6 +2,8 @@
  * Concordia API client. dev/prod とも同 origin を想定 (vite proxy).
  */
 
+import { getTaskflowOverview } from './lib/taskflow-failure.js';
+
 const BASE = "";
 
 /**
@@ -795,7 +797,7 @@ export const api = {
     if (opts.subsidiaryId) q.set("subsidiary_id", opts.subsidiaryId);
     if (opts.headOffice) q.set("head_office", "1");
     const qs = q.toString();
-    return get<TaskflowOverviewResult>(`/v1/taskflow/overview${qs ? "?" + qs : ""}`);
+    return getTaskflowOverview<TaskflowOverviewResult>(`${BASE}/v1/taskflow/overview${qs ? "?" + qs : ""}`);
   },
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>

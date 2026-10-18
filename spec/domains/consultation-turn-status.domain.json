@@ -1,6 +1,9 @@
 {
   "id": "consultation-turn-status",
   "name": "consultation-turn-status",
+  "description": "Persistent consultation turn status and its presentation; provider execution and authorization remain outside this boundary.",
+  "presetRules": [],
+  "templateRules": [],
   "membership": [
     {"pathPattern":"(^|/)src/departments/output-policy(\\.test)?\\.ts$"},
     {"pathPattern":"(^|/)src/discord/bot\\.ts$"},

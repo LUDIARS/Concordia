@@ -22,6 +22,8 @@ import { notifyUserDecision } from "./notify.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { createChildLogger } from "../shared/logger.js";
 import { describeTaskflowFailure } from "./failure.js";
+import { taskflowFailureLogFields } from "./failure-diagnostics.js";
+import { recordTaskflowFailure, type TaskflowFailureOperation } from "./failure-record.js";
 import { syncTaskSessionAssignment } from "./session-assignment.js";
 import { syncSessionPrEvidence } from "./sync-pr-evidence.js";
 
@@ -156,9 +158,17 @@ export class TaskflowRuntime {
     await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 
-  private reportFailure(sessionId: string, operation: "interactive-completion" | "revisor-notice" | "session-assignment", error: unknown): void {
+  /** @implements CC-TF-ERROR-01 */
+  private reportFailure(sessionId: string, operation: TaskflowFailureOperation, error: unknown): void {
     const failure = describeTaskflowFailure(error);
-    log.warn({ operation, reason: failure.code }, "taskflow operation failed");
+    log.warn({ session_id: sessionId, operation, ...taskflowFailureLogFields(failure, error) }, "taskflow operation failed");
+    const ts = Math.floor(Date.now() / 1000);
+    try {
+      recordTaskflowFailure(this.deps.sessions, sessionId, operation, failure, ts);
+      eventBus.emit({ type: "session.event", session_id: sessionId, kind: "taskflow.failure", ts });
+    } catch (recordError) {
+      log.warn({ session_id: sessionId, operation, ...taskflowFailureLogFields(describeTaskflowFailure(recordError), recordError) }, "taskflow failure recording failed");
+    }
     if (!claimHumanResponseConfirmation(this.deps.sessions, sessionId)) return;
     notifyUserDecision({ kind: "question", targetSessionId: sessionId, mentionUserId: this.deps.mentionUserId(),
       text: `タスクワークフローの判定を停止しました。[${failure.code}] ${failure.message}` });

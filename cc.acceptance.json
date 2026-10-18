@@ -1,6 +1,13 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/taskflow/runtime.ts", "tests": ["src/taskflow/runtime-failure.test.ts"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "web/src/api.ts", "tests": ["web/src/pages/Taskflow.test.tsx", "web/src/lib/taskflow-failure.test.ts"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "web/src/pages/Taskflow.tsx", "tests": ["web/src/pages/Taskflow.test.tsx"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "web/src/pages/session-logs/SessionLogs.tsx", "tests": ["web/src/pages/session-logs/TaskflowFailurePanel.test.tsx"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "src/taskflow/failure-record.ts", "tests": ["src/taskflow/failure-record.test.ts", "src/taskflow/runtime-failure.test.ts"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "web/src/lib/taskflow-failure.ts", "tests": ["web/src/lib/taskflow-failure.test.ts"], "contracts": ["CC-TF-ERROR-01"] },
+    { "source": "web/src/pages/session-logs/TaskflowFailurePanel.tsx", "tests": ["web/src/pages/session-logs/TaskflowFailurePanel.test.tsx"], "contracts": ["CC-TF-ERROR-01"] },
     { "source": "src/fallback-tasks/actio-client.ts", "tests": ["src/fallback-tasks/actio-client.test.ts"], "contracts": [] },
     { "source": "src/cloud-work/runtime.ts", "tests": ["src/cloud-work/runtime.test.ts", "src/cloud-observation/store.test.ts"], "contracts": ["CC-OBS-04"] },
     { "source": "src/cloud-work/artifact-ingress-server.ts", "tests": ["src/cloud-work/artifact-ingress-server.test.ts", "src/cloud-observation/store.test.ts"], "contracts": ["CC-OBS-04", "CC-OBS-05"] },

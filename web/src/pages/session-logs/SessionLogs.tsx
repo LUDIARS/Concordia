@@ -4,6 +4,7 @@ import { useLiveQuery } from "../../hooks/useWsEvent.js";
 import { SessionActivityPanel } from "../session-detail/SessionActivityPanel.js";
 import { EventLogToggle, LatestStatPanel, TranscriptPanel } from "../session-detail/SessionControls.js";
 import { AskUserQuestionModal, PermissionModal } from "../session-detail/SessionModals.js";
+import { TaskflowFailurePanel } from './TaskflowFailurePanel.js';
 
 /** @implements spec/feature/session-message-webui-chat.md — D5 raw session logs */
 
@@ -28,6 +29,7 @@ export function SessionLogs() {
         <div>branch: {data.session.branch ?? "-"}</div>
         <div>status: {data.session.status}</div>
       </section>
+      <TaskflowFailurePanel value={data.session.metadata?.taskflow_last_failure} />
       <LatestStatPanel sessionId={id} />
       <SessionActivityPanel sessionId={id} />
       <EventLogToggle events={data.events} />

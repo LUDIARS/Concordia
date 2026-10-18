@@ -1,5 +1,8 @@
 {
   "id":"plan-approval-notification", "name":"plan-approval-notification",
+  "description":"Provider approval notifications with persistent pending questions and existing response authorization.",
+  "presetRules":[],
+  "templateRules":[],
   "membership":[
     {"pathPattern":"(^|/)src/api/sessions/deps\\.ts$"},
     {"pathPattern":"(^|/)src/discord/channel-directory(\\.test)?\\.ts$"},

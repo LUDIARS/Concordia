@@ -30,6 +30,20 @@ const task = {
 };
 
 describe("Taskflow", () => {
+  it('shows readable failure guidance and does not claim an empty task list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.startsWith('/v1/taskflow/overview')) return new Response(JSON.stringify({ reason: 'actio_unavailable', detail: 'secret-value' }), { status: 503 });
+      if (url.startsWith('/v1/subsidiaries')) return new Response(JSON.stringify({ subsidiaries: [] }));
+      return new Response(JSON.stringify({ teams: [] }));
+    }));
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => { root!.render(<MemoryRouter><TeamFilterProvider><Taskflow /></TeamFilterProvider></MemoryRouter>); });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Actio');
+    expect(container.textContent).toContain('現在のタスク件数・状態は未確認');
+    expect(container.textContent).not.toContain('該当するタスクはありません');
+    expect(container.textContent).not.toContain('secret-value');
+  });
   it("shows the task status and the execution state as separate columns", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
       const url = String(input);

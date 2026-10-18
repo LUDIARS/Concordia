@@ -1,6 +1,9 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/shared/revisor-terminal-notice.ts", "tests": ["src/shared/revisor-terminal-notice.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },
+    { "source": "src/api/sessions/relay.ts", "tests": ["tests/sessions-inject-api.test.ts", "src/api/ws-continuation.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },
+    { "source": "src/discord/cc-inject-mirror.ts", "tests": ["src/discord/cc-inject-mirror.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },
     { "source": "src/cloud-work/artifact-receiver.ts", "tests": ["src/cloud-work/artifact-receiver.test.ts"], "contracts": ["CC-ART-03", "CC-ART-04", "CC-ART-05"] },
     { "source": "src/cloud-work/artifact-ingress.ts", "tests": ["src/cloud-work/artifact-ingress.test.ts"], "contracts": ["CC-ART-01", "CC-ART-02", "CC-ART-04"] },
     { "source": "src/cloud-work/artifact-ingress-server.ts", "tests": ["src/cloud-work/artifact-ingress-server.test.ts"], "contracts": ["CC-ART-01", "CC-ART-05"] },

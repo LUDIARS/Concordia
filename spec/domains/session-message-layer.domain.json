@@ -53,6 +53,7 @@
     "subscription-and-retention-lifecycle"
   ],
   "specRefs": [
+    "spec/feature/actio-pr-continuation.md",
     "spec/feature/session-end-inject-visibility.md",
     "spec/feature/session-message-layer.md#2-data-flow-and-ownership",
     "spec/feature/session-message-layer.md#3-storage-contract",

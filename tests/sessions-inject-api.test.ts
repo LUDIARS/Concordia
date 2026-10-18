@@ -10,6 +10,49 @@ describe("sessions API — inject / title / title-suggestion", () => {
   let app: ReturnType<typeof buildTestApp>;
   beforeEach(() => { app = buildTestApp(); });
 
+  it.each([
+    "✅ Revisor レビュー完了: LUDIARS/Concordia#42 は Test OK で自動マージされました。",
+    "⚠️ Revisor レビュー失敗: LUDIARS/Concordia#42 は審査を完了できませんでした。",
+    "🔴 Revisor レビュー完了: LUDIARS/Concordia#42 はマージできません。",
+  ])("enriches one Revisor notice while keeping the delivery gate: %s", async text => {
+    await app.request("/v1/sessions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "rv-notice", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const { ccInjectMirrorPost } = await import("../src/discord/cc-inject-mirror.js");
+    const captured: Array<{ text: string; source?: string | null; deliverable: boolean }> = [];
+    const removeGate = eventBus.registerInjectGate(() => false);
+    const unsubscribe = eventBus.subscribe(event => {
+      if (event.type === "session.inject" && event.target_session_id === "rv-notice" && event.source === "revisor") {
+        captured.push({ text: event.text, source: event.source, deliverable: eventBus.canDeliverInject(event) });
+      }
+    });
+    try {
+      const response = await app.request("/v1/sessions/rv-notice/inject", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, source: "revisor" }),
+      });
+      expect(response.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      const notice = captured[0];
+      if (!notice) throw new Error("missing terminal notice");
+      expect(notice).toMatchObject({ source: "revisor", deliverable: false });
+      expect(notice.text).toContain("[Revisor 通知後の継続]");
+      expect(ccInjectMirrorPost({ source: notice.source, text: notice.text, injectTranscript: false })?.content).toBe(text);
+      const detail = await (await app.request("/v1/sessions/rv-notice")).json() as {
+        events: Array<{ kind: string; payload: string | { text: string; source: string } }>;
+      };
+      // Session creation also records a startup-policy inject. Count this
+      // producer's notices, so the duplicate-delivery assertion stays meaningful.
+      const records = detail.events.filter(event => event.kind === "inject")
+        .map(event => typeof event.payload === "string" ? JSON.parse(event.payload) as { text: string; source: string } : event.payload)
+        .filter(payload => payload.source === "revisor");
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ text: notice.text, source: "revisor" });
+    } finally { unsubscribe(); removeGate(); }
+  });
+
   it("POST /v1/sessions/:id/inject emits session.inject event + records inject kind", async () => {
     await app.request("/v1/sessions", {
       method: "POST",

@@ -15,6 +15,7 @@
 import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { shouldDisplaySessionInject } from "../shared/session-inject-visibility.js";
+import { revisorTerminalKind } from "../shared/revisor-terminal-notice.js";
 import { taskKindForInjectSource } from "./session-task-post.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:71e98731 */
 import augurContract_3fb7485d from './cc-inject-mirror.contract.js'; /* augur-inject:contract-predicate:34b1aaee */
@@ -97,7 +98,7 @@ export function isErrorCcInject(input: { source: string | null | undefined; text
 /**
  * Cc 由来 inject を転記する文面。 転記しないものは null。
  * `injectTranscript: false` (部署の出力方針 `inject_transcript` が off) のときは、
- * エラーの知らせだけを転記する。 内容は Cc の WebUI のセッション画面で見る。
+ * エラーと Revisor の終局結果を転記する (CC-RV-TERMINAL-01)。詳細は WebUI で見る。
  */
 export function ccInjectMirrorPost(input: {
   source: string | null | undefined;
@@ -113,7 +114,8 @@ export function ccInjectMirrorPost(input: {
   if (parseInjectSource(source).platform !== null) return null;
   if (taskKindForInjectSource(source) !== null) return null;
   if (source === STALL_NUDGE_INJECT_SOURCE) return null;
-  if (input.injectTranscript === false && !isErrorCcInject({ source, text })) return null;
+  if (input.injectTranscript === false && !isErrorCcInject({ source, text })
+    && revisorTerminalKind(source, text) === null) return null;
 
   const username = `⚙️ Cc inject / ${source || "unknown"}`.slice(0, CC_INJECT_MIRROR_MAX_USERNAME);
   return { username, content: summarizeCcInject(text) };

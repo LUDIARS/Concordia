@@ -149,6 +149,22 @@ describe("summarizeCcInject", () => {
 
 // 総務など、 部署の出力方針で Cc の指令の転記を切った場合 (2026-10-10 neco 指示)。
 describe("ccInjectMirrorPost — inject_transcript off", () => {
+  it.each([
+    "✅ Revisor レビュー完了: LUDIARS/Concordia#42 は Test OK で自動マージされました。",
+    "⚠️ Revisor レビュー失敗: LUDIARS/Concordia#42 は審査を完了できませんでした。",
+    "🔴 Revisor レビュー完了: LUDIARS/Concordia#42 はマージできません。",
+  ])("shows the actual terminal producer format: %s", text => {
+    expect(ccInjectMirrorPost({ source: "revisor", text: `${text}\nprivate detail`, injectTranscript: false })?.content).toBe(text);
+  });
+
+  it("keeps Open/Test OK and restart hidden and does not trust another source", () => {
+    for (const text of [
+      "✅ Revisor レビュー完了: LUDIARS/Concordia#42 は Open / Test OK です (マージ可能)。",
+      "Revisor 再審査を開始しました。",
+    ]) expect(ccInjectMirrorPost({ source: "revisor", text, injectTranscript: false })).toBeNull();
+    expect(ccInjectMirrorPost({ source: "manual", text: "✅ Revisor レビュー完了: LUDIARS/Concordia#42 は Test OK で自動マージされました。", injectTranscript: false })).toBeNull();
+  });
+
   it("hides ordinary Cc injects such as policy updates and auto checks", () => {
     expect(ccInjectMirrorPost({ source: "cc-session-work-policy", text: "[Cc policy update]\nrepo: x", injectTranscript: false })).toBeNull();
     expect(ccInjectMirrorPost({ source: "auto:goal-and-go", text: "[自動確認] Cc の作業状態に応じた確認です。", injectTranscript: false })).toBeNull();

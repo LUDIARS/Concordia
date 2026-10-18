@@ -33,3 +33,41 @@ Source and tests belong together in taskflow / autonomous-continuation domains.
 Acceptance covers cross-repository identity, metadata preservation, stale heads,
 blocked dependencies, cycles, critical priority, remote failure and human waits.
 Rollback keeps optional Actio metadata and existing task identities intact.
+
+## CC-RV-TERMINAL-01: terminal notification continuation
+
+2026-10-18 neco requested Discord visibility for Revisor merge completion and
+failed reviews in final-answer-only departments, and continuation triggered by
+the notification. UX-CC-W2/W4/W5: users must not miss a result or manually wake
+an otherwise executable review follow-up.
+
+Revisor owns the verdict; Actio owns task status. Cc recognizes the existing
+Revisor completion-notice first-line formats only when source is exactly
+`revisor`: automatic merge, failed review, and action-required review. The
+`action_required` wording says “マージできません” rather than “失敗”. Unknown
+messages, restarts and Open/Test OK are not inferred to be merge completion.
+The shared pure policy belongs to autonomous-continuation; Discord presentation
+belongs to chat-platforms; HTTP admission/persistence belongs to
+session-message-layer. CC-INV-03/04/06/08 apply.
+
+These terminal notifications remain visible in the submitting session's Discord
+thread even when inject transcripts are disabled. Other output filtering stays
+unchanged. The existing inject is enriched with next-step guidance: reconcile
+Actio/PR evidence and fix in-scope findings, or verify merge reflection and
+continue authorized remaining work. It emits no second event, runs no new timer,
+and does not automatically submit, test, deploy, or mark a task done. Preserve
+the original first line and source so existing Discord and taskflow consumers
+observe the same event. Repeated enrichment must not duplicate the guidance.
+
+The existing delivery gate still enforces human waits, unanswered questions,
+binding and explicit stop conditions. A notification is not new execution
+permission. Discord visibility remains independent of permission to deliver
+the command. Existing transport replay semantics are unchanged; this change
+does not promise durable exactly-once delivery. Manual lifecycle messages sent
+only to shared chat are not converted into commands by trusting an author label.
+
+Acceptance: actual merged/failed/action-required messages reach the quiet-department
+mirror; Open/Test OK and restart stay suppressed; one HTTP inject emits and
+records one enriched event, with unchanged source; guidance cannot bypass a
+refusing inject gate. Rollback removes enrichment/visibility exceptions without
+changing Revisor outcomes, Actio tasks or saved original notification headings.

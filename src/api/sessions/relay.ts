@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { HUMAN_CONVERSATION_KEY } from "../../control/inject-context-presence.js";
+import { withRevisorContinuation } from "../../shared/revisor-terminal-notice.js";
 import { requestStartupPolicyRefresh } from "./startup-policy-check.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
@@ -184,7 +185,7 @@ app.post("/:id/inject", async (c) => {
     let authorLabel: string | null = null;
     // 複数名同時利用に備え、人間 inject は本文に「誰の指示か」を前置して AI に起因者を
     // 明示する。AskUserQuestion の @メンションは後追いで source(=uid 埋め込み) を読む。
-    let injectText = parsed.data.text;
+    let injectText = withRevisorContinuation(src, parsed.data.text);
     const sourceInfo = parseInjectSource(src);
     if (sourceInfo.platform && sourceInfo.userId && parsed.data.author_label) {
       const row = deps.participants.upsert({

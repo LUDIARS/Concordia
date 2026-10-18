@@ -22,6 +22,11 @@ export { HUMAN_TODO_REPORT_KEY } from "../shared/human-todo-report-record.js";
 const ITEM_TEXT_LIMIT = 300;
 /** 報告に並べる最大件数。超えた分は件数だけ示す。 */
 export const HUMAN_TODO_LIST_LIMIT = 10;
+/**
+ * 報告本文全体の上限。Discord 1 通 2000 字から、配信側が前に付けるメンション
+ * (`<@id> `、最大 24 字) の分を引いた余裕を持たせる。収まらない項目は件数だけ示す。
+ */
+export const HUMAN_TODO_BODY_LIMIT = 1900;
 
 export type HumanTodoKind = "human_wait" | "question";
 
@@ -30,11 +35,15 @@ export interface HumanTodoItem {
   text: string;
   /** human-wait の Actio task 参照。質問カードは空。 */
   references: string[];
+  /** 質問カードへのリンク。表示だけに使い、要約値には含めない。 */
+  link?: string;
 }
 
 export interface HumanTodoQuestion {
   id: number;
   question: string;
+  /** 質問カードのメッセージ URL。作れない配信先・位置不明なら null。 */
+  link?: string | null;
 }
 
 export interface HumanTodoReportRecord {
@@ -58,12 +67,18 @@ export function collectHumanTodos(input: {
   }
   for (const question of [...input.questions].sort((a, b) => a.id - b.id)) {
     const text = clip(question.question);
-    if (text) items.push({ kind: "question", text, references: [] });
+    if (!text) continue;
+    items.push(question.link
+      ? { kind: "question", text, references: [], link: question.link }
+      : { kind: "question", text, references: [] });
   }
   return items;
 }
 
-/** 項目の並びと内容だけで決まる要約値。時刻を含めないので、変化が無ければ同じ値になる。 */
+/**
+ * 項目の並びと内容だけで決まる要約値。時刻を含めないので、変化が無ければ同じ値になる。
+ * 質問カードへのリンクは含めない (リンクの有無だけで「変化あり」にしない)。
+ */
 export function humanTodoDigest(items: readonly HumanTodoItem[]): string {
   const canonical = JSON.stringify(items.map((item) => [item.kind, item.text, item.references]));
   return createHash("sha256").update(canonical).digest("hex");
@@ -113,24 +128,35 @@ const KIND_LABELS: Record<HumanTodoKind, string> = {
  * 構造化フィールドで絞って送る (本文中の @ 表記を発火させない)。
  */
 export function renderHumanTodoReport(items: readonly HumanTodoItem[]): string {
-  const shown = items.slice(0, HUMAN_TODO_LIST_LIMIT);
-  const lines = [
-    `🙋 **人間のやること** (${items.length} 件) — 自動確認で内容の変化を検知しました。`,
-    ...shown.map((item, index) => {
-      const refs = item.references.length ? ` (${item.references.join(", ")})` : "";
-      return `${index + 1}. [${KIND_LABELS[item.kind]}] ${item.text}${refs}`;
-    }),
-  ];
-  if (items.length > shown.length) lines.push(`ほか ${items.length - shown.length} 件`);
-  lines.push("前回から変化が無い間は通知しません。自動確認は続けます。");
+  const closing = "前回から変化が無い間は通知しません。自動確認は続けます。";
+  const lines = [`🙋 **人間のやること** (${items.length} 件) — 自動確認で内容の変化を検知しました。`];
+  for (const item of items.slice(0, HUMAN_TODO_LIST_LIMIT)) {
+    const line = renderItemLine(item, lines.length);
+    const rest = items.length - lines.length;
+    const candidate = [...lines, line, ...(rest > 0 ? [`ほか ${rest} 件`] : []), closing].join("\n");
+    if (candidate.length > HUMAN_TODO_BODY_LIMIT) break;
+    lines.push(line);
+  }
+  const shownCount = lines.length - 1;
+  if (items.length > shownCount) lines.push(`ほか ${items.length - shownCount} 件`);
+  lines.push(closing);
   return lines.join("\n");
+}
+
+/** リンクは 1 項目の本文上限の内側に収める (本文を詰めてリンクを残す)。 */
+function renderItemLine(item: HumanTodoItem, ordinal: number): string {
+  const refs = item.references.length ? ` (${item.references.join(", ")})` : "";
+  // <> で囲むと Discord は埋め込みプレビューを出さない。
+  const link = item.link ? ` <${item.link}>` : "";
+  const text = link ? clip(item.text, ITEM_TEXT_LIMIT - link.length) : item.text;
+  return `${ordinal}. [${KIND_LABELS[item.kind]}] ${text}${refs}${link}`;
 }
 
 export function renderHumanTodoResolved(): string {
   return "✅ **人間のやること** は残っていません (自動確認で解消を確認しました)。";
 }
 
-function clip(text: string): string {
+function clip(text: string, limit = ITEM_TEXT_LIMIT): string {
   const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > ITEM_TEXT_LIMIT ? `${flat.slice(0, ITEM_TEXT_LIMIT - 1)}…` : flat;
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 }

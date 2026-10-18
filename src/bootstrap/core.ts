@@ -185,6 +185,7 @@ import { startHumanResponseConfirmation } from "../control/human-response-confir
 import { startHumanWait } from "../control/human-wait.js";
 import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
 import { reportHumanTodos } from "../control/human-todo-report.js";
+import { humanTodoQuestionLink } from "../control/human-todo-question-link.js";
 import { startSelfDeploymentReport } from "../deploy/self-deployment.js";
 import { handleServiceDeployment } from "../deploy/service-deployed.js";
 import { execFile as execFileCallback } from "node:child_process";
@@ -2860,7 +2861,16 @@ export async function startBackend(): Promise<BackendHandle> {
         reportHumanTodos: (session) => {
           reportHumanTodos({
             repo,
-            listUnansweredQuestions: (sessionId) => pendingQuestions.listUnanswered(sessionId),
+            // 質問カードへのリンクを添える (位置・guild が引けない質問はリンク無し)。
+            listUnansweredQuestions: (sessionId) => pendingQuestions.listUnanswered(sessionId).map((question) => ({
+              id: question.id,
+              question: question.question,
+              link: humanTodoQuestionLink({
+                sessionChannel: (id) => discordChannels.findBySessionId(id),
+                hqGuildId: () => resolveDiscordConfig(discordConfig, secretBox).guildId ?? null,
+                subsidiaryGuildId: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.guild_id ?? null,
+              }, question),
+            })),
           }, session);
         },
       }),

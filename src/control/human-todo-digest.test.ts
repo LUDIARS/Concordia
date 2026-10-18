@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  HUMAN_TODO_BODY_LIMIT,
   HUMAN_TODO_LIST_LIMIT,
   HUMAN_TODO_REPORT_KEY,
   collectHumanTodos,
@@ -10,6 +11,7 @@ import {
 } from "./human-todo-digest.js";
 
 const wait = (summary: string, refs: string[] = []) => ({ active: true, summary, task_references: refs, since: 1 });
+const LINK = "https://discord.com/channels/100000000000000001/300000000000000003/500000000000000005";
 
 describe("人間のやることの集約", () => {
   it("判断待ちを先頭に、質問は古い順に並べ、空の項目は捨てる", () => {
@@ -73,5 +75,44 @@ describe("報告本文", () => {
     expect(text).toContain("2. [未回答の質問] 質問1");
     expect(text).toContain("ほか 3 件");
     expect(text).toContain("自動確認は続けます");
+  });
+
+  it("質問カードへのリンクを項目に添え、リンクが無い質問は今どおり出す", () => {
+    const items = collectHumanTodos({
+      humanWait: wait("判断", ["actio:t1"]),
+      questions: [{ id: 1, question: "リンク付き", link: LINK }, { id: 2, question: "リンク無し", link: null }],
+    });
+    const text = renderHumanTodoReport(items);
+    expect(text).toContain("1. [判断待ち] 判断 (actio:t1)\n");
+    expect(text).toContain(`2. [未回答の質問] リンク付き <${LINK}>`);
+    expect(text).toContain("3. [未回答の質問] リンク無し\n");
+  });
+
+  it("リンクは 1 項目の上限の内側に収め、本文を詰める", () => {
+    const items = collectHumanTodos({ humanWait: null, questions: [{ id: 1, question: "x".repeat(400), link: LINK }] });
+    const line = renderHumanTodoReport(items).split("\n")[1]!;
+    expect(line.endsWith(`<${LINK}>`)).toBe(true);
+    expect(line.slice("1. [未回答の質問] ".length).length).toBe(300);
+  });
+
+  it("長い質問とリンクが上限件数並んでも Discord 1 通に収め、溢れた分は件数で示す", () => {
+    const questions = Array.from({ length: HUMAN_TODO_LIST_LIMIT + 2 }, (_, i) => ({
+      id: i + 1, question: "長".repeat(400), link: LINK,
+    }));
+    const text = renderHumanTodoReport(collectHumanTodos({ humanWait: wait("判断"), questions }));
+    expect(text.length).toBeLessThanOrEqual(HUMAN_TODO_BODY_LIMIT);
+    expect(`<@${"9".repeat(20)}> ${text}`.length).toBeLessThanOrEqual(2000);
+    expect(text).toMatch(/ほか \d+ 件/);
+    expect(text).toContain("自動確認は続けます");
+  });
+});
+
+describe("要約値とリンク", () => {
+  it("リンクの有無・値では要約値が変わらない", () => {
+    const withLink = collectHumanTodos({ humanWait: null, questions: [{ id: 1, question: "同じ質問", link: LINK }] });
+    const without = collectHumanTodos({ humanWait: null, questions: [{ id: 1, question: "同じ質問" }] });
+    const other = collectHumanTodos({ humanWait: null, questions: [{ id: 1, question: "同じ質問", link: `${LINK}9` }] });
+    expect(humanTodoDigest(withLink)).toBe(humanTodoDigest(without));
+    expect(humanTodoDigest(withLink)).toBe(humanTodoDigest(other));
   });
 });

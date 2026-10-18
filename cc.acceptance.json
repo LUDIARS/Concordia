@@ -2269,6 +2269,21 @@
       "contracts": ["CC-HUMAN-TODO-01"]
     },
     {
+      "source": "src/control/human-todo-question-link.ts",
+      "tests": ["src/control/human-todo-question-link.test.ts"],
+      "contracts": ["CC-HUMAN-TODO-01", "human-todo-link-C-18", "human-todo-link-C-19"]
+    },
+    {
+      "source": "src/control/human-todo-question-link.contract.ts",
+      "tests": ["src/control/human-todo-question-link.test.ts"],
+      "contracts": ["human-todo-link-C-18"]
+    },
+    {
+      "source": "src/control/human-todo-message-url.contract.ts",
+      "tests": ["src/control/human-todo-question-link.test.ts"],
+      "contracts": ["human-todo-link-C-19"]
+    },
+    {
       "source": "src/control/human-todo-report.ts",
       "tests": ["src/control/human-todo-report.test.ts", "src/discord/human-todo-post.test.ts"],
       "contracts": ["CC-HUMAN-TODO-01"]

@@ -183,6 +183,15 @@ describe("notion map crawl", () => {
     expect(h.collector.lastReport()?.[0]).toMatchObject({ status: "ok", pages: 2, failedPages: 1 });
   });
 
+  it("fails only that root when a root page answers unavailable, and keeps crawling the other roots", async () => {
+    const pages = { ...lessonPages(), 20: { title: "別の起点", text: "別の本文" } };
+    const h = harness(pages, { roots: [20, 1], unavailableAt: new Set([20]) });
+    const out = await h.run();
+    expect(out.docs.map((d) => d.title)).toContain("例の授業資料");
+    expect(h.rootStates.root(id(20))!.last_error).toMatch(/unavailable/);
+    expect(h.rootStates.root(id(1))).toMatchObject({ title: "例の授業資料", pages: 4, last_error: null });
+  });
+
   it("skips a sub-page that answers unavailable instead of stopping the whole Notion crawl", async () => {
     const h = harness(lessonPages(), { unavailableAt: new Set([2]) });
     const out = await h.run();

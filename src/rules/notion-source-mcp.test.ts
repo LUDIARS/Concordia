@@ -113,8 +113,16 @@ describe("createMcpNotionSource", () => {
     expect(flaky).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry a failed run", async () => {
-    const bad = vi.fn(async () => ({ ok: false, stdout: "", stderr: "timeout" }));
+  it("retries a timed-out run once", async () => {
+    const slow = vi.fn()
+      .mockResolvedValueOnce({ ok: false, stdout: "", stderr: "[concordia] killed: timeout" })
+      .mockResolvedValueOnce({ ok: true, stdout: ok({ id: ID, title: "t", text: "本文" }), stderr: "" });
+    expect((await createMcpNotionSource({ runner: slow }).fetchPage(ref, limits))?.text).toBe("本文");
+    expect(slow).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a run that failed for another reason", async () => {
+    const bad = vi.fn(async () => ({ ok: false, stdout: "", stderr: "spawn claude failed" }));
     await createMcpNotionSource({ runner: bad }).fetchPage(ref, limits).catch(() => null);
     expect(bad).toHaveBeenCalledTimes(1);
   });

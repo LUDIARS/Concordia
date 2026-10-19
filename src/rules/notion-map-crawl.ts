@@ -12,7 +12,8 @@
  * - 失敗: 起点ごとに独立。 起点のページが取れない起点は前回のページ・辺・断片を残し、 失敗理由だけを記録する。
  *   起点の配下の 1 ページが取れない (「使えない」と答えた場合も含む) ときは、 そのページ (と配下) だけを飛ばして続ける (読めた分を捨てない)
  * - 起点の配下に別の起点があるときは、 そこで下るのを止める (そのページはその起点が自分で読む)
- *   MCP が使えない (未認証・コネクタ無し) は「未設定」として Notion の取り込みだけを止める
+ *   MCP が使えない (未認証・コネクタ無し) は、 全部の起点が失敗したときだけ「未設定」として Notion の取り込みだけを止める
+ *   (1 つの起点の「使えない」は揺らぎのことがあるので、 その起点の失敗として次の起点へ進む)
  */
 
 import { createHash } from "node:crypto";
@@ -170,6 +171,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     const opts: CrawlOpts = { full, visited: new Set<string>(), rootIds: new Set(ids), words: deps.excludes(), terms: await deps.confidentialTerms(), limits: deps.limits() };
     const docs: KnowledgeDoc[] = [];
     const results: RootCrawlResult[] = [];
+    let unavailableReason: string | null = null;
     for (const root of roots) {
       deps.rootStates.markRootAttempt(root.id, nowSec());
       try {
@@ -177,17 +179,16 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
       } catch (err) {
         const reason = redactReason((err as Error).message || String(err), []);
         deps.rootStates.markRootFailure(root.id, reason, nowSec());
-        // MCP が使えない: Notion の取り込みだけを「未設定」で止める (前回の断片・マップは残す)
-        if (err instanceof NotionSourceUnavailable) {
-          report = [...results, { rootId: root.id, status: "failed", pages: 0, excluded: 0, changed: 0, reason }];
-          return { notConfigured: reason };
-        }
+        // 「使えない」でも次の起点へ進む (別の起点では読めた実例がある。 LLM がツールを呼ばずに答える揺らぎ)
+        if (err instanceof NotionSourceUnavailable) unavailableReason ??= reason;
         deps.log?.warn(`notion map: root ${root.id} failed: ${reason}`);
         results.push({ rootId: root.id, status: "failed", pages: 0, excluded: 0, changed: 0, reason });
       }
     }
     report = results;
     const failed = results.filter((r) => r.status === "failed");
+    // 全部の起点が失敗し、 どれかが「使えない」なら MCP が使えないとみなして Notion の取り込みだけを「未設定」で止める (前回の断片・マップは残す)
+    if (failed.length === results.length && unavailableReason !== null) return { notConfigured: unavailableReason };
     // 全部の起点が失敗したら種類として失敗にする (前回の断片を残す)
     if (failed.length === results.length) throw new Error(`all notion map roots failed: ${failed[0]?.reason ?? "unknown"}`);
     return {

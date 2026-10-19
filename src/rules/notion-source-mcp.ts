@@ -142,10 +142,15 @@ export function describeInvalidOutput(output: string): string {
   }
 }
 
+/** runner が時間切れで止めたか (claude-runner の stderr の印)。 */
+export function isRunTimeout(stderr: string): boolean {
+  return /killed: timeout/.test(stderr);
+}
+
 export function createMcpNotionSource(deps: { runner: NotionToolRunner; timeoutMs?: number }): NotionPageSource {
   return {
     fetchPage: async (ref, limits) => {
-      // 読めない応答 (LLM の出力が JSON の形を外れた)・「使えない」の答えは揺らぎがあるので 1 回だけ取り直す。 実行の失敗は取り直さない
+      // 読めない応答 (LLM の出力が JSON の形を外れた)・「使えない」の答え・時間切れは揺らぎがあるので 1 回だけ取り直す。 それ以外の実行の失敗は取り直さない
       let lastOutput = "";
       let unavailable: string | null = null;
       for (let attempt = 0; attempt < MCP_INVALID_ATTEMPTS; attempt++) {
@@ -157,7 +162,10 @@ export function createMcpNotionSource(deps: { runner: NotionToolRunner; timeoutM
         }
         if (outcome.kind === "not_found") return null;
         if (outcome.kind === "page") return outcome.page;
-        if (!res.ok) throw new Error(`notion mcp run failed: ${res.stderr.slice(0, 160)}`);
+        if (!res.ok) {
+          if (attempt + 1 < MCP_INVALID_ATTEMPTS && isRunTimeout(res.stderr)) continue;
+          throw new Error(`notion mcp run failed: ${res.stderr.slice(0, 160)}`);
+        }
         lastOutput = res.stdout;
         unavailable = null;
       }

@@ -105,6 +105,14 @@ describe("createMcpNotionSource", () => {
     expect(err.message).not.toContain("秘密の本文");
   });
 
+  it("asks again once when the answer is unavailable, and uses the page if the second answer has it", async () => {
+    const flaky = vi.fn()
+      .mockResolvedValueOnce({ ok: true, stdout: JSON.stringify({ status: "unavailable", reason: "tool not available" }), stderr: "" })
+      .mockResolvedValueOnce({ ok: true, stdout: ok({ id: ID, title: "t", text: "本文" }), stderr: "" });
+    expect((await createMcpNotionSource({ runner: flaky }).fetchPage(ref, limits))?.text).toBe("本文");
+    expect(flaky).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry a failed run", async () => {
     const bad = vi.fn(async () => ({ ok: false, stdout: "", stderr: "timeout" }));
     await createMcpNotionSource({ runner: bad }).fetchPage(ref, limits).catch(() => null);

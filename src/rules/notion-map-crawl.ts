@@ -10,7 +10,7 @@
  *   手動の取り直し (full) は全ページを解析し直す
  * - 上限: 深さ・起点ごとのページ数・ページごとの本文バイト (設定)・ページごとの子ページ数
  * - 失敗: 起点ごとに独立。 起点のページが取れない起点は前回のページ・辺・断片を残し、 失敗理由だけを記録する。
- *   起点の配下の 1 ページが取れないときは、 そのページ (と配下) だけを飛ばして続ける (読めた分を捨てない)
+ *   起点の配下の 1 ページが取れない (「使えない」と答えた場合も含む) ときは、 そのページ (と配下) だけを飛ばして続ける (読めた分を捨てない)
  * - 起点の配下に別の起点があるときは、 そこで下るのを止める (そのページはその起点が自分で読む)
  *   MCP が使えない (未認証・コネクタ無し) は「未設定」として Notion の取り込みだけを止める
  */
@@ -101,8 +101,10 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
       try {
         page = await deps.source.fetchPage(item.ref, fetchLimits);
       } catch (err) {
-        // 起点のページ・MCP が使えないときは起点ごと止める。 配下の 1 ページの失敗はそのページだけを飛ばす
-        if (item.depth === 0 || err instanceof NotionSourceUnavailable) throw err;
+        // 起点のページが取れないときは起点ごと止める (MCP が使えないならクロール全体を止める)。
+        // 配下の 1 ページの失敗は「使えない」と答えたときも含めてそのページだけを飛ばす
+        // (同じ起点で読めていたのに LLM がツールを呼ばずに unavailable と答えて全体が止まった実例がある)
+        if (item.depth === 0) throw err;
         failedPages += 1;
         deps.log?.warn(`notion map: page ${item.ref.id} under root ${root.id} failed: ${redactReason((err as Error).message || String(err), [])}`);
         continue;

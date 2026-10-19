@@ -30,13 +30,14 @@ interface FakePage {
   links?: number[];
 }
 
-function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boolean; missing?: Set<number>; failing?: Set<number> } = {}) {
+function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boolean; missing?: Set<number>; failing?: Set<number>; unavailableAt?: Set<number> } = {}) {
   const calls: NotionPageRef[] = [];
   const source: NotionPageSource = {
     fetchPage: vi.fn(async (ref: NotionPageRef) => {
       calls.push(ref);
       if (opts.unavailable) throw new NotionSourceUnavailable("notion connector unavailable: not authenticated");
       const n = parseInt(ref.id, 16);
+      if (opts.unavailableAt?.has(n)) throw new NotionSourceUnavailable("notion connector unavailable: tool not available");
       if (opts.failing?.has(n)) throw new Error("notion mcp returned an unexpected response (12 chars, no JSON object)");
       const p = pages[n];
       if (!p || opts.missing?.has(n)) return null;
@@ -52,7 +53,7 @@ function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boole
 }
 
 function harness(pages: Record<number, FakePage>, opts: {
-  roots?: number[]; limits?: Partial<NotionMapLimits>; terms?: string[]; unavailable?: boolean; missing?: Set<number>; failing?: Set<number>;
+  roots?: number[]; limits?: Partial<NotionMapLimits>; terms?: string[]; unavailable?: boolean; missing?: Set<number>; failing?: Set<number>; unavailableAt?: Set<number>;
 } = {}) {
   const db = new Database(":memory:");
   open.push(db);
@@ -179,6 +180,13 @@ describe("notion map crawl", () => {
     // 第1回 (2) とその配下 (3) だけが欠け、 起点と Wiki の章は残る
     expect(out.docs.map((d) => d.title)).toEqual(["例の授業資料", "Wiki 第1章"]);
     expect(h.rootStates.root(id(1))).toMatchObject({ title: "例の授業資料", pages: 2, last_error: null });
+    expect(h.collector.lastReport()?.[0]).toMatchObject({ status: "ok", pages: 2, failedPages: 1 });
+  });
+
+  it("skips a sub-page that answers unavailable instead of stopping the whole Notion crawl", async () => {
+    const h = harness(lessonPages(), { unavailableAt: new Set([2]) });
+    const out = await h.run();
+    expect(out.docs.map((d) => d.title)).toEqual(["例の授業資料", "Wiki 第1章"]);
     expect(h.collector.lastReport()?.[0]).toMatchObject({ status: "ok", pages: 2, failedPages: 1 });
   });
 

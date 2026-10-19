@@ -145,17 +145,23 @@ export function describeInvalidOutput(output: string): string {
 export function createMcpNotionSource(deps: { runner: NotionToolRunner; timeoutMs?: number }): NotionPageSource {
   return {
     fetchPage: async (ref, limits) => {
-      // 読めない応答 (LLM の出力が JSON の形を外れた) は揺らぎなので 1 回だけ取り直す。 実行の失敗は取り直さない
+      // 読めない応答 (LLM の出力が JSON の形を外れた)・「使えない」の答えは揺らぎがあるので 1 回だけ取り直す。 実行の失敗は取り直さない
       let lastOutput = "";
+      let unavailable: string | null = null;
       for (let attempt = 0; attempt < MCP_INVALID_ATTEMPTS; attempt++) {
         const res = await deps.runner(buildMcpFetchPrompt(ref, limits), notionMcpRunOptions(deps.timeoutMs));
         const outcome = parseMcpFetchOutput(res.stdout, ref, limits);
-        if (outcome.kind === "unavailable") throw new NotionSourceUnavailable(`notion connector unavailable: ${outcome.reason}`);
+        if (outcome.kind === "unavailable") {
+          unavailable = outcome.reason;
+          continue;
+        }
         if (outcome.kind === "not_found") return null;
         if (outcome.kind === "page") return outcome.page;
         if (!res.ok) throw new Error(`notion mcp run failed: ${res.stderr.slice(0, 160)}`);
         lastOutput = res.stdout;
+        unavailable = null;
       }
+      if (unavailable !== null) throw new NotionSourceUnavailable(`notion connector unavailable: ${unavailable}`);
       throw new Error(`notion mcp returned an unexpected response (${describeInvalidOutput(lastOutput)})`);
     },
   };

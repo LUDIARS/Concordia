@@ -35,6 +35,7 @@ describe("notionMcpRunOptions", () => {
     expect(prompt).toContain("1 回だけ");
     expect(prompt).toContain("書き込み・作成・更新・削除はしない");
     expect(prompt).toContain("unavailable");
+    expect(prompt).toContain(`使ってよいツールは ${NOTION_MCP_READ_TOOLS[0]} だけ`);
   });
 });
 
@@ -98,7 +99,7 @@ describe("createMcpNotionSource", () => {
     expect(flaky).toHaveBeenCalledTimes(2);
 
     const broken = vi.fn(async () => ({ ok: true, stdout: '{"status": "ok", "page": {"text": "秘密の本文"}', stderr: "" }));
-    const err = await createMcpNotionSource({ runner: broken }).fetchPage(ref, limits).catch((e: unknown) => e as Error);
+    const err = await createMcpNotionSource({ runner: broken }).fetchPage(ref, limits).then(() => new Error("resolved"), (e: unknown) => e as Error);
     expect(broken).toHaveBeenCalledTimes(MCP_INVALID_ATTEMPTS);
     expect(err.message).toContain("JSON does not parse");
     expect(err.message).not.toContain("秘密の本文");

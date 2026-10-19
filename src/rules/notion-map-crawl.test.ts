@@ -30,13 +30,14 @@ interface FakePage {
   links?: number[];
 }
 
-function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boolean; missing?: Set<number> } = {}) {
+function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boolean; missing?: Set<number>; failing?: Set<number> } = {}) {
   const calls: NotionPageRef[] = [];
   const source: NotionPageSource = {
     fetchPage: vi.fn(async (ref: NotionPageRef) => {
       calls.push(ref);
       if (opts.unavailable) throw new NotionSourceUnavailable("notion connector unavailable: not authenticated");
       const n = parseInt(ref.id, 16);
+      if (opts.failing?.has(n)) throw new Error("notion mcp returned an unexpected response (12 chars, no JSON object)");
       const p = pages[n];
       if (!p || opts.missing?.has(n)) return null;
       const page: FetchedNotionPage = {
@@ -51,7 +52,7 @@ function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boole
 }
 
 function harness(pages: Record<number, FakePage>, opts: {
-  roots?: number[]; limits?: Partial<NotionMapLimits>; terms?: string[]; unavailable?: boolean; missing?: Set<number>;
+  roots?: number[]; limits?: Partial<NotionMapLimits>; terms?: string[]; unavailable?: boolean; missing?: Set<number>; failing?: Set<number>;
 } = {}) {
   const db = new Database(":memory:");
   open.push(db);
@@ -170,6 +171,32 @@ describe("notion map crawl", () => {
     expect(h.rootStates.root(id(1))!.last_error).toBeNull();
     missing.add(1);
     await expect(h.run(true)).rejects.toThrow(/all notion map roots failed/);
+  });
+
+  it("skips only a sub-page that fails to load and keeps everything else read under the root", async () => {
+    const h = harness(lessonPages(), { failing: new Set([2]) });
+    const out = await h.run();
+    // 第1回 (2) とその配下 (3) だけが欠け、 起点と Wiki の章は残る
+    expect(out.docs.map((d) => d.title)).toEqual(["例の授業資料", "Wiki 第1章"]);
+    expect(h.rootStates.root(id(1))).toMatchObject({ title: "例の授業資料", pages: 2, last_error: null });
+    expect(h.collector.lastReport()?.[0]).toMatchObject({ status: "ok", pages: 2, failedPages: 1 });
+  });
+
+  it("still fails the root when the root page itself fails to load", async () => {
+    const pages = { ...lessonPages(), 20: { title: "別の起点", text: "別の本文" } };
+    const h = harness(pages, { roots: [1, 20], failing: new Set([1]) });
+    await h.run();
+    expect(h.rootStates.root(id(1))!.last_error).toMatch(/unexpected response/);
+    expect(h.rootStates.root(id(20))).toMatchObject({ title: "別の起点", pages: 1 });
+  });
+
+  it("stops at another configured root under a root, and lets that root read its own pages", async () => {
+    // 起点 1 の配下の 第1回 (2) も起点に設定されている
+    const h = harness(lessonPages(), { roots: [1, 2] });
+    await h.run();
+    expect(h.repo.pages(id(1)).map((p) => p.title).sort()).toEqual(["Wiki 第1章", "例の授業資料"].sort());
+    expect(h.repo.pages(id(2)).map((p) => p.title).sort()).toEqual(["第1回", "第2回"].sort());
+    expect(h.rootStates.root(id(2))).toMatchObject({ title: "第1回", pages: 2, last_error: null });
   });
 });
 

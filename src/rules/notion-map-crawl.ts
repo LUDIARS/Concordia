@@ -9,7 +9,9 @@
  * - 差分: 最終更新 (経路が教えてくれなければ本文の指紋) が前回と同じページは解析し直さない (前回の要約を残す)。
  *   手動の取り直し (full) は全ページを解析し直す
  * - 上限: 深さ・起点ごとのページ数・ページごとの本文バイト (設定)・ページごとの子ページ数
- * - 失敗: 起点ごとに独立。 失敗した起点は前回のページ・辺・断片を残し、 失敗理由だけを記録する。
+ * - 失敗: 起点ごとに独立。 起点のページが取れない起点は前回のページ・辺・断片を残し、 失敗理由だけを記録する。
+ *   起点の配下の 1 ページが取れないときは、 そのページ (と配下) だけを飛ばして続ける (読めた分を捨てない)
+ * - 起点の配下に別の起点があるときは、 そこで下るのを止める (そのページはその起点が自分で読む)
  *   MCP が使えない (未認証・コネクタ無し) は「未設定」として Notion の取り込みだけを止める
  */
 
@@ -45,6 +47,8 @@ export interface RootCrawlResult {
   pages: number;
   excluded: number;
   changed: number;
+  /** 取れなかった配下のページの数 (起点のページは含まない)。 */
+  failedPages?: number;
   reason?: string;
 }
 
@@ -58,6 +62,8 @@ const contentHash = (text: string) => createHash("sha256").update(text, "utf8").
 interface CrawlOpts {
   full: boolean;
   visited: Set<string>;
+  /** 設定の起点。 別の起点の配下に現れても、 その起点が自分で読む。 */
+  rootIds: Set<string>;
   words: string[];
   terms: string[];
   limits: NotionMapLimits;
@@ -72,6 +78,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     const edges: NotionEdge[] = [];
     const rootDocs: KnowledgeDoc[] = [];
     let excluded = 0;
+    let failedPages = 0;
     let rootTitle: string | null = null;
     const fetchLimits = { pageTextBytes: opts.limits.pageTextBytes, maxChildren: NOTION_MAP_CHILDREN_PER_PAGE };
     const queue: Array<{ ref: NotionPageRef; parentPath: string | null; depth: number }> = [
@@ -79,6 +86,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     ];
     while (queue.length > 0 && pages.length < opts.limits.maxPages) {
       const item = queue.shift()!;
+      if (item.depth > 0 && opts.rootIds.has(item.ref.id)) continue;
       if (opts.visited.has(item.ref.id)) continue;
       opts.visited.add(item.ref.id);
       // 親の一覧で題が分かれば、 取る前に除外を判定する (個人ページを取りに行かない)
@@ -89,7 +97,16 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
           continue;
         }
       }
-      const page = await deps.source.fetchPage(item.ref, fetchLimits);
+      let page;
+      try {
+        page = await deps.source.fetchPage(item.ref, fetchLimits);
+      } catch (err) {
+        // 起点のページ・MCP が使えないときは起点ごと止める。 配下の 1 ページの失敗はそのページだけを飛ばす
+        if (item.depth === 0 || err instanceof NotionSourceUnavailable) throw err;
+        failedPages += 1;
+        deps.log?.warn(`notion map: page ${item.ref.id} under root ${root.id} failed: ${redactReason((err as Error).message || String(err), [])}`);
+        continue;
+      }
       if (!page) {
         if (item.depth === 0) throw new Error("root page is not reachable (not public and not shared with the Notion connector)");
         continue;
@@ -139,7 +156,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     deps.repo.replaceRoot(root.id, pages, edges, nowSec());
     deps.rootStates.markRootSuccess(root.id, { title: rootTitle ?? root.id, pages: pages.length, excluded }, nowSec());
     docs.push(...rootDocs);
-    return { rootId: root.id, status: "ok", pages: pages.length, excluded, changed: rootDocs.length };
+    return { rootId: root.id, status: "ok", pages: pages.length, excluded, changed: rootDocs.length, failedPages };
   };
 
   const collect: KnowledgeCollector = async ({ full }) => {
@@ -148,7 +165,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     const ids = roots.map((r) => r.id);
     deps.repo.dropRootsExcept(ids);
     deps.rootStates.dropExcept(ids);
-    const opts: CrawlOpts = { full, visited: new Set<string>(), words: deps.excludes(), terms: await deps.confidentialTerms(), limits: deps.limits() };
+    const opts: CrawlOpts = { full, visited: new Set<string>(), rootIds: new Set(ids), words: deps.excludes(), terms: await deps.confidentialTerms(), limits: deps.limits() };
     const docs: KnowledgeDoc[] = [];
     const results: RootCrawlResult[] = [];
     for (const root of roots) {

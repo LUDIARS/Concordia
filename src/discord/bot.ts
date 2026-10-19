@@ -36,6 +36,7 @@ import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { DirectorRepo } from "../director/repo.js";
 import { renderCaseStatusCard } from "../director/step-card.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
+import { CompanyPinSharing } from "./company-pin-sharing.js";
 import { shouldRestartDiscordBot } from "./gateway-policy.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
@@ -620,6 +621,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
+    onDispatched: (input, action) => {
+      if (input.platform === "discord") companyPinSharing.workflow(action, input.shareSource);
+    },
     runHeadless: deps.runHeadless,
     emitInject: emitSessionInject,
     contextReport: async (sessionId) => {
@@ -1028,6 +1032,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const measuredDispatchInteraction = instrumentDiscord("dispatchInteraction", dispatchInteraction);
 
   let layout: DiscordConfigSnapshot | null = null;
+  const companyPinSharing = new CompanyPinSharing({
+    client, config: configRepo, log,
+    target: () => layout ? { guildId: layout.guildId, channelId: layout.metaChannels.chitchat } : null,
+    isStopped: () => gatewayClosed || stopping,
+    isPrivateOrForeign: (channelId) => {
+      if (privateConsultationsRepo.findByChannel(channelId)) return true;
+      const channel = client.channels.cache.get(channelId);
+      const privateCategoryId = privateCategoryStore.categoryId();
+      if (privateCategoryId && channel && "parentId" in channel && channel.parentId === privateCategoryId) return true;
+      const session = sessionChannelsRepo.findByChannelId(channelId);
+      if (!session) return false;
+      const state = deps.readModel.getSessionRelayState(session.session_id);
+      return !state || (state.subsidiaryId ?? null) !== subsidiaryId;
+    },
+  });
   let webhooks: WebhookPool | null = null;
   let activeGuild: Guild | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -1897,6 +1916,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    companyPinSharing.pinNotice(msg);
     // サービスへ中継する指定チャンネル (spec/feature/discord-chat-relay.md)。 受け持った発言は他の ingress へ回さない。
     if (chatRelaySurface?.handlesMessage(msg)) {
       void chatRelaySurface.message(msg).catch((error) => log.warn(`discord chat relay failed: ${(error as Error).name}`));

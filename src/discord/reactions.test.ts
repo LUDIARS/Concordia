@@ -44,7 +44,7 @@ describe("Discord reaction workflow authorization", () => {
     await handleReactionAdd(deps, reaction as never, { id: "operator", bot: false } as never);
     expect(handle).toHaveBeenCalledOnce();
     expect(handle).toHaveBeenCalledWith(
-      expect.objectContaining({ platform: "discord", sourceMessageId: "m1" }),
+      expect.objectContaining({ platform: "discord", sourceMessageId: "m1", shareSource: { channelId: "c1", messageId: "m1" } }),
       expect.any(Function),
       expect.any(Function),
     );

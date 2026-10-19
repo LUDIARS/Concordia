@@ -625,6 +625,7 @@ async function tryEmojiWorkflow(
   // chat_messages は直前投稿の本文を補うだけで、発火条件にはしない。transcript relay と
   // chat.posted は別経路なので、DB に直近行が無いセッションでも単独絵文字は有効であるべき。
   const target = resolveEmojiTarget(deps, msg, sessionRow.session_id);
+  const targetDiscordId = target && deps.messageMap?.findDiscordId(target.id);
   const session = deps.sessionsRepo.findSession(sessionRow.session_id);
   deps.log.info(
     `ingress: emoji "${emoji}" → reaction-workflow ` +
@@ -636,6 +637,7 @@ async function tryEmojiWorkflow(
         dedupeKey: target ? `chat:${target.id}` : `discord:${msg.id}`,
         platform: "discord",
         sourceMessageId: msg.id,
+        ...(targetDiscordId ? { shareSource: { channelId: msg.channelId, messageId: targetDiscordId } } : {}),
         emoji,
         userId: msg.author.id,
         messageText: target?.text ?? "",

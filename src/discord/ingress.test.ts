@@ -176,6 +176,19 @@ describe("discord ingress chat routing", () => {
     );
   });
 
+  it("shares the resolved content message rather than the standalone emoji", async () => {
+    const deps = makeDeps("codex-cli");
+    const handle = vi.fn(async () => undefined);
+    deps.workflow = { handle };
+    deps.isWorkflowUserAllowed = () => true;
+    deps.sessionChannelsRepo.findByChannelId = vi.fn(() => ({ session_id: "s1", channel_id: "chan1", channel_kind: "thread", status: "active" })) as never;
+    deps.chatRepo = { latestForSession: () => ({ id: 12, text: "保存する本文", author_label: "author" }) } as never;
+    deps.messageMap = { findDiscordId: (id: number) => id === 12 ? "content-message" : null } as never;
+    await handleMessage(deps, makeMessage({ content: "👀", channel: { type: ChannelType.PublicThread, parentId: "forum1", send: vi.fn() } }));
+    expect(handle).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: "msg1",
+      shareSource: { channelId: "chan1", messageId: "content-message" } }), expect.any(Function), expect.any(Function));
+  });
+
   it("does not start a standalone emoji workflow in a legacy session channel", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("codex-cli");

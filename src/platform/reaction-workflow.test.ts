@@ -306,6 +306,34 @@ describe("ReactionWorkflowRunner.handle (絵文字 → スキル)", () => {
     expect(calls[0].prompt).toContain("/memoria-note");
   });
 
+  it("notifies sharing only after successful execution, once per accepted request", async () => {
+    const dispatched: string[] = [];
+    const { runner } = makeRunner({ onDispatched: (_input: ReactionWorkflowInput, action: string) => dispatched.push(action) });
+    await runner.handle(baseInput);
+    await runner.handle(baseInput);
+    expect(dispatched).toEqual(["memoria-note"]);
+  });
+
+  it("does not notify sharing on headless failure, missing skill, disabled or denied workflow", async () => {
+    const dispatched: string[] = [];
+    const onDispatched = () => dispatched.push("unexpected");
+    for (const over of [
+      { enabled: false }, { subsidiary: true }, { skills: { ...skillsPort, readBody: async () => null } },
+      { runHeadless: async () => ({ ok: false, exit_code: 1, stdout: "", stderr: "failed", duration_ms: 1 }) },
+    ]) {
+      await makeRunner({ ...over, onDispatched }).runner.handle(baseInput);
+    }
+    expect(dispatched).toEqual([]);
+  });
+
+  it("notifies after inject without treating callback failure as execution failure", async () => {
+    let notifications = 0;
+    const { runner, injects } = makeRunner({ onDispatched: () => { notifications++; throw new Error("delivery unavailable"); } });
+    await runner.handle({ ...baseInput, emoji: "😡", sessionId: "s1", sessionActive: true });
+    expect(injects).toHaveLength(1);
+    expect(notifications).toBe(1);
+  });
+
   // 2026-09-29: 👍 🆗 / 👎 🆖 は OK / NG の予約語。 人間が「良い」「NG」と返信したのと同じに扱う。
   it("👍 は稼働中セッションへ『良い』を返し、スキル・上書き・headless を経由しない", async () => {
     const { runner, calls, injects } = makeRunner({ customMappings: () => ({ "👍": "memoria-note" }) });

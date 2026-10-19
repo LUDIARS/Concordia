@@ -507,6 +507,8 @@ export interface RwfSkillCatalogPort {
 }
 
 export interface ReactionWorkflowDeps {
+  /** Execution was dispatched (inject), or completed successfully (headless); not proof of storage. */
+  onDispatched?: (input: ReactionWorkflowInput, action: WorkflowAction) => void;
   /** headless 実行関数 (既定 runClaude)。 テストで差し替え可能。 */
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
   /**
@@ -584,6 +586,8 @@ export interface ReactionWorkflowDeps {
  * chat_messages / message-map には依存しない。発火面の制限は platform ingress が担う。
  */
 export interface ReactionWorkflowInput {
+  /** Resolved source content, distinct from a standalone emoji's provenance message. */
+  shareSource?: { channelId: string; messageId: string };
   /** 再発火抑制の安定キー (プラットフォームの message id)。 */
   dedupeKey: string;
   /** リアクション絵文字 (unicode)。 */
@@ -957,9 +961,11 @@ export class ReactionWorkflowRunner {
     try {
       if (plan.mode === "inject") {
         this.inject(input.sessionId, plan.prompt, action, buildProvenance(input, action));
+        if (input.sessionId) this.notifyDispatched(input, action);
       } else {
         const result = await this.runHeadless(plan);
         this.relayHeadlessResult(action, result, onResult);
+        if (result.ok) this.notifyDispatched(input, action);
       }
     } catch (e) {
       this.deps.log.warn(`reaction-workflow: action=${action} failed: ${(e as Error).message}`);
@@ -970,6 +976,15 @@ export class ReactionWorkflowRunner {
         stderr: (e as Error).message,
         duration_ms: 0,
       }, onResult);
+    }
+  }
+
+  /** @implements CC-PIN-04 — a notification failure must not change workflow success. */
+  private notifyDispatched(input: ReactionWorkflowInput, action: WorkflowAction): void {
+    try {
+      this.deps.onDispatched?.(input, action);
+    } catch {
+      this.deps.log.warn("reaction-workflow: dispatch notification failed");
     }
   }
 

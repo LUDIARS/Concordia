@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/company-pin-sharing-policy.ts", "tests": ["src/discord/company-pin-sharing-policy.test.ts"], "contracts": ["CC-PIN-01", "CC-PIN-02"] },
+    { "source": "src/discord/company-pin-sharing.ts", "tests": ["src/discord/company-pin-sharing.test.ts"], "contracts": ["CC-PIN-01", "CC-PIN-02", "CC-PIN-03", "CC-PIN-04"] },
+    { "source": "src/discord/bot.ts", "tests": ["src/discord/company-pin-sharing.test.ts"], "contracts": ["CC-PIN-01", "CC-PIN-04"] },
+    { "source": "src/platform/reaction-workflow.ts", "tests": ["src/platform/reaction-workflow.test.ts"], "contracts": ["CC-PIN-04"] },
+    { "source": "src/discord/reactions.ts", "tests": ["src/discord/reactions.test.ts"], "contracts": ["CC-PIN-01"] },
+    { "source": "src/discord/ingress.ts", "tests": ["src/discord/ingress.test.ts"], "contracts": ["CC-PIN-01"] },
     { "source": "src/shared/revisor-terminal-notice.ts", "tests": ["src/shared/revisor-terminal-notice.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },
     { "source": "src/api/sessions/relay.ts", "tests": ["tests/sessions-inject-api.test.ts", "src/api/ws-continuation.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },
     { "source": "src/discord/cc-inject-mirror.ts", "tests": ["src/discord/cc-inject-mirror.test.ts"], "contracts": ["CC-RV-TERMINAL-01"] },

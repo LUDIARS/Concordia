@@ -175,6 +175,7 @@ export async function handleReactionAdd(
           dedupeKey: discordMessageId,
           platform: "discord",
           sourceMessageId: discordMessageId,
+          ...(channelId ? { shareSource: { channelId, messageId: discordMessageId } } : {}),
           emoji,
           userId: user.id,
           messageText,

@@ -151,7 +151,7 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     key: "workspace.consult_astra_template",
     section: "workspace",
     label: "相談の Astra テンプレート",
-    description: "デザイナー・サウンドの役職の相談を起動するテンプレート名 (tech-consultation.md §6)。 未設定なら astra-mid。",
+    description: "全役職の相談を標準起動する Astra テンプレート名 (tech-consultation.md §6)。 未設定なら astra-mid。",
     kind: "string",
     envName: "CONCORDIA_CONSULT_ASTRA_TEMPLATE",
     dbKey: null,

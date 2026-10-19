@@ -13,9 +13,9 @@ describe("consultModelForRole", () => {
     }
   });
 
-  it("エンジニア・企画・不明は Opus", () => {
-    for (const role of ["エンジニア", "プログラマー", "企画", "プランナー", "学生", "", null]) {
-      expect(consultModelForRole(role)).toBe("opus");
+  it("エンジニア・企画・不明・未入力も Astra", () => {
+    for (const role of ["エンジニア", "プログラマー", "企画", "プランナー", "学生", "", null, undefined]) {
+      expect(consultModelForRole(role)).toBe("astra");
     }
   });
 });

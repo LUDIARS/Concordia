@@ -32,7 +32,8 @@ describe("app route registration modes", () => {
     expect(routes).toContain("GET /v1/sessions");
     expect(routes.some((r) => r.includes("/v1/chat"))).toBe(false);
     expect(routes.some((r) => r.includes("/v1/monitor"))).toBe(false);
-    expect(routes.some((r) => r.includes("/v1/admin/discord"))).toBe(false);
+    // The core discord-chat-relay admin API is independent of the Discord bot lifecycle routes.
+    expect(routes.some((r) => r.includes("/v1/admin/discord/"))).toBe(false);
     expect((await app.request("/v1/chat")).status).toBe(404);
   });
 

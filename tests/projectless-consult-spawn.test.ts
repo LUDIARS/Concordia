@@ -91,7 +91,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls[0]?.args?.slice(-PROJECTLESS_CONSULT_CLAUDE_ARGS.length)).toEqual([...PROJECTLESS_CONSULT_CLAUDE_ARGS]);
   });
 
-  it("chooses the model from the requester's role: Astra (codex, confined) for sound, Opus for engineers, effort medium", async () => {
+  it("chooses Astra (codex, confined) for both sound and engineers, effort medium", async () => {
     const intake = (role: string) => ({ topic: "音の質感", skill_level: "中級", role_title: role, purpose: "", source: "modal" });
 
     const sound = await spawnSession(env, {
@@ -109,8 +109,10 @@ describe("projectless consultation spawn in a subsidiary", () => {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
     });
     expect(engineer.status).toBe(200);
-    expect(spawnCalls[1]?.provider).toBe("claude");
-    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
+    expect(spawnCalls[1]?.provider).toBe("codex");
+    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "project_root_markers=[]"]));
+    expect(spawnCalls[1]?.env).toMatchObject({ CODEX_HOME: join(workspaceRoot, ".codex-home") });
+    expect(spawnCalls[1]?.args?.join(" ")).toContain("medium");
   });
 
   it("puts the role folder's CLAUDE.md and skills into the first prompt only for providers that cannot read them (CC-CONSULT-INV-11)", async () => {
@@ -151,13 +153,14 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(direct.status).toBe(200);
     expect(startupOf(spawnCalls[1])).toContain("sound の前提");
 
-    // claude は自分で読むので載せない。
+    // エンジニアも標準は Astra なので、役職フォルダの前提を載せる。
     const engineer = await spawnSession(env, {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
     });
     expect(engineer.status).toBe(200);
-    expect(spawnCalls[2]?.provider).toBe("claude");
-    expect(startupOf(spawnCalls[2])).not.toContain("## 相談窓口の前提と手順");
+    expect(spawnCalls[2]?.provider).toBe("codex");
+    expect(startupOf(spawnCalls[2])).toContain("## 相談窓口の前提と手順");
+    expect(startupOf(spawnCalls[2])).toContain("engineer の前提");
 
     // 相談以外の部署の起動では載せない。
     const other = await spawnSession(env, {

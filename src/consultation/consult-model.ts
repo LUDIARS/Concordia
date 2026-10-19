@@ -1,8 +1,7 @@
 /**
- * 相談のモデルを相談者の職種で決める (spec/feature/tech-consultation.md §6、 2026-10-02 neco 指示)。
+ * 相談の標準モデルを Astra に統一する (spec/feature/tech-consultation.md §6、2026-10-19 neco 指示)。
  *
- * 「エンジニアと企画の相談は Opus、 デザイナーとサウンドの相談は Astra で起動。 モデルとエフォートは自動 (medium)」
- * 「GLab も Astra」。 事前ヒアリングの役職から読み、 読めなければ Opus。 起動時にモデルを聞き返さない。
+ * 本社・子会社とも役職やその入力有無によらず Astra。effort は medium。起動時にモデルを聞き返さない。
  *
  * 子会社の相談は claude なら --tools、 codex (Astra) ならシェル・プラグイン・MCP を外して閉じ込める
  * (CC-CONSULT-INV-07)。 codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めないため、
@@ -12,17 +11,14 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
-import { consultRoleFolder } from "./consult-role.js";
-
 export type ConsultModelNick = "opus" | "astra";
 
 /** 相談の effort (自動)。 */
 export const CONSULT_EFFORT = "medium";
 
-/** 役職から相談のモデルを選ぶ。 デザイナー・サウンドは Astra、 それ以外 (エンジニア・企画・不明) は Opus。 */
-export function consultModelForRole(roleTitle: string | null | undefined): ConsultModelNick {
-  const folder = consultRoleFolder(roleTitle);
-  return folder === "designer" || folder === "sound" ? "astra" : "opus";
+/** 役職にかかわらず Astra。役職引数は既存の起動境界との互換性のため保持する。 */
+export function consultModelForRole(_roleTitle: string | null | undefined): ConsultModelNick {
+  return "astra";
 }
 
 /** モデルごとの起動テンプレート (call_name)。 env で差し替えられる。 */

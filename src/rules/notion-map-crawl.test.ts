@@ -174,6 +174,20 @@ describe("notion map crawl", () => {
     await expect(h.run(true)).rejects.toThrow(/all notion map roots failed/);
   });
 
+  it("follows links on the root page like child pages, but not links on pages below it", async () => {
+    const pages: Record<number, FakePage> = {
+      // 起点はリンクだけで中身を並べている
+      1: { title: "例の攻略ページ", text: "入口", links: [2, 3] },
+      2: { title: "例の記事", text: "記事の本文", links: [9] },
+      3: { title: "例の章", text: "章の本文" },
+      9: { title: "例の別の記事", text: "起点から2段先のリンク" },
+    };
+    const h = harness(pages);
+    await h.run();
+    expect(h.repo.pages(id(1)).map((p) => p.path).sort()).toEqual(["例の攻略ページ", "例の攻略ページ > 例の章", "例の攻略ページ > 例の記事"].sort());
+    expect(h.fake.calls.map((c) => c.id)).not.toContain(id(9));
+  });
+
   it("skips only a sub-page that fails to load and keeps everything else read under the root", async () => {
     const h = harness(lessonPages(), { failing: new Set([2]) });
     const out = await h.run();

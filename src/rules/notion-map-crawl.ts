@@ -12,6 +12,7 @@
  * - 失敗: 起点ごとに独立。 起点のページが取れない起点は前回のページ・辺・断片を残し、 失敗理由だけを記録する。
  *   起点の配下の 1 ページが取れない (「使えない」と答えた場合も含む) ときは、 そのページ (と配下) だけを飛ばして続ける (読めた分を捨てない)
  * - 起点の配下に別の起点があるときは、 そこで下るのを止める (そのページはその起点が自分で読む)
+ * - 起点のページの本文中のリンク先は子ページと同じに下る (起点より下のページのリンクは辿らない)
  *   MCP が使えない (未認証・コネクタ無し) は、 全部の起点が失敗したときだけ「未設定」として Notion の取り込みだけを止める
  *   (1 つの起点の「使えない」は揺らぎのことがあるので、 その起点の失敗として次の起点へ進む)
  */
@@ -155,6 +156,13 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
       });
       if (item.depth >= opts.limits.maxDepth) continue;
       for (const child of page.children) queue.push({ ref: child, parentPath: path, depth: item.depth + 1 });
+      // 起点のページは入口として選んだページなので、 本文中のリンク先も子ページと同じに下る
+      // (リンクだけで中身を並べた起点がある。 起点より下のリンクは辿らない: 辿るとワークスペース全体に広がる)
+      if (item.depth === 0) {
+        for (const to of page.links) {
+          if (!page.children.some((c) => c.id === to)) queue.push({ ref: { id: to, url: null, title: null }, parentPath: path, depth: 1 });
+        }
+      }
     }
     deps.repo.replaceRoot(root.id, pages, edges, nowSec());
     deps.rootStates.markRootSuccess(root.id, { title: rootTitle ?? root.id, pages: pages.length, excluded }, nowSec());

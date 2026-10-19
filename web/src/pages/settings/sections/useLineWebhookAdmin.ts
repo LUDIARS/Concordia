@@ -1,5 +1,5 @@
 // LINE webhook の設定面の状態と操作。 一覧 (チャネル・サービス・紐付け) を読み、
-// 秘密値・呼びかけの言葉・紐付けの変更を 1 つずつ実行して読み直す。 消去と解除は確認してから行う。
+// 秘密値・push トークン・呼びかけの言葉・紐付けの変更を 1 つずつ実行して読み直す。 消去・解除・発行し直しは確認してから行う。
 // @implements spec/feature/line-webhook-relay.md — 管理 API と設定画面
 
 import { useEffect, useState } from "react";
@@ -15,7 +15,8 @@ import type {
 export type LineWebhookSecretsClient = Pick<typeof api,
   | "lineWebhookChannels" | "lineWebhookSetChannelSecret" | "lineWebhookClearChannelSecret"
   | "lineWebhookServices" | "lineWebhookSetRelayToken" | "lineWebhookClearRelayToken" | "lineWebhookSetKeywords"
-  | "lineWebhookLinks" | "lineWebhookSetDefaultLink" | "lineWebhookRemoveLink">;
+  | "lineWebhookLinks" | "lineWebhookSetDefaultLink" | "lineWebhookRemoveLink"
+  | "lineWebhookIssuePushToken" | "lineWebhookClearPushToken" | "lineWebhookSetPushEnabled">;
 
 export interface LineWebhookLoaded {
   channels: LineWebhookChannel[];
@@ -29,6 +30,8 @@ export function useLineWebhookAdmin(client: LineWebhookSecretsClient) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  /** 発行したての push トークン (この画面で一度だけ見せる。 読み直しでは戻らない)。 */
+  const [issued, setIssued] = useState<{ service: string; token: string } | null>(null);
 
   useEffect(() => { void refresh(); }, []);
 
@@ -78,6 +81,25 @@ export function useLineWebhookAdmin(client: LineWebhookSecretsClient) {
     clearRelayToken: (service: string) => {
       if (!window.confirm(`${service} の中継トークンを消去します。`)) return;
       void perform(() => client.lineWebhookClearRelayToken(service), `${service} の中継トークンを消去しました`);
+    },
+    issued,
+    dismissIssued: () => setIssued(null),
+    issuePushToken: (service: string, reissue: boolean) => {
+      if (reissue && !window.confirm(`${service} の push トークンを発行し直します。 今のトークンは使えなくなります。`)) return;
+      setIssued(null);
+      void perform(async () => {
+        const res = await client.lineWebhookIssuePushToken(service);
+        setIssued({ service, token: res.push_token });
+      }, `${service} の push トークンを発行しました (この画面を離れると再表示できません)`);
+    },
+    clearPushToken: (service: string) => {
+      if (!window.confirm(`${service} の push トークンを消去します。 サービスから LINE へ送れなくなります。`)) return;
+      setIssued(null);
+      void perform(() => client.lineWebhookClearPushToken(service), `${service} の push トークンを消去しました`);
+    },
+    setPushEnabled: (service: string, enabled: boolean) => {
+      void perform(() => client.lineWebhookSetPushEnabled(service, enabled),
+        `${service} の LINE への送信を${enabled ? "有効" : "無効"}にしました`);
     },
     saveKeywords: (service: string, keywords: string[]) =>
       perform(() => client.lineWebhookSetKeywords(service, keywords), `${service} の呼びかけの言葉を保存しました`),

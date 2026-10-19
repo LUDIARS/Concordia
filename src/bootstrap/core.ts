@@ -293,6 +293,7 @@ import { startErrorFixDispatcher } from "../control/error-fix.js";
 import { buildApp } from "../app.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
 import { readLineChannelSecrets, readServiceRelayToken } from "../line-webhook/channel-secrets.js";
+import { readPushEnabled, readPushTokenHash } from "../line-webhook/push-token.js";
 import { SqliteLineTalkLinkStore } from "../line-webhook/talk-links.js";
 import { createDiscordChatRelayFromStore } from "../discord-chat-relay/runtime.js";
 import { attachWsServer } from "../api/ws.js";
@@ -2365,6 +2366,10 @@ export async function startBackend(): Promise<BackendHandle> {
       secrets: (channel) => readLineChannelSecrets(adminState.store, channel),
       relayToken: (service) => readServiceRelayToken(adminState.store, service),
       talkLinks: lineTalkLinks,
+      push: {
+        tokenHash: (service) => readPushTokenHash(adminState.store, service),
+        enabled: (service) => readPushEnabled(adminState.store, service),
+      },
     },
     lineTalkLinks,
     meetingLinks: new MeetingLinkStore(db),

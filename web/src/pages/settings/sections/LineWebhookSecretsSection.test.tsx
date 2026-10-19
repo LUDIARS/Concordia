@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // LINE webhook の設定面。 秘密値は読み返さないので「設定済みかどうかだけを映す」
 // 「貼った値をチャネル / サービスと項目を指定して保存し、画面に残さない」「消去できる」、
-// 呼びかけの言葉の保存、 トークごとの紐付けの「ふだんの相手」変更と解除を押さえる。
+// 呼びかけの言葉の保存、 push トークンの発行 (一度だけ表示)・消去と送信の有効化、
+// トークごとの紐付けの「ふだんの相手」変更と解除を押さえる。
 // @implements spec/feature/line-webhook-relay.md — 管理 API と設定画面
 import { afterEach, describe, expect, it, vi } from "vitest";
 // jest-dom の matcher は root vitest 実行では expect に載らないので、素の matcher だけで書く。
@@ -12,13 +13,16 @@ import { LineWebhookSecretsSection, splitKeywords, type LineWebhookSecretsClient
 
 /** テスト値 (実物ではない)。 */
 const PASTED = "example-channel-secret";
+const ISSUED = "example-issued-push-token";
 
 const channel: LineWebhookChannel = {
   name: "ludiars", webhook_path: "/hooks/line/ludiars", services: ["mf", "mm"],
   channel_secret_set: false, channel_access_token_set: true,
 };
-const mf: LineWebhookService = { name: "mf", channel: "ludiars", enabled: true, keywords: ["おてつだい"], relay_token_set: true };
-const mm: LineWebhookService = { name: "mm", channel: "ludiars", enabled: true, keywords: [], relay_token_set: false };
+const mf: LineWebhookService = { name: "mf", channel: "ludiars", enabled: true, keywords: ["おてつだい"], relay_token_set: true,
+  push_token_set: false, push_enabled: false };
+const mm: LineWebhookService = { name: "mm", channel: "ludiars", enabled: true, keywords: [], relay_token_set: false,
+  push_token_set: false, push_enabled: false };
 const link: LineTalkLink = {
   id: 7, channel: "ludiars", talk_kind: "group", talk_id_prefix: "C0123", service: "mm", is_default: false, linked_at: 1,
 };
@@ -36,6 +40,9 @@ function makeClient(data: { channels?: LineWebhookChannel[]; services?: LineWebh
     lineWebhookSetKeywords: vi.fn(async (_service: string, keywords: string[]) => ({ ok: true, keywords })),
     lineWebhookSetDefaultLink: vi.fn(async () => ({ ok: true })),
     lineWebhookRemoveLink: vi.fn(async () => ({ ok: true })),
+    lineWebhookIssuePushToken: vi.fn(async () => ({ ok: true, push_token: ISSUED, push_token_set: true })),
+    lineWebhookClearPushToken: vi.fn(async () => ({ ok: true })),
+    lineWebhookSetPushEnabled: vi.fn(async (_service: string, enabled: boolean) => ({ ok: true, push_enabled: enabled })),
   };
   return client as typeof client & LineWebhookSecretsClient;
 }
@@ -106,6 +113,40 @@ describe("LineWebhookSecretsSection", () => {
     await waitFor(() => expect(client.lineWebhookSetDefaultLink).toHaveBeenCalledWith(7));
     await user.click(screen.getByRole("button", { name: "解除" }));
     await waitFor(() => expect(client.lineWebhookRemoveLink).toHaveBeenCalledWith(7));
+  });
+
+  it("push トークンを発行するとその場で一度だけ見せ、 閉じると消える。 送信の有効化を切り替えられる", async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<LineWebhookSecretsSection client={client} />);
+    await screen.findByText("サービス mm");
+    expect(screen.getAllByText("未発行")).toHaveLength(2);
+    await user.click(screen.getAllByRole("button", { name: "発行" })[1]!);
+    await waitFor(() => expect(client.lineWebhookIssuePushToken).toHaveBeenCalledWith("mm"));
+    const shown = await screen.findByLabelText("mm の push トークン") as HTMLInputElement;
+    expect(shown.value).toBe(ISSUED);
+    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(screen.queryByLabelText("mm の push トークン")).toBeNull();
+    await user.click(screen.getByLabelText("mf の LINE への送信"));
+    await waitFor(() => expect(client.lineWebhookSetPushEnabled).toHaveBeenCalledWith("mf", true));
+  });
+
+  it("発行済みの push トークンは確認してから発行し直す・消去する (戻し方)", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const client = makeClient({
+      channels: [{ ...channel, channel_access_token_set: false }],
+      services: [{ ...mf, relay_token_set: false, push_token_set: true, push_enabled: true }],
+    });
+    const user = userEvent.setup();
+    render(<LineWebhookSecretsSection client={client} />);
+    await screen.findByText("発行済み");
+    await user.click(screen.getByRole("button", { name: "発行し直す" }));
+    await waitFor(() => expect(client.lineWebhookIssuePushToken).toHaveBeenCalledWith("mf"));
+    await user.click(screen.getByRole("button", { name: "消去" }));
+    await waitFor(() => expect(client.lineWebhookClearPushToken).toHaveBeenCalledWith("mf"));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByLabelText("mf の LINE への送信"));
+    await waitFor(() => expect(client.lineWebhookSetPushEnabled).toHaveBeenCalledWith("mf", false));
   });
 
   it("サービスが無ければ登録先を案内する", async () => {

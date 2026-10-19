@@ -932,6 +932,19 @@ export const api = {
       `/v1/admin/line-webhook/services/${encodeURIComponent(service)}/keywords`,
       { keywords },
     ),
+  /** push トークンを発行 (発行し直し) する。 平文はこの応答だけに入る。 */
+  lineWebhookIssuePushToken: (service: string) =>
+    post<{ ok: boolean; push_token: string; push_token_set: boolean }>(
+      `/v1/admin/line-webhook/services/${encodeURIComponent(service)}/push-token`,
+      {},
+    ),
+  lineWebhookClearPushToken: (service: string) =>
+    del<{ ok: boolean }>(`/v1/admin/line-webhook/services/${encodeURIComponent(service)}/push-token`),
+  lineWebhookSetPushEnabled: (service: string, enabled: boolean) =>
+    put<{ ok: boolean; push_enabled: boolean }>(
+      `/v1/admin/line-webhook/services/${encodeURIComponent(service)}/push-enabled`,
+      { enabled },
+    ),
   lineWebhookLinks: () => get<{ links: LineTalkLink[] }>("/v1/admin/line-webhook/links"),
   lineWebhookSetDefaultLink: (id: number) =>
     put<{ ok: boolean }>(`/v1/admin/line-webhook/links/${id}/default`, {}),
@@ -2170,13 +2183,16 @@ export interface LineWebhookChannel {
   channel_access_token_set: boolean;
 }
 
-/** LINE webhook のサービス。 中継トークンは設定済みかどうかだけが返る。 */
+/** LINE webhook のサービス。 中継トークン・push トークンは設定済みかどうかだけが返る。 */
 export interface LineWebhookService {
   name: string;
   channel: string;
   enabled: boolean;
   keywords: string[];
   relay_token_set: boolean;
+  push_token_set: boolean;
+  /** サービスから LINE のトークへ送る口 (`/hooks/line/<channel>/push/<name>`) を開けているか。 */
+  push_enabled: boolean;
 }
 
 /** トークごとの紐付け。 トーク ID は先頭数文字だけ。 */

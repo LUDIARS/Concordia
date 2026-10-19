@@ -1,11 +1,12 @@
 // LINE webhook の設定面。 共用チャネルの秘密値 (チャネルシークレット・チャネルアクセストークン)、
-// サービスの中継トークンと呼びかけの言葉、 トークごとの紐付けを扱う。 保存済みの秘密値は API も返さないので、
+// サービスの中継トークン・push トークンと呼びかけの言葉、 トークごとの紐付けを扱う。 保存済みの秘密値は API も返さないので、
 // この画面は「入っているか」 だけを映す。 サービスそのもの (name / url / host / enabled / channel) は
 // 「すべて」の services.line_webhook_targets で編集する。
 // @implements spec/feature/line-webhook-relay.md — 管理 API と設定画面
 
 import { api, type LineChannelSecretField } from "../../../api.js";
 import { LineKeywordsField } from "./LineKeywordsField.js";
+import { LinePushField } from "./LinePushField.js";
 import { LineSecretField } from "./LineSecretField.js";
 import { LineTalkLinksPanel } from "./LineTalkLinksPanel.js";
 import { useLineWebhookAdmin, type LineWebhookSecretsClient } from "./useLineWebhookAdmin.js";
@@ -71,6 +72,13 @@ export function LineWebhookSecretsSection({ client = api }: { client?: LineWebho
                       onClear={() => admin.clearRelayToken(service.name)} />
                     <LineKeywordsField service={service.name} keywords={service.keywords} busy={busy}
                       onSave={(keywords) => admin.saveKeywords(service.name, keywords)} />
+                    <LinePushField service={service.name} channel={service.channel}
+                      tokenSet={service.push_token_set} enabled={service.push_enabled} busy={busy}
+                      issuedToken={admin.issued?.service === service.name ? admin.issued.token : null}
+                      onIssue={(reissue) => admin.issuePushToken(service.name, reissue)}
+                      onClear={() => admin.clearPushToken(service.name)}
+                      onToggle={(enabled) => admin.setPushEnabled(service.name, enabled)}
+                      onDismissIssued={admin.dismissIssued} />
                   </dl>
                 </div>
               ))}

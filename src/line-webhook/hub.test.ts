@@ -183,8 +183,8 @@ describe("lineWebhookAdminRouter", () => {
     const text = await (await app.request("/services")).text();
     expect(text).not.toContain("t-example");
     expect(JSON.parse(text)).toEqual({ services: [
-      { name: "mf", channel: "ludiars", enabled: true, keywords: ["おてつだい"], relay_token_set: true },
-      { name: "mm", channel: "ludiars", enabled: false, keywords: [], relay_token_set: false },
+      { name: "mf", channel: "ludiars", enabled: true, keywords: ["おてつだい"], relay_token_set: true, push_token_set: false, push_enabled: false },
+      { name: "mm", channel: "ludiars", enabled: false, keywords: [], relay_token_set: false, push_token_set: false, push_enabled: false },
     ] });
     expect(await (await app.request("/services/mf/relay-token", { method: "DELETE" })).json()).toEqual({ ok: true, relay_token_set: false });
     expect(store.rows.size).toBe(0);

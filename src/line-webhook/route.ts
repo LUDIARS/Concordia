@@ -5,6 +5,7 @@
  * buildApp はこれをそれらのミドルウェアより前に登録する。 ここで返した応答は
  * 後続のミドルウェアへ進まない。 署名はチャネルシークレットでここで検証し、 イベントを
  * 「グループ + 言葉」 でサービスへ振り分けて中継トークン付きで渡す。 LINE への返信も Cc が行う。
+ * 同じリスナーに、 サービスから LINE のトークへ送る口 (push-route.ts) も載せる。
  *
  * @implements spec/feature/line-webhook-relay.md — 受け口
  */
@@ -13,8 +14,10 @@ import type { Context, Hono } from "hono";
 import { createChildLogger } from "../shared/logger.js";
 import type { LineChannelSecrets } from "./channel-secrets.js";
 import { dispatchDeliveries, type DispatchResult } from "./dispatch.js";
+import { jsonResponse, readBodyWithLimit, type LineWebhookLog } from "./http.js";
 import { mergeRepliesWithDrops } from "./merge-replies.js";
 import { wrapReplyPostbacks } from "./postback.js";
+import { createLinePushHandler, type LinePushOptions } from "./push-route.js";
 import { relayLineWebhook, type RelayInput, type RelayOutcome } from "./relay.js";
 import type { LineReply } from "./replies.js";
 import { createLineReplySender, type LineReplySender } from "./reply-client.js";
@@ -26,11 +29,7 @@ import { channelServices, type LineWebhookTarget } from "./targets.js";
 export const LINE_WEBHOOK_PATH_PREFIX = "/hooks/line";
 export const MAX_LINE_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
-/** ログに渡すのはチャネル・サービス名・status・所要時間・バイト数・件数だけ (秘密値・本文・署名・replyToken は渡さない)。 */
-export interface LineWebhookLog {
-  info(fields: Record<string, unknown>, message: string): void;
-  warn(fields: Record<string, unknown>, message: string): void;
-}
+export type { LineWebhookLog } from "./http.js";
 
 export interface LineWebhookDeps {
   /** サービスの登録。 要求ごとに読む (設定画面の変更を再起動なしで効かせる)。 */
@@ -45,6 +44,8 @@ export interface LineWebhookDeps {
   relay?: (input: RelayInput) => Promise<RelayOutcome>;
   /** LINE reply API の呼び出し。 テストでは実 LINE を呼ばない代役に差し替える。 */
   sendReply?: LineReplySender;
+  /** サービスから LINE へ送る口 `/hooks/line/:channel/push/:service`。 無ければ push トークン未発行 (503)。 */
+  push?: LinePushOptions;
   timeoutMs?: number;
   log?: LineWebhookLog;
   now?: () => number;
@@ -60,6 +61,15 @@ export function registerLineWebhookRoute(app: Hono, deps: LineWebhookDeps): void
     log: deps.log ?? createChildLogger("line-webhook"),
   };
   const handler = (c: Context) => handleLineWebhook(c, resolved);
+  // push の口は入れ子のパスなので、 下の 404 の受け皿より前に登録する。
+  app.post(`${LINE_WEBHOOK_PATH_PREFIX}/:channel/push/:service`, createLinePushHandler({
+    targets: deps.targets,
+    secrets: deps.secrets,
+    talkLinks: resolved.talkLinks,
+    log: resolved.log,
+    now: deps.now,
+    ...deps.push,
+  }));
   // 名前の無い要求・入れ子のパスも未登録として 404 にする (Web 画面の fallback へ落とさない)。
   app.all(LINE_WEBHOOK_PATH_PREFIX, handler);
   app.all(`${LINE_WEBHOOK_PATH_PREFIX}/*`, handler);
@@ -160,40 +170,4 @@ function readPayload(body: Uint8Array): { destination: unknown; events: LineEven
   if (!Array.isArray(events)) return null;
   const objects = events.filter((event): event is LineEvent => !!event && typeof event === "object" && !Array.isArray(event));
   return { destination, events: objects };
-}
-
-/**
- * 応答ヘッダ (cache-control: no-store 含む) は必ず Response の init で渡す。 本番の
- * @hono/node-server は軽量 Response が本文を読んだ時点で init から作り直すため、
- * 後から足したヘッダは消える (spec/feature/web-sso.md §境界と戻し方)。
- */
-function jsonResponse(payload: Record<string, string | number | null>, status: number): Response {
-  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
-}
-
-/** 受けたバイト列をそのまま読む。 上限を超えたら読むのをやめて null。 */
-async function readBodyWithLimit(req: Request, maxBytes: number): Promise<Uint8Array | null> {
-  const declared = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) return null;
-  if (!req.body) return new Uint8Array(0);
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      return null;
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
 }

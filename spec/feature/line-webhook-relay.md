@@ -4,7 +4,7 @@ title: "LINE の共用チャネルを Cc が持ち、グループ + 言葉でサ
 service: concordia
 domain: line-webhook-relay
 status: implemented
-updated: 2026-10-18
+updated: 2026-10-19
 related:
   - ./web-sso.md
   - ./trust-boundaries.md
@@ -14,7 +14,8 @@ related:
 
 Actio タスク: `actio:605bbdbf-c384-4d31-9860-6b5d090dbcee` (受け口の新設)、
 `actio:54cb27c9-b772-4e8d-baf2-e17d01d95ce3` (チャネルを Cc が持つハブへの作り変え)、
-`actio:d444a727-c823-4d10-8922-0b809eb794d8` (共用チャネルとグループ + 言葉の振り分け)。
+`actio:d444a727-c823-4d10-8922-0b809eb794d8` (共用チャネルとグループ + 言葉の振り分け)、
+`actio:ec9d9c8e-83a5-48eb-a926-49efbdf5ee7f` (サービスから LINE のトークへ送る push の口)。
 
 LUDIARS の各サービス (最初は MemoriaForChild = Mf と Memoria = Mm) が LINE 公式アカウントを使う。LINE の
 webhook URL をサービスごとに公開せず、Cc の 1 か所で受ける。
@@ -29,7 +30,7 @@ neco 決定 (2026-10-18):
 
 **将来は Conexus へ移す。** いまは置き場所が無いので Cc に置く。受け口・検証・振り分け・中継・返信・秘密値の
 管理はこの節と `src/line-webhook/` に閉じており、Cc の他の機能に依存しない (Conexus へ移すときはこのディレクトリと
-設定 1 項目・秘密値のキー `line_webhook.channel.*` / `line_webhook.service.*`・テーブル `line_talk_links` を持っていけばよい)。
+設定 1 項目・秘密値のキー `line_webhook.channel.*` / `line_webhook.service.*` (push トークンのハッシュと pushEnabled を含む)・テーブル `line_talk_links` を持っていけばよい)。
 
 ## 価値・シナリオ
 
@@ -142,6 +143,42 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 - LINE-WH-INV-19: 同じ replyToken への返信 (follow / join を全サービスへ回したとき等) は、設定順に messages を
   連結して 1 件にする。reply API の上限 5 件を超えた分は捨て、捨てた件数をログに残す。
 
+## LINE push の受け口
+
+サービスが自分の都合で (LINE からの発言を待たずに) トークへ知らせるための口。サービスは LINE の秘密値を
+持たないので、Cc に「このサービスのトークへ送って」と頼む。
+
+`POST /hooks/line/:channel/push/:service` (webhook の受け口と同じリスナー・同じ公開経路 `^/hooks/line/`)。
+
+```json
+{"requestId":"<呼び出し側が決める一意の文字列>","messages":[{"text":"..."}]}
+```
+
+- LINE-WH-INV-21: 経路と認証。SSO と応答キャッシュを通さない (LINE-WH-INV-01 と同じ扱い、`cache-control: no-store`)。
+  `:service` がそのチャネルの enabled のサービスでなければ 404 (POST 以外のメソッドも 404)。
+  認証はサービスごとの **push トークン** (中継トークンとは別物) を `Authorization: Bearer <push トークン>` で送る。
+  Cc はトークンの SHA-256 だけを持ち、定数時間で照合する。未発行 503 `{"error":"push_token_not_configured"}`、
+  不一致・欠落 401 `{"error":"push_token_rejected"}`。
+- LINE-WH-INV-22: サービスごとの `pushEnabled` (既定 false)。false なら認証の後で 403 `{"error":"push_disabled"}` を返して送らない。
+- LINE-WH-INV-23: 本文は `requestId` (空白・制御文字を含まない 1〜64 文字) と `messages` (text だけを持つ 1〜3 件、
+  各 text は 1〜1000 文字) だけ。形違い・未知のキーは 400 `{"error":"invalid_body"}`、64 KB を超える本文は 413。
+- LINE-WH-INV-24: 送り先はそのチャネルで、そのサービスを「ふだんの相手」にしているトーク (LINE-WH-INV-15 の記録)
+  すべて。無ければ送らずに 200 `{"sent":0,"failed":0}`。呼びかけの言葉でだけ呼ばれるトークへは送らない。
+- LINE-WH-INV-25: LINE への送信は push API (`POST https://api.line.me/v2/bot/message/push`、チャネルアクセストークン、
+  本文 `{to, messages:[{type:"text",text}]}`) をトークごとに並行で呼ぶ。`X-Line-Retry-Key` は
+  (channel, service, requestId, トーク) から決まる UUID (同じ requestId の再送で LINE 側でも二重送信にならない。
+  LINE が受理済みのキーに返す 409 は送れている扱い)。チャネルアクセストークン未設定は 503
+  `{"error":"line_channel_not_configured"}`。再送はしない (LINE の 429 = 月間上限なども failed に数える)。
+- LINE-WH-INV-26: Cc は requestId を (channel, service) ごとに 24 時間覚え、同じ requestId は送らずに前回の結果を返す
+  (送信中の同じ requestId は同じ送信を待つ)。記憶はプロセス内のメモリで、再起動で忘れても LINE 側の Retry-Key で
+  二重送信にならない。
+- LINE-WH-INV-27: 1 サービスあたり 1 分 10 件まで。超えたら 429 `{"error":"rate_limited"}` で送らない
+  (同じ requestId の再送は前回の結果を返すので枠を使わない)。
+- 応答は 200 `{"sent":<送れたトーク数>,"failed":<失敗したトーク数>}`。ログはチャネル・サービス名・status・件数・
+  所要時間と LINE の失敗 status だけ (本文・requestId・宛先 ID・トークンを出さない)。
+- LINE push API の呼び出しは受け口の依存 (`sendPush`) として差し替えられ、テストでは実 LINE を呼ばない。
+  URL はコード定数 `LINE_PUSH_API_URL`。
+
 ## 秘密値
 
 | キー | 用途 | 出所 |
@@ -149,6 +186,8 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 | `line_webhook.channel.<channel>.channel_secret` | 署名の検証 | LINE Developers のチャネル基本設定 |
 | `line_webhook.channel.<channel>.channel_access_token` | LINE reply API の呼び出し | LINE Developers の Messaging API 設定 (長期トークン) |
 | `line_webhook.service.<service>.relay_token` | サービスへの転送の `Authorization` | サービス側が発行し、平文を発行時に 1 度だけ画面に出す。人間がその値を貼る |
+| `line_webhook.service.<service>.push_token_sha256` | push の口の認証 (SHA-256 の hex だけ) | Cc が作り、平文は発行の応答で 1 度だけ画面に出す。人間がサービス側に貼る |
+| `line_webhook.service.<service>.push_enabled` | push の口を開けるか (`"true"` のときだけ有効、無ければ無効) | 設定画面の切替 |
 
 - LINE-WH-INV-12: 置き場所は schema_meta。AdminState.store が secret-box で暗号化して保存するので、
   二重に暗号化しない。サービスは中継トークンのハッシュだけを持つ。共用チャネル導入前の旧キー
@@ -186,8 +225,11 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
     (`webhook_path` は `/hooks/line/<channel>`)。
   - `PUT /channels/:channel/secrets/:field` (`field` は `channel_secret` / `channel_access_token`、本文 `{"value":"..."}`)
     で入力・差し替え、`DELETE` で消去。
-  - `GET /services` → サービスごとの `{name, channel, enabled, keywords, relay_token_set}`。
+  - `GET /services` → サービスごとの `{name, channel, enabled, keywords, relay_token_set, push_token_set, push_enabled}`。
   - `PUT /services/:service/relay-token` (`{"value":"..."}`) で入力・差し替え、`DELETE` で消去。
+  - push トークン (LINE-WH-INV-21): `POST /services/:service/push-token` で発行・発行し直し (応答の `push_token` に
+    平文を 1 度だけ入れる。前のトークンは効かなくなる)、`DELETE` で消去。`PUT /services/:service/push-enabled`
+    (`{"enabled":true|false}`、真偽値以外は 400) で切り替える。`GET /services` は `push_token_set` と `push_enabled` を足して返す。
   - 応答は設定済みかどうかだけ。未登録のチャネル / サービス・未知の field は 404、空 / 4096 文字超の値は 400 で保存しない。
 - LINE-WH-INV-20: 呼びかけの言葉と紐付け。
   - `PUT /services/:service/keywords` (`{"keywords":[...]}`) は設定 `services.line_webhook_targets` のそのサービスの
@@ -219,6 +261,11 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 | line-wh-C-11 | `unwrapPostbackData` (`src/line-webhook/postback.ts`) | 包みのあるときだけ外し、包み直すと入力に戻る |
 | line-wh-C-12 | `mergeReplies` (`src/line-webhook/merge-replies.ts`) | replyToken は重複せず、messages は 1〜5 件 |
 | line-wh-C-13 | `parseServiceAnswer` (`src/line-webhook/replies.ts`) | 取り決めの形のときだけ replies と linked / unlinked を返す |
+| line-wh-C-14 | `parsePushRequest` (`src/line-webhook/push-request.ts`) | requestId と text だけの 1〜3 件のときだけ {requestId, texts} を返す |
+| line-wh-C-15 | `matchPushToken` (`src/line-webhook/push-token.ts`) | Bearer のトークンの SHA-256 が保存したハッシュと一致するときだけ true |
+| line-wh-C-16 | `selectPushTalks` (`src/line-webhook/push-recipients.ts`) | そのサービスがふだんの相手のトークだけを重複なく返す |
+| line-wh-C-17 | `derivePushRetryKey` (`src/line-webhook/push-retry-key.ts`) | UUID の形で、同じ 4 つ組からは同じ値 |
+| line-wh-C-18 | `takePushSlot` (`src/line-webhook/push-limits.ts`) | 直近 1 分 10 件未満のときだけ枠を取る |
 
 ## 実装の配置
 
@@ -238,7 +285,15 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 | `src/line-webhook/reply-client.ts` | LINE reply API の呼び出し (LINE-WH-INV-11) |
 | `src/line-webhook/channel-secrets.ts` | チャネル・サービスの秘密値の読み書きと状態 (LINE-WH-INV-10, 12) |
 | `src/line-webhook/admin-route.ts` | 管理 API (LINE-WH-INV-13, 20) |
-| `src/line-webhook/route.ts` | 受け口・本文上限・検証・振り分け・応答・返信・ログ (LINE-WH-INV-01〜04, 07, 09〜11, 17〜19) |
+| `src/line-webhook/route.ts` | 受け口・本文上限・検証・振り分け・応答・返信・ログ (LINE-WH-INV-01〜04, 07, 09〜11, 17〜19)。push の口の登録 |
+| `src/line-webhook/http.ts` | 受け口と push の口が共有する JSON 応答・本文の上限読み・ログの型 (LINE-WH-INV-03, 04) |
+| `src/line-webhook/push-route.ts` | push の口: 判定の順・送信・結果の記憶・ログ (LINE-WH-INV-21〜27) |
+| `src/line-webhook/push-request.ts` | push の本文の検証 (LINE-WH-INV-23) |
+| `src/line-webhook/push-token.ts` | push トークンの発行・ハッシュ・定数時間の照合と pushEnabled の読み書き (LINE-WH-INV-21, 22) |
+| `src/line-webhook/push-recipients.ts` | push の送り先の決定 (LINE-WH-INV-24) |
+| `src/line-webhook/push-retry-key.ts` | `X-Line-Retry-Key` の導出 (LINE-WH-INV-25) |
+| `src/line-webhook/push-limits.ts` | 1 分 10 件の上限と requestId の 24 時間の記憶 (LINE-WH-INV-26, 27) |
+| `src/line-webhook/push-client.ts` | LINE push API の呼び出し (LINE-WH-INV-25) |
 | `src/line-webhook/ontime-runtime.ts` | observe 契約の runtime 再公開 |
 | `src/db/schema.ts` / `src/db/migration-ledger.ts` | migration 144 `line_talk_links` と凍結台帳 |
 | `src/app.ts` | SSO・応答キャッシュより前に受け口を登録 (LINE-WH-INV-01) |
@@ -250,11 +305,14 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 | `web/src/pages/settings/sections/useLineWebhookAdmin.ts` | 設定画面の一覧の読み込みと各操作 (消去・解除の確認を含む) (LINE-WH-INV-13, 20) |
 | `web/src/pages/settings/sections/LineSecretField.tsx` | 秘密値 1 項目の行 (設定済みかどうか・入力・差し替え・消去、値を画面に残さない) (LINE-WH-INV-13) |
 | `web/src/pages/settings/sections/LineKeywordsField.tsx` | サービスの呼びかけの言葉の行 (LINE-WH-INV-20) |
+| `web/src/pages/settings/sections/LinePushField.tsx` | サービスの push トークン (発行 / 発行し直す / 消す、発行直後だけ平文を表示) と LINE への送信の切替の行 (LINE-WH-INV-21, 22) |
 | `web/src/pages/settings/sections/LineTalkLinksPanel.tsx` | 設定画面 > LINE webhook (トークごとの紐付け) (LINE-WH-INV-20) |
 
 ## 戻し方
 
 設定 `services.line_webhook_targets` を空にすると受け口はすべて 404 になる。チャネルシークレットを消すと
 そのチャネルは 503 になる。サービスの中継トークンを消すとそのサービスへは回らない (回し先が全部それなら 502)。
-公開ホスト側の `^/hooks/line/` を外せば外からは届かない。migration 144 のテーブルは消さずに残してよい
+公開ホスト側の `^/hooks/line/` を外せば外からは届かない。
+push の口は、設定画面で「LINE への送信」を無効にすると 403 で止まり (トークンは残る)、push トークンを消すと 503 になる
+(サービス側のトークンも効かなくなるので、再開するときは発行し直してサービス側に貼り直す)。発行し直すと前のトークンは 401。migration 144 のテーブルは消さずに残してよい
 (受け口が使わなくなるだけ)。

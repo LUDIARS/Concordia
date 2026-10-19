@@ -3,6 +3,7 @@
  *
  * チャネルの秘密値 2 つ・サービスの中継トークンは書き込むだけで読み返さない (設定済みかどうかだけを返す)。
  * サービスの呼びかけの言葉は設定 `services.line_webhook_targets` の該当行だけを書き換える。
+ * サービスの push トークンは Cc が作って発行時の応答で一度だけ返し、 pushEnabled を切り替えられる。
  * トークごとの紐付けはトーク ID の先頭数文字だけを返し、 ふだんの相手の変更と解除ができる。
  *
  * @implements spec/feature/line-webhook-relay.md — 管理 API と設定画面
@@ -19,6 +20,7 @@ import {
   setServiceRelayToken,
   type LineChannelSecretStore,
 } from "./channel-secrets.js";
+import { clearPushToken, issuePushToken, readPushEnabled, readPushTokenHash, setPushEnabled } from "./push-token.js";
 import { LINE_WEBHOOK_PATH_PREFIX } from "./route.js";
 import type { LineTalkLinkRow, LineTalkLinkStore } from "./talk-links.js";
 import {
@@ -98,6 +100,30 @@ export function lineWebhookAdminRouter(deps: LineWebhookAdminDeps): Hono {
     return c.json({ ok: true, relay_token_set: false });
   });
 
+  // push トークンは Cc が作る。 平文はこの応答で一度だけ返し、 Cc はハッシュだけを持つ。
+  app.post("/services/:service/push-token", (c) => {
+    const target = findService(deps, c.req.param("service"));
+    if (!target) return c.json({ error: "unknown_service" }, 404);
+    const token = issuePushToken(deps.store, target.name);
+    return c.json({ ok: true, push_token: token, push_token_set: true }, 200, { "cache-control": "no-store" });
+  });
+
+  app.delete("/services/:service/push-token", (c) => {
+    const target = findService(deps, c.req.param("service"));
+    if (!target) return c.json({ error: "unknown_service" }, 404);
+    clearPushToken(deps.store, target.name);
+    return c.json({ ok: true, push_token_set: false });
+  });
+
+  app.put("/services/:service/push-enabled", async (c) => {
+    const target = findService(deps, c.req.param("service"));
+    if (!target) return c.json({ error: "unknown_service" }, 404);
+    const body = await c.req.json().catch(() => null) as { enabled?: unknown } | null;
+    if (typeof body?.enabled !== "boolean") return c.json({ error: "invalid_value", detail: "enabled は true / false で送ります" }, 400);
+    setPushEnabled(deps.store, target.name, body.enabled);
+    return c.json({ ok: true, push_enabled: body.enabled });
+  });
+
   app.put("/services/:service/keywords", async (c) => {
     const target = findService(deps, c.req.param("service"));
     if (!target) return c.json({ error: "unknown_service" }, 404);
@@ -142,6 +168,8 @@ function describeService(deps: LineWebhookAdminDeps, target: LineWebhookTarget) 
     enabled: target.enabled,
     keywords: target.keywords,
     relay_token_set: readServiceRelayToken(deps.store, target.name) !== null,
+    push_token_set: readPushTokenHash(deps.store, target.name) !== null,
+    push_enabled: readPushEnabled(deps.store, target.name),
   };
 }
 

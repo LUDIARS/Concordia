@@ -77,4 +77,17 @@ describe("buildDialogueStartupBlock", () => {
     const block = buildDialogueStartupBlock({ ...base, useCase: { ...base.useCase, summary: " ", preData: "" } });
     expect(block).toBe("## 部署: 技術相談課 / ユースケース: 技術相談 (一問一答 Q&A)");
   });
+
+  it("provides lifecycle guidance across consultation departments but not ordinary work", () => {
+    for (const departmentName of ["技術相談課", "子会社の相談窓口"]) {
+      const block = buildDialogueStartupBlock({ ...base, departmentName,
+        intake: { topic: "昨日の続き", skill_level: "初級", role_title: "相談者", purpose: "" } });
+      expect(block).toContain("### Cc の相談窓口: セッションの終了と再開");
+      expect(block).toContain("会話全文・要約の自動読込みを保証しません");
+      expect(block).toContain("昨日の続き");
+    }
+    expect(buildDialogueStartupBlock({ ...base, departmentName: "総務", intake: null }))
+      .not.toContain("セッションの終了と再開");
+    expect(buildDialogueStartupBlock(base)).not.toContain("セッションの終了と再開");
+  });
 });

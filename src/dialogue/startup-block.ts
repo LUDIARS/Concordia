@@ -11,6 +11,7 @@
 
 import { CONSULT_INTAKE_FIELDS, CONSULT_INTAKE_LABELS, type ConsultIntake } from "./intake.js";
 import { skillLevelGuidance } from "./skill-level.js";
+import { consultationLifecycleGuidance } from "../consultation/lifecycle-guidance.js";
 
 export const MAX_LAUNCH_CORRECTIONS = 30;
 export const MAX_LAUNCH_CORRECTION_CHARS = 6_000;
@@ -53,6 +54,7 @@ export function buildDialogueStartupBlock(input: StartupBlockInput): string {
   if (requester.length > 0) lines.push("", "### 依頼者について", ...requester);
   const intake = renderIntake(input.intake ?? null);
   if (intake.length > 0) {
+    lines.push("", consultationLifecycleGuidance());
     lines.push("", "### 今回の相談 (この技術レベル・役職・目的に合わせた粒度で答える)", ...intake);
   }
   return lines.join("\n");

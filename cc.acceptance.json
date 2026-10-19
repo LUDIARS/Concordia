@@ -2728,7 +2728,12 @@
       "tests": [
         "src/dialogue/startup-block.test.ts"
       ],
-      "contracts": []
+      "contracts": ["SPEC-CONSULT-LIFECYCLE-GUIDANCE", "CC-CONSULT-INV-12"]
+    },
+    {
+      "source": "src/consultation/lifecycle-guidance.ts",
+      "tests": ["src/consultation/lifecycle-guidance.test.ts", "src/dialogue/startup-block.test.ts"],
+      "contracts": ["SPEC-CONSULT-LIFECYCLE-GUIDANCE", "CC-CONSULT-INV-12"]
     },
     {
       "source": "src/dialogue/use-case-service.ts",

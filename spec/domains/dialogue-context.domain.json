@@ -22,6 +22,7 @@
     "spec/feature/planning-adjustment.md",
     "spec/feature/dialogue-context.md",
     "spec/feature/departments.md#9-部署ごとにやることと出力を分ける-v22026-09-30-neco-指示",
-    "spec/feature/tech-consultation.md#3-事前ヒアリング"
+    "spec/feature/tech-consultation.md#3-事前ヒアリング",
+    "spec/feature/tech-consultation.md#71-consult-全体への終了再開の共通案内-spec-consult-lifecycle-guidance"
   ]
 }

@@ -1,0 +1,53 @@
+import { EventEmitter } from "node:events";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileOneShot } from "@ludiars/one-shot";
+import { readFile, rm, stat } from "node:fs/promises";
+import { patrolCodexArgs, runPatrolCodex } from "./patrol-codex-runner.js";
+
+vi.mock("node:fs/promises", () => ({
+  mkdtemp: vi.fn(async () => "C:/temp/patrol-owned"),
+  readFile: vi.fn(async () => "名前: 月野 語\n本文"),
+  stat: vi.fn(async () => ({ size: 30 })), rm: vi.fn(async () => undefined),
+}));
+vi.mock("../model-catalog/codex-command.js", () => ({
+  resolveCodexModelCommand: vi.fn(async () => ({ executable: "codex.exe", prefixArgs: [] })),
+}));
+vi.mock("../cost/one-shot-recorder.js", () => ({ recordLocalOneShot: vi.fn() }));
+vi.mock("@ludiars/one-shot", () => ({
+  resolveModel: vi.fn(() => "gpt-6-luna"), execFileOneShot: vi.fn(),
+}));
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(stat).mockResolvedValue({ size: 30 } as Awaited<ReturnType<typeof stat>>);
+  vi.mocked(execFileOneShot).mockImplementation(((_file: unknown, _args: unknown, _opts: unknown,
+    cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+    queueMicrotask(() => cb(null, "diagnostic output is not the answer", ""));
+    return { stdin: Object.assign(new EventEmitter(), { end: vi.fn() }), kill: vi.fn() };
+  }) as unknown as typeof execFileOneShot);
+});
+describe("patrol Codex isolation and output ownership", () => {
+  it("uses Luna/high, disables tools and reads only the final answer file", async () => {
+    expect(await runPatrolCodex("素材", 30_000)).toMatchObject({ ok: true, stdout: "名前: 月野 語\n本文" });
+    const args = vi.mocked(execFileOneShot).mock.calls[0]![1];
+    expect(args).toEqual(patrolCodexArgs("gpt-6-luna", join("C:/temp/patrol-owned", "answer.txt")));
+    expect(args).toEqual(expect.arrayContaining(['model_reasoning_effort="high"', "shell_tool", "plugins", "mcp_servers={}"]));
+    expect(rm).toHaveBeenCalledWith("C:/temp/patrol-owned", { recursive: true, force: true });
+  });
+  it("rejects oversized final output and still removes its temporary directory", async () => {
+    vi.mocked(stat).mockResolvedValue({ size: 16001 } as Awaited<ReturnType<typeof stat>>);
+    expect(await runPatrolCodex("素材", 30_000)).toMatchObject({ ok: false, stderr: "patrol_output_limit" });
+    expect(readFile).not.toHaveBeenCalled();
+    expect(rm).toHaveBeenCalledTimes(1);
+  });
+  it("preserves CLI failures without reading stale output", async () => {
+    vi.mocked(execFileOneShot).mockImplementation(((_f: unknown, _a: unknown, _o: unknown,
+      cb: (err: Error, stdout: string, stderr: string) => void) => {
+      queueMicrotask(() => cb(new Error("timeout"), "", "timeout"));
+      return { stdin: Object.assign(new EventEmitter(), { end: vi.fn() }), kill: vi.fn() };
+    }) as unknown as typeof execFileOneShot);
+    expect(await runPatrolCodex("素材", 30_000)).toMatchObject({ ok: false, stderr: "timeout" });
+    expect(readFile).not.toHaveBeenCalled();
+    expect(rm).toHaveBeenCalledTimes(1);
+  });
+});

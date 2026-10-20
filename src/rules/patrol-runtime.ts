@@ -30,6 +30,7 @@ import { TENDENTIA_SOURCE_ID, makeTendentiaSource } from "./material-tendentia.j
 import { PATROL_AUTHOR_LABEL, dayStartSec, type PatrolOwnersPort, type PatrolPorts } from "./patrol-ports.js";
 import type { ExternalChannelPoster } from "./patrol-external-delivery.js";
 import { renderPatrol } from "./render-patrol.js";
+import { runPatrolText } from "./patrol-text-runner.js";
 import type { KnowledgeIngest } from "./knowledge-ingest.js";
 import type { KnowledgeRuntime, NotionRootStatus } from "./knowledge-runtime.js";
 import type { KnowledgeQuery } from "./knowledge-select.js";
@@ -203,7 +204,7 @@ export function buildPatrolRuntime(deps: {
     },
     reactions,
     delivery: { findExternalId: (chatMessageId) => messageMap.findDiscordId(chatMessageId) },
-    render: (input) => renderPatrol(input, (prompt, opts) => runClaude(prompt, opts)),
+    render: (input) => renderPatrol(input, runPatrolText),
     emitChatPosted: (msg) => {
       const externalChannelId = externalChannelOf(msg.metadata);
       if (externalChannelId) {

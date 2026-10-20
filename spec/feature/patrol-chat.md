@@ -60,6 +60,19 @@ updated: 2026-10-18
 | CC-PATROL-07 | 返信・追投稿は上限と hard cap を越えない | `canReply` / `evaluateFollowup`、`PATROL_HARD_CAPS` |
 | CC-PATROL-08 | 編集は revision を増やし、実行は取得時の版を固定。無効化は固定版より優先 | `updateWithRevision`、run.rule_revision、送信前の現在値再読 |
 | CC-PATROL-09 | 素材なし・素材元エラー・生成失敗・投稿・配達・結果不明を別状態で残す | `RunStatus`、error_code、画面の状態名 |
+| CC-PATROL-10 | 雑談の生成先を週間残量で選び、使用量不明を残量ありと推測しない | `patrol-model-policy.ts`、`patrol-text-runner.ts` |
+
+### 雑談の生成モデル (2026-10-20 neco 指示)
+
+投稿・返信・追投稿の生成は、既存の使用量取得から Claude / Codex の週間残量 (%) を求める。
+両方50%以上ならランダム、25%以上が片方だけならその側、それ以外は残量が多い側を選ぶ。
+同量ならランダム。両方25%未満でも多い側を使う。残量不明・不正値なら明示エラーとして記録する。
+Claude は Haiku、Codex は Luna (`resolveModel("luna", "codex")`) / high。
+選択判断は governance が所有する純関数、残量取得と起動は adapter に分離する。
+Codex は一時作業フォルダ、read-only、shell/plugins/MCP/web search 無効、プロジェクト指示読込無効で起動する。
+標準出力の診断文は投稿せず、最終回答ファイルのみ読み、上限検査後に一時フォルダを解放する。
+既存の投稿上限・lease・配達確認は維持し、失敗後に別モデルへ無断で再試行しない。
+学習・知識取り込み用の生成はこの雑談本文切替の対象外。UX-CC-PATROL-01 / CC-PATROL-06 / CC-PATROL-09 を維持する。
 
 ## ルールの拡張
 
@@ -93,7 +106,7 @@ engine の 1 秒 tick ごとに、巡回 rule を 1 本ずつ `runPatrolCycle` �
   定期 pick・service event・追投稿は出さない (`skip: quiet hours`)。定期の期日は通常どおり進め、event は受信箱に残って時間帯明けに出る。
 - 状態: `claimed → material_selected → rendering → rendered → delivery_pending → delivered | delivery_unknown`、
   途中で `skipped` / `failed`。各遷移は lease_owner と現状態の compare-and-set。
-- 生成は `claude -p` 会話専用 (tools 無効)・haiku・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。
+- 生成は CC-PATROL-10 で選ぶ Haiku / Luna high、会話専用 (tools 無効)・30 秒上限・1 回。失敗は `failed (render_failed)` で、テンプレートへ無言で切り替えない。
   失敗理由には stderr と stdout の先頭を残す (両方空なら `no output` と書く)。
   定期 pick の生成が失敗したときは、次の期日を通常の間隔ではなく 15 分後 (`PATROL_RETRY_AFTER_FAILURE_SEC`) に置き直す。
   失敗が続くあいだは 15 分・30 分・1 時間・2 時間と倍にし、通常の間隔で頭打ちにする (使用上限のように数時間続く失敗で 1 日の生成上限を使い切らない)。

@@ -1,7 +1,7 @@
 /**
  * 巡回チャットの短文生成 (spec/feature/patrol-chat.md §8)。
  *
- * - oneshot: tools 無効・会話専用の `claude -p` を 1 回だけ呼ぶ。 入力上限・出力字数・時間上限を持つ
+ * - oneshot: 残量で選んだ Claude Haiku / Codex Luna high を tools 無効・会話専用で1回呼ぶ。
  * - template: 明示設定のときだけ使う決まった型の文。 生成失敗時に無言で切り替えない
  *
  * 素材・返信本文はデータとして渡し、 指示として扱わせない。 生成は判定に関わらない (CC-PATROL-01)。
@@ -168,7 +168,7 @@ export async function renderPatrol(input: RenderInput, runner: OneShotRunner): P
   if (!res.ok) {
     // claude -p は失敗理由を stdout に出すことがある (stderr が空)。 原因が追えるよう両方を残す。
     const detail = [res.stderr.trim(), res.stdout.trim() ? `stdout: ${res.stdout.trim()}` : ""].filter(Boolean).join(" / ");
-    return { ok: false, error: `render failed: ${clip(detail || "claude -p failed (no output)", 300)}`, llmCalls: 1 };
+    return { ok: false, error: `render failed: ${clip(detail || "patrol generation failed (no output)", 300)}`, llmCalls: 1 };
   }
   const raw = res.stdout.replace(/^```[a-z]*\s*|```\s*$/g, "").trim();
   // 名乗りを渡した (引き継ぐ) ときも、 生成が名前行を付けてきたら本文から外す

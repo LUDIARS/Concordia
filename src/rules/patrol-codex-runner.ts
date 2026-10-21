@@ -15,8 +15,14 @@ export function patrolCodexArgs(model: string, output: string): string[] {
 }
 
 export async function runPatrolCodex(prompt: string, timeoutMs: number): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return runTextCodex(prompt, { timeoutMs, model: resolveModel("luna", "codex"), purpose: "patrol" });
+}
+
+/** @implements spec/feature/shared-available-one-shot.md CC-OS-03 CC-OS-04 */
+export async function runTextCodex(prompt: string, options: { timeoutMs: number; model: string; signal?: AbortSignal; purpose: string }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   const startedAt = Date.now();
-  const model = resolveModel("luna", "codex");
+  const { model, timeoutMs, signal } = options;
+  if (signal?.aborted) return { ok: false, stdout: "", stderr: "one_shot_cancelled" };
   const cwd = await mkdtemp(join(tmpdir(), "cc-patrol-"));
   let ok = false;
   try {
@@ -32,7 +38,7 @@ export async function runPatrolCodex(prompt: string, timeoutMs: number): Promise
     const result = await new Promise<{ ok: boolean; stderr: string }>((resolve) => {
       const child = execFileOneShot(launch.executable, [...launch.prefixArgs, ...patrolCodexArgs(model, output)], {
         cwd, env, shell: false, windowsHide: true, timeout: timeoutMs, killSignal: "SIGKILL",
-        maxBuffer: 256 * 1024, encoding: "utf8",
+        maxBuffer: 256 * 1024, encoding: "utf8", signal,
       }, (error, _stdout, stderr) => resolve({ ok: !error, stderr: error ? String(stderr || error.message).slice(-4000) : "" }));
       child.stdin?.on("error", () => { child.kill("SIGKILL"); });
       child.stdin?.end(prompt, "utf8");
@@ -47,7 +53,7 @@ export async function runPatrolCodex(prompt: string, timeoutMs: number): Promise
   } finally {
     recordLocalOneShot({ ts: startedAt, service: "concordia", provider: "codex", command: "codex exec",
       model, cwd, prompt, status: ok ? "ok" : "error", duration_ms: Date.now() - startedAt,
-      metadata_json: JSON.stringify({ purpose: "patrol", effort: "high" }) });
+      metadata_json: JSON.stringify({ purpose: options.purpose, effort: "high" }) });
     await rm(cwd, { recursive: true, force: true });
   }
 }

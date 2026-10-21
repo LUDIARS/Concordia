@@ -1,3 +1,4 @@
+import { runAvailableText } from "../rules/available-text-runner.js";
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { cloudWorkRouter } from "./cloud-work.js";
 import { createCloudWorkRuntime } from "../cloud-work/runtime.js";
@@ -626,7 +627,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         deps.adminState.getThinkingMessagesEnabled(),
       ),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
-      summarizePromptTitle: deps.harnessRunClaude ? createHaikuPromptTitleSummarizer(deps.harnessRunClaude) : undefined,
+      summarizePromptTitle: deps.harnessRunClaude ? createHaikuPromptTitleSummarizer((prompt, options) => runAvailableText(prompt, { tier: "low", timeoutMs: options?.timeoutMs })) : undefined,
       // 部署の起動時の注入方針 (departments.md §9.5)。 壊れた設定は全部送る側へ倒す (表示の出し分けだけで権限には効かない)。
       departmentStartupInject: (departmentId) => {
         const department = deps.departments?.find(departmentId);

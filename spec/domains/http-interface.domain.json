@@ -69,6 +69,7 @@
     "spec/feature/developer-toolset.md",
     "spec/feature/actio-chat-transport.md",
     "spec/feature/inject-context-gating.md",
-    "spec/feature/command-script-catalog.md"
+    "spec/feature/command-script-catalog.md",
+    "spec/feature/shared-available-one-shot.md"
   ]
 }

@@ -41,6 +41,12 @@ interface FetchAttempt {
 let cache: { at: number; value: CostRate | null } | null = null;
 /** 直近に取得できた値と時刻 (失敗時のフォールバック用)。 */
 let lastGood: { at: number; value: CostRate } | null = null;
+/** Original observation time; cached fallback must never become fresh again.
+ * @implements spec/feature/shared-available-one-shot.md CC-OS-02
+ */
+export function codexRateObservationTime(value: CostRate | null): number | null {
+  return value && lastGood?.value === value ? lastGood.at : null;
+}
 /**
  * 進行中の取得。 本社 + 子会社 Bot の cost refresh が同じ秒に並ぶと、キャッシュ切れの
  * 瞬間に `codex app-server` が Bot 数ぶん同時に spawn されて本体を数十秒詰まらせる

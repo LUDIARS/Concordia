@@ -2,7 +2,7 @@
  * 1 日分の日報を生成する.
  *
  * 1. aggregateDay で bullets を作る
- * 2. claude CLI で narrative summary を生成
+ * 2. 空きモデルで narrative summary を生成
  *    (CONCORDIA_DISABLE_CLAUDE=1 なら template fallback)
  */
 
@@ -11,7 +11,7 @@ import type { DayReportRow } from "../db/day-reports-repo.js";
 import { aggregateDay, dayRange, type DayBullets } from "./aggregator.js";
 import { summarizeSiteActivity, type SiteActivityEntry } from "./site-activity.js";
 import { isClaudeDisabled } from "../config/claude-availability.js";
-import { runClaude } from "../rules/claude-runner.js";
+import { runAvailableText } from "../rules/available-text-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("daily-report");
@@ -73,9 +73,9 @@ async function narrativeViaCli(b: DayBullets): Promise<string | null> {
     JSON.stringify(b, null, 2).slice(0, 12_000),
   ].join("\n");
 
-  const r = await runClaude(prompt);
+  const r = await runAvailableText(prompt);
   if (!r.ok) {
-    log.warn({ stderr: r.stderr.slice(0, 200) }, "claude CLI day-report failed");
+    log.warn({ stderr: r.stderr.slice(0, 200) }, "available-model day-report failed");
     return null;
   }
   const text = r.stdout.trim();

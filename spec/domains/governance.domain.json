@@ -86,6 +86,7 @@
     "spec/feature/departments.md",
     "spec/feature/tech-consultation.md#4-プライベート相談",
     "spec/feature/workplace-chat.md",
-    "spec/feature/patrol-chat.md"
+    "spec/feature/patrol-chat.md",
+    "spec/feature/shared-available-one-shot.md"
   ]
 }

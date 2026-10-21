@@ -1,3 +1,4 @@
+import { codexRateObservationTime } from "./codex-rate-limits.js";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ChildProcess, spawn } from "node:child_process";
@@ -127,6 +128,7 @@ describe("fetchCodexRateLimits: single-flight と直近成功値フォールバ�
     const broken = fakeSpawn(new Error("app-server down"));
     const second = await fetchCodexRateLimits({ spawnFn: broken.spawnFn, force: true, log: { warn } });
     expect(second).toBe(first);
+    expect(codexRateObservationTime(second)).toBe(codexRateObservationTime(first));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("serving last good value"));
   });
 
@@ -154,4 +156,9 @@ describe("fetchCodexRateLimits: single-flight と直近成功値フォールバ�
       now.mockRestore();
     }
   });
+});
+
+it("never assigns an observation time to an unrelated quota object", () => {
+  expect(codexRateObservationTime(null)).toBeNull();
+  expect(codexRateObservationTime({ used5h: 0, usedWeekly: 0, reset5hAt: null, resetWeeklyAt: null, plan: null })).toBeNull();
 });

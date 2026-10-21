@@ -75,6 +75,7 @@
     "spec/feature/script-creator.md",
     "spec/feature/developer-toolset.md",
     "spec/feature/command-script-catalog.md",
-    "spec/feature/shared-one-shot.md"
+    "spec/feature/shared-one-shot.md",
+    "spec/feature/shared-available-one-shot.md"
   ]
 }

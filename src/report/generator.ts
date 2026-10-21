@@ -2,7 +2,7 @@
  * セッション終了レポート生成.
  *
  * - bullets: 構造化集計 (events count / files / todos / outcome)
- * - summary_md: claude CLI (claude -p) で narrative 生成 → fallback で template
+ * - summary_md: provider-neutral one-shot で narrative 生成 → fallback で template
  *   (LUDIARS は API 不使用のため Anthropic API 直叩き経路は撤去済み)
  *
  * spec/service-schema.md §7 準拠.
@@ -10,7 +10,7 @@
 
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
-import { runClaude } from "../rules/claude-runner.js";
+import { runAvailableText } from "../rules/available-text-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
   summarizeSessionUsage,
@@ -160,7 +160,7 @@ export async function generateReport(
   // 非同期読み (旧: 同期全量読みが DELETE /v1/sessions の数十秒ブロックの主因)。
   const usage = await summarizeSessionUsage(session, opts.usageFrames);
 
-  // 優先: claude CLI (claude -p) で narrative
+  // 空きモデルで narrative を一度だけ生成
   let summary_md: string | null = await narrativeViaCli(session, events, bullets, usage);
 
   // fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
@@ -208,7 +208,7 @@ function fallbackThreeSection(
     `${dur} の作業ログ. ${bullets.outcome}.`,
   ].join("\n");
   const summaryPlaceholder =
-    "narrative 生成 (claude CLI) が失敗したため、 構造化集計のみ.";
+    "narrative 生成 (LLM) が失敗したため、 構造化集計のみ.";
   const middle = templateSummary(session, bullets, usage);
   return [
     poemPlaceholder,
@@ -289,7 +289,7 @@ async function narrativeViaCli(
   ].join("\n");
 
   // 日報 narrative も Haiku 固定 (コスト削減方針)。
-  const r = await runClaude(prompt, { model: "haiku" });
+  const r = await runAvailableText(prompt, { tier: "low" });
   if (!r.ok) {
     log.warn({ stderr: r.stderr.slice(0, 200) }, "claude CLI narrative failed");
     return null;

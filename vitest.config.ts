@@ -1,6 +1,9 @@
 import { configDefaults, defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  // Verify the pinned source even when a local dependency cache predates the gitlink.
+  resolve: { alias: { "@ludiars/one-shot": fileURLToPath(new URL("./lib/lapilli/packages/one-shot/src/index.js", import.meta.url)) } },
   test: {
     env: {
       CONCORDIA_DISABLE_CLAUDE: "1",

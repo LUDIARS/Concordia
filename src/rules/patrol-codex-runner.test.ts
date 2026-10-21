@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileOneShot } from "@ludiars/one-shot";
 import { readFile, rm, stat } from "node:fs/promises";
-import { patrolCodexArgs, runPatrolCodex } from "./patrol-codex-runner.js";
+import { patrolCodexArgs, runPatrolCodex, runTextCodex } from "./patrol-codex-runner.js";
+import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
 
 vi.mock("node:fs/promises", () => ({
   mkdtemp: vi.fn(async () => "C:/temp/patrol-owned"),
@@ -25,6 +26,12 @@ beforeEach(() => {
     queueMicrotask(() => cb(null, "diagnostic output is not the answer", ""));
     return { stdin: Object.assign(new EventEmitter(), { end: vi.fn() }), kill: vi.fn() };
   }) as unknown as typeof execFileOneShot);
+});
+it("runs and records the selected model with cancellation while retaining tool restrictions", async () => {
+  const controller = new AbortController();
+  await runTextCodex("summary", { model: "gpt-6-sol", timeoutMs: 1000, signal: controller.signal, purpose: "available-text" });
+  expect(execFileOneShot).toHaveBeenCalledWith(expect.anything(), expect.arrayContaining(["gpt-6-sol", "shell_tool", "mcp_servers={}"]), expect.objectContaining({ signal: controller.signal }), expect.any(Function));
+  expect(recordLocalOneShot).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-6-sol", provider: "codex" }));
 });
 describe("patrol Codex isolation and output ownership", () => {
   it("uses Luna/high, disables tools and reads only the final answer file", async () => {

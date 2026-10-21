@@ -1,11 +1,11 @@
 import { expect, it, vi } from "vitest";
 vi.mock("../auth/anthropic-oauth-usage.js", () => ({ fetchClaudeOAuthUsage: vi.fn() }));
 vi.mock("../cost/codex-rate-limits.js", async importOriginal => ({
-  ...await importOriginal<typeof import("../cost/codex-rate-limits.js")>(), fetchCodexRateLimits: vi.fn(),
+  ...await importOriginal<typeof import("../cost/codex-rate-limits.js")>(), fetchCodexRateLimits: vi.fn(), codexRateObservationTime: vi.fn(() => 1000),
 }));
 import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import { fetchCodexRateLimits, mapRateLimitsToCostRate } from "../cost/codex-rate-limits.js";
-import { collectDelegationModelQuota } from "./model-tier-usage.js";
+import { collectDelegationModelQuota, collectModelQuotaSnapshot } from "./model-tier-usage.js";
 import { selectDelegationModel } from "./model-tier-policy.js";
 it("retains unknown usage rather than inventing availability", async () => {
   vi.mocked(fetchClaudeOAuthUsage).mockResolvedValue(null);
@@ -37,4 +37,9 @@ it("does not discard an unknown window without explicit absence evidence", async
   expect((await collectDelegationModelQuota()).codex).toEqual([
     { used: null, reset: null }, { used: 30, reset: 300 },
   ]);
+});
+
+it("preserves observation timestamps instead of making unknown Claude fresh", async () => {
+  vi.mocked(fetchClaudeOAuthUsage).mockResolvedValue(null);
+  expect((await collectModelQuotaSnapshot()).observedAt).toEqual({ claude: null, codex: 1000 });
 });

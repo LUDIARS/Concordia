@@ -1,6 +1,14 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"vitest.config.ts","tests":["src/rules/available-text-runner.test.ts"],"contracts":["CC-OS-01"]},
+    {"source":"src/delegation/model-tier-usage.ts","tests":["src/delegation/model-tier-usage.test.ts"],"contracts":["CC-OS-02"]},
+    {"source":"src/cost/codex-rate-limits.ts","tests":["src/cost/codex-rate-limits.test.ts"],"contracts":["CC-OS-02"]},
+    {"source":"src/rules/available-text-runner.ts","tests":["src/rules/available-text-runner.test.ts"],"contracts":["CC-OS-01","CC-OS-02","CC-OS-03","CC-OS-04"]},
+    {"source":"src/rules/patrol-codex-runner.ts","tests":["src/rules/patrol-codex-runner.test.ts"],"contracts":["CC-OS-01","CC-OS-02","CC-OS-03","CC-OS-04"]},
+    {"source":"src/daily/generator.ts","tests":["src/daily/generator.test.ts"],"contracts":["CC-OS-01","CC-OS-02","CC-OS-03","CC-OS-04"]},
+    {"source":"src/report/generator.ts","tests":["tests/report-generator.test.ts","src/rules/available-text-runner.test.ts"],"contracts":["CC-OS-01","CC-OS-02","CC-OS-03","CC-OS-04"]},
+    {"source":"src/api/register-core.ts","tests":["src/api/sessions/prompt-title-summarizer.test.ts","src/rules/available-text-runner.test.ts"],"contracts":["CC-OS-01","CC-OS-02","CC-OS-03","CC-OS-04"]},
     {"source":"src/cost/codex-rollout-rate.ts","tests":["src/cost/codex-rollout-rate.test.ts"],"contracts":["DMT-06"]},
     {"source":"src/cost/cost-rate.ts","tests":["src/cost/codex-rate-limits.test.ts","src/delegation/model-tier-usage.test.ts"],"contracts":["DMT-06"]},
     {"source":"src/cost/codex-rate-limits.ts","tests":["src/cost/codex-rate-limits.test.ts","src/delegation/model-tier-usage.test.ts"],"contracts":["DMT-06"]},

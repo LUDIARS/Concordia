@@ -35,6 +35,13 @@ usage again, rather than trusting the observation at enqueue time.
 - DMT-05: Existing running jobs are not automatically duplicated by this selector.
   Human-authorized Opus takeover must separately verify original task, working
   directory, live ownership, review status and saved progress before replacement.
+- DMT-06: A provider may explicitly report only a weekly window. The observability
+  adapter preserves confirmed absent windows separately from missing or malformed
+  observations. Launch checks every applicable window and requires at least one.
+  An absent window is omitted, never fabricated as 0% used; unknown or expired
+  applicable windows still prevent substitution. Usage I/O owns absence evidence;
+  delegation-launch owns eligibility. This preserves UX-CC-W2 when Claude is
+  exhausted and Codex reports a valid weekly-only allocation.
 
 Recovery: revert the change and use the authorized normal build/deployment path.
 Do not delete run/task history or replay uncertain launches. Tests cover both

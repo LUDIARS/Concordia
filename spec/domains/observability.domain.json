@@ -61,6 +61,7 @@
     "diagnostic-noise-suppression"
   ],
   "specRefs": [
+    "spec/feature/delegation-model-tiers.md",
     "Runtime function metrics",
     "Runtime function metrics / Vestigium 出力",
     "Runtime function metrics / snapshot API",

@@ -20,12 +20,18 @@ describe("mapRolloutRateLimitsToCostRate", () => {
   // 記録され、 存在しない 5H の時系列がグラフに出ていた。
   it("classifies a window by its length, not by its position", () => {
     expect(mapRolloutRateLimitsToCostRate(observedPayload())).toEqual({
+      absentWindows: ["fiveHour"],
       used5h: null,
       usedWeekly: 64,
       reset5hAt: null,
       resetWeeklyAt: 1_788_747_931,
       plan: "pro",
     });
+  });
+
+  it.each([undefined, "invalid", {}, { window_minutes: -1 }])("does not turn an unknown slot into proven absence: %j", secondary => {
+    const payload = observedPayload();
+    expect(mapRolloutRateLimitsToCostRate({ ...payload, rate_limits: { ...payload.rate_limits, secondary } })?.absentWindows).toBeUndefined();
   });
 
   it("reads a 5H window whichever position it arrives in", () => {

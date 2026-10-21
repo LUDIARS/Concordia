@@ -15,6 +15,7 @@ describe("mapRateLimitsToCostRate", () => {
       },
     };
     expect(mapRateLimitsToCostRate(raw)).toEqual({
+      absentWindows: ["fiveHour"],
       used5h: null,
       usedWeekly: 8,
       reset5hAt: null,
@@ -54,6 +55,21 @@ describe("mapRateLimitsToCostRate", () => {
     expect(mapRateLimitsToCostRate({})).toBeNull();
     expect(mapRateLimitsToCostRate({ rateLimits: { primary: null, secondary: null } })).toBeNull();
     expect(mapRateLimitsToCostRate("nope")).toBeNull();
+  });
+  it.each([undefined, {}, { usedPercent: 30 }, { usedPercent: 30, windowDurationMins: -1 }])(
+    "does not certify absence when another slot is missing or malformed: %j", secondary => {
+      const value = mapRateLimitsToCostRate({ rateLimits: {
+        primary: { usedPercent: 30, windowDurationMins: 10080, resetsAt: 300 }, secondary,
+      } });
+      expect(value?.absentWindows).toBeUndefined();
+    });
+  it("retains unknown usage in a present window", () => {
+    const value = mapRateLimitsToCostRate({ rateLimits: {
+      primary: { usedPercent: 30, windowDurationMins: 10080, resetsAt: 300 },
+      secondary: { usedPercent: null, windowDurationMins: 300, resetsAt: 200 },
+    } });
+    expect(value).toMatchObject({ used5h: null, usedWeekly: 30 });
+    expect(value?.absentWindows).toBeUndefined();
   });
 });
 

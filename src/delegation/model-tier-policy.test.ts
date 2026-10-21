@@ -30,6 +30,12 @@ describe("Delegation model tier allocation", () => {
     const q = quota(100, 0); q.codex = [{ used: 0, reset: 99 }, { used: 0, reset: 300 }];
     expect(select(q).ok).toBe(false);
   });
+  it("accepts a known sole applicable window but rejects empty, unknown, expired and exhausted observations", () => {
+    expect(select({ ...quota(100, 0), codex: [{ used: 30, reset: 300 }] })).toMatchObject({ model: "gpt-6-astra" });
+    for (const codex of [[], [{ used: null, reset: null }], [{ used: 30, reset: 99 }], [{ used: 100, reset: 300 }]]) {
+      expect(select({ ...quota(100, 0), codex }).ok).toBe(false);
+    }
+  });
   it.each([["ultra", "gpt-6-astra", "high"], ["high", "gpt-6.1-sol", "high"],
     ["medium", "gpt-6-luna", "high"], ["low", "gpt-6-luna", "low"]] as const)(
     "allocates level %s without crossing levels", (tier, model, effort) => {

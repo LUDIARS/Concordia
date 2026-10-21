@@ -78,7 +78,14 @@ export function mapRateLimitsToCostRate(result: unknown): CostRate | null {
       fiveHour = fiveHour ?? w;
     }
   }
+  // Only an explicit null slot plus well-formed duration evidence proves absence.
+  // An omitted/malformed slot might hide another applicable quota window.
+  const complete = [r.primary, r.secondary].every(slot => slot === null
+    || (readWindow(slot)?.windowMins ?? 0) > 0);
+  const absentWindows: NonNullable<CostRate["absentWindows"]> = complete
+    ? [...(!fiveHour ? ["fiveHour" as const] : []), ...(!weekly ? ["weekly" as const] : [])] : [];
   return {
+    ...(absentWindows.length ? { absentWindows } : {}),
     used5h: fiveHour?.usedPercent ?? null,
     usedWeekly: weekly?.usedPercent ?? null,
     reset5hAt: fiveHour?.resetsAtSec ?? null,

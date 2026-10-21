@@ -13,7 +13,10 @@ export async function collectDelegationModelQuota(): Promise<ModelQuota> {
   return {
     claude: [observation(claude?.fiveHour?.utilization, claude?.fiveHour?.resetsAtSec),
       observation(claude?.sevenDay?.utilization, claude?.sevenDay?.resetsAtSec)],
-    codex: [observation(codex?.used5h, codex?.reset5hAt), observation(codex?.usedWeekly, codex?.resetWeeklyAt)],
+    codex: [
+      ...(codex?.absentWindows?.includes("fiveHour") ? [] : [observation(codex?.used5h, codex?.reset5hAt)]),
+      ...(codex?.absentWindows?.includes("weekly") ? [] : [observation(codex?.usedWeekly, codex?.resetWeeklyAt)]),
+    ],
     opus: claude?.sevenDayOpus ? observation(claude.sevenDayOpus.utilization, claude.sevenDayOpus.resetsAtSec) : null,
     sonnet: claude?.sevenDaySonnet ? observation(claude.sevenDaySonnet.utilization, claude.sevenDaySonnet.resetsAtSec) : null,
   };

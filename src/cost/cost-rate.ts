@@ -4,6 +4,8 @@
  * 循環 import を避けて独立モジュールに置く。
  */
 export interface CostRate {
+  /** Provider explicitly omitted these windows; missing metadata means unknown. */
+  absentWindows?: readonly ("fiveHour" | "weekly")[];
   used5h: number | null;
   usedWeekly: number | null;
   reset5hAt: number | null;

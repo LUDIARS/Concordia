@@ -48,7 +48,8 @@ export function mapRolloutRateLimitsToCostRate(payload: unknown): CostRate | nul
 
 /** snake_case の窓を app-server 側の形へそろえる (分類は共通実装に任せる)。 */
 function rolloutWindow(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) return null;
+  // Only explicit null proves absence; missing/malformed slots remain unknown.
+  if (typeof value !== "object" || value === null) return value;
   const w = value as Record<string, unknown>;
   return {
     usedPercent: finiteNumber(w.used_percent),

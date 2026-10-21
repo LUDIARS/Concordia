@@ -22,7 +22,7 @@ export function modelTier(model: string | null): ModelTier | null {
     : role === "sonnet" || role === "sol" ? "high"
       : role === "haiku" || role === "luna" ? "medium" : null;
 }
-/** Any current exhausted window excludes; availability needs both common windows. */
+/** Every applicable window must be known; adapters omit only proven absent windows. */
 function remaining(candidate: ModelCandidate, quota: ModelQuota, now: number): number | null {
   const common = quota[candidate.provider];
   const role = modelRole(candidate.model);
@@ -31,7 +31,7 @@ function remaining(candidate: ModelCandidate, quota: ModelQuota, now: number): n
     w.used === null || !Number.isFinite(w.used) || w.used < 0 || w.used > 100
       || (w.reset !== null && w.reset <= now) ? null : 100 - w.used);
   if (values.includes(0)) return 0;
-  if (common.length < 2 || values.includes(null)) return null;
+  if (common.length === 0 || values.includes(null)) return null;
   return Math.min(...values as number[]);
 }
 

@@ -170,6 +170,33 @@ describe("DelegationService.invoke", () => {
     expect(readFileSync(path, "utf8")).toBe("自由テキストの初回指示\n2行目");
   });
 
+  it("allocates Astra before spawn when an Opus quota is exhausted", async () => {
+    repo.createTemplate({ call_name: "astra", title: "Astra", target_provider: "codex",
+      model: "gpt-6-astra", prompt_template: "${msg}", input_schema: [] });
+    const quota = (used: number) => [{ used, reset: null }, { used, reset: null }];
+    const service = new DelegationService({ repo, promptsDir,
+      modelQuota: async () => ({ claude: quota(100), codex: quota(10) }),
+      spawn: req => { spawnCalls.push(req); return { ok: true, pid: 999, command: ["stub"] }; },
+    });
+    const result = await service.invoke({ call_name: "echo", args: { msg: "continue" },
+      overrides: { provider: "claude", model: "claude-opus-5-5" } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.run).toMatchObject({ target_provider: "codex", effective_model: "gpt-6-astra" });
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toMatchObject({ provider: "codex" });
+  });
+
+  it("refuses an unavailable tier before creating a process", async () => {
+    const service = new DelegationService({ repo, promptsDir,
+      modelQuota: async () => ({ claude: [], codex: [] }),
+      spawn: req => { spawnCalls.push(req); return { ok: true, pid: 999, command: ["stub"] }; },
+    });
+    expect(await service.invoke({ call_name: "echo", args: { msg: "continue" }, model_tier: "ultra" }))
+      .toMatchObject({ ok: false, error: "model_quota_unavailable:ultra" });
+    expect(spawnCalls).toHaveLength(0);
+  });
+
   it("keeps a codex template on the native codex spawner (2026-08-25 SDK 強制撤回)", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);

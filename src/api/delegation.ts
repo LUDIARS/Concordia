@@ -191,6 +191,7 @@ function resolveCallName(repo: DelegationRepo, raw: string | undefined, title: s
 }
 
 const InvokeSchema = z.object({
+  model_tier: z.enum(["ultra", "high", "medium", "low"]).optional(),
   call_name: z.string().regex(CALL_NAME_RE),
   args: z.record(z.unknown()).default({}),
   cwd: z.string().optional(),
@@ -853,6 +854,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       parsed.data.overrides,
     );
     const result = await deps.service.invoke({
+      model_tier: parsed.data.model_tier,
       call_name: parsed.data.call_name,
       args: parsed.data.args,
       cwd: contract?.work_location?.value === "repo-root" ? parentSession?.repo_path : parsed.data.cwd,

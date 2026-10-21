@@ -4,6 +4,10 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/delegation/(model-tier-policy|model-tier-usage)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/delegation/ModelTierSelect(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/pages/delegation/useDelegationState\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/Delegation\\.tsx$" },
     {
       "pathPattern": "(^|/)src/delegation/service(\\.test)?\\.ts$"
     },
@@ -12,6 +16,7 @@
     }
   ],
   "specRefs": [
+    "spec/feature/delegation-model-tiers.md",
     "spec/feature/delegation.md",
     "spec/feature/delegation-implementation-inject.md",
     "spec/feature/delegation-spawn-target-validation.md"

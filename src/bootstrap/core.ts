@@ -68,6 +68,7 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { isDelegationRunOver, listTaskRunsOnBranch } from "../db/delegation-task-runs.js";
 import { selectHandoffReference } from "../delegation/handoff-task.js";
 import { DelegationService } from "../delegation/service.js";
+import { collectDelegationModelQuota } from "../delegation/model-tier-usage.js";
 import { DelegationEffortBlackbox } from "../delegation/effort-blackbox.js";
 import { DelegationQueue } from "../delegation/queue.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "../discord/config.js";
@@ -1059,6 +1060,7 @@ export async function startBackend(): Promise<BackendHandle> {
   };
 
   const delegationService = new DelegationService({
+    modelQuota: collectDelegationModelQuota,
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
     siteId: () => federation.apiDeps.siteStatus().config.siteId,

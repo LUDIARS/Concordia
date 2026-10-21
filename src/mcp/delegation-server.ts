@@ -92,6 +92,7 @@ async function main(): Promise<void> {
         "Invoke a registered delegation template. Concordia renders the prompt, writes it to a markdown file, and spawns the target agent (Codex / Claude / Gemini) in a new Windows Terminal window. Returns the spawn pid and the rendered prompt file path.",
       inputSchema: {
         call_name: z.string().describe("Template call_name, e.g. 'fix-bug'"),
+        model_tier: z.enum(["ultra", "high", "medium", "low"]).optional().describe("Allocate an available model at this capability level"),
         args: z.record(z.unknown()).optional().describe("Variable bindings for the template (object)"),
         cwd: z.string().optional().describe("Working directory for the spawned session"),
         branch: z.string().optional().describe("Git branch for the spawned session"),
@@ -114,12 +115,13 @@ async function main(): Promise<void> {
           .describe("Actio task to continue (actio:<id>). Required when handing work over to a successor; the run is linked to this task instead of creating a new one"),
       },
     },
-    async ({ call_name, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides, actio_team_id, taskflow_reference }) => {
+    async ({ call_name, model_tier, args, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides, actio_team_id, taskflow_reference }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
         {
           call_name,
+          model_tier,
           args: args ?? {},
           cwd,
           branch,

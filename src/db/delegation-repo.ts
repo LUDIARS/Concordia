@@ -271,6 +271,7 @@ export interface CreateRunInput {
 
 /** spawn 試行後に run へ焼き戻す結果 (キュー払い出し時も同じ形)。 */
 export interface RunSpawnOutcome {
+  target_provider?: DelegationProvider;
   status: DelegationRunRow["status"];
   spawn_pid: number | null;
   spawn_command: string[] | null;
@@ -801,6 +802,7 @@ export class DelegationRepo {
       const updated = this.db.prepare(`
       UPDATE delegation_runs
          SET status = ?,
+             target_provider = COALESCE(?, target_provider),
              spawn_pid = ?,
              spawn_command = ?,
              error = ?,
@@ -824,6 +826,7 @@ export class DelegationRepo {
          AND (? IS NULL OR (status = 'launching' AND queue_owner = ? AND queue_fencing_token = ?))
     `).run(
       outcome.status,
+      outcome.target_provider ?? null,
       outcome.spawn_pid,
       outcome.spawn_command ? JSON.stringify(outcome.spawn_command) : null,
       outcome.error ?? null,

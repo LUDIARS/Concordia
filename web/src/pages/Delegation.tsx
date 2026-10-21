@@ -1,3 +1,4 @@
+import { ModelTierSelect } from "./delegation/ModelTierSelect.js";
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../api.js";
@@ -9,7 +10,7 @@ import { TemplateOverrides } from "./delegation/TemplateOverrides.js";
 import { CloudWorkPanel } from "./delegation/CloudWorkPanel.js";
 
 export function Delegation() {
-  const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced, refresh } = useDelegationState();
+  const { invokeTier, setInvokeTier, templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced, refresh } = useDelegationState();
   // カテゴリ表示絞り込み ("" = 全カテゴリ)。 表示だけの絞り込みで、 並び替え (↑↓) は
   // 全体の sort_order を書き換えるため絞り込み中は無効化する。
   const [categoryFilter, setCategoryFilter] = useState<Category | "">("");
@@ -361,6 +362,7 @@ export function Delegation() {
           <h3 className="text-base font-semibold">Invoke {invokeFor.call_name}</h3>
           <p className="text-xs text-subtle">{invokeFor.description}</p>
           <div className="grid grid-cols-2 gap-3">
+            <ModelTierSelect value={invokeTier} onChange={setInvokeTier} />
             {invokeFor.input_schema.map((s) => (
               <label key={s.name} className="text-sm space-y-1">
                 <span className="text-subtle">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ModelTierChoice } from "./ModelTierSelect.js";
 import { Link } from "react-router-dom";
 import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../../api.js";
 import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js";
@@ -16,6 +17,7 @@ export function useDelegationState() {
   const [forumTagSyncMessage, setForumTagSyncMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [invokeFor, setInvokeFor] = useState<Template | null>(null);
+  const [invokeTier, setInvokeTier] = useState<ModelTierChoice>("");
   const [invokeArgs, setInvokeArgs] = useState<Record<string, string>>({});
   const [invokeOptionsJson, setInvokeOptionsJson] = useState("{}");
   const [invokeCwd, setInvokeCwd] = useState("");
@@ -285,6 +287,7 @@ export function useDelegationState() {
     // ビルダーと textarea は同じ JSON を編集するビュー。
     setInvokeOptionsJson(JSON.stringify(t.default_options ?? {}, null, 2));
     setInvokeCwd(t.default_cwd ?? "");
+    setInvokeTier("");
     setInvokeResult(null);
   }
 
@@ -316,6 +319,7 @@ export function useDelegationState() {
         args,
         cwd: invokeCwd.trim() || undefined,
         triggered_by: "web-ui",
+        model_tier: invokeTier || undefined,
         options: hasOptions ? options : undefined,
       });
       const data = await r.json();
@@ -339,5 +343,5 @@ export function useDelegationState() {
   const activeOutsourced = outsourcedRuns.filter((r) => !FINISHED.includes(r.status));
   const finishedOutsourced = outsourcedRuns.filter((r) => FINISHED.includes(r.status));
 
-  return { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, refresh, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced };
+  return { invokeTier, setInvokeTier, templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, refresh, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced };
 }

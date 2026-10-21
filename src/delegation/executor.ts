@@ -32,6 +32,7 @@ export async function executeQueuedRun(input: {
     return;
   }
   const outcome: RunSpawnOutcome = {
+    target_provider: launch.provider,
     status: launch.status,
     spawn_pid: launch.spawn_pid,
     spawn_command: launch.spawn_command,

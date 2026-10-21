@@ -46,6 +46,7 @@ export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefi
 }
 
 export interface InvokeInput {
+  model_tier?: import("./model-tier-policy.js").ModelTier;
   /** Internal pre-I/O reservation identity, never accepted from an arbitrary HTTP body. */
   reserved_run_id?: string;
   call_name: string;

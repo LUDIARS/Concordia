@@ -130,4 +130,26 @@ describe("delegation queue × service", () => {
     expect(r.queued).toBe(false);
     expect(r.run.status).toBe("pending");
   });
+
+  it("rechecks quota at dequeue and records the replacement provider", async () => {
+    repo.upsertTemplate({ call_name: "astra", title: "Astra", target_provider: "codex",
+      model: "gpt-6-astra", prompt_template: "${task}", input_schema: [] });
+    let claudeUsed = 0;
+    const windows = (used: number) => [{ used, reset: null }, { used, reset: null }];
+    service = new DelegationService({ repo, promptsDir,
+      modelQuota: async () => ({ claude: windows(claudeUsed), codex: windows(0) }),
+      spawn: () => ({ ok: true, pid: 4242, command: ["stub"] }),
+    });
+    service.setQueue(queue);
+    await service.invoke({ call_name: "impl-from-design", args: { task: "A" } });
+    const queued = await service.invoke({ call_name: "impl-from-design", args: { task: "B" },
+      overrides: { provider: "claude", model: "claude-opus-5-5" } });
+    expect(queued.ok && queued.queued).toBe(true);
+    if (!queued.ok) return;
+    claudeUsed = 100;
+    maxConcurrency = 2;
+    await queue.drain();
+    expect(repo.findRun(queued.run.id)).toMatchObject({ status: "spawned",
+      target_provider: "codex", effective_model: "gpt-6-astra" });
+  });
 });

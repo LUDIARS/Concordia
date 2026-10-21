@@ -83,6 +83,7 @@ export type { DelegationDefinition, InvokeInput } from "./contracts.js";
 export { renderTemplate, substituteVars, validateArgs } from "./prompt.js";
 
 const log = createChildLogger("delegation/service");
+import { selectDelegationModel, modelTier, type ModelQuota, type ModelCandidate } from "./model-tier-policy.js";
 
 /// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
 /// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
@@ -130,6 +131,7 @@ export interface InvokeResultErr {
 export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
+  modelQuota?: () => Promise<ModelQuota>;
   allowDomainPreamble?: (parentSessionId: string | null | undefined, targetRepo: string | null) => Promise<{ projectId: string; baseUrl: string; isCurrent: () => boolean } | null>;
   /** Resolves editable major Inject prose from a composition-root owned store. */
   majorInject?: import("../control/major-inject-resolver.js").MajorInjectResolver;
@@ -522,7 +524,24 @@ export class DelegationService {
     startedAt = Date.now(),
   ): Promise<LaunchResult> {
     const requestedProvider = input.overrides?.provider ?? def.target_provider;
-    const provider = applyDelegationProviderPolicy(requestedProvider);
+    let provider = applyDelegationProviderPolicy(requestedProvider);
+    let modelInput = input.overrides?.model !== undefined ? input.overrides.model : def.model;
+    let tierEffort: string | undefined;
+    if (shouldSpawn && (this.deps.modelQuota || input.model_tier) && (input.model_tier || modelTier(modelInput))) {
+      if (!this.deps.modelQuota) return { ok: false, error: "delegation_model_quota_adapter_required" };
+      const candidates: ModelCandidate[] = this.deps.repo.listTemplates({ includeInactive: false })
+        .filter(t => (t.target_provider === "claude" || t.target_provider === "codex") && t.model)
+        .map(t => ({ provider: t.target_provider as ModelCandidate["provider"], model: t.model! }));
+      const selection = selectDelegationModel({ provider, model: modelInput, tier: input.model_tier,
+        candidates, quota: await this.deps.modelQuota(), nowSec: Math.floor(Date.now() / 1000) });
+      if (!selection.ok) return selection;
+      if (selection.reason !== "requested-model") log.info({ run_id: runId,
+        requested_provider: provider, requested_model: modelInput, provider: selection.provider,
+        model: selection.model, reason: selection.reason }, "delegation model allocated");
+      provider = selection.provider as typeof provider;
+      modelInput = selection.model;
+      tierEffort = selection.effort;
+    }
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。
@@ -552,7 +571,6 @@ export class DelegationService {
     }
     // Famulus は model 選択経路から外す。 local-LLM の auto は Cc が管理する catalog
     // 既定へ解決し、Genius model-review が hit した場合だけ明示候補で上書きされる。
-    let modelInput = input.overrides?.model !== undefined ? input.overrides.model : def.model;
     if (provider === "gemma4-12" && (modelInput ?? "").trim().toLowerCase() === "auto") {
       modelInput = GEMMA4_12_DEFAULT_MODEL;
       log.info({ call_name: def.call_name, resolved_model: modelInput }, "Cc local auto-model resolved");
@@ -561,7 +579,8 @@ export class DelegationService {
     const spawn = resolveDelegationSpawn(provider, modelInput);
     const templateOptions = parseRuntimeOptions(def.runtime_options_json);
     const oneShotOptions = input.options ?? {};
-    const requestedEffort = findRequestedEffort(provider, templateOptions, oneShotOptions, input.overrides);
+    const requestedEffort = tierEffort ? { value: tierEffort, source: "model-tier" }
+      : findRequestedEffort(provider, templateOptions, oneShotOptions, input.overrides);
     let effortLevel: string | null = null;
     let effortSource: string | null = null;
     let effortBucket: EffortTaskBucket | null = null;

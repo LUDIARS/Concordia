@@ -8,6 +8,7 @@ import { allowAutoInject, type PendingQuestionProbe } from "./pending-question-b
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { isHumanWaitActive } from "./human-wait.js";
 import { REMAINING_WORK_GUIDANCE } from "./remaining-work-guidance.js";
+import { sessionWorkingRepoPath } from "./session-working-repo.js";
 
 export const GOAL_AND_GO_SOURCE = "auto:goal-and-go";
 
@@ -270,12 +271,12 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
       return;
     }
     void resolveCurrentTaskForPrompt({
-      repoPath: session.repo_path,
+      repoPath: sessionWorkingRepoPath(session),
       currentTask: session.current_task,
       taskPath,
       taskStore: opts.taskStore,
     }).then(async (resolution) => {
-      if (opts.taskStore?.canContinue && !await opts.taskStore.canContinue(session.repo_path, taskPath, readSubsidiaryId(session.metadata), sessionId)) return;
+      if (opts.taskStore?.canContinue && !await opts.taskStore.canContinue(sessionWorkingRepoPath(session), taskPath, readSubsidiaryId(session.metadata), sessionId)) return;
       const current = opts.repo.findSession(sessionId);
       if (
         stopped

@@ -5,6 +5,7 @@ import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { ACTIO_REFERENCE } from "../taskflow/actio-store.js";
 import type { TaskStore } from "../taskflow/store.js";
 import { createChildLogger } from "../shared/logger.js";
+import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 const log = createChildLogger("work/task-links");
 
@@ -110,7 +111,7 @@ export async function addSessionTaskLink(input: {
   if (!readTask) return { kind: "task_unavailable" };
   let taskRepoPath: string;
   try {
-    const task = await readTask(before.repo_path, taskReference, readSubsidiaryId(before.metadata));
+    const task = await readTask(sessionWorkingRepoPath(before), taskReference, readSubsidiaryId(before.metadata));
     if (task.path !== taskReference || !task.repoPath) return { kind: "task_out_of_scope" };
     taskRepoPath = task.repoPath;
   } catch (error) {

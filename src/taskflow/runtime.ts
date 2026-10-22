@@ -26,6 +26,7 @@ import { taskflowFailureLogFields } from "./failure-diagnostics.js";
 import { recordTaskflowFailure, type TaskflowFailureOperation } from "./failure-record.js";
 import { syncTaskSessionAssignment } from "./session-assignment.js";
 import { syncSessionPrEvidence } from "./sync-pr-evidence.js";
+import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 const log = createChildLogger("taskflow-runtime");
 
@@ -106,7 +107,7 @@ export class TaskflowRuntime {
     const session = this.deps.sessions.findSession(sessionId);
     if (session && this.deps.store.updateStatus) {
       const subsidiaryId = readSubsidiaryId(session.metadata);
-      const tasks = await this.deps.store.findForProject(session.repo_path, ["delegated"], subsidiaryId);
+      const tasks = await this.deps.store.findForProject(sessionWorkingRepoPath(session), ["delegated"], subsidiaryId);
       for (const task of tasks) {
         const ownsRun = taskflowRun && task.runtime?.delegation_run_id === taskflowRun.id;
         const ownsPr = !task.runtime?.delegation_run_id && task.runtime?.source_session === sessionId

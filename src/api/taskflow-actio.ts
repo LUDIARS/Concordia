@@ -5,6 +5,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TaskStore } from "../taskflow/store.js";
 import type { TaskflowStateStore } from "../taskflow/state-store.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 const Create = z.object({
   session_id: z.string().min(1), request_id: z.string().uuid(),
@@ -30,7 +31,7 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     const session = deps.sessions.findSession(input.session_id);
     if (!session) return c.json({ error: "session_not_found" }, 404);
     const task = await deps.store.create({
-      repoPath: session.repo_path, subsidiaryId: readSubsidiaryId(session.metadata),
+      repoPath: sessionWorkingRepoPath(session), subsidiaryId: readSubsidiaryId(session.metadata),
       sourceRef: `import:${input.source}:${input.source_id}`,
       title: input.title, body: input.body, kind: input.kind, memoryLinks: input.memory_links, status: input.status, dueAt: input.due_at,
     });
@@ -44,7 +45,7 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     const session = deps.sessions.findSession(input.session_id);
     if (!session) return c.json({ error: "session_not_found" }, 404);
     const task = await deps.store.create({
-      repoPath: session.repo_path, subsidiaryId: readSubsidiaryId(session.metadata),
+      repoPath: sessionWorkingRepoPath(session), subsidiaryId: readSubsidiaryId(session.metadata),
       sourceRef: `session:${session.id}:${input.request_id}`,
       issuedBySessionId: session.id,
       title: input.title, body: input.body, kind: input.kind, memoryLinks: input.memory_links, dueAt: input.due_at,
@@ -59,7 +60,7 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     if (!sessionId || !reference) return c.json({ error: "session_id and reference required" }, 400);
     const session = deps.sessions.findSession(sessionId);
     if (!session) return c.json({ error: "session_not_found" }, 404);
-    const task = await deps.store.read(session.repo_path, reference, readSubsidiaryId(session.metadata));
+    const task = await deps.store.read(sessionWorkingRepoPath(session), reference, readSubsidiaryId(session.metadata));
     return c.json({ reference: task.path, title: task.title, body: task.body, memory_links: task.frontmatter.memory_links, status: task.runtime?.status,
       issued_by_session_id: task.frontmatter.issued_by_session_id ?? null,
       working_session_id: task.frontmatter.working_session_id ?? null });

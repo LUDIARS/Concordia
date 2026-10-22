@@ -40,6 +40,23 @@ peer のうち同一 branch のものが 1 つ以上ある場合に true (判定
 
 値は DB `sessions.target_project` に保持。未宣言 (null) が既定。
 
+### 宣言した作業対象を cwd の観測で外さない 【要件3】 {#SPEC-SESSION-WORKING-REPO-BINDING}
+
+Lictor は直近に触れたリポを `repo_path` として、続けてそのリポの branch を単独で
+`PATCH /v1/sessions/:id` へ送る。調査のために別リポを読んだだけで作業リポと branch が
+そちらへ移り、Actio の紐づけが外れる (2026-10-23、Castra 起点のセッションで
+`actio_binding_invalid` と Revisor `main` への付け替えが起きた)。
+
+- Actio task の project 紐づけ (作成・読み出し・継続判定・残作業・PR 証跡) は
+  `sessionWorkingRepoPath` = 宣言された `target_project`、未宣言なら `repo_path` で引く
+  (`src/control/session-working-repo.ts`)。Actio store は本体リポへ正規化するので worktree でも同じ紐づけになる。
+- `target_project` を宣言したセッションへの PATCH が `target_project` を伴わずに来たとき
+  (`decideDeclaredTargetPatch`):
+  - `repo_path` が作業対象と別リポ (worktree は同じリポ扱い) なら `repo_path` / `repo_origin` / `branch` を捨てる。
+  - `branch` だけの更新は、現在の作業リポの実 branch と一致するときだけ反映する。作業リポがまだ Castra root の間は照合しない。
+  - 判定に必要な読み取りが失敗したら従来どおり反映する。
+- `target_project` を同じ PATCH で変える更新は作業対象の付け替えとして従来どおり反映する。
+
 ## 適用箇所
 
 - `src/api/sessions/lifecycle.ts` — 登録/heartbeat 応答の `advisory.branch_conflict` /

@@ -10,6 +10,7 @@ import { readHumanWait } from "../control/human-wait.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { matchesResidualBinding, residualBinding } from "./residual-binding.js";
+import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 export const RESIDUAL_DOMAIN = "concordia.workflow.residual";
 export type ResidualOutcome = "next-task" | "decompose" | "none" | "waiting";
@@ -38,11 +39,11 @@ export async function checkResidual(input: {
   };
   if (!readySession()) return "waiting";
   if (!allowAutoInject({ probe: input.hasPendingQuestion, sessionId: input.sessionId, source: "taskflow:residual:next" })) return "waiting";
-  const tasks = await input.store.findForProject(session.repo_path, ["pending"], readSubsidiaryId(session.metadata));
+  const tasks = await input.store.findForProject(sessionWorkingRepoPath(session), ["pending"], readSubsidiaryId(session.metadata));
   if (!readySession()) return "waiting";
   if (tasks.length > 0) {
     const task = input.store.nextExecutable
-      ? await input.store.nextExecutable(session.repo_path, readSubsidiaryId(session.metadata)) : tasks[0]!;
+      ? await input.store.nextExecutable(sessionWorkingRepoPath(session), readSubsidiaryId(session.metadata)) : tasks[0]!;
     if (!task) return "waiting";
     const latest = readySession();
     if (!latest || !allowAutoInject({probe:input.hasPendingQuestion,sessionId:input.sessionId,source:"taskflow:residual:next"})) return "waiting";
@@ -60,7 +61,7 @@ export async function checkResidual(input: {
     eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "next-task", pending_count: tasks.length, ts: Math.floor(Date.now() / 1000) });
     return "next-task";
   }
-  const active = await input.store.findForProject(session.repo_path, ["delegated"], readSubsidiaryId(session.metadata));
+  const active = await input.store.findForProject(sessionWorkingRepoPath(session), ["delegated"], readSubsidiaryId(session.metadata));
   if (!readySession()) return "waiting";
   if (active.length === 0) {
     // Do not emit residual_checked when suppressed: phase-compaction would otherwise

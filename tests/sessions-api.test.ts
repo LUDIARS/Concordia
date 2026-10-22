@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
 import { recordPendingDelegationSpawn } from "../src/control/pending-delegation-spawns.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { registerCleanup } from "./helpers/cleanup.js";
 
 function buildTestApp() {
   return makeTestApp().app;
@@ -304,6 +308,46 @@ describe("sessions API", () => {
     });
     expect(automaticTaskChange.status).toBe(200);
     expect(env.repo.findSession("root-bound")?.branch).toBe(branch);
+  }, 30_000);
+
+  it("keeps the declared target when cwd observation moves to another repository", async () => {
+    const env = makeTestApp();
+    const base = mkdtempSync(join(tmpdir(), "cc-declared-target-"));
+    registerCleanup(() => rmSync(base, { recursive: true, force: true }));
+    const target = join(base, "Concordia");
+    const other = join(base, "Revisor");
+    // git init はホストの global hook に左右されるので、git が checkout と認める最小の .git を置く。
+    const checkout = (dir: string, branch: string) => writeFileSync(join(dir, ".git", "HEAD"), `ref: refs/heads/${branch}
+`);
+    for (const [dir, branch] of [[target, "feat/x"], [other, "main"]] as const) {
+      mkdirSync(join(dir, ".git", "objects"), { recursive: true });
+      mkdirSync(join(dir, ".git", "refs", "heads"), { recursive: true });
+      checkout(dir, branch);
+    }
+    const patch = (body: unknown) => env.app.request("/v1/sessions/declared", {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "declared", provider: "claude-code", repo_path: target, host: "h", branch: "feat/x" }),
+    });
+    expect((await patch({ target_project: target })).status).toBe(200);
+
+    // Lictor の active-repo relay: 調査で触れた別リポを repo_path に送ってくる。
+    expect((await patch({ repo_path: other, repo_origin: "git@example.invalid:Revisor.git", active_repos: [target, other] })).status).toBe(200);
+    // 続けてそのリポの branch だけを送ってくる。
+    expect((await patch({ branch: "main" })).status).toBe(200);
+    expect(env.repo.findSession("declared")).toMatchObject({ repo_path: target, target_project: target, branch: "feat/x" });
+
+    // 作業リポで実際に切り替えた branch は通る。
+    checkout(target, "feat/y");
+    expect((await patch({ branch: "feat/y" })).status).toBe(200);
+    expect(env.repo.findSession("declared")?.branch).toBe("feat/y");
+
+    // 作業対象を付け替える更新は通る。
+    expect((await patch({ repo_path: other, target_project: other, branch: "main" })).status).toBe(200);
+    expect(env.repo.findSession("declared")).toMatchObject({ repo_path: other, target_project: other, branch: "main" });
   }, 30_000);
 
   it("404 for unknown session", async () => {

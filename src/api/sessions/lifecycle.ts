@@ -23,6 +23,8 @@ import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
 import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
+import { decideDeclaredTargetPatch } from "../../control/session-working-repo.js";
+import { localDeclaredTargetIo } from "../../control/session-working-repo-io.js";
 import type { EscalationDeclaration } from "../../control/escalation-workflow.js";
 
 /**
@@ -484,6 +486,12 @@ app.patch("/:id", async (c) => {
       // target. Both would erase the explicit implementation binding.
       delete columnPatch.branch;
       delete columnPatch.target_project;
+    }
+    // 宣言済みの作業対象がある間は、 調査で別リポに触れた cwd 観測で repo_path / branch を移さない。
+    const declaredTarget = await decideDeclaredTargetPatch(session, columnPatch, deps.declaredTargetIo ?? localDeclaredTargetIo);
+    if (declaredTarget.reason) {
+      for (const key of declaredTarget.drop) delete columnPatch[key];
+      log.info(`session ${id}: kept declared target binding (${declaredTarget.reason})`);
     }
     const patchTs = nowSec();
     const didChangeBranch = columnPatch.branch !== undefined && columnPatch.branch !== session.branch;

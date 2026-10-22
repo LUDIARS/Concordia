@@ -7,6 +7,7 @@ import { extractTaskMdPath } from "../control/goal-and-go.js";
 import { findSessionLocalPr, findSessionPr } from "./goal-machine.js";
 import type { TaskStore } from "./store.js";
 import type { TaskPrEvidence } from "./pr-evidence.js";
+import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 /** Synchronize only this session's exact task/repository; never infer from PR number. */
 export async function syncSessionPrEvidence(input: {
@@ -18,7 +19,7 @@ export async function syncSessionPrEvidence(input: {
   if (!session?.repo_origin || !session.branch) return;
   const repository = normalizeRepoOrigin(session.repo_origin).toLowerCase();
   const subsidiary = readSubsidiaryId(session.metadata);
-  const tasks = await input.store.findForProject(session.repo_path, undefined, subsidiary);
+  const tasks = await input.store.findForProject(sessionWorkingRepoPath(session), undefined, subsidiary);
   const reference = extractTaskMdPath(session.current_task);
   const owned = tasks.filter((task) => task.frontmatter.working_session_id === input.sessionId
     || (task.path === reference && !task.frontmatter.working_session_id));

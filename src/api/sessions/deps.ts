@@ -114,6 +114,8 @@ export interface SessionsApiDeps {
   /** thinking frame を Concordia の表示・中継面へ流すか。未注入時は OFF。 部署の出力方針で上書きされる。 */
   isThinkingEnabled?: (sessionId: string) => boolean;
   resolveWorkspaceRoots?: () => string[];
+  /** 宣言済み作業対象の外へ repo_path / branch を移す cwd 由来更新の判定 I/O。 未注入はローカル checkout を読む。 */
+  declaredTargetIo?: import("../../control/session-working-repo.js").DeclaredTargetIo;
   /** prompt event の人の指示を 1 行タイトルへ要約する口 (SPEC-SESSION-PROMPT-TITLE)。 未注入なら決定的タイトルのみ。 */
   summarizePromptTitle?: import("./prompt-title-summarizer.js").PromptTitleSummarizer;
   resolveCcWorkflowEnabled?: () => boolean;

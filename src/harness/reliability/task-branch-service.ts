@@ -2,12 +2,21 @@ import type { ConfluxGateResult } from "./conflux-service.js";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { HarnessAction, PredicateHit } from "../predicates.js";
-import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, deterministicTaskRelation, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, deterministicTaskRelation, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 
 const KEY = "task_branch_submission";
-type Store = Pick<SessionsRepo, "findSession" | "mergeMetadata">;
+/** Registered linked worktree path → its repository's main checkout (TB-HOME). */
+const HOME_KEY = "task_branch_home";
+type Store = Pick<SessionsRepo, "findSession" | "mergeMetadata" | "restoreCheckoutRegistration">;
+
+function readHomeRecord(metadata: string | null): Record<string, string> | null {
+  try {
+    const raw = (JSON.parse(metadata || "{}") as Record<string, unknown>)[HOME_KEY];
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, string> : null;
+  } catch { return null; }
+}
 
 /** Session-owned persisted PR boundary, shared by classifier and deterministic hook. */
 export class TaskBranchService {
@@ -86,20 +95,64 @@ export class TaskBranchService {
     if (!requiresTaskBranchCheck(action)) return null;
     const session = this.sessions.findSession(id);
     if (!session) return { rule: "task-branch", decision: "deny", reason: "作業セッションが不明です。" };
-    const registered = { repo: resolve(session.repo_path), branch: session.branch || "" };
+    let registered = { repo: resolve(session.repo_path), branch: session.branch || "" };
     let acting: BranchSnapshot;
     try { acting = await this.inspect(action.cwd || registered.repo); }
     catch { return { rule: "task-branch", decision: "deny", reason: "実ブランチを確認できません。編集前にGitの状態を確認してください。" }; }
     // The registered checkout is read on its own, so a shell parked elsewhere does not decide the boundary.
-    const registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
+    let registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
+    this.rememberHome(id, session.metadata, registered.repo, registeredRepo);
     const mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
-    if (mismatch) return mismatch;
+    let notice: PredicateHit | null = null;
+    if (mismatch) {
+      const restored = await this.restoreHome(id, session, registered, acting, registeredRepo);
+      if (!restored) return mismatch;
+      notice = homeRestoredNotice(registered, restored);
+      registered = restored;
+      registeredRepo = acting.repo === restored.repo ? acting : await this.inspect(restored.repo).catch(() => null);
+      if (checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool })) return { ...mismatch, reason: `${notice.reason} ${mismatch.reason}` };
+    }
     const submitted = this.read(id);
     const hit = checkSubmittedTask({ submitted, repo: registered.repo, branch: registered.branch,
       task: readDeclaredTask(session) ?? session.current_task ?? "" });
     if (hit && !(await this.releaseMerged(id, submitted))) return hit;
     if (!flow?.active && !(registeredRepo ?? acting).mainExists) return { rule: "task-main-origin", decision: "warn", reason: "ローカルmainがありません。新規作業を別のブランチ起点で作成しないでください。" };
-    return null;
+    return notice;
+  }
+
+  /**
+   * TB-HOME: a deleted worktree cannot name its repository, so its main checkout is remembered while it
+   * is still readable. Written only when it changes.
+   */
+  private rememberHome(id: string, metadata: string | null, registeredPath: string, registeredRepo: BranchSnapshot | null): void {
+    const home = registeredRepo?.checkouts?.[0]?.repo;
+    if (!home || home === registeredPath) return;
+    if (readHomeRecord(metadata)?.[registeredPath] === home) return;
+    this.sessions.mergeMetadata(id, { [HOME_KEY]: { [registeredPath]: home } });
+  }
+
+  /** TB-HOME: rebinds only when the policy finds the registered work finished; returns the new registration. */
+  private async restoreHome(id: string, session: { repo_path: string; branch: string | null; metadata: string | null },
+    registered: { repo: string; branch: string }, acting: BranchSnapshot, registeredRepo: BranchSnapshot | null,
+  ): Promise<{ repo: string; branch: string } | null> {
+    const homePath = registeredRepo?.checkouts?.[0]?.repo
+      ?? (acting.checkouts?.some(checkout => checkout.repo === registered.repo) ? acting.checkouts?.[0]?.repo : undefined)
+      ?? readHomeRecord(session.metadata)?.[registered.repo];
+    if (!homePath) return null;
+    const home = homePath === acting.repo ? acting : await this.inspect(homePath).catch(() => null);
+    const submitted = this.read(id);
+    const ownBoundary = submitted && submitted.repo === registered.repo && submitted.branch === registered.branch;
+    const candidate = (merged: boolean) => homeRegistration({ registered, registeredRepo, acting, home, merged });
+    let next = candidate(false);
+    // The PR state is read only when nothing else releases the registration.
+    if (!next && ownBoundary && this.submittedPrState && home && acting.repo === home.repo) {
+      next = candidate(releasesSubmittedBoundary(await this.submittedPrState(submitted.pr)));
+    }
+    if (!next) return null;
+    const moved = this.sessions.restoreCheckoutRegistration({ id,
+      expected: { repo_path: session.repo_path, branch: session.branch },
+      next: { repo_path: next.repo, branch: next.branch }, ts: Date.now() });
+    return moved ? next : null;
   }
 
   /**

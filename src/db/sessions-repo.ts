@@ -38,6 +38,24 @@ export class SessionsRepo {
     }).immediate();
   }
 
+  /** Move a finished checkout registration home; a registration changed meanwhile is left alone. */
+  restoreCheckoutRegistration(input: {
+    id: string;
+    expected: { repo_path: string; branch: string | null };
+    next: { repo_path: string; branch: string };
+    ts: number;
+  }): boolean {
+    return this.db.transaction(() => {
+      const current = this.findSession(input.id);
+      if (!current || current.status !== "active" || current.repo_path !== input.expected.repo_path
+        || current.branch !== input.expected.branch) return false;
+      this.patchSession(current.id, { repo_path: input.next.repo_path, branch: input.next.branch });
+      this.appendEvent({ session_id: current.id, ts: input.ts, kind: "harness.task_branch.restored",
+        payload: { from: input.expected, to: input.next } });
+      return true;
+    }).immediate();
+  }
+
   // ─── sessions ───────────────────────────────────────
 
   insertSession(input: {

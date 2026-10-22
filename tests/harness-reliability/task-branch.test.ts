@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
-import { checkRegisteredCheckout, checkSubmittedTask, deterministicTaskRelation, describeSubmittedTask, readDeclaredTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
+import { checkRegisteredCheckout, checkSubmittedTask, deterministicTaskRelation, describeSubmittedTask, homeRegistration, readDeclaredTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
 import { makeTestDb } from "../helpers/db.js";
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { analyzePromptWithLocalLlm } from "../../src/harness/local-prompt-analyzer.js";
@@ -229,5 +229,83 @@ describe("submitted boundary follows the declared task (TB-DECLARED)", () => {
       service.beginClassification("decl-test", "PR 2150 の修正を続けて");
       expect((await service.gate("decl-test", { tool: "Edit", cwd: submitted.repo }))?.reason).toContain("別作業");
     } finally { db.close(); }
+  });
+});
+
+describe("finished work registration returns home (TB-HOME)", () => {
+  const home = resolve("fixture/home"), worktree = resolve("fixture/home-wt"), workspace = resolve("fixture/ws");
+  const commonDir = resolve("fixture/home/.git");
+  const homeSnap = (branch = "main", withWorktree = true) => ({ repo: home, branch, mainExists: true, commonDir,
+    checkouts: [{ repo: home, branch }, ...(withWorktree ? [{ repo: worktree, branch: "fix/done" }] : [])] });
+  const outside = { repo: workspace, branch: "main", mainExists: true, commonDir: resolve("fixture/ws/.git"),
+    checkouts: [{ repo: workspace, branch: "main" }] };
+
+  it("decides home only for a finished worktree or a merged branch back home", () => {
+    const registered = { repo: worktree, branch: "fix/done" };
+    expect(homeRegistration({ registered, registeredRepo: null, acting: outside, home: homeSnap(), merged: false })).toEqual({ repo: home, branch: "main" });
+    expect(homeRegistration({ registered, registeredRepo: homeSnap(), acting: outside, home: homeSnap(), merged: false })).toBeNull();
+    // The main checkout switched by hand is not a finished worktree.
+    expect(homeRegistration({ registered: { repo: home, branch: "fix/done" }, registeredRepo: homeSnap("mtdev", false), acting: outside, home: homeSnap("mtdev", false), merged: false })).toBeNull();
+    expect(homeRegistration({ registered: { repo: home, branch: "fix/done" }, registeredRepo: homeSnap("main", false), acting: homeSnap("main", false), home: homeSnap("main", false), merged: true })).toEqual({ repo: home, branch: "main" });
+    expect(homeRegistration({ registered, registeredRepo: null, acting: outside, home: null, merged: true })).toBeNull();
+  });
+
+  function setup(snapshots: Record<string, unknown>, state?: (pr: string) => Promise<SubmittedPrState>) {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    sessions.insertSession({ id: "home-test", provider: "claude-code", repo_path: worktree, repo_origin: null,
+      branch: "fix/done", host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: '{"unrelated":true}' });
+    const service = new TaskBranchService(sessions, async (cwd) => {
+      const snap = snapshots[resolve(cwd)];
+      if (!snap) throw new Error("gone");
+      return snap as never;
+    }, undefined, state);
+    return { db, sessions, service, snapshots };
+  }
+
+  it("remembers home while the worktree exists and restores the registration after it is removed", async () => {
+    const { db, sessions, service, snapshots } = setup({ [home]: homeSnap(), [worktree]: { ...homeSnap(), repo: worktree, branch: "fix/done" }, [workspace]: outside });
+    try {
+      expect(await service.gate("home-test", { tool: "Bash", command: "node build.mjs", cwd: workspace })).toBeNull();
+      delete snapshots[worktree];
+      snapshots[home] = homeSnap("main", false);
+      const hit = await service.gate("home-test", { tool: "Bash", command: "node build.mjs", cwd: workspace });
+      expect(hit?.rule).toBe("task-branch-restored");
+      expect(hit?.decision).toBe("warn");
+      const row = sessions.findSession("home-test")!;
+      expect([resolve(row.repo_path), row.branch]).toEqual([home, "main"]);
+      expect(JSON.parse(row.metadata!).unrelated).toBe(true);
+      expect(await service.gate("home-test", { tool: "Bash", command: "node build.mjs", cwd: workspace })).toBeNull();
+    } finally { db.close(); }
+  });
+
+  it("keeps denying when home is unknown, and an edit outside home stays denied after restoring", async () => {
+    const unknown = setup({ [workspace]: outside });
+    try {
+      expect((await unknown.service.gate("home-test", { tool: "Bash", command: "node build.mjs", cwd: workspace }))?.rule).toBe("task-branch");
+      expect(unknown.sessions.findSession("home-test")!.branch).toBe("fix/done");
+    } finally { unknown.db.close(); }
+    const known = setup({ [home]: homeSnap("main", false), [workspace]: outside });
+    try {
+      known.sessions.mergeMetadata("home-test", { task_branch_home: { [worktree]: home } });
+      const hit = await known.service.gate("home-test", { tool: "Edit", cwd: workspace });
+      expect(hit?.decision).toBe("deny");
+      expect(hit?.reason).toContain("戻しました");
+    } finally { known.db.close(); }
+  });
+
+  it("returns home after the submitted PR merged and the session works in the main checkout", async () => {
+    const merged = homeSnap("main", true);
+    const run = async (state: SubmittedPrState) => {
+      const ctx = setup({ [home]: merged, [worktree]: { ...merged, repo: worktree, branch: "fix/done" } }, async () => state);
+      try {
+        ctx.service.submitted("home-test", { repo: worktree, branch: "fix/done" }, "pr-9");
+        const hit = await ctx.service.gate("home-test", { tool: "Edit", cwd: home });
+        return [hit?.rule, ctx.sessions.findSession("home-test")!.branch];
+      } finally { ctx.db.close(); }
+    };
+    expect(await run("merged")).toEqual(["task-branch-restored", "main"]);
+    expect(await run("unmerged")).toEqual(["task-branch", "fix/done"]);
+    expect(await run("unknown")).toEqual(["task-branch", "fix/done"]);
   });
 });

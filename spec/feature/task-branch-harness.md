@@ -22,6 +22,7 @@ domain: harness-reliability
 - TB-MERGED: 提出境界の PR が正本 (Revisor の local PR / GitHub を反映した pr_records) でマージ済みと確認できたら、その境界を外す。照会は境界で拒否する直前だけ行い、読めない・遅い (3 秒)・未マージ (closed を含む) なら外さない (fail-closed)。照会中に別の PR が提出されたら新しい境界を残す。
 - TB-RECOVER: 境界の拒否文には、requiresTaskBranchCheck の例外コマンドだけで組んだ復旧手順 (`lictor cli task set` / `git worktree add -b <b> <path> main`) を載せる。案内したコマンドが例外であることをテストで固定する。
 - TB-REGISTERED: 実checkoutの照合は Cc の登録 (repo_path / branch) を基準にし、シェルの cwd を基準にしない。登録リポジトリ内 (本体・linked worktree を git common dir で同一視) なら登録 branch と一致すれば通す。登録外の cwd からのコマンドは、登録リポジトリに登録 branch の checkout が実在すれば通す。登録外 checkout の編集、登録 branch の checkout が無い登録は拒否する。
+- TB-HOME: 終わった作業の登録は、拒否する直前に本体 checkout (worktree 一覧の先頭) とその branch へ戻す。戻すのは (a) 登録が linked worktree で、その checkout が消えたか登録 branch がどこにも checkout されていない、(b) 登録 branch の提出 PR が正本でマージ済みで、本体 checkout で操作している、のどちらか。本体 checkout の branch を手で切り替えただけの登録は戻さない。戻したら warn `task-branch-restored` で知らせ、新しい登録で照合し直す。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
 
@@ -97,3 +98,16 @@ UX-CC-W1/W3 と TB-MAIN の回帰条件として、管理APIのGit fixtureは初
 Cfの実Gitテストは4回の状態照合とブランチ切替を含むため、このケースだけ60秒の上限を明示する。個々のGit操作の5秒上限および保護条件の検証は変更しない。保存済み審査結果では約5秒のVitestタイムアウトを確認した。修正後のテストは実行許可待ちであり、成功とは記録しない。
 
 08:16の外部審査も修正前HEAD ebbac2f0が対象。toolingで失敗した登録は管理APIと同じt-a76cff7e06e6であり、今回の保存結果にはJSON解析失敗は出ていない。変更した2テストのTypeScript型検査は診断0。ローカルテストは未実行。
+
+## 終わった作業の登録を本体へ戻す（2026-10-22）
+
+kazumimitarai 指示「ずれる元を断つ: worktree を消すときや PR がマージされたときに、登録を本体の checkout へ自動で戻す」。
+症状: PR 提出で登録が worktree に移ったあと worktree を消すと、登録 branch の checkout が無くなり、Bash / Edit / Write がすべて task-branch で拒否された。
+案内の `lictor cli task set` は PATH に lictor が無いと `node …/lictor.mjs` 形になってゲートの例外に当たらない。さらに task set は repo_path を変えないので、自力では抜けられなかった (deny 126 件中 99 件が task-branch)。
+
+- TB-HOME: 判断は純関数 `homeRegistration`、書き換えは `SessionsRepo.restoreCheckoutRegistration` (登録が照会時と同じときだけ更新し、`harness.task_branch.restored` を記録)、手順は `TaskBranchService.gate` が持つ。
+- 消えた worktree のパスからはリポジトリを辿れない。そのため、登録 worktree が読めるうちに本体のパスを session metadata `task_branch_home` (登録パス→本体パス、変化時だけ書く) に覚える。本体は、登録 checkout の worktree 一覧、操作中 checkout の一覧 (prunable を含む)、記録の順に探す。どれでも分からなければ従来どおり拒否する。
+- PR 状態の照会 (TB-MERGED の adapter) は、worktree の消失で戻せないときだけ行う。
+
+検証: task-branch / task-branch-adapters / conflux の 3 テストファイル 39 件成功 (TB-HOME 5 件を追加)。サーバー・テストの TypeScript 静的検査で本変更起因の診断 0 件 (共有 node_modules の one-shot が古いことによる既存診断 available-text-runner.ts のみ)。再起動・デプロイは未実施。
+復旧: revert すれば登録は自動で戻らず、`lictor cli implement begin --cwd <checkout>` での再登録が必要な従来動作に戻る。metadata `task_branch_home` は残っても無害。migration はない。

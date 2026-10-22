@@ -64,6 +64,34 @@ export function checkRegisteredCheckout(input: {
   return registeredRepo?.checkouts?.some(checkout => checkout.branch === registered.branch) ? null : CHECKOUT_MISMATCH;
 }
 
+/**
+ * TB-HOME: 終わった作業の登録を、そのリポジトリの本体 checkout (worktree 一覧の先頭) へ戻す先を決める。
+ * - 登録が linked worktree で、その checkout が消えたか登録 branch がどこにも checkout されていない。
+ * - 登録 branch の提出 PR がマージ済みで、本体 checkout で操作している。
+ * 本体 checkout の branch を手で切り替えただけの登録は戻さない (意図しない branch への編集を防ぐ)。
+ */
+export function homeRegistration(input: {
+  registered: { repo: string; branch: string };
+  registeredRepo: BranchSnapshot | null;
+  acting: BranchSnapshot;
+  home: BranchSnapshot | null;
+  merged: boolean;
+}): { repo: string; branch: string } | null {
+  const { registered, registeredRepo, acting, home, merged } = input;
+  if (!home?.branch) return null;
+  if (home.repo === registered.repo && home.branch === registered.branch) return null;
+  const finishedWorktree = home.repo !== registered.repo
+    && !(registeredRepo?.checkouts ?? []).some(checkout => checkout.branch === registered.branch);
+  const mergedBackHome = merged && acting.repo === home.repo;
+  return finishedWorktree || mergedBackHome ? { repo: home.repo, branch: home.branch } : null;
+}
+
+export function homeRestoredNotice(previous: { repo: string; branch: string }, next: { repo: string; branch: string }): PredicateHit {
+  return { rule: "task-branch-restored", decision: "warn",
+    reason: `終わった作業の登録 (${previous.repo} @ ${previous.branch}) を本体 checkout (${next.repo} @ ${next.branch}) に戻しました。`,
+    suggestion: "新しい作業は `git worktree add -b <新ブランチ> <パス> main` で分離し、作業登録してください。" };
+}
+
 export type TaskRelation = "same-task" | "new-task" | "unknown";
 export interface SubmittedTask {
   repo: string;

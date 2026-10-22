@@ -1,6 +1,9 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/delegation/vulnerability-intelligence-prompt.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts"],"contracts":["CC-CVE-01","CC-CVE-02","CC-CVE-03","CC-CVE-04","CC-CVE-05"]},
+    {"source":"src/delegation/parttimer-prompts.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts","src/delegation/seed.test.ts"],"contracts":["CC-CVE-01","CC-CVE-02","CC-CVE-03","CC-CVE-04","CC-CVE-05"]},
+    {"source":"src/delegation/seed.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts","src/delegation/seed.test.ts"],"contracts":["CC-CVE-01","CC-CVE-05"]},
     {"source":"vitest.config.ts","tests":["src/rules/available-text-runner.test.ts"],"contracts":["CC-OS-01"]},
     {"source":"src/delegation/model-tier-usage.ts","tests":["src/delegation/model-tier-usage.test.ts"],"contracts":["CC-OS-02"]},
     {"source":"src/cost/codex-rate-limits.ts","tests":["src/cost/codex-rate-limits.test.ts"],"contracts":["CC-OS-02"]},

@@ -301,8 +301,11 @@ call_name は migration と seed 時の cleanup で物理削除される。参�
 (テンプレ側に本文を二重管理しない)。単一オーケストレータ版は 2026-08-08 neco 指示で
 `ludiars-review-daily` (毎日 5:10) から `ludiars-review-weekly` (毎週月曜 4:40) へ変更した
 (dual 版は is_active のまま手動起動用に残る)。空いた毎朝 5:10 枠には `vulnerability-response-daily`
-(AIFormat REVIEW_VULNERABILITY.md の観点だけで Tier 1 をスキャンし、安全カテゴリのみ自動修正・
-Critical/High は管理者へメンションして報告) を新設した。同じく 2026-08-08 neco 指示で、毎朝 9:00 に
+(当初は AIFormat REVIEW_VULNERABILITY.md の観点だけで Tier 1 をスキャンし、安全カテゴリのみ自動修正・
+Critical/High は管理者へメンションして報告) を新設した。2026-10-22 neco 指示で、同じ毎朝枠を
+[日次CVE・C++依存・類似処理点検](daily-vulnerability-intelligence.md)へ拡張する。全登録リポを対象に、
+HEAD が変わらない場合も新規・更新CVEを照合し、取得失敗・版不明・類似候補を確認済みと扱わない。
+同じく 2026-08-08 neco 指示で、毎朝 9:00 に
 前日の session-logs とメモリの蓄積から機械化できる改善を探す `kaizen-daily` も新設した。
 2026-09-08 neco 指示により、`kaizen-daily` の起動担当は Codex / `gpt-6-astra` とする。
 UX-CC-AD-W1（指定モデルで開始）に対応し、agent-delegation の seed が provider/model を所有する。

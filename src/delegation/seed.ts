@@ -728,7 +728,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "vulnerability-response-daily",
     title: "脆弱性対応 (毎朝)",
-    description: "Tier 1 リポを AIFormat REVIEW_VULNERABILITY.md の観点だけで毎朝スキャンし、安全カテゴリの指摘は Codex に自動修正委託して Revisor のマージ完了まで継続、Critical/High は自動修正せず管理者へメンションして報告する。2026-08-08 指示で新設 (デイリーレビュー廃止で空いた 5:10 枠を引き継ぐ)。",
+    description: "毎朝 5:10 に CVE の新規・更新情報を取得し、C++ を含む全リポの依存・類似処理を変更なしでも点検する。確認済みの安全カテゴリのみ修正委託し Revisor のマージまで追跡。Critical/High・重大度不明・未確認候補は自動修正せず報告する。",
     target_provider: "claude",
     model: "claude-sonnet-5-5",
     category: "parttimer",

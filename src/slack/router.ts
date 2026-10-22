@@ -15,7 +15,7 @@ export async function injectToSession(
   text: string,
   source: string,
   authorLabel?: string,
-): Promise<void> {
+): Promise<boolean> {
   const result = await injectSession({
     concordiaUrl: deps.concordiaUrl,
     sessionId,
@@ -27,6 +27,7 @@ export async function injectToSession(
   if (result.ok) log.info(`ingress inject ok session=${sessionId}`);
   else if (result.kind === "http") log.warn(`ingress inject failed status=${result.status} session=${sessionId}`);
   else log.warn(`ingress inject network error session=${sessionId}: ${result.message}`);
+  return result.ok;
 }
 
 export async function postChat(

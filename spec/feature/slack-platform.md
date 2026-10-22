@@ -157,6 +157,12 @@ Socket Mode の `message.channels` を channel ID で分類する。
 - Bot 自身、subtype 付き edit/system message → ignore
 - `thread_ts` を持つ reply → ignore し、理由を info log に残す
 
+session channel から inject した指示には、Discord と同じ契約で受領リアクション ✅
+(`white_check_mark`) を付ける。inject が届いただけでは付けず、その session の `session.message`
+または Slack 由来の `prompt` が動いた最初のタイミングで 1 回だけ付ける (保留は
+`src/platform/inject-ack-tracker.ts` を Discord と共用し、インスタンスは分ける)。inject が失敗した指示には
+付かない。付与の失敗 (`missing_scope` 等) は warn に残すだけで、指示の処理は止めない。
+
 質問は session channel のトップレベルに出す。interaction は `body.channel.id` を
 `slack_session_channels.channel_id` から逆引きして session を解決し、質問 message 自身の `ts`
 を更新する。thread root / `thread_ts` には依存しない。
@@ -203,7 +209,7 @@ top-level に出す。Cost Canvas は従来どおり Hub に1つ置き、`cost_c
 ## 権限と fail-visible
 
 Bot scope は少なくとも `channels:manage`、`channels:read`、`channels:history`、`chat:write`、
-`reactions:read`、`canvases:write`、`commands`、添付のアップロードに `files:write` を使う。`missing_scope` / `restricted_action` は
+`reactions:read`、`canvases:write`、`commands`、添付のアップロードに `files:write`、指示の受領 ✅ に `reactions:write` を使う。`missing_scope` / `restricted_action` は
 channel provisioning 時に明示的な error log を出す。旧 thread-per-session へ silently fallback
 しない。
 

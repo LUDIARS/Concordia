@@ -80,6 +80,8 @@ import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-r
 import type { RelayOutputPolicy } from "../platform/relay-output-filter.js";
 import { listWorkdirOptions, readSlackInputValue } from "./modal.js";
 import { injectToSession, postChat } from "./router.js";
+import { createSlackInjectAck } from "./inject-ack-reaction.js";
+import { parseInjectSource } from "../shared/inject-source.js";
 
 const slackLog = createChildLogger("slack");
 const QUESTION_OTHER_MODAL_CALLBACK_ID = "concordia_question_other";
@@ -549,6 +551,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // 「作業中」インジケータ: session channel のトップレベルに「🔄 作業中…」を出し、進捗で
   // 消して落ち着いたら出し直す。Discord と同じ platform 非依存コントローラを流用し、
   // post/remove だけ Slack channel 用に差す。spec/feature/working-indicator.md
+  // 指示 (Slack inject) の受領 ✅。 セッションが動いた最初のタイミングで付ける (Discord と同じ契約)。
+  const injectAck = createSlackInjectAck({ web, log });
+
   const idleSec = Math.max(15, Number(process.env.CONCORDIA_SLACK_WORKING_IDLE_SEC ?? "60") || 60);
   const working = new WorkingIndicator({
     idleMs: idleSec * 1000,
@@ -639,6 +644,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     } else if (ev.type === "session.message") {
       void handleSessionMessage(ev).catch((e) => log.warn(`session.message dispatch: ${(e as Error).message}`));
       working.noteProgress(ev.target_session_id);
+      void injectAck.onSessionProgress(ev.target_session_id);
     } else if (ev.type === "question.posted") {
       void handleQuestionPosted(ev).catch((e) => log.warn(`question.posted dispatch: ${(e as Error).message}`));
       sessionsCanvas.schedule();
@@ -658,6 +664,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (requester) void inviteSessionStarter(ev.target_session_id, requester);
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
+      // codex 等で session.message より先に prompt が来る経路。 Slack 由来の prompt だけで ✅ を付ける。
+      const source = deps.readModel.getSessionPromptEvent(ev.session_id)?.source;
+      if (parseInjectSource(source).platform === "slack" || source === "slack-enter-fallback") {
+        void injectAck.onSessionProgress(ev.session_id);
+      }
     } else if (ev.type === "session.event" && (ev.kind === "title_renamed" || ev.kind === "task_update")) {
       void renderHeaderCard(ev.session_id).catch((e) => log.warn(`session header reflect: ${(e as Error).message}`));
       if (ev.kind === "title_renamed") void renameSessionChannel(ev.session_id);
@@ -763,7 +774,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
       if (route.kind === "session") {
         const authorName = await resolveSlackName(event.user ?? "");
-        await injectToSession(deps, route.sessionId, text, `slack:${event.user}:${event.ts}`, authorName);
+        const injected = await injectToSession(deps, route.sessionId, text, `slack:${event.user}:${event.ts}`, authorName);
+        if (injected && event.channel && event.ts) injectAck.record(route.sessionId, event.channel, event.ts);
         return;
       }
       // Hub のトップレベル発言 = 既存 consultation メタチャットへ。

@@ -70,6 +70,7 @@ function makeWeb() {
       postEphemeral: vi.fn(async (_args: Record<string, unknown>) => ({ ok: true })),
     },
     canvases: { edit: vi.fn(async () => ({ ok: true })) },
+    reactions: { add: vi.fn(async (_args: Record<string, unknown>) => ({ ok: true })) },
     users: { info: vi.fn(async ({ user }: { user: string }) => ({ user: { name: user } })) },
     views: {
       update: vi.fn(async () => ({ ok: true })),
@@ -197,6 +198,47 @@ describe("Slack bot session-per-channel", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/sessions/session-1/inject");
     expect(String(fetchMock.mock.calls[1][0])).toContain("/v1/chat");
+    await platform.stop();
+  });
+
+  it("reacts ✅ to an accepted Slack instruction once the session moves", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { platform, web, socket } = await startHarness();
+    await platform.ensureSessionSurface("session-1");
+    const message = socket.handlers.get("message");
+    if (!message) throw new Error("message handler missing");
+
+    await message({ event: { type: "message", channel: "C1", user: "U1", ts: "10.1", text: "inject" }, ack: vi.fn(async () => {}) } as never);
+    // inject が届いただけでは付けない。
+    expect(web.reactions.add).not.toHaveBeenCalled();
+
+    const progress = {
+      type: "session.message" as const, target_session_id: "session-1", op: "create" as const, ts: 2,
+      message: {
+        id: 1, session_id: "session-1", ts: 2, edited_ts: null, author_type: "assistant" as const, author_label: "AI",
+        author_platform: null, content: "考え中", embeds: null, components: null, attachments: null,
+        reference_id: null, metadata: null, dedupe_key: null,
+      },
+    };
+    eventBus.emit(progress);
+    eventBus.emit(progress);
+    await vi.waitFor(() => expect(web.reactions.add).toHaveBeenCalledWith({ channel: "C1", timestamp: "10.1", name: "white_check_mark" }));
+    expect(web.reactions.add).toHaveBeenCalledTimes(1);
+    await platform.stop();
+  });
+
+  it("does not react when the Slack instruction failed to inject", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    const { platform, web, socket } = await startHarness();
+    await platform.ensureSessionSurface("session-1");
+    const message = socket.handlers.get("message");
+    if (!message) throw new Error("message handler missing");
+
+    await message({ event: { type: "message", channel: "C1", user: "U1", ts: "11.1", text: "inject" }, ack: vi.fn(async () => {}) } as never);
+    eventBus.emit({ type: "session.event", session_id: "session-1", kind: "prompt", ts: 3 } as never);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(web.reactions.add).not.toHaveBeenCalled();
     await platform.stop();
   });
 

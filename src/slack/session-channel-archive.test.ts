@@ -76,4 +76,25 @@ describe("SlackSessionArchiveLifecycle", () => {
     await lifecycle.stop();
     expect(clearIntervalFn).toHaveBeenCalledTimes(1);
   });
+  it("start() schedules channels whose session ended or vanished without session.ended", async () => {
+    const db = makeTestDb();
+    const repo = makeSlackSessionChannelsRepo(db, () => 100);
+    const insert = (id: string, status: string) => db.prepare(
+      `INSERT INTO sessions (id, provider, repo_path, repo_origin, branch, host, started_at, last_seen_at, status)
+       VALUES (?, 'claude-code', 'D:/x', NULL, 'main', 'h', 1, 1, ?)`).run(id, status);
+    insert("active", "active");
+    insert("ended", "ended");
+    for (const id of ["active", "ended", "missing", "done"]) repo.upsert({ session_id: id, channel_id: `C-${id}`, channel_name: id });
+    repo.markArchived("done", 50);
+    const archive = vi.fn(async (_args: { channel: string }) => ({ ok: true }));
+    const lifecycle = new SlackSessionArchiveLifecycle({
+      repo, client: { conversations: { archive } }, delaySeconds: 0, now: () => 100,
+      setIntervalFn: (() => ({ unref() {} })) as unknown as typeof setInterval, clearIntervalFn: (() => {}) as unknown as typeof clearInterval,
+    });
+    await lifecycle.start();
+    expect(archive.mock.calls.map(([args]) => args.channel).sort()).toEqual(["C-ended", "C-missing"]);
+    expect(repo.findBySessionId("active")?.archive_due_at).toBeNull();
+    expect(repo.findBySessionId("done")?.archived_at).toBe(50);
+    await lifecycle.stop();
+  });
 });

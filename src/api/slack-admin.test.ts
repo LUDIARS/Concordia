@@ -46,3 +46,22 @@ describe("slack admin member-map", () => {
     expect(unknownKey.status).toBe(400);
   });
 });
+
+describe("slack admin always-invite", () => {
+  it("保存した常時招待メンバーを返し、 bot は再接続しない", async () => {
+    const { app, admin } = makeApp();
+    const saved = await app.request("/always-invite", put({ user_ids: [" U9B7AE3SQ ", "U9B7AE3SQ"] }));
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ user_ids: ["U9B7AE3SQ"] });
+    expect(await (await app.request("/always-invite")).json()).toEqual({ user_ids: ["U9B7AE3SQ"] });
+    expect(admin.restart).not.toHaveBeenCalled();
+  });
+
+  it("形式違反は 400、 空配列で解除する", async () => {
+    const { app } = makeApp();
+    expect((await app.request("/always-invite", put({ user_ids: ["not-a-slack-id"] }))).status).toBe(400);
+    await app.request("/always-invite", put({ user_ids: ["U9B7AE3SQ"] }));
+    expect(await (await app.request("/always-invite", put({ user_ids: [] }))).json()).toEqual({ user_ids: [] });
+    expect(await (await app.request("/always-invite")).json()).toEqual({ user_ids: [] });
+  });
+});

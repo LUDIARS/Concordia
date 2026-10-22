@@ -35,7 +35,20 @@ export class SlackSessionArchiveLifecycle {
     const setTimer = this.deps.setIntervalFn ?? setInterval;
     this.timer = setTimer(() => { void this.sweep(); }, this.deps.sweepIntervalMs ?? 60_000);
     this.timer.unref?.();
+    await this.scheduleStale();
     await this.sweep();
+  }
+
+  /**
+   * session.ended を取りこぼした channel (停止中に終わった・session 行が消えた) を予約に回す。
+   * 起動時に呼ぶ。 猶予は通常の終了と同じ。
+   */
+  async scheduleStale(): Promise<void> {
+    const due = this.now() + this.deps.delaySeconds;
+    for (const row of this.deps.repo.listStaleUnscheduled()) {
+      this.deps.repo.scheduleArchive(row.session_id, due);
+      this.deps.log?.info(`Slack session channel archive scheduled for a finished session session=${row.session_id} channel=${row.channel_id}`);
+    }
   }
 
   async schedule(sessionId: string): Promise<void> {

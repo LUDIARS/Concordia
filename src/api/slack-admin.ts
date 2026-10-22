@@ -5,6 +5,7 @@
  * - PUT  /config  : 設定更新 (token は暗号化保存) → bot を hot 再接続 (設定時点で有効)
  * - POST /start /stop /restart : bot ライフサイクル制御 (discord と同形)
  * - GET/PUT /member-map : 起動者招待用の Discord ID → Slack ID 対応表 (再接続しない)
+ * - GET/PUT /always-invite : 全 session channel に招待する Slack ユーザ ID 一覧 (再接続しない)
  *
  * Discord の /v1/admin/discord/{start,stop,restart} と対の構成。
  */
@@ -13,7 +14,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
-import { getSlackMemberMap, setSlackConfig, setSlackMemberMap, slackConfigStatus } from "../slack/config.js";
+import { getSlackAlwaysInvite, getSlackMemberMap, setSlackAlwaysInvite, setSlackConfig, setSlackMemberMap, slackConfigStatus } from "../slack/config.js";
 import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 
 export interface SlackBotAdmin {
@@ -42,6 +43,10 @@ const MemberMapSchema = z.object({
     discord_user_id: z.string().max(64),
     slack_user_id: z.string().max(64),
   }).strict()).max(500),
+}).strict();
+
+const AlwaysInviteSchema = z.object({
+  user_ids: z.array(z.string().max(64)).max(50),
 }).strict();
 
 export function slackAdminRouter(deps: SlackAdminDeps): Hono {
@@ -81,6 +86,19 @@ export function slackAdminRouter(deps: SlackAdminDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     try {
       return c.json({ entries: setSlackMemberMap(deps.config, deps.secretBox, parsed.data.entries) });
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+  });
+
+  // 常時招待メンバーも招待のたびに読まれるので、 保存しても bot は再接続しない。
+  app.get("/always-invite", (c) => c.json({ user_ids: getSlackAlwaysInvite(deps.config, deps.secretBox) }));
+
+  app.put("/always-invite", async (c) => {
+    const parsed = AlwaysInviteSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    try {
+      return c.json({ user_ids: setSlackAlwaysInvite(deps.config, deps.secretBox, parsed.data.user_ids) });
     } catch (error) {
       return c.json({ error: (error as Error).message }, 400);
     }

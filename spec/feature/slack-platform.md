@@ -75,6 +75,15 @@ session channel を作ったら、その session を起動した人間を `conve
 - 対応表は `slack_config.member_map_enc` に暗号化保存し、`GET/PUT /v1/admin/slack/member-map`
   と設定画面で編集する。招待のたびに読むので、保存後の bot 再接続は不要。
 
+常時招待メンバー (2026-10-22 kazumimitarai 指示「U9B7AE3SQ をチャンネルにメンバーとして招待」):
+
+- 起動者とは別に、設定した Slack ユーザ ID 全員をすべての session channel に招待する。
+  契機は起動者招待と同じ (session.started・人間 inject・Slack 起動時の active session 再照合)。
+- 一覧は `slack_config.always_invite_enc` に暗号化保存し、`GET/PUT /v1/admin/slack/always-invite`
+  (`{ user_ids: string[] }`、最大 50、`^[UW][A-Z0-9]{2,31}$`) で設定する。招待のたびに読むので再接続しない。
+- 1 人ずつ `conversations.invite` し、1 人の失敗で他を止めない。`already_in_channel` は招待済み、
+  その他の失敗は warn して次の契機で再試行する。
+
 channel の最初のメッセージは session header card である。`header_ts` を保存し、persona、
 task/title、終了、report の更新時に同じ message を `chat.update` する。active card は
 「このチャンネルへ投稿すると session に送信」と案内し、ended card は `Done` と report
@@ -140,7 +149,8 @@ Socket Mode の `message.channels` を channel ID で分類する。
 5. 成功後だけ `archived_at` を記録し、Sessions Canvas を更新
 
 猶予の既定値は30分。有限の非負数のみ受理し、`0` は即時 archive、無効値は警告して30分へ
-戻す。起動時にも期限超過行を sweep する。権限不足・一時障害では `archived_at` を書かず、
+戻す。起動時にも期限超過行を sweep する。起動時には、session が終了済み・不明 (session 行が無い) なのに
+予約も archive もされていない channel (停止中の終了などで session.ended を取りこぼしたもの) を同じ猶予で予約に回す。権限不足・一時障害では `archived_at` を書かず、
 次回 sweep / restart で再試行する。`ChatPlatform.stop()` は archive timer、Canvas debounce、
 event listener、Cost Canvas timer、Socket Mode 接続を解放する。
 

@@ -27,6 +27,7 @@ import {
 } from "./session-channel-provisioner.js";
 import { SlackSessionArchiveLifecycle, type SlackArchiveClient } from "./session-channel-archive.js";
 import { SlackSessionStarterInviter, type SlackInviteClient } from "./session-starter-invite.js";
+import { SlackAlwaysInviter } from "./session-member-invite.js";
 import type { SlackMemberMapEntry } from "./member-map.js";
 import { parseRequesterSource, type Requester } from "../control/requester.js";
 import { SessionsCanvasController, type SessionsCanvasClient } from "./sessions-canvas.js";
@@ -152,6 +153,8 @@ export interface SlackBotDeps {
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
   /** 起動者招待用の Discord ID → Slack ID 対応表。 招待のたびに live 解決する。 未注入は空。 */
   resolveMemberMap?: () => SlackMemberMapEntry[];
+  /** 全 session channel に招待する Slack ユーザ ID。 招待のたびに live 解決する。 未注入は空。 */
+  resolveAlwaysInvite?: () => string[];
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
   socketClient?: SocketModeClient;
@@ -270,7 +273,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     log,
   });
 
-  // 既存の session channel へ起動者を招待する。 channel が無ければ何もしない。
+  const alwaysInviter = new SlackAlwaysInviter({
+    client: web as unknown as SlackInviteClient,
+    resolveMembers: () => deps.resolveAlwaysInvite?.() ?? [],
+    log,
+  });
+
+  // 既存の session channel へ起動者と常時招待メンバーを招待する。 channel が無ければ何もしない。
   async function inviteSessionStarter(sessionId: string, hint: Requester | null = null): Promise<void> {
     const row = channels.findBySessionId(sessionId);
     if (!row) return;
@@ -278,6 +287,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       await starterInviter.invite(sessionId, row.channel_id, hint);
     } catch (e) {
       log.warn(`session starter invite: ${(e as Error).message}`);
+    }
+    try {
+      await alwaysInviter.invite(sessionId, row.channel_id);
+    } catch (e) {
+      log.warn(`session always-invite: ${(e as Error).message}`);
     }
   }
 
@@ -574,6 +588,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   async function handleSessionEnded(sessionId: string): Promise<void> {
     working.clear(sessionId);
     starterInviter.forget(sessionId);
+    alwaysInviter.forget(sessionId);
     await provisioner.ensure(sessionId);
     await renderEndedCard(sessionId);
     await archiveLifecycle.schedule(sessionId);

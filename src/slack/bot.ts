@@ -71,6 +71,7 @@ import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../p
 import type { RwfPrOperations } from "../platform/reaction-workflow-pr.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { buildSlackSessionTopic } from "./projection.js";
+import { uploadSlackAttachments } from "./chat-attachments.js";
 import { listWorkdirOptions, readSlackInputValue } from "./modal.js";
 import { injectToSession, postChat } from "./router.js";
 
@@ -393,6 +394,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       // リアクション逆引き用に ts → chat_messages.id を登録（👍 ワークフローの入口）。
       const surface = channels.findBySessionId(row.sessionId);
       if (ts && surface) messageMap.put(surface.channel_id, ts, row.id);
+      // 添付 (attachment_paths) は本文の直後に同じ session channel へ上げる。
+      if (surface) await relayAttachments(surface.channel_id, row);
       // 最初の投稿なら投稿本文からカードのやる事(📌)を起こす（/rename 相当）。
       void maybeAutoTitleFromFirstPost(row.sessionId, row.text).catch((e) =>
         log.warn(`auto-title (chat.posted): ${(e as Error).message}`),
@@ -412,6 +415,18 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     } catch (e) {
       log.warn(`postMessage(meta) failed message_id=${row.id}: ${(e as Error).message}`);
     }
+    await relayAttachments(channelId, row);
+  }
+
+  // chat の添付をファイルとして上げる (無ければ何もしない)。 失敗は warn のみで投稿は落とさない。
+  async function relayAttachments(targetChannelId: string, row: { id: number; metadata: { attachment_paths?: string[] } }): Promise<void> {
+    if (!row.metadata.attachment_paths?.length) return;
+    await uploadSlackAttachments(web, {
+      channelId: targetChannelId,
+      paths: row.metadata.attachment_paths,
+      label: `message_id=${row.id}`,
+      workspaceRoots: resolveWorkspaceRoots(),
+    }, log);
   }
 
   async function handleTranscriptFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {

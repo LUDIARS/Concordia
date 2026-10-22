@@ -124,6 +124,14 @@ session 紐付け出力は mapped session channel のトップレベルへ投稿
 session 非紐付け chat は Hub のトップレベルへ投稿する。通常 relay は mention sanitizer を通し、
 user mention / `@channel` / `@here` を生成しない。
 
+### 添付ファイル
+
+`chat.posted` の `metadata.attachment_paths` は、本文の postMessage の直後に同じ channel
+(session channel、session 非紐付けなら Hub) のトップレベルへ `files.uploadV2` で 1 回にまとめて上げる。
+ファイルの許可ルート・存在・容量の検査と読み込みは Discord と同じ `src/shared/attachment-files.ts` を通し、
+口を増やさない。1 件 100 MiB を超えるもの、許可ルート外、不在、読めないものは warn に理由を残して飛ばす。
+アップロードの失敗 (`missing_scope` 等) は warn に残し、本文の投稿は取り消さない。
+
 ## ingress と質問回答
 
 Socket Mode の `message.channels` を channel ID で分類する。
@@ -180,7 +188,7 @@ top-level に出す。Cost Canvas は従来どおり Hub に1つ置き、`cost_c
 ## 権限と fail-visible
 
 Bot scope は少なくとも `channels:manage`、`channels:read`、`channels:history`、`chat:write`、
-`reactions:read`、`canvases:write`、`commands` を使う。`missing_scope` / `restricted_action` は
+`reactions:read`、`canvases:write`、`commands`、添付のアップロードに `files:write` を使う。`missing_scope` / `restricted_action` は
 channel provisioning 時に明示的な error log を出す。旧 thread-per-session へ silently fallback
 しない。
 
@@ -195,6 +203,6 @@ channel provisioning 時に明示的な error log を出す。旧 thread-per-ses
 ## テスト
 
 repository、name collision、concurrent ensure、top-level egress、Hub/session ingress、thread ignore、
-question channel mapping、起動者招待 (対応表解決・招待済み/失敗の扱い)、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
+question channel mapping、添付のアップロード (まとめて 1 回・不在や容量超過を飛ばす・失敗で投稿を落とさない)、起動者招待 (対応表解決・招待済み/失敗の扱い)、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
 Vitest で検証する。live Slack 接続試験は stable checkout で Concordia testing claim と Excubitor
 を使う場合に限る。

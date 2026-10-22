@@ -86,7 +86,7 @@ curl -s -X PUT http://127.0.0.1:11111/v1/admin/slack/config \
 1. **Create New App → From scratch**(名前 + ワークスペース選択)。
 2. **OAuth & Permissions → Bot Token Scopes** に付与:
    - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 / ライブカード更新 (`chat.postMessage/update/delete`)
-   - `channels:manage` — public session channel の作成・archive・topic/purpose 更新
+   - `channels:manage` — public session channel の作成・archive・topic/purpose 更新・起動者の招待
    - `channels:read` — Hub / mapped public channel の参照と name collision recovery
    - `channels:history` — 公開チャンネルの top-level 発言受信
    - `reactions:read` — リアクション受信(👍=実装着手 等のリアクション制御)

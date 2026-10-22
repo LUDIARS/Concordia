@@ -14,7 +14,7 @@ import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { collectChannelCostRows, renderChannelCostLines } from "../cost/channel-cost.js";
 import { collectCostReport, renderCostReportMarkdown, type CostTimestampFormat } from "../cost/cost-report.js";
 import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
-import { lastHumanRequester } from "../control/requester.js";
+import { firstHumanRequester, lastHumanRequester } from "../control/requester.js";
 import { fetchSessionCacheStats } from "../anatomia/cache-stats-client.js";
 import { probeProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatAuthorName } from "../platform/formatter.js";
@@ -233,6 +233,9 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     },
     isCodexSession(sessionId) {
       return readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo)?.provider === "codex-cli";
+    },
+    getSessionStarter(sessionId) {
+      return firstHumanRequester(deps.sessionsRepo.eventsByKind(sessionId, "inject"));
     },
   };
 }

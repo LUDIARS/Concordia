@@ -2,6 +2,7 @@ import type { CostTimestampFormat } from "../cost/cost-report.js";
 import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 import type { WorkPhaseView } from "../work/session-work-phase.js";
+import type { Requester } from "../control/requester.js";
 
 export type ChatPlatformName = "discord" | "slack";
 
@@ -216,4 +217,6 @@ export interface ChatReadModel {
   getCostSnapshot(format: CostTimestampFormat, nowSec: number): Promise<CostSnapshot>;
   isSessionActive(sessionId: string): boolean;
   isCodexSession(sessionId: string): boolean;
+  /** session を起動した人間 (最も古い人間 inject の入力者)。 古い test adapter は未実装でもよい。 */
+  getSessionStarter?(sessionId: string): Requester | null;
 }

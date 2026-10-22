@@ -14,12 +14,14 @@ import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { isEncrypted } from "../shared/secret-box.js";
 import { readSlackEnv, type SlackEnv } from "./types.js";
+import { normalizeSlackMemberMap, parseSlackMemberMap, type SlackMemberMapEntry } from "./member-map.js";
 
 // slack_config の DB キー.
 const K_ENABLED = "enabled";
 const K_CHANNEL = "channel_id";
 const K_BOT = "bot_token_enc";
 const K_APP = "app_token_enc";
+const K_MEMBER_MAP = "member_map_enc";
 
 type FieldSource = "db" | "env" | "none";
 
@@ -113,6 +115,23 @@ function applySecretField(
   const v = value?.trim() ?? "";
   if (v) repo.set(key, box.encrypt(v));
   else repo.delete(key);
+}
+
+/** メンバー対応表 (Discord ID → Slack ID)。 env フォールバックは持たない。 */
+export function getSlackMemberMap(repo: SlackConfigRepo, box: SecretBox): SlackMemberMapEntry[] {
+  return parseSlackMemberMap(decryptStored(repo, box, K_MEMBER_MAP));
+}
+
+/** 対応表を丸ごと置き換える。 空配列はキー削除。 形式違反は Error。 */
+export function setSlackMemberMap(
+  repo: SlackConfigRepo,
+  box: SecretBox,
+  entries: readonly SlackMemberMapEntry[],
+): SlackMemberMapEntry[] {
+  const normalized = normalizeSlackMemberMap(entries);
+  if (normalized.length === 0) repo.delete(K_MEMBER_MAP);
+  else repo.set(K_MEMBER_MAP, box.encrypt(JSON.stringify(normalized)));
+  return normalized;
 }
 
 /** redact 済み状態 (GET 用)。 token 値は返さない。 */

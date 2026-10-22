@@ -320,6 +320,12 @@ export interface SlackConfigStatus {
   };
 }
 
+/** 起動者招待用の Discord ID → Slack ID 対応表の 1 行。 */
+export interface SlackMemberMapEntry {
+  discord_user_id: string;
+  slack_user_id: string;
+}
+
 /** Revisor workflow token の状態。 値は返らず set 済みと出所だけ。 */
 export interface RevisorConfigStatus {
   workflow_token_set: boolean;
@@ -1071,6 +1077,9 @@ export const api = {
   // workflow_token: null = クリア (未設定へ) / undefined = 据え置き
   revisorConfigSet: (body: { workflow_token?: string | null }) =>
     put<RevisorConfigStatus>("/v1/admin/revisor/config", body),
+  slackMemberMapGet: () => get<{ entries: SlackMemberMapEntry[] }>("/v1/admin/slack/member-map"),
+  slackMemberMapSet: (entries: SlackMemberMapEntry[]) =>
+    put<{ entries: SlackMemberMapEntry[] }>("/v1/admin/slack/member-map", { entries }),
   slackBotStart: () => post<SlackBotActionResult>("/v1/admin/slack/start", {}),
   slackBotStop: () => post<SlackBotActionResult>("/v1/admin/slack/stop", {}),
   slackBotRestart: () => post<SlackBotActionResult>("/v1/admin/slack/restart", {}),

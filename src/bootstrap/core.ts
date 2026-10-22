@@ -310,7 +310,7 @@ import { ResourceOwner } from "./resource-owner.js";
 import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { makeSlackSessionChannelsRepo } from "../slack/session-channels-repo.js";
-import { resolveSlackConfig } from "../slack/config.js";
+import { getSlackMemberMap, resolveSlackConfig } from "../slack/config.js";
 import { readDiscordSetting, resolveDiscordConfig } from "../discord/conn-config.js";
 import { createAiNotePublication } from "./ai-note-publication.js";
 import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
@@ -2280,6 +2280,8 @@ export async function startBackend(): Promise<BackendHandle> {
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
+    // 起動者招待の対応表は招待のたびに読む (保存後の再接続は不要)。
+    resolveMemberMap: () => getSlackMemberMap(slackConfig, secretBox),
   };
 
   // 子会社 Bot マネージャ。 本社 Discord bot と同じ共有 deps を base にし、 接続設定と

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeSlackConfigRepo, type SlackConfigRepo } from "../db/slack-config-repo.js";
 import { SecretBox, isEncrypted } from "../shared/secret-box.js";
-import { resolveSlackConfig, setSlackConfig, slackConfigStatus } from "./config.js";
+import { getSlackMemberMap, resolveSlackConfig, setSlackConfig, setSlackMemberMap, slackConfigStatus } from "./config.js";
 
 let repo: SlackConfigRepo;
 let box: SecretBox;
@@ -32,6 +32,19 @@ describe("slack/config", () => {
     expect(resolved.channelId).toBe("C-DB");
     expect(resolved.botToken).toBe("xoxb-a");
     expect(resolved.appToken).toBe("xapp-b");
+  });
+
+  it("member map is stored encrypted, read back, and cleared by an empty list", () => {
+    const entries = [{ discord_user_id: "111111111111", slack_user_id: "UAAAA1111" }];
+    expect(setSlackMemberMap(repo, box, entries)).toEqual(entries);
+    const raw = repo.get("member_map_enc");
+    expect(isEncrypted(raw)).toBe(true);
+    expect(raw).not.toContain("UAAAA1111");
+    expect(getSlackMemberMap(repo, box)).toEqual(entries);
+
+    setSlackMemberMap(repo, box, []);
+    expect(repo.get("member_map_enc")).toBeNull();
+    expect(getSlackMemberMap(repo, box)).toEqual([]);
   });
 
   it("DB values take precedence over env", () => {

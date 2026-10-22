@@ -50,6 +50,14 @@ export function lastHumanRequester(eventsNewestFirst: SessionEventRow[]): Reques
 }
 
 /**
+ * session を起動した人間 = 最も古い **人間 inject** の入力者を返す。
+ * 入力は lastHumanRequester と同じ新しい順 (ts DESC)。 該当無しは null。
+ */
+export function firstHumanRequester(eventsNewestFirst: SessionEventRow[]): Requester | null {
+  return lastHumanRequester([...eventsNewestFirst].reverse());
+}
+
+/**
  * 人間 inject のプロンプト本文に「誰の指示か」を 1 行で前置する。
  * 改行は入れない (TUI が前置行だけで送信確定してしまう事故を避ける)。
  */

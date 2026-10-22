@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequesterSource, lastHumanRequester, prefixRequesterTag } from "./requester.js";
+import { parseRequesterSource, lastHumanRequester, firstHumanRequester, prefixRequesterTag } from "./requester.js";
 import type { SessionEventRow } from "../shared/types.js";
 
 function ev(kind: string, payload: object, ts = 0): SessionEventRow {
@@ -16,6 +16,18 @@ describe("parseRequesterSource", () => {
     expect(parseRequesterSource("initial-work")).toBeNull();
     expect(parseRequesterSource(null)).toBeNull();
     expect(parseRequesterSource("discord:")).toBeNull();
+  });
+});
+
+describe("firstHumanRequester", () => {
+  it("新しい順の中で最も古い人間 inject を返す (制御injectは飛ばす)", () => {
+    const events = [
+      ev("inject", { source: "slack:U2:C:1" }, 3),
+      ev("inject", { source: "discord:1:2:3" }, 2),
+      ev("inject", { source: "initial-work" }, 1),
+    ];
+    expect(firstHumanRequester(events)).toEqual({ platform: "discord", userId: "1" });
+    expect(firstHumanRequester([ev("inject", { source: "initial-work" }, 1)])).toBeNull();
   });
 });
 

@@ -26,6 +26,9 @@ import {
   type SlackSessionProvisioningClient,
 } from "./session-channel-provisioner.js";
 import { SlackSessionArchiveLifecycle, type SlackArchiveClient } from "./session-channel-archive.js";
+import { SlackSessionStarterInviter, type SlackInviteClient } from "./session-starter-invite.js";
+import type { SlackMemberMapEntry } from "./member-map.js";
+import { parseRequesterSource, type Requester } from "../control/requester.js";
 import { SessionsCanvasController, type SessionsCanvasClient } from "./sessions-canvas.js";
 import { routeSlackChannelMessage } from "./session-channel-routing.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
@@ -147,6 +150,8 @@ export interface SlackBotDeps {
    */
   prOperations?: RwfPrOperations;
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
+  /** 起動者招待用の Discord ID → Slack ID 対応表。 招待のたびに live 解決する。 未注入は空。 */
+  resolveMemberMap?: () => SlackMemberMapEntry[];
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
   socketClient?: SocketModeClient;
@@ -257,6 +262,24 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     describeSession,
     log,
   });
+
+  const starterInviter = new SlackSessionStarterInviter({
+    client: web as unknown as SlackInviteClient,
+    resolveStarter: (sessionId) => deps.readModel.getSessionStarter?.(sessionId) ?? null,
+    resolveMemberMap: () => deps.resolveMemberMap?.() ?? [],
+    log,
+  });
+
+  // 既存の session channel へ起動者を招待する。 channel が無ければ何もしない。
+  async function inviteSessionStarter(sessionId: string, hint: Requester | null = null): Promise<void> {
+    const row = channels.findBySessionId(sessionId);
+    if (!row) return;
+    try {
+      await starterInviter.invite(sessionId, row.channel_id, hint);
+    } catch (e) {
+      log.warn(`session starter invite: ${(e as Error).message}`);
+    }
+  }
 
   // session channel の先頭 header を現在の状態で再描画する。task / title 更新時に呼ぶ。
   async function renderHeaderCard(sessionId: string, status: "active" | "ended" = "active", poem?: string | null): Promise<void> {
@@ -544,11 +567,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     // チャンネルが次の sweep で誤って archive されてしまう (継続レビュー指摘)。
     archiveLifecycle.cancel(sessionId);
     await provisioner.ensure(sessionId);
+    await inviteSessionStarter(sessionId);
     sessionsCanvas.schedule();
   }
 
   async function handleSessionEnded(sessionId: string): Promise<void> {
     working.clear(sessionId);
+    starterInviter.forget(sessionId);
     await provisioner.ensure(sessionId);
     await renderEndedCard(sessionId);
     await archiveLifecycle.schedule(sessionId);
@@ -580,6 +605,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     } else if (ev.type === "session.inject") {
       // 環境同期: 相手PF(Discord)由来の inject を Slack session channel に転記。
       void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));
+      // 最初の人間 inject で起動者が確定する。 既に招待済みなら invite 側で何もしない。
+      const requester = parseRequesterSource(ev.source);
+      if (requester) void inviteSessionStarter(ev.target_session_id, requester);
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
     } else if (ev.type === "session.event" && (ev.kind === "title_renamed" || ev.kind === "task_update")) {
@@ -1001,7 +1029,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   const activeSessions = (deps.readModel.listSlackSessionIndex?.() ?? [])
     .filter((session) => session.status === "active");
   const reconciled = await Promise.allSettled(
-    activeSessions.map((session) => provisioner.ensure(session.sessionId)),
+    activeSessions.map(async (session) => {
+      await provisioner.ensure(session.sessionId);
+      await inviteSessionStarter(session.sessionId);
+    }),
   );
   reconciled.forEach((result, index) => {
     if (result.status === "rejected") {

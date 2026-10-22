@@ -17,7 +17,7 @@ related:
   - ../setup/slack.md
   - ./reaction-workflow.md
   - ../plan/tasks/slack-session-channels.md
-updated: 2026-07-16
+updated: 2026-10-20
 ---
 
 # Slack platform（Hub + session-per-channel）
@@ -55,9 +55,25 @@ cc-run-<session-id先頭8文字>-<slug>
 - channel 名は lowercase ASCII / digit / hyphen のみ、80文字以内。
 - slug は current task/title 由来、空なら `session`。
 - `name_taken` は session ID 12文字、次に session ID 由来の決定的 suffix で再試行する。
-- Bot は作成者として在籍する。人間を自動 invite しない。
+- Bot は作成者として在籍する。人間は「起動者の招待」の規則でだけ invite する。
 - channel ID が routing の正本で、channel name は表示用である。
 - purpose は完全な session ID、topic は短縮 ID / persona / provider / task / 状態を保持する。
+
+## 起動者の招待
+
+session channel を作ったら、その session を起動した人間を `conversations.invite` で招待する。
+
+- 起動者は session の最も古い人間 inject (`discord:<uid>:…` / `slack:<uid>:…`) の入力者とする。
+- Slack 起動はその Slack ユーザ、Discord 起動は Slack 設定の「メンバー対応表」
+  (Discord user ID → Slack member ID) で引いた Slack ユーザを招待する。対応が無ければ招待しない。
+- 契機は channel 作成直後 (`session.started` / 起動時 reconcile) と人間 inject。最初の inject が
+  まだ永続化されていない場合は、その inject の入力者を起動者として使う。
+- `already_in_channel` / `cant_invite_self` は招待済みとして扱う。それ以外の失敗は warn log のみで、
+  channel 作成・中継は止めない。招待済みの記録はプロセス内だけに持ち、再起動後は再招待して
+  `already_in_channel` で収束させる。
+- 起動者以外 (後から指示した人) は招待しない。
+- 対応表は `slack_config.member_map_enc` に暗号化保存し、`GET/PUT /v1/admin/slack/member-map`
+  と設定画面で編集する。招待のたびに読むので、保存後の bot 再接続は不要。
 
 channel の最初のメッセージは session header card である。`header_ts` を保存し、persona、
 task/title、終了、report の更新時に同じ message を `chat.update` する。active card は
@@ -161,7 +177,7 @@ channel provisioning 時に明示的な error log を出す。旧 thread-per-ses
 ## 非対象
 
 - private session channel
-- human member の自動招待
+- 起動者以外の human member の自動招待
 - User Group / shared sidebar section 管理
 - per-user notification 設定変更
 - Discord / chat-worker / delegation の一般 refactor
@@ -169,6 +185,6 @@ channel provisioning 時に明示的な error log を出す。旧 thread-per-ses
 ## テスト
 
 repository、name collision、concurrent ensure、top-level egress、Hub/session ingress、thread ignore、
-question channel mapping、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
+question channel mapping、起動者招待 (対応表解決・招待済み/失敗の扱い)、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
 Vitest で検証する。live Slack 接続試験は stable checkout で Concordia testing claim と Excubitor
 を使う場合に限る。

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type SlackConfigStatus, type SlackBotActionResult } from "../api.js";
+import { SlackMemberMapSection } from "./SlackMemberMap.js";
 
 // Slack 連携をサービス内 (この画面) から設定する。token は送信後 DB に暗号化保存され、
 // 値そのものは二度と返らない (set 済みかだけ表示)。保存すると bot を hot 再接続する。
@@ -193,6 +194,8 @@ export function SlackSettingsSection() {
         </div>
         {msg && <div className="text-xs text-subtle">{msg}</div>}
       </section>
+
+      <SlackMemberMapSection />
 
       <section className="bg-surface border border-border rounded p-4 text-xs text-subtle space-y-1">
         <h2 className="font-semibold text-text mb-1">補足</h2>

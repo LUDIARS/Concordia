@@ -35,12 +35,10 @@ import { routeSlackChannelMessage } from "./session-channel-routing.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, type SlackEnv } from "./types.js";
 import { wrapTablesInCode } from "../shared/message-blocks.js";
-import { parseInjectSource } from "../shared/inject-source.js";
 import { renderOperationalClaimMessage } from "../platform/operational-claim.js";
 import {
   buildQuestionBlocks,
   buildSessionBotUsername,
-  extractRelayableFrame,
   parseAnswerActionId,
   sanitizeSlackMentions,
   truncateForSlack,
@@ -72,6 +70,14 @@ import type { RwfPrOperations } from "../platform/reaction-workflow-pr.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { buildSlackSessionTopic } from "./projection.js";
 import { uploadSlackAttachments } from "./chat-attachments.js";
+import {
+  relaySessionMessageToSlack,
+  shouldRelaySlackSessionChat,
+  type SlackSessionMessageClient,
+  type SlackSessionMessageDeps,
+} from "./session-message-egress.js";
+import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
+import type { RelayOutputPolicy } from "../platform/relay-output-filter.js";
 import { listWorkdirOptions, readSlackInputValue } from "./modal.js";
 import { injectToSession, postChat } from "./router.js";
 
@@ -156,6 +162,11 @@ export interface SlackBotDeps {
   resolveMemberMap?: () => SlackMemberMapEntry[];
   /** 全 session channel に招待する Slack ユーザ ID。 招待のたびに live 解決する。 未注入は空。 */
   resolveAlwaysInvite?: () => string[];
+  /**
+   * 部署の出力方針 (途中の発言・Cc の指令の転記、 departments.md §9.4)。 Discord と同じ解決を渡す。
+   * 未注入なら全部流す。
+   */
+  relayOutputPolicy?: (sessionId: string) => RelayOutputPolicy;
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
   socketClient?: SocketModeClient;
@@ -389,6 +400,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
     const author = row.authorLabel?.trim() || "Concordia";
     if (row.sessionId) {
+      // 部署の出力方針で途中の発言を止めたセッションは、 本人宛ての添付つき成果物だけを流す (Discord と同じ)。
+      const policy = deps.relayOutputPolicy?.(row.sessionId);
+      if (policy && !shouldRelaySlackSessionChat(policy, { channel: row.channel, attachmentCount: row.metadata.attachment_paths?.length ?? 0 })) {
+        log.info(`chat.posted skipped — intermediate output off session=${row.sessionId} message_id=${row.id}`);
+        return;
+      }
       log.info(`[verbose-slack-egress] chat.posted → channel session=${row.sessionId} message_id=${row.id} channel=${row.channel}`);
       const ts = await postToSessionChannel(row.sessionId, row.text, author);
       // リアクション逆引き用に ts → chat_messages.id を登録（👍 ワークフローの入口）。
@@ -429,22 +446,35 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }, log);
   }
 
-  async function handleTranscriptFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
-    const frame = extractRelayableFrame(ev.kind, ev.payload);
-    if (!frame) {
-      log.info(`[verbose-slack-egress] transcript.frame skipped (non-relayable) session=${ev.target_session_id} kind=${ev.kind}`);
-      return;
-    }
-    const session = deps.readModel.getSessionRelayState(ev.target_session_id);
-    const author = frame.role === "summary"
+  // canonical session message (Discord egress と同じ出し分け、 session-message-egress.ts)。
+  const sessionMessageDeps: SlackSessionMessageDeps = {
+    client: web as unknown as SlackSessionMessageClient,
+    deliveries: makeSessionMessageDeliveryRepo(deps.db),
+    isSessionActive: (sessionId) => deps.readModel.isSessionActive(sessionId),
+    ensureChannel: async (sessionId) => (await provisioner.ensure(sessionId)).channel_id,
+    authorName: (sessionId, message) => message.author_type === "summary"
       ? "Conversation summary"
-      : formatAuthorName(null, session?.roleLabel ?? null);
-    log.info(`[verbose-slack-egress] transcript.frame → channel session=${ev.target_session_id} role=${frame.role}`);
-    await postToSessionChannel(ev.target_session_id, frame.text, author);
+      : formatAuthorName(null, deps.readModel.getSessionRelayState(sessionId)?.roleLabel ?? null),
+    relayOutputPolicy: deps.relayOutputPolicy,
+    log,
+  };
+
+  // 題が変わったら session channel を `cc-<題>` に改名する。 Discord と同じく、 AI の自動提案
+  // (title-suggestion) の題では変えず、 手動 / リアクションの rename だけを反映する。
+  async function renameSessionChannel(sessionId: string): Promise<void> {
+    const titleEvent = deps.readModel.getSessionTitleEvent(sessionId);
+    if (!titleEvent || titleEvent.source === "title-suggestion") return;
+    await provisioner.rename(sessionId, titleEvent.title).catch((e) =>
+      log.warn(`session channel rename session=${sessionId}: ${(e as Error).message}`));
+  }
+
+  async function handleSessionMessage(ev: Extract<ConcordiaEvent, { type: "session.message" }>): Promise<void> {
+    const result = await relaySessionMessageToSlack(sessionMessageDeps, ev);
+    if (!result.posted) return;
     // assistant 本文の最初の1件で /rename 相当（summary は題材にしない）。
-    if (frame.role === "assistant") {
-      void maybeAutoTitleFromFirstPost(ev.target_session_id, frame.text).catch((e) =>
-        log.warn(`auto-title (transcript.frame): ${(e as Error).message}`),
+    if (result.message.author_type === "assistant") {
+      void maybeAutoTitleFromFirstPost(ev.target_session_id, result.message.content).catch((e) =>
+        log.warn(`auto-title (session.message): ${(e as Error).message}`),
       );
     }
   }
@@ -560,17 +590,6 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // 相手PF(Discord)由来の inject を Slack の該当 session channel に発言者付きで転記。
   // Slack 由来は元発言が channel に既出のため転記しない。制御 inject は ^discord: に
   // 一致せず除外。
-  async function mirrorForeignInject(ev: Extract<ConcordiaEvent, { type: "session.inject" }>): Promise<void> {
-    const src = ev.source ?? "";
-    if (parseInjectSource(src).platform !== "discord") return;
-    const surface = await provisioner.ensure(ev.target_session_id);
-    const who = ev.author_label?.trim() || "Discord user";
-    await web.chat.postMessage({
-      channel: surface.channel_id,
-      text: `🔁 *Discord / ${who}*\n${truncateForSlack(ev.text, 12000)}`,
-    });
-  }
-
   const sessionsCanvas = new SessionsCanvasController({
     client: web as unknown as SessionsCanvasClient,
     hubChannelId: channelId,
@@ -617,8 +636,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     } else if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
       if (ev.session_id) working.noteProgress(ev.session_id);
-    } else if (ev.type === "transcript.frame") {
-      void handleTranscriptFrame(ev).catch((e) => log.warn(`transcript.frame dispatch: ${(e as Error).message}`));
+    } else if (ev.type === "session.message") {
+      void handleSessionMessage(ev).catch((e) => log.warn(`session.message dispatch: ${(e as Error).message}`));
       working.noteProgress(ev.target_session_id);
     } else if (ev.type === "question.posted") {
       void handleQuestionPosted(ev).catch((e) => log.warn(`question.posted dispatch: ${(e as Error).message}`));
@@ -633,8 +652,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       void handleOperationalClaim(ev).catch((e) =>
         log.warn(`claim lifecycle post failed session=${ev.target_session_id}: ${(e as Error).message}`));
     } else if (ev.type === "session.inject") {
-      // 環境同期: 相手PF(Discord)由来の inject を Slack session channel に転記。
-      void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));
+      // Discord 由来の指示は Slack に転記しない (Discord の動きに揃える、 2026-10-22 ユーザ指示)。
       // 最初の人間 inject で起動者が確定する。 既に招待済みなら invite 側で何もしない。
       const requester = parseRequesterSource(ev.source);
       if (requester) void inviteSessionStarter(ev.target_session_id, requester);
@@ -642,6 +660,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       working.noteProgress(ev.session_id);
     } else if (ev.type === "session.event" && (ev.kind === "title_renamed" || ev.kind === "task_update")) {
       void renderHeaderCard(ev.session_id).catch((e) => log.warn(`session header reflect: ${(e as Error).message}`));
+      if (ev.kind === "title_renamed") void renameSessionChannel(ev.session_id);
       sessionsCanvas.schedule();
     } else if (ev.type === "report.generated") {
       void renderEndedCard(ev.session_id).catch((e) => log.warn(`ended header report: ${(e as Error).message}`));
@@ -1114,16 +1133,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         ts: Math.floor(Date.now() / 1000),
       });
     },
-    async relayFrame(input) {
-      await handleTranscriptFrame({
-        type: "transcript.frame",
-        target_session_id: input.target_session_id,
-        kind: input.kind as never,
-        payload: input.payload as never,
-        seq: input.seq ?? 0,
-        ts: Math.floor(Date.now() / 1000),
-      });
-    },
+    // 生の transcript frame は Slack へ直接流さない。 projector が作る session.message を
+    // handleSessionMessage が Discord と同じ規則で出し分ける。
+    async relayFrame() {},
     async stop() {
       if (stopped) return;
       stopped = true;

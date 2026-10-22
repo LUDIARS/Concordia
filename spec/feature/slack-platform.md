@@ -48,13 +48,16 @@ session の transcript 全文は Hub に relay しない。
 `session.started` または `ChatPlatform.ensureSessionSurface` で public channel を作る。
 
 ```text
-cc-run-<session-id先頭8文字>-<slug>
+cc-<題>
 ```
 
 - `conversations.create({ is_private: false })` を Bot token で呼ぶ。
-- channel 名は lowercase ASCII / digit / hyphen のみ、80文字以内。
-- slug は current task/title 由来、空なら `session`。
-- `name_taken` は session ID 12文字、次に session ID 由来の決定的 suffix で再試行する。
+- `<題>` は Discord の channel 名の本体と同じ規則で作る (小文字化し、英数字・かな・漢字・hyphen 以外を hyphen にする)。
+  80文字以内。題が無い・何も残らなければ `cc-<session-id先頭12文字>-session`。
+- `name_taken` は `<題>` の後ろに session ID 12文字、次に session ID 由来の決定的 suffix を足して再試行する。
+- 題が手動 / リアクションの rename (`title_renamed`、AI 自動提案 `title-suggestion` は除く) で変わったら、
+  Discord の channel 名の追従と同じく `conversations.rename` で `cc-<新しい題>` へ改名する。
+  `name_taken` は同じ候補順で進み、archive 済みの channel と失敗 (`missing_scope` 等、warn) は改名しない。
 - Bot は作成者として在籍する。人間は「起動者の招待」の規則でだけ invite する。
 - channel ID が routing の正本で、channel name は表示用である。
 - purpose は完全な session ID、topic は短縮 ID / persona / provider / task / 状態を保持する。
@@ -115,11 +118,23 @@ migration は `CREATE TABLE/INDEX IF NOT EXISTS` により冪等である。
 session 紐付け出力は mapped session channel のトップレベルへ投稿し、`thread_ts` を渡さない。
 
 - `chat.posted`
-- relay 対象の `transcript.frame`
+- `session.message` (canonical session message)
 - `question.posted` の Block Kit
 - working indicator
 - session channel 内 reaction workflow の ack / result
-- Discord 由来 human inject の mirror
+
+出し分けは Discord と揃える。`session.message` の内容判定 (自面 ingress のこだま、質問・許可要求、思考、
+成功した tool、端末入力・自動注入の user 発言、Cc 自身の inject の写し) は `src/platform/session-message-relay.ts`、
+部署の出力方針 (途中の発言・Cc の指令の転記) は `src/platform/relay-output-filter.ts` を Discord と共用する。
+Slack 固有は次の 3 点。
+
+- user 発言は web 由来だけを流す。Discord から来た人間の指示は Slack へ転記しない。
+- ターン中の状態表示 (`response_turn`) は working indicator が持つので流さない。
+- 1 発言 1 投稿。`update` は配送記録 (`session_message_delivery`、platform=`slack`) から投稿を引いて `chat.update` する。
+
+生の `transcript.frame` は Slack へ直接流さない (projector が作る `session.message` だけを使う)。
+`chat.posted` も部署の出力方針に従い、途中の発言を止めた部署では本人の session 宛て (`system`) の
+添付つき成果物だけを流す。
 
 session 非紐付け chat は Hub のトップレベルへ投稿する。通常 relay は mention sanitizer を通し、
 user mention / `@channel` / `@here` を生成しない。
@@ -203,6 +218,7 @@ channel provisioning 時に明示的な error log を出す。旧 thread-per-ses
 ## テスト
 
 repository、name collision、concurrent ensure、top-level egress、Hub/session ingress、thread ignore、
-question channel mapping、添付のアップロード (まとめて 1 回・不在や容量超過を飛ばす・失敗で投稿を落とさない)、起動者招待 (対応表解決・招待済み/失敗の扱い)、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
+question channel mapping、session.message の出し分け (Discord と共通の判定・出力方針・update の編集)、
+`cc-<題>` の命名と改名、添付のアップロード (まとめて 1 回・不在や容量超過を飛ばす・失敗で投稿を落とさない)、起動者招待 (対応表解決・招待済み/失敗の扱い)、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
 Vitest で検証する。live Slack 接続試験は stable checkout で Concordia testing claim と Excubitor
 を使う場合に限る。

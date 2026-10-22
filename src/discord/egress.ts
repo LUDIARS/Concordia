@@ -16,7 +16,14 @@ import {
   shouldRelaySessionChatPost,
   shouldRelaySessionMessage,
   type RelayOutputPolicy,
-} from "./relay-output-filter.js";
+} from "../platform/relay-output-filter.js";
+import { isCcInjectEcho, isRelayableCanonicalMessage } from "../platform/session-message-relay.js";
+
+// 既存の呼び出し元 (テスト) 向けに再公開する。
+export { isCcInjectEcho };
+
+/** Discord が流すユーザー入力の出所 (Discord 自身の ingress はこだまなので含めない)。 */
+const DISCORD_RELAYED_USER_ORIGINS = ["web", "slack"] as const;
 
 const BASE64_BYTES_PER_QUARTET = 3;
 const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
@@ -238,28 +245,15 @@ async function handleSessionMessage(
     deps.log.warn(`egress: session.message active check inconsistent session=${ev.target_session_id} message=${ev.message.id}`);
     return;
   }
-  // Discord ingress is already the original message on its channel. Reposting its
-  // canonical projection would create an immediate self-echo.
-  if (ev.message.author_platform === "discord") return;
-  // Questions and permission requests retain their interactive Discord adapters.
-  // Their canonical records remain the WebUI source of truth; the specialized
-  // adapter owns buttons and their state transitions until it is migrated.
-  if (ev.message.author_type === "question" || ev.message.author_type === "permission") return;
-  if (ev.message.author_type === "thinking" && deps.messageOptimizationEnabled) return;
-  // A successful tool call carries no information the reader acts on, and one line
-  // per call buries the assistant's own messages in the thread. Only failures are
-  // relayed; the full lifecycle (running / succeeded / failed) stays in the
-  // canonical stream that the WebUI renders.
-  if (ev.message.author_type === "tool" && !isToolFailure(ev.message)) return;
-  // Terminal keystrokes, slash commands, harness injections and skill bootstrap
-  // text all land in the canonical stream as `user` messages carrying no
-  // originating platform. Discord already posts its own ingress, so relaying
-  // these echoes raw command input back into the thread. The WebUI keeps the
-  // full record; only an ingress Discord has not already seen is relayed.
-  if (ev.message.author_type === "user" && !isRelayableUserOrigin(ev.message.author_platform)) return;
-  // Cc 自身の inject ([自動確認] / [Cc policy update] など) は cc-inject-mirror が 1 行だけ
-  // 通知する。 author_type が system に変わっても本文はスレッドへ出さない (2026-10-05 neco 指示)。
-  if (isCcInjectEcho(ev.message)) return;
+  // Discord / Slack 共通の内容判定 (platform/session-message-relay.ts)。 Discord 自身の ingress は
+  // こだま、 質問と許可要求は専用アダプタ、 成功したツール・端末入力や自動注入のユーザー発言・
+  // Cc 自身の inject ([自動確認] / [Cc policy update] など、 cc-inject-mirror が 1 行だけ通知する) は流さない。
+  // ユーザー入力は Discord がまだ見ていない ingress (web / slack) だけを流す。
+  if (!isRelayableCanonicalMessage(ev.message, {
+    platform: "discord",
+    relayedUserOrigins: DISCORD_RELAYED_USER_ORIGINS,
+    hideThinking: deps.messageOptimizationEnabled === true,
+  })) return;
   const outputPolicy = deps.relayOutputPolicy?.(ev.target_session_id);
   if (outputPolicy && !shouldRelaySessionMessage(ev.message, outputPolicy) && !terminalDelivery) return;
 
@@ -328,25 +322,6 @@ function formatSessionMessageContent(message: SessionMessagePayload): string {
   return content;
 }
 
-/**
- * A `user` message is relayed only when it entered through an ingress Discord
- * itself does not carry. `discord` is dropped earlier as a self-echo; `lictor`
- * and a null platform are terminal input or automated injection.
- */
-function isRelayableUserOrigin(platform: string | null): boolean {
-  return platform === "web" || platform === "slack";
-}
-
-/**
- * 出所 (人の操作) を持たない Cc 由来 inject の写し。 人の絵文字操作から展開した注入は
- * metadata.injection を持ち、 従来どおり転記する。
- */
-export function isCcInjectEcho(message: Pick<SessionMessagePayload, "author_type" | "metadata">): boolean {
-  return message.author_type === "system"
-    && message.metadata?.inject_is_cc === true
-    && !message.metadata?.injection;
-}
-
 function formatToolLabel(label: string): string {
   if (!/(?:^|[^a-z0-9])(?:cc|concordia|ludiars)(?:$|[^a-z0-9])/i.test(label)) return label;
   return `\`${label.replaceAll("`", "\\`")}\``;
@@ -380,15 +355,6 @@ function filesFromAttachments(attachments: Attachment[] | null): Array<{ attachm
     totalBytes += data.length;
   }
   return files;
-}
-
-/**
- * A tool message reports failure only through `metadata.is_error`, which the
- * projection sets on the tool-result frame. The `running` create event has no
- * outcome yet and is therefore never a failure.
- */
-function isToolFailure(message: SessionMessagePayload): boolean {
-  return message.metadata?.is_error === true;
 }
 
 /**

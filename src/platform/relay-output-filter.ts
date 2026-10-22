@@ -1,5 +1,5 @@
 /**
- * 部署の出力方針で、 セッションの発言を Discord へ流すかを決める純関数 (spec/feature/departments.md §9.4)。
+ * 部署の出力方針で、 セッションの発言を Discord / Slack へ流すかを決める純関数 (spec/feature/departments.md §9.4)。
  *
  * 2026-10-02 neco 指示 (技術相談課): フォーラム / チャンネルに出すのは「FINAL ANSWER のみ」で、
  * Cc の Inject 指令は出さない。 前提質問と状態カードは残す (それぞれ別の経路で投稿される)。

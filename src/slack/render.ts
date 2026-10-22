@@ -1,7 +1,6 @@
 // Slack 投稿ペイロードの組み立て + interaction 解析（純粋関数）。
 // 副作用 (Web API 呼び出し) は bot.ts 側。ここはテスト可能なロジックだけ。
 
-import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 import { formatOptionCode, labelWithOptionCode } from "../shared/option-code.js";
 
 /** Slack section text の実用上限に合わせた truncate（block text は 3000 字制限）。 */
@@ -190,22 +189,6 @@ const SLACK_REACTION_UNICODE: Record<string, string> = {
 export function slackReactionToUnicode(name: string): string | null {
   const base = (name ?? "").trim().split("::")[0];
   return SLACK_REACTION_UNICODE[base] ?? null;
-}
-
-/**
- * transcript.frame を Slack に中継すべきか判定し、本文を抽出する。
- * discord/egress.ts と同じ意味論:
- *   - kind=text && role=assistant : AI の人間向け本文
- *   - kind=summary                : 会話要約
- *   - それ以外 (tool-use/result/thinking/raw/user) は null（中継しない）
- * 未構造化 ask のfail-loud化・本文ベースの drop フィルタ (guardian JSON 等) も適用する。
- * @implements spec/feature/discord-lictor-relay.md — ask マーカーの fail-loud 中継
- */
-export function extractRelayableFrame(
-  kind: string,
-  payload: unknown,
-): { role: "assistant" | "summary"; text: string } | null {
-  return extractRelayableTextFrame(kind, payload);
 }
 
 /**

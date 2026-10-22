@@ -61,3 +61,14 @@ export function resolveSessionOutputMode(
     return "inherit";
   }
 }
+
+/**
+ * チャット面へ流す発言の方針 (途中の発言・Cc の指令の転記)。 Slack はこれで Discord と同じ出し分けをする
+ * (Discord bot は同じ規則を自前の resolve で組み立てる)。
+ */
+export function resolveRelayOutputPolicy(ports: SessionOutputPorts, sessionId: string): { intermediate: boolean; injectTranscript: boolean } {
+  return {
+    intermediate: isOutputEnabled(resolveSessionOutputMode(ports, sessionId, "intermediate"), true),
+    injectTranscript: isOutputEnabled(resolveSessionOutputMode(ports, sessionId, "inject_transcript"), true),
+  };
+}

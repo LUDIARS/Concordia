@@ -132,7 +132,7 @@ import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/mod
 import { TeamsRepo } from "../db/teams-repo.js";
 import { DepartmentsRepo } from "../db/departments-repo.js";
 import { DepartmentService } from "../departments/service.js";
-import { isOutputEnabled, resolveSessionOutputMode } from "../departments/output-policy.js";
+import { isOutputEnabled, resolveRelayOutputPolicy, resolveSessionOutputMode } from "../departments/output-policy.js";
 import { setSessionEndOutputResolver } from "../control/session-end-output.js";
 import { UseCasesRepo } from "../db/use-cases-repo.js";
 import { UseCaseCorrectionsRepo } from "../db/use-case-corrections-repo.js";
@@ -2241,6 +2241,13 @@ export async function startBackend(): Promise<BackendHandle> {
   slackBotDeps = {
     db,
     readModel: chatReadModel,
+    // 部署の出力方針 (途中の発言・Cc の指令の転記、 departments.md §9.4)。 Discord と同じ解決で出し分ける。
+    relayOutputPolicy: (sessionId) => resolveRelayOutputPolicy({
+      sessionDepartmentId: (id) => repo.findSession(id)?.department_id ?? null,
+      departmentSettingsJson: (id) => departmentsRepo.find(id)?.settings_json ?? null,
+      departmentIdentity: (id) => departmentsRepo.find(id),
+      onBrokenSettings: (id) => log.warn(`department output policy unreadable department=${id}`),
+    }, sessionId),
     // cost Canvas の canvas_id 永続化 (slack_config key/value)。
     slackConfigRepo: slackConfig,
     concordiaUrl: publicUrl,

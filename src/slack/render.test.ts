@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildQuestionBlocks,
   buildSessionBotUsername,
-  extractRelayableFrame,
   parseAnswerActionId,
   sanitizeSlackMentions,
   truncateForSlack,
@@ -168,56 +167,6 @@ describe("slackReactionToUnicode", () => {
   it("ワークフロー対象外は null", () => {
     expect(slackReactionToUnicode("tada")).toBeNull();
     expect(slackReactionToUnicode("")).toBeNull();
-  });
-});
-
-describe("extractRelayableFrame", () => {
-  it("kind=text & role=assistant は中継対象", () => {
-    const r = extractRelayableFrame("text", { role: "assistant", text: "hello" });
-    expect(r).toEqual({ role: "assistant", text: "hello" });
-  });
-
-  it("relays Codex commentary (message optimization not wired for Slack)", () => {
-    expect(extractRelayableFrame("text", {
-      role: "assistant",
-      phase: "commentary",
-      text: "working",
-    })).toEqual({ role: "assistant", text: "working" });
-  });
-  it("kind=text & role=user は中継しない", () => {
-    expect(extractRelayableFrame("text", { role: "user", text: "hi" })).toBeNull();
-  });
-  it("kind=summary は中継対象（text/summary どちらのキーでも）", () => {
-    expect(extractRelayableFrame("summary", { text: "S1" })).toEqual({ role: "summary", text: "S1" });
-    expect(extractRelayableFrame("summary", { summary: "S2" })).toEqual({ role: "summary", text: "S2" });
-  });
-  it("tool-use / thinking / raw は中継しない", () => {
-    expect(extractRelayableFrame("tool-use", { name: "Bash" })).toBeNull();
-    expect(extractRelayableFrame("thinking", { preview: "..." })).toBeNull();
-    expect(extractRelayableFrame("raw", { type: "x" })).toBeNull();
-  });
-  it("空 text は中継しない", () => {
-    expect(extractRelayableFrame("text", { role: "assistant", text: "" })).toBeNull();
-    expect(extractRelayableFrame("summary", {})).toBeNull();
-  });
-  it("ask ブロックのみの本文を警告付きfail-loudメッセージとして返す", () => {
-    const askOnly = '```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
-    const result = extractRelayableFrame("text", { role: "assistant", text: askOnly });
-    expect(result?.text).toContain("質問カードを生成できませんでした");
-    expect(result?.text).toContain(askOnly);
-  });
-  it("ask ブロック + 散文を警告とraw質問ごと保持する", () => {
-    const mixed = '進め方を確認します。\n\n```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
-    const r = extractRelayableFrame("text", { role: "assistant", text: mixed });
-    expect(r?.role).toBe("assistant");
-    expect(r?.text).toContain("質問カードを生成できませんでした");
-    expect(r?.text).toContain("進め方を確認します。");
-    expect(r?.text).toContain('"question":"どっち?"');
-  });
-  it("summary の ask ブロックは除去しない（assistant のみ対象）", () => {
-    const askBlock = '```ask\n{"question":"Q","options":[]}\n```';
-    const r = extractRelayableFrame("summary", { text: askBlock });
-    expect(r).toEqual({ role: "summary", text: askBlock });
   });
 });
 

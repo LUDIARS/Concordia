@@ -29,3 +29,20 @@ export function startCloudForum(input: { root: string; guild: Guild; forumId: st
     },
   };
 }
+
+/**
+ * Starts the cloud forum, or reports why it cannot start and returns null. The cloud forum is one
+ * feature of the Discord bot: a missing or invalid observation root (CONCORDIA_ARTIFACT_ROOT on a
+ * site that never received an artifact) must not stop the whole bot in its ready handler.
+ */
+export function tryStartCloudForum(
+  input: Parameters<typeof startCloudForum>[0],
+  start: typeof startCloudForum = startCloudForum,
+): ReturnType<typeof startCloudForum> | null {
+  try {
+    return start(input);
+  } catch (error) {
+    input.warn(`Cloud forum disabled: ${(error as Error).message} (root=${input.root || "(unset)"}); the Discord bot keeps running`);
+    return null;
+  }
+}

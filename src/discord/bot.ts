@@ -150,7 +150,7 @@ import { createTestForumDiscordAdapter, refreshTestForumControls } from "./test-
 import { createTestForumQaHooks } from "./test-forum-qa.js";
 import { resolveSessionMentions } from "./test-forum-mentions.js";
 import { handleTestForumMessage } from "./test-forum-message.js";
-import { startCloudForum } from "./cloud-forum-runtime.js";
+import { startCloudForum, tryStartCloudForum } from "./cloud-forum-runtime.js";
 import { callConcordia } from "./commands/_util.js";
 import { createConversationIngressPort } from "./conversation-ingress.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
@@ -1305,7 +1305,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
       if (!subsidiaryId && process.env.CONCORDIA_CLOUD_OBSERVATION_ENABLED === "true") {
         await cloudObservationForum?.stop();
-        cloudObservationForum = startCloudForum({ root: process.env.CONCORDIA_ARTIFACT_ROOT ?? "",
+        // 開始できなくても Discord Bot 全体は止めない (クラウドフォーラムだけ無効にして warn を残す)。
+        cloudObservationForum = tryStartCloudForum({ root: process.env.CONCORDIA_ARTIFACT_ROOT ?? "",
           guild, forumId: layout.cloudForumId ?? "", config: configRepo,
           allowed: userId => isSessionControlUserAllowed?.(userId) === true, warn: message => log.warn(message) });
       }

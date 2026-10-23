@@ -53,7 +53,7 @@ function isEntryShape(value: unknown): value is SlackMemberMapEntry {
 }
 
 /**
- * 起動者を Slack ユーザ ID に解決する。 Slack 起動はそのまま、 Discord 起動は
+ * 起動者を Slack ユーザ ID に解決する。 Slack 起動は形式検証し、 Discord 起動は
  * 対応表で引く。 対応なしは null。
  */
 export function resolveSlackInvitee(
@@ -61,6 +61,6 @@ export function resolveSlackInvitee(
   memberMap: readonly SlackMemberMapEntry[],
 ): string | null {
   if (!requester) return null;
-  if (requester.platform === "slack") return requester.userId;
+  if (requester.platform === "slack") return SLACK_ID.test(requester.userId) ? requester.userId : null;
   return memberMap.find((entry) => entry.discord_user_id === requester.userId)?.slack_user_id ?? null;
 }

@@ -27,6 +27,17 @@ describe("parseSlackMemberMap", () => {
 });
 
 describe("resolveSlackInvitee", () => {
+  it.each(["UCCCC3333", "WBBBB2222", "U12", `W${"A".repeat(31)}`])("有効な Slack ID %s はそのまま返す", (userId) => {
+    expect(resolveSlackInvitee({ platform: "slack", userId }, MAP)).toBe(userId);
+  });
+
+  it.each([
+    "UCCCC3333,WBBBB2222", "", "C0123", "ucccc3333", "Uab", "U1",
+    `U${"A".repeat(32)}`, " UCCCC3333", "UCCCC3333 ", "UCCCC3333\n", "UCC\t3333",
+  ])("形式違反の Slack ID %j は招待しない", (userId) => {
+    expect(resolveSlackInvitee({ platform: "slack", userId }, MAP)).toBeNull();
+  });
+
   it("Slack 起動はそのまま、 Discord 起動は対応表で引く", () => {
     expect(resolveSlackInvitee({ platform: "slack", userId: "UCCCC3333" }, MAP)).toBe("UCCCC3333");
     expect(resolveSlackInvitee({ platform: "discord", userId: "111111111111" }, MAP)).toBe("UAAAA1111");

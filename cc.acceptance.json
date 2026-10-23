@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/slack/member-map.ts", "tests": ["src/slack/member-map.test.ts"], "contracts": [] },
     {"source":"src/delegation/vulnerability-intelligence-prompt.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts"],"contracts":["CC-CVE-01","CC-CVE-02","CC-CVE-03","CC-CVE-04","CC-CVE-05"]},
     {"source":"src/delegation/parttimer-prompts.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts","src/delegation/seed.test.ts"],"contracts":["CC-CVE-01","CC-CVE-02","CC-CVE-03","CC-CVE-04","CC-CVE-05"]},
     {"source":"src/delegation/seed.ts","tests":["src/delegation/vulnerability-intelligence-prompt.test.ts","src/delegation/seed.test.ts"],"contracts":["CC-CVE-01","CC-CVE-05"]},

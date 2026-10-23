@@ -69,6 +69,10 @@ session channel を作ったら、その session を起動した人間を `conve
 - 起動者は session の最も古い人間 inject (`discord:<uid>:…` / `slack:<uid>:…`) の入力者とする。
 - Slack 起動はその Slack ユーザ、Discord 起動は Slack 設定の「メンバー対応表」
   (Discord user ID → Slack member ID) で引いた Slack ユーザを招待する。対応が無ければ招待しない。
+- Slack 起動者の ID も既存の `^[UW][A-Z0-9]{2,31}$` に一致するときだけ招待先とする。
+  複数 ID や形式違反は `null` として招待しない (CC-SLACK-INVITE-01、UX-CC-W1 / CC-INV-02)。
+  招待先の判断は `chat-platforms` の `resolveSlackInvitee`、招待処理は `SlackSessionStarterInviter` が所有する。
+  関連タスク: `actio:73b173bb-a430-4e55-a48d-c434749b459a`。
 - 契機は channel 作成直後 (`session.started` / 起動時 reconcile) と人間 inject。最初の inject が
   まだ永続化されていない場合は、その inject の入力者を起動者として使う。
 - `already_in_channel` / `cant_invite_self` は招待済みとして扱う。それ以外の失敗は warn log のみで、

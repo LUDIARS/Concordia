@@ -1,7 +1,8 @@
 import { runAvailableText } from "../rules/available-text-runner.js";
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { cloudWorkRouter } from "./cloud-work.js";
-import { createCloudWorkRuntime } from "../cloud-work/runtime.js";
+import { createCloudBatchKicker, createCloudWorkRuntime } from "../cloud-work/runtime.js";
+import { startCloudBatchSchedule } from "../cloud-work/batch-schedule.js";
 import { serviceStatusRouter } from "./service-status.js";
 import { serviceStatusClient } from "../service-status/client.js";
 import { choresRouter } from "./chores.js";
@@ -491,6 +492,8 @@ export interface CoreRuntimeDeps {
    * @implements spec/feature/github-issue-workflow.md — 操作面
    */
   githubIssueWorkflow?: GithubIssueWorkflowApiDeps;
+  /** Owns the cloud batch timer so backend shutdown can stop it before closing persistence. */
+  ownCloudBatchSchedule?: (stop: () => Promise<void>) => void;
 }
 
 /** @implements spec/feature/github-issue-workflow.md — 操作面 */
@@ -867,16 +870,29 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       now: () => Date.now(),
     }));
   }
+  const authorizeCloudSubmit = async (sessionId: string, scope: { subsidiaryId: string | null }): Promise<void> => {
+    if (deps.costStatus?.().blocked || (usageBudgetGate && (await usageBudgetGate.check(sessionId)).deny)) {
+      throw new Error("cloud_budget_exhausted");
+    }
+    if (!sessionCaps.check(scope.subsidiaryId).allowed) throw new Error("cloud_company_capacity_exhausted");
+    if (hasPendingQuestion(sessionId)) throw new Error("cloud_pending_human_question");
+  };
+  const cloudRoot = join(dirname(deps.config.dbPath), "cloud-work");
+  const cloudRuntime = createCloudWorkRuntime({ root: cloudRoot, tasks: deps.taskStore, submitLocalPr: deps.submitDirectLocalPr });
+  // Unattended kicks reuse the creator session's budget/capacity/question gates.
+  const cloudBatches = createCloudBatchKicker({ root: cloudRoot, tasks: deps.taskStore, runtime: cloudRuntime,
+    authorizeKick: batch => authorizeCloudSubmit(batch.createdBySessionId, batch.scope) });
+  const stopCloudBatchSchedule = startCloudBatchSchedule(cloudBatches, process.env);
+  if (process.env.CONCORDIA_CLOUD_CONFIG_FILE && !deps.ownCloudBatchSchedule) {
+    void stopCloudBatchSchedule();
+    throw new Error("cloud_batch_schedule_owner_required");
+  }
+  deps.ownCloudBatchSchedule?.(async () => { await stopCloudBatchSchedule(); await cloudBatches.waitForIdle(); });
   app.route("/v1/delegation/cloud", cloudWorkRouter({
     sessions: deps.repo,
-    authorizeSubmit: async (sessionId, scope) => {
-      if (deps.costStatus?.().blocked || (usageBudgetGate && (await usageBudgetGate.check(sessionId)).deny)) {
-        throw new Error("cloud_budget_exhausted");
-      }
-      if (!sessionCaps.check(scope.subsidiaryId).allowed) throw new Error("cloud_company_capacity_exhausted");
-      if (hasPendingQuestion(sessionId)) throw new Error("cloud_pending_human_question");
-    },
-    runtime: createCloudWorkRuntime({ root: join(dirname(deps.config.dbPath), "cloud-work"), tasks: deps.taskStore, submitLocalPr: deps.submitDirectLocalPr }),
+    authorizeSubmit: authorizeCloudSubmit,
+    runtime: cloudRuntime,
+    batches: cloudBatches,
   }));
   app.route("/v1/delegation", delegationRouter({
     checkSessionCap: (subsidiaryId) => sessionCaps.check(subsidiaryId),

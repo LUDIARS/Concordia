@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +25,7 @@ async function fixture() {
       received: new Map([["scene.blend", content]]),
     })),
   };
-  return { runtime: new CloudWorkRuntime(ports), ports, submit, target, content };
+  return { runtime: new CloudWorkRuntime(ports), ports, submit, target, content, root };
 }
 
 describe("integrated cloud work runtime", () => {
@@ -99,5 +99,12 @@ describe("integrated cloud work runtime", () => {
     vi.mocked(f.ports.collect).mockResolvedValue({ manifest: { attemptId: "other" }, received: new Map() });
     await expect(f.runtime.collect(scope, input.attemptId)).rejects.toThrow();
     await expect(f.runtime.download(scope, input.attemptId, "scene.blend")).rejects.toThrow();
+  });
+  it("rejects malformed journal records at the batch observation boundary", async () => {
+    const f = await fixture();
+    await f.runtime.submit(scope, input);
+    const scopeKey = createHash("sha256").update(JSON.stringify([scope.repositoryKey, scope.subsidiaryId])).digest("hex");
+    await writeFile(join(f.root, scopeKey, `${input.attemptId}.receipt.json`), JSON.stringify({ state: "submitted", remoteId: { secret: true } }), "utf8");
+    await expect(f.runtime.attemptJournal(scope, input.attemptId)).rejects.toThrow("cloud_journal_incomplete");
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { cloudWorkRouter } from "./cloud-work.js";
 import type { CloudWorkRuntime } from "../cloud-work/runtime-service.js";
+import type { CloudBatchKicker } from "../cloud-work/batch-kicker.js";
 import type { SessionRow } from "../shared/types.js";
 
 const session: SessionRow = { id: "parent", provider: "codex-cli", repo_path: "repo-a", repo_origin: null,
@@ -59,5 +60,62 @@ describe("cloud delegation public boundary", () => {
     expect(response.headers.get("content-disposition")).toBe('attachment; filename="scene.blend"');
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(f.runtime.download).toHaveBeenCalledWith({ repositoryKey: "repo-a", subsidiaryId: "company-a" }, "attempt-1", "scene.blend");
+  });
+});
+
+describe("cloud batch public boundary", () => {
+  const batchBody = { session_id: "parent", batchId: "render-1", targetId: "target-1", taskReference: "actio:task-1",
+    instructionTemplate: "Render {{frame}}", shards: [{ frame: "1" }], computeReason: "render", llmReason: "visual judgment", gpuRequired: false };
+  function batchFixture(withBatches = true) {
+    const batches = { create: vi.fn(async () => ({ batchId: "render-1" })), list: vi.fn(async () => []),
+      status: vi.fn(async () => ({ batchId: "render-1" })), stop: vi.fn(async () => ({ stopped: true })),
+      startTick: vi.fn(), tick: vi.fn(async () => ({})) };
+    const authorizeSubmit = vi.fn(async () => {});
+    const app = cloudWorkRouter({ sessions: { findSession: (id: string) => id === session.id ? session : null },
+      runtime: {} as CloudWorkRuntime, repositoryKey: async p => p, authorizeSubmit,
+      ...(withBatches ? { batches: batches as unknown as CloudBatchKicker } : {}) });
+    return { app, batches, authorizeSubmit };
+  }
+  const owner = { repositoryKey: "repo-a", subsidiaryId: "company-a" };
+  it("creates through the submit gates with the live session's scope", async () => {
+    const f = batchFixture();
+    expect((await f.app.request("/batches", post(batchBody))).status).toBe(202);
+    expect(f.authorizeSubmit).toHaveBeenCalledWith("parent", owner);
+    expect(f.batches.create).toHaveBeenCalledWith(owner, "parent", expect.objectContaining({ batchId: "render-1", concurrency: 1 }));
+  });
+  it.each([{ executable: "evil" }, { concurrency: 11 }, { attemptId: "x" }])("rejects client-selected execution fields and bounds", async patch => {
+    const f = batchFixture();
+    expect((await f.app.request("/batches", post({ ...batchBody, ...patch }))).status).toBe(400);
+    expect(f.batches.create).not.toHaveBeenCalled();
+  });
+  it("accepts a batch body larger than a single run body", async () => {
+    const f = batchFixture();
+    const shards = Array.from({ length: 100 }, (_, i) => ({ frame: `${i}`.padEnd(400, "x") }));
+    expect((await f.app.request("/batches", post({ ...batchBody, shards }))).status).toBe(202);
+  });
+  it("gates stop and tick by live session; only tick re-checks submit gates", async () => {
+    const f = batchFixture();
+    expect((await f.app.request("/batches/render-1/stop", post({ session_id: "parent" }))).status).toBe(200);
+    expect(f.authorizeSubmit).not.toHaveBeenCalled();
+    expect((await f.app.request("/batches/render-1/tick", post({ session_id: "parent" }))).status).toBe(202);
+    expect(f.authorizeSubmit).toHaveBeenCalledOnce();
+    expect(f.batches.startTick).toHaveBeenCalledWith(owner, "render-1");
+    expect((await f.app.request("/batches/render-1/tick", post({ session_id: "nobody" }))).status).toBe(403);
+    expect((await f.app.request("/batches/render-1?session_id=parent")).status).toBe(200);
+    expect(f.batches.status).toHaveBeenCalledWith(owner, "render-1");
+  });
+  it("maps kicker errors to the closed vocabulary and reports absence explicitly", async () => {
+    const f = batchFixture();
+    f.batches.create.mockRejectedValueOnce(new Error("cloud_batch_conflict"));
+    const response = await f.app.request("/batches", post(batchBody));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "cloud_batch_conflict" });
+    expect((await batchFixture(false).app.request("/batches?session_id=parent")).status).toBe(503);
+  });
+  it("bounds batch listing work", async () => {
+    const f = batchFixture();
+    expect((await f.app.request("/batches?session_id=parent&limit=50")).status).toBe(200);
+    expect(f.batches.list).toHaveBeenCalledWith(owner, 50);
+    expect((await f.app.request("/batches?session_id=parent&limit=51")).status).toBe(400);
   });
 });

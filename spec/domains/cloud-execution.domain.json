@@ -4,6 +4,6 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [{ "pathPattern": "(^|/)src/cloud-work/[^/]+\\.ts$" }, { "pathPattern": "(^|/)src/api/cloud-work(\\.test)?\\.ts$" }, { "pathPattern": "(^|/)src/mcp/cloud-work-tools(\\.test)?\\.ts$" }, { "pathPattern": "(^|/)web/src/pages/delegation/CloudWorkPanel(\\.test)?\\.tsx$" }],
-  "specRefs": ["spec/feature/cloud-artifact-return.md", "spec/feature/cloud-work-git-return.md", "spec/feature/cloud-work-eligibility.md", "spec/feature/cloud-work-runtime.md", "spec/feature/cloud-work-setup.md", "spec/plan/2026-10-16-cloud-work-delegation.md"],
+  "specRefs": ["spec/feature/cloud-artifact-return.md", "spec/feature/cloud-work-git-return.md", "spec/feature/cloud-work-eligibility.md", "spec/feature/cloud-work-runtime.md", "spec/feature/cloud-work-setup.md", "spec/feature/cloud-work-batch-kicker.md", "spec/plan/2026-10-16-cloud-work-delegation.md"],
   "rationale": "クラウド利用の業務条件をCLI・HTTP・設定読取から独立させ、どちらのproviderにも同じ判定を適用する。"
 }

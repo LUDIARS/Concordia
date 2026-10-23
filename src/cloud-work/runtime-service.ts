@@ -6,6 +6,7 @@ import { cloudTargetReady, resolveCloudWork, CloudWorkPlanSchema } from "./runti
 import { FileCloudSubmissionStore } from "./file-submission-store.js";
 import { submitCloudWork, type CloudSubmission, type CloudSubmitter } from "./submission.js";
 import { verifyCloudArtifacts } from "./artifact-verification.js";
+import type { AttemptJournal } from "./batch-policy.js";
 
 export interface CloudScope { repositoryKey: string; subsidiaryId: string | null }
 export interface CloudWorkInput {
@@ -119,6 +120,40 @@ export class CloudWorkRuntime {
       receipt: receipt ?? { state: "submission_unknown" }, reconciliation, verified,
       state: verified ? (run.transferMode === "git" ? (verified as { state: string }).state : "artifacts_verified")
         : (receipt as { state?: string } | null)?.state ?? "submission_unknown" };
+  }
+
+  /** Journal facts only; task authorization is the caller's responsibility. */
+  async attemptJournal(scope: CloudScope, attemptId: string): Promise<AttemptJournal> {
+    const store = this.store(scope);
+    const intent = await store.readRecord(attemptId, "intent");
+    if (!intent) {
+      return { intent: false, receipt: null, reconciliationRemoteId: null, verified: false };
+    }
+    if (typeof intent !== "object" || (intent as { attemptId?: unknown }).attemptId !== attemptId
+      || !["codex-cloud", "claude-cloud"].includes(String((intent as { provider?: unknown }).provider))) {
+      throw new Error("cloud_journal_incomplete");
+    }
+    const provider = (intent as { provider: "codex-cloud" | "claude-cloud" }).provider;
+    const validRemoteId = (value: unknown): value is string => typeof value === "string"
+      && (provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^session_[A-Za-z0-9_-]+$/).test(value)
+      && value.length <= 200;
+    const receiptValue = await store.readRecord(attemptId, "receipt");
+    let receipt: AttemptJournal["receipt"] = null;
+    if (receiptValue !== null) {
+      if (typeof receiptValue !== "object") throw new Error("cloud_journal_incomplete");
+      const candidate = receiptValue as { state?: unknown; remoteId?: unknown };
+      if (candidate.state === "submission_unknown") receipt = { state: "submission_unknown" };
+      else if (candidate.state === "submitted" && validRemoteId(candidate.remoteId)) {
+        receipt = { state: "submitted", remoteId: candidate.remoteId };
+      }
+      else throw new Error("cloud_journal_incomplete");
+    }
+    const reconciliation = await store.readRecord(attemptId, "reconciliation");
+    const reconciliationRemoteId = reconciliation === null ? null
+      : typeof reconciliation === "object" && validRemoteId((reconciliation as { remoteId?: unknown }).remoteId)
+        ? (reconciliation as { remoteId: string }).remoteId : null;
+    if (reconciliation !== null && reconciliationRemoteId === null) throw new Error("cloud_journal_incomplete");
+    return { intent: true, receipt, reconciliationRemoteId, verified: !!await store.readRecord(attemptId, "verified") };
   }
 
   async list(scope: CloudScope): Promise<unknown[]> {

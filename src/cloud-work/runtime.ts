@@ -2,7 +2,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import type { TaskStore } from "../taskflow/store.js";
-import { CloudWorkRuntime } from "./runtime-service.js";
+import { CloudWorkRuntime, type CloudScope } from "./runtime-service.js";
+import { CloudBatchKicker } from "./batch-kicker.js";
+import { FileCloudBatchStore, type StoredCloudBatch } from "./batch-store.js";
+import { observeCodexCloudTasks } from "./codex-observer.js";
 import { readCloudTargets, type CloudTarget } from "./runtime-config.js";
 import { createCodexCloudAdapter } from "./codex-adapter.js";
 import { createClaudeCloudAdapter } from "./claude-adapter.js";
@@ -32,6 +35,30 @@ export async function preflightCloudTarget(target: CloudTarget, run: PreflightCo
   }
 }
 
+function cloudTaskAuthorizer(tasks: TaskStore) {
+  return async (reference: string, scope: CloudScope, requireActive?: boolean): Promise<void> => {
+    if (!tasks.read) throw new Error("cloud_task_store_unavailable");
+    const task = await tasks.read(scope.repositoryKey, reference, scope.subsidiaryId);
+    if (requireActive && ["done", "cancelled"].includes(task.runtime?.status ?? "")) throw new Error("cloud_task_not_active");
+  };
+}
+
+/** Batch fan-out over the same runtime; only Codex Cloud has a supported read-only task listing. */
+export function createCloudBatchKicker(input: { root: string; tasks: TaskStore; runtime: CloudWorkRuntime;
+  authorizeKick(batch: StoredCloudBatch): Promise<void> }): CloudBatchKicker {
+  return new CloudBatchKicker({
+    store: new FileCloudBatchStore(join(input.root, "batches")),
+    targets: scope => input.runtime.targets(scope),
+    authorizeTask: cloudTaskAuthorizer(input.tasks),
+    authorizeKick: input.authorizeKick,
+    submit: (scope, request) => input.runtime.submit(scope, request),
+    journal: (scope, attemptId) => input.runtime.attemptJournal(scope, attemptId),
+    observe: (target, wanted) => observeCodexCloudTasks({ executable: target.codexExecutable!, cwd: target.repoPath,
+      environmentId: target.environmentId, wanted }),
+    now: () => Date.now(),
+  });
+}
+
 /** Composition only; secrets are resolved through existing service env bindings. */
 export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; env?: NodeJS.ProcessEnv; submitLocalPr?: SubmitCloudLocalPr }): CloudWorkRuntime {
   const env = input.env ?? process.env;
@@ -40,11 +67,7 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
   return new CloudWorkRuntime({
     root: input.root, env, now: () => Date.now(),
     targets: () => readCloudTargets(env.CONCORDIA_CLOUD_CONFIG_FILE), repositoryKey: mainRepositoryKey,
-    authorizeTask: async (reference, scope, requireActive) => {
-      if (!input.tasks.read) throw new Error("cloud_task_store_unavailable");
-      const task = await input.tasks.read(scope.repositoryKey, reference, scope.subsidiaryId);
-      if (requireActive && ["done", "cancelled"].includes(task.runtime?.status ?? "")) throw new Error("cloud_task_not_active");
-    },
+    authorizeTask: cloudTaskAuthorizer(input.tasks),
     preflight: async target => {
       if (env.CONCORDIA_CLOUD_OBSERVATION_ENABLED === "true" && target.subsidiaryId !== null)
         throw new Error("cloud_observation_head_office_only");

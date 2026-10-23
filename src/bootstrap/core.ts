@@ -2372,6 +2372,7 @@ export async function startBackend(): Promise<BackendHandle> {
   if (webSsoConfig) log.info({ publicHost: webSsoConfig.publicHost }, "public host requires a Cernere enterprise session");
   // LINE の共用チャネルのトークごとの紐付け。 受け口と管理 API で同じものを使う。
   const lineTalkLinks = new SqliteLineTalkLinkStore(db);
+  const cloudBatchScheduleStops: Array<() => Promise<void>> = [];
   const app = buildApp({
     webSso,
     lineWebhook: {
@@ -2385,6 +2386,7 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     },
     lineTalkLinks,
+    ownCloudBatchSchedule: stop => { cloudBatchScheduleStops.push(stop); },
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
@@ -3420,6 +3422,9 @@ export async function startBackend(): Promise<BackendHandle> {
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
 
   const resources = new ResourceOwner((message) => log.warn(message));
+  resources.own("cloud batch schedule", async () => {
+    for (const stop of cloudBatchScheduleStops.splice(0).reverse()) await stop();
+  });
   resources.own("developer tool tests", async () => { toolAugur.close(); await toolTestJobs.close(); });
   resources.own("workflow bindings", () => workflowBindings.stop());
   resources.own("web push", () => stopWebPushService());

@@ -122,6 +122,30 @@ base → 実行 platform (`win32` / `darwin`) → federation site ID で、よ�
 site が handshake で申告した platform と site ID を本社が使い、解決済みテンプレだけを
 config snapshot として配る。override 行自体は配らないため、他拠点の設定を露出しない。
 
+### 2.3 拠点ごとの category 既定値
+
+**Requirement ID: `SPEC-DELEGATION-SITE-CATEGORY-DEFAULTS`**
+
+拠点ではパートタイマーを既定で動かさず、使いたいものだけを個別にオンにする
+(2026-10-23 ユーザ指示「パートの既定値は OFF、プラグイン的に追加して気に入ったものだけ ON」。
+MELPOT 拠点で不要なパートタイマーが動いていたことが発端)。
+
+- `delegation_category_defaults(scope_kind='site', scope_key, category, is_active)` が拠点の既定を持つ。
+  行が無いときは組み込み既定 (`BUILTIN_SITE_CATEGORY_DEFAULTS`: `parttimer` はオフ) に従う。
+  本社 (site ID なし) と組み込み既定に無い category は、既定で止めない (従来どおり)。
+- 解決順は base → platform override → 拠点の category 既定 → 拠点のテンプレ別 override。
+  テンプレ別の site override の `patch.is_active` が例外として既定に勝つ。
+  既定がオンでもテンプレ自体が `is_active=0` なら動かさない (既定はオフ方向にだけ働く)。
+- API (`/v1/delegation/site-category-defaults`):
+  - `GET /:site/:category` — その category のテンプレ一覧と、既定・例外・実効の状態
+  - `PUT /:site/:category` `{ is_active: boolean | null }` — 拠点の既定。`null` で組み込み既定へ戻す
+  - `PUT /:site/:category/templates/:identifier` `{ enabled: boolean | null }` — テンプレ別の例外。
+    site override の `is_active` だけを足し外しし、他の patch キーは保つ。`null` で外し、patch が空なら override を消す
+- WebUI: Delegation ページの「拠点のパートタイマー」。拠点 ID は `/v1/federation/site` の自拠点を既定にし、
+  本社では管理したい拠点 ID を入れる。
+- cron 発火・手動 invoke とも `DelegationService.invoke` の解決を通るので、既定オフのテンプレは
+  `template is inactive` で起動しない。
+
 ## 3. テンプレ render
 
 - `${var_name}` を args[var_name] で置換

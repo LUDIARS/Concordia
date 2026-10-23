@@ -231,7 +231,7 @@ export class DelegationService {
         ? this.deps.siteId()
         : readFederationEnv(process.env, { deferListenerPortValidation: true }).siteId,
     };
-    const resolved = resolveTemplateForScope(tpl, this.deps.repo.listTemplateOverrides(tpl.id), scope);
+    const resolved = resolveTemplateForScope(tpl, this.deps.repo.listTemplateOverrides(tpl.id), scope, this.deps.repo.listCategoryDefaults());
     if (!resolved.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
     return this.runDefinition(templateToDefinition(resolved), input);
   }

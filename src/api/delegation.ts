@@ -85,6 +85,7 @@ function budgetRequesterInput(requester: BudgetRequester | null): InvokeInput["b
 }
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { mergeTaskflowReference, TASKFLOW_REFERENCE } from "../delegation/work-key.js";
+import { siteCategoryDefaultsRouter } from "./delegation-site-category-defaults.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 const statusLogger = createChildLogger("delegation-status");
@@ -368,6 +369,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       ts: Math.floor(Date.now() / 1000),
     });
   }
+  app.route("/site-category-defaults", siteCategoryDefaultsRouter({ repo: deps.repo, onTemplateChanged: (row) => invalidateTemplates("patch", row) }));
 
   // mutating endpoint は bearer token を要求しない。 Concordia は loopback
   // (既定 127.0.0.1:11111) 限定で動き、 /v1/admin/* と同じ信頼境界に乗る。

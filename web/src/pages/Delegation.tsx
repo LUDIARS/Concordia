@@ -8,6 +8,7 @@ import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/Run
 import { useDelegationState } from "./delegation/useDelegationState.js";
 import { TemplateOverrides } from "./delegation/TemplateOverrides.js";
 import { CloudWorkPanel } from "./delegation/CloudWorkPanel.js";
+import { SiteParttimers } from "./delegation/SiteParttimers.js";
 
 export function Delegation() {
   const { invokeTier, setInvokeTier, templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced, refresh } = useDelegationState();
@@ -19,6 +20,7 @@ export function Delegation() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <CloudWorkPanel />
+      <SiteParttimers />
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Delegation Templates</h1>
         <p className="text-subtle text-sm">

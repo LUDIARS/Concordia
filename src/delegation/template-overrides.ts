@@ -1,21 +1,28 @@
-import type { DelegationTemplateOverrideRow, DelegationTemplateRow } from "../db/delegation-repo.js";
+import type { DelegationCategoryDefaultRow, DelegationTemplateOverrideRow, DelegationTemplateRow } from "../db/delegation-repo.js";
+import { siteCategoryDefault } from "./category-defaults.js";
 
 export const TEMPLATE_OVERRIDE_PATCH_KEYS = ["target_provider", "model", "default_cwd", "runtime_options_json", "is_active"] as const;
 type PatchKey = (typeof TEMPLATE_OVERRIDE_PATCH_KEYS)[number];
 type TemplatePatch = Partial<Pick<DelegationTemplateRow, PatchKey>>;
 
-/** @implements SPEC-DELEGATION-TEMPLATE-OVERRIDES */
+/**
+ * 適用順: base → platform override → 拠点の category 既定 → 拠点のテンプレ別 override (例外が勝つ)。
+ *
+ * @implements SPEC-DELEGATION-TEMPLATE-OVERRIDES
+ * @implements SPEC-DELEGATION-SITE-CATEGORY-DEFAULTS
+ */
 export function resolveTemplateForScope(
   base: DelegationTemplateRow,
   overrides: readonly DelegationTemplateOverrideRow[],
   scope: { platform: NodeJS.Platform | null; siteId: string | null },
+  categoryDefaults: readonly DelegationCategoryDefaultRow[] = [],
 ): DelegationTemplateRow {
   let resolved = { ...base };
-  const candidates = [
-    ...(scope.platform ? overrides.filter((row) => row.is_active === 1 && row.scope_kind === "platform" && row.scope_key === scope.platform) : []),
-    ...(scope.siteId ? overrides.filter((row) => row.is_active === 1 && row.scope_kind === "site" && row.scope_key === scope.siteId) : []),
-  ];
-  for (const row of candidates) resolved = applyTemplatePatch(resolved, parsePatch(row.patch_json));
+  const platformRows = scope.platform ? overrides.filter((row) => row.is_active === 1 && row.scope_kind === "platform" && row.scope_key === scope.platform) : [];
+  const siteRows = scope.siteId ? overrides.filter((row) => row.is_active === 1 && row.scope_kind === "site" && row.scope_key === scope.siteId) : [];
+  for (const row of platformRows) resolved = applyTemplatePatch(resolved, parsePatch(row.patch_json));
+  if (siteCategoryDefault(resolved.category, scope.siteId, categoryDefaults) === false) resolved = { ...resolved, is_active: 0 };
+  for (const row of siteRows) resolved = applyTemplatePatch(resolved, parsePatch(row.patch_json));
   return resolved;
 }
 

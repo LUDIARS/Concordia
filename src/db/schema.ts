@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 144;
+export const SCHEMA_VERSION = 145;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3784,6 +3784,25 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         UNIQUE(channel, talk_id, service)
       );
       CREATE INDEX IF NOT EXISTS idx_line_talk_links_talk ON line_talk_links(channel, talk_id);
+    `);
+  },
+},
+{
+  version: 145,
+  name: "delegation-category-defaults",
+  source: "delegation_category_defaults (spec/feature/delegation.md §2.3 拠点ごとの category 既定値)",
+  up(db) {
+    // 拠点 (site) ごとに category (parttimer 等) を既定で動かすか。 テンプレ別の例外は
+    // delegation_template_overrides の site scope が持つ。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS delegation_category_defaults (
+        scope_kind TEXT NOT NULL,
+        scope_key  TEXT NOT NULL,
+        category   TEXT NOT NULL,
+        is_active  INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (scope_kind, scope_key, category)
+      );
     `);
   },
 },

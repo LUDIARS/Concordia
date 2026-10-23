@@ -72,6 +72,14 @@ export interface DelegationTemplateRow {
 }
 
 export type DelegationTemplateOverrideScopeKind = "platform" | "site";
+export interface DelegationCategoryDefaultRow {
+  scope_kind: "site";
+  scope_key: string;
+  category: string;
+  is_active: number;
+  updated_at: number;
+}
+
 export interface DelegationTemplateOverrideRow {
   id: string;
   template_id: string;
@@ -523,6 +531,28 @@ export class DelegationRepo {
 
   deleteTemplateOverride(id: string): boolean {
     return this.db.prepare("DELETE FROM delegation_template_overrides WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** 拠点ごとの category 既定値 (spec/feature/delegation.md §2.3)。 */
+  listCategoryDefaults(): DelegationCategoryDefaultRow[] {
+    return this.db.prepare("SELECT * FROM delegation_category_defaults ORDER BY scope_kind, scope_key, category")
+      .all() as DelegationCategoryDefaultRow[];
+  }
+
+  upsertCategoryDefault(input: { scope_key: string; category: DelegationCategory; is_active: boolean }): DelegationCategoryDefaultRow {
+    validateTemplateOverrideScope("site", input.scope_key);
+    if (!(DELEGATION_CATEGORIES as readonly string[]).includes(input.category)) throw new Error("invalid_category");
+    this.db.prepare(`INSERT INTO delegation_category_defaults (scope_kind, scope_key, category, is_active, updated_at)
+      VALUES ('site', ?, ?, ?, ?)
+      ON CONFLICT(scope_kind, scope_key, category) DO UPDATE SET is_active = excluded.is_active, updated_at = excluded.updated_at`)
+      .run(input.scope_key, input.category, input.is_active ? 1 : 0, Date.now());
+    return this.db.prepare("SELECT * FROM delegation_category_defaults WHERE scope_kind = 'site' AND scope_key = ? AND category = ?")
+      .get(input.scope_key, input.category) as DelegationCategoryDefaultRow;
+  }
+
+  deleteCategoryDefault(scopeKey: string, category: string): boolean {
+    return this.db.prepare("DELETE FROM delegation_category_defaults WHERE scope_kind = 'site' AND scope_key = ? AND category = ?")
+      .run(scopeKey, category).changes > 0;
   }
 
   // ── runs ──────────────────────────────────────────────────

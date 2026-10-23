@@ -242,6 +242,50 @@ describe("discord ingress chat routing", () => {
     expect(body.text).toContain("添付画像の内容を読み取って対応してください");
   });
 
+  it("injects a file-only Discord message (PDF etc.) instead of dropping it as empty content", async () => {
+    // 2026-10-23: 相談部屋で画像以外の添付だけの投稿が「skip empty content」で捨てられていた。
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.storeFiles = vi.fn(async () => [{
+      path: "C:/Temp/s1-msg1-1-plan.pdf", name: "plan.pdf", size: 2048, text: null, textTruncated: false,
+    }]);
+    const attachments = new Map([["file-1", {
+      contentType: "application/pdf",
+      name: "plan.pdf",
+      size: 2048,
+      url: "https://cdn.discordapp.com/attachments/1/2/plan.pdf",
+    }]]);
+
+    await handleMessage(deps, makeMessage({ content: "", attachments }));
+
+    expect(deps.storeFiles).toHaveBeenCalledWith(expect.objectContaining({ messageId: "msg1", sessionId: "s1" }));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { text: string };
+    expect(body.text).toContain("添付ファイルの内容を読み取って対応してください");
+    expect(body.text).toContain("C:/Temp/s1-msg1-1-plan.pdf");
+  });
+
+  it("相談部屋のセッションは画像も画像以外も相談者の添付の置き場所へ保存する", async () => {
+    stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.consultAttachmentDir = vi.fn(() => "C:/Temp/concordia-consult-attachments/123456789");
+    deps.storeImages = vi.fn(async () => ["C:/Temp/concordia-consult-attachments/123456789/a.png"]);
+    deps.storeFiles = vi.fn(async () => []);
+    const attachments = new Map<string, unknown>([
+      ["image-1", { contentType: "image/png", name: "a.png", size: 10, url: "https://cdn.discordapp.com/attachments/1/2/a.png" }],
+      ["file-1", { contentType: "text/plain", name: "b.txt", size: 10, url: "https://cdn.discordapp.com/attachments/1/2/b.txt" }],
+    ]);
+
+    await handleMessage(deps, makeMessage({ content: "見てください", attachments }));
+
+    expect(deps.consultAttachmentDir).toHaveBeenCalledWith("s1");
+    const inboxRoot = "C:/Temp/concordia-consult-attachments/123456789";
+    expect(deps.storeImages).toHaveBeenCalledWith(expect.objectContaining({ inboxRoot }));
+    expect(deps.storeFiles).toHaveBeenCalledWith(expect.objectContaining({
+      inboxRoot, attachments: [expect.objectContaining({ name: "b.txt" })],
+    }));
+  });
+
   it("rejects an unsupported image instead of silently injecting the accompanying text", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");

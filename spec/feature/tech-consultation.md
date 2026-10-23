@@ -32,11 +32,12 @@
 | CC-CONSULT-INV-04 | Tabula への公開は相談者本人が承認した要約だけ。承認前の候補は外へ出さない | 公開ボタンの判定 |
 | CC-CONSULT-INV-05 | ヒアリング内容と依頼者メモはローカル DB だけに置き、連合・通知・ログへ出さない | 既存の依頼者メモの規則 (dialogue-context.md §7) を継承 |
 | CC-CONSULT-INV-06 | 子会社でプロジェクト無しに起動できるのは、担当プロジェクトを持たず稼働中の読み取り専用ユースケースを持つ部署だけ | `isProjectlessConsultDepartment` (Bot の受付・admin spawn の両方) |
-| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索・ToDo・スキルと、公開リンクの取得コマンド 1 本だけ (2026-10-03) | `resolveProjectlessConsultLaunch` + admin spawn、`consultClaudePermissions` (claude)、`isAllowedFetchLinkCommand` (codex のフック) |
+| CC-CONSULT-INV-07 | その起動は本社の作業領域を cwd にしない。役職ごとの作業ディレクトリに固定し、要求側は場所・引数・provider を選べない。ツールは Web 検索・ToDo・スキルと、公開リンクの取得コマンド 1 本だけ (2026-10-03)。相談部屋の添付は置き場所の中だけ読める (CC-CONSULT-INV-12、2026-10-23) | `resolveProjectlessConsultLaunch` + admin spawn、`consultClaudePermissions` (claude)、`isAllowedFetchLinkCommand` (codex のフック) |
 | CC-CONSULT-INV-08 | 相談セッションは上位の CLAUDE.md / AGENTS.md と自動メモリを読まない (社内のプロジェクト名を回答に持ち込まない。Castra のメモリやワークフローを引き継がない) | 役職フォルダの `.claude/settings.local.json` (`claudeMdExcludes` / `autoMemoryEnabled:false`) + `CLAUDE_CODE_DISABLE_AUTO_MEMORY` |
 | CC-CONSULT-INV-11 | 相談セッションは provider に関わらず、役職フォルダの指示 (AGENTS.md とスキル。移行前は CLAUDE.md) を受け取る。載せるのは役職フォルダ自身のものだけ (上位のフォルダ・相談者のデータフォルダの中は読まない) | claude は自分で読む。codex は AGENTS.md を自分で読み、読めない分 (スキル本文・移行前の CLAUDE.md) は admin spawn が初回指示に載せる (`needsInlineRoleGuidance` / `buildRoleGuidanceBlock` (`src/consultation/role-guidance.ts`)、`loadInlineRoleGuidance` (`src/consultation/role-guidance-files.ts`)) |
 | CC-CONSULT-INV-10 | 相談は FINAL ANSWER 以外を投稿しない (前提質問・状態カード・後始末の共有確認は除く) | 部署の `output.*` を状態カード以外 off。`relay-output-filter.ts` (session.message と chat 経路)、`session-end-output.ts` (終了時の自動指示と独白) |
 | CC-CONSULT-INV-09 | 共有の問いは閉じた相談に 1 回だけ出し、公開は本人の「共有する」だけ。判定できない・要約に秘匿語や Cc のプロジェクト名が残る・子会社は問わない | `ConsultationClosureService` (wrap_status を条件付きで進める) |
+| CC-CONSULT-INV-12 | 相談セッションが開けるファイルは、相談者ごとの添付の置き場所 (`<一時フォルダ>/concordia-consult-attachments/<相談者の Discord ID>`) の中だけ。相談フォルダ (役職フォルダ・他の相談者のデータフォルダ) は開かせない | claude: 起動ごとの `--allowedTools Read(<置き場所>/**)` + 役職フォルダ設定の `deny: Read(<相談フォルダ>/**)` (`consultAttachmentClaudeArgs` / `consultWorkspaceReadDenyRule`)。codex: ハーネス判定 `consultationToolAllowed` (`isConsultAttachmentPath`、`src/consultation/consult-attachments.ts`) |
 
 ## 3. 事前ヒアリング
 
@@ -470,6 +471,38 @@ neco 指示 (2026-10-18)「クロール終わってマップとまとめを作�
 - 失敗時: マップが空・読めないときは添えずに相談を始める。
 - 状態所有者: 文脈の組み立て = `src/rules/notion-map-consult.ts`、本社だけに添える判断 = `src/consultation/projectless-consult-launch.ts`
   (`knowledgeContext` port)、配線 = `src/api/register-core.ts` (`consultKnowledgeContext`) / `src/bootstrap/core.ts`。
+
+### 6.6 相談部屋の添付
+
+**Requirement ID: `SPEC-CONSULT-ATTACHMENTS`**
+
+> 2026-10-23 neco 指示:「添付が相談部屋の場合はなぜか届かない (ふつうの AI セッションは届く)」「添付は全部見れるはずだから見れるようにしてほしい」。
+
+- 価値: [UX-CC-W6](../ux/product.md)。相談者が見てほしい資料 (画像・PDF・文書・表・テキスト) を相談部屋に添付すれば、相談の AI が中身を見て答える。
+  失うと困る利用者の状態: 添付が黙って捨てられ、相談者は届いたと思ったまま、資料を見ていない回答を受け取る。
+- 原因 (2026-10-23 の Bot ログ): Discord の受け取り (`src/discord/ingress.ts`) は画像だけを受け取り、画像以外の添付だけの投稿を
+  「空の投稿」(`ingress: skip empty content`) として捨てていた。画像も、相談の claude は Read を持たず (`--tools=` に無い)、
+  ハーネス判定 (`consultationToolAllowed`) も Read / view_image を止めるため開けなかった。
+- 受け取り (全セッション共通、`src/discord/attachment-inbox.ts`): 画像以外の添付も種類を問わず保存し、保存先のパスと元の名前を
+  指示に添える。Discord の CDN だけ・転送をたどらない・1 投稿 10 件・1 件 25 MiB まで・7 日で消す。名前はファイル名部分だけを使う。
+  保存できないときは黙って捨てず「添付ファイルをセッションへ渡せませんでした: <理由>」を返信する。codex のセッションは
+  ファイルを開く道具を持たないので、UTF-8 の文字のファイルは本文 (1 件 20,000 文字まで) を資料の囲みで指示に添える。
+- 置き場所 (相談部屋のセッション): 画像も画像以外も、相談者ごとの置き場所 `<OS の一時フォルダ>/concordia-consult-attachments/<相談者の Discord ID>`
+  (`consultAttachmentDir`) に置く。相談フォルダの外に置き、相談セッションに開くのを許すのはこの中だけ (CC-CONSULT-INV-12)。
+- 開く許可:
+  - claude: `--tools=` に Read を足し、起動ごと (予算切れの再開を含む) に `--allowedTools Read(//<置き場所>/**)` を渡す
+    (役職フォルダの設定は同じ役職の相談で共有なので、相談者ごとの許可は起動引数で持つ)。cwd の中の読み取りは既定で通るため、
+    役職フォルダの設定で相談フォルダ全体の Read を拒否する。Windows のパスは `//c/Users/...` の形で書く。
+  - codex (Astra): 画像は view_image で開く。フックが view_image の対象パスを Cc のハーネス判定へ渡し、判定は置き場所の中だけを通す。
+    PDF や Office の文書は codex では開けない (文字のファイルは本文を添える)。
+  - ツール制限を外した部署 (`consult_tools: all`) は従来どおり (Read を名前で許しているので、置き場所の規則は足さない)。
+- 未確認 (2026-10-23 実装時): 実際の相談セッションで Windows の権限規則 (`//c/...`) が効くか、codex の view_image がフックを通るかは、
+  相談部屋で添付を送って確かめるまで未確認。
+- 対象外: 相談者ごとのデータフォルダの `transfer/incoming/` (§6.4) は相談フォルダの中なので、制限のある相談は引き続き開けない。
+
+状態所有者: 置き場所と開く許可の判断 = `src/consultation/consult-attachments.ts`、ハーネス判定 = `src/consultation/safety-policy.ts`、
+起動引数 = `src/consultation/projectless-consult-launch.ts` / `src/control/budget-resume-launch.ts`、受け取りと保存 =
+`src/discord/ingress.ts` / `src/discord/attachment-inbox.ts` (画像は `image-inbox.ts`)。
 
 ## 7. 相談チャンネルの後始末
 

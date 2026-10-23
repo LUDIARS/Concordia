@@ -88,7 +88,12 @@ describe("projectless consultation spawn in a subsidiary", () => {
     const dataDir = join(expectedCwd, "123456789012345678");
     expect(existsSync(dataDir)).toBe(true);
     expect(spawnCalls[0]?.env).toMatchObject({ CONCORDIA_CONSULT_DATA_DIR: dataDir });
-    expect(spawnCalls[0]?.args?.slice(-PROJECTLESS_CONSULT_CLAUDE_ARGS.length)).toEqual([...PROJECTLESS_CONSULT_CLAUDE_ARGS]);
+    // ツール制限の後ろに、 相談部屋の添付の置き場所だけ Read を許す規則が付く (CC-CONSULT-INV-12)。
+    const args = spawnCalls[0]?.args ?? [];
+    expect(args.slice(-PROJECTLESS_CONSULT_CLAUDE_ARGS.length - 2, -2)).toEqual([...PROJECTLESS_CONSULT_CLAUDE_ARGS]);
+    expect(args.at(-2)).toBe("--allowedTools");
+    expect(args.at(-1)).toMatch(/^Read\(\/\/.*\/concordia-consult-attachments\/123456789012345678\/\*\*\)$/);
+    expect(spawnCalls[0]?.env?.CONCORDIA_CONSULT_ATTACHMENT_DIR).toContain("123456789012345678");
   });
 
   it("chooses Astra (codex, confined) for both sound and engineers, effort medium", async () => {

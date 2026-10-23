@@ -1,5 +1,7 @@
 import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel, type WebhookMessageCreateOptions } from "discord.js";
+import { tmpdir } from "node:os";
 import { createDiscordPushWarning } from "./push-warning.js";
+import { consultAttachmentDir, requesterFromSessionMetadata } from "../consultation/consult-attachments.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeting-links/discord.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
@@ -1991,6 +1993,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
         // 相談の部署のセッションでは一言の「終了」も終了の指示 (tech-consultation.md §6.1)。
         isConsultSession: isProjectlessConsultSession,
+        // 相談部屋の添付は相談者ごとの置き場所へ (相談セッションが開けるのはその中だけ。 consult-attachments.ts)。
+        consultAttachmentDir: (sessionId) => isProjectlessConsultSession(sessionId)
+          ? consultAttachmentDir(tmpdir(), requesterFromSessionMetadata(deps.sessionsRepo.findSession(sessionId)?.metadata))
+          : null,
         conversationIngress,
         isPlanDecisionUserAllowed: isSessionControlUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,

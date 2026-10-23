@@ -14,6 +14,7 @@
  */
 
 import { join } from "node:path";
+import { consultWorkspaceReadDenyRule } from "./consult-attachments.js";
 
 /** 起動 env に入れる取得スクリプトの絶対パス (tools/consult-fetch-link-command.mjs の FETCH_LINK_SCRIPT_ENV と揃える)。 */
 export const CONSULT_FETCH_LINK_SCRIPT_ENV = "CONCORDIA_CONSULT_FETCH_LINK_SCRIPT";
@@ -40,7 +41,7 @@ export const CONSULT_ALL_TOOL_NAMES: readonly string[] = Object.freeze([
 export function consultClaudePermissions(
   root: string,
   options: { allTools?: boolean } = {},
-): { defaultMode: "dontAsk"; allow: string[] } {
+): { defaultMode: "dontAsk"; allow: string[]; deny?: string[] } {
   // bypassPermissions は claude 側で一度だけの承認を求めることがあり、 Lictor 経由の起動では承認できずに効かなかった
   // (2026-10-06、 制限なしの部署でも Bash が don't ask で拒否された)。 dontAsk のまま組み込みツールを名前で許す
   // (名前だけの規則はそのツールのどの使い方も許す)。
@@ -48,5 +49,8 @@ export function consultClaudePermissions(
   return {
     defaultMode: "dontAsk",
     allow: ["WebSearch", "TodoWrite", "Skill", `Bash(node ${consultFetchLinkScript(root)}:*)`],
+    // Read は添付の置き場所 (相談フォルダの外) だけを起動引数で許す。 cwd (役職フォルダ) の中の読み取りは
+    // 既定で通るため、 相談フォルダ全体を拒否して他の相談者のデータフォルダを開かせない (CC-CONSULT-INV-12)。
+    deny: [consultWorkspaceReadDenyRule(root)],
   };
 }

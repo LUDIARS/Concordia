@@ -58,20 +58,22 @@ describe("consultWorkspaceClaudeSettings", () => {
 });
 
 describe("PROJECTLESS_CONSULT_CLAUDE_ARGS", () => {
-  it("組み込みツールを Web 検索・ToDo・スキルに絞り、 利用者の MCP を読ませない", () => {
+  it("組み込みツールを Web 検索・ToDo・スキル・シェル・Read に絞り、 利用者の MCP を読ませない", () => {
     expect(PROJECTLESS_CONSULT_CLAUDE_ARGS).toEqual([
-      "--tools=WebSearch,TodoWrite,Skill,Bash",
+      "--tools=WebSearch,TodoWrite,Skill,Bash,Read",
       "--strict-mcp-config",
     ]);
   });
 });
 
 describe("consultWorkspaceClaudeSettings の permissions", () => {
-  it("Web 検索・ToDo・スキルと公開リンクの取得コマンドだけを許し、 ほかは聞かずに拒否する", () => {
+  it("Web 検索・ToDo・スキルと公開リンクの取得コマンドだけを許し、 相談フォルダの Read とほかは聞かずに拒否する", () => {
     const settings = consultWorkspaceClaudeSettings("E:/Document/Consult/sound") as { permissions: unknown };
     expect(settings.permissions).toEqual({
       defaultMode: "dontAsk",
       allow: ["WebSearch", "TodoWrite", "Skill", "Bash(node E:/Document/Consult/_source/tools/fetch-link/fetch-link.mjs:*)"],
+      // 他の相談者のデータフォルダ (役職フォルダの下) を開かせない。 添付は起動引数で別に許す。
+      deny: ["Read(//e/Document/Consult/**)"],
     });
   });
 });

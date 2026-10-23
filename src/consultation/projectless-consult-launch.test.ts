@@ -31,6 +31,7 @@ function ports(workMode = "read-only") {
     prepareWorkspace: vi.fn(async () => undefined),
     prepareClaudeConfig: vi.fn(async () => true),
     prepareCodexHome: vi.fn(async () => true),
+    attachmentTempRoot: "/tmp/t",
   };
 }
 
@@ -43,11 +44,17 @@ describe("resolveProjectlessConsultLaunch", () => {
     }, p);
     const cwd = join("/srv/cw", "sound");
     const dataDir = join(cwd, "123456789012345678");
+    const attachmentDir = join("/tmp/t", "concordia-consult-attachments", "123456789012345678");
     expect(result).toEqual({
       kind: "consult-workspace",
       cwd,
       dataDir,
-      claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS,
+      attachmentDir,
+      // 相談部屋の添付の置き場所だけ Read を許す (2026-10-23 neco 指示「添付は全部見れるように」)。
+      claudeArgs: [
+        ...PROJECTLESS_CONSULT_CLAUDE_ARGS,
+        "--allowedTools", "Read(//tmp/t/concordia-consult-attachments/123456789012345678/**)",
+      ],
       restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: true,
       codexHomeReady: true,
@@ -60,6 +67,7 @@ describe("resolveProjectlessConsultLaunch", () => {
         CODEX_HOME: join("/srv/cw", ".codex-home"),
         CONCORDIA_CONSULT_FETCH_LINK_SCRIPT: "/srv/cw/_source/tools/fetch-link/fetch-link.mjs",
         CONCORDIA_CONSULT_DATA_DIR: dataDir,
+        CONCORDIA_CONSULT_ATTACHMENT_DIR: attachmentDir,
       },
     });
     // Astra (codex) の相談専用の CODEX_HOME を用意する (利用者の ~/.codex を読ませない)。
@@ -79,7 +87,7 @@ describe("resolveProjectlessConsultLaunch", () => {
     expect(await resolveProjectlessConsultLaunch(
       { subsidiaryId: null, department: department({ subsidiary_id: null }), specifiedScope: [], roleTitle: "エンジニア" }, p,
     )).toEqual({
-      kind: "consult-workspace", cwd: join("/srv/cw", "engineer"), dataDir: null,
+      kind: "consult-workspace", cwd: join("/srv/cw", "engineer"), dataDir: null, attachmentDir: null,
       claudeArgs: PROJECTLESS_CONSULT_CLAUDE_ARGS, restriction: expect.stringContaining("プロジェクトを持たない相談"),
       claudeConfigReady: false,
       codexHomeReady: false,

@@ -33,16 +33,18 @@ export function isProjectlessConsultDepartment(input: ProjectlessConsultInput): 
 
 /**
  * プロジェクト無しの相談セッションに渡す claude の起動引数 (本社・子会社とも。 2026-10-02 neco 指示「本社の相談も同じで」)。
- * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキル・シェルだけにする (Read / 編集は存在しない)。
+ * - `--tools=`: 組み込みツールを Web 検索・ToDo・スキル・シェル・Read だけにする (編集は存在しない)。
  *   シェルは公開リンクの取得コマンド 1 本だけを役職フォルダの permissions で許し、 ほかは聞かずに拒否する
  *   (consult-fetch-link.ts、 2026-10-03 neco 指示「相談時にもらった Notion / Google Drive を取得できるように」)。
+ *   Read は相談部屋の添付の置き場所だけを起動ごとに許し (consult-attachments.ts の consultAttachmentClaudeArgs)、
+ *   相談フォルダの中は役職フォルダの permissions で拒否する (2026-10-23 neco 指示「添付は全部見れるように」)。
  *   ハーネスのフックは Castra 配下の一部ツールにしか掛からないため、 ここで閉じる。
  * - `--strict-mcp-config`: 利用者設定の MCP (Notion 等) を読み込まない。
  * スキルは役職フォルダのもの (Codex と共有の `<役職>/.agents/skills`) を使う。 利用者のスキル (~/.claude) は
  * 相談専用の設定フォルダ (CLAUDE_CONFIG_DIR) で外す (consultClaudeConfigDir)。
  */
 export const PROJECTLESS_CONSULT_CLAUDE_ARGS: readonly string[] = Object.freeze([
-  "--tools=WebSearch,TodoWrite,Skill,Bash",
+  "--tools=WebSearch,TodoWrite,Skill,Bash,Read",
   "--strict-mcp-config",
 ]);
 
@@ -119,6 +121,7 @@ export function projectlessConsultRestriction(): string {
     "このセッションはプロジェクトを持たない相談です。質問に回答だけを返します。",
     "- ローカルのファイル・リポジトリ・社内サービスは参照できません。必要なら Web 検索を使ってください。",
     "- 相談者が送った公開の Notion / Google Drive のリンクは consult-fetch-link スキルの取得コマンドで読めます。ほかのコマンドは実行できません。",
+    "- 相談者が相談部屋に添付したファイルは、指示に書かれた保存先のパスをファイル読取機能 (画像は画像の読取) で開いて中身を確かめてから答えてください。開けるのはその保存先の中だけです。",
     "- 社内固有の事情を推測で書かず、分からないことは分からないと答えてください。",
   ].join("\n");
 }

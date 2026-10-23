@@ -25,9 +25,14 @@ export function gateActionFrom(input) {
   const command = typeof toolInput.command === "string"
     ? toolInput.command
     : Array.isArray(toolInput.command) ? toolInput.command.join(" ") : undefined;
+  // ファイルを開くツール (view_image など) の対象。 Cc は相談者の添付の置き場所の中だけを通す (safety-policy.ts)。
+  const filePath = typeof toolInput.path === "string"
+    ? toolInput.path
+    : typeof toolInput.file_path === "string" ? toolInput.file_path : undefined;
   return {
     tool: String(input?.tool_name ?? "unknown").slice(0, 64),
     ...(command ? { command: command.slice(0, 20000) } : {}),
+    ...(!command && filePath ? { filePath: filePath.slice(0, 4096) } : {}),
     ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : {}),
   };
 }

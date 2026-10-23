@@ -20,6 +20,12 @@ import {
   storeDiscordImages,
   type DiscordImageAttachment,
 } from "./image-inbox.js";
+import {
+  buildDiscordFileInjectText,
+  publicDiscordFileError,
+  storeDiscordFiles,
+  type DiscordFileAttachment,
+} from "./attachment-inbox.js";
 import { appendDiscordEmbedContext, extractDiscordEmbedIngress } from "./embed-ingress.js";
 import type { ConversationIngressDecision, ConversationIngressPort } from "./conversation-ingress.js";
 
@@ -49,6 +55,13 @@ export interface IngressDeps {
   log: { info: (m: string) => void; warn: (m: string) => void };
   /** Discord CDN image persistence seam. Tests can replace filesystem/network I/O. */
   storeImages?: typeof storeDiscordImages;
+  /** 画像以外の添付の保存 (テストで差し替える)。 */
+  storeFiles?: typeof storeDiscordFiles;
+  /**
+   * 相談部屋のセッションなら、 相談者の添付の置き場所 (src/consultation/consult-attachments.ts)。 相談セッションが
+   * 開けるのはこの中だけなので、 画像も画像以外もここへ保存する。 相談でなければ null (既定の置き場所)。
+   */
+  consultAttachmentDir?: (sessionId: string) => string | null;
   /** standalone 絵文字 (🙏 等) を「直前メッセージへのリアクション」として扱うための解決系。 */
   chatRepo?: ChatRepo;
   /**
@@ -171,11 +184,21 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       url: attachment.url,
     }))
     .filter(isDiscordImageAttachment);
+  // 画像以外の添付 (PDF・文書・表・テキストなど) も受け取る。 以前は黙って捨てており、 添付だけの投稿は
+  // 「空の投稿」になっていた (2026-10-23、 相談部屋で添付が届かなかった)。
+  const fileAttachments = [...msg.attachments.values()]
+    .map((attachment): DiscordFileAttachment => ({
+      contentType: attachment.contentType,
+      name: attachment.name,
+      size: attachment.size,
+      url: attachment.url,
+    }))
+    .filter((attachment) => !isDiscordImageAttachment(attachment));
   const embedIngress = extractDiscordEmbedIngress(msg.embeds);
   imageAttachments.push(...embedIngress.images);
   const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
   const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
-  if (!text && (!sessionRow || (imageAttachments.length === 0 && !embedIngress.context))) {
+  if (!text && (!sessionRow || (imageAttachments.length === 0 && fileAttachments.length === 0 && !embedIngress.context))) {
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
     return;
   }
@@ -414,12 +437,15 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       const session = deps.sessionsRepo.findSession(targetSessionId);
       const isCodexSession = session?.provider === "codex-cli";
       let injectText = appendDiscordEmbedContext(text, embedIngress.context);
+      const consultAttachmentDir = deps.consultAttachmentDir?.(targetSessionId) ?? null;
+      const inboxRoot = consultAttachmentDir ? { inboxRoot: consultAttachmentDir } : {};
       if (imageAttachments.length > 0) {
         try {
           const imagePaths = await (deps.storeImages ?? storeDiscordImages)({
             attachments: imageAttachments,
             messageId: msg.id,
             sessionId: targetSessionId,
+            ...inboxRoot,
           });
           injectText = buildDiscordImageInjectText(injectText, imagePaths);
         } catch (error) {
@@ -428,6 +454,27 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           deps.log.warn(`ingress: image download failed session=${targetSessionId} channel=${msg.channelId}: ${reason}`);
           await msg.reply({
             content: `画像をセッションへ渡せませんでした: ${reason}`,
+            allowedMentions: { parse: [], repliedUser: false },
+          }).catch(() => { /* failure reply is best-effort */ });
+          return;
+        }
+      }
+      if (fileAttachments.length > 0) {
+        try {
+          const files = await (deps.storeFiles ?? storeDiscordFiles)({
+            attachments: fileAttachments,
+            messageId: msg.id,
+            sessionId: targetSessionId,
+            ...inboxRoot,
+          });
+          // codex はファイルを開く道具を持たないので、 文字のファイルは本文を指示に添える。
+          injectText = buildDiscordFileInjectText(injectText, files, { inlineText: isCodexSession });
+        } catch (error) {
+          const reason = publicDiscordFileError(error);
+          reportConversationDelivery("failed", `file: ${reason}`);
+          deps.log.warn(`ingress: file download failed session=${targetSessionId} channel=${msg.channelId}: ${reason}`);
+          await msg.reply({
+            content: `添付ファイルをセッションへ渡せませんでした: ${reason}`,
             allowedMentions: { parse: [], repliedUser: false },
           }).catch(() => { /* failure reply is best-effort */ });
           return;

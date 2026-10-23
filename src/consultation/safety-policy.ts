@@ -1,3 +1,5 @@
+import { isConsultAttachmentPath } from "./consult-attachments.js";
+
 /** Only categorical decisions leave the classifier. Never echo the sensitive input or matched term. */
 export type ConsultationSafetyReason = "personal_data" | "confidential_data" | "unsafe_tool" | "guard_unavailable";
 export interface ConsultationSafetyDecision { blocked: boolean; reason: ConsultationSafetyReason | null; penaltyEligible: boolean }
@@ -8,6 +10,8 @@ export function safetyDecision(reason: ConsultationSafetyReason | null): Consult
 
 /** シェル系のツール名 (claude の Bash、 codex の shell / exec_command など)。 tools/consult-codex-hook.mjs と揃える。 */
 const SHELL_TOOLS = /^(bash|shell|local_shell|exec_command|unified_exec)$/i;
+/** ファイルを開くだけのツール (claude の Read、 codex の view_image)。 */
+const FILE_READ_TOOLS = /^(read|view_image)$/i;
 /**
  * 相談者が送った公開 Notion / Google Drive のリンクの取得コマンド (consult-fetch-link.ts)。 相談フォルダの
  * `_source/tools/fetch-link/fetch-link.mjs` を node で実行するだけのもの。 別のコマンドをつなげられる記号は許さない。
@@ -25,8 +29,11 @@ export function isConsultFetchLinkCommand(command: string): boolean {
  * 相談セッションで使ってよいツール。 シェル系は公開リンクの取得コマンドだけ (2026-10-06 neco 指示「Notion の
  * 公開リンクの取得が、相談ハーネスでブロックされる」: 取得コマンドが Bash ごと unsafe_tool で止まっていた)。
  */
-export function consultationToolAllowed(tool: string, command = ""): boolean {
+export function consultationToolAllowed(tool: string, command = "", attachmentDir: string | null = null): boolean {
   if (["WebSearch", "WebFetch", "TodoWrite", "Skill", "web_search", "web.run"].includes(tool)) return true;
+  // 相談部屋の添付を開く読み取り (claude の Read、 codex の view_image)。 相談者の添付の置き場所の中だけ
+  // (2026-10-23 neco 指示「添付は全部見れるように」、 CC-CONSULT-INV-12、 consult-attachments.ts)。
+  if (FILE_READ_TOOLS.test(tool)) return isConsultAttachmentPath(command, attachmentDir);
   return SHELL_TOOLS.test(tool) && isConsultFetchLinkCommand(command);
 }
 

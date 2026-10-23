@@ -22,6 +22,11 @@ import {
   consultClaudeConfigDir,
   consultPersonalDataDir,
 } from "../consultation/projectless-consult.js";
+import {
+  CONSULT_ATTACHMENT_DIR_ENV,
+  consultAttachmentClaudeArgs,
+  consultAttachmentDir,
+} from "../consultation/consult-attachments.js";
 
 export interface BudgetResumeLaunchInput {
   session: Pick<SessionRow, "id" | "provider" | "metadata" | "team_id" | "department_id">;
@@ -29,6 +34,8 @@ export interface BudgetResumeLaunchInput {
   cwd: string;
   /** 中断したセッションがプロジェクトを持たない相談部署なら、 相談用ディレクトリの置き場所。 */
   consultWorkspaceRoot: string | null;
+  /** 相談部屋の添付の置き場所の親 (OS の一時フォルダ)。 省略時は添付の Read を許さない。 */
+  attachmentTempRoot?: string | null;
 }
 
 /** recordPendingDelegationSpawn へ渡す、 起動し直したセッションの帰属。 */
@@ -70,17 +77,23 @@ export function planBudgetResumeLaunch(input: BudgetResumeLaunchInput): BudgetRe
   const requester = text(metadata, "discord_requester_user_id");
   const consultRoot = input.consultWorkspaceRoot;
   const dataDir = consultRoot ? consultPersonalDataDir(input.cwd, requester) : null;
+  const attachmentDir = consultRoot && input.attachmentTempRoot
+    ? consultAttachmentDir(input.attachmentTempRoot, requester)
+    : null;
   const args = [
     "--resume", input.conversationId,
     ...(model ? ["--model", model] : []),
     ...resolveDelegationRuntimeArgs("claude", effort ? { effort } : {}),
     ...(consultRoot ? PROJECTLESS_CONSULT_CLAUDE_ARGS : []),
+    // 再開した相談も、 相談部屋の添付の置き場所だけは開ける (consult-attachments.ts)。
+    ...(consultRoot ? consultAttachmentClaudeArgs(attachmentDir) : []),
   ];
   const env: Record<string, string> = consultRoot
     ? {
       ...CONSULT_SESSION_ENV,
       CLAUDE_CONFIG_DIR: consultClaudeConfigDir(consultRoot),
       ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
+      ...(attachmentDir ? { [CONSULT_ATTACHMENT_DIR_ENV]: attachmentDir } : {}),
     }
     : {};
   const teamId = input.session.team_id ?? null;

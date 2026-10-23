@@ -7,10 +7,11 @@ describe("consult fetch-link", () => {
     expect(consultFetchLinkScript("E:\\Document\\Consult")).toBe("E:/Document/Consult/_source/tools/fetch-link/fetch-link.mjs");
   });
 
-  it("claude の許可は Web 検索・ToDo・スキルと取得コマンドだけ、 ほかは聞かずに拒否", () => {
+  it("claude の許可は Web 検索・ToDo・スキルと取得コマンドだけ、 ほかは聞かずに拒否。 相談フォルダの中の Read は拒否", () => {
     expect(consultClaudePermissions("E:/Document/Consult")).toEqual({
       defaultMode: "dontAsk",
       allow: ["WebSearch", "TodoWrite", "Skill", "Bash(node E:/Document/Consult/_source/tools/fetch-link/fetch-link.mjs:*)"],
+      deny: ["Read(//e/Document/Consult/**)"],
     });
   });
 

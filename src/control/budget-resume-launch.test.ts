@@ -51,6 +51,21 @@ describe("planBudgetResumeLaunch", () => {
     expect(plan.pending.callName).toBe(BUDGET_RESUME_CALL_NAME);
   });
 
+  it("再開した相談も、 相談者の添付の置き場所だけ Read を許す", () => {
+    const plan = planBudgetResumeLaunch({
+      session: { id: "lictor-3", provider: "claude-code", metadata: JSON.stringify({ discord_requester_user_id: "111111111" }) },
+      conversationId: CONVERSATION,
+      cwd: "E:/consult/engineer",
+      consultWorkspaceRoot: "E:/consult",
+      attachmentTempRoot: "C:/Temp",
+    });
+    if (!plan.ok) throw new Error(plan.error);
+    expect(plan.spawn.args).toEqual(expect.arrayContaining([
+      "--allowedTools", "Read(//c/Temp/concordia-consult-attachments/111111111/**)",
+    ]));
+    expect(plan.spawn.env?.CONCORDIA_CONSULT_ATTACHMENT_DIR).toContain("111111111");
+  });
+
   it("claude 以外のセッションは再開しない", () => {
     expect(planBudgetResumeLaunch({
       session: { id: "x", provider: "codex-cli", metadata: null }, conversationId: CONVERSATION, cwd: "E:/", consultWorkspaceRoot: null,

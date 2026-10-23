@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { runAvailableText } from "../rules/available-text-runner.js";
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { cloudWorkRouter } from "./cloud-work.js";
@@ -1021,6 +1022,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             conversationId: suspension.conversation_id ?? "",
             cwd: suspension.cwd ?? session.repo_path,
             consultWorkspaceRoot: department && isConsultDepartment(department) ? deps.consultWorkspaceRoot ?? null : null,
+            attachmentTempRoot: tmpdir(),
           });
           if (!plan.ok) return plan;
           const spawnId = randomUUID();

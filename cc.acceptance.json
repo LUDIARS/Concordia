@@ -5459,6 +5459,14 @@
     {"source":"src/rules/notion-mcp-tools.contract.ts","tests":["src/rules/notion-source-mcp.test.ts"],"contracts":["chat-knowledge-C-12"]},
     {"source":"src/rules/notion-route.contract.ts","tests":["src/rules/notion-source-route.test.ts"],"contracts":["chat-knowledge-C-13"]},
     {"source":"src/rules/ontime-runtime.ts","tests":["src/rules/notion-source-mcp.test.ts","src/rules/notion-source-route.test.ts"],"contracts":["chat-knowledge-C-12","chat-knowledge-C-13"]},
-    {"source":"src/rules/knowledge-notion.ts","tests":["src/rules/knowledge-notion.test.ts","src/rules/notion-source-public.test.ts"],"contracts":["chat-knowledge-C-5"]}
+    {"source":"src/rules/knowledge-notion.ts","tests":["src/rules/knowledge-notion.test.ts","src/rules/notion-source-public.test.ts"],"contracts":["chat-knowledge-C-5"]},
+    {"source":"src/consultation/consult-attachments.ts","tests":["src/consultation/consult-attachments.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"src/consultation/safety-policy.ts","tests":["src/consultation/consult-attachments.test.ts","src/consultation/safety-service.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"src/consultation/consult-fetch-link.ts","tests":["src/consultation/consult-fetch-link.test.ts","src/consultation/projectless-consult.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"src/consultation/projectless-consult-launch.ts","tests":["src/consultation/projectless-consult-launch.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"src/control/budget-resume-launch.ts","tests":["src/control/budget-resume-launch.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"tools/consult-codex-hook.mjs","tests":["tools/consult-codex-hook.test.mjs"],"contracts":["CC-CONSULT-INV-12"]},
+    {"source":"src/discord/attachment-inbox.ts","tests":["src/discord/attachment-inbox.test.ts","src/discord/ingress.test.ts"],"contracts":["SPEC-CONSULT-ATTACHMENTS"]},
+    {"source":"src/discord/ingress.ts","tests":["src/discord/ingress.test.ts"],"contracts":["SPEC-CONSULT-ATTACHMENTS"]}
   ]
 }

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { readFile } from "node:fs/promises";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DepartmentsRepo } from "../db/departments-repo.js";
@@ -8,6 +9,7 @@ import { parseDepartmentSettings } from "../departments/settings.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { isProjectlessConsultDepartment } from "./projectless-consult.js";
 import { ConsultationSafetyService } from "./safety-service.js";
+import { consultAttachmentDir, requesterFromSessionMetadata } from "./consult-attachments.js";
 import { eventBus } from "../events.js";
 
 export function createConsultationSafety(deps: {
@@ -16,12 +18,17 @@ export function createConsultationSafety(deps: {
   useCases?: Pick<UseCasesRepo, "find">;
   audit: Pick<HarnessAuditRepo, "record">;
   roots(): string[];
+  /** 相談部屋の添付の置き場所の親 (既定は OS の一時フォルダ)。 */
+  attachmentTempRoot?: string;
 }): ConsultationSafetyService {
+  const requesterOf = (id: string): string | null => requesterFromSessionMetadata(deps.sessions.findSession(id)?.metadata);
   const departmentOf = (id: string) => {
     const departmentId = id.startsWith("department:") ? id.slice(11) : deps.sessions.findSession(id)?.department_id;
     return { departmentId, department: departmentId ? deps.departments?.find(departmentId) ?? null : null };
   };
   return new ConsultationSafetyService({
+    // 相談者の添付の置き場所 (Discord の受け取り側 src/discord/ingress.ts と同じ OS の一時フォルダの下)。
+    attachmentDir: id => consultAttachmentDir(deps.attachmentTempRoot ?? tmpdir(), requesterOf(id)),
     // 壊れた設定・見つからない部署は制限側に倒す (例外は呼び出し側で guard_unavailable になる)。
     toolsUnrestricted: id => {
       const { department } = departmentOf(id);

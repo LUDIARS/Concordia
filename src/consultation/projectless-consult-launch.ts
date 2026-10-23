@@ -18,7 +18,9 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
+import { tmpdir } from "node:os";
 import type { DepartmentRow } from "../db/departments-repo.js";
+import { CONSULT_ATTACHMENT_DIR_ENV, consultAttachmentClaudeArgs, consultAttachmentDir } from "./consult-attachments.js";
 import { CONSULT_ALL_TOOLS_ENV, CONSULT_FETCH_LINK_SCRIPT_ENV, consultFetchLinkScript } from "./consult-fetch-link.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import {
@@ -74,6 +76,8 @@ export interface ProjectlessConsultLaunchPorts {
    * 読み取り専用の文脈で、 相談に許すコマンドは増やさない。 子会社の相談では呼ばない (hq の資料)。 省略時・null は添えない。
    */
   knowledgeContext?(): string | null;
+  /** 相談部屋の添付の置き場所の親 (既定は OS の一時フォルダ。 Discord の受け取り側と揃える)。 */
+  attachmentTempRoot?: string;
 }
 
 export type ProjectlessConsultLaunch =
@@ -95,6 +99,8 @@ export type ProjectlessConsultLaunch =
     codexFetchLinkReady: boolean;
     /** 相談者のデータフォルダ (Discord 以外からの起動は null)。 */
     dataDir: string | null;
+    /** 相談部屋の添付の置き場所 (Discord 以外からの起動は null)。 相談セッションが開けるのはこの中だけ。 */
+    attachmentDir: string | null;
     /** 起動 env (自動メモリを読まない・データフォルダの場所)。 */
     env: Readonly<Record<string, string>>;
   }
@@ -142,6 +148,7 @@ export async function resolveProjectlessConsultLaunch(
   const codexHome = consultCodexHome(ports.workspaceRoot);
   const codexHomeReady = await ports.prepareCodexHome(codexHome);
   const codexFetchLinkReady = codexHomeReady && (await ports.codexPreToolHookTrusted?.(codexHome) ?? false);
+  const attachmentDir = consultAttachmentDir(ports.attachmentTempRoot ?? tmpdir(), request.requesterDiscordUserId);
   const env = {
     ...CONSULT_SESSION_ENV,
     CLAUDE_CONFIG_DIR: configDir,
@@ -149,11 +156,15 @@ export async function resolveProjectlessConsultLaunch(
     // 公開リンクの取得コマンド。 codex のフックはこのパスのコマンドだけを通す (consult-fetch-link.ts)。
     [CONSULT_FETCH_LINK_SCRIPT_ENV]: consultFetchLinkScript(ports.workspaceRoot),
     ...(dataDir ? { CONCORDIA_CONSULT_DATA_DIR: dataDir } : {}),
+    ...(attachmentDir ? { [CONSULT_ATTACHMENT_DIR_ENV]: attachmentDir } : {}),
     // ツール制限を外した部署 (consult_tools=all)。 codex のフックはこれを見てシェルを止めない。
     ...(allTools ? { [CONSULT_ALL_TOOLS_ENV]: "1" } : {}),
   };
   return {
-    kind: "consult-workspace", cwd, dataDir, claudeArgs: projectlessConsultClaudeArgs(allTools), allTools,
+    kind: "consult-workspace", cwd, dataDir, attachmentDir,
+    // ツール制限を外した部署は Read を名前で許しているので、 添付の置き場所の規則は足さない。
+    claudeArgs: [...projectlessConsultClaudeArgs(allTools), ...(allTools ? [] : consultAttachmentClaudeArgs(attachmentDir))],
+    allTools,
     restriction: [projectlessConsultRestriction(), inSubsidiary ? null : readKnowledgeContext(ports)].filter(Boolean).join("\n\n"),
     claudeConfigReady, codexHomeReady, codexFetchLinkReady, env,
   };

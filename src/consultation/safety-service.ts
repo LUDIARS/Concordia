@@ -13,6 +13,8 @@ export interface ConsultationSafetyPorts {
    * 内容の判定 (秘匿語・個人情報・機密) だけを行う。 省略時は false (制限する)。
    */
   toolsUnrestricted?(sessionId: string): boolean;
+  /** 相談者の添付の置き場所 (consult-attachments.ts)。 この中のファイルを開くツールだけ通す。 省略時・null は開かせない。 */
+  attachmentDir?(sessionId: string): string | null;
   confidentialTerms(): Promise<readonly string[]>;
   classify(prompt: string): Promise<string>;
   record(input: Omit<ConsultationSafetyInput, "text">, result: ConsultationSafetyDecision): string;
@@ -28,8 +30,9 @@ export class ConsultationSafetyService {
       if (!this.ports.isConsultation(input.sessionId)) return safetyDecision(null);
       if (input.text.length > 50_000) verdict = safetyDecision("guard_unavailable");
       else if (input.phase === "tool" && !this.ports.toolsUnrestricted?.(input.sessionId)
-        && !consultationToolAllowed(input.tool ?? "", input.text)) verdict = safetyDecision("unsafe_tool");
-      else {
+        && !consultationToolAllowed(input.tool ?? "", input.text, this.attachmentDirOf(input.sessionId))) {
+        verdict = safetyDecision("unsafe_tool");
+      } else {
         const terms = await this.ports.confidentialTerms();
         const normalized = input.text.normalize("NFKC").toLocaleLowerCase();
         if (terms.some(term => term && normalized.includes(term.normalize("NFKC").toLocaleLowerCase()))) {
@@ -49,9 +52,18 @@ export class ConsultationSafetyService {
     if (verdict.blocked) {
       // No content, query, URL, private name or matched dictionary term is persisted in the incident.
       const auditId = this.ports.record({ sessionId: input.sessionId, phase: input.phase,
-        tool: input.tool && consultationToolAllowed(input.tool, input.text) ? input.tool : undefined }, verdict);
+        tool: input.tool && consultationToolAllowed(input.tool, input.text, this.attachmentDirOf(input.sessionId))
+          ? input.tool : undefined }, verdict);
       this.ports.notify(auditId);
     }
     return verdict;
+  }
+
+  private attachmentDirOf(sessionId: string): string | null {
+    try {
+      return this.ports.attachmentDir?.(sessionId) ?? null;
+    } catch {
+      return null;
+    }
   }
 }

@@ -86,4 +86,13 @@ describe('consult codex hook', () => {
     expect(gateActionFrom({ tool_name: 'shell', tool_input: { command: ['ls', '-a'] } })).toEqual({ tool: 'shell', command: 'ls -a' });
     expect(preToolOutput({ decision: 'warn' })).toBeNull();
   });
+
+  it('view_image などファイルを開くツールは対象のパスを Cc の判定へ渡す (相談部屋の添付だけを通すため)', () => {
+    expect(gateActionFrom({ tool_name: 'view_image', tool_input: { path: 'C:/Temp/a.png' } }))
+      .toEqual({ tool: 'view_image', filePath: 'C:/Temp/a.png' });
+    expect(gateActionFrom({ tool_name: 'Read', tool_input: { file_path: '/tmp/a.pdf' } }))
+      .toEqual({ tool: 'Read', filePath: '/tmp/a.pdf' });
+    // シェルではないので、 取得コマンドだけを通すシェルの制限には掛からない (判定は Cc)。
+    expect(localShellVerdict({ tool_name: 'view_image', tool_input: { path: 'C:/Temp/a.png' } }, {})).toBeNull();
+  });
 });

@@ -2902,6 +2902,11 @@ export async function startBackend(): Promise<BackendHandle> {
         intervalMs: cfg.stallNudgeIntervalMs,
         idleSec: cfg.stallIdleSec,
         cooldownSec: cfg.stallNudgeCooldownSec,
+        // Lictor が送った transcript frame の最終時刻を全 provider 共通の活動時刻にする。
+        lastActivityMs: (session) => {
+          const lastSec = transcriptLogs.tsSpan(session.id)?.last_ts;
+          return lastSec == null ? null : lastSec * 1000;
+        },
         // 質問カードを出して回答を待っているセッションは「停止」 ではない。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
         // 巡回ごとに人間のやること (human-wait + 未回答の質問カード) を照合し、変化時だけ報告する。

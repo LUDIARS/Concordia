@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "自走継続 — 朝タスク仕分け + 停止セッション nudge"
-description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、transcript mtime を基準に応答が止まったセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。質問待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
+description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、Lictor が送る transcript frame の最終時刻を基準に応答が止まったセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。質問待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
 service: concordia
 domain:
   - autonomous-continuation
@@ -16,7 +16,7 @@ tags:
   - resume
   - monitoring
 status: implemented
-updated: 2026-10-09
+updated: 2026-10-24
 ---
 
 
@@ -27,7 +27,7 @@ updated: 2026-10-09
 > **確認系 (人間がやる) タスクは整理して提示するだけ。 実装系 (AI がやれる) タスクは
 > 残作業がなくなるまで実装する。 人間の判断が必要になったら ask で止める。**
 
-「止まっている」 の定義 = **transcript が設定された idle 閾値以上更新されていない** こと。
+「止まっている」 の定義 = **Lictor から会話の frame が設定された idle 閾値以上届いていない** こと。
 
 ---
 
@@ -56,9 +56,17 @@ updated: 2026-10-09
 全 active セッションを周期走査し、 **設定された idle 閾値以上応答が無い** ものに「残作業を確認して続行 /
 判断が要るなら ask で停止」 を `session.inject` で流し込む watcher。
 
-### idle 判定は transcript mtime
+### idle 判定は Lictor の最終 frame 時刻 (全 provider 共通)
 `last_seen_at` は WS ハートビート由来で「プロセス生存」 signal にすぎず idle を表さない。
-**transcript ファイルの mtime** を「最後に応答した時刻」 として使う。
+**Lictor が transcript を tail して Concordia へ送った transcript frame の最終時刻**
+(`transcript_logs` の `MAX(ts)`、 `TranscriptLogsRepo.tsSpan().last_ts`) を、 Claude Code /
+Codex CLI を問わない共通の「最後に会話が動いた時刻」 として使う (2026-10-24 neco 指示)。
+委託 run の watchdog (`src/delegation/run-watchdog.ts`) と同じ情報源である。
+
+provider ごとの transcript ファイル mtime・サイズは書き込み方が provider で異なり進捗を
+正しく表さないため、 Concordia 側で見に行かない。 mtime は Lictor の frame が 1 件も
+届いていないセッションに限る後方互換としてだけ使う。 idle 判定・「前回確認後に動いたか」
+の判定・配達記録 (`claimNudgeDelivery`) の比較はすべてこの共通時刻で行う。
 
 ### ask 待ちは除外
 意図的に人間判断を仰いで止まっているセッションは nudge 対象から外す — 「続行しろ」 と
@@ -76,7 +84,7 @@ updated: 2026-10-09
 ### cooldown
 一度 nudge したら `cooldownSec` (既定 = idleSec) は再 nudge しない (per-session の
 in-memory タイムスタンプで抑止)。 消えた session の記録は毎周掃除する。cooldown 経過後も、
-前回 nudge 以降 transcript が更新されていなければ「前回確認に無反応」とみなし、再確認を
+前回 nudge 以降 Lictor の最終 frame 時刻が動いていなければ「前回確認に無反応」とみなし、再確認を
 送らない。さらに [人間応答待ちの確認制御](human-response-confirmation.md) の永続状態により、
 人間の反応がない間は assistant/tool が動いても再確認しない。
 

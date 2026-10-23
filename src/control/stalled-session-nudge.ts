@@ -8,9 +8,12 @@
  *
  * 仕組み:
  *   - 周期 (既定 10 分) で全 active session を走査。
- *   - 各 session の **transcript の最終更新時刻** (= 最後に応答した時刻) を見る。
- *     last_seen_at は WS ハートビート由来で「プロセス生存」 signal にすぎず、
- *     idle を表さない。 transcript mtime こそが「応答が止まった」 の真の signal。
+ *   - 各 session の **最後に会話が動いた時刻** を見る。 provider (Claude / Codex) を問わず、
+ *     Lictor が transcript を tail して Concordia へ送った transcript frame の最終時刻
+ *     (transcript_logs の MAX(ts)) を共通の正本とする (2026-10-24 neco 指示)。
+ *     provider ごとのファイル mtime は書き込み方が違い進捗を正しく表さないため、
+ *     frame が 1 件も届いていないセッションの後方互換にだけ使う。
+ *     last_seen_at は WS ハートビート由来で「プロセス生存」 signal にすぎず、 idle を表さない。
  *   - idleSec (既定 600 = 巡回間隔と同じ 10 分) 以上無更新で、 かつ **人間判断待ちでない**
  *     セッションにだけ、 「状態を見直して小さく再実装 / 判断が要るなら ask で停止」 を
  *     `session.inject` で流し込む。
@@ -95,7 +98,12 @@ export interface StalledSessionNudgeOptions {
   isAutoCheckDisabled?: (session: SessionRow) => boolean;
   /** epoch-ms を返す注入可能クロック (テスト用)。 既定 Date.now。 */
   now?: () => number;
-  /** transcript の mtime(epoch-ms) を返す seam (テスト用)。 既定 fs。 */
+  /**
+   * Lictor が送った transcript frame の最終時刻 (epoch-ms) を返す。 全 provider 共通の
+   * 「最後に会話が動いた時刻」。 null (frame 未着) のときだけ transcriptMtimeMs へ落ちる。
+   */
+  lastActivityMs?: (s: SessionRow) => number | null | Promise<number | null>;
+  /** 後方互換: transcript の mtime(epoch-ms) を返す seam。 既定 fs。 */
   transcriptMtimeMs?: (s: SessionRow) => Promise<number | null>;
   /** transcript 末尾テキストを返す seam (テスト用)。 既定 fs。 */
   readTranscriptTail?: (s: SessionRow) => Promise<string | null>;
@@ -291,8 +299,8 @@ export function buildNudgeText(_provider: string, snapshot?: SessionFollowupSnap
  * - idle 閾値未満なら false。
  * - 人間判断待ち (awaiting) なら false。
  * - 直近 nudge から cooldown 未満なら false。
- * - 直近 nudge 以降 transcript が動いていない (= 前回の確認に反応が無い) なら false。
- *   transcript が動いた場合だけ候補に残す。人間応答の永続 gate は送信直前に別途確認する。
+ * - 直近 nudge 以降 会話が動いていない (= 前回の確認に反応が無い) なら false。
+ *   会話が動いた場合だけ候補に残す。人間応答の永続 gate は送信直前に別途確認する。
  */
 export function shouldNudge(args: {
   idleMs: number;
@@ -301,16 +309,16 @@ export function shouldNudge(args: {
   lastNudgeMs: number | null;
   cooldownMs: number;
   nowMs: number;
-  /** transcript の最終更新時刻 (epoch-ms)。 null なら無反応判定を行わない。 */
-  transcriptMtimeMs?: number | null;
+  /** 最後に会話が動いた時刻 (epoch-ms)。 null なら無反応判定を行わない。 */
+  lastActivityMs?: number | null;
 }): boolean {
   if (args.idleMs < args.idleThresholdMs) return false;
   if (args.awaiting) return false;
   if (args.lastNudgeMs != null && args.nowMs - args.lastNudgeMs < args.cooldownMs) return false;
   if (
     args.lastNudgeMs != null &&
-    args.transcriptMtimeMs != null &&
-    args.transcriptMtimeMs <= args.lastNudgeMs
+    args.lastActivityMs != null &&
+    args.lastActivityMs <= args.lastNudgeMs
   ) return false;
   return true;
 }
@@ -324,6 +332,9 @@ export function startStalledSessionNudge(
   const enabled = opts.enabled ?? true;
   const now = opts.now ?? Date.now;
   const mtimeOf = opts.transcriptMtimeMs ?? defaultMtimeMs;
+  // Lictor frames are the provider-neutral progress signal; file mtime is legacy fallback only.
+  const activityOf = async (s: SessionRow): Promise<number | null> =>
+    (await opts.lastActivityMs?.(s)) ?? (await mtimeOf(s));
   const readTail = opts.readTranscriptTail ?? readSessionTranscriptTail;
   const idleThresholdMs = idleSec * 1000;
   const cooldownMs = cooldownSec * 1000;
@@ -355,11 +366,11 @@ export function startStalledSessionNudge(
       // 要るので、ここでは候補に残し、照会後に判定する。
       const struckOut = isAutoConfirmStruckOut(s.metadata);
       if (struckOut && !opts.resolveWorkState) continue;
-      const mtime = await mtimeOf(s);
-      if (mtime == null) continue; // transcript 不明 (idle 計測不能) はスキップ。
+      const activityMs = await activityOf(s);
+      if (activityMs == null) continue; // 活動時刻不明 (idle 計測不能) はスキップ。
       const progressMs = readNudgeProgress(s.metadata);
       if (progressMs > (lastNudge.get(s.id) ?? 0)) lastNudge.delete(s.id);
-      const idleMs = nowMs - mtime;
+      const idleMs = nowMs - activityMs;
       // 安い判定 (idle / cooldown) を先に。 awaiting は transcript 読みが要るので候補だけ評価。
       if (
         !shouldNudge({
@@ -369,7 +380,7 @@ export function startStalledSessionNudge(
           lastNudgeMs: lastNudge.get(s.id) ?? null,
           cooldownMs,
           nowMs,
-          transcriptMtimeMs: mtime,
+          lastActivityMs: activityMs,
         })
       ) {
         continue;
@@ -388,9 +399,9 @@ export function startStalledSessionNudge(
         continue;
       }
       // 前回の自動確認が transcript 末尾に未応答のまま残っている = 反応が無い。
-      // in-memory の lastNudge が消えていて (Cc 再起動後など) mtime ゲートを
+      // in-memory の lastNudge が消えていて (Cc 再起動後など) 活動時刻ゲートを
       // 素通りした場合も、 ここで再確認を止める。
-      if (isUnansweredNudge(tail) && progressMs <= mtime) {
+      if (isUnansweredNudge(tail) && progressMs <= activityMs) {
         log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
@@ -407,7 +418,7 @@ export function startStalledSessionNudge(
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
       if (isAutoConfirmStruckOut(latest.metadata) && !aiWork) continue;
-      if (!claimNudgeDelivery(opts.repo,s.id,mtime,nowMs)) continue;
+      if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs)) continue;
       lastNudge.set(s.id, nowMs);
       // AI が進められる作業への継続誘導は 3 アウトの回数に数えない。
       const closing = aiWork

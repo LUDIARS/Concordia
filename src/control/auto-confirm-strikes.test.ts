@@ -93,6 +93,38 @@ describe("auto-confirm strikes (3 アウト)", () => {
       off();
     }
   });
+
+  it.each(["claude-code", "codex"])("Lictor の最終 frame 時刻で判定しても 3 回で止まる (%s)", async (provider) => {
+    let clock = 10_000_000;
+    let activity = 0;
+    const id = `lictor-loop-${provider}`;
+    const injected: string[] = [];
+    const off = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.target_session_id === id) injected.push(event.text);
+    });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([{ ...fakeSession(id), provider }]),
+      now: () => clock,
+      lastActivityMs: () => activity,
+      transcriptMtimeMs: async () => 0, // mtime は判定に使われない
+      readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "通知を待っています。" }),
+      idleSec: 600,
+      cooldownSec: 600,
+      intervalMs: 1_000_000,
+    });
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        await h.runOnce();
+        activity = clock + 60_000; // セッションは毎回返答し、Lictor が frame を送る
+        clock += 3_600_000;
+      }
+      expect(injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
+      expect(injected[AUTO_CONFIRM_STRIKE_LIMIT - 1]).toContain("自動確認を送りません");
+    } finally {
+      h.stop();
+      off();
+    }
+  });
 });
 
 describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", () => {

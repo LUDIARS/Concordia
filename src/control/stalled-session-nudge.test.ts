@@ -116,20 +116,20 @@ describe("shouldNudge", () => {
   it("cooldown 経過 → true", async () => {
     expect(shouldNudge({ ...base, lastNudgeMs: base.nowMs - 3_600_001 })).toBe(true);
   });
-  it("cooldown 経過でも前回 nudge 以降 transcript 無更新 (無反応) → false", async () => {
+  it("cooldown 経過でも前回 nudge 以降 会話が動いていない (無反応) → false", async () => {
     const lastNudgeMs = base.nowMs - 3_600_001;
     expect(
-      shouldNudge({ ...base, lastNudgeMs, transcriptMtimeMs: lastNudgeMs - 1 }),
+      shouldNudge({ ...base, lastNudgeMs, lastActivityMs: lastNudgeMs - 1 }),
     ).toBe(false);
   });
-  it("前回 nudge の後に transcript が動いた (反応あり) → true", async () => {
+  it("前回 nudge の後に会話が動いた (反応あり) → true", async () => {
     const lastNudgeMs = base.nowMs - 7_200_000;
     expect(
-      shouldNudge({ ...base, lastNudgeMs, transcriptMtimeMs: lastNudgeMs + 60_000 }),
+      shouldNudge({ ...base, lastNudgeMs, lastActivityMs: lastNudgeMs + 60_000 }),
     ).toBe(true);
   });
-  it("nudge 履歴が無ければ transcriptMtimeMs は判定に使わない", async () => {
-    expect(shouldNudge({ ...base, lastNudgeMs: null, transcriptMtimeMs: 0 })).toBe(true);
+  it("nudge 履歴が無ければ lastActivityMs は判定に使わない", async () => {
+    expect(shouldNudge({ ...base, lastNudgeMs: null, lastActivityMs: 0 })).toBe(true);
   });
 });
 
@@ -484,6 +484,69 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual([]);
     h.stop();
     expect(injects().length).toBe(0);
+  });
+
+  describe.each(["claude-code", "codex"])("Lictor の最終 frame 時刻で判定する (%s)", (provider) => {
+    it("ファイル mtime が新しくても Lictor の時刻が古ければ停止とみなす", async () => {
+      const h = startStalledSessionNudge({
+        repo: fakeRepo([fakeSession({ id: `lictor-stale-${provider}`, provider })]),
+        now: () => NOW,
+        lastActivityMs: () => NOW - 7_200_000,
+        transcriptMtimeMs: async () => NOW, // provider 固有の書き込みで mtime だけ動いている
+        readTranscriptTail: async () => jsonl({ role: "assistant", content: "続けます。" }),
+        intervalMs: 1_000_000,
+      });
+      expect(await h.runOnce()).toEqual([`lictor-stale-${provider}`]);
+      h.stop();
+    });
+
+    it("ファイル mtime が古くても Lictor の時刻が新しければ停止とみなさない", async () => {
+      const h = startStalledSessionNudge({
+        repo: fakeRepo([fakeSession({ id: `lictor-fresh-${provider}`, provider })]),
+        now: () => NOW,
+        lastActivityMs: async () => NOW - 60_000,
+        transcriptMtimeMs: async () => 0,
+        readTranscriptTail: async () => jsonl({ role: "assistant", content: "続けます。" }),
+        intervalMs: 1_000_000,
+      });
+      expect(await h.runOnce()).toEqual([]);
+      h.stop();
+    });
+
+    it("前回確認後に Lictor の時刻が動かなければ再確認せず、動けば再確認する", async () => {
+      let clock = NOW;
+      let activity = 0;
+      const h = startStalledSessionNudge({
+        repo: fakeRepo([fakeSession({ id: `lictor-cycle-${provider}`, provider })]),
+        now: () => clock,
+        lastActivityMs: () => activity,
+        transcriptMtimeMs: async () => clock, // mtime は判定に使われない
+        readTranscriptTail: async () => jsonl({ role: "assistant", content: "状況を整理しました。" }),
+        idleSec: 3600,
+        cooldownSec: 3600,
+        intervalMs: 1_000_000,
+      });
+      expect(await h.runOnce()).toEqual([`lictor-cycle-${provider}`]);
+      clock += 7_200_000; // cooldown 経過。 Lictor からの frame は届いていない = 無反応
+      expect(await h.runOnce()).toEqual([]);
+      activity = clock + 60_000; // セッションが応答した frame が届いた
+      clock += 7_200_000;
+      expect(await h.runOnce()).toEqual([`lictor-cycle-${provider}`]);
+      h.stop();
+    });
+
+    it("Lictor の frame が 1 件も無いときだけ mtime へ後方互換で落ちる", async () => {
+      const h = startStalledSessionNudge({
+        repo: fakeRepo([fakeSession({ id: `legacy-${provider}`, provider })]),
+        now: () => NOW,
+        lastActivityMs: () => null,
+        transcriptMtimeMs: async () => NOW - 7_200_000,
+        readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
+        intervalMs: 1_000_000,
+      });
+      expect(await h.runOnce()).toEqual([`legacy-${provider}`]);
+      h.stop();
+    });
   });
 
   it("enabled=false なら何もしない", async () => {

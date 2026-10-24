@@ -3,9 +3,11 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { ACTIO_REFERENCE } from "../taskflow/actio-store.js";
+import { repositoryKey } from "../taskflow/actio-binding.js";
 import type { TaskStore } from "../taskflow/store.js";
 import { createChildLogger } from "../shared/logger.js";
 import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
+import { clearTaskLinkFailure, recordTaskLinkFailure } from "./task-link-failures.js";
 
 const log = createChildLogger("work/task-links");
 
@@ -61,6 +63,20 @@ function unknownView(link: SessionTaskLink, reason: LinkedTaskUnknownReason, det
   return { ...link, status: "unknown", state: "unknown", reason };
 }
 
+/**
+ * 関連付けで Actio の project binding を引くリポの候補。宣言した作業対象を先に、実 checkout を次に試す。
+ * target_project は current_task や branch の文面から推定されることがあり (branch `fix/actio-…` で Actio に
+ * なる等)、それだけで実 checkout のプロジェクトのタスクを範囲外にしない (2026-10-23 不具合 162bc3a6)。
+ * どちらのプロジェクトにも属さないタスクは従来どおり範囲外。
+ */
+export function sessionTaskRepoCandidates(session: Pick<SessionRow, "repo_path" | "target_project">): string[] {
+  const candidates: string[] = [];
+  for (const path of [sessionWorkingRepoPath(session), session.repo_path]) {
+    if (path && !candidates.some((seen) => repositoryKey(seen) === repositoryKey(path))) candidates.push(path);
+  }
+  return candidates;
+}
+
 /** 関連付け・表示は参照専用の読み込みを優先する (旧来タスクも対象)。無い store は従来の read。 */
 function referenceReader(tasks: Pick<TaskStore, "read" | "readReference">): TaskStore["read"] {
   return tasks.readReference?.bind(tasks) ?? tasks.read?.bind(tasks);
@@ -109,14 +125,26 @@ export async function addSessionTaskLink(input: {
   if (allPrior.length >= MAX_LINKS) return { kind: "limit" };
   const readTask = referenceReader(tasks);
   if (!readTask) return { kind: "task_unavailable" };
-  let taskRepoPath: string;
-  try {
-    const task = await readTask(sessionWorkingRepoPath(before), taskReference, readSubsidiaryId(before.metadata));
-    if (task.path !== taskReference || !task.repoPath) return { kind: "task_out_of_scope" };
-    taskRepoPath = task.repoPath;
-  } catch (error) {
+  let taskRepoPath: string | null = null;
+  let failure: "not_found" | "task_out_of_scope" | "task_unavailable" = "task_out_of_scope";
+  for (const repoPath of sessionTaskRepoCandidates(before)) {
+    try {
+      const task = await readTask(repoPath, taskReference, readSubsidiaryId(before.metadata));
+      if (task.path === taskReference && task.repoPath) { taskRepoPath = task.repoPath; break; }
+      failure = "task_out_of_scope";
+    } catch (error) {
+      failure = taskReadFailure(error);
+      // Only "outside this project's scope" moves on to the next candidate; outages and 404 are final.
+      if (failure !== "task_out_of_scope") break;
+    }
+  }
+  if (taskRepoPath === null) {
     if (!sameBinding(before, sessions.findSession(sessionId))) return { kind: "stale_binding" };
-    return { kind: taskReadFailure(error) };
+    // The automatic followup shows this once instead of repeating a bare "unknown" (task-link-failures.ts).
+    if (failure !== "task_unavailable") {
+      recordTaskLinkFailure(sessions, sessionId, { task_reference: taskReference, reason: failure, at: input.now?.() ?? Date.now() });
+    }
+    return { kind: failure };
   }
   const latest = sessions.findSession(sessionId);
   if (!sameBinding(before, latest)) return { kind: "stale_binding" };
@@ -128,9 +156,9 @@ export async function addSessionTaskLink(input: {
   const link = { instruction_ref: instructionRef, task_reference: taskReference, linked_at: input.now?.() ?? Date.now(),
     repo_path: taskRepoPath, repo_origin: before.repo_origin, target_project: before.target_project ?? null,
     subsidiary_id: readSubsidiaryId(before.metadata) };
-  sessions.updateMetadata(sessionId, (metadata) => ({ ...metadata,
+  sessions.updateMetadata(sessionId, (metadata) => clearTaskLinkFailure({ ...metadata,
     [SESSION_TASK_LINKS_KEY]: [...allLatestLinks, link],
-  }));
+  }, taskReference));
   return { kind: "linked", link };
 }
 
@@ -145,7 +173,8 @@ export async function readLinkedTaskViews(input: {
   const result: LinkedTaskView[] = [];
   for (const link of links) {
     try {
-      const task = await referenceReader(input.tasks)?.(before.repo_path, link.task_reference, readSubsidiaryId(before.metadata));
+      // Read through the binding the link was made with; the session cwd may be a root or another repo.
+      const task = await referenceReader(input.tasks)?.(link.repo_path, link.task_reference, readSubsidiaryId(before.metadata));
       if (!task) throw new Error("task_read_unavailable");
       const rawStatus = task.frontmatter.actio_status;
       if (task.repoPath !== link.repo_path) {

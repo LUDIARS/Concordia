@@ -17,6 +17,8 @@ export interface SessionFollowupSnapshot {
   workflow: ProjectStartupWorkflow;
   /** reason は Actio 状態が unknown のときの理由 (spec/feature/task-linked-followup.md)。 */
   tasks: readonly { status: string; reason?: string }[];
+  /** 関連付けを拒否された Actio タスク参照と理由 (src/work/task-link-failures.ts)。 */
+  linkFailures?: readonly { task_reference: string; reason: string }[];
   /** 取得に失敗した取得元。空または未指定なら全部取れている。 */
   unavailable?: readonly FollowupSource[];
   /** Newest first; historical failures must not override a later completed run. */
@@ -62,6 +64,15 @@ function unknownTaskReasons(snapshot?: SessionFollowupSnapshot): string[] {
   return reasons.length ? [`関連タスクの状態が unknown の理由: ${reasons.join(", ")}`] : [];
 }
 
+function linkFailureLines(snapshot?: SessionFollowupSnapshot): string[] {
+  const failures = snapshot?.linkFailures ?? [];
+  if (!failures.length) return [];
+  return [
+    `関連付けできなかった Actio タスク: ${failures.map((failure) => `${failure.task_reference} (${failure.reason})`).join(", ")}。`
+      + "task_out_of_scope は作業対象のプロジェクト・チーム・所有者と合わないタスク、not_found は Actio に無いタスクです。同じ関連付けを再送せず、対象を確かめてください。",
+  ];
+}
+
 export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): string {
   const state = snapshot ? selectSessionFollowupState(snapshot) : "unknown";
   const skill = fileURLToPath(new URL("../../skills/session-followup/SKILL.md", import.meta.url));
@@ -73,6 +84,7 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
       ? [`取得できなかった状態: ${snapshot.unavailable.map((source) => SOURCE_LABELS[source]).join("・")}。取れた状態だけで判断し、取れなかったものは保存済みの参照から再照合してください。`]
       : []),
     ...unknownTaskReasons(snapshot),
+    ...linkFailureLines(snapshot),
     "Actio タスクの現状態を正本として確認し、人間の指示と task link の対応を混ぜないでください。",
     ...REMAINING_WORK_GUIDANCE,
     ...(state === "task-blocked" ? ["blocked タスクは依存待ち・人間判断待ちを照合し、待機中の同じ依頼を重複実行しないでください。"] : []),

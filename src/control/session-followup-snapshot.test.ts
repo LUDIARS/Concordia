@@ -50,4 +50,11 @@ describe("followup snapshot sources", () => {
     expect(stale.tasks).toEqual([{ status: "unknown" }]);
     expect(stale.unavailable).toEqual([]);
   });
+
+  it("carries the task references the session could not link (162bc3a6)", async () => {
+    const metadata = JSON.stringify({ cc_task_link_failures: [{ task_reference: "actio:T-9", reason: "task_out_of_scope", at: 1 }] });
+    const snapshot = await resolveSessionFollowupSnapshot(ports(), { ...session, metadata } as SessionRow);
+    expect(snapshot.linkFailures).toEqual([{ task_reference: "actio:T-9", reason: "task_out_of_scope" }]);
+    expect((await resolveSessionFollowupSnapshot(ports(), session)).linkFailures).toBeUndefined();
+  });
 });

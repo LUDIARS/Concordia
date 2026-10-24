@@ -63,6 +63,12 @@ import {
   renderStrikeOutNotice,
 } from "./auto-confirm-strikes.js";
 import { selectSessionFollowupState } from "./session-followup-state.js";
+import {
+  isUnknownFollowupAlreadyShown,
+  readUnknownFollowupNotice,
+  unknownFollowupNoticeKey,
+  writeUnknownFollowupNotice,
+} from "./unknown-followup-notice.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import {
@@ -418,7 +424,18 @@ export function startStalledSessionNudge(
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
       if (isAutoConfirmStruckOut(latest.metadata) && !aiWork) continue;
+      // 同じ中身の unknown (関連付けできないタスク等) は一度だけ示し、繰り返さない (unknown-followup-notice.ts)。
+      // 状態照会が無い構成では中身を比べられないので、従来どおり 3 アウトに任せる。
+      const unknownKey = opts.resolveWorkState
+        ? unknownFollowupNoticeKey(workState ? selectSessionFollowupState(workState) : "unknown", workState)
+        : null;
+      const shownUnknown = readUnknownFollowupNotice(latest.metadata);
+      if (isUnknownFollowupAlreadyShown(unknownKey, shownUnknown)) {
+        log.debug({ session_id: s.id }, "skip nudge: same unknown state already shown");
+        continue;
+      }
       if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs)) continue;
+      writeUnknownFollowupNotice(opts.repo, s.id, unknownKey, shownUnknown);
       lastNudge.set(s.id, nowMs);
       // AI が進められる作業への継続誘導は 3 アウトの回数に数えない。
       const closing = aiWork

@@ -46,4 +46,11 @@ describe("task-linked followup", () => {
     expect(text).toContain("unknown の理由: task_out_of_scope");
     expect(renderSessionFollowup(empty)).not.toContain("取得できなかった状態");
   });
+
+  it("names the Actio tasks that could not be linked and why (162bc3a6)", () => {
+    const text = renderSessionFollowup({ ...empty, linkFailures: [{ task_reference: "actio:T-9", reason: "task_out_of_scope" }] });
+    expect(text).toContain("state=unknown");
+    expect(text).toContain("関連付けできなかった Actio タスク: actio:T-9 (task_out_of_scope)");
+    expect(renderSessionFollowup(empty)).not.toContain("関連付けできなかった");
+  });
 });

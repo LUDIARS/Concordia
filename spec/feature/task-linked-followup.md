@@ -40,7 +40,36 @@ Cc taskflow v3 以前の形で登録された Actio タスク (source `cc-taskmd
   - v3 タスク: 従来どおり (project・owner・team・source・pluginId がすべて binding と一致)。
   - 旧来タスク: source が `cc-taskmd`、project と owner が binding と一致、team は binding の
     範囲内か、team を持たない場合は owner が一致すること (依存タスクの読み込みと同じ規則)。
-  - それ以外の source (手入力・他サービス由来等) は従来どおり範囲外として拒否する。
+  - ~~それ以外の source (手入力・他サービス由来等) は従来どおり範囲外として拒否する。~~ 2026-10-23 に改める (下記)。
+
+### 参照範囲は source で決めない・紐付けの binding 候補・unknown を一度だけ示す (2026-10-23)
+
+不具合 Actio 162bc3a6 (MELPOT の作業セッションで紐付けが 403 `actio_task_out_of_scope`、自動確認が state=unknown の
+まま繰り返し届く) の修正。taskflow タスク `actio:5e1f2bed-8f6a-403c-a9d2-93ec2da419be`。
+
+- 原因 1: 参照用の読み込みが source `concordia.taskflow.v3` / `cc-taskmd` 以外を一律に範囲外にしていた。Actio の実データでは
+  Cc プロジェクトの `cc-command` (Cc の不具合報告) 26 件、別プロジェクト由来の `memoria-import` がすべて紐付け不能だった。
+- 原因 2: 紐付けは `target_project` の binding だけで引くが、`target_project` は current_task / branch の文面から推定される
+  (branch `fix/actio-…` で Actio になる)。実 checkout のプロジェクトのタスクが範囲外になっていた。表示は `repo_path` で
+  引いていて、紐付けと食い違っていた。
+- 因果の確認: 紐付けが 0 件だと自動確認の tasks が空になり state=unknown。unknown は AI 作業扱いでないので、3 アウトまで
+  同じ本文が繰り返される。
+
+変更後の不変条件:
+
+- v3 以外のタスクの参照範囲は project・owner・team で決める (`isReferenceInScope`)。source は問わない。
+  project・owner・team のどれかが合わないタスクは従来どおり `actio_task_out_of_scope` (403)。参照専用で、作業候補・
+  状態更新・担当割り当てには使わない (従来どおり)。v3 タスクの範囲は変えない。
+- 紐付けは「宣言した作業対象 → 実 checkout」の順に binding を試す (`sessionTaskRepoCandidates`)。次へ進むのは範囲外のときだけで、
+  404・Actio 不通はそこで確定する。表示は紐付けたときの binding (`link.repo_path`) で読む。
+- 範囲外・未存在で拒否した参照は理由とともにセッション metadata `cc_task_link_failures` に残す (最新 4 件、同じ参照は上書き、
+  紐付けに成功したら消す。Actio 不通は残さない)。自動確認はこれを「関連付けできなかった Actio タスク」として示す。
+- 自動確認は unknown の中身 (タスクの unknown 理由・関連付けできなかった参照・取れなかった取得元) を鍵にし、同じ鍵の unknown は
+  一度だけ送る (`cc_followup_unknown_notice`)。中身が変わるか、unknown 以外の状態で一度送れば、次の unknown はまた一度送る。
+  状態照会を持たない構成は従来どおり 3 アウトに任せる。
+- 実装: `src/taskflow/actio-reference-scope.ts`、`src/taskflow/actio-task-client.ts`、`src/work/session-task-links.ts`、
+  `src/work/task-link-failures.ts`、`src/control/session-followup-snapshot.ts`、`src/control/session-followup-state.ts`、
+  `src/control/unknown-followup-notice.ts`、`src/control/stalled-session-nudge.ts`。
 
 ## Goal & Go と人間待ち
 

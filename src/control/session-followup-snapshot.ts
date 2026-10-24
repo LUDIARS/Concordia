@@ -2,6 +2,7 @@
 import type { RevisorRepositoryRecord } from "../pr/revisor-repository-client.js";
 import type { SessionRow } from "../shared/types.js";
 import { selectProjectStartupWorkflow } from "./project-startup-workflow.js";
+import { readTaskLinkFailures } from "../work/task-link-failures.js";
 import type { FollowupSource, SessionFollowupSnapshot } from "./session-followup-state.js";
 
 interface PrState { status: string; checkStatus: string }
@@ -42,5 +43,8 @@ export async function resolveSessionFollowupSnapshot(
   const tasks = live.status === "fulfilled" && live.value.kind === "current"
     ? live.value.links.map((link) => ({ status: link.status, ...(link.reason ? { reason: link.reason } : {}) }))
     : [{ status: "unknown" }];
-  return { workflow, tasks, delegations: ports.delegations(session.id), prs, unavailable };
+  const linkFailures = readTaskLinkFailures(session.metadata)
+    .map((failure) => ({ task_reference: failure.task_reference, reason: failure.reason }));
+  return { workflow, tasks, delegations: ports.delegations(session.id), prs, unavailable,
+    ...(linkFailures.length ? { linkFailures } : {}) };
 }

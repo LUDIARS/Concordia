@@ -42,8 +42,15 @@ describe("ActioWorkflowClient.getReference", () => {
     await expect(client(foreignTeam).client.getReference(BINDING, "task-1")).rejects.toThrow("Actio task ownership mismatch");
   });
 
-  it("rejects tasks from other sources or owners as out of scope", async () => {
-    await expect(client(task({ source: "manual" })).client.getReference(BINDING, "task-1")).rejects.toThrow("Actio task ownership mismatch");
+  it("accepts non-v3 tasks of the bound project whatever their source (162bc3a6)", async () => {
+    for (const source of ["cc-command", "memoria-import", "manual", null]) {
+      await expect(client(task({ source, teamId: "team-1" })).client.getReference(BINDING, "task-1"))
+        .resolves.toMatchObject({ legacy: true, task: { id: "task-1" } });
+    }
+  });
+
+  it("rejects tasks of other projects, owners or teams as out of scope", async () => {
+    await expect(client(task({ source: "cc-command", teamId: "team-2" })).client.getReference(BINDING, "task-1")).rejects.toThrow("Actio task ownership mismatch");
     await expect(client(task({ ownerId: "owner-2" })).client.getReference(BINDING, "task-1")).rejects.toThrow("Actio task ownership mismatch");
     await expect(client(task({ projectId: "KD" })).client.getReference(BINDING, "task-1")).rejects.toThrow("Actio task ownership mismatch");
   });

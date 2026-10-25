@@ -82,6 +82,56 @@ describe("projectCodesRouter admin surface", () => {
     }) as never);
     const body = await (await app.request("/admin")).json();
     expect(body.entries[0].revisor).toEqual({ registered: false, workflow: null });
+    expect(body.entries[0].revisor_workflow).toBeNull();
+  });
+
+  it.each(["revisor", "github"] as const)("clears a stale %s mirror once when registration is absent", async (workflow) => {
+    let row: ProjectCodeRow = { ...storedRow, revisor_workflow: workflow };
+    const setRevisorWorkflow = vi.fn((_code: string, value: "revisor" | "github" | null) => {
+      row = { ...row, revisor_workflow: value };
+      return row;
+    });
+    const app = projectCodesRouter(adminDeps({
+      repo: { list: () => [row], setRevisorWorkflow },
+      revisor: { listRepositories: async () => [], setRepositoryWorkflow: vi.fn() },
+    }) as never);
+    for (let request = 0; request < 2; request += 1) {
+      const body = await (await app.request("/admin")).json();
+      expect(body.entries[0].revisor_workflow).toBeNull();
+      expect(body.entries[0].revisor).toEqual({ registered: false, workflow: null });
+      expect(row.revisor_workflow).toBeNull();
+    }
+    expect(setRevisorWorkflow).toHaveBeenCalledTimes(1);
+    expect(setRevisorWorkflow).toHaveBeenCalledWith(storedRow.code, null);
+  });
+
+  it("retains the stored workflow when the Revisor snapshot is unavailable", async () => {
+    const setRevisorWorkflow = vi.fn();
+    const app = projectCodesRouter(adminDeps({
+      repo: { list: () => [{ ...storedRow, revisor_workflow: "github" }], setRevisorWorkflow },
+      revisor: { listRepositories: async () => { throw new Error("unavailable"); }, setRepositoryWorkflow: vi.fn() },
+    }) as never);
+    const body = await (await app.request("/admin")).json();
+    expect(body.revisor_available).toBe(false);
+    expect(body.entries[0].revisor).toBeNull();
+    expect(body.entries[0].revisor_workflow).toBe("github");
+    expect(setRevisorWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("defaults a registered repository without a workflow to revisor", async () => {
+    const setRevisorWorkflow = vi.fn();
+    const app = projectCodesRouter(adminDeps({
+      repo: { list: () => [storedRow], setRevisorWorkflow },
+      revisor: {
+        listRepositories: async () => [{ repository: "LUDIARS/Concordia", rootPath: storedRow.repo_path, baseRef: "main", testCases: [] }],
+        setRepositoryWorkflow: vi.fn(),
+      },
+    }) as never);
+    const body = await (await app.request("/admin")).json();
+    expect(body.entries[0].revisor_workflow).toBe("revisor");
+    expect(body.entries[0].revisor).toEqual({ registered: true, workflow: "revisor" });
+    expect(setRevisorWorkflow).toHaveBeenCalledTimes(1);
+    expect(setRevisorWorkflow).toHaveBeenCalledWith(storedRow.code, "revisor");
   });
 
   it("answers without waiting for a slow Revisor and reports it as unknown", async () => {

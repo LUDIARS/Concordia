@@ -641,9 +641,10 @@
     {
       "source": "src/api/project-codes.ts",
       "tests": [
-        "tests/harness-reliability/conflux.test.ts"
+        "tests/harness-reliability/conflux.test.ts",
+        "src/api/project-codes-admin.test.ts"
       ],
-      "contracts": []
+      "contracts": ["CC-PCR-WORKFLOW-01"]
     },
     {"source":"web/src/api.ts","tests":["src/dialogue/planning-adjustment.test.ts","tests/harness-reliability/conflux.test.ts","web/src/pages/Inbox.test.tsx","web/src/pages/manuals/MajorInjectPanel.test.tsx","web/src/pages/session-chat/SessionList.test.tsx"],"contracts":["CC-INBOX-PLAN-01"]},
     {

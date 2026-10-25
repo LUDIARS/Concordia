@@ -165,7 +165,10 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
         const revisorEntry = revisorRepos.list
           ? findRevisorRecord(revisorRepos.list, row) ?? null
           : undefined;
-        const workflow = revisorEntry === undefined ? row.revisor_workflow ?? null : revisorEntry?.workflow ?? "revisor";
+        // Unknown snapshots retain the mirror; a confirmed missing registration clears it.
+        const workflow = revisorEntry === undefined
+          ? row.revisor_workflow ?? null
+          : revisorEntry === null ? null : revisorEntry.workflow ?? "revisor";
         if (revisorEntry !== undefined && workflow !== (row.revisor_workflow ?? null)) deps.repo.setRevisorWorkflow(row.code, workflow);
         return {
           code: row.code,

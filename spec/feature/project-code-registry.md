@@ -33,6 +33,11 @@ session title、forum routing の正本には使わない。
 
 ### 管理 UI
 
+- **CC-PCR-WORKFLOW-01** (UX-CC-W1 / S1、CC-INV-04): Revisor が登録状態を所有し、Cc はその
+  workflow をミラーする。取得済み一覧に登録がなければ表示と保存値を `null` にする。
+  取得不能なら保存値を維持する。登録済みで workflow 省略の場合だけ `revisor` を既定とする。
+  再度一覧を読んでも未登録の保存値を `revisor` に戻さない。変更 API の登録必須条件は維持する。
+
 - `GET /v1/project-codes/admin` は loopback 管理面に、監査項目、repo origin、所属チーム、
   所属会社、Revisor workflow を含む一覧を返す。応答は Revisor を待たない (目標 100ms 以内)。
   Revisor 登録一覧は直近の成功結果を返し、30 秒より古ければ裏で 1 本だけ取り直す。

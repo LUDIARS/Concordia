@@ -2,6 +2,8 @@ import { tmpdir } from "node:os";
 import { runAvailableText } from "../rules/available-text-runner.js";
 import { ConfluxService } from "../harness/reliability/conflux-service.js";
 import { cloudWorkRouter } from "./cloud-work.js";
+import { orbisRouter } from "./orbis.js";
+import { createOrbisRuntime } from "../orbis/runtime.js";
 import { createCloudBatchKicker, createCloudWorkRuntime } from "../cloud-work/runtime.js";
 import { startCloudBatchSchedule } from "../cloud-work/batch-schedule.js";
 import { serviceStatusRouter } from "./service-status.js";
@@ -509,6 +511,7 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  app.route("/v1/orbis", orbisRouter(createOrbisRuntime(deps.repo)));
   if (deps.actioChat) app.route("/v1/actio-chat", actioChatRouter(deps.actioChat));
   if (deps.sprintDialogues) app.route("/v1/sprint-dialogues", sprintDialoguesRouter(deps.sprintDialogues));
   if (deps.dailyGoals) {

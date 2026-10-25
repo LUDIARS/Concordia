@@ -1,0 +1,172 @@
+{
+  "summary": "Lead with \"Happy path: Orbis Vinculum: pure input and authorization policy plus injected SDK transport; verify headers, port discovery, failures, cross-session ownership and reveal refusal\" (high), then write the failing test first, then fix. 3 test suggestions, 2 fix steps.",
+  "testPlan": {
+    "suggestions": [
+      {
+        "id": "test-001",
+        "title": "Happy path: Orbis Vinculum: pure input and authorization policy plus injected SDK transport; verify headers, port discovery, failures, cross-session ownership and reveal refusal",
+        "kind": "unit",
+        "priority": "high",
+        "confidence": 0.75,
+        "targetFiles": [
+          "spec/domains/http-interface.domain.json"
+        ],
+        "rationale": "A new feature needs its primary flow verified before anything else.",
+        "draft": {
+          "framework": "vitest",
+          "description": "Given valid inputs, when the feature runs, then it produces the intended outcome (Eight session-scoped tools without leaking secrets or calling real Orbis)."
+        },
+        "evidenceIds": [
+          "ev-001",
+          "ev-003",
+          "ev-004",
+          "ev-005",
+          "ev-006",
+          "ev-007",
+          "ev-008"
+        ]
+      },
+      {
+        "id": "test-002",
+        "title": "Edge cases and invalid inputs",
+        "kind": "unit",
+        "priority": "medium",
+        "confidence": 0.65,
+        "targetFiles": [
+          "spec/domains/http-interface.domain.json"
+        ],
+        "rationale": "Boundary and invalid-input behavior is where new features usually break.",
+        "draft": {
+          "framework": "vitest",
+          "description": "Given boundary and invalid inputs, when the feature runs, then it fails safely with the documented behavior."
+        },
+        "evidenceIds": [
+          "ev-001",
+          "ev-003",
+          "ev-004",
+          "ev-005",
+          "ev-006",
+          "ev-007",
+          "ev-008"
+        ]
+      },
+      {
+        "id": "test-003",
+        "title": "Contract with consumers of the new surface",
+        "kind": "contract",
+        "priority": "medium",
+        "confidence": 0.55,
+        "rationale": "Whatever the feature exposes (API, events, props) should be pinned as a contract.",
+        "draft": {
+          "framework": "vitest",
+          "description": "Given the exposed surface of the feature, when consumers use it as documented, then the shape and semantics hold."
+        },
+        "evidenceIds": [
+          "ev-001",
+          "ev-003",
+          "ev-004",
+          "ev-005",
+          "ev-006",
+          "ev-007",
+          "ev-008"
+        ]
+      }
+    ]
+  },
+  "fixPolicy": {
+    "strategy": "test_first",
+    "steps": [
+      {
+        "id": "fix-001",
+        "title": "Write the happy-path test first",
+        "description": "Encode the desired outcome as a failing test, then implement until it passes.",
+        "evidenceIds": [
+          "ev-001",
+          "ev-003",
+          "ev-004",
+          "ev-005",
+          "ev-006",
+          "ev-007",
+          "ev-008"
+        ]
+      },
+      {
+        "id": "fix-002",
+        "title": "Implement the feature minimally",
+        "description": "Build the smallest implementation that satisfies the tests, then extend edge-case coverage.",
+        "targetFiles": [
+          "augur.contracts.json",
+          "cc.acceptance.json",
+          "src/api/register-core.ts",
+          "src/mcp/delegation-server.ts"
+        ],
+        "dependsOn": [
+          "fix-001"
+        ],
+        "evidenceIds": [
+          "ev-001",
+          "ev-003",
+          "ev-004",
+          "ev-005",
+          "ev-006",
+          "ev-007",
+          "ev-008"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "id": "risk-001",
+        "severity": "low",
+        "description": "New surfaces tend to grow; keeping the initial contract small reduces later breaking changes."
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "id": "ev-001",
+      "type": "objective",
+      "detail": "Caller requested new feature: Orbis Vinculum: pure input and authorization policy plus injected SDK transport; verify headers, port discovery, failures, cross-session ownership and reveal refusal"
+    },
+    {
+      "id": "ev-002",
+      "type": "project_metadata",
+      "detail": "Project context: domain service; test runners vitest."
+    },
+    {
+      "id": "ev-003",
+      "type": "diff",
+      "detail": "A code diff was supplied with the request."
+    },
+    {
+      "id": "ev-004",
+      "type": "changed_file",
+      "file": "augur.contracts.json",
+      "detail": "Changed file: augur.contracts.json"
+    },
+    {
+      "id": "ev-005",
+      "type": "changed_file",
+      "file": "cc.acceptance.json",
+      "detail": "Changed file: cc.acceptance.json"
+    },
+    {
+      "id": "ev-006",
+      "type": "changed_file",
+      "file": "spec/domains/http-interface.domain.json",
+      "detail": "Changed file: spec/domains/http-interface.domain.json"
+    },
+    {
+      "id": "ev-007",
+      "type": "changed_file",
+      "file": "src/api/register-core.ts",
+      "detail": "Changed file: src/api/register-core.ts"
+    },
+    {
+      "id": "ev-008",
+      "type": "changed_file",
+      "file": "src/mcp/delegation-server.ts",
+      "detail": "Changed file: src/mcp/delegation-server.ts"
+    }
+  ]
+}

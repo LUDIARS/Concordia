@@ -30,6 +30,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { resolveDelegationParentSessionId } from "./delegation-parent-session.js";
 import { concordiaBaseUrl } from "../config/service-urls.js";
 import { registerCloudWorkTools } from "./cloud-work-tools.js";
+import { registerOrbisTools } from "./orbis-tools.js";
 
 async function callConcordia(
   method: "GET" | "POST",
@@ -187,6 +188,7 @@ async function main(): Promise<void> {
   );
 
   registerCloudWorkTools(server, callConcordia, () => process.env.CONCORDIA_SESSION_ID);
+  registerOrbisTools(server, callConcordia, () => process.env.CONCORDIA_SESSION_ID);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write("[concordia-delegation-mcp] connected via stdio\n");

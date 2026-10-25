@@ -1,0 +1,8 @@
+{
+  "name": "browser-bridge",
+  "description": "人間が渡した Orbis sigillum のみをセッション固有の client id で操作する支援境界。ページと attach 所有権は Orbis が所有する。",
+  "membership": [{ "pathPattern": "(^|/)src/orbis/[^/]+\\.ts$" }],
+  "specRefs": ["spec/feature/orbis-vinculum-client.md", "spec/ux/product.md", "spec/architecture/ddd.md"],
+  "presetRules": [],
+  "templateRules": []
+}

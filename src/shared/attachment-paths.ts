@@ -24,7 +24,11 @@ export function buildAttachmentRoots(input: {
 export function createAttachmentGuard(opts: { roots: string[]; enforce: boolean }): AttachmentGuard {
   // The guard always reports the actual result; callers decide whether audit mode blocks it.
   void opts.enforce;
-  const roots = opts.roots.filter(Boolean).map(normalizePath);
+  // A root can be an alias of its real directory: on Windows os.tmpdir() is often an 8.3 short
+  // name (C:\Users\ABCDEF~1\...) while the same directory also has a long name, and realpath does
+  // not always expand one into the other. Each root counts in both forms, for the requested path
+  // and for the resolved one, so an alias neither rejects a file nor hides a symlink escape.
+  const roots = [...new Set(opts.roots.filter(Boolean).flatMap((root) => [normalizePath(root), realRootPath(root)]))];
 
   return {
     async check(rawPath: string): Promise<AttachmentCheck> {
@@ -51,6 +55,16 @@ export function createAttachmentGuard(opts: { roots: string[]; enforce: boolean 
       return { ok: true, realPath };
     },
   };
+}
+
+// The native realpath expands an 8.3 short name to the long one. A root that does not exist yet
+// keeps its configured form.
+function realRootPath(root: string): string {
+  try {
+    return normalizePath(fs.realpathSync.native(root));
+  } catch {
+    return normalizePath(root);
+  }
 }
 
 function normalizePath(value: string): string {

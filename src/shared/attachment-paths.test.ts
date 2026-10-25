@@ -38,6 +38,29 @@ describe("attachment paths", () => {
     await expect(guard.check(await writeFile(dir, "capture.png"))).resolves.toMatchObject({ ok: true });
   });
 
+  // Windows: os.tmpdir() is often an 8.3 short name while realpath returns the long name.
+  // A directory alias reproduces the same mismatch on every OS.
+  it("allows a file below a root given as an alias of its real directory, written either way", async () => {
+    const { root, outside } = await fixture();
+    const alias = path.join(path.dirname(root), "ars-alias");
+    try {
+      await fs.promises.symlink(root, alias, "junction");
+    } catch {
+      return; // environments that cannot create a directory link cannot exercise this case.
+    }
+    const guard = createAttachmentGuard({ roots: [alias], enforce: true });
+    await writeFile(root, "capture.png");
+    await expect(guard.check(path.join(alias, "capture.png"))).resolves.toMatchObject({ ok: true });
+    await expect(guard.check(path.join(root, "capture.png"))).resolves.toMatchObject({ ok: true });
+    await expect(guard.check(await writeFile(outside, "outside.png"))).resolves.toEqual({ ok: false, reason: "outside_roots" });
+  });
+
+  it("keeps a root that does not exist yet in its configured form", async () => {
+    const { root } = await fixture();
+    const guard = createAttachmentGuard({ roots: [path.join(root, "missing"), root], enforce: true });
+    await expect(guard.check(await writeFile(root, "capture.png"))).resolves.toMatchObject({ ok: true });
+  });
+
   it("rejects a file outside the workspace root", async () => {
     const { outside, guard } = await fixture();
     await expect(guard.check(await writeFile(outside, "outside.png"))).resolves.toEqual({ ok: false, reason: "outside_roots" });

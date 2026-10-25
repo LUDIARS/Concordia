@@ -4,7 +4,7 @@
   "importFrom": "./ontime-runtime.js",
   "contracts": [
     { "id": "orbis-C-1", "criterion": "C-1 parseOrbisRequest(operation,input): 公開8操作と許可したactionだけを受理しtype.textは2000文字以下", "symbol": "parseOrbisRequest", "file": "src/orbis/request.ts", "module": "src/orbis/request.contract.ts", "mode": "observe", "sample": 1 },
-    { "id": "orbis-C-2", "criterion": "C-2 resolveOrbisEndpoint(orbis,concordia): 観測ポート優先でcatalogへfallbackしCc instance_idを伴うloopbackだけを返す", "symbol": "resolveOrbisEndpoint", "file": "src/orbis/endpoint.ts", "module": "src/orbis/endpoint.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "orbis-C-2", "criterion": "C-2 resolveOrbisEndpoint(orbis,concordia): catalog宣言があればその値のみ検証し、宣言が無い場合だけ観測値を使い、有効なCc instance_idを伴うloopbackだけを返す", "symbol": "resolveOrbisEndpoint", "file": "src/orbis/endpoint.ts", "module": "src/orbis/endpoint.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "orbis-C-3", "criterion": "C-3 publicOrbisError(error): 外部例外を含めエラーは閉じた6語彙だけを返す", "symbol": "publicOrbisError", "file": "src/orbis/errors.ts", "module": "src/orbis/errors.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "orbis-C-4", "criterion": "C-4 authorizeOrbisRequest(session,operation): active/blocked以外と証明台帳のないrevealを拒否する", "symbol": "authorizeOrbisRequest", "file": "src/orbis/authorization.ts", "module": "src/orbis/authorization.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "conflux-fixture-C-1", "criterion": "C-1 confluxFixtureGitArgs(args, hooks): fixture の全 Git コマンドに空 hook ディレクトリを command scope で指定し、親設定より優先する", "symbol": "confluxFixtureGitArgs", "file": "tests/harness-reliability/conflux-fixture-git.ts", "module": "tests/harness-reliability/conflux-fixture-git.contract.ts", "mode": "observe", "sample": 1 },

@@ -4,6 +4,8 @@ type: feature
 domain: browser-bridge
 status: draft
 task: actio:262ba08f-20e5-4125-b2d5-4047a386c060
+related_tasks:
+  - actio:bcbe7198-0b50-4c48-bcac-ab45f6874fe3
 ---
 
 # Orbis Vinculum クライアント
@@ -20,10 +22,16 @@ UX-CC-W1/W5、CC-INV-02/04/05/07 を対象とする draft。人間が指定し�
 - client id: 呼出し元 Cc session id。attach 所有権・ページ状態は Orbis が所有する。
 - instance id: Excubitor の concordia service_detail の instance_id。Cc が生成しない。
 - CC-ORBIS-01: 存在する active/blocked セッションだけが操作し、client id を別入力で上書きできない。
-- CC-ORBIS-02: ポートは Excubitor の orbis 観測値→catalog から解決する。共有トークンは env 読取りのみ。
+- CC-ORBIS-02: ポートは Excubitor の orbis catalog 宣言を優先する。宣言 (`catalog_snapshot.port !== undefined`) があればその値だけを検証し、null・不正値は `orbis_unavailable` として観測値へ戻さない。宣言が無い場合だけ観測値を検証する。共有トークンは env 読取りのみ。
 - CC-ORBIS-03: act は click/type/scroll/select のみ、type.text は 1〜2000 文字。
 - CC-ORBIS-04: reveal にはこのセッションへ届いた人間発話の実在 ID の証明が必要。
 - CC-ORBIS-05: 生の外部例外・トークン・ページ本文・URL query をログやエラーに残さない。
+
+接続先の判断は browser-bridge の純関数 `resolveOrbisEndpoint` が所有し、I/O は既存の
+ExcubitorClient に残す。Actio transport と同じ宣言優先規則を使い、共通の
+`resolveServicePort` は変更せず選択した値の検証に再利用する。Electron の別 listener の
+観測値へトークンを送らないための境界であり、catalog 宣言・観測値は Excubitor が所有する。
+宣言不正時は人間が catalog を修正してから再試行する。Cc が別ポートを推測しない。
 
 ## API
 
@@ -67,7 +75,7 @@ Cc の再起動で偽の attach 状態を復元しない。不要な権限は de
 ## 契約と検証計画
 
 C-1 parseOrbisRequest(operation,input): 公開8操作と許可した action だけを受理し type.text は2000文字以下。
-C-2 resolveOrbisEndpoint(orbis,concordia): 有効な観測ポートを優先し、無ければcatalogを使い、Cc instance_idを伴うloopbackだけを返す。
+C-2 resolveOrbisEndpoint(orbis,concordia): catalog宣言があればその値のみ検証し、宣言が無い場合だけ観測値を使い、有効なCc instance_idを伴うloopbackだけを返す。
 C-3 publicOrbisError(error): 外部例外を含めエラーは閉じた6語彙だけを返す。
 C-4 authorizeOrbisRequest(session,operation): active/blocked以外と、証明台帳のないrevealを拒否する。
 

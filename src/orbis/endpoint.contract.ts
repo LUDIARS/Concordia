@@ -1,11 +1,20 @@
+function expectedEndpoint(orbis: unknown, concordia: unknown): { url: string; instanceId: string } | null {
+  const o = orbis as { port?: unknown; catalog_snapshot?: { port?: unknown } | null } | null;
+  const port = o?.catalog_snapshot?.port !== undefined ? o.catalog_snapshot.port : o?.port;
+  const instance = (concordia as { instance_id?: unknown } | null)?.instance_id;
+  if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535
+    || typeof instance !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) return null;
+  return { url: `http://127.0.0.1:${port}/`, instanceId: instance };
+}
+
 export default {
-  postThrow(error: unknown): boolean { return error instanceof Error && error.message === "orbis_unavailable"; },
+  postThrow(error: unknown, orbis: unknown, concordia: unknown): boolean {
+    return expectedEndpoint(orbis, concordia) === null
+      && error instanceof Error && error.message === "orbis_unavailable";
+  },
   post(result: unknown, orbis: unknown, concordia: unknown): boolean {
     const r = result as { url: string; instanceId: string };
-    const o = orbis as { port?: number; catalog_snapshot?: { port?: number } };
-    const valid = (p: unknown): p is number => typeof p === "number" && Number.isInteger(p) && p > 0 && p <= 65535;
-    const port = valid(o.port) ? o.port : o.catalog_snapshot?.port;
-    return valid(port) && r.url === `http://127.0.0.1:${port}/`
-      && r.instanceId === (concordia as { instance_id?: string }).instance_id && !!r.instanceId;
+    const expected = expectedEndpoint(orbis, concordia);
+    return expected !== null && r.url === expected.url && r.instanceId === expected.instanceId;
   },
 };

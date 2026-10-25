@@ -7,7 +7,9 @@ import augurContract_2e0fa23c from './endpoint.contract.js'; /* augur-inject:con
 export interface OrbisEndpoint { url: string; instanceId: string }
 
 export function resolveOrbisEndpoint(orbis: ServicePortSource | null, concordia: { instance_id?: unknown } | null): OrbisEndpoint {
-  const port = resolveServicePort(orbis);
+  // Other Electron listeners may be observed; a declared Vinculum endpoint must itself be valid.
+  const port = orbis?.catalog_snapshot?.port !== undefined
+    ? resolveServicePort({ port: orbis.catalog_snapshot.port }) : resolveServicePort(orbis);
   const instance = OrbisClientId.safeParse(concordia?.instance_id);
   if (!port || !instance.success) throw new OrbisError("orbis_unavailable");
   return { url: `http://127.0.0.1:${port}/`, instanceId: instance.data };

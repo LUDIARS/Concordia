@@ -4,6 +4,7 @@ import { composePlaytestReviewNotice, PLAYTEST_NOTICE_LIMIT, type PlaytestReview
 import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "./playtest-review-targets.js";
 import { createRecentRunLedger } from "./recent-run-ledger.js";
 import { createPlaytestReviewTabula, playtestTabulaPage } from "./playtest-review-tabula.js";
+import { createPlaytestVideoDelivery, type PlaytestVideoDelivery } from "./playtest-review-video.js";
 
 const PLAYTEST_EVENT: PlaytestReviewEvent = {
   runId: "playtest:sample-novice-s1-20261015T000000Z",
@@ -54,6 +55,7 @@ describe("playtest-review delivery", () => {
       delivered: [{ target: { kind: "cc-channel", target: "" } }, { target: { kind: "slack", target: PLAYTEST_SLACK_WEBHOOK } }],
       failed: [],
       tabula: null,
+      video: null,
     });
     const calls = bot as unknown as { ccChannel: ReturnType<typeof vi.fn>; slack: ReturnType<typeof vi.fn> };
     expect(calls.ccChannel).toHaveBeenCalledWith(expect.stringContaining("👎 悪い点"));
@@ -72,7 +74,7 @@ describe("playtest-review delivery", () => {
   it("reports unconfigured without delivering, and one failing destination does not stop the other (CC-PLAYTEST-INV-04)", async () => {
     const none = createPlaytestReviewTargets({ discordChannelConfigured: () => false, slackWebhookConfigured: () => false });
     expect(await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: none, delivery: delivery() }))
-      .toEqual({ duplicate: false, unconfigured: true, delivered: [], failed: [], tabula: null });
+      .toEqual({ duplicate: false, unconfigured: true, delivered: [], failed: [], tabula: null, video: null });
     const broken = delivery({ ccChannel: vi.fn().mockRejectedValue(new Error("playtest Discord channel rejected request (403)")) });
     const outcome = await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: BOTH, delivery: broken });
     expect(outcome.delivered).toEqual([{ target: { kind: "slack", target: PLAYTEST_SLACK_WEBHOOK } }]);
@@ -103,11 +105,81 @@ describe("playtest-review delivery", () => {
     const none = createPlaytestReviewTargets({ discordChannelConfigured: () => false, slackWebhookConfigured: () => false });
     const onlyTabula = createPlaytestReviewTabula({ enabled: () => true, connection: () => ({ url: "u", token: "t" }), importPage: vi.fn().mockRejectedValue(new Error("tabula import failed: rejected (401)")) });
     const outcome = await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: none, delivery: delivery(), tabula: onlyTabula });
-    expect(outcome).toEqual({ duplicate: false, unconfigured: false, delivered: [], failed: [], tabula: { error: "tabula import failed: rejected (401)" } });
+    expect(outcome).toEqual({ duplicate: false, unconfigured: false, delivered: [], failed: [], tabula: { error: "tabula import failed: rejected (401)" }, video: null });
   });
 
   it("forgets the oldest run past its limit", () => {
     const ledger = createRecentRunLedger(2);
     expect([ledger.claim("a"), ledger.claim("b"), ledger.claim("c"), ledger.claim("a"), ledger.claim("c")]).toEqual([true, true, true, true, false]);
+  });
+});
+
+describe("playtest-review video (CC-PLAYTEST-INV-06)", () => {
+  const VIDEO = { name: "run.mp4", bytes: new Uint8Array([1, 2, 3]) };
+
+  function videoDelivery(overrides: Partial<PlaytestVideoDelivery> = {}): PlaytestVideoDelivery {
+    return { discord: vi.fn().mockResolvedValue(undefined), slackReady: () => true, slack: vi.fn().mockResolvedValue(undefined), ...overrides };
+  }
+
+  it("posts the notice with the video on Discord and Slack instead of the text-only posts", async () => {
+    const bot = delivery();
+    const transport = videoDelivery();
+    const outcome = await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: BOTH, delivery: bot, video: VIDEO, videoDelivery: transport });
+    expect(outcome.delivered).toEqual([{ target: { kind: "cc-channel", target: "" } }, { target: { kind: "slack", target: PLAYTEST_SLACK_WEBHOOK } }]);
+    expect(outcome.video).toEqual({ delivered: outcome.delivered, failed: [] });
+    expect(transport.discord).toHaveBeenCalledWith(expect.stringContaining("👍 良い点"), VIDEO);
+    expect(transport.slack).toHaveBeenCalledWith(expect.stringContaining("👎 悪い点"), VIDEO);
+    const calls = bot as unknown as { ccChannel: ReturnType<typeof vi.fn>; slack: ReturnType<typeof vi.fn> };
+    expect(calls.ccChannel).not.toHaveBeenCalled();
+    expect(calls.slack).not.toHaveBeenCalled();
+  });
+
+  it("still delivers the notice as text where the video cannot go, and says why", async () => {
+    const bot = delivery();
+    const transport = videoDelivery({ discord: vi.fn().mockRejectedValue(new Error("playtest Discord channel rejected the video (413)")), slackReady: () => false });
+    const outcome = await handlePlaytestReview({ event: PLAYTEST_EVENT, ledger: createRecentRunLedger(), targets: BOTH, delivery: bot, video: VIDEO, videoDelivery: transport });
+    expect(outcome.delivered).toHaveLength(2);
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.video).toEqual({
+      delivered: [],
+      failed: [
+        { target: { kind: "cc-channel", target: "" }, error: "playtest Discord channel rejected the video (413)" },
+        { target: { kind: "slack", target: PLAYTEST_SLACK_WEBHOOK }, error: "playtest Slack video channel is not configured" },
+      ],
+    });
+    const calls = bot as unknown as { ccChannel: ReturnType<typeof vi.fn>; slack: ReturnType<typeof vi.fn> };
+    expect(calls.ccChannel).toHaveBeenCalledTimes(1);
+    expect(calls.slack).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends Discord one multipart message and Slack an external upload with the notice as its comment", async () => {
+    const fetched: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      fetched.push({ url, init });
+      if (url.endsWith("files.getUploadURLExternal")) return Response.json({ ok: true, upload_url: "https://files.slack.com/upload/v1/x", file_id: "F1" });
+      if (url.endsWith("files.completeUploadExternal")) return Response.json({ ok: true });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const transport = createPlaytestVideoDelivery({ fetchImpl, discord: () => ({ channelId: "123", token: "dtoken" }), slack: () => ({ channelId: "C1", token: "xoxb" }) });
+    await transport.discord("本文", VIDEO);
+    const form = fetched[0]?.init.body as FormData;
+    expect(fetched[0]?.url).toBe("https://discord.com/api/v10/channels/123/messages");
+    expect(JSON.parse(String(form.get("payload_json")))).toEqual({ content: "本文", allowed_mentions: { parse: [] }, attachments: [{ id: 0, filename: "run.mp4" }] });
+    expect((form.get("files[0]") as File).size).toBe(3);
+    await transport.slack("本文 <!channel>", VIDEO);
+    expect(fetched.slice(1).map((call) => call.url)).toEqual(["https://slack.com/api/files.getUploadURLExternal", "https://files.slack.com/upload/v1/x", "https://slack.com/api/files.completeUploadExternal"]);
+    const complete = JSON.parse(String(fetched[3]?.init.body)) as { channel_id: string; initial_comment: string; files: unknown };
+    expect(complete.channel_id).toBe("C1");
+    expect(complete.files).toEqual([{ id: "F1", title: "run.mp4" }]);
+    expect(complete.initial_comment).not.toContain("<!channel>");
+    const unset = createPlaytestVideoDelivery({ fetchImpl, discord: () => ({ channelId: "1", token: "t" }), slack: () => null });
+    expect(unset.slackReady()).toBe(false);
+    await expect(unset.slack("x", VIDEO)).rejects.toThrow("not configured");
+  });
+
+  it("reports a Slack API refusal without the token", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ ok: false, error: "not_in_channel" })) as unknown as typeof fetch;
+    const transport = createPlaytestVideoDelivery({ fetchImpl, discord: () => ({ channelId: "1", token: "t" }), slack: () => ({ channelId: "C1", token: "xoxb-secret" }) });
+    await expect(transport.slack("x", VIDEO)).rejects.toThrow("slack files.getUploadURLExternal failed (not_in_channel)");
   });
 });

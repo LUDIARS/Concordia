@@ -262,6 +262,20 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
+    key: "playtest_notify.slack_channel_id",
+    section: "playtest-notify",
+    label: "AI プレイテスト動画の Slack チャンネル",
+    description:
+      "run の動画が付いた AI プレイテスト感想を、 Slack Bot (「Slack」の Bot トークン) で動画ごと投稿する Slack チャンネル ID。"
+      + " incoming webhook はファイルを運べないため、 動画を Slack に載せるときだけ使う。 未設定なら動画付きの run も Slack へは投稿文だけを webhook で送る。",
+    kind: "string",
+    envName: null,
+    dbKey: "playtest_notify.slack_channel_id",
+    dbStore: "meta",
+    defaultValue: null,
+    editable: true,
+  },
+  {
     key: "playtest_notify.tabula_enabled",
     section: "playtest-notify",
     label: "AI プレイテスト感想を Tabula にも投稿する",
@@ -571,4 +585,17 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     "クラウド実行の成果物を受け取る受け口のポート。 観測を有効にするときは必須。"),
   envString("runtime.artifact_root", "runtime", "成果物の保存先", "CONCORDIA_ARTIFACT_ROOT", null,
     "クラウド実行から受け取った成果物を置くディレクトリ。 観測を有効にするときは必須。"),
+  envInteger("runtime.cloud_kick_interval_sec", "runtime", "クラウド実行の自動キック間隔 (秒)", "CONCORDIA_CLOUD_KICK_INTERVAL_SEC", 180,
+    "クラウド実行のバッチを定期的に進める間隔。 60 秒未満は 60 秒に切り上げる。 クラウド実行の設定ファイルが無いときは動かない。"),
+  {
+    key: "runtime.orbis_vinculum_token",
+    section: "runtime",
+    label: "Orbis Vinculum のトークン",
+    description: "セッションから人間指定のページを操作するとき、Orbis の Vinculum へ接続する認証トークン。 API には実値を返さない。",
+    kind: "secret",
+    envName: "ORBIS_VINCULUM_TOKEN",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
 ] as const;

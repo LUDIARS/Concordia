@@ -161,6 +161,7 @@ import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { SqliteReleaseNoticeLedger, createReleaseNoticeLookup } from "../deploy/release-published-runtime.js";
 import { createRecentRunLedger } from "../playtest-review/recent-run-ledger.js";
+import { createPlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
 import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "../playtest-review/playtest-review-targets.js";
 import { createPlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
 import { SqlitePackageUpdateLedger } from "../deploy/package-updates-runtime.js";
@@ -1433,6 +1434,22 @@ export async function startBackend(): Promise<BackendHandle> {
       enabled: () => { const raw = readMetaSetting("playtest_notify.tabula_enabled"); return raw === "1" || raw === "true"; },
       connection: () => readTabulaConnection({ url: readMetaSetting("services.tabula_url"), token: readMetaSetting("services.tabula_import_token") }),
       importPage: (connection, page) => importSharedPage(connection, page),
+    }),
+    // run の動画 (spec/feature/playtest-review-notify.md — 動画): Discord は通知チャンネルへ Cc Bot で添付、
+    // Slack は webhook がファイルを運べないので Slack Bot で動画チャンネルへ上げる。
+    videoDelivery: createPlaytestVideoDelivery({
+      discord: () => {
+        const channelId = readDiscordSetting(discordConfig, secretBox, "playtest_notify_channel_id");
+        if (!channelId) throw new Error("playtest Discord channel is not configured");
+        const token = resolveDiscordConfig(discordConfig, secretBox).token;
+        if (!token) throw new Error("Discord bot token is not configured");
+        return { channelId, token };
+      },
+      slack: () => {
+        const channelId = readMetaSetting("playtest_notify.slack_channel_id");
+        const token = resolveSlackConfig(slackConfig, secretBox).botToken;
+        return channelId && token ? { channelId, token } : null;
+      },
     }),
     authorize: (header: string | undefined) => {
       const expected = discordConfig.get("excubitor_dispatch_token");

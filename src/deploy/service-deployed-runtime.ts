@@ -152,7 +152,7 @@ function isTarget(value: unknown): value is { kind: "discord" | "slack" | "cc-ch
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 /** Slack has no allowed_mentions; neutralise <!channel>/<!here>/<@id> that arrive in PR titles. */
-function sanitizeSlackMentions(content: string): string {
+export function sanitizeSlackMentions(content: string): string {
   return content
     .replace(/<!(channel|here|everyone)>/gi, `<${ZERO_WIDTH_SPACE}!$1>`)
     .replace(/<@/g, `<${ZERO_WIDTH_SPACE}@`);

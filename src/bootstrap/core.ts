@@ -223,6 +223,10 @@ import { SubsidiaryPatrolDefaultsRepo } from "../db/subsidiary-patrol-defaults-r
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startSiteActivityReporter } from "../federation/site-activity-reporter.js";
 import { indexSessionPrs } from "../daily/site-activity-prs.js";
+import { startSiteUsageReporter } from "../federation/site-usage-reporter.js";
+import { buildSiteUsageReport } from "../federation/site-usage.js";
+import { collectProviderWeeklyTokens } from "../cost/provider-weekly-tokens.js";
+import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
 import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
@@ -2000,6 +2004,21 @@ export async function startBackend(): Promise<BackendHandle> {
       send: (report) => federation.sendActivityReport(report),
     }),
   });
+  // 拠点ロールのとき、 ローカル Claude/Codex の週間使用量を本社へ送る (SPEC-FED-SITE-USAGE)。 本社では何もしない。
+  // 使用率は cost サンプルの最新値 (外部 API を叩かない)、 トークンは JSONL の 7 日窓集計 (キャッシュ付き reader)。
+  workflowBindings.register({
+    key: "daily",
+    name: "site-usage-reporter",
+    start: () => startSiteUsageReporter({
+      isSiteRole: () => federation.isSiteRole(),
+      collect: async (nowSec) => buildSiteUsageReport(
+        costLimitSamplesRepo.listLatestByProvider(),
+        await collectProviderWeeklyTokens(repo, nowSec * 1000, cachedSessionWindowReader),
+        nowSec,
+      ),
+      send: (report) => federation.sendUsageReport(report),
+    }),
+  });
   // GitHub Issue ワークフローの常駐部 (進行中 run の追跡 + 取りこぼしポーリング)。
   // webhook の受け口は API 側にあり、 このトグルとは独立に署名検証で閉じている。
   workflowBindings.register({
@@ -2065,6 +2084,8 @@ export async function startBackend(): Promise<BackendHandle> {
     // worker モードは cost-worker が別途 host_metrics/DB へサンプリング済みなので、
     // embedded 側の cost snapshot はログ JSONL のフルスキャンをせず軽量表示に倒す。
     costSnapshotAllowFullScan: costMode !== "worker",
+    // 本社のコストチャンネルに拠点の週間使用量を出す (SPEC-FED-SITE-USAGE)。 拠点ロールでは空。
+    listSiteUsage: () => federation.siteUsage(),
   });
 
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に

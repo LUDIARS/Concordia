@@ -13,6 +13,7 @@ import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
 import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { collectChannelCostRows, renderChannelCostLines } from "../cost/channel-cost.js";
 import { collectCostReport, renderCostReportMarkdown, type CostTimestampFormat } from "../cost/cost-report.js";
+import type { SiteUsageEntry } from "../federation/site-usage.js";
 import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
 import { firstHumanRequester, lastHumanRequester } from "../control/requester.js";
 import { fetchSessionCacheStats } from "../anatomia/cache-stats-client.js";
@@ -43,6 +44,8 @@ export interface ChatReadModelDeps {
   oauthLog?: { warn: (m: string) => void; info?: (m: string) => void };
   perfLog?: { warn: (m: string) => void; info?: (m: string) => void };
   costSnapshotAllowFullScan?: boolean;
+  /** 本社: 拠点から届いた週間使用量 (SPEC-FED-SITE-USAGE)。 コスト本文の拠点節に出す。 */
+  listSiteUsage?: () => readonly SiteUsageEntry[];
   hasPendingQuestion?: (sessionId: string) => boolean;
 }
 
@@ -218,6 +221,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         oauthLog: deps.oauthLog,
         perfLog: deps.perfLog ?? deps.oauthLog,
         allowFullScan: deps.costSnapshotAllowFullScan,
+        listSiteUsage: deps.listSiteUsage,
       });
       return {
         markdown: renderCostReportMarkdown(report, format, nowSec),

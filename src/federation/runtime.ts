@@ -49,6 +49,8 @@ import { prepareEgressDelivery } from "./egress-delivery.js";
 import type { FederationSiteEgressInput } from "./site-client.js";
 import { createHqSessionMirror, type MirrorPostOpener } from "./hq-session-mirror.js";
 import { createSiteActivityStore } from "./site-activity-store.js";
+import { createSiteUsageStore } from "./site-usage-store.js";
+import type { SiteUsageEntry, SiteUsageReport } from "./site-usage.js";
 import type { SiteActivityEntry, SiteDayActivity } from "../daily/site-activity.js";
 import { createSessionMirrorStore, HQ_SESSION_MIRRORS_KEY } from "./session-mirror-store.js";
 
@@ -156,6 +158,10 @@ export interface FederationRuntime {
   sendActivityReport(report: SiteDayActivity): boolean;
   /** 本社: 拠点から受け取った指定日の作業記録 (有効な拠点だけ)。 */
   siteActivityFor(dateIso: string): SiteActivityEntry[];
+  /** 拠点ロール: ローカル Claude/Codex の週間使用量を本社へ送る (SPEC-FED-SITE-USAGE)。 link 中でなければ false。 */
+  sendUsageReport(report: SiteUsageReport): boolean;
+  /** 本社: 拠点から受け取った最新の週間使用量 (有効な拠点だけ)。 */
+  siteUsage(): SiteUsageEntry[];
   /** 拠点ロール: 拠点のセッションを映す投稿を本社に立ててもらう (SPEC-FED-SITE-SESSION-MIRROR)。 */
   requestMirrorOpen(input: { sessionId: string; title: string; text: string }): Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
   /** 本社: Session フォーラムに投稿を立てる Discord ポート (bot.ts が注入)。 */
@@ -245,6 +251,8 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   });
   /** 本社: 拠点から受け取ったその日の作業記録 (SPEC-FED-SITE-ACTIVITY)。 */
   const siteActivity = createSiteActivityStore(opts.settings ?? memorySettings());
+  /** 本社: 拠点から受け取った週間使用量 (SPEC-FED-SITE-USAGE)。 */
+  const siteUsage = createSiteUsageStore(opts.settings ?? memorySettings());
   const activeSiteName = (siteId: string): string | null => {
     const site = sites.find(siteId);
     return site?.status === "active" ? site.name || site.site_id : null;
@@ -369,6 +377,20 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
             sessions: report.sessions,
           });
           log.info(`federation activity report received site=${siteId} date=${report.date_iso} sessions=${report.session_count}`);
+        },
+        handleUsageReport: (siteId, report) => {
+          // 失効・停止中の拠点の使用量はコストチャンネルに載せない。
+          const siteName = activeSiteName(siteId);
+          if (!siteName) {
+            log.warn(`federation usage report ignored for inactive site=${siteId}`);
+            return;
+          }
+          siteUsage.record(siteId, siteName, {
+            generated_at: report.generated_at,
+            window_start: report.window_start,
+            window_end: report.window_end,
+            providers: report.providers,
+          });
         },
         handleInquiryRequest: (siteId, request) => inquiries.onSiteRequest(siteId, request),
         handleInquiryResult: (siteId, result) => inquiries.onSiteResult(siteId, result),
@@ -688,6 +710,23 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     },
     siteActivityFor(dateIso) {
       return siteActivity.listForDate(dateIso).filter((entry) => activeSiteName(entry.site_id) !== null);
+    },
+    sendUsageReport(report) {
+      if (!siteClient || !siteBinding) return false;
+      return siteClient.send({
+        type: "usage-report",
+        generated_at: report.generated_at,
+        window_start: report.window_start,
+        window_end: report.window_end,
+        providers: report.providers,
+      });
+    },
+    siteUsage() {
+      // 名前は記録時点ではなく現在の拠点名で出す (改名を反映する)。
+      return siteUsage.list().flatMap((entry) => {
+        const siteName = activeSiteName(entry.site_id);
+        return siteName ? [{ ...entry, site_name: siteName }] : [];
+      });
     },
     async requestMirrorOpen(input) {
       if (!siteClient) return { ok: false, error: "federation site link is not configured" };

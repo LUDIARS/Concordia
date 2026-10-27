@@ -16,6 +16,7 @@
  *   hq → site : error { code, message }  (close 直前の理由通知)
  *   双方向    : inquiry-request / inquiry-result (拠点間ワンショット調査、本社が中継)
  *   site → hq : activity-report { date_iso, sessions } (拠点のその日の作業記録、応答なし)
+ *   site → hq : usage-report { window, providers } (拠点のローカル Claude/Codex の週間使用量、応答なし)
  *
  * 死活は WS プロトコルレベルの ping/pong (ws ライブラリ) で行い、
  * アプリフレームには持ち込まない。
@@ -193,6 +194,33 @@ const activityReportSchema = z.object({
 );
 
 /**
+ * 拠点のローカル Claude Code / Codex の週間使用量 (SPEC-FED-SITE-USAGE)。
+ * 週間枠の使用率は拠点の cost サンプル (cost_limit_samples) の最新値、 トークンは直近 7 暦日の JSONL 集計。
+ * 取れなかった値は null で送る (0 と区別する)。
+ */
+export const USAGE_PROVIDERS = ["claude-code", "codex-cli"] as const;
+export const usageProviderSchema = z.object({
+  provider: z.enum(USAGE_PROVIDERS),
+  plan: z.string().max(50).nullable(),
+  weekly_tokens: z.number().int().nonnegative().nullable(),
+  used_weekly_pct: z.number().min(0).max(100).nullable(),
+  reset_weekly_at: z.number().int().nonnegative().nullable(),
+  /** 使用率を観測した時刻 (cost サンプルの ts)。 */
+  sampled_at: z.number().int().nonnegative().nullable(),
+}).strict();
+export type FederationUsageProvider = z.infer<typeof usageProviderSchema>;
+
+const usageReportSchema = z.object({
+  v: versionField,
+  type: z.literal("usage-report"),
+  generated_at: z.number().int().nonnegative(),
+  /** トークン集計の窓 [window_start, window_end) (epoch 秒)。 */
+  window_start: z.number().int().nonnegative(),
+  window_end: z.number().int().nonnegative(),
+  providers: z.array(usageProviderSchema).max(USAGE_PROVIDERS.length),
+}).passthrough();
+
+/**
  * 拠点間ワンショット調査 (SPEC-FED-INQUIRY)。 本社 ⇄ 拠点の双方向。 拠点同士は本社が中継する。
  * target / origin は site_id か本社を表す "hq"。
  */
@@ -295,6 +323,7 @@ const frameSchemas = {
   "mirror-open-request": mirrorOpenRequestSchema,
   "mirror-open-result": mirrorOpenResultSchema,
   "activity-report": activityReportSchema,
+  "usage-report": usageReportSchema,
 } as const;
 
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
@@ -315,6 +344,7 @@ export type FederationInquiryResultFrame = z.infer<typeof inquiryResultSchema>;
 export type FederationMirrorOpenRequestFrame = z.infer<typeof mirrorOpenRequestSchema>;
 export type FederationMirrorOpenResultFrame = z.infer<typeof mirrorOpenResultSchema>;
 export type FederationActivityReportFrame = z.infer<typeof activityReportSchema>;
+export type FederationUsageReportFrame = z.infer<typeof usageReportSchema>;
 export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
@@ -330,7 +360,8 @@ export type FederationFrame =
   | FederationInquiryResultFrame
   | FederationMirrorOpenRequestFrame
   | FederationMirrorOpenResultFrame
-  | FederationActivityReportFrame;
+  | FederationActivityReportFrame
+  | FederationUsageReportFrame;
 
 export type FederationFrameType = FederationFrame["type"];
 
@@ -409,7 +440,8 @@ export type FederationFrameInput =
   | { type: "inquiry-result"; request_id: string; ok: boolean; output?: string; error?: string; executed_by: string; duration_ms?: number }
   | { type: "mirror-open-request"; request_id: string; session_id: string; title: string; text: string }
   | { type: "mirror-open-result"; request_id: string; ok: boolean; guild_id?: string; channel_id?: string; error?: string }
-  | { type: "activity-report"; date_iso: string; generated_at: number; session_count: number; sessions: readonly FederationActivitySession[] };
+  | { type: "activity-report"; date_iso: string; generated_at: number; session_count: number; sessions: readonly FederationActivitySession[] }
+  | { type: "usage-report"; generated_at: number; window_start: number; window_end: number; providers: readonly FederationUsageProvider[] };
 
 export function serializeFederationFrame(frame: FederationFrameInput): string {
   return JSON.stringify({ ...frame, v: FEDERATION_PROTOCOL_VERSION });

@@ -14,6 +14,8 @@ import { fetchCodexRateLimits } from "./codex-rate-limits.js";
 import { mapRolloutRateLimitsToCostRate } from "./codex-rollout-rate.js";
 import type { Totals } from "../cost/log-usage.js";
 import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
+import { renderSiteUsageLines } from "./site-usage-lines.js";
+import type { SiteUsageEntry } from "../federation/site-usage.js";
 
 /** OAuth usage 取得時の任意ロガー (fetchClaudeOAuthUsage の log と同形)。 */
 type UsageLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
@@ -30,6 +32,8 @@ export interface CostReport {
   claudeTotals: Totals;
   codexRate: CostRate;
   claudeUsage: OAuthUsage | null;
+  /** 本社: 拠点から届いた週間使用量 (SPEC-FED-SITE-USAGE)。 拠点ロールや拠点なしでは空。 */
+  siteUsage?: readonly SiteUsageEntry[];
 }
 
 /** platform 差分 (Discord は `<t:..>` トークン、 Slack は素のテキスト) を吸収する formatter。 */
@@ -52,6 +56,8 @@ export async function collectCostReport(
     allowFullScan?: boolean;
     /** テスト用: codex rate-limit fetcher の差し替え (既定 fetchCodexRateLimits)。 */
     codexRateFetcher?: () => Promise<CostRate | null>;
+    /** 本社: 拠点から届いた週間使用量の一覧 (federation が持つ)。 */
+    listSiteUsage?: () => readonly SiteUsageEntry[];
   },
 ): Promise<CostReport> {
   const totalStartedAt = Date.now();
@@ -93,8 +99,9 @@ export async function collectCostReport(
   // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.
   const claudeUsage = await fetchClaudeOAuthUsage(opts?.oauthLog ? { log: opts.oauthLog } : {});
   logStep("fetch-claude-oauth-usage", startedAt, ` available=${claudeUsage ? 1 : 0}`);
+  const siteUsage = opts?.listSiteUsage?.() ?? [];
   opts?.perfLog?.info?.(`cost-report total duration_ms=${Date.now() - totalStartedAt}`);
-  return { codexTotals, claudeTotals, codexRate, claudeUsage };
+  return { codexTotals, claudeTotals, codexRate, claudeUsage, siteUsage };
 }
 
 /**
@@ -143,6 +150,11 @@ export function renderCostReportMarkdown(
     lines.push("- 週間リミット残: -");
     lines.push("- 5H リセット: -");
     lines.push("- 週間リセット: -");
+  }
+  const siteLines = renderSiteUsageLines(report.siteUsage ?? [], fmt, nowSec);
+  if (siteLines.length > 0) {
+    lines.push("");
+    lines.push(...siteLines);
   }
   lines.push("");
   lines.push("_セッション単位の表示は省略。プロバイダ別集計のみ表示。_");

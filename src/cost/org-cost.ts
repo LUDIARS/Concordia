@@ -81,7 +81,7 @@ function localMidnightSec(nowMs: number): number {
 }
 
 /** epoch(ms) → 直近 7 暦日 (今日含む) の開始 00:00(6日前) の epoch 秒。 */
-function localWeekStartSec(nowMs: number): number {
+export function localWeekStartSec(nowMs: number): number {
   const d = new Date(nowMs);
   return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6).getTime() / 1000);
 }

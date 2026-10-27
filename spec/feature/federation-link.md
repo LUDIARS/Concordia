@@ -353,6 +353,31 @@ loopback の `/v1/daily-reports` と Web UI だけが読む (Discord・Tabula・
 - 非公開リポジトリの PR は公開経路に出さない (公開かどうかを判定できないリポジトリも出さない)。
 - 公開経路の実装は、この節に経路と判定の実装を追記してから行う。
 
+### 拠点のローカル Claude/Codex の週間使用量を本社のコストチャンネルに出す (2026-10-27 指示) {#SPEC-FED-SITE-USAGE}
+
+「各拠点でのローカルの Claude/Codex の週間使用量を本社に報告する」「本社はそれを本社のコストチャンネルに反映する」。
+拠点はそれぞれ別のサブスクリプションで Claude Code / Codex を動かしているが、本社のコストチャンネルは本社ホストの値しか出していなかった。
+タスク: Actio `actio:407ef732-f1f9-4b29-9f99-cabe9026ba19`。
+
+| 責務 | 実装 |
+|---|---|
+| provider 別の直近 7 暦日トークン (JSONL のタイムスタンプで数える。窓は org-cost の「週間」と同じ) | `src/cost/provider-weekly-tokens.ts` |
+| 送る報告の組み立て (純関数) | `src/federation/site-usage.ts` (`buildSiteUsageReport`) |
+| 送信フレーム (`usage-report`、拠点 → 本社、応答なし) | `src/federation/protocol.ts` / `hq-listener.ts` |
+| 拠点: 15 分ごとに送る | `src/federation/site-usage-reporter.ts` / `src/bootstrap/core.ts` |
+| 本社: 拠点ごとに最新 1 件 (後着で上書き、`federation.hq.site_usage`) | `src/federation/site-usage-store.ts` / `runtime.ts` |
+| 本社のコストチャンネル本文 (Discord / Slack 共通) の「拠点の週間使用量」節 | `src/cost/site-usage-lines.ts` / `cost-report.ts` / `src/api/chat-read-models.ts` |
+
+1. 拠点ロールかどうかは周期ごとに見る。拠点ロールでない Cc (本社・単独運用) は送らない。連合リンクが切れていれば送らず、次の周期で送り直す。
+2. 送る項目は provider (`claude-code` / `codex-cli`) ごとに、プラン名・週間リミットの使用率とリセット時刻・その観測時刻・直近 7 日のトークンだけ。
+   セッション・リポジトリ・transcript の中身は送らない。
+3. 使用率は拠点の cost サンプル (`cost_limit_samples`、cost-worker か埋め込みの cost runtime が記録) の provider 別最新値を使い、送信のために
+   外部 API (claude.ai OAuth usage / codex app-server) を叩かない。サンプルが無い provider は使用率を null、トークンも観測が無ければ null で送り、0 と区別する。
+4. 本社は有効な拠点からの報告だけを保存し、同じ拠点は後着で上書きする。失効・停止中の拠点はコストチャンネルに出さない。拠点名は表示時点の名前を使う。
+5. 本社のコストチャンネル本文の末尾に、拠点ごとに週間リミット残・リセット・7 日トークン・報告時刻を出す。1 時間届いていない拠点は値を残したまま
+   「報告が途絶えています」と出す。拠点の報告が 1 件も無ければ節ごと出さない (従来の本文と同じ)。
+6. 古い本社は `usage-report` を認証後の未知フレームとして読み捨てる (警告ログのみ、接続は切らない)。本社を先に更新する。
+
 ### 本社と拠点で同じフォーラム投稿・通常セッションと同じ操作感 (2026-10-12 neco 指示) {#SPEC-FED-SITE-FORUM-PARITY}
 
 「本社と拠点で同じフォーラムとして投稿されるようにしてほしい」「通常のセッションと同じDiscordでの操作感にする」

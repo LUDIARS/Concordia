@@ -26,7 +26,7 @@ import {
   type FederationErrorCode,
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
-import type { FederationActivityReportFrame, FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
+import type { FederationActivityReportFrame, FederationUsageReportFrame,FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
 
 const log = createChildLogger("federation/hq");
@@ -81,6 +81,8 @@ export interface FederationListenerDeps {
   handleMirrorOpen?: (siteId: string, request: FederationMirrorOpenRequestFrame) => Promise<{ ok: boolean; guildId?: string; channelId?: string; error?: string }>;
   /** 拠点のその日の作業記録を受け取る (SPEC-FED-SITE-ACTIVITY)。 応答は返さない。 */
   handleActivityReport?: (siteId: string, report: FederationActivityReportFrame) => void;
+  /** 拠点のローカル Claude/Codex の週間使用量を受け取る (SPEC-FED-SITE-USAGE)。 応答は返さない。 */
+  handleUsageReport?: (siteId: string, report: FederationUsageReportFrame) => void;
   /**
    * 接続元を受け付けるか (CC-FED-T2)。既定は loopback / tailnet だけ (transport-policy.ts)。
    * env CONCORDIA_FEDERATION_ALLOW_ANY_REMOTE=1 のとき runtime が「全て許可」を渡す。
@@ -345,6 +347,17 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           deps.handleActivityReport?.(siteId, frame);
         } catch (e) {
           log.warn({ siteId, err: (e as Error).message }, "federation activity report handling failed");
+        }
+        return;
+      }
+
+      if (frame.type === "usage-report") {
+        deps.sites.touchSeen(siteId);
+        deps.connections.touch(siteId, nowSec());
+        try {
+          deps.handleUsageReport?.(siteId, frame);
+        } catch (e) {
+          log.warn({ siteId, err: (e as Error).message }, "federation usage report handling failed");
         }
         return;
       }

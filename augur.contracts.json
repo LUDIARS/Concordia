@@ -3,6 +3,8 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "journal-boundary-C-1", "criterion": "C-1 journalText(value): 外部文字列をHTMLとMarkdownの構文として出力しない", "symbol": "journalText", "file": "src/rules/patrol-journal-text.ts", "module": "src/rules/patrol-journal-text.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "inquiry-boundary-C-2", "criterion": "C-2 inquiryClaudeArgs(model, settings): 道具をRead/Grep/Globに限定し実行時の読取ガードを必須にする", "symbol": "inquiryClaudeArgs", "file": "src/federation/inquiry-policy.ts", "module": "src/federation/inquiry-boundary.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "orbis-C-1", "criterion": "C-1 parseOrbisRequest(operation,input): 公開8操作と許可したactionだけを受理しtype.textは2000文字以下", "symbol": "parseOrbisRequest", "file": "src/orbis/request.ts", "module": "src/orbis/request.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "orbis-C-2", "criterion": "C-2 resolveOrbisEndpoint(orbis,concordia): catalog宣言があればその値のみ検証し、宣言が無い場合だけ観測値を使い、有効なCc instance_idを伴うloopbackだけを返す", "symbol": "resolveOrbisEndpoint", "file": "src/orbis/endpoint.ts", "module": "src/orbis/endpoint.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "orbis-C-3", "criterion": "C-3 publicOrbisError(error): 外部例外を含めエラーは閉じた6語彙だけを返す", "symbol": "publicOrbisError", "file": "src/orbis/errors.ts", "module": "src/orbis/errors.contract.ts", "mode": "observe", "sample": 1 },

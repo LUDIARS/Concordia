@@ -16,6 +16,19 @@ function fakeRepo(byDay: Record<string, LearningRunRow[]>, sources: Record<strin
 }
 
 describe("patrol learning journal", () => {
+  it("escapes every external text field, including replies and learned settings", () => {
+    const payload = '<img src=x onerror="alert(1)">';
+    const body = renderLearningJournal("2026-10-22", [run({
+      rule_id: payload, proposal: JSON.stringify({ summary: payload }), reason: `${payload}!`,
+      applied: JSON.stringify({ [payload]: [payload] }),
+    })], () => [
+      { kind: "message", signal: null, created_at: 1, text: payload, reply_to_text: payload, replies: [] },
+      { kind: "conversation", signal: null, created_at: 2, text: payload, reply_to_text: null, replies: [payload] },
+    ]);
+    expect(body.markdown).not.toContain("<");
+    expect(body.markdown).not.toContain(">");
+    expect(body.markdown.match(/&#60;img/g)).toHaveLength(9);
+  });
   it("writes each rule's result, summary, the settings it changed and the talk it learned from", () => {
     const sources: LearningSourceRow[] = [
       { kind: "message", signal: null, created_at: 1, text: "もっと\nゲームの話がいい", reply_to_text: "新作の話題", replies: [] },

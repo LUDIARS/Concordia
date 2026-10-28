@@ -1,10 +1,22 @@
-import { mkdtemp, mkdir } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { INQUIRY_QUEUE_LIMIT, createInquiryRunner, inquiryEnvironment, resolveInquiryCwd } from "./inquiry-runner.js";
 
 describe("resolveInquiryCwd", () => {
+  it("rejects traversal, absolute paths and projects linked outside the root", async () => {
+    const temp = await realpath(await mkdtemp(join(tmpdir(), "cc-inquiry-scope-")));
+    try {
+      const root = join(temp, "root"); const outside = join(temp, "outside");
+      await mkdir(root); await mkdir(outside);
+      await symlink(outside, join(root, "escape"), "junction");
+      for (const project of ["../outside", outside, "escape", ".", ""]) {
+        expect(await resolveInquiryCwd([root], project)).toBeNull();
+      }
+      expect(await resolveInquiryCwd([join(temp, "missing")], undefined)).toBeNull();
+    } finally { await rm(temp, { recursive: true, force: true }); }
+  });
   it("finds a project under the workspace roots and falls back to the first root", async () => {
     const root = await mkdtemp(join(tmpdir(), "cc-inquiry-"));
     await mkdir(join(root, "Concordia"));

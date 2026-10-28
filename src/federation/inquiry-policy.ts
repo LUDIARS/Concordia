@@ -8,6 +8,8 @@
  * @implements spec/feature/federation-link.md §拠点間ワンショット調査 (SPEC-FED-INQUIRY)
  */
 import { INQUIRY_HQ, INQUIRY_MAX_OUTPUT, INQUIRY_MAX_TIMEOUT_SEC, INQUIRY_MIN_TIMEOUT_SEC } from "./protocol.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:9d3163ca */
+import augurContract_7f99f9cc from './inquiry-boundary.contract.js'; /* augur-inject:contract-predicate:059fdb65 */
 
 export const INQUIRY_DEFAULT_TIMEOUT_SEC = 300;
 /** 宛先の実行期限に足す待ち時間 (中継・CLI 起動・結果返送の分)。 */
@@ -15,21 +17,17 @@ export const INQUIRY_RESPONSE_GRACE_MS = 20_000;
 
 /**
  * 調査で使ってよい道具。 ファイル・設定・サービスを変更できるものは含めない。
- * Bash は git の参照系だけ。 一覧に無い道具は `claude -p` では自動で拒否される。
+ * 各読取は実行時ガードを通す。gitも設定・引数から範囲外へ届くためBashは許さない。
  */
 export const INQUIRY_ALLOWED_TOOLS = [
   "Read",
   "Grep",
   "Glob",
-  "Bash(git log:*)",
-  "Bash(git status:*)",
-  "Bash(git diff:*)",
-  "Bash(git show:*)",
-  "Bash(git branch:*)",
 ] as const;
 
 /** 明示的に塞ぐ道具 (allowedTools の解釈が変わっても書き込みに届かないように二重にする)。 */
 export const INQUIRY_DISALLOWED_TOOLS = [
+  "Bash",
   "Edit",
   "Write",
   "NotebookEdit",
@@ -91,15 +89,22 @@ export function isExpectedInquiryResponder(expectedTarget: string, fromSite: str
 }
 
 /** `claude -p` に渡す引数。 依頼文は stdin で渡す。 */
-export function inquiryClaudeArgs(model: string): string[] {
+export function inquiryClaudeArgs(model: string, settings: string): string[] {
   return [
     "-p",
     "--model", model,
     "--effort", "medium",
+    "--tools", INQUIRY_ALLOWED_TOOLS.join(","),
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--setting-sources", "",
+    "--settings", settings,
     "--allowedTools", INQUIRY_ALLOWED_TOOLS.join(","),
     "--disallowedTools", INQUIRY_DISALLOWED_TOOLS.join(","),
   ];
 }
+// @ts-expect-error augur-inject
+inquiryClaudeArgs = contract(inquiryClaudeArgs, { ...augurContract_7f99f9cc, contractId: 'inquiry-boundary-C-2', mode: 'observe', sample: 1, where: 'src/federation/inquiry-policy.ts:90', rule: 'contract-wrap', id: '7f99f9cc' }); /* augur-inject:contract-wrap:7f99f9cc */
 
 /** 実行側で依頼文に添える前置き (読み取り専用であること・結果の書き方)。 */
 export function buildInquiryPrompt(input: { origin: string; prompt: string; cwd: string }): string {

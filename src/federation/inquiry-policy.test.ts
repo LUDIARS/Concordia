@@ -46,11 +46,16 @@ describe("validateHqInquiryTarget", () => {
 });
 
 describe("read-only execution", () => {
-  it("allows only read tools and git read commands", () => {
+  it("exposes only guarded read tools without inherited MCP or settings", () => {
     expect(INQUIRY_ALLOWED_TOOLS).not.toContain("Edit");
     expect(INQUIRY_ALLOWED_TOOLS).not.toContain("Write");
-    expect(INQUIRY_ALLOWED_TOOLS.filter((tool) => tool.startsWith("Bash")).every((tool) => tool.startsWith("Bash(git "))).toBe(true);
-    const args = inquiryClaudeArgs("claude-opus-5-5");
+    expect(INQUIRY_ALLOWED_TOOLS).toEqual(["Read", "Grep", "Glob"]);
+    const args = inquiryClaudeArgs("claude-opus-5-5", "guard-settings");
+    expect(args[args.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
+    expect(args[args.indexOf("--settings") + 1]).toBe("guard-settings");
+    expect(args[args.indexOf("--setting-sources") + 1]).toBe("");
+    expect(args).toContain("--strict-mcp-config");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toContain("Bash");
     expect(args[0]).toBe("-p");
     expect(args[args.indexOf("--disallowedTools") + 1]).toContain("Write");
     expect(args).not.toContain("--dangerously-skip-permissions");

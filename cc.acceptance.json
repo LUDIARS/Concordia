@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/rules/patrol-journal-text.ts","tests":["src/rules/patrol-journal-text.test.ts"],"contracts":["PATROL-JOURNAL-INV-01"]},
+    {"source":"src/rules/patrol-learning-journal.ts","tests":["src/rules/patrol-learning-journal.test.ts"],"contracts":["PATROL-JOURNAL-INV-01"]},
+    {"source":"src/federation/inquiry-policy.ts","tests":["src/federation/inquiry-policy.test.ts"],"contracts":["SPEC-FED-INQUIRY-READ"]},
+    {"source":"src/federation/inquiry-runner.ts","tests":["src/federation/inquiry-runner.test.ts"],"contracts":["SPEC-FED-INQUIRY-READ"]},
+    {"source":"src/federation/inquiry-read-settings.ts","tests":["src/federation/inquiry-read-settings.test.ts"],"contracts":["SPEC-FED-INQUIRY-READ"]},
+    {"source":"tools/federation-inquiry-read-guard.mjs","tests":["tools/federation-inquiry-read-guard.test.mjs"],"contracts":["SPEC-FED-INQUIRY-READ"]},
     { "source": "src/orbis/request.ts", "tests": ["src/orbis/request.test.ts"], "contracts": ["CC-ORBIS-03"] },
     { "source": "src/orbis/ontime-runtime.ts", "tests": ["src/orbis/request.test.ts"], "contracts": ["CC-ORBIS-05"] },
     { "source": "src/orbis/authorization.ts", "tests": ["src/orbis/service.test.ts"], "contracts": ["CC-ORBIS-01", "CC-ORBIS-04"] },

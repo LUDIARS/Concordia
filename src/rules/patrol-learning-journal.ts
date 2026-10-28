@@ -11,6 +11,7 @@
 
 import type { LearningRunRow, LearningSourceRow, PatrolLearningRepo } from "../db/patrol-learning-repo.js";
 import type { MemoriaJournalPort } from "../daily-goal-run/memoria-journal.js";
+import { journalText } from "./patrol-journal-text.js";
 
 export const PATROL_LEARNING_JOURNAL_SOURCE = "concordia-patrol-learning";
 /** 載せ直しを確かめる直近の日数。 */
@@ -55,7 +56,7 @@ function formatValue(value: unknown): string {
 function quote(text: string | null): string {
   if (text === null) return "(発言は残っていません)";
   const flat = text.replace(/\s+/g, " ").trim();
-  return `「${flat.length <= QUOTE_MAX ? flat : `${flat.slice(0, QUOTE_MAX - 1)}…`}」`;
+  return `「${journalText(flat.length <= QUOTE_MAX ? flat : `${flat.slice(0, QUOTE_MAX - 1)}…`)}」`;
 }
 
 /** 会話の断片の要点 (返信数・反応の人数)。 */
@@ -88,22 +89,22 @@ export function renderLearningJournal(
 ): { title: string; markdown: string } {
   const lines: string[] = [];
   for (const run of runs) {
-    lines.push(`### ${run.rule_id} — ${STATUS_LABEL[run.status] ?? run.status}`);
+    lines.push(`### ${journalText(run.rule_id)} — ${journalText(STATUS_LABEL[run.status] ?? run.status)}`);
     const proposal = parse(run.proposal);
     const summary = typeof proposal?.summary === "string" && proposal.summary ? proposal.summary : null;
-    if (summary) lines.push(`- 要約: ${summary}`);
-    if (run.reason && run.reason !== summary) lines.push(`- 理由: ${run.reason}`);
+    if (summary) lines.push(`- 要約: ${journalText(summary)}`);
+    if (run.reason && run.reason !== summary) lines.push(`- 理由: ${journalText(run.reason)}`);
     lines.push(`- 材料にした断片: ${run.fragment_count} 件`);
     const applied = parse(run.applied);
     if (applied && Object.keys(applied).length > 0) {
       lines.push("- 変えた設定:");
-      for (const [key, value] of Object.entries(applied)) lines.push(`  - ${CHANGE_LABEL[key] ?? key}: ${formatValue(value)}`);
+      for (const [key, value] of Object.entries(applied)) lines.push(`  - ${journalText(CHANGE_LABEL[key] ?? key)}: ${journalText(formatValue(value))}`);
     }
     if (run.revision !== null) lines.push(`- 反映後の版: rev ${run.revision}`);
     lines.push(...renderSources(sourcesOf(run.run_id)));
     lines.push("");
   }
-  return { title: `巡回チャットの学習 (${day})`, markdown: lines.join("\n").trim() };
+  return { title: `巡回チャットの学習 (${journalText(day)})`, markdown: lines.join("\n").trim() };
 }
 
 export interface LearningJournalSync {

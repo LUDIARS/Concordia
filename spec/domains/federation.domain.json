@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)tools/federation-inquiry-read-guard(\\.test)?\\.mjs$" },
     {
       "pathPattern": "src/federation/"
     },

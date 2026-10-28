@@ -5,13 +5,14 @@
  * @implements spec/feature/federation-link.md §拠点間ワンショット調査 (SPEC-FED-INQUIRY)
  */
 import { execFile, type ChildProcess } from "node:child_process";
-import { access } from "node:fs/promises";
-import { resolve as resolvePath } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { resolve as resolvePath, relative, isAbsolute, sep } from "node:path";
 import { spawnOneShot, resolveModel } from "@ludiars/one-shot";
 import { windowsTreeKillArgs } from "../processes/runner.js";
 import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
 import { claudeLaunch } from "../rules/claude-runner.js";
 import { buildInquiryPrompt, inquiryClaudeArgs, truncateInquiryOutput } from "./inquiry-policy.js";
+import { inquiryReadSettings } from "./inquiry-read-settings.js";
 
 export const INQUIRY_QUEUE_LIMIT = 3;
 const STDERR_TAIL = 400;
@@ -34,10 +35,15 @@ export type InquiryRunner = (request: InquiryRunRequest) => Promise<InquiryRunRe
 
 /** 依頼が名指ししたプロジェクトを作業ルート配下から探す。 無指定なら最初のルート。 */
 export async function resolveInquiryCwd(roots: readonly string[], project: string | undefined): Promise<string | null> {
-  if (!project) return roots[0] ?? null;
-  for (const root of roots) {
-    const candidate = resolvePath(root, project);
-    if (await access(candidate).then(() => true, () => false)) return candidate;
+  if (project !== undefined && (!project || /[\\/:\0]/.test(project) || project === "." || project === "..")) return null;
+  for (const root of project ? roots : roots.slice(0, 1)) {
+    try {
+      const realRoot = await realpath(root);
+      const candidate = await realpath(resolvePath(realRoot, project ?? "."));
+      const rel = relative(realRoot, candidate);
+      if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+      if ((await stat(candidate)).isDirectory()) return candidate;
+    } catch { /* Missing or inaccessible roots do not authorize a fallback outside the configured roots. */ }
   }
   return null;
 }
@@ -65,12 +71,13 @@ async function terminate(child: ChildProcess): Promise<void> {
 async function runClaudeOnce(input: { cwd: string; prompt: string; timeoutMs: number }): Promise<{ ok: boolean; output: string; error: string | null }> {
   // npm 版 (claude.cmd のみ) の拠点でも cmd.exe を挟まずに起動する (2026-10-11 MELPOT)。
   const launch = await claudeLaunch();
+  const settings = await inquiryReadSettings(input.cwd);
   return new Promise((done) => {
     let output = "";
     let stderr = "";
     let stopReason: string | null = null;
     let kill: Promise<void> | null = null;
-    const child = spawnOneShot(launch.file, [...launch.prefixArgs, ...inquiryClaudeArgs(resolveModel("opus", "claude"))], {
+    const child = spawnOneShot(launch.file, [...launch.prefixArgs, ...inquiryClaudeArgs(resolveModel("opus", "claude"), settings)], {
       cwd: input.cwd,
       env: inquiryEnvironment(process.env),
       windowsHide: true,

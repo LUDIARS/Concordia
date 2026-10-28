@@ -466,7 +466,7 @@ loopback の `/v1/daily-reports` と Web UI だけが読む (Discord・Tabula・
 
 - 価値: 拠点の中を、相手の人手を使わず 1 回の依頼で読み取って答えを得る。
 - 不変条件:
-  - 依頼を受けた側は `claude -p` を 1 回だけ、読み取り専用の道具 (Read / Grep / Glob と git の参照系 Bash) で動かす。
+    - 依頼を受けた側は `claude -p` を 1 回だけ、読み取り専用の道具 (Read / Grep / Glob) で動かす。
     起動先は `src/rules/claude-launch.ts` が決める (規則の実行 `claude-runner` と共通): PATH の `claude.exe` → npm 版の
     `claude.cmd` が指す `cli.js` を Node で直接 → ネイティブ版の既定位置。cmd.exe は挟まない
     (2026-10-11 MELPOT: npm 版しか無く `spawn claude.exe ENOENT` で調査も注入前の検査も動かなかった)。
@@ -500,7 +500,26 @@ loopback の `/v1/daily-reports` と Web UI だけが読む (Discord・Tabula・
 反映順: 本社と各拠点の Cc を更新するまで、その拠点への依頼は期限切れになる (既存の配備順に従う)。
 人の画面 (Discord コマンド) はまだ無い。セッション・人は各拠点の loopback API を使う。
 
-## イベント
+### 調査の読取境界 (SPEC-FED-INQUIRY-READ)
+
+価値は UX-CC-W1、シナリオは UX-CC-S1、権限の不変条件は CC-INV-02。
+実行側が解決した作業ディレクトリをその依頼の読取ルートとして所有し、依頼本文では変更できない。
+`project` は単一名に限定し、存在・ディレクトリ種別・realpath が設定ルート内であることを確認する。
+CLI の組込みツールを Read/Grep/Glob だけに限定し、MCP・追加設定・slash commands を継承しない。
+git を含む Bash は外部パス・設定経由の実行を防ぐため許可しない。
+
+各ツールの実行前に `tools/federation-inquiry-read-guard.mjs` が実経路を検証する。
+Read は単一の通常ファイル、Grep/Glob は対象以下の全探索候補を検査し、範囲外・symlink/junction・
+hardlink・特殊ファイル・不明な入力・読取失敗は拒否する。探索パターンによる親・絶対パス指定も拒否する。
+探索は最大10,000エントリ、検査は8秒で打ち切って拒否し、機密パスや本文を拒否理由へ載せない。
+この制約によりリンクを含む大きなルート全体の検索は拒否される。リンクのない小さなサブディレクトリを指定する。
+これは実行前検査であり、同一ホストの別プロセスが検査後にファイルを差し替える競合をOSレベルで隔離するものではない。
+
+Actio: `actio:262ba08f-20e5-4125-b2d5-4047a386c060`。
+復旧は制約を外すのではなく、設定ルート・対象パス・ガードの配備を修復して新しい問い合わせを行う。
+既存の結果不明時の自動再送なし・実行キュー・費用記録の所有権は変更しない。
+
+## イベント一覧
 
 `federation.site.connected` / `federation.site.disconnected` (site_id, ts) を
 eventBus に emit。WebUI 拠点一覧 (`/federation`) の再取得トリガ。

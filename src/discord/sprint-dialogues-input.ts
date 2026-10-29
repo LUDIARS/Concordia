@@ -4,6 +4,9 @@ import { action, assertHumanChoice } from "../sprint-dialogues/domain.js";
 import type { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import { choiceLabels } from "./sprint-dialogues-card.js";
 
+const APPROVE_REASON = "Discord の承認ボタン (OK)";
+const SAVED_REPLY = "回答を保存しました。Actioで本人・チーム権限と対象版を確認中です。反映結果はこのスレッドへ通知します。";
+
 export function sprintDialogueInput(input: { repo: SprintDialoguesRepository; guildId: string; botId: string; allowed?: (userId: string) => boolean; stopped: () => boolean }) {
   const { repo } = input;
   return {
@@ -33,6 +36,12 @@ export function sprintDialogueInput(input: { repo: SprintDialoguesRepository; gu
           const selected = action.parse(match[3]);
           const ticket = randomUUID();
           repo.issueChoice({ id: ticket, dialogueId: d.id, userId: i.user.id, guildId: i.guildId, threadId: i.channelId, revision: d.projection.revision, action: selected, expiresAt: Date.now() + 600000 });
+          // 承認はコメント不要で押した時点で確定する (neco 2026-10-30)。差し戻し・保留などは理由を残す。
+          if (selected === "approve") {
+            repo.consumeChoice(ticket, { eventId: `discord:${i.guildId}:${i.id}`, userId: i.user.id, guildId: i.guildId, threadId: i.channelId, reason: APPROVE_REASON, taskIds: [], now: Date.now() });
+            await i.reply({ content: SAVED_REPLY, ephemeral: true });
+            return;
+          }
           const modal = new ModalBuilder().setCustomId(`sdm:${ticket}`).setTitle(`${choiceLabels[selected]} / 版 ${d.projection.revision}`);
           modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("reason").setLabel("判断の理由・確認した内容").setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)));
           if (selected === "reject") modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("taskIds").setLabel("未達のタスクID（カンマ・空白区切り）").setStyle(TextInputStyle.Paragraph).setRequired(d.projection.phase !== "planning").setMaxLength(2000)));
@@ -46,7 +55,7 @@ export function sprintDialogueInput(input: { repo: SprintDialoguesRepository; gu
         if (!reason || reason.length > 2000) throw new Error("判断理由を入力してください。");
         const taskIds = [...new Set((i.fields.fields.has("taskIds") ? i.fields.getTextInputValue("taskIds") : "").split(/[,\s]+/).filter(Boolean))];
         repo.consumeChoice(i.customId.slice(4), { eventId: `discord:${i.guildId}:${i.id}`, userId: i.user.id, guildId: i.guildId, threadId: i.channelId, reason, taskIds, now: Date.now() });
-        await i.editReply("回答を保存しました。Actioで本人・チーム権限と対象版を確認中です。反映結果はこのスレッドへ通知します。");
+        await i.editReply(SAVED_REPLY);
       } catch (error) { await i.editReply(String(error).slice(0, 1500)); }
     },
   };

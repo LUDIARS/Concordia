@@ -18,7 +18,7 @@ it('ignores bot and webhook commentary and only issues an identity-bound ticket 
     expect(repo.claimConversation(Date.now())).toBeNull(); expect(repo.pendingEvents()).toHaveLength(0);
     const showModal = vi.fn(); const reply = vi.fn();
     const button = { isButton: () => true, isModalSubmit: () => false, guildId: 'guild', channelId: 'thread', user: { id: 'human', bot: false },
-      customId: `sd:${d.id}:1:approve`, message: { id: 'card', author: { id: 'bot' }, webhookId: null }, showModal, reply };
+      customId: `sd:${d.id}:1:hold`, message: { id: 'card', author: { id: 'bot' }, webhookId: null }, showModal, reply };
     await handler.interaction(button as unknown as Interaction);
     expect(showModal).toHaveBeenCalledTimes(1); expect(repo.pendingEvents()).toHaveLength(0);
     const ticketId = showModal.mock.calls[0]![0].data.custom_id.slice(4);
@@ -30,5 +30,23 @@ it('ignores bot and webhook commentary and only issues an identity-bound ticket 
     expect(showModal).toHaveBeenCalledTimes(1); expect(reply).toHaveBeenCalledTimes(1);
     const card = sprintCard(repo.byId(d.id)!, 'https://actio.example');
     expect(card.content).toContain('完了'); expect(card.components[0]?.components).toHaveLength(1);
+  } finally { db.close(); }
+});
+
+it('confirms an approve button press immediately without a reason modal', async () => {
+  const db = new Database(':memory:');
+  try {
+    const repo = new SprintDialoguesRepository(db); const d = repo.publish({ version: 1, dialogueKey: 'actio:t:s', teamId: 't', sprintId: 's', sprintName: 'Sprint', phase: 'planning', revision: 3,
+      sourceFingerprint: 'b'.repeat(64), held: false, closed: false, reason: '計画', summary: '確認', taskIds: [], actioPath: '/tasks/planning' });
+    repo.saveThread(d.id, 'guild', 'thread'); repo.saveCard(d.id, 3, 'card');
+    const handler = sprintDialogueInput({ repo, guildId: 'guild', botId: 'bot', allowed: () => true, stopped: () => false });
+    const showModal = vi.fn(); const reply = vi.fn();
+    await handler.interaction({ isButton: () => true, isModalSubmit: () => false, guildId: 'guild', channelId: 'thread', id: 'press', user: { id: 'human', bot: false },
+      customId: `sd:${d.id}:3:approve`, message: { id: 'card', author: { id: 'bot' }, webhookId: null }, showModal, reply } as unknown as Interaction);
+    expect(showModal).not.toHaveBeenCalled(); expect(reply).toHaveBeenCalledTimes(1);
+    const events = repo.pendingEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ eventId: 'discord:guild:press', action: 'approve', revision: 3, taskIds: [], actor: { discordUserId: 'human' } });
+    expect(events[0]!.reason.length).toBeGreaterThan(0);
   } finally { db.close(); }
 });

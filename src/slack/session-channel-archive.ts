@@ -18,6 +18,12 @@ export interface SlackSessionArchiveDeps {
   clearIntervalFn?: typeof clearInterval;
 }
 
+/** Slack Web API の失敗 (`data.error`) のエラーコード。 */
+function slackErrorCode(error: unknown): string | null {
+  const code = (error as { data?: { error?: unknown } } | null)?.data?.error;
+  return typeof code === "string" ? code : null;
+}
+
 /** Owns the single archive timer and retries failed Slack archives on later sweeps. */
 export class SlackSessionArchiveLifecycle {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -35,13 +41,13 @@ export class SlackSessionArchiveLifecycle {
     const setTimer = this.deps.setIntervalFn ?? setInterval;
     this.timer = setTimer(() => { void this.sweep(); }, this.deps.sweepIntervalMs ?? 60_000);
     this.timer.unref?.();
-    await this.scheduleStale();
     await this.sweep();
   }
 
   /**
    * session.ended を取りこぼした channel (停止中に終わった・session 行が消えた) を予約に回す。
-   * 起動時に呼ぶ。 猶予は通常の終了と同じ。
+   * 起動時と毎回の sweep で呼ぶ (lost → abandoned → purge で消えた session は session.ended を出さない)。
+   * 猶予は通常の終了と同じ。
    */
   async scheduleStale(): Promise<void> {
     const due = this.now() + this.deps.delaySeconds;
@@ -85,9 +91,11 @@ export class SlackSessionArchiveLifecycle {
   }
 
   private async runSweep(): Promise<void> {
+    this.deps.repo.cancelRevivedArchives();
+    await this.scheduleStale();
     for (const row of this.deps.repo.listDueForArchive(this.now())) {
       try {
-        const result = await this.deps.client.conversations.archive({ channel: row.channel_id });
+        const result = await this.archive(row.channel_id);
         if (result.ok === false) throw new Error("conversations.archive returned ok=false");
         const archivedAt = this.now();
         this.deps.repo.markArchived(row.session_id, archivedAt);
@@ -98,6 +106,16 @@ export class SlackSessionArchiveLifecycle {
           `Slack session channel archive failed; retry scheduled session=${row.session_id} channel=${row.channel_id}: ${(error as Error).message}`,
         );
       }
+    }
+  }
+
+  /** 既に archive 済み (手動で閉じた等) は目的を果たしているので成功扱いにし、 永久に再試行しない。 */
+  private async archive(channel: string): Promise<{ ok?: boolean }> {
+    try {
+      return await this.deps.client.conversations.archive({ channel });
+    } catch (error) {
+      if (slackErrorCode(error) === "already_archived") return { ok: true };
+      throw error;
     }
   }
 

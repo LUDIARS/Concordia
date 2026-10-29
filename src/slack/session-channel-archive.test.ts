@@ -35,7 +35,11 @@ describe("SlackSessionArchiveLifecycle", () => {
     // archived_at が付く前に session.started (再開) が来たら cancel() で取り消す。
     // 取り消さなければ、 次の sweep で「今もアクティブな」 チャンネルが archive される
     // (継続レビュー指摘: slack/bot.ts:457)。
-    const repo = makeSlackSessionChannelsRepo(makeTestDb(), () => 100);
+    const db = makeTestDb();
+    const repo = makeSlackSessionChannelsRepo(db, () => 100);
+    // 再開したセッションは active。 行が無ければ sweep が取りこぼしとして予約し直す。
+    db.prepare(`INSERT INTO sessions (id, provider, repo_path, repo_origin, branch, host, started_at, last_seen_at, status)
+      VALUES ('s1', 'claude-code', 'D:/x', NULL, 'main', 'h', 1, 1, 'active')`).run();
     repo.upsert({ session_id: "s1", channel_id: "C1", channel_name: "one" });
     repo.scheduleArchive("s1", 100);
     const archive = vi.fn(async () => ({ ok: true }));
@@ -96,5 +100,55 @@ describe("SlackSessionArchiveLifecycle", () => {
     expect(repo.findBySessionId("active")?.archive_due_at).toBeNull();
     expect(repo.findBySessionId("done")?.archived_at).toBe(50);
     await lifecycle.stop();
+  });
+
+  it("picks up a session that vanished after start on a later sweep", async () => {
+    const db = makeTestDb();
+    const repo = makeSlackSessionChannelsRepo(db, () => 100);
+    db.prepare(`INSERT INTO sessions (id, provider, repo_path, repo_origin, branch, host, started_at, last_seen_at, status)
+      VALUES ('purged', 'claude-code', 'D:/x', NULL, 'main', 'h', 1, 1, 'active')`).run();
+    repo.upsert({ session_id: "purged", channel_id: "C-purged", channel_name: "purged" });
+    const archive = vi.fn(async (_args: { channel: string }) => ({ ok: true }));
+    const lifecycle = new SlackSessionArchiveLifecycle({ repo, client: { conversations: { archive } }, delaySeconds: 0, now: () => 100 });
+
+    await lifecycle.sweep();
+    expect(archive).not.toHaveBeenCalled();
+    // lost → abandoned → purge は session.ended を出さずに行を消す。
+    db.prepare("DELETE FROM sessions WHERE id = 'purged'").run();
+    await lifecycle.sweep();
+    expect(archive).toHaveBeenCalledWith({ channel: "C-purged" });
+    expect(repo.findBySessionId("purged")?.archived_at).toBe(100);
+  });
+
+  it("withdraws a pending archive when the session came back to active without session.started", async () => {
+    const db = makeTestDb();
+    const repo = makeSlackSessionChannelsRepo(db, () => 100);
+    db.prepare(`INSERT INTO sessions (id, provider, repo_path, repo_origin, branch, host, started_at, last_seen_at, status)
+      VALUES ('revived', 'claude-code', 'D:/x', NULL, 'main', 'h', 1, 1, 'active')`).run();
+    repo.upsert({ session_id: "revived", channel_id: "C-revived", channel_name: "revived" });
+    repo.scheduleArchive("revived", 90);
+    const archive = vi.fn(async () => ({ ok: true }));
+    const lifecycle = new SlackSessionArchiveLifecycle({ repo, client: { conversations: { archive } }, delaySeconds: 30, now: () => 100 });
+
+    await lifecycle.sweep();
+    expect(archive).not.toHaveBeenCalled();
+    expect(repo.findBySessionId("revived")).toMatchObject({ archive_due_at: null, archived_at: null });
+  });
+
+  it("records an already archived channel as archived instead of retrying forever", async () => {
+    const repo = makeSlackSessionChannelsRepo(makeTestDb(), () => 100);
+    repo.upsert({ session_id: "manual", channel_id: "C-manual", channel_name: "manual" });
+    repo.upsert({ session_id: "denied", channel_id: "C-denied", channel_name: "denied" });
+    repo.scheduleArchive("manual", 100);
+    repo.scheduleArchive("denied", 100);
+    const slackError = (code: string) => Object.assign(new Error(`An API error occurred: ${code}`), { data: { ok: false, error: code } });
+    const archive = vi.fn(async ({ channel }: { channel: string }) => {
+      throw slackError(channel === "C-manual" ? "already_archived" : "not_in_channel");
+    });
+    const lifecycle = new SlackSessionArchiveLifecycle({ repo, client: { conversations: { archive } }, delaySeconds: 30, now: () => 100 });
+
+    await lifecycle.sweep();
+    expect(repo.findBySessionId("manual")?.archived_at).toBe(100);
+    expect(repo.findBySessionId("denied")?.archived_at).toBeNull();
   });
 });

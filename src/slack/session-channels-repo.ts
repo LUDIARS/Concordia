@@ -30,6 +30,11 @@ export interface SlackSessionChannelsRepo {
    * session.ended を取りこぼした (停止中に終わった・session 行が消えた) channel を拾う。
    */
   listStaleUnscheduled(): SlackSessionChannelRow[];
+  /**
+   * 未実行の archive 予約のうち、 session が active に戻ったものを取り消す。
+   * session.started を伴わない復帰 (lost → active) でも活動中の channel を archive しない。
+   */
+  cancelRevivedArchives(): number;
   markArchived(sessionId: string, archivedAt: number): void;
 }
 
@@ -103,6 +108,15 @@ export function makeSlackSessionChannelsRepo(
             AND (s.id IS NULL OR s.status <> 'active')
           ORDER BY c.created_at ASC`,
       ).all() as SlackSessionChannelRow[];
+    },
+    cancelRevivedArchives() {
+      return db.prepare(
+        `UPDATE slack_session_channels
+            SET archive_due_at = NULL
+          WHERE archive_due_at IS NOT NULL
+            AND archived_at IS NULL
+            AND session_id IN (SELECT id FROM sessions WHERE status = 'active')`,
+      ).run().changes;
     },
     markArchived(sessionId, archivedAt) {
       db.prepare(

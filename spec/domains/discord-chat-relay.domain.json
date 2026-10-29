@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/discord-chat-relay/[^/]+\\.ts$" },
-    { "pathPattern": "(^|/)src/discord/chat-relay-surface(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/chat-relay-(surface|notice)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/settings/sections/DiscordChatRelaySecretsSection(\\.test)?\\.tsx$" }
   ],
   "specRefs": ["spec/feature/discord-chat-relay.md", "spec/feature/line-webhook-relay.md", "spec/feature/trust-boundaries.md", "spec/ux/product.md"]

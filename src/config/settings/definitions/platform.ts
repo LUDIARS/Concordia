@@ -149,7 +149,7 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     description: "POST /hooks/line/<channel> で受けた LINE webhook を振り分けるサービス。 1 行 1 件の JSON で書く "
       + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/line/webhook\",\"host\":\"mf-hook.example.test\",\"enabled\":true,\"channel\":\"ludiars\",\"keywords\":[\"おてつだい\"]})。 "
       + "name / channel は英小文字・数字・ハイフン (channel を省くと name と同じ)、 url は http / https、 host は任意で転送時の Host ヘッダ、 "
-      + "keywords は呼びかけの言葉 (任意)。 保存すると再起動なしで効く。",
+      + "keywords は呼びかけの言葉 (任意)、 pushEnabled は Discord のお知らせへの応答を LINE へ push するか (任意、 既定 false)。 保存すると再起動なしで効く。",
     kind: "string-list", envName: null, dbKey: "services.line_webhook_targets",
     defaultValue: null, editable: true,
     validateItems: validateLineWebhookTargetEntries,
@@ -160,6 +160,7 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     label: "Discord チャット中継 転送先",
     description: "指定チャンネル (とその中のスレッド) の人間の発言を転送し、 返事を元の発言への返信として投稿する。 1 行 1 件の JSON で書く "
       + "(例 {\"name\":\"mf\",\"url\":\"http://192.0.2.10:8080/integrations/discord\",\"host\":\"mf-hook.example.test\",\"channelIds\":[\"123456789012345678\"],\"enabled\":true})。 "
+      + "noticeChannelIds (任意) のチャンネルでは bot / webhook のお知らせだけを転送し、 応答の linePush を同じ名前の LINE サービスへ push する。 "
       + "1 つのチャンネルは 1 つの転送先にだけ書ける。 セッション中継のチャンネルは中継しない。 保存すると再起動なしで効く。",
     kind: "string-list", envName: null, dbKey: "services.discord_chat_relay_targets",
     defaultValue: null, editable: true,

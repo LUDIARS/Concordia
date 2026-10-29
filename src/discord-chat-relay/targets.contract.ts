@@ -16,7 +16,7 @@ function isHttpUrl(raw: unknown): boolean {
   }
 }
 
-interface TargetShape { name?: unknown; url?: unknown; enabled?: unknown; channelIds?: unknown }
+interface TargetShape { name?: unknown; url?: unknown; enabled?: unknown; channelIds?: unknown; noticeChannelIds?: unknown }
 
 export default {
   post(result: unknown, ...args: unknown[]): boolean {
@@ -25,13 +25,18 @@ export default {
     const { targets, errors } = result as { targets?: unknown; errors?: unknown };
     if (!Array.isArray(targets) || !Array.isArray(errors)) return false;
     const names = targets.map((target: TargetShape) => target?.name);
-    const channels = targets.flatMap((target: TargetShape) => (Array.isArray(target?.channelIds) ? target.channelIds : []));
+    const channels = targets.flatMap((target: TargetShape) => [
+      ...(Array.isArray(target?.channelIds) ? target.channelIds : []),
+      ...(Array.isArray(target?.noticeChannelIds) ? target.noticeChannelIds : []),
+    ]);
     const valid = targets.every((target: TargetShape) =>
       typeof target?.name === "string" && NAME.test(target.name)
       && isHttpUrl(target.url) && typeof target.enabled === "boolean"
       && Array.isArray(target.channelIds) && target.channelIds.length >= 1
-      && target.channelIds.every((id: unknown) => typeof id === "string" && SNOWFLAKE.test(id)));
-    // No channel belongs to two targets, and every input entry is either adopted or explained.
+      && target.channelIds.every((id: unknown) => typeof id === "string" && SNOWFLAKE.test(id))
+      && Array.isArray(target.noticeChannelIds)
+      && target.noticeChannelIds.every((id: unknown) => typeof id === "string" && SNOWFLAKE.test(id)));
+    // No channel (chat or notice) belongs to two targets or to both lists of one target, and every input entry is either adopted or explained.
     return valid
       && new Set(names).size === names.length
       && new Set(channels).size === channels.length

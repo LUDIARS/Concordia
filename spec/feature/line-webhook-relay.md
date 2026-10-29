@@ -316,3 +316,27 @@ Cc が行う (サービスはしない)。対象はそのチャネルの enabled
 push の口は、設定画面で「LINE への送信」を無効にすると 403 で止まり (トークンは残る)、push トークンを消すと 503 になる
 (サービス側のトークンも効かなくなるので、再開するときは発行し直してサービス側に貼り直す)。発行し直すと前のトークンは 401。migration 144 のテーブルは消さずに残してよい
 (受け口が使わなくなるだけ)。
+
+## お知らせの push
+
+関連タスク: `actio:262ba08f-20e5-4125-b2d5-4047a386c060`。UX-CC-W12/W13、CC-INV-03/06。
+Discord の登録済み notice チャンネルの外部 bot / webhook 投稿をサービスが解釈し、返した linePush を届ける。
+LINE の紐付けと送信許可は line-webhook-relay が所有し、中継側は状態を書き換えない。
+
+- LINE-WH-INV-28: Discord target と同名で enabled の LINE サービスのチャネルから、そのサービスを
+  ふだんの相手にしているトークだけを重複なく選ぶ。未登録・無効・push 不許可では送らない。トークなしは件数 0。
+- LINE-WH-INV-29: 既存 createLinePushSender を使い、トークごとに 1 回、検証済みの 1〜3 件の text を push。
+  チャネルアクセストークン、5 秒期限、409 を受理済みとして扱う点は既存 API と共通。
+  retry key は derivePushRetryKey(channel, service, `discord-notice:<messageId>`, index) により生成する。
+  notice の名前空間と宛先番号を用い、既存の外部 push の requestId / 実トーク ID の組と分離する。
+- LINE-WH-INV-30: 既存のサービス別 pushEnabled (既定 false、保存キー `line_webhook.service.<service>.push_enabled`)
+  と設定画面の「LINE への送信」を共用する。設定は通知ごとに読み、停止は次の通知から効く。
+  別のスイッチや target JSON の同名キーは追加しない。通知経路は Cc 内部のためサービス用 push トークンは不要。
+  429・結果不明も再送せず、ログには件数と失敗 status のみ。本文・宛先 ID・秘密値を出さない。
+
+契約: `C-19 resolveLinePushTalks(targets, links, service): 有効で push 許可のあるサービスの既定トークだけを返す`。
+`augur.contracts.json` の id は line-wh-C-19。既存の line-wh-C-14〜18 は変更しない。
+src/line-webhook/push-talks.ts (純粋な宛先判断)、notice-push.ts (配送手順)、notice-push.test.ts
+(純関数・スタブ送信器のテスト) に分離する。設定の読取は discord-chat-relay/runtime.ts が組み立てる。
+復旧は noticeChannelIds を消すか、既存の「LINE への送信」を無効化する。紐付けは消さない。
+後者は既存 push API と通知の両方を止める。テスト・実送信・再起動は本委託では未実施。

@@ -1,7 +1,8 @@
-// @implements spec/feature/discord-chat-relay.md — 受信 / サービスの応答と Discord への投稿
+// @implements spec/feature/discord-chat-relay.md — 受信 / サービスの応答と Discord への投稿 / お知らせチャンネル
 // Discord クライアントは使わず、 Message の必要部分だけの代役で判定・転送・投稿・ログを確かめる。
 import { describe, expect, it, vi } from "vitest";
 import type { RelayInput, RelayOutcome } from "../line-webhook/relay.js";
+import type { LineNoticePushReport, LineNoticePusher } from "../line-webhook/notice-push.js";
 import { createDiscordChatRelayService } from "../discord-chat-relay/relay-service.js";
 import type { DiscordChatRelayTarget } from "../discord-chat-relay/targets.js";
 import { createChatRelaySurface, type ChatRelaySurfaceMessage } from "./chat-relay-surface.js";
@@ -13,7 +14,7 @@ const BOT = "723456789012345678";
 const TOKEN = "example-relay-token";
 
 const target: DiscordChatRelayTarget = {
-  name: "mf", url: "http://192.0.2.10/integrations/discord", host: null, channelIds: [FAMILY], enabled: true,
+  name: "mf", url: "http://192.0.2.10/integrations/discord", host: null, channelIds: [FAMILY], noticeChannelIds: [], enabled: true,
 };
 
 function stubMessage(overrides: Partial<ChatRelaySurfaceMessage> = {}, thread = false) {
@@ -122,5 +123,83 @@ describe("createChatRelaySurface", () => {
     await surface.message(msg);
     expect(reply).toHaveBeenCalledTimes(1);
     expect(log.warn).toHaveBeenCalledWith("discord chat relay target=mf failure=post_failed");
+  });
+});
+
+describe("createChatRelaySurface (お知らせのチャンネル)", () => {
+  const NOTICE = "223456789012345678";
+  const BUS = "923456789012345678";
+  const noticeTarget: DiscordChatRelayTarget = { ...target, noticeChannelIds: [NOTICE] };
+
+  function setupNotice(outcome: RelayOutcome, pushReport: LineNoticePushReport = { kind: "pushed", talks: 1, sent: 1, failedStatuses: [] }) {
+    const send = vi.fn(async (_input: RelayInput) => outcome);
+    const linePush = vi.fn<LineNoticePusher>(async () => pushReport);
+    const log = { info: vi.fn(), warn: vi.fn() };
+    const surface = createChatRelaySurface({
+      service: createDiscordChatRelayService({ targets: () => [noticeTarget], relayToken: () => TOKEN, send, linePush }),
+      isSessionRelayChannel: () => false,
+      botUserId: () => BOT,
+      log,
+    });
+    return { surface, send, linePush, log };
+  }
+
+  const busPost = (overrides: Partial<ChatRelaySurfaceMessage> = {}) => stubMessage({
+    channelId: NOTICE, content: "バスが 5 分遅れています", webhookId: BUS, member: null,
+    author: { id: BUS, bot: true, username: "おおぞらバス" },
+    channel: { isThread: () => false, parentId: null },
+    embeds: [{ title: "運行情報", description: "朝便", fields: [{ name: "園", value: "さくら" }], url: "https://example.test/x" } as never],
+    ...overrides,
+  });
+
+  it("webhook のお知らせを受け持ち、kind: notice で転送して LINE への push の件数だけをログに残す", async () => {
+    const { surface, send, linePush, log } = setupNotice(replied({ replies: [], linePush: [{ text: "バスが遅れています" }] }));
+    const { msg, reply } = busPost();
+    expect(surface.handlesMessage(msg)).toBe(true);
+    await surface.message(msg);
+    const body = JSON.parse(Buffer.from(send.mock.calls[0]![0].body).toString("utf8"));
+    expect(body).toMatchObject({
+      kind: "notice", channelId: NOTICE, threadId: null, text: "バスが 5 分遅れています",
+      author: { id: BUS, displayName: "おおぞらバス", bot: true, webhookId: BUS },
+      embeds: [{ title: "運行情報", description: "朝便", fields: [{ name: "園", value: "さくら" }] }],
+    });
+    expect(JSON.stringify(body)).not.toContain("example.test");
+    expect(linePush).toHaveBeenCalledWith({ service: "mf", messageId: msg.id, texts: ["バスが遅れています"] });
+    expect(reply).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith("discord chat relay target=mf line_push talks=1 sent=1");
+    const logged = JSON.stringify([...log.warn.mock.calls, ...log.info.mock.calls]);
+    for (const secret of ["遅れて", TOKEN]) expect(logged).not.toContain(secret);
+  });
+
+  it("push の失敗は status だけを残し、429 は月間上限として名前を付ける", async () => {
+    const { surface, log } = setupNotice(
+      replied({ replies: [], linePush: [{ text: "x" }] }),
+      { kind: "pushed", talks: 2, sent: 0, failedStatuses: [429, null] },
+    );
+    await surface.message(busPost().msg);
+    expect(log.warn).toHaveBeenCalledWith(
+      "discord chat relay target=mf line_push talks=2 sent=0 failed=2 statuses=429(monthly_limit),unreachable");
+  });
+
+  it.each([
+    ["人の発言", { author: { id: "623456789012345678", bot: false, username: "neco" }, webhookId: null }],
+    ["Cc 自身の bot の投稿", { author: { id: BOT, bot: true, username: "cc" }, webhookId: null }],
+    ["システムメッセージ", { system: true }],
+  ])("お知らせのチャンネルでも %s は受け持たない", (_label, overrides) => {
+    const { surface } = setupNotice(replied({ replies: [] }));
+    expect(surface.handlesMessage(busPost(overrides as Partial<ChatRelaySurfaceMessage>).msg)).toBe(false);
+  });
+
+  it("発言のチャンネルの bot の投稿は受け持たない", () => {
+    const { surface } = setupNotice(replied({ replies: [] }));
+    expect(surface.handlesMessage(busPost({ channelId: FAMILY }).msg)).toBe(false);
+  });
+
+  it("本文も埋め込みの文字も無いお知らせは受け持つが転送しない", async () => {
+    const { surface, send } = setupNotice(replied({ replies: [] }));
+    const { msg } = busPost({ content: " ", embeds: [] });
+    expect(surface.handlesMessage(msg)).toBe(true);
+    await surface.message(msg);
+    expect(send).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,7 @@ import type { DiscordChatRelayTarget } from "./targets.js";
 const TOKEN = "example-relay-token";
 
 const targets: DiscordChatRelayTarget[] = [
-  { name: "mf", url: "http://192.0.2.10/integrations/discord", host: null, channelIds: ["123456789012345678"], enabled: true },
+  { name: "mf", url: "http://192.0.2.10/integrations/discord", host: null, channelIds: ["123456789012345678"], noticeChannelIds: [], enabled: true },
 ];
 
 function app() {

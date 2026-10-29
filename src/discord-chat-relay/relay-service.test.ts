@@ -15,7 +15,7 @@ const THREAD = "323456789012345678";
 const TOKEN = "example-relay-token";
 
 const target: DiscordChatRelayTarget = {
-  name: "mf", url: "http://192.0.2.10:8080/integrations/discord", host: "mf-hook.example.test", channelIds: [FAMILY], enabled: true,
+  name: "mf", url: "http://192.0.2.10:8080/integrations/discord", host: "mf-hook.example.test", channelIds: [FAMILY], noticeChannelIds: [], enabled: true,
 };
 
 function message(overrides: Partial<DiscordChatMessage> = {}): DiscordChatMessage {

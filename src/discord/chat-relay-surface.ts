@@ -4,12 +4,16 @@
  * bot の messageCreate から他の ingress より先に呼ばれる。 受け持つと判定した発言は
  * 中継サービスへ渡し、 返事を元の発言への reply として投稿する。 ログには target 名と
  * 失敗種別だけを出す (本文・発言者名・トークンは出さない、 DCR-INV-09)。
+ * お知らせのチャンネルの bot / webhook の投稿は chat-relay-notice.ts へ渡す (DCR-INV-13)。
  *
  * @implements spec/feature/discord-chat-relay.md — 受信
+ * @implements spec/feature/discord-chat-relay.md — お知らせチャンネル
  */
 
+import { isDiscordNoticeAuthor } from "../discord-chat-relay/notice.js";
 import type { DiscordChatRelayService } from "../discord-chat-relay/relay-service.js";
-import type { DiscordMessagePlace } from "../discord-chat-relay/routing.js";
+import type { DiscordChatRoute, DiscordMessagePlace } from "../discord-chat-relay/routing.js";
+import { relayDiscordNotice, type ChatRelayNoticeEmbedSource } from "./chat-relay-notice.js";
 
 /** discord.js の Message のうち中継に使う部分。 テストではこの形の代役を渡す。 */
 export interface ChatRelaySurfaceMessage {
@@ -24,6 +28,8 @@ export interface ChatRelaySurfaceMessage {
   member?: { displayName: string } | null;
   mentions: { users: { has(id: string): boolean } };
   channel: { isThread(): boolean; parentId?: string | null };
+  /** お知らせの埋め込み (文字部分だけを読む)。 */
+  embeds?: readonly ChatRelayNoticeEmbedSource[];
   reply(options: { content: string; allowedMentions: { parse: []; repliedUser: boolean } }): Promise<unknown>;
 }
 
@@ -42,13 +48,22 @@ export interface ChatRelaySurfaceDeps {
 }
 
 export function createChatRelaySurface(deps: ChatRelaySurfaceDeps): ChatRelaySurface {
-  const routeOf = (message: ChatRelaySurfaceMessage) =>
-    deps.service.route(placeOf(message), deps.isSessionRelayChannel);
+  const isNotice = (message: ChatRelaySurfaceMessage) => isDiscordNoticeAuthor({
+    authorId: message.author.id,
+    authorIsBot: message.author.bot,
+    webhookId: message.webhookId,
+    system: message.system,
+  }, deps.botUserId());
+  // bot / webhook の投稿はお知らせのチャンネルで、 人間の発言は発言のチャンネルで振り分ける (DCR-INV-05, 13)。
+  const routeOf = (message: ChatRelaySurfaceMessage): DiscordChatRoute => {
+    if (isNotice(message)) return deps.service.routeNotice(placeOf(message), deps.isSessionRelayChannel);
+    if (message.author.bot || message.webhookId || message.system) return { kind: "none" };
+    return deps.service.route(placeOf(message), deps.isSessionRelayChannel);
+  };
 
   return {
     handlesMessage(message) {
-      // 人間の発言だけ。 bot 自身・他 bot・webhook・システムメッセージは中継しない (DCR-INV-05)。
-      if (message.author.bot || message.webhookId || message.system || !message.guildId) return false;
+      if (!message.guildId) return false;
       const route = routeOf(message);
       if (route.kind === "conflict") {
         deps.log.warn(`discord chat relay target=${route.target.name} failure=session_channel_conflict`);
@@ -60,6 +75,10 @@ export function createChatRelaySurface(deps: ChatRelaySurfaceDeps): ChatRelaySur
     async message(message) {
       const route = routeOf(message);
       if (route.kind !== "relay" || !message.guildId) return;
+      if (isNotice(message)) {
+        await relayDiscordNotice({ service: deps.service, log: deps.log }, message, route);
+        return;
+      }
       const text = message.content.trim();
       // 添付だけの発言は送らない (受け持ちはするので他の ingress へも回さない)。
       if (text === "") return;

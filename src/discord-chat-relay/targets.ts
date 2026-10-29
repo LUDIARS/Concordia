@@ -2,7 +2,7 @@
  * Discord チャット中継の転送先登録 (spec/feature/discord-chat-relay.md §転送先の登録)。
  *
  * 設定 `services.discord_chat_relay_targets` は 1 行 1 件の JSON オブジェクト
- * (`{"name","url","host"?,"channelIds","enabled"}`) の一覧。 ここは解釈と検証だけを持ち、
+ * (`{"name","url","host"?,"channelIds","noticeChannelIds"?,"enabled"}`) の一覧。 ここは解釈と検証だけを持ち、
  * どこから読むか (schema_meta) と Discord・HTTP は呼び出し側が持つ。
  * 作法は src/line-webhook/targets.ts と同じ。
  *
@@ -21,6 +21,8 @@ export interface DiscordChatRelayTarget {
   host: string | null;
   /** 中継するチャンネル (この中のスレッドも含む)。 1 件以上。 */
   channelIds: string[];
+  /** bot / webhook のお知らせだけを中継するチャンネル (この中のスレッドも含む)。 省略は空。 */
+  noticeChannelIds: string[];
   enabled: boolean;
 }
 
@@ -35,11 +37,12 @@ const SNOWFLAKE_PATTERN = /^[0-9]{17,20}$/;
 /** Host ヘッダに入れてよい形 (ホスト名 / IPv4 + 任意のポート)。 改行やパスを通さない。 */
 const HOST_PATTERN = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
 const MAX_NAME_LENGTH = 64;
-const KNOWN_KEYS = ["name", "url", "host", "channelIds", "enabled"];
+const KNOWN_KEYS = ["name", "url", "host", "channelIds", "noticeChannelIds", "enabled"];
 
 /**
  * 設定の 1 行 1 件を解釈する。 壊れた行・重複名・既に他の target に割り当てたチャンネルを含む行は
- * 転送先に入れず、 理由を返す (DCR-INV-01: 同じ発言を 2 か所へ送らない)。
+ * 転送先に入れず、 理由を返す (DCR-INV-01: 同じ発言を 2 か所へ送らない)。 お知らせのチャンネルも
+ * 同じ割り当てに数える (DCR-INV-13)。
  */
 export function parseDiscordChatRelayTargets(entries: readonly string[]): DiscordChatRelayTargetParse {
   const targets: DiscordChatRelayTarget[] = [];
@@ -56,13 +59,14 @@ export function parseDiscordChatRelayTargets(entries: readonly string[]): Discor
       errors.push(`${index + 1} 件目: name "${parsed.name}" が重複しています`);
       return;
     }
-    const taken = parsed.channelIds.find((id) => channelOwners.has(id));
+    const owned = [...parsed.channelIds, ...parsed.noticeChannelIds];
+    const taken = owned.find((id) => channelOwners.has(id));
     if (taken) {
       errors.push(`${index + 1} 件目: channelId ${taken} は "${channelOwners.get(taken)}" に割り当て済みです`);
       return;
     }
     names.add(parsed.name);
-    for (const id of parsed.channelIds) channelOwners.set(id, parsed.name);
+    for (const id of owned) channelOwners.set(id, parsed.name);
     targets.push(parsed);
   });
   return { targets, errors };
@@ -116,9 +120,25 @@ function parseEntry(entry: string): DiscordChatRelayTarget | string {
     return "channelIds は Discord のチャンネル ID (数字 17〜20 桁) の配列 (1 件以上) で書きます";
   }
   if (new Set(channelIds).size !== channelIds.length) return "channelIds に同じチャンネルが重複しています";
+  const noticeChannelIds = parseNoticeChannelIds(record.noticeChannelIds, channelIds);
+  if (typeof noticeChannelIds === "string") return noticeChannelIds;
   const enabled = record.enabled;
   if (typeof enabled !== "boolean") return "enabled は true / false で書きます";
-  return { name, url, host: typeof host === "string" ? host : null, channelIds: [...channelIds], enabled };
+  return {
+    name, url, host: typeof host === "string" ? host : null, channelIds: [...channelIds], noticeChannelIds, enabled,
+  };
+}
+
+/** 省略は空。 人の発言のチャンネルと同じ ID は置けない (どちらの扱いか決まらなくなる)。 */
+function parseNoticeChannelIds(value: unknown, channelIds: readonly string[]): string[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((id): id is string => typeof id === "string" && SNOWFLAKE_PATTERN.test(id))) {
+    return "noticeChannelIds は Discord のチャンネル ID (数字 17〜20 桁) の配列で書きます";
+  }
+  if (new Set(value).size !== value.length) return "noticeChannelIds に同じチャンネルが重複しています";
+  const both = value.find((id) => channelIds.includes(id));
+  if (both) return `channelId ${both} が channelIds と noticeChannelIds の両方にあります`;
+  return [...value];
 }
 
 function isHttpUrl(raw: string): boolean {

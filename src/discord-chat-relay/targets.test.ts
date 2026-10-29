@@ -11,6 +11,7 @@ import {
 const FAMILY = "123456789012345678";
 const OTHER = "223456789012345678";
 const THREAD = "323456789012345678";
+const NOTICE = "823456789012345678";
 
 const mf = JSON.stringify({ name: "mf", url: "http://192.0.2.10:8080/integrations/discord", host: "mf-hook.example.test", channelIds: [FAMILY], enabled: true });
 const off = JSON.stringify({ name: "off", url: "https://off.example.test/hook", channelIds: [OTHER], enabled: false });
@@ -19,8 +20,8 @@ describe("parseDiscordChatRelayTargets", () => {
   it("正しい項目を転送先として読む (host は任意)", () => {
     expect(parseDiscordChatRelayTargets([mf, off])).toEqual({
       targets: [
-        { name: "mf", url: "http://192.0.2.10:8080/integrations/discord", host: "mf-hook.example.test", channelIds: [FAMILY], enabled: true },
-        { name: "off", url: "https://off.example.test/hook", host: null, channelIds: [OTHER], enabled: false },
+        { name: "mf", url: "http://192.0.2.10:8080/integrations/discord", host: "mf-hook.example.test", channelIds: [FAMILY], noticeChannelIds: [], enabled: true },
+        { name: "off", url: "https://off.example.test/hook", host: null, channelIds: [OTHER], noticeChannelIds: [], enabled: false },
       ],
       errors: [],
     });
@@ -58,6 +59,35 @@ describe("parseDiscordChatRelayTargets", () => {
     const parsed = parseDiscordChatRelayTargets([mf, clash]);
     expect(parsed.targets.map((target) => target.name)).toEqual(["mf"]);
     expect(parsed.errors).toEqual([`2 件目: channelId ${FAMILY} は "mf" に割り当て済みです`]);
+  });
+
+  it("noticeChannelIds を読み、省略は空にする", () => {
+    const withNotice = JSON.stringify({ name: "mf", url: "http://192.0.2.10/", channelIds: [FAMILY], noticeChannelIds: [NOTICE], enabled: true });
+    expect(parseDiscordChatRelayTargets([withNotice]).targets[0]!.noticeChannelIds).toEqual([NOTICE]);
+    expect(parseDiscordChatRelayTargets([mf]).targets[0]!.noticeChannelIds).toEqual([]);
+  });
+
+  it.each([
+    ["noticeChannelIds が配列でない", JSON.stringify({ name: "mf", url: "http://192.0.2.10/", channelIds: [FAMILY], noticeChannelIds: NOTICE, enabled: true })],
+    ["noticeChannelIds が snowflake でない", JSON.stringify({ name: "mf", url: "http://192.0.2.10/", channelIds: [FAMILY], noticeChannelIds: ["bus"], enabled: true })],
+    ["noticeChannelIds の重複", JSON.stringify({ name: "mf", url: "http://192.0.2.10/", channelIds: [FAMILY], noticeChannelIds: [NOTICE, NOTICE], enabled: true })],
+    ["channelIds と noticeChannelIds の両方に同じ ID", JSON.stringify({ name: "mf", url: "http://192.0.2.10/", channelIds: [FAMILY], noticeChannelIds: [FAMILY], enabled: true })],
+  ])("%s の項目は採用しない", (_label, entry) => {
+    const parsed = parseDiscordChatRelayTargets([entry]);
+    expect(parsed.targets).toEqual([]);
+    expect(parsed.errors[0]).toMatch(/^1 件目: /);
+  });
+
+  it("他の target の発言・お知らせのチャンネルと重なるお知らせのチャンネルは採用しない", () => {
+    const bus = JSON.stringify({ name: "bus", url: "http://192.0.2.12/", channelIds: [OTHER], noticeChannelIds: [NOTICE], enabled: true });
+    const clashNotice = JSON.stringify({ name: "other", url: "http://192.0.2.11/", channelIds: ["923456789012345678"], noticeChannelIds: [NOTICE], enabled: true });
+    const clashChat = JSON.stringify({ name: "third", url: "http://192.0.2.13/", channelIds: [NOTICE], enabled: true });
+    const parsed = parseDiscordChatRelayTargets([bus, clashNotice, clashChat]);
+    expect(parsed.targets.map((target) => target.name)).toEqual(["bus"]);
+    expect(parsed.errors).toEqual([
+      `2 件目: channelId ${NOTICE} は "bus" に割り当て済みです`,
+      `3 件目: channelId ${NOTICE} は "bus" に割り当て済みです`,
+    ]);
   });
 
   it("PUT の検証は 1 件でも壊れていれば理由を返す", () => {

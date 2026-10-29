@@ -2172,8 +2172,9 @@ export async function startBackend(): Promise<BackendHandle> {
     chatRepo: chat,
     // 巡回の投稿先チャンネル (GLab / VOB 等) の会話を取り込む (neco 2026-10-15「全部拾う」)。
     patrolChannelFor: patrolRuntime.channelFor,
-    // 指定チャンネルの発言をサービスへ中継する (spec/feature/discord-chat-relay.md)。 子会社 runtime とも共有する。
-    discordChatRelay: createDiscordChatRelayFromStore(adminState.store),
+    // 指定チャンネルの発言とお知らせをサービスへ中継し、 お知らせへの応答は LINE へ push する
+    // (spec/feature/discord-chat-relay.md)。 子会社 runtime とも共有する。
+    discordChatRelay: createDiscordChatRelayFromStore(adminState.store, { talkLinks: new SqliteLineTalkLinkStore(db) }),
     sessionsRepo: repo,
     gatewayPool: discordGatewayPool,
     revisorTestWorkflow,

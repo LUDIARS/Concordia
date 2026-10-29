@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/delegation/status-schema.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },
+    { "source": "src/delegation/status-preflight.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },
+    { "source": "src/delegation/status-preflight.contract.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },
+    { "source": "src/delegation/status-preflight-cli.ts", "tests": ["src/delegation/status-preflight-cli.test.ts"], "contracts": ["status-preflight-C-20"] },
+    { "source": "tools/delegation-status-preflight.mjs", "tests": ["src/delegation/status-preflight-cli.test.ts"], "contracts": ["status-preflight-C-20"] },
+    { "source": "src/delegation/status-preflight-guidance.ts", "tests": ["src/delegation/status-preflight-guidance.test.ts"], "contracts": ["SPEC-DELEGATION-STATUS-PREFLIGHT"] },
     {"source":"src/discord-chat-relay/runtime.ts","tests":["src/line-webhook/notice-push.test.ts","src/line-webhook/push.test.ts"],"contracts":["line-wh-C-19"]},
     {"source":"src/rules/patrol-journal-text.ts","tests":["src/rules/patrol-journal-text.test.ts"],"contracts":["PATROL-JOURNAL-INV-01"]},
     {"source":"src/rules/patrol-learning-journal.ts","tests":["src/rules/patrol-learning-journal.test.ts"],"contracts":["PATROL-JOURNAL-INV-01"]},

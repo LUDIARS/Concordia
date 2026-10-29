@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)tools/delegation-status-preflight\\.mjs$"
+    },
+    {
       "pathPattern": "^cc\\.acceptance\\.json$"
     },
     {

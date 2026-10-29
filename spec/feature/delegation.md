@@ -893,6 +893,33 @@ persona の汎用報告例は共通案内を参照し、kind を省略した par
 
 ### status 報告の UTF-8 検証
 
+#### 送信前のローカル入力検査
+
+Actio: `actio:edb54131-a750-4762-94f5-b969abb8483d`。
+UX-CC-W2/W3、UX-CC-AD-W3 / AD-S4、CC-INV-04/05 に対応する。
+所属は agent-delegation。報告入力の構造は `src/delegation/status-schema.ts` が所有し、
+API とローカル検査が同じ Zod schema を参照する。run 状態の所有者は既存 API のまま。
+
+Cc checkout で `node --import tsx tools/delegation-status-preflight.mjs <report.json>`
+（または `npm run delegation:status:preflight -- <report.json>`）を実行する。
+ファイルは UTF-8 JSON とし、検査成功は exit 0、入力不正は exit 1、引数・読取失敗は exit 2。
+ファイルを変更せず、ネットワーク・DB・run 遷移へ接続しない。
+detail/result は既存どおり最大 4000 UTF-16 code unit（日本語 BMP は 1、絵文字等は 2）で、
+配列上限・ネスト項目・partial/completed と remaining の整合も共有 schema で検査する。
+診断は固定コード、既知のフィールド名、添字、上限、実際の長さだけで、入力値・秘密・
+任意のプロパティ名・ファイルパス・例外の本文は再表示しない。不正 JSON も固定診断にする。
+
+成功は入力構造の確認だけを意味する。文字化け拒否・完了証跡・認可・終端遷移の判定は
+送信先 API が引き続き所有する。失敗時は元ファイルを修正して再検査し、成功後に同じファイルを
+UTF-8 のまま送る。復旧は CLI/案内の変更を戻すことで可能で、データ移行は不要。
+実装委託の共通案内と日次（parttimer）報告案内に同じコマンドと制限を載せる。
+
+C-20 preflightStatusJson(text): JSON と共有 status schema を検査し、入力値を含まないフィールド・コード・上限・長さだけの診断を返す
+
+回帰計画: 正常、4000/4001、日本語・サロゲート、不正 JSON、ネスト上限、partial/completed、
+秘密を含む enum/type/JSON エラー、CLI の読取失敗・終了コード、両方の案内を確認する。
+テスト実行は別途許可が必要であり、未実施を成功扱いしない。本仕様は draft（LLM 作成）。
+
 **Requirement ID: `SPEC-DELEGATION-STATUS-UTF8`**
 
 `POST /v1/delegation/runs/:id/status` は、永続化や通知に使う `detail`、`result`、

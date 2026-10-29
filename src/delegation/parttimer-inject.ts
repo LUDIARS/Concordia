@@ -31,6 +31,7 @@
  */
 
 import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
+import { buildStatusPreflightGuidance } from "./status-preflight-guidance.js";
 
 export interface ParttimerInjectInput {
   overrideTemplate?: string | null;
@@ -123,6 +124,7 @@ function parttimerTemplate(input: ParttimerInjectInput, values: Record<string, s
     "   - **日本語を含む body はシェルに直書きしないでください。** Windows の一部のシェル経路では CP932 で",
     "     渡されて文字化けし、 化けた報告は受理されません (400 `garbled_report`)。 JSON を UTF-8 の",
     "     ファイルに書いて `curl.exe --data-binary @<file>` で送ります。",
+    `   ${buildStatusPreflightGuidance()}`,
     "3. **退勤する。** 記録まで済んだら、 自セッションの Lictor sidecar へ",
     "   `POST http://127.0.0.1:$LICTOR_PORT/v1/shutdown` を送ってセッションを終了します",
     "   (port は環境変数 `LICTOR_PORT`)。 **判断・確認・許可は要りません** (2026-09-01 指示)。",

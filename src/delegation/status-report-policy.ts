@@ -10,6 +10,7 @@
  * 案内文はこのモジュールを正本にして各経路で同じ文面を使う。
  */
 import type { DelegationRunRow } from "../db/delegation-repo.js";
+import { buildStatusPreflightGuidance } from "./status-preflight-guidance.js";
 import { contract } from './ontime-runtime.js'; /* augur-inject:import:1789ffac */
 import augurContract_ba7bf205 from './status-report-policy.contract.js'; /* augur-inject:contract-predicate:3eb8ba5b */
 import augurContract_6f52f0e6 from './completion-evidence-policy.contract.js';
@@ -90,6 +91,7 @@ export function buildStatusReportGuidance(statusEndpoint: string): string[] {
   return [
     `- 状態の確認は GET ${statusEndpoint} で行います (読み取りのみ。 状態は変わりません)。`,
     `- 終端報告 (completed / failed) は POST ${statusEndpoint} で一度だけ受理され、 後から訂正できません。 委託本文を読んで結果を確かめてから送ります。`,
+    `- ${buildStatusPreflightGuidance()}`,
     "- partial の remaining は、人間判断・権限待ちは `kind=wait`、実行可能な作業は `kind=work` と明記します。kind を省略して判断待ちを報告しないでください。待機事項と実行可能な作業が混在する場合は項目を分けます。",
     "- 人間判断・権限待ちの報告例:",
     '```json\n{"status":"partial","remaining":[{"kind":"wait","title":"権限の確認待ち","note":"依頼者の承認後に再開する","scope_dirs":[]}]}\n```',

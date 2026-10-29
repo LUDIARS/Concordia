@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { TaskBranchService } from "../../src/harness/reliability/task-branch-service.js";
-import { checkRegisteredCheckout, checkSubmittedTask, deterministicTaskRelation, describeSubmittedTask, homeRegistration, readDeclaredTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
+import { castraTargetRegistration, checkRegisteredCheckout, checkSubmittedTask, deterministicTaskRelation, describeSubmittedTask, homeRegistration, readDeclaredTask, requiresTaskBranchCheck, SUBMITTED_BOUNDARY_RECOVERY, taskStartWarning, type SubmittedPrState, type SubmittedTask } from "../../src/harness/reliability/task-branch-policy.js";
 import { makeTestDb } from "../helpers/db.js";
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { analyzePromptWithLocalLlm } from "../../src/harness/local-prompt-analyzer.js";
@@ -48,6 +48,65 @@ describe("registered checkout decides the task-branch boundary", () => {
       // The registered path itself is on main, so acting there is a real mismatch.
       expect((await service.gate("reg-test", { tool: "Edit", cwd: main }))?.rule).toBe("task-branch");
     } finally { db.close(); }
+  });
+});
+
+describe("Castra-rooted registration is checked in the target project (TB-CASTRA)", () => {
+  const root = resolve("fixture/castra"), app = resolve("fixture/castra/app"), appWt = resolve("fixture/castra/app-wt");
+  const rootRepo = { repo: root, branch: "main", mainExists: true, commonDir: resolve("fixture/castra/.git"),
+    checkouts: [{ repo: root, branch: "main" }] };
+  const appRepo = { repo: app, branch: "main", mainExists: true, commonDir: resolve("fixture/castra/app/.git"),
+    checkouts: [{ repo: app, branch: "main" }, { repo: appWt, branch: "fix/gate" }] };
+  const inWorktree = { repo: appWt, branch: "fix/gate", mainExists: true, commonDir: appRepo.commonDir };
+  const snapshots: Record<string, typeof rootRepo | typeof inWorktree> = { [root]: rootRepo, [app]: appRepo, [appWt]: inWorktree };
+
+  function gateFor(branch: string, targetProject: string | null) {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    sessions.insertSession({ id: "castra-test", provider: "claude-code", repo_path: root, repo_origin: null, branch,
+      host: "fixture", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null, target_project: targetProject });
+    const service = new TaskBranchService(sessions, async (cwd) => snapshots[resolve(cwd)]!, undefined, undefined, () => [root]);
+    return { gate: (action: { tool: string; command?: string; cwd: string }) => service.gate("castra-test", action), close: () => db.close() };
+  }
+
+  it("treats a command from the root as outside work when the target holds the registered branch", async () => {
+    const { gate, close } = gateFor("fix/gate", app);
+    try {
+      expect(await gate({ tool: "Bash", command: "node build.mjs", cwd: root })).toBeNull();
+      expect(await gate({ tool: "Edit", cwd: appWt })).toBeNull();
+      // Edits stay strict: the root itself and the target's main checkout are not the registered branch.
+      expect((await gate({ tool: "Edit", cwd: root }))?.rule).toBe("task-branch");
+      expect((await gate({ tool: "Edit", cwd: app }))?.rule).toBe("task-branch");
+    } finally { close(); }
+  });
+
+  it("still denies when the target does not hold the branch either", async () => {
+    const { gate, close } = gateFor("mtdev", app);
+    try {
+      expect((await gate({ tool: "Bash", command: "node build.mjs", cwd: root }))?.rule).toBe("task-branch");
+    } finally { close(); }
+  });
+
+  it("keeps the plain root registration when the root itself holds the branch", async () => {
+    const { gate, close } = gateFor("main", app);
+    try {
+      expect(await gate({ tool: "Edit", cwd: root })).toBeNull();
+    } finally { close(); }
+  });
+
+  it("does not retarget a session without a target project", async () => {
+    const { gate, close } = gateFor("fix/gate", null);
+    try {
+      expect((await gate({ tool: "Bash", command: "node build.mjs", cwd: root }))?.rule).toBe("task-branch");
+    } finally { close(); }
+  });
+
+  it("selects the target only for a root registration with a separate target", () => {
+    expect(castraTargetRegistration({ repo_path: root, branch: "fix/gate", target_project: app }, [root]))
+      .toEqual({ repo: app, branch: "fix/gate" });
+    expect(castraTargetRegistration({ repo_path: app, branch: "fix/gate", target_project: app }, [root])).toBeNull();
+    expect(castraTargetRegistration({ repo_path: root, branch: "fix/gate", target_project: root }, [root])).toBeNull();
+    expect(castraTargetRegistration({ repo_path: root, branch: "", target_project: app }, [root])).toBeNull();
   });
 });
 
@@ -121,7 +180,15 @@ describe("submitted work boundary", () => {
       'lictor cli task set --branch main --desc "done"',
       'lictor cli task set --branch fix/next --desc "next"',
       "git worktree add -b fix/next ../next main",
+      // lictor が PATH に無い環境の登録コマンド。
+      'node D:/w/Lictor/bin/lictor.mjs cli task set --branch main --desc "done"',
+      "node.exe D:\\w\\Lictor\\bin\\lictor.mjs cli implement begin",
     ]) expect(requiresTaskBranchCheck({ tool: "Bash", command })).toBe(false);
+    for (const command of [
+      "node D:/w/Lictor/bin/lictor.mjs cli pr submit",
+      "node D:/w/tools/not-lictor.mjs cli task set --branch main",
+      "cd D:/w/app && node D:/w/Lictor/bin/lictor.mjs cli task set --branch main",
+    ]) expect(requiresTaskBranchCheck({ tool: "Bash", command })).toBe(true);
   });
 });
 

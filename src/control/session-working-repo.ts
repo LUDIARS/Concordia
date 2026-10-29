@@ -35,6 +35,8 @@ export interface DeclaredTargetIo {
   repoKey(path: string): Promise<string>;
   /** checkout の現在 branch (読めなければ null)。 */
   currentBranch(path: string): Promise<string | null>;
+  /** そのリポの全 checkout (本体 + linked worktree) の branch (読めなければ null)。 */
+  checkoutBranches(path: string): Promise<string[] | null>;
 }
 
 export interface DeclaredTargetDecision {
@@ -52,6 +54,9 @@ const KEEP: DeclaredTargetDecision = { drop: [], reason: null };
  * - repo_path が作業対象と別リポ (worktree は同じリポ扱い) なら repo_path / repo_origin / branch を落とす。
  * - branch だけの更新は、現在の作業リポの実 branch と一致するときだけ通す
  *   (Lictor は別リポへ移った後、そのリポの branch を単独で送ってくる)。
+ * - 作業リポがまだ作業対象と別 (Castra root 等) なら、作業リポの実 branch か、作業対象リポの
+ *   いずれかの checkout にある branch だけを通す。調査で触れた別リポの branch を、root と組にして
+ *   実在しない登録にしない (TB-CASTRA)。
  * - 判定に必要な読み取りが失敗したら従来どおり通す (登録を止めない)。
  *
  * @implements SPEC-SESSION-WORKING-REPO-BINDING
@@ -70,8 +75,13 @@ export async function decideDeclaredTargetPatch(
       return { drop: ["repo_path", "repo_origin", "branch"], reason: "outside_target_repo" };
     }
     if (patch.branch === undefined) return KEEP;
-    if (await io.repoKey(session.repo_path) !== targetKey) return KEEP;
     const actual = await io.currentBranch(session.repo_path);
+    if (await io.repoKey(session.repo_path) !== targetKey) {
+      if (actual === patch.branch) return KEEP;
+      const targetBranches = await io.checkoutBranches(target);
+      if (targetBranches === null || targetBranches.includes(patch.branch)) return KEEP;
+      return { drop: ["branch"], reason: "branch_not_checked_out" };
+    }
     if (actual === null || actual === patch.branch) return KEEP;
     return { drop: ["branch"], reason: "branch_not_checked_out" };
   } catch {

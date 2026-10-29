@@ -2,7 +2,7 @@ import type { ConfluxGateResult } from "./conflux-service.js";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { HarnessAction, PredicateHit } from "../predicates.js";
-import { checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, deterministicTaskRelation, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { castraTargetRegistration, checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, deterministicTaskRelation, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 
@@ -23,7 +23,8 @@ export class TaskBranchService {
   constructor(private readonly sessions: Store,
     private readonly inspect: (cwd: string) => Promise<BranchSnapshot> = readBranchSnapshot,
     private readonly conflux?: (id: string, action: HarnessAction) => Promise<ConfluxGateResult>,
-    private readonly submittedPrState?: (pr: string) => Promise<SubmittedPrState>) {}
+    private readonly submittedPrState?: (pr: string) => Promise<SubmittedPrState>,
+    private readonly workspaceRoots: () => readonly string[] = () => []) {}
 
   read(id: string): SubmittedTask | null {
     const session = this.sessions.findSession(id);
@@ -102,7 +103,16 @@ export class TaskBranchService {
     // The registered checkout is read on its own, so a shell parked elsewhere does not decide the boundary.
     let registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
     this.rememberHome(id, session.metadata, registered.repo, registeredRepo);
-    const mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
+    let mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
+    const castra = mismatch ? castraTargetRegistration(session, this.workspaceRoots()) : null;
+    if (castra) {
+      const targetRepo = acting.repo === castra.repo ? acting : await this.inspect(castra.repo).catch(() => null);
+      if (!checkRegisteredCheckout({ registered: castra, acting, registeredRepo: targetRepo, tool: action.tool })) {
+        registered = castra;
+        registeredRepo = targetRepo;
+        mismatch = null;
+      }
+    }
     let notice: PredicateHit | null = null;
     if (mismatch) {
       const restored = await this.restoreHome(id, session, registered, acting, registeredRepo);

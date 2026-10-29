@@ -1,4 +1,6 @@
+import { resolve } from "node:path";
 import { isEditTool, type HarnessAction, type PredicateHit } from "../predicates.js";
+import { isWorkspaceRootCwd } from "../../control/session-work-policy.js";
 import type { BranchSnapshot } from "./task-branch-git.js";
 
 /** Only simple recovery commands bypass a pending task boundary. Opaque shell code is checked. */
@@ -35,13 +37,25 @@ export function requiresTaskBranchCheck(action: HarnessAction): boolean {
     if (args.join(" ") === "branch --show-current" || args.join(" ") === "worktree list --porcelain") return false;
     if (args[0] === "worktree" && args[1] === "add" && args[2] === "-b" && args.length === 6 && args[5] === "main") return false;
   }
-  if (/^(?:lictor|lictor.cmd|lictor.exe)$/i.test(words[0] || "") && words[1] === "cli"
-    && ((words[2] === "implement" && words[3] === "begin") || (words[2] === "task" && words[3] === "set"))) return false;
+  const cli = lictorCliArguments(words);
+  if (cli && cli[0] === "cli"
+    && ((cli[1] === "implement" && cli[2] === "begin") || (cli[1] === "task" && cli[2] === "set"))) return false;
   return true;
 }
 
+/**
+ * Lictor CLI arguments after the executable. `lictor` is not on PATH everywhere, so the registration
+ * command is also recognised as `node <...>/bin/lictor.mjs`; otherwise a mismatched session cannot re-register.
+ */
+function lictorCliArguments(words: string[]): string[] | null {
+  if (/^(?:lictor|lictor.cmd|lictor.exe)$/i.test(words[0] || "")) return words.slice(1);
+  if (/^(?:node|node.exe)$/i.test(words[0] || "") && /(?:^|[\\/])bin[\\/]lictor\.mjs$/i.test(words[1] || "")) return words.slice(2);
+  return null;
+}
+
 const CHECKOUT_MISMATCH: PredicateHit = { rule: "task-branch", decision: "deny",
-  reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。" };
+  reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。",
+  suggestion: "cd や && を付けずに `lictor cli task set --branch <実branch> --desc \"<作業>\"` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`) で登録し直してください。" };
 
 /**
  * The Cc registration (repo + branch) is the authority, not the shell's cwd.
@@ -62,6 +76,21 @@ export function checkRegisteredCheckout(input: {
   if (sameRepository) return acting.branch === registered.branch ? null : CHECKOUT_MISMATCH;
   if (isEditTool(input.tool)) return CHECKOUT_MISMATCH;
   return registeredRepo?.checkouts?.some(checkout => checkout.branch === registered.branch) ? null : CHECKOUT_MISMATCH;
+}
+
+/**
+ * TB-CASTRA: Castra root で起動したセッションは repo_path に root を、branch に作業対象の作業 branch を持つ。
+ * root 自体にその branch が無いときは、登録を作業対象リポ (target_project) の側で照合し直す。
+ * 作業対象が無い・root 自体を作業対象にしている登録は対象外。
+ */
+export function castraTargetRegistration(
+  session: { repo_path: string; branch: string | null; target_project?: string | null },
+  workspaceRoots: readonly string[],
+): { repo: string; branch: string } | null {
+  const target = session.target_project?.trim();
+  if (!target || !session.branch) return null;
+  if (!isWorkspaceRootCwd(session.repo_path, workspaceRoots) || isWorkspaceRootCwd(target, workspaceRoots)) return null;
+  return { repo: resolve(target), branch: session.branch };
 }
 
 /**

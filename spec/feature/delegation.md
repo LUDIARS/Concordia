@@ -329,6 +329,8 @@ call_name は migration と seed 時の cleanup で物理削除される。参�
 Critical/High は管理者へメンションして報告) を新設した。2026-10-22 neco 指示で、同じ毎朝枠を
 [日次CVE・C++依存・類似処理点検](daily-vulnerability-intelligence.md)へ拡張する。全登録リポを対象に、
 HEAD が変わらない場合も新規・更新CVEを照合し、取得失敗・版不明・類似候補を確認済みと扱わない。
+同日追加指示により、アラート一覧を修正委託より先にsystemへ投稿し、確認済みHigh/Criticalも
+自動修正する。途中・最終レポートもsystemへ送る。未確認候補の保留とRevisor審査は維持する。
 同じく 2026-08-08 neco 指示で、毎朝 9:00 に
 前日の session-logs とメモリの蓄積から機械化できる改善を探す `kaizen-daily` も新設した。
 2026-09-08 neco 指示により、`kaizen-daily` の起動担当は Codex / `gpt-6-astra` とする。

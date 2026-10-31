@@ -96,7 +96,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(spawnCalls[0]?.env?.CONCORDIA_CONSULT_ATTACHMENT_DIR).toContain("123456789012345678");
   });
 
-  it("chooses Astra (codex, confined) for both sound and engineers, effort medium", async () => {
+  it("chooses confined Astra for sound and Opus for engineers, effort medium", async () => {
     const intake = (role: string) => ({ topic: "音の質感", skill_level: "中級", role_title: role, purpose: "", source: "modal" });
 
     const sound = await spawnSession(env, {
@@ -114,10 +114,28 @@ describe("projectless consultation spawn in a subsidiary", () => {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
     });
     expect(engineer.status).toBe(200);
-    expect(spawnCalls[1]?.provider).toBe("codex");
-    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "project_root_markers=[]"]));
-    expect(spawnCalls[1]?.env).toMatchObject({ CODEX_HOME: join(workspaceRoot, ".codex-home") });
+    expect(spawnCalls[1]?.provider).toBe("claude");
+    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining([...PROJECTLESS_CONSULT_CLAUDE_ARGS]));
+    expect(spawnCalls[1]?.env).toMatchObject({ CLAUDE_CONFIG_DIR: join(workspaceRoot, ".claude-config") });
     expect(spawnCalls[1]?.args?.join(" ")).toContain("medium");
+  });
+
+  it("keeps an explicit Codex choice for engineers after Opus is restored", async () => {
+    const response = await spawnSession(env, {
+      department: headOfficeConsultId, provider: "codex", prompt: "Q",
+      consultation_intake: { topic: "設計", skill_level: "中級", role_title: "エンジニア", purpose: "", source: "modal" },
+    });
+    expect(response.status).toBe(200);
+    expect(spawnCalls[0]?.provider).toBe("codex");
+    expect(spawnCalls[0]?.args).toEqual(expect.arrayContaining(["shell_tool", "plugins", "mcp_servers={}"]));
+  });
+
+  it("requires the dedicated Claude login for the restored default Opus", async () => {
+    rmSync(join(workspaceRoot, ".claude-config", ".credentials.json"));
+    const response = await spawnSession(env, { department: headOfficeConsultId, prompt: "Q" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "projectless_consult_claude_login_required" });
+    expect(spawnCalls).toHaveLength(0);
   });
 
   it("puts the role folder's CLAUDE.md and skills into the first prompt only for providers that cannot read them (CC-CONSULT-INV-11)", async () => {
@@ -158,14 +176,14 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(direct.status).toBe(200);
     expect(startupOf(spawnCalls[1])).toContain("sound の前提");
 
-    // エンジニアも標準は Astra なので、役職フォルダの前提を載せる。
+    // エンジニアの標準は Opus。Claude は役職の指示を自分で読むため重複注入しない。
     const engineer = await spawnSession(env, {
       department: consultDepartmentId, subsidiary_id: subsidiaryId, prompt: "Q", consultation_intake: intake("エンジニア"),
     });
     expect(engineer.status).toBe(200);
-    expect(spawnCalls[2]?.provider).toBe("codex");
-    expect(startupOf(spawnCalls[2])).toContain("## 相談窓口の前提と手順");
-    expect(startupOf(spawnCalls[2])).toContain("engineer の前提");
+    expect(spawnCalls[2]?.provider).toBe("claude");
+    expect(startupOf(spawnCalls[2])).not.toContain("## 相談窓口の前提と手順");
+    expect(startupOf(spawnCalls[2])).not.toContain("engineer の前提");
 
     // 相談以外の部署の起動では載せない。
     const other = await spawnSession(env, {

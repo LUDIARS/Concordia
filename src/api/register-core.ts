@@ -1435,7 +1435,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       if (provider === "codex" && !consultConfinement.codexHomeReady) return "projectless_consult_codex_login_required";
       return null;
     };
-    // 相談部署の標準モデルは全役職で Astra、effort は medium (2026-10-19 neco 指示。
+    // 相談部署の標準モデルは役職別に Opus / Astra、effort は medium (2026-10-31 neco 指示。
     // tech-consultation.md §6)。 起動要求がモデルを明示していればそれに従う。
     const consultModelChosen = consultConfinement !== null
       && !(typeof body.template === "string" && body.template.trim())

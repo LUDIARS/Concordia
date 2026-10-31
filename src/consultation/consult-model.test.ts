@@ -13,9 +13,9 @@ describe("consultModelForRole", () => {
     }
   });
 
-  it("エンジニア・企画・不明・未入力も Astra", () => {
+  it("Opus 解禁: エンジニア・企画・不明・未入力は Opus", () => {
     for (const role of ["エンジニア", "プログラマー", "企画", "プランナー", "学生", "", null, undefined]) {
-      expect(consultModelForRole(role)).toBe("astra");
+      expect(consultModelForRole(role)).toBe("opus");
     }
   });
 });
@@ -23,6 +23,7 @@ describe("consultModelForRole", () => {
 describe("consultTemplateFor / consultEffortOptions", () => {
   it("既定のテンプレートと env での差し替え", () => {
     expect(consultTemplateFor("opus", {})).toBe("opus-5-5-movable");
+    expect(consultTemplateFor("opus", { CONCORDIA_CONSULT_OPUS_TEMPLATE: "opus-custom" })).toBe("opus-custom");
     expect(consultTemplateFor("astra", {})).toBe("astra-mid");
     expect(consultTemplateFor("astra", { CONCORDIA_CONSULT_ASTRA_TEMPLATE: "astra-x" })).toBe("astra-x");
   });

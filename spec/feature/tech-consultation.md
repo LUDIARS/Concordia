@@ -187,11 +187,13 @@
     `CONCORDIA_CONSULT_DATA_DIR` で渡す。Discord 以外からの起動 (ID が無い) では作らない。
   - 本社: 起動要求がプロジェクト・cwd・チーム等を指定していなければここで起動する (指定があればそれに従う)。
     ツールの制限と設定フォルダは子会社と同じ (2026-10-02 neco 指示「本社の相談も同じで」)。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
-- モデル (2026-10-19 neco 指示「Consultの起動をすべてAstraにしてほしい」): 本社・子会社とも、相談部署の標準起動は
-  全役職・役職未入力で Astra (`astra-mid`、codex) に統一する。effort は medium。2026-10-02 の役職別選択を置き換える。
-  テンプレート名は `CONCORDIA_CONSULT_ASTRA_TEMPLATE` で差し替えられる。既存のテンプレート・provider・モデルの明示指定は維持する。
+- モデル (2026-10-31 neco 指示「Consultの相談でOpus解禁する」): 2026-10-19 の全役職 Astra 固定を解除し、
+  本社・子会社とも以前の役職別選択へ戻す。デザイナー・サウンドは Astra (`astra-mid`、codex)、
+  エンジニア・企画・不明・役職未入力は Opus (`opus-5-5-movable`、claude)。effort は medium。
+  テンプレート名は `CONCORDIA_CONSULT_ASTRA_TEMPLATE` / `CONCORDIA_CONSULT_OPUS_TEMPLATE` で差し替えられる。
+  既存のテンプレート・provider・モデルの明示指定と、各 provider の専用ログイン要件は維持する。
   部署フォーラムからの相談でもモデルを聞き返さない。モデル選択方針の所有者は consultation
-  (`src/consultation/consult-model.ts`)、価値は UX-CC-W6 / UX-CC-S7。役職によって標準モデルが変わらないことを不変条件とし、
+  (`src/consultation/consult-model.ts`)、価値は UX-CC-W6 / UX-CC-S7。同じ役職は本社・子会社で同じ標準モデルを選ぶことを不変条件とし、
   相談の隔離権限 (CC-CONSULT-INV-07) と役職の前提注入 (CC-CONSULT-INV-11) を維持する。
 - 重複した相談の近道 (2026-10-02 neco 指示「相談セッションの内容は重複があればセッションや Tabula を案内し、その内容のキャッシュ
   された回答を返却する」「重複の場合もセッションは起動して回答をショートカットするだけ」): 相談部署の起動では、公開済みの相談

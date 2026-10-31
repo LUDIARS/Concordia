@@ -3967,7 +3967,7 @@
         "src/consultation/consult-model.test.ts",
         "tests/projectless-consult-spawn.test.ts"
       ],
-      "contracts": []
+      "contracts": ["SPEC-CONSULT-PROJECTLESS", "CC-CONSULT-INV-07", "CC-CONSULT-INV-11"]
     },
     {
       "source": "src/taskflow/actio-reference-scope.ts",

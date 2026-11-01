@@ -13,9 +13,13 @@ import type { ToolTestJobs } from "./test-jobs.js";
 import { checkVulnerabilities } from "./vulnerabilities.js";
 import { assertStaticBundle } from "./test-scope.js";
 import { criticalPath } from "./critical-path.js";
+import type { Requester } from "../control/requester.js";
+import { withActingFor } from "../taskflow/actio-acting-for.js";
 
 export interface DeveloperToolDeps {
   sessions: Pick<SessionsRepo, "findSession">;
+  /** 直近で指示した人。Actio への書き込みに付ける (Actio spec/feature/cc-acting-for.md)。 */
+  requester?: (sessionId: string) => Requester | null;
   roots: () => string[];
   tasks: Pick<ActioTaskStore, "binding" | "findForProject" | "read" | "updateStatus" | "create">;
   actio: Pick<ActioTransport, "request">;
@@ -32,6 +36,10 @@ export interface DeveloperToolDeps {
 export class DeveloperToolsService {
   constructor(private readonly deps: DeveloperToolDeps) {}
   async execute(sessionId: string, input: ToolInput): Promise<unknown> {
+    return withActingFor(this.deps.requester?.(sessionId) ?? null, () => this.executeScoped(sessionId, input));
+  }
+
+  private async executeScoped(sessionId: string, input: ToolInput): Promise<unknown> {
     const session = this.deps.sessions.findSession(sessionId);
     if (!session || session.status !== "active") unavailable("active_session_required", "Lictor の現在 session を接続してください。");
     if (input.operation === "test_result") return this.deps.jobs.read(session.id, input.request_id);

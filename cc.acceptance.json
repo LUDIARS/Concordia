@@ -1,6 +1,9 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/taskflow/actio-acting-for.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
+    {"source":"src/taskflow/actio-transport.ts","tests":["src/taskflow/actio-transport.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
+    {"source":"src/developer-tools/service.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
     {"source":"src/consultation/consult-fetch-bridge.ts","tests":["src/consultation/consult-fetch-bridge.test.ts"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
     {"source":"tools/consult-fetch-bridge.mjs","tests":["tools/consult-fetch-bridge.test.mjs"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
     {"source":"tools/consult-fetch-mcp.mjs","tests":["tools/consult-fetch-mcp.test.mjs"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},

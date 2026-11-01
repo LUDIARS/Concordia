@@ -2,6 +2,7 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import type { ActioAccess } from "./actio-binding.js";
 import { z } from "zod";
+import { actingForHeaders } from "./actio-acting-for.js";
 
 const LocalTeams = z.object({ teams: z.array(z.object({ id: z.string(), role: z.string() })) });
 /** How long a port resolved from the catalog may stand in when the catalog lookup itself fails. */
@@ -46,7 +47,9 @@ export class ActioTransport {
         throw new Error("Actio task team access mismatch");
       }
     }
-    return this.send(base, token, method, path, body);
+    // Only the local owner speaks for a human; Actio trusts the header from loopback only.
+    const extra = local && method !== "GET" ? actingForHeaders() : {};
+    return this.send(base, token, method, path, body, extra);
   }
 
   /**
@@ -74,13 +77,14 @@ export class ActioTransport {
     return port;
   }
 
-  private async send(base: string, token: string | undefined, method: string, path: string, body?: unknown): Promise<unknown> {
+  private async send(base: string, token: string | undefined, method: string, path: string, body?: unknown,
+    extraHeaders: Record<string, string> = {}): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const response = await this.fetchImpl(`${base}${path}`, {
         method, redirect: "error", signal: controller.signal,
-        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
+        headers: { ...extraHeaders, ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!response.ok) {

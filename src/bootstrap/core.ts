@@ -1753,6 +1753,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const toolTestJobs = new ToolTestJobs(db);
   const developerTools = new DeveloperToolsService({
     sessions: repo, roots: () => adminState.getWorkspaceRoots(), tasks: taskStore, actio: actioTransport,
+    requester: (sessionId) => lastHumanRequester(repo.recentEvents(sessionId, 100)),
     research: new ResearchTools(new ToolServiceHttp(excubitorClient)),
     augur: toolAugur, jobs: toolTestJobs,
   });

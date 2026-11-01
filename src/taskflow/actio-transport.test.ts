@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ActioBinding } from "./actio-binding.js";
 import { ActioTransport } from "./actio-transport.js";
+import { ACTING_FOR_HEADER, withActingFor } from "./actio-acting-for.js";
 
 const BINDING: ActioBinding = {
   repoPath: "E:/Document/Ars/Concordia", project: "Concordia", projectId: "project-1",
@@ -170,5 +171,29 @@ describe("ActioTransport", () => {
 
     await expect(transport.request(BINDING, "POST", "/api/tasks", {}))
       .rejects.toThrow("Actio task request outcome unknown; reconcile using the same task identity");
+  });
+});
+
+describe("ActioTransport acting-for (AT-CC-ACTING-FOR)", () => {
+  const local: ActioBinding = { ...BINDING, ownerId: "actio-local", authMode: "loopback", tokenEnv: undefined };
+
+  it("adds the requester only to the local write, not to identity checks", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "actio-local", localMode: true, access: "loopback" }))
+      .mockResolvedValueOnce(json({ task: { id: "t1" } }));
+    const transport = new ActioTransport(catalog(RUNNING), () => undefined, fetchImpl as never);
+    await withActingFor({ platform: "discord", userId: "42" }, () => transport.request(local, "POST", "/api/tasks", {}));
+    const [identity, write] = fetchImpl.mock.calls as [string, RequestInit][];
+    expect(identity?.[1].headers).not.toHaveProperty(ACTING_FOR_HEADER);
+    expect(write?.[1].headers).toHaveProperty(ACTING_FOR_HEADER, "discord:42");
+  });
+
+  it("does not send the requester with a bearer binding", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "owner-1" }))
+      .mockResolvedValueOnce(json({ task: { id: "t1" } }));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
+    await withActingFor({ platform: "discord", userId: "42" }, () => transport.request(BINDING, "POST", "/api/tasks", {}));
+    expect((fetchImpl.mock.calls[1] as [string, RequestInit])[1].headers).not.toHaveProperty(ACTING_FOR_HEADER);
   });
 });

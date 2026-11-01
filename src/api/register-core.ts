@@ -36,6 +36,7 @@ import {
 
 /** 重複の候補として見る公開済みの相談の件数 (新しい順)。 */
 const PUBLISHED_CONSULTATION_SCAN_LIMIT = 500;
+import { consultFetchGuidance } from "../consultation/consult-fetch-bridge.js";
 import { confinementArgsFor, consultEffortOptions, consultModelForRole, consultTemplateFor } from "../consultation/consult-model.js";
 import { parseDepartmentSettings } from "../departments/settings.js";
 import { randomUUID } from "node:crypto";
@@ -1499,7 +1500,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       const guidance = consultConfinement
         ? await loadInlineRoleGuidance(consultConfinement.cwd, provider, consultGuidanceLog)
         : null;
-      return [restriction, guidance ?? ""].filter(Boolean).join("\n\n");
+      return [restriction, guidance ?? "", consultConfinement ? consultFetchGuidance(provider) : null].filter(Boolean).join("\n\n");
     };
 
     // ── template 起動経路 ─────────────────────────────────────

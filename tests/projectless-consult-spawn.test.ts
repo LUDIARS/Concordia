@@ -161,6 +161,9 @@ describe("projectless consultation spawn in a subsidiary", () => {
     const soundStartup = startupOf(spawnCalls[0]);
     expect(soundStartup).toContain("## 相談窓口の前提と手順");
     expect(soundStartup).toContain("sound の前提");
+    expect(soundStartup).toContain("## 公開リンクの取得方法 (Codex)");
+    expect(soundStartup.indexOf("レベルに合わせる手順")).toBeLessThan(soundStartup.indexOf("## 公開リンクの取得方法 (Codex)"));
+    expect(spawnCalls[0]?.args?.some(arg => arg.startsWith("mcp_servers.consult_fetch_link="))).toBe(true);
     expect(soundStartup).toContain("### 手順: level-match");
     expect(soundStartup).toContain("レベルに合わせる手順");
     expect(soundStartup).not.toContain("name: level-match");
@@ -175,6 +178,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     });
     expect(direct.status).toBe(200);
     expect(startupOf(spawnCalls[1])).toContain("sound の前提");
+    expect(startupOf(spawnCalls[1])).toContain("## 公開リンクの取得方法 (Codex)");
 
     // エンジニアの標準は Opus。Claude は役職の指示を自分で読むため重複注入しない。
     const engineer = await spawnSession(env, {
@@ -183,6 +187,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     expect(engineer.status).toBe(200);
     expect(spawnCalls[2]?.provider).toBe("claude");
     expect(startupOf(spawnCalls[2])).not.toContain("## 相談窓口の前提と手順");
+    expect(startupOf(spawnCalls[2])).not.toContain("## 公開リンクの取得方法 (Codex)");
     expect(startupOf(spawnCalls[2])).not.toContain("engineer の前提");
 
     // 相談以外の部署の起動では載せない。
@@ -191,6 +196,7 @@ describe("projectless consultation spawn in a subsidiary", () => {
     });
     expect(other.status).toBe(200);
     expect(startupOf(spawnCalls[3])).not.toContain("## 相談窓口の前提と手順");
+    expect(startupOf(spawnCalls[3])).not.toContain("## 公開リンクの取得方法 (Codex)");
   });
 
   it("writes the consult CODEX_HOME hooks and refuses an Astra consultation until someone logs in there", async () => {

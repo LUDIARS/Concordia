@@ -1,3 +1,4 @@
+import { consultFetchMcpArgs } from "./consult-fetch-bridge.js";
 import { describe, expect, it } from "vitest";
 import {
   confinementArgsFor,
@@ -38,14 +39,14 @@ describe("confinementArgsFor", () => {
   it("claude は渡された引数、 codex はシェル・プラグイン・MCP を外して上位の AGENTS.md を探さない、 それ以外は起動しない", () => {
     expect(confinementArgsFor("claude", ["--tools=WebSearch"])).toEqual(["--tools=WebSearch"]);
     expect(confinementArgsFor("codex", [])).toEqual([
-      "-p", "consult", "-s", "read-only", "--disable", "shell_tool", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
+      "-p", "consult", "-s", "read-only", "--disable", "shell_tool", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}", ...consultFetchMcpArgs(),
     ]);
     expect(confinementArgsFor("gemini", [])).toBeNull();
   });
 
   it("codex はフックが信頼済み (codexShell) のときだけシェルを残し、 ほかの閉じ込めは変えない", () => {
     expect(confinementArgsFor("codex", [], { codexShell: true })).toEqual([
-      "-p", "consult", "-s", "read-only", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
+      "-p", "consult", "-s", "read-only", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}", ...consultFetchMcpArgs(),
     ]);
     expect(confinementArgsFor("codex", [], { codexShell: false })).toContain("shell_tool");
     expect(confinementArgsFor("claude", ["--tools=WebSearch"], { codexShell: true })).toEqual(["--tools=WebSearch"]);
@@ -53,7 +54,7 @@ describe("confinementArgsFor", () => {
 
   it("consult_tools=all の codex はシェルを残して書き込みを許し、 プラグイン・MCP・上位の指示は外したまま (2026-10-06)", () => {
     expect(confinementArgsFor("codex", [], { allTools: true })).toEqual([
-      "-p", "consult", "-s", "workspace-write", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}",
+      "-p", "consult", "-s", "workspace-write", "--disable", "plugins", "-c", "project_root_markers=[]", "-c", "mcp_servers={}", ...consultFetchMcpArgs(),
     ]);
     expect(confinementArgsFor("claude", ["--strict-mcp-config"], { allTools: true })).toEqual(["--strict-mcp-config"]);
   });

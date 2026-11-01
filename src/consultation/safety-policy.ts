@@ -30,6 +30,7 @@ export function isConsultFetchLinkCommand(command: string): boolean {
  * 公開リンクの取得が、相談ハーネスでブロックされる」: 取得コマンドが Bash ごと unsafe_tool で止まっていた)。
  */
 export function consultationToolAllowed(tool: string, command = "", attachmentDir: string | null = null): boolean {
+  if (tool === "mcp__consult_fetch_link__fetch_link") return true;
   if (["WebSearch", "WebFetch", "TodoWrite", "Skill", "web_search", "web.run"].includes(tool)) return true;
   // 相談部屋の添付を開く読み取り (claude の Read、 codex の view_image)。 相談者の添付の置き場所の中だけ
   // (2026-10-23 neco 指示「添付は全部見れるように」、 CC-CONSULT-INV-12、 consult-attachments.ts)。

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/consultation/consult-fetch-bridge.ts","tests":["src/consultation/consult-fetch-bridge.test.ts"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
+    {"source":"tools/consult-fetch-bridge.mjs","tests":["tools/consult-fetch-bridge.test.mjs"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
+    {"source":"tools/consult-fetch-mcp.mjs","tests":["tools/consult-fetch-mcp.test.mjs"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
+    {"source":"src/consultation/consult-model.ts","tests":["src/consultation/consult-model.test.ts","src/consultation/consult-fetch-bridge.test.ts"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
+    {"source":"src/consultation/safety-policy.ts","tests":["src/consultation/consult-fetch-bridge.test.ts","src/consultation/safety-service.test.ts"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
+    {"source":"src/api/register-core.ts","tests":["tests/projectless-consult-spawn.test.ts"],"contracts":["SPEC-CONSULT-FETCH-BRIDGE"]},
     { "source": "src/delegation/status-schema.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },
     { "source": "src/delegation/status-preflight.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },
     { "source": "src/delegation/status-preflight.contract.ts", "tests": ["src/delegation/status-preflight.test.ts"], "contracts": ["status-preflight-C-20"] },

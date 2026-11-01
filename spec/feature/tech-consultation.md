@@ -257,7 +257,7 @@
   - codex (Astra) の引数 `-s read-only --disable shell_tool --disable plugins -c project_root_markers=[] -c mcp_servers={}`
     (フックが信頼済みなら `--disable shell_tool` を外す。上記)。
     codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めない (2026-10-02 実測) ため、読む手段のシェルそのものを外し、
-    プラグイン・MCP も読ませない。指示は役職フォルダ (cwd) の AGENTS.md だけを読ませる (上位フォルダは探さない。2026-10-03 に
+    プラグイン・利用者の MCP も読ませない。公開リンクの取得だけは Cc 管理の専用 MCP を追加する (SPEC-CONSULT-FETCH-BRIDGE)。指示は役職フォルダ (cwd) の AGENTS.md だけを読ませる (上位フォルダは探さない。2026-10-03 に
     `project_doc_max_bytes=0` を外した)。画像を読む view_image はパスを指定すれば画像を読める余地が残る。
   - codex (Astra) は相談専用の CODEX_HOME (`<置き場所>/.codex-home`、`consultCodexHome`) を起動 env `CODEX_HOME` にして起動する
     (2026-10-03 neco 指示「(Astra の相談の個人設定の分離と途中停止) これは codex のも作ってほしい」)。
@@ -270,7 +270,7 @@
       書き直しており、フックを信頼しても次の起動で記録が消えていた。
       - `hooks.json`: PreToolUse → Cc のハーネス判定 (`POST /v1/harness/gate`。予算切れの `usage-budget` を含む deny を
         `hookSpecificOutput.permissionDecision: "deny"` で返す)、SessionStart → transcript_path を Cc のセッションへ報告
-        (`PATCH /v1/sessions/:id`)。相談は MCP を外すので、MCP を使わない command 型で `tools/consult-codex-hook.mjs` を呼ぶ。
+        (`PATCH /v1/sessions/:id`)。相談の共通 MCP は外すので、予算フックは command 型で `tools/consult-codex-hook.mjs` を呼ぶ。
         Cc のセッション id は起動 env の `CONCORDIA_SESSION_ID`。Cc に届かない・判定に失敗したときはツールを止めない。
       - `consult.config.toml`: `project_root_markers = []` と、利用者のスキル (`$HOME/.agents/skills/*/SKILL.md`。CODEX_HOME を分けても
         codex が読む) をすべて `[[skills.config]] enabled = false` にする。
@@ -599,3 +599,16 @@ neco 指示 (2026-10-18)「クロール終わってマップとまとめを作�
 | 6 | Cc | 相談課の後始末と出力の絞り込み | `spec/tasks/2026-10-02-consult-closure.md` |
 | 7 | Cc | 相談の「終了」と相談ログ | `spec/tasks/2026-10-03-consult-log-end.md` |
 | 8 | Cc | モデル・サウンドのファイル受け渡し (Google Drive) | `spec/tasks/2026-10-14-consult-drive-transfer.md` |
+
+
+### 2026-10-31: Codex public-link bridge (SPEC-CONSULT-FETCH-BRIDGE)
+
+neco authorized matching Claude public-link behavior while keeping Consult confinement. Owner: consultation (supporting domain), UX-CC-W6 / UX-CC-S7. Losing this capability means Codex answers without inspecting the public material supplied by the requester.
+
+Cc configures exactly one managed stdio MCP, consult_fetch_link, exposing only fetch_link({url}). It runs the SAME fixed `_source/tools/fetch-link/fetch-link.mjs` as Claude, sharing URL classification, trusted-sites policy, Canalis fallback, cache and formatted output. No arbitrary executable, path, flags or environment are accepted from the model. User MCPs and plugins remain excluded. General shell sandbox/network permissions are unchanged. This is a host-side capability, not a network exception in the Codex shell.
+
+The bridge requires an affirmative Cc harness gate before retrieval, limits one in-flight fetch, bounds execution to 120 seconds and total child output to 1 MiB, and uses the existing bounded Node process executor for child-tree termination. Error stderr/host configuration is not exposed. MCP shutdown or request cancellation terminates owned work. Failure never fabricates content. External text retains the shared fetcher markers and is treated as data, not instructions.
+
+CC-CONSULT-INV-07 is refined: personal MCP is prohibited; only this managed URL-only capability is allowed. CC-CONSULT-INV-08/11/12 remain intact. Claude command permissions and shared fetcher source are unchanged. No new dependencies or startup network requests are added. Network calls per request: configured Cc gate (session identity and requested URL for existing content checks), then public sites allowed by the existing fetcher; no new credentials are introduced. Existing fetcher DNS/redirect policy is reused, not claimed strengthened here.
+
+Acceptance: unit checks cover fixed configuration, strict input, rejected URL before execution, gate deny/unavailability, bounded output/time failures, concurrency/cancellation; MCP transport exposes one tool and returns shared output unchanged; spawn paths include Codex-specific guidance after shared role guidance. The supplied Notion page is the live comparison target. Rollback removes the managed capability and guidance; do not broaden shell permissions. Runtime deployment remains deferred because the same service also contains the explicitly deferred Opus change.

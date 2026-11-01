@@ -54,6 +54,9 @@
     },
     {
       "pathPattern": "(^|/)src/discord/consultation-title(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tools/consult-fetch-(bridge|mcp)(\\.test)?\\.mjs$"
     }
   ],
   "cardTemplate": "Summarise the consultation domain: private consultation channels (closed at creation, members, invites, lock on end), keeping private content off shared surfaces, and requester-approved publication of rewritten summaries to Tabula.",

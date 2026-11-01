@@ -3,7 +3,7 @@
  *
  * Opus 解禁により、デザイナー・サウンドは Astra、それ以外は Opus に戻す。effort は medium。
  *
- * 子会社の相談は claude なら --tools、 codex (Astra) ならシェル・プラグイン・MCP を外して閉じ込める
+ * 子会社の相談は claude なら --tools、 codex (Astra) ならシェル・プラグイン・利用者の MCP を外し、Cc 管理のリンク取得だけを追加する
  * (CC-CONSULT-INV-07)。 codex の読み取り専用 sandbox は Windows でファイルの読み取りを止めないため、
  * 読む手段 (shell_tool) そのものを外す。 指示は役職フォルダの AGENTS.md だけを読ませる (上位フォルダは探さない)。
  * 利用者の ~/.codex は専用の CODEX_HOME (consult-codex-home.ts) で外す。
@@ -11,6 +11,7 @@
  * @implements SPEC-CONSULT-PROJECTLESS
  */
 
+import { consultFetchMcpArgs } from "./consult-fetch-bridge.js";
 import { consultRoleFolder } from "./consult-role.js";
 
 export type ConsultModelNick = "opus" | "astra";
@@ -44,6 +45,7 @@ const CODEX_CONFINEMENT_ARGS: readonly string[] = Object.freeze([
   "--disable", "plugins",
   "-c", "project_root_markers=[]",
   "-c", "mcp_servers={}",
+  ...consultFetchMcpArgs(),
 ]);
 
 /**

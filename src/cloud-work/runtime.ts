@@ -30,14 +30,6 @@ export async function preflightCloudTarget(target: CloudTarget, run: PreflightCo
     const [revision, ref] = result.trim().split(/\s+/);
     if (revision !== target.sourceRevision || ref !== `refs/heads/${target.publishedBranch}`) throw new Error("revision_mismatch");
   } catch { throw new Error("cloud_published_source_unverified"); }
-  if (target.provider === "claude-cloud") {
-    // `claude --cloud` clones the checkout's current branch from its remote, so that checkout must be the published source.
-    try {
-      const branch = (await run("git", ["-c", `safe.directory=${target.repoPath}`, "rev-parse", "--abbrev-ref", "HEAD"], target.repoPath)).trim();
-      const head = (await run("git", ["-c", `safe.directory=${target.repoPath}`, "rev-parse", "HEAD"], target.repoPath)).trim();
-      if (branch !== target.publishedBranch || head !== target.sourceRevision) throw new Error("checkout_mismatch");
-    } catch { throw new Error("cloud_published_source_unverified"); }
-  }
   if (target.provider === "codex-cloud") {
     try {
       await run(target.codexExecutable!, ["cloud", "list", "--env", target.environmentId, "--json", "--limit", "1"], target.repoPath);
@@ -104,7 +96,8 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
       };
       return target.provider === "codex-cloud"
         ? createCodexCloudAdapter({ executable: target.codexExecutable!, cwd: target.repoPath, publishedBranch: target.publishedBranch, transientInstructions })
-        : createClaudeCloudAdapter({ executable: target.claudeExecutable!, cwd: target.repoPath, transientInstructions });
+        : createClaudeCloudAdapter({ triggerId: target.claudeTriggerId!, fireToken: env[target.claudeTokenEnv!] ?? "",
+          executable: target.claudeExecutable!, cwd: target.repoPath, transientInstructions });
     },
     collect: (target, attemptId) => target.transferMode === "s3"
       ? new S3CloudArtifacts(target, env).collect(attemptId) : driveArtifacts(target).collect(attemptId),

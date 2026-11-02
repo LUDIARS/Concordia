@@ -47,5 +47,5 @@ Git/S3各経路の明示選択と既定値、認証失敗、token期限/所属/b
 - 両社クラウドからの実push、Accessヘッダ通過、Tokyo2070モデリング、GPU能力、公開設定、サービス起動、本体反映は未実施。
 - 旧PR #3148のAWS公開サンプル署名キーに関する審査判断は通知待ち。今回の変更で検出文字列を隠したり審査ゲートを迂回したりしない。
 
-設定待ち: Codex環境認証・環境ID、Claude CLI の claude.ai ログイン、公開Git host/Access binding、Tokyo2070の最新サイズと準備証拠。
+設定待ち: Codex環境認証・環境ID、Claude routine/fire token binding と CLI の claude.ai ログイン、公開Git host/Access binding、Tokyo2070の最新サイズと準備証拠。
 資料7.1と147件の別実装は未入手。今回の148件はこのブランチで実施した別の検証結果である。

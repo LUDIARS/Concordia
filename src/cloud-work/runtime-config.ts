@@ -15,6 +15,7 @@ export const CloudTargetSchema = z.object({
   environmentPreparable: z.literal(true), requiresLargeProjectClone: z.literal(false),
   gpuVerified: z.boolean().default(false),
   codexExecutable: z.string().optional(), claudeExecutable: z.string().optional(),
+  claudeTriggerId: z.string().regex(/^trig_[A-Za-z0-9]+$/).optional(), claudeTokenEnv: EnvName.optional(),
   expectedNames: z.array(ArtifactName).min(1).max(20),
   /** Non-code outputs returned through Drive while code travels by Git. */
   driveExpectedNames: z.array(ArtifactName).min(1).max(20).optional(),
@@ -42,7 +43,7 @@ export const CloudTargetSchema = z.object({
 });
 export type CloudTarget = z.infer<typeof CloudTargetSchema>;
 type TransferBindings = Pick<Partial<CloudTarget>, "transferMode" | "git" | "storage" | "drive" | "provider"
-  | "codexExecutable" | "claudeExecutable" | "expectedNames" | "driveExpectedNames">;
+  | "codexExecutable" | "claudeExecutable" | "claudeTriggerId" | "claudeTokenEnv" | "expectedNames" | "driveExpectedNames">;
 
 /** @implements CC-CLOUD-DRIVE-01 — pure policy shared by fixed targets and environments whose work is supplied per run. */
 function transferBindingIssues(value: TransferBindings): string[] {
@@ -61,8 +62,9 @@ function transferBindingIssues(value: TransferBindings): string[] {
   if (value.provider === "codex-cloud" && (!value.codexExecutable || /\.(cmd|bat|ps1)$/i.test(value.codexExecutable))) {
     issues.push("native codex executable required");
   }
-  if (value.provider === "claude-cloud" && (!value.claudeExecutable || /\.(cmd|bat|ps1)$/i.test(value.claudeExecutable))) {
-    issues.push("native claude executable required");
+  if (value.provider === "claude-cloud" && (!value.claudeExecutable || /\.(cmd|bat|ps1)$/i.test(value.claudeExecutable)
+    || !value.claudeTriggerId || !value.claudeTokenEnv)) {
+    issues.push("Claude routine and native claude executable required");
   }
   return issues;
 }
@@ -123,5 +125,6 @@ export function cloudTargetReady(target: CloudEnvironment, env: NodeJS.ProcessEn
     : target.transferMode === "drive" ? driveReady
       : !!storage && !!env[storage.accessKeyEnv] && !!env[storage.secretKeyEnv]
         && (!storage.sessionTokenEnv || !!env[storage.sessionTokenEnv]);
-  return age >= 0 && age <= 24 * 60 * 60 * 1000 && transferReady;
+  return age >= 0 && age <= 24 * 60 * 60 * 1000 && transferReady
+    && (target.provider !== "claude-cloud" || !!env[target.claudeTokenEnv!]);
 }

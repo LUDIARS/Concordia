@@ -5,13 +5,14 @@ storage has been configured by this change. No extra cloud compute is provisione
 
 ## Prerequisites
 
-1. Select an existing standard hosted Codex environment. For Claude, Cc launches `claude --cloud` from the
-   target's main checkout (CC-CLOUD-CLAUDE-CLI, 2026-11-03 "CLIで統一"); the session runs in the account's
-   Default cloud environment and clones that checkout's GitHub remote at its current branch. Verify Blender
-   installation/preparation and network access to the selected Git ingress (default), Drive, or private S3
-   bucket (explicit). Sign in with `claude auth login` (claude.ai account) as the OS user that runs the Cc
-   service; an `ANTHROPIC_API_KEY`/auth token is removed from the child environment because it would override
-   that login.
+1. Select an existing standard hosted Codex environment. For Claude (CC-CLOUD-CLAUDE-HYBRID, 2026-11-03), create
+   a routine at claude.ai/code/routines with the target repository and an API trigger, copy its `trig_...` ID and
+   bind the once-shown token through service secret bindings. Its saved prompt must treat the
+   `routine-fire-payload` as the work packet and wait for Cc's follow-up message before any upload or push. Cc
+   sends that follow-up with `claude -p --cloud`, so sign in with `claude auth login` (claude.ai account) as the
+   OS user that runs Cc; API-key variables are removed from that child process. `claude --cloud` itself cannot
+   create sessions without a TTY. Verify Blender installation/preparation and network access to the selected Git
+   ingress (default), Drive, or private S3 bucket (explicit).
 2. Sign in to ChatGPT using the Codex CLI account that runs the Cc service. Use the
    actual native executable path on Windows, not the `.cmd` package wrapper.
    Check `codex cloud list --env <id> --json --limit 1`. CLI presence alone is not
@@ -126,7 +127,8 @@ A missing file means no targets, not an error. Cc reads it for each operation. E
 The placeholders deliberately fail validation. Replace `repositoryBytes: 0` with
 the measured amount; zero in this example is not evidence. For a Claude target,
 use another target `id`, `provider: "claude-cloud"`, its real environment ID,
-`claudeExecutable` (the native `claude` binary path, never a `.cmd` wrapper);
+`claudeTriggerId` (`trig_...`), `claudeTokenEnv` (the bound variable name) and `claudeExecutable` (the native
+`claude` binary path, never the npm `.cmd` wrapper);
 omit `codexExecutable`. `environmentId` may be omitted for Claude (it becomes `claude-default`): the CLI uses
 the account's Default environment and the ID only identifies the target. Codex still requires a real ID. Optional `storage.sessionTokenEnv` supports temporary AWS
 credentials. An expired credential or stale preparation evidence is not readiness.

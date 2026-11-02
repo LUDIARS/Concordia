@@ -49,7 +49,7 @@ describe("cloud target configuration", () => {
     try {
       expect(await readCloudTargets(join(root, "cloud-targets.json"))).toEqual([]);
       const { environmentId, codexExecutable, ...rest } = cloudTargetFixture();
-      await writeFile(join(root, "cloud-targets.json"), JSON.stringify([{ ...rest, provider: "claude-cloud", claudeExecutable: "claude.exe" }]));
+      await writeFile(join(root, "cloud-targets.json"), JSON.stringify([{ ...rest, provider: "claude-cloud", claudeExecutable: "claude.exe", claudeTriggerId: "trig_1", claudeTokenEnv: "TOKEN" }]));
       expect((await readCloudTargets(join(root, "cloud-targets.json")))[0].environmentId).toBe("claude-default");
       await writeFile(join(root, "codex.json"), JSON.stringify([{ ...rest, codexExecutable }]));
       await expect(readCloudTargets(join(root, "codex.json"))).rejects.toThrow("cloud_configuration_invalid");

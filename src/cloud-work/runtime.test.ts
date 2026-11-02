@@ -15,15 +15,13 @@ describe("cloud runtime preflight", () => {
     await expect(preflightCloudTarget(cloudTargetFixture(), run)).rejects.toThrow("codex_cloud_access_unverified");
     expect(run).toHaveBeenLastCalledWith("codex.exe", ["cloud", "list", "--env", "test-env", "--json", "--limit", "1"], "repo-a");
   });
-  it("requires the Claude checkout to be the published branch at the source revision", async () => {
-    const target = { ...cloudTargetFixture(), provider: "claude-cloud" as const, codexExecutable: undefined, claudeExecutable: "claude.exe" };
-    const published = `${"a".repeat(40)}\trefs/heads/main\n`;
-    const ok = vi.fn<(e: string, a: string[], c: string) => Promise<string>>()
-      .mockResolvedValueOnce(published).mockResolvedValueOnce("main\n").mockResolvedValueOnce(`${"a".repeat(40)}\n`);
-    await expect(preflightCloudTarget(target, ok)).resolves.toBeUndefined();
-    const otherBranch = vi.fn<(e: string, a: string[], c: string) => Promise<string>>()
-      .mockResolvedValueOnce(published).mockResolvedValueOnce("feature\n").mockResolvedValueOnce(`${"a".repeat(40)}\n`);
-    await expect(preflightCloudTarget(target, otherBranch)).rejects.toThrow("cloud_published_source_unverified");
+  it("launches Claude after the published revision check alone (the routine clones its configured repository)", async () => {
+    const target = { ...cloudTargetFixture(), provider: "claude-cloud" as const, codexExecutable: undefined,
+      claudeExecutable: "claude.exe", claudeTriggerId: "trig_1", claudeTokenEnv: "TOKEN" };
+    const run = vi.fn(async () => `${"a".repeat(40)}	refs/heads/main
+`);
+    await expect(preflightCloudTarget(target, run)).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledOnce();
   });
   it("mounts safely without configuration or creating provider work", async () => {
     const runtime = createCloudWorkRuntime({ root: "unused", tasks: {} as TaskStore, env: {} });

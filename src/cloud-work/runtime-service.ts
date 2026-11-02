@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CloudTarget, CloudEnvironment, CloudWorkPlan } from "./runtime-config.js";
-import { cloudTargetReady, resolveCloudWork, CloudWorkPlanSchema } from "./runtime-config.js";
+import { cloudTargetReady, driveArtifactNames, resolveCloudWork, CloudWorkPlanSchema } from "./runtime-config.js";
 import { FileCloudSubmissionStore } from "./file-submission-store.js";
 import { submitCloudWork, type CloudSubmission, type CloudSubmitter } from "./submission.js";
 import { verifyCloudArtifacts } from "./artifact-verification.js";
@@ -14,7 +14,7 @@ export interface CloudWorkInput {
   computeReason: string; llmReason: string; gpuRequired: boolean;
   work?: CloudWorkPlan;
 }
-interface StoredRun extends CloudSubmission { targetId: string; work?: CloudWorkPlan; inputWorkHash?: string; transferMode?: "git" | "s3"; configurationKey: string; computeReason: string; llmReason: string; createdAt: number }
+interface StoredRun extends CloudSubmission { targetId: string; work?: CloudWorkPlan; inputWorkHash?: string; transferMode?: CloudTarget["transferMode"]; configurationKey: string; computeReason: string; llmReason: string; createdAt: number }
 export interface CloudRuntimePorts {
   root: string;
   targets(): Promise<CloudEnvironment[]>;
@@ -31,7 +31,9 @@ const hash = (value: string): string => createHash("sha256").update(value).diges
 const configurationKey = (target: CloudTarget, legacyS3 = false): string => hash(JSON.stringify({ id: target.id,
   provider: target.provider, environmentId: target.environmentId, sourceRevision: target.sourceRevision,
   transferMode: legacyS3 ? undefined : target.transferMode, git: legacyS3 ? undefined : target.git,
-  storage: target.storage, expectedNames: target.expectedNames, maxArtifactBytes: target.maxArtifactBytes }));
+  storage: target.storage, expectedNames: target.expectedNames, maxArtifactBytes: target.maxArtifactBytes,
+  // Absent for targets without Drive, so their existing keys stay unchanged.
+  drive: target.drive, driveExpectedNames: target.driveExpectedNames }));
 
 /** Application orchestration; Actio state is never inferred from transport outcomes. */
 export class CloudWorkRuntime {
@@ -135,7 +137,7 @@ export class CloudWorkRuntime {
     }
     const provider = (intent as { provider: "codex-cloud" | "claude-cloud" }).provider;
     const validRemoteId = (value: unknown): value is string => typeof value === "string"
-      && (provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^session_[A-Za-z0-9_-]+$/).test(value)
+      && (provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^(?:session|cse)_[A-Za-z0-9_-]+$/).test(value)
       && value.length <= 200;
     const receiptValue = await store.readRecord(attemptId, "receipt");
     let receipt: AttemptJournal["receipt"] = null;
@@ -170,7 +172,7 @@ export class CloudWorkRuntime {
 
   async reconcile(scope: CloudScope, attemptId: string, remoteId: string): Promise<unknown> {
     const run = await this.run(scope, attemptId);
-    if (!(run.provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^session_[A-Za-z0-9_-]+$/).test(remoteId)) {
+    if (!(run.provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^(?:session|cse)_[A-Za-z0-9_-]+$/).test(remoteId)) {
       throw new Error("invalid_cloud_remote_id");
     }
     await this.store(scope).writeRecord(attemptId, "reconciliation", { remoteId, source: "operator_observation" });
@@ -195,20 +197,30 @@ export class CloudWorkRuntime {
       || configurationKey(target, !run.transferMode) !== run.configurationKey) throw new Error("cloud_target_configuration_changed");
     if (run.transferMode === "git") {
       if (!this.ports.collectGit) throw new Error("cloud_git_collection_unavailable");
-      await store.writeRecord(attemptId, "verified", await this.ports.collectGit(target, attemptId));
+      // CC-CLOUD-DRIVE-04: side-effect-free Drive verification precedes Git promotion and its review submission.
+      const driveNames = driveArtifactNames(target);
+      const drive = driveNames.length ? await this.collectArtifacts(scope, attemptId, run, target, driveNames) : null;
+      const git = await this.ports.collectGit(target, attemptId);
+      await store.writeRecord(attemptId, "verified", drive ? { ...(git as object), artifacts: drive.artifacts } : git);
       return this.status(scope, attemptId);
     }
+    const verified = await this.collectArtifacts(scope, attemptId, run, target, target.expectedNames);
+    await store.writeRecord(attemptId, "verified", verified);
+    return this.status(scope, attemptId);
+  }
+
+  /** Saves verified bytes; the caller writes the verified marker last, so partial collection is never downloadable. */
+  private async collectArtifacts(scope: CloudScope, attemptId: string, run: StoredRun, target: CloudTarget,
+    expectedNames: string[]): Promise<ReturnType<typeof verifyCloudArtifacts>> {
     const result = await this.ports.collect(target, attemptId);
     const verified = verifyCloudArtifacts({ ...result, attemptId, sourceRevision: run.sourceRevision,
-      expectedNames: target.expectedNames, maxTotalBytes: target.maxArtifactBytes });
+      expectedNames, maxTotalBytes: target.maxArtifactBytes });
     const directory = join(this.root(scope), `${attemptId}.artifacts`);
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    // The verified marker is written last. Partial collection is never downloadable.
     for (const artifact of verified.artifacts) {
       await writeFile(join(directory, artifact.name), result.received.get(artifact.name)!, { mode: 0o600 });
     }
-    await store.writeRecord(attemptId, "verified", verified);
-    return this.status(scope, attemptId);
+    return verified;
   }
 
   async download(scope: CloudScope, attemptId: string, name: string): Promise<Buffer> {

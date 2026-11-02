@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const Name = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 const EnvName = z.string().regex(/^[A-Z][A-Z0-9_]+$/);
+const ArtifactName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$/).refine(x => x !== "result.json");
 export const CloudTargetSchema = z.object({
   id: Name, label: z.string().min(1).max(120), repoPath: z.string().min(1),
   subsidiaryId: z.string().nullable(),
@@ -13,11 +14,12 @@ export const CloudTargetSchema = z.object({
   preparationEvidence: z.string().min(1).max(2000), verifiedAt: z.string().datetime(),
   environmentPreparable: z.literal(true), requiresLargeProjectClone: z.literal(false),
   gpuVerified: z.boolean().default(false),
-  codexExecutable: z.string().optional(), claudeTriggerId: z.string().regex(/^trig_[A-Za-z0-9]+$/).optional(),
-  claudeTokenEnv: EnvName.optional(),
-  expectedNames: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$/).refine(x => x !== "result.json")).min(1).max(20),
+  codexExecutable: z.string().optional(), claudeExecutable: z.string().optional(),
+  expectedNames: z.array(ArtifactName).min(1).max(20),
+  /** Non-code outputs returned through Drive while code travels by Git. */
+  driveExpectedNames: z.array(ArtifactName).min(1).max(20).optional(),
   maxArtifactBytes: z.number().int().positive().max(512_000_000),
-  transferMode: z.enum(["git", "s3"]).default("git"),
+  transferMode: z.enum(["git", "s3", "drive"]).default("git"),
   git: z.object({
     publicHost: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/i),
     accessHeaderEnv: EnvName,
@@ -29,33 +31,55 @@ export const CloudTargetSchema = z.object({
     prefix: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
     accessKeyEnv: EnvName, secretKeyEnv: EnvName, sessionTokenEnv: EnvName.optional(),
   }).strict().optional(),
+  /** Existing Drive folder; Cc's own OAuth credential issues per-file upload sessions. */
+  drive: z.object({
+    folderId: z.string().regex(/^[A-Za-z0-9_-]{10,200}$/),
+    clientIdEnv: EnvName, clientSecretEnv: EnvName, refreshTokenEnv: EnvName,
+  }).strict().optional(),
 }).strict().superRefine((value, ctx) => {
-  if (value.transferMode === "git" && !value.git) ctx.addIssue({ code: "custom", message: "Git return binding required" });
-  if (value.transferMode === "s3" && !value.storage) ctx.addIssue({ code: "custom", message: "S3 return binding required" });
+  transferBindingIssues(value).forEach(message => ctx.addIssue({ code: "custom", message }));
   if (new Set(value.expectedNames).size !== value.expectedNames.length) ctx.addIssue({ code: "custom", message: "duplicate artifact name" });
-  if (value.provider === "codex-cloud" && (!value.codexExecutable || /\.(cmd|bat|ps1)$/i.test(value.codexExecutable))) {
-    ctx.addIssue({ code: "custom", message: "native codex executable required" });
-  }
-  if (value.provider === "claude-cloud" && (!value.claudeTriggerId || !value.claudeTokenEnv)) {
-    ctx.addIssue({ code: "custom", message: "Claude routine binding required" });
-  }
 });
 export type CloudTarget = z.infer<typeof CloudTargetSchema>;
+type TransferBindings = Pick<Partial<CloudTarget>, "transferMode" | "git" | "storage" | "drive" | "provider"
+  | "codexExecutable" | "claudeExecutable" | "expectedNames" | "driveExpectedNames">;
+
+/** @implements CC-CLOUD-DRIVE-01 — pure policy shared by fixed targets and environments whose work is supplied per run. */
+function transferBindingIssues(value: TransferBindings): string[] {
+  const issues: string[] = [];
+  if (value.transferMode === "git" && !value.git) issues.push("Git return binding required");
+  if (value.transferMode === "s3" && !value.storage) issues.push("S3 return binding required");
+  if (value.transferMode === "drive" && !value.drive) issues.push("Drive return binding required");
+  const driveNames = value.driveExpectedNames;
+  if (driveNames && (value.transferMode !== "git" || !value.drive)) {
+    issues.push("Drive artifact names require Git transfer with a Drive binding");
+  }
+  if (driveNames && new Set(driveNames).size !== driveNames.length) issues.push("duplicate Drive artifact name");
+  if (driveNames && value.expectedNames?.some(name => driveNames.includes(name))) {
+    issues.push("artifact name assigned to both Git and Drive");
+  }
+  if (value.provider === "codex-cloud" && (!value.codexExecutable || /\.(cmd|bat|ps1)$/i.test(value.codexExecutable))) {
+    issues.push("native codex executable required");
+  }
+  if (value.provider === "claude-cloud" && (!value.claudeExecutable || /\.(cmd|bat|ps1)$/i.test(value.claudeExecutable))) {
+    issues.push("native claude executable required");
+  }
+  return issues;
+}
+
+/** Files the worker uploads to Drive: every output in Drive mode, only the non-code outputs beside Git. */
+export function driveArtifactNames(target: CloudTarget): string[] {
+  if (target.transferMode === "drive") return target.expectedNames;
+  return target.transferMode === "git" && target.drive ? target.driveExpectedNames ?? [] : [];
+}
 
 /** Work varies per request. It is not mandatory operator environment configuration. */
 export const CloudWorkPlanSchema = CloudTargetSchema.innerType().pick({ sourceRevision: true, repositoryBytes: true,
-  preparationEvidence: true, verifiedAt: true, expectedNames: true, maxArtifactBytes: true }).strict();
+  preparationEvidence: true, verifiedAt: true, expectedNames: true, driveExpectedNames: true, maxArtifactBytes: true }).strict();
 export type CloudWorkPlan = z.infer<typeof CloudWorkPlanSchema>;
 export const CloudEnvironmentSchema = CloudTargetSchema.innerType().partial({ sourceRevision: true, repositoryBytes: true,
   preparationEvidence: true, verifiedAt: true, expectedNames: true, maxArtifactBytes: true }).superRefine((value, ctx) => {
-  if (value.transferMode === "git" && !value.git) ctx.addIssue({ code: "custom", message: "Git return binding required" });
-  if (value.transferMode === "s3" && !value.storage) ctx.addIssue({ code: "custom", message: "S3 return binding required" });
-  if (value.provider === "codex-cloud" && (!value.codexExecutable || /\.(cmd|bat|ps1)$/i.test(value.codexExecutable))) {
-    ctx.addIssue({ code: "custom", message: "native codex executable required" });
-  }
-  if (value.provider === "claude-cloud" && (!value.claudeTriggerId || !value.claudeTokenEnv)) {
-    ctx.addIssue({ code: "custom", message: "Claude routine binding required" });
-  }
+  transferBindingIssues(value).forEach(message => ctx.addIssue({ code: "custom", message }));
 });
 export type CloudEnvironment = z.infer<typeof CloudEnvironmentSchema>;
 
@@ -79,11 +103,11 @@ export async function readCloudTargets(path: string | undefined): Promise<CloudE
 
 export function cloudTargetReady(target: CloudEnvironment, env: NodeJS.ProcessEnv, now: number): boolean {
   const age = target.verifiedAt ? now - Date.parse(target.verifiedAt) : 0;
-  const storage = target.storage;
-  const transferReady = target.transferMode === "git" ? !!target.git && !!env[target.git.accessHeaderEnv]
-    : !!storage && !!env[storage.accessKeyEnv] && !!env[storage.secretKeyEnv]
-      && (!storage.sessionTokenEnv || !!env[storage.sessionTokenEnv]);
-  return age >= 0 && age <= 24 * 60 * 60 * 1000
-    && transferReady
-    && (target.provider !== "claude-cloud" || !!env[target.claudeTokenEnv!]);
+  const storage = target.storage, drive = target.drive;
+  const driveReady = !!drive && !!env[drive.clientIdEnv] && !!env[drive.clientSecretEnv] && !!env[drive.refreshTokenEnv];
+  const transferReady = target.transferMode === "git" ? !!target.git && !!env[target.git.accessHeaderEnv] && (!drive || driveReady)
+    : target.transferMode === "drive" ? driveReady
+      : !!storage && !!env[storage.accessKeyEnv] && !!env[storage.secretKeyEnv]
+        && (!storage.sessionTokenEnv || !!env[storage.sessionTokenEnv]);
+  return age >= 0 && age <= 24 * 60 * 60 * 1000 && transferReady;
 }

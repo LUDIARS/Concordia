@@ -5,11 +5,13 @@ storage has been configured by this change. No extra cloud compute is provisione
 
 ## Prerequisites
 
-1. Select an existing standard hosted Codex environment and an existing standard
-   hosted Claude routine. Verify Blender installation/preparation and network access
-   to the selected Git ingress (default) or private S3 bucket (explicit). Claude's saved routine prompt must
-   authorize executing the fire text as the work packet. Never substitute a Platform
-   inference API key for a routine fire token.
+1. Select an existing standard hosted Codex environment. For Claude, Cc launches `claude --cloud` from the
+   target's main checkout (CC-CLOUD-CLAUDE-CLI, 2026-11-03 "CLIで統一"); the session runs in the account's
+   Default cloud environment and clones that checkout's GitHub remote at its current branch. Verify Blender
+   installation/preparation and network access to the selected Git ingress (default), Drive, or private S3
+   bucket (explicit). Sign in with `claude auth login` (claude.ai account) as the OS user that runs the Cc
+   service; an `ANTHROPIC_API_KEY`/auth token is removed from the child environment because it would override
+   that login.
 2. Sign in to ChatGPT using the Codex CLI account that runs the Cc service. Use the
    actual native executable path on Windows, not the `.cmd` package wrapper.
    Check `codex cloud list --env <id> --json --limit 1`. CLI presence alone is not
@@ -65,6 +67,23 @@ branch without overwriting another branch, and uses the existing direct local PR
 Interrupted receive or promotion retains the isolated repository and journals for operator reconciliation.
 There is no automatic unlock/retry mechanism. S3 configuration below remains an explicit alternative.
 
+### Optional Drive return (non-code outputs)
+
+Contract: `spec/feature/cloud-work-drive-return.md` (CC-CLOUD-DRIVE). Use an existing Drive folder and an OAuth
+client whose user owns that folder (service accounts have no My Drive quota; use a shared drive for them).
+Bind the client ID, client secret and refresh token through service secret bindings; the JSON names the
+variables only:
+
+```json
+"drive": { "folderId": "REPLACE_WITH_FOLDER_ID", "clientIdEnv": "CC_CLOUD_DRIVE_CLIENT_ID",
+  "clientSecretEnv": "CC_CLOUD_DRIVE_CLIENT_SECRET", "refreshTokenEnv": "CC_CLOUD_DRIVE_REFRESH_TOKEN" }
+```
+
+With the Git default, list the non-code outputs in `driveExpectedNames` (per-run `work` may supply it) and keep
+code outputs in `expectedNames`. `transferMode: "drive"` instead returns every output through Drive. The worker
+reaches `www.googleapis.com` under the cloud environment's default Trusted network access; no inbound exposure
+is added. Nothing here creates a folder, OAuth client or credential.
+
 ### Optional S3 target
 
 Set `CONCORDIA_CLOUD_CONFIG_FILE` to an operator-owned UTF-8 JSON array outside the
@@ -106,8 +125,9 @@ repository. Cc reads it for each operation. Each target must specify:
 The placeholders deliberately fail validation. Replace `repositoryBytes: 0` with
 the measured amount; zero in this example is not evidence. For a Claude target,
 use another target `id`, `provider: "claude-cloud"`, its real environment ID,
-`claudeTriggerId` (`trig_...`) and `claudeTokenEnv` (the bound variable name);
-omit `codexExecutable`. Optional `storage.sessionTokenEnv` supports temporary AWS
+`claudeExecutable` (the native `claude` binary path, never a `.cmd` wrapper);
+omit `codexExecutable`. `environmentId` names the Claude Default environment for identity only; the CLI does not
+select hosted environments. Optional `storage.sessionTokenEnv` supports temporary AWS
 credentials. An expired credential or stale preparation evidence is not readiness.
 
 Use the Delegation page or `delegation_cloud_work` MCP tool. Select the parent
@@ -144,6 +164,6 @@ reconcile; verified artifact download). The MCP wrapper inherits session identit
   control remains in the provider UI. No standard-hosted GPU is assumed.
 
 Reference contracts: official Codex `cloud exec` CLI and OpenAI cloud-tasks source;
-Claude routines https://code.claude.com/docs/en/routines ; AWS query signing example
+Claude cloud sessions https://code.claude.com/docs/en/claude-code-on-the-web ; AWS query signing example
 https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html
 and conditional writes https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html .

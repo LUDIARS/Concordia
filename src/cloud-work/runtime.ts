@@ -6,7 +6,9 @@ import { CloudWorkRuntime, type CloudScope } from "./runtime-service.js";
 import { CloudBatchKicker } from "./batch-kicker.js";
 import { FileCloudBatchStore, type StoredCloudBatch } from "./batch-store.js";
 import { observeCodexCloudTasks } from "./codex-observer.js";
-import { readCloudTargets, type CloudTarget } from "./runtime-config.js";
+import { driveArtifactNames, readCloudTargets, type CloudTarget } from "./runtime-config.js";
+import { DriveCloudArtifacts } from "./drive-artifacts.js";
+import { GoogleOAuthTokens } from "./google-oauth.js";
 import { createCodexCloudAdapter } from "./codex-adapter.js";
 import { createClaudeCloudAdapter } from "./claude-adapter.js";
 import { S3CloudArtifacts } from "./artifact-transfer.js";
@@ -28,6 +30,14 @@ export async function preflightCloudTarget(target: CloudTarget, run: PreflightCo
     const [revision, ref] = result.trim().split(/\s+/);
     if (revision !== target.sourceRevision || ref !== `refs/heads/${target.publishedBranch}`) throw new Error("revision_mismatch");
   } catch { throw new Error("cloud_published_source_unverified"); }
+  if (target.provider === "claude-cloud") {
+    // `claude --cloud` clones the checkout's current branch from its remote, so that checkout must be the published source.
+    try {
+      const branch = (await run("git", ["-c", `safe.directory=${target.repoPath}`, "rev-parse", "--abbrev-ref", "HEAD"], target.repoPath)).trim();
+      const head = (await run("git", ["-c", `safe.directory=${target.repoPath}`, "rev-parse", "HEAD"], target.repoPath)).trim();
+      if (branch !== target.publishedBranch || head !== target.sourceRevision) throw new Error("checkout_mismatch");
+    } catch { throw new Error("cloud_published_source_unverified"); }
+  }
   if (target.provider === "codex-cloud") {
     try {
       await run(target.codexExecutable!, ["cloud", "list", "--env", target.environmentId, "--json", "--limit", "1"], target.repoPath);
@@ -64,6 +74,10 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
   const env = input.env ?? process.env;
   const git = new CloudGitReturn(env.CONCORDIA_CLOUD_GIT_ROOT ?? join(input.root, "git-return"), env, mainRepositoryKey,
     input.submitLocalPr ?? (async () => { throw new Error("cloud_review_unavailable"); }));
+  const driveArtifacts = (target: CloudTarget): DriveCloudArtifacts => {
+    if (!target.drive) throw new Error("cloud_drive_transfer_not_selected");
+    return new DriveCloudArtifacts(target, driveArtifactNames(target), new GoogleOAuthTokens(target.drive, env));
+  };
   return new CloudWorkRuntime({
     root: input.root, env, now: () => Date.now(),
     targets: () => readCloudTargets(env.CONCORDIA_CLOUD_CONFIG_FILE), repositoryKey: mainRepositoryKey,
@@ -76,9 +90,13 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
       await preflightCloudTarget(target);
     },
     adapter: target => {
-      const transferInstructions = target.transferMode === "git"
-        ? (request: import("./submission.js").CloudSubmission) => git.instructions(target, request)
-        : (request: { attemptId: string }) => new S3CloudArtifacts(target, env).uploadInstructions(request.attemptId);
+      const transferInstructions = async (request: import("./submission.js").CloudSubmission): Promise<string> => {
+        const drive = driveArtifactNames(target).length
+          ? await driveArtifacts(target).uploadInstructions(request.attemptId) : "";
+        if (target.transferMode === "drive") return drive;
+        if (target.transferMode === "s3") return new S3CloudArtifacts(target, env).uploadInstructions(request.attemptId);
+        return [await git.instructions(target, request), drive].filter(Boolean).join("\n\n");
+      };
       const transientInstructions = async (request: import("./submission.js").CloudSubmission): Promise<string> => {
         const transfer = await transferInstructions(request);
         const observation = await cloudObservationInstructions(env, target.id, request.attemptId, Date.now());
@@ -86,10 +104,10 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
       };
       return target.provider === "codex-cloud"
         ? createCodexCloudAdapter({ executable: target.codexExecutable!, cwd: target.repoPath, publishedBranch: target.publishedBranch, transientInstructions })
-        : createClaudeCloudAdapter({ triggerId: target.claudeTriggerId!, environmentId: target.environmentId,
-          fireToken: env[target.claudeTokenEnv!] ?? "", transientInstructions });
+        : createClaudeCloudAdapter({ executable: target.claudeExecutable!, cwd: target.repoPath, transientInstructions });
     },
-    collect: (target, attemptId) => new S3CloudArtifacts(target, env).collect(attemptId),
+    collect: (target, attemptId) => target.transferMode === "s3"
+      ? new S3CloudArtifacts(target, env).collect(attemptId) : driveArtifacts(target).collect(attemptId),
     collectGit: (target, attemptId) => git.collect(target, attemptId),
   });
 }

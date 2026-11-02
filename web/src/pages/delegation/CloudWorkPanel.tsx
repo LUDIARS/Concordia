@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type SessionRow } from "../../api.js";
 import { mutate } from "./model.js";
 
-type Target = { id: string; label: string; provider: string; transferMode: "git" | "s3"; ready: boolean };
+type Target = { id: string; label: string; provider: string; transferMode: "git" | "s3" | "drive"; ready: boolean };
 type Run = { attemptId: string; targetId: string; state: string; receipt: { state: string; remoteId?: string };
   reconciliation: { remoteId: string } | null; verified: { artifacts?: Array<{ name: string }> } | null };
 const base = "/v1/delegation/cloud";
@@ -74,7 +74,7 @@ export function CloudWorkPanel() {
     {sessionId && targets.length === 0 && <p>このプロジェクトのクラウド環境は未設定です。</p>}
     <label className="block">送信先 <select className="foundation-form" value={targetId} disabled={busy || locked}
       onChange={e => setTargetId(e.target.value)}><option value="">環境を選ぶ</option>
-      {targets.map(t => <option key={t.id} value={t.id} disabled={!t.ready}>{t.label} ({t.provider}, {t.transferMode === "s3" ? "S3で受渡し" : "Gitで受領・審査"}){t.ready ? "" : " — 設定の確認が必要"}</option>)}</select></label>
+      {targets.map(t => <option key={t.id} value={t.id} disabled={!t.ready}>{t.label} ({t.provider}, {t.transferMode === "s3" ? "S3で受渡し" : t.transferMode === "drive" ? "Driveで受渡し" : "Gitで受領・審査"}){t.ready ? "" : " — 設定の確認が必要"}</option>)}</select></label>
     <label className="block">作業タスクの参照（Actio）<input className="foundation-form w-full" value={taskReference} disabled={locked}
       onChange={e => setTaskReference(e.target.value)} placeholder="actio:..." /></label>
     <label className="block">作ってほしいもの<textarea className="foundation-form w-full" value={instruction} disabled={locked} onChange={e => setInstruction(e.target.value)} /></label>

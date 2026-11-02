@@ -131,7 +131,7 @@ describe("Codex Cloud batch kicker", () => {
   });
   it("rejects non-Codex targets and invalid templates before creating a batch", async () => {
     const f = await fixture();
-    f.ports.targets = async () => [{ ...f.target, provider: "claude-cloud", claudeTriggerId: "trig_1", claudeTokenEnv: "TOKEN" }];
+    f.ports.targets = async () => [{ ...f.target, provider: "claude-cloud", claudeExecutable: "claude.exe" }];
     await expect(f.kicker.create(scope, "parent", definition())).rejects.toThrow("cloud_batch_provider_unsupported");
     await expect(f.kicker.create(scope, "parent", definition({ shards: [{ other: "1" }] }))).rejects.toThrow("cloud_batch_variables_mismatch");
     expect(await f.ports.store.list(scope)).toEqual([]);

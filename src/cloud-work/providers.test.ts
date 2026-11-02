@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClaudeCloudAdapter } from "./claude-adapter.js";
+import { claudeCloudEnv, createClaudeCloudAdapter } from "./claude-adapter.js";
+import type { CloudCliExecute } from "./cloud-cli-process.js";
 import { createCodexCloudAdapter } from "./codex-adapter.js";
 import { cloudSubmissionFixture } from "../../tests/helpers/cloud-submission-fixture.js";
 
@@ -33,29 +34,44 @@ describe("standard hosted provider adapters", () => {
     expect(() => createCodexCloudAdapter({ executable: "codex.cmd", cwd: "workspace", publishedBranch: "main" })).toThrow();
   });
 
-  it("fires the configured Claude routine without exposing the token in the packet", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ type: "routine_fire", claude_code_session_id: "session_123" }));
-    const adapter = createClaudeCloudAdapter({ triggerId: "trig_123", environmentId: "test-env", fireToken: "test-only-secret" }, fetcher);
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submitted", remoteId: "session_123" });
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [url, init] = fetcher.mock.calls[0];
-    expect(url).toBe("https://api.anthropic.com/v1/claude_code/routines/trig_123/fire");
-    expect(init?.redirect).toBe("error");
-    expect(init?.body).not.toContain("test-only-secret");
-    expect(init?.headers).toMatchObject({ authorization: "Bearer test-only-secret", "anthropic-beta": "experimental-cc-routine-2026-04-01" });
+  it("creates a Claude cloud session from argv without secrets, then queues the transfer message on stdin", async () => {
+    const run = vi.fn<CloudCliExecute>()
+      .mockResolvedValueOnce("Created cloud session.\nView: https://claude.ai/code/session_01AbCdEfGh\n")
+      .mockResolvedValueOnce(JSON.stringify({ ok: true, session_id: "session_01AbCdEfGh", url: "https://claude.ai/code/session_01AbCdEfGh" }));
+    const adapter = createClaudeCloudAdapter({ executable: "claude.exe", cwd: "workspace",
+      transientInstructions: async () => "Private upload URL test-only-secret" }, run);
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submitted", remoteId: "session_01AbCdEfGh" });
+    const [create, follow] = run.mock.calls;
+    expect(create[1][0]).toBe("--cloud");
+    expect(create[1].join(" ")).not.toContain("test-only-secret");
+    expect(follow[1]).toEqual(["-p", "--cloud", "session_01AbCdEfGh", "--output-format", "json"]);
+    expect(follow[3]).toContain("test-only-secret");
   });
 
-  it.each([new Response("unavailable", { status: 503 }), Response.json({ ok: true }), new Response("x".repeat(16385))])("keeps rejected, oversized or unrecognized replies unknown", async (response) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response);
-    const adapter = createClaudeCloudAdapter({ triggerId: "trig_123", environmentId: "test-env", fireToken: "test-token" }, fetcher);
+  it.each(["", "done", "session_01AbCdEfGh and session_02ZyXwVuTs"])("does not infer a session from ambiguous CLI output: %j", async stdout => {
+    const run = vi.fn<CloudCliExecute>().mockResolvedValue(stdout);
+    const adapter = createClaudeCloudAdapter({ executable: "claude.exe", cwd: "workspace", transientInstructions: () => "secret" }, run);
     await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submission_unknown" });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledOnce();
   });
 
-  it("does not send a mismatched environment to a routine", async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    const adapter = createClaudeCloudAdapter({ triggerId: "trig_123", environmentId: "other", fireToken: "test-token" }, fetcher);
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).rejects.toThrow("cloud_environment_mismatch");
-    expect(fetcher).not.toHaveBeenCalled();
+  it("reports unknown when the transfer message was not confirmed for the created session", async () => {
+    const run = vi.fn<CloudCliExecute>().mockResolvedValueOnce("https://claude.ai/code/session_01AbCdEfGh")
+      .mockResolvedValueOnce(JSON.stringify({ ok: false, session_id: "session_01AbCdEfGh", error: "archived" }));
+    const adapter = createClaudeCloudAdapter({ executable: "claude.exe", cwd: "workspace", transientInstructions: () => "secret" }, run);
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submission_unknown" });
+  });
+
+  it("never prepares a session when transfer preparation fails, and rejects shell wrappers", async () => {
+    const run = vi.fn<CloudCliExecute>();
+    const adapter = createClaudeCloudAdapter({ executable: "claude.exe", cwd: "workspace",
+      transientInstructions: async () => { throw new Error("cloud_git_access_binding_missing"); } }, run);
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).rejects.toThrow("cloud_git_access_binding_missing");
+    expect(run).not.toHaveBeenCalled();
+    expect(() => createClaudeCloudAdapter({ executable: "claude.cmd", cwd: "workspace" })).toThrow("invalid_claude_cloud_configuration");
+  });
+
+  it("drops credentials that would override the claude.ai login", () => {
+    expect(claudeCloudEnv({ ANTHROPIC_API_KEY: "k", ANTHROPIC_AUTH_TOKEN: "t", PATH: "p" })).toEqual({ PATH: "p" });
   });
 });

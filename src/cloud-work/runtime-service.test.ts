@@ -52,6 +52,36 @@ describe("integrated cloud work runtime", () => {
     expect(f.ports.collect).not.toHaveBeenCalled();
     await expect(f.runtime.download(scope, input.attemptId, "scene.blend")).rejects.toThrow();
   });
+  it("verifies Drive outputs before Git promotion and serves them beside the review receipt", async () => {
+    const f = await fixture();
+    f.target.transferMode = "git";
+    f.target.storage = undefined;
+    f.target.git = { publicHost: "git.example.com", accessHeaderEnv: "ACCESS", accessHeaderName: "X-Access" };
+    f.target.drive = { folderId: "folder_0123456789", clientIdEnv: "G_ID", clientSecretEnv: "G_SECRET", refreshTokenEnv: "G_REFRESH" };
+    f.target.expectedNames = ["model.py"];
+    f.target.driveExpectedNames = ["scene.blend"];
+    Object.assign(f.ports.env, { ACCESS: "test", G_ID: "i", G_SECRET: "s", G_REFRESH: "r" });
+    const order: string[] = [];
+    const collect = f.ports.collect;
+    f.ports.collect = vi.fn(async (target, attemptId) => { order.push("drive"); return collect(target, attemptId); });
+    f.ports.collectGit = vi.fn(async () => { order.push("git"); return { state: "review_submitted", oid: "b".repeat(40) }; });
+    await f.runtime.submit(scope, input);
+    expect(await f.runtime.collect(scope, input.attemptId)).toMatchObject({ state: "review_submitted", transferMode: "git" });
+    expect(order).toEqual(["drive", "git"]);
+    expect((await f.runtime.download(scope, input.attemptId, "scene.blend")).equals(f.content)).toBe(true);
+  });
+  it("does not submit Git for review when Drive verification fails", async () => {
+    const f = await fixture();
+    Object.assign(f.target, { transferMode: "git", storage: undefined, expectedNames: ["model.py"], driveExpectedNames: ["scene.blend"],
+      git: { publicHost: "git.example.com", accessHeaderEnv: "ACCESS", accessHeaderName: "X-Access" },
+      drive: { folderId: "folder_0123456789", clientIdEnv: "G_ID", clientSecretEnv: "G_SECRET", refreshTokenEnv: "G_REFRESH" } });
+    Object.assign(f.ports.env, { ACCESS: "test", G_ID: "i", G_SECRET: "s", G_REFRESH: "r" });
+    f.ports.collect = vi.fn(async () => ({ manifest: { version: 1 }, received: new Map() }));
+    f.ports.collectGit = vi.fn(async () => ({ state: "review_submitted" }));
+    await f.runtime.submit(scope, input);
+    await expect(f.runtime.collect(scope, input.attemptId)).rejects.toThrow("invalid_cloud_artifact_manifest");
+    expect(f.ports.collectGit).not.toHaveBeenCalled();
+  });
   it("submits once, survives reconstruction, collects and serves verified bytes", async () => {
     const f = await fixture();
     expect(await f.runtime.submit(scope, input)).toMatchObject({ state: "submitted" });

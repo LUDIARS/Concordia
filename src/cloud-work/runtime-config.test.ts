@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CloudTargetSchema, CloudEnvironmentSchema, resolveCloudWork, cloudTargetReady, readCloudTargets } from "./runtime-config.js";
+import { CloudTargetSchema, CloudEnvironmentSchema, resolveCloudWork, cloudTargetReady, readCloudTargets, driveArtifactNames } from "./runtime-config.js";
 import { cloudTargetFixture } from "../../tests/helpers/cloud-target-fixture.js";
 
 describe("cloud target configuration", () => {
@@ -18,6 +18,27 @@ describe("cloud target configuration", () => {
     expect(target.transferMode).toBe("git");
     expect(cloudTargetReady(target, { CLOUD_ACCESS: "test" }, Date.parse(target.verifiedAt))).toBe(true);
     expect(CloudTargetSchema.safeParse({ ...cloudTargetFixture(), transferMode: undefined }).success).toBe(false);
+  });
+  it("returns non-code outputs through Drive beside Git and requires the Drive secrets for readiness", () => {
+    const drive = { folderId: "folder_0123456789", clientIdEnv: "G_ID", clientSecretEnv: "G_SECRET", refreshTokenEnv: "G_REFRESH" };
+    const git = { publicHost: "git.example.com", accessHeaderEnv: "CLOUD_ACCESS", accessHeaderName: "X-Cloud-Access" };
+    const target = CloudTargetSchema.parse({ ...cloudTargetFixture(), transferMode: "git", storage: undefined, git, drive,
+      expectedNames: ["model.py"], driveExpectedNames: ["scene.blend", "preview.png"] });
+    expect(driveArtifactNames(target)).toEqual(["scene.blend", "preview.png"]);
+    const now = Date.parse(target.verifiedAt);
+    expect(cloudTargetReady(target, { CLOUD_ACCESS: "a" }, now)).toBe(false);
+    expect(cloudTargetReady(target, { CLOUD_ACCESS: "a", G_ID: "i", G_SECRET: "s", G_REFRESH: "r" }, now)).toBe(true);
+    const driveOnly = CloudTargetSchema.parse({ ...cloudTargetFixture(), transferMode: "drive", storage: undefined, drive });
+    expect(driveArtifactNames(driveOnly)).toEqual(["scene.blend"]);
+  });
+  it.each([
+    { transferMode: "drive", storage: undefined },
+    { driveExpectedNames: ["preview.png"] },
+    { transferMode: "git", git: { publicHost: "git.example.com", accessHeaderEnv: "A", accessHeaderName: "X-A" },
+      drive: { folderId: "folder_0123456789", clientIdEnv: "G_ID", clientSecretEnv: "G_SECRET", refreshTokenEnv: "G_REFRESH" },
+      driveExpectedNames: ["scene.blend"] },
+  ])("rejects incomplete or overlapping Drive transfer: %j", patch => {
+    expect(CloudTargetSchema.safeParse({ ...cloudTargetFixture(), ...patch }).success).toBe(false);
   });
   it("is unavailable when not configured", async () => { expect(await readCloudTargets(undefined)).toEqual([]); });
   it("requires fresh evidence and secret bindings", () => {

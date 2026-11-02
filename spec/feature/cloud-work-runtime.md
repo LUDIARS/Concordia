@@ -47,3 +47,19 @@ Tokyo2070 trial is the live acceptance; mocks or local generation cannot replace
 Candidate projects also include Synergos and heavy rendering in Fg/LD, subject to
 all four admission conditions. Restore by disabling the cloud configuration while
 preserving the journal and collected outputs; never remove intents to retry.
+
+## Claude CLI launch — 2026-11-03
+
+Human instruction (Discord thread "opus-5-5"): add `claude --cloud`, then "CLIで統一" — the routine fire
+adapter is replaced. Actio `actio:58f293ad-f2cf-4934-8b29-287a1dbde77b`.
+
+CC-CLOUD-CLAUDE-CLI: Claude targets set `claudeExecutable` (native binary). Preflight requires the target's
+checkout to be on `publishedBranch` at `sourceRevision`, because `claude --cloud` clones that branch from the
+remote. Transfer capabilities (Git/Drive) are prepared first; a preparation failure launches nothing. Cc then
+runs `claude --cloud <packet>` shell-free; the packet holds public task data only. Exactly one distinct
+`session_`/`cse_` ID in its output is accepted, else `submission_unknown`. Private transfer instructions are
+queued as one message with `claude -p --cloud <id> --output-format json` on stdin; only `{ok:true, session_id}`
+matching the created ID counts as submitted. A created session whose transfer message is unconfirmed is
+reported unknown for operator reconciliation; nothing is resent. The child environment drops API-key and
+third-party provider variables so the claude.ai login is used. The CLI's creation output format is not
+documented as a stable machine contract; the first live run must confirm the parser before relying on it.

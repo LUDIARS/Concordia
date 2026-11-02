@@ -38,6 +38,7 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
 }
 import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
 import { DECLARED_TASK_METADATA_KEY } from "../../harness/reliability/task-branch-policy.js";
+import { serializeRegistration } from "./working-targets.js";
 import { INHERITED_REQUESTER_METADATA_KEY } from "../../personal-budget/session-facts.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -532,7 +533,10 @@ app.patch("/:id", async (c) => {
         ts: patchTs,
       });
     }
-    return c.json({ ok: true });
+    // TB-MULTI: 保存して読み直した登録を返す。呼び出し側 (lictor cli task set) は、次のゲートが
+    // 判定に使う値をこの応答で確かめられる (宣言済みの作業対象があると branch が保たれることがある)。
+    const stored = deps.repo.findSession(id);
+    return c.json({ ok: true, ...(stored ? { registration: serializeRegistration(stored) } : {}) });
   });
 
 app.post("/:id/heartbeat", (c) => {

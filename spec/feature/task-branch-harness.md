@@ -23,6 +23,9 @@ domain: harness-reliability
 - TB-RECOVER: 境界の拒否文には、requiresTaskBranchCheck の例外コマンドだけで組んだ復旧手順 (`lictor cli task set` / `git worktree add -b <b> <path> main`) を載せる。案内したコマンドが例外であることをテストで固定する。
 - TB-REGISTERED: 実checkoutの照合は Cc の登録 (repo_path / branch) を基準にし、シェルの cwd を基準にしない。登録リポジトリ内 (本体・linked worktree を git common dir で同一視) なら登録 branch と一致すれば通す。登録外の cwd からのコマンドは、登録リポジトリに登録 branch の checkout が実在すれば通す。登録外 checkout の編集、登録 branch の checkout が無い登録は拒否する。
 - TB-HOME: 終わった作業の登録は、拒否する直前に本体 checkout (worktree 一覧の先頭) とその branch へ戻す。戻すのは (a) 登録が linked worktree で、その checkout が消えたか登録 branch がどこにも checkout されていない、(b) 登録 branch の提出 PR が正本でマージ済みで、本体 checkout で操作している、のどちらか。本体 checkout の branch を手で切り替えただけの登録は戻さない。戻したら warn `task-branch-restored` で知らせ、新しい登録で照合し直す。
+- TB-MULTI: セッションは repo_path / branch (先頭の登録) に加えて、checkout の登録を複数持てる (session metadata `working_targets`、`{repo, branch, source, registered_at}`、最大 8 件)。照合は先頭の登録・TB-CASTRA・各登録の順に同じ規則 (TB-REGISTERED) で行い、どれかに合えば通す。登録していない checkout の編集は引き続き拒否する。プロンプトからの作業対象推定 (target_project) はこの一覧を消さず、推定 (inferred) は明示 (explicit) の登録を上書きしない。
+- TB-SUGGEST: checkout 不一致の拒否文には、登録・実際の checkout・推定対象の値と、実際の checkout を登録する、そのまま打てるコマンド (`lictor cli task set --repo "<checkout>" --branch <b> --desc "作業内容"`) を載せる。そのコマンドがゲートの例外であり、実行すれば同じ操作が通ることを、すべての不一致の経路でテストする。
+- TB-REPEAT: 同じ checkout への同じ種類 (編集 / コマンド) の拒否が続いたら、2 回目から判定に使った値 (先頭の登録、working_targets、target_project、TB-CASTRA の照合結果、workspace roots) を拒否文に付け、登録をやり直さずに止めて人間に報告するよう案内する。2 回目のときだけ session event `harness.task_branch.repeated_denial` を記録する。通れば記録 (metadata `task_branch_denial`) を消す。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
 
@@ -111,3 +114,17 @@ kazumimitarai 指示「ずれる元を断つ: worktree を消すときや PR が
 
 検証: task-branch / task-branch-adapters / conflux の 3 テストファイル 39 件成功 (TB-HOME 5 件を追加)。サーバー・テストの TypeScript 静的検査で本変更起因の診断 0 件 (共有 node_modules の one-shot が古いことによる既存診断 available-text-runner.ts のみ)。再起動・デプロイは未実施。
 復旧: revert すれば登録は自動で戻らず、`lictor cli implement begin --cwd <checkout>` での再登録が必要な従来動作に戻る。metadata `task_branch_home` は残っても無害。migration はない。
+
+## 複数の checkout を登録できるようにする（2026-11-02）
+
+kazumimitarai 指示「ゲートの不具合について、やりたかったことを踏襲しつつ2度と起こさないように調整する設計を出力せよ」→ 設計に「実装する」。
+症状: Castra root で起動したセッションが、作業対象推定で target_project を別リポジトリ (Ingenium) に移されたあと、3 つ目のリポジトリ (MELPOT の game checkout) を編集できなくなった。拒否文の案内 `lictor cli task set --branch` はリポジトリを指定できないので、何度登録し直しても同じ拒否になり、登録を game の branch に合わせると Castra root での Bash まで拒否された。拒否文に登録と実際の値が無く、何が食い違っているかも分からなかった。
+
+- TB-MULTI: 一覧の読み書きは純関数 `working-targets.ts`、照合は `TaskBranchService.matchWorkingTarget`、登録は `PATCH /v1/sessions/:id/working-targets` (`{add: {repo, branch}}` / `{remove: {repo}}`、repo は絶対パス)。`GET` で読める。
+- `PATCH /v1/sessions/:id` と `PATCH /:id/working-targets` は、保存して読み直した登録 (`registration`: repo_path / branch / target_project / working_targets) を返す。宣言済みの作業対象があると PATCH の branch が保たれることがあるので、呼び出し側は次のゲートが使う値をこの応答で確かめる。
+- TB-SUGGEST: 拒否文は `describeCheckoutMismatch`、コマンドは `registrationCommand`。プレースホルダーに `<` `>` を使うとコマンド自体が例外に当たらなくなる (テストで検出した)。
+- TB-REPEAT: `TaskBranchService.denyMismatch`。Actio への自動起票はしない (起票の経路 `bug-report` スキルが Castra に無い)。記録した event を元に人間が報告する。
+- Lictor の `lictor cli task set --repo` は別 PR。
+
+検証: working-targets テスト 8 件 (提案コマンドで同じ操作が通ることを 4 経路で確認、推定対象が変わっても登録が残る、登録外は拒否のまま、同じ拒否 2 回で判定値と event) と既存の task-branch テスト、sessions API テストが成功。task-branch-adapters の「reads the checkout」1 件は本体 main でも同じく失敗する既存の失敗 (この PC の git hook 環境で `git init` が止まる)。TypeScript 静的検査の診断 0 件。再起動・デプロイは未実施。
+復旧: revert すれば登録は 1 つに戻る。metadata `working_targets` / `task_branch_denial` は残っても無害。migration はない。

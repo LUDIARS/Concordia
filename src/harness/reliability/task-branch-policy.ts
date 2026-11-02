@@ -55,7 +55,35 @@ function lictorCliArguments(words: string[]): string[] | null {
 
 const CHECKOUT_MISMATCH: PredicateHit = { rule: "task-branch", decision: "deny",
   reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。",
-  suggestion: "cd や && を付けずに `lictor cli task set --branch <実branch> --desc \"<作業>\"` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`) で登録し直してください。" };
+  suggestion: "cd や && を付けずに `lictor cli task set --repo <実checkout> --branch <実branch> --desc \"<作業>\"` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`) で登録してください。" };
+
+/** 拒否文に載せる登録コマンド。区切りは / に揃え、記号 (< > など) を含めない: 含めるとこのコマンド自体がゲートの対象になる。 */
+export function registrationCommand(acting: { repo: string; branch: string }): string {
+  return `lictor cli task set --repo "${acting.repo.replace(/\\/g, "/")}" --branch ${acting.branch} --desc "作業内容"`;
+}
+
+/**
+ * TB-MULTI: checkout 不一致の拒否文。登録・実際・推定対象を並べ、実際の checkout を登録する
+ * そのまま打てるコマンドを示す (そのコマンドで同じ操作が通ることはテストで固定している)。
+ * diagnostics は同じ拒否が続いたときだけ付く、判定に使った値の一覧。
+ */
+export function describeCheckoutMismatch(input: {
+  registered: ReadonlyArray<{ repo: string; branch: string }>;
+  acting: { repo: string; branch: string };
+  targetProject: string | null;
+  diagnostics?: string;
+}): PredicateHit {
+  const { registered, acting, targetProject } = input;
+  const listed = registered.length ? registered.map(item => `${item.repo}@${item.branch || "(未登録)"}`).join(", ") : "(なし)";
+  const values = `登録: [${listed}] / 実際: ${acting.repo}@${acting.branch || "(detached)"} / 推定対象: ${targetProject || "(なし)"}`;
+  const suggestion = acting.branch
+    ? "この checkout で作業するなら、cd や && を付けずに次を単独で実行して登録を足してください (既存の登録は残ります): `"
+      + registrationCommand(acting) + "` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`)。"
+      + "この checkout を触るつもりが無いなら、登録済みの checkout で作業してください。"
+    : "この checkout は branch が無い (detached HEAD) ので登録できません。作業 branch を checkout してから登録してください。";
+  return { ...CHECKOUT_MISMATCH, reason: `${CHECKOUT_MISMATCH.reason} ${values}`
+    + (input.diagnostics ? ` ${input.diagnostics}` : ""), suggestion };
+}
 
 /**
  * The Cc registration (repo + branch) is the authority, not the shell's cwd.

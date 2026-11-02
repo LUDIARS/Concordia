@@ -38,6 +38,8 @@ coverage/
 
 # local data
 /.local/
+# operator-owned local configuration (cloud targets etc.); never committed
+/config/
 /\.augur-data/
 /.augur/runs/
 /.vestigium-logs/

@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CloudTargetSchema, CloudEnvironmentSchema, resolveCloudWork, cloudTargetReady, readCloudTargets, driveArtifactNames } from "./runtime-config.js";
 import { cloudTargetFixture } from "../../tests/helpers/cloud-target-fixture.js";
@@ -41,6 +44,17 @@ describe("cloud target configuration", () => {
     expect(CloudTargetSchema.safeParse({ ...cloudTargetFixture(), ...patch }).success).toBe(false);
   });
   it("is unavailable when not configured", async () => { expect(await readCloudTargets(undefined)).toEqual([]); });
+  it("treats a not-yet-created file as no targets and gives Claude the default environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cc-cloud-config-"));
+    try {
+      expect(await readCloudTargets(join(root, "cloud-targets.json"))).toEqual([]);
+      const { environmentId, codexExecutable, ...rest } = cloudTargetFixture();
+      await writeFile(join(root, "cloud-targets.json"), JSON.stringify([{ ...rest, provider: "claude-cloud", claudeExecutable: "claude.exe" }]));
+      expect((await readCloudTargets(join(root, "cloud-targets.json")))[0].environmentId).toBe("claude-default");
+      await writeFile(join(root, "codex.json"), JSON.stringify([{ ...rest, codexExecutable }]));
+      await expect(readCloudTargets(join(root, "codex.json"))).rejects.toThrow("cloud_configuration_invalid");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("requires fresh evidence and secret bindings", () => {
     const target = cloudTargetFixture(), now = Date.parse(target.verifiedAt);
     expect(cloudTargetReady(target, { TEST_ACCESS: "test", TEST_SECRET: "test" }, now)).toBe(true);

@@ -86,8 +86,9 @@ is added. Nothing here creates a folder, OAuth client or credential.
 
 ### Optional S3 target
 
-Set `CONCORDIA_CLOUD_CONFIG_FILE` to an operator-owned UTF-8 JSON array outside the
-repository. Cc reads it for each operation. Each target must specify:
+`CONCORDIA_CLOUD_CONFIG_FILE` points to an operator-owned UTF-8 JSON array. The Concordia catalog sets it to
+`${ARS_ROOT}/Concordia/config/cloud-targets.json`; `/config/` is git-ignored and never committed (2026-11-03).
+A missing file means no targets, not an error. Cc reads it for each operation. Each target must specify:
 
 ```json
 [
@@ -126,8 +127,8 @@ The placeholders deliberately fail validation. Replace `repositoryBytes: 0` with
 the measured amount; zero in this example is not evidence. For a Claude target,
 use another target `id`, `provider: "claude-cloud"`, its real environment ID,
 `claudeExecutable` (the native `claude` binary path, never a `.cmd` wrapper);
-omit `codexExecutable`. `environmentId` names the Claude Default environment for identity only; the CLI does not
-select hosted environments. Optional `storage.sessionTokenEnv` supports temporary AWS
+omit `codexExecutable`. `environmentId` may be omitted for Claude (it becomes `claude-default`): the CLI uses
+the account's Default environment and the ID only identifies the target. Codex still requires a real ID. Optional `storage.sessionTokenEnv` supports temporary AWS
 credentials. An expired credential or stale preparation evidence is not readiness.
 
 Use the Delegation page or `delegation_cloud_work` MCP tool. Select the parent

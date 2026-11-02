@@ -89,13 +89,27 @@ export function resolveCloudWork(target: CloudEnvironment, work?: CloudWorkPlan)
   return parsed.data;
 }
 
-/** Config is local operator input, never an untrusted request body. */
+/** `claude --cloud` runs in the account's Default environment; the ID only identifies the target. */
+export const CLAUDE_DEFAULT_ENVIRONMENT = "claude-default";
+function withClaudeDefaultEnvironment(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map(entry => entry && typeof entry === "object" && !Array.isArray(entry)
+    && (entry as Record<string, unknown>).provider === "claude-cloud" && (entry as Record<string, unknown>).environmentId === undefined
+    ? { ...entry, environmentId: CLAUDE_DEFAULT_ENVIRONMENT } : entry);
+}
+
+/** Config is local operator input, never an untrusted request body. A not-yet-created file means no targets. */
 export async function readCloudTargets(path: string | undefined): Promise<CloudEnvironment[]> {
   if (!path) return [];
+  let bytes: Buffer;
+  try { bytes = await readFile(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new Error("cloud_configuration_invalid");
+  }
   try {
-    const bytes = await readFile(path);
     if (bytes.length > 256_000) throw new Error("too_large");
-    const targets = z.array(CloudEnvironmentSchema).max(50).parse(JSON.parse(bytes.toString("utf8")));
+    const targets = z.array(CloudEnvironmentSchema).max(50).parse(withClaudeDefaultEnvironment(JSON.parse(bytes.toString("utf8"))));
     if (new Set(targets.map(t => t.id)).size !== targets.length) throw new Error("duplicate_target");
     return targets;
   } catch { throw new Error("cloud_configuration_invalid"); }

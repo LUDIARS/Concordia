@@ -54,6 +54,8 @@ services:
       CONCORDIA_MEETING_LINK_ENABLED: "true"
       CONCORDIA_CLOUD_OBSERVATION_ENABLED: "true"
       CONCORDIA_CLOUD_OBSERVATION_HOST: tailscale
+      # Operator-owned, git-ignored. A missing file means no cloud targets (spec/feature/cloud-work-setup.md).
+      CONCORDIA_CLOUD_CONFIG_FILE: ${ARS_ROOT}/Concordia/config/cloud-targets.json
       CONCORDIA_ARTIFACT_PORT: "11114"
       CONCORDIA_ARTIFACT_ROOT: ${ARS_ROOT}/artifact
       CONCORDIA_MEETING_LINK_GUILD_ID: "1136199339417534606"

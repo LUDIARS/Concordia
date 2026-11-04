@@ -1,6 +1,8 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "tools/qs-lock.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
+    { "source": "tools/qs-lock.contract.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
     {"source":"src/taskflow/actio-acting-for.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
     {"source":"src/taskflow/actio-transport.ts","tests":["src/taskflow/actio-transport.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
     {"source":"src/developer-tools/service.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},

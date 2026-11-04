@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)tools/qs-lock(?:\\.contract)?\\.mjs$"
+    },
+    {
       "pathPattern": "(^|/)tools/design-review/[^/]+\\.mjs$"
     },
     {
@@ -67,6 +70,7 @@
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "specRefs": [
+    "spec/feature/qs-security-update.md",
     "spec/feature/design-review-handoff.md",
     "spec/feature/migration-preflight.md",
     "spec/feature/domain-taxonomy.concordia.md#tooling",

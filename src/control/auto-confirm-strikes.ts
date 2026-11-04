@@ -48,15 +48,15 @@ export function recordAutoConfirmStrike(
 export function renderStrikeOutNotice(count: number): string[] {
   if (count < AUTO_CONFIRM_STRIKE_LIMIT) return [];
   return [
-    `人間の反応が無いまま自動確認が ${count} 回続きました。これ以降、人間の入力があるまで自動確認を送りません。`,
-    "進められる作業が無ければ人間判断の要点を示して待機してください。",
+    `新しい人間入力や作業の進展通知が無いまま自動確認が ${count} 回続きました。これ以降、新しい入力・進展通知があるまで自動確認を送りません。`,
+    "進められる作業が無ければ理由を一度報告して待機してください。通知待ちを人間判断待ちとして登録しないでください。",
   ];
 }
 
 /**
  * AI が自分で進められる作業が残っている状態 (2026-10-08 neco 指示「AIが実装中のものは、
  * 引き続き状況と残作業確認して処理を進めるよう自動確認で誘導」)。
- * この状態では 3 アウトで止めず、回数も数えない。審査・委託の通知待ちと状態不明は含めない
+ * この分類は継続案内の選択にだけ使い、3 アウト制限の免除には使わない。審査・委託の通知待ちと状態不明は含めない
  * (そこで確認を続けると「確認 → 待機の返答 → 確認」の往復に戻るため)。
  */
 const AI_WORK_STATES: ReadonlySet<SessionFollowupState> = new Set<SessionFollowupState>([
@@ -70,7 +70,8 @@ export function isAiWorkInProgress(state: SessionFollowupState | null | undefine
 /** AI が進められる作業へ添える継続誘導。新しい実行許可は与えない。 */
 export function renderAiWorkContinuation(): string[] {
   return [
-    "AI が進められる作業が残っています。状況と残作業を確認し、許可済みの範囲で処理を進めてください。",
+    "未完了の作業があります。状況と残作業を確認し、実行可能な項目がある場合だけ許可済みの範囲で処理を進めてください。",
+    "同じ結果の確認・報告は進捗ではありません。進められる項目が無ければ一度理由を報告し、新しい指示・通知が来るまで待機してください。",
     "人間の判断・回答が要る点だけは決め打ちせず、human-wait に記録するか ask で質問して待機してください。",
   ];
 }

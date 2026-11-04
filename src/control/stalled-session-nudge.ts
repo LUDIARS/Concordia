@@ -368,10 +368,9 @@ export function startStalledSessionNudge(
         // 報告の失敗で AI への自動確認や他セッションの巡回を止めない。
         log.warn({ session_id: s.id, err: (e as Error).message }, "human todo report failed");
       }
-      // 3 アウト後も、AI が進められる作業が残っていれば継続誘導する。状態は外部照会が
-      // 要るので、ここでは候補に残し、照会後に判定する。
+      // 未完了という分類で上限を免除しない。停止後の外部照会も避ける。
       const struckOut = isAutoConfirmStruckOut(s.metadata);
-      if (struckOut && !opts.resolveWorkState) continue;
+      if (struckOut) continue;
       const activityMs = await activityOf(s);
       if (activityMs == null) continue; // 活動時刻不明 (idle 計測不能) はスキップ。
       const progressMs = readNudgeProgress(s.metadata);
@@ -413,7 +412,6 @@ export function startStalledSessionNudge(
       }
       const workState = await opts.resolveWorkState?.(s).catch(() => undefined);
       const aiWork = !!workState && isAiWorkInProgress(selectSessionFollowupState(workState));
-      if (struckOut && !aiWork) continue;
       // The registry request may outlive the user's transition to a question card.
       if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
       const latest = opts.repo.findSession(s.id);
@@ -423,7 +421,7 @@ export function startStalledSessionNudge(
         || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
-      if (isAutoConfirmStruckOut(latest.metadata) && !aiWork) continue;
+      if (isAutoConfirmStruckOut(latest.metadata)) continue;
       // 同じ中身の unknown (関連付けできないタスク等) は一度だけ示し、繰り返さない (unknown-followup-notice.ts)。
       // 状態照会が無い構成では中身を比べられないので、従来どおり 3 アウトに任せる。
       const unknownKey = opts.resolveWorkState
@@ -437,10 +435,11 @@ export function startStalledSessionNudge(
       if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs)) continue;
       writeUnknownFollowupNotice(opts.repo, s.id, unknownKey, shownUnknown);
       lastNudge.set(s.id, nowMs);
-      // AI が進められる作業への継続誘導は 3 アウトの回数に数えない。
-      const closing = aiWork
-        ? renderAiWorkContinuation()
-        : renderStrikeOutNotice(recordAutoConfirmStrike(opts.repo, s.id));
+      // 未完了という分類だけでは、進捗のない確認を無制限に再開しない。
+      const closing = [
+        ...(aiWork ? renderAiWorkContinuation() : []),
+        ...renderStrikeOutNotice(recordAutoConfirmStrike(opts.repo, s.id)),
+      ];
       eventBus.emit({
         type: "session.inject",
         target_session_id: s.id,

@@ -12,6 +12,7 @@ import {
   startAutoConfirmStrikeReset,
 } from "./auto-confirm-strikes.js";
 import { startStalledSessionNudge } from "./stalled-session-nudge.js";
+import { startNudgeProgress } from "./nudge-delivery.js";
 
 function fakeSession(id: string): SessionRow {
   return {
@@ -94,7 +95,7 @@ describe("auto-confirm strikes (3 アウト)", () => {
     }
   });
 
-  it.each(["claude-code", "codex"])("Lictor の最終 frame 時刻で判定しても 3 回で止まる (%s)", async (provider) => {
+  it.each(["claude-code", "codex-cli"] as const)("Lictor の最終 frame 時刻で判定しても 3 回で止まる (%s)", async (provider) => {
     let clock = 10_000_000;
     let activity = 0;
     const id = `lictor-loop-${provider}`;
@@ -138,12 +139,13 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(isAiWorkInProgress(null)).toBe(false);
   });
 
-  async function runLoop(snapshot: SessionFollowupSnapshot, rounds: number) {
+  async function runLoop(snapshot: SessionFollowupSnapshot | SessionFollowupSnapshot[], rounds: number) {
     let clock = 10_000_000;
     let mtime = 0;
     const row = fakeSession("work");
     const injected: string[] = [];
     const reported: string[] = [];
+    let resolved = 0;
     const off = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.target_session_id === "work") injected.push(event.text);
     });
@@ -152,7 +154,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
       now: () => clock,
       transcriptMtimeMs: async () => mtime,
       readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
-      resolveWorkState: async () => snapshot,
+      resolveWorkState: async () => Array.isArray(snapshot) ? snapshot[resolved++ % snapshot.length]! : snapshot,
       reportHumanTodos: (session) => { reported.push(session.id); },
       idleSec: 600,
       cooldownSec: 600,
@@ -171,16 +173,25 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     return { injected, reported, strikes: readAutoConfirmStrikes(row.metadata) };
   }
 
-  it("実装中のタスクがあれば 3 アウトで止めず、状況と残作業の確認を促し続ける", async () => {
+  it("タスクが未完了でも、新しい進展が無ければ 3 回で止まる", async () => {
     const result = await runLoop({ workflow: "github", tasks: [{ status: "in_progress" }], delegations: [], prs: [] }, 5);
-    expect(result.injected).toHaveLength(5);
+    expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
     expect(result.injected.at(-1)).toContain("状況と残作業を確認し");
-    expect(result.injected.join("\n")).not.toContain("自動確認を送りません");
-    expect(result.strikes).toBe(0);
+    expect(result.injected.at(-1)).toContain("自動確認を送りません");
+    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
   });
 
   it("審査の通知待ちは従来どおり 3 回で止まる", async () => {
     const result = await runLoop({ workflow: "github", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "running" }] }, 5);
+    expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+  });
+
+  it("task-active と取得不能由来の merge-confirmation が交互でも上限を維持する", async () => {
+    const result = await runLoop([
+      { workflow: "revisor", tasks: [{ status: "in_progress" }], delegations: [], prs: [] },
+      { workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "test_ok" }] },
+    ], 6);
     expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
     expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
   });
@@ -190,7 +201,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.reported).toHaveLength(5);
   });
 
-  it("3 アウト済みでも、AI の作業が再び進められる状態なら誘導を再開する", async () => {
+  it("永続化された 3 アウトは状態分類では解除せず、新しい審査通知で再開する", async () => {
     let clock = 10_000_000;
     const row = fakeSession("resume");
     row.metadata = JSON.stringify({ cc_auto_confirm_strikes: AUTO_CONFIRM_STRIKE_LIMIT });
@@ -198,19 +209,31 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     const off = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.target_session_id === "resume") injected.push(event.text);
     });
+    const repo = fakeRepo([row]);
+    const progress = startNudgeProgress(repo);
+    let resolutions = 0;
     const h = startStalledSessionNudge({
-      repo: fakeRepo([row]),
+      repo,
       now: () => clock,
       transcriptMtimeMs: async () => 0,
       readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
-      resolveWorkState: async () => ({ workflow: "github", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "failed" }] }),
+      resolveWorkState: async () => {
+        resolutions += 1;
+        return { workflow: "github", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "failed" }] };
+      },
       idleSec: 600,
       intervalMs: 1_000_000,
     });
     try {
+      expect(await h.runOnce()).toEqual([]);
+      expect(resolutions).toBe(0);
+      eventBus.emit({ type: "session.inject", target_session_id: "resume", source: "revisor", text: "review complete", ts: 1 });
+      injected.length = 0;
       expect(await h.runOnce()).toEqual(["resume"]);
       expect(injected[0]).toContain("状況と残作業を確認し");
+      expect(readAutoConfirmStrikes(row.metadata)).toBe(1);
     } finally {
+      progress.stop();
       h.stop();
       off();
     }

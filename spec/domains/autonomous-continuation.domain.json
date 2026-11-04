@@ -30,7 +30,7 @@
     "ask-aware-nudge-suppression",
     "cooldown-throttling",
     "human-todo-change-report",
-    "ai-work-continuation-past-strike-out",
+    "bounded-followup-until-new-progress",
     "goal-and-go-resumption"
   ],
   "specRefs": [

@@ -486,7 +486,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(injects().length).toBe(0);
   });
 
-  describe.each(["claude-code", "codex"])("Lictor の最終 frame 時刻で判定する (%s)", (provider) => {
+  describe.each(["claude-code", "codex-cli"] as const)("Lictor の最終 frame 時刻で判定する (%s)", (provider) => {
     it("ファイル mtime が新しくても Lictor の時刻が古ければ停止とみなす", async () => {
       const h = startStalledSessionNudge({
         repo: fakeRepo([fakeSession({ id: `lictor-stale-${provider}`, provider })]),

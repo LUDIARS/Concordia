@@ -2326,7 +2326,7 @@
     },
     {
       "source": "src/control/stalled-session-nudge.ts",
-      "tests": ["src/control/stalled-session-nudge.test.ts", "src/control/auto-confirm-strikes.test.ts"],
+      "tests": ["src/control/stalled-session-nudge.test.ts", "src/control/auto-confirm-strikes.test.ts", "src/control/nudge-delivery.test.ts"],
       "contracts": []
     },
     {

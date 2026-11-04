@@ -24,4 +24,21 @@ describe("SC-WAIT durable nudge delivery",() => {
     expect(humanResponseSession({type:"session.event",session_id:"s",kind:"user_activity",ts:1})).toBeNull();
     expect(humanResponseSession({type:"session.inject",target_session_id:"s",text:"echo",source:"auto:stall-nudge",ts:1})).toBeNull();
   });
+  it("only a newer progress notification resets strikes and preserves human gates", () => {
+    const h = setup();
+    h.metadata = { cc_auto_confirm_strikes: 3, cc_nudge_progress_at: 2000, cc_human_wait: { active: true }, human_response_confirmation: true };
+    const watch = startNudgeProgress(h.repo);
+    try {
+      for (const ts of [1, 2]) {
+        eventBus.emit({ type: "session.inject", target_session_id: "s", source: "revisor", text: "review", ts });
+        expect(h.metadata.cc_auto_confirm_strikes).toBe(3);
+      }
+      eventBus.emit({ type: "session.inject", target_session_id: "s", source: "auto:stall-nudge", text: "continue", ts: 3 });
+      expect(h.metadata.cc_auto_confirm_strikes).toBe(3);
+      eventBus.emit({ type: "session.inject", target_session_id: "s", source: "revisor", text: "new result", ts: 4 });
+      expect(h.metadata.cc_auto_confirm_strikes).toBe(0);
+      expect(h.metadata.cc_human_wait).toEqual({ active: true });
+      expect(h.metadata.human_response_confirmation).toBe(true);
+    } finally { watch.stop(); }
+  });
 });

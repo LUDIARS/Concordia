@@ -23,6 +23,14 @@ Actio: `actio:6f195c99-35a4-4548-a987-f172a59fbc01`。
   complete/scoped goal。既定の complete モード、watch goal、古い metadata の run ID は対象根拠にしない。
 - 概算進捗: 担当者が依頼全体の完了条件と成果の証拠から示す割合。Cc は時間や活動量から算出しない。
   判断できない割合は未確認と報告する。
+  共通 `buildProgressReportGuidance` が tick/watchdog 両経路に `cc-progress` の例と取得手順を届ける。
+  書式の正本は `skills/session-followup/SKILL.md`、採用判断の所有者は
+  `src/platform/monitor-progress.ts`（既存モニターの報告投影）であり、新しいparserは作らない。
+  本人のsidecar `/v1/concordia/session` で都度得たIDを使い、Cc `GET /v1/sessions/:id` の
+  `session.current_task` と完全一致するtask、根拠付き数値percent/evidence/remaining/complete、
+  報告時の現在UTC ISOのatを送る。IDの保存・他者のtask参照・報告目的のtask変更はしない。
+  task取得不能・空task・未知percentはブロックを省略して未確認。自然文からの割合推測はしない。
+  例の値は実報告に置き換え、100ではcomplete=true/remaining=[]を必要とする。
 - 報告要求: 同じ担当セッションへの inject。実報告の配達済みという証拠ではない。
   担当の通常の応答は既存セッション中継経路で依頼者へ届ける。その中継の送信失敗は未配達のままとする。
 - 完了範囲: 依頼で定めた到達点。必要な審査・反映が残る依頼は100%にしない。

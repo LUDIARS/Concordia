@@ -8,6 +8,13 @@ description: Ccの自動確認に付いた作業・委託・審査状態を読�
 10分進捗報告では、依頼全体の概算%、根拠、残件、次の作業を依頼者へ説明し、モニター用に
 次の独立した `cc-progress` ブロックも応答に含める。task は自分の current_task と完全一致、
 at は報告時の UTC ISO。percent が未知ならブロックを省略し「未確認」と書く。
+current_task は、自分の Lictor sidecar `GET http://127.0.0.1:$LICTOR_PORT/v1/concordia/session`
+からその場で得た session_id で、Cc の `GET /v1/sessions/:id` の `session.current_task` を読む。
+Cc endpoint はサービス所有 `excubitor.catalog.yaml` から解決する。IDを保存・ログ出力せず、
+他セッションや Actio の題名から推測しない。報告のために task を書き換えない。
+取得不能・空 task でもブロックを省略して未確認とし、自然文の割合を採用する fallback は作らない。
+percent は根拠付き数値0〜100、evidenceは空でない根拠、remainingは残件の文字列配列、
+at は `new Date().toISOString()` 等で得た現在UTC ISOを使い、例や古い報告を再利用しない。
 complete は依頼全体の完了条件を満たすときだけ true。審査・反映が残る場合は100にしない。
 委託の終端statusの代用にはしない。継続/停止・人間待ち・上限を変更する指示ではない。
 

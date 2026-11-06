@@ -5,6 +5,7 @@ import type { SessionRow } from "../shared/types.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { startStalledSessionNudge } from "./stalled-session-nudge.js";
 import { claimNudgeDelivery } from "./nudge-delivery.js";
+import { buildProgressReportGuidance } from "./periodic-progress-guidance.js";
 
 function fixture(metadata: Record<string, unknown> = {}) {
   const row = { id: "worker", status: "active", provider: "codex-cli", repo_path: "/repo",
@@ -33,6 +34,7 @@ describe("progress through the existing ten-minute tick", () => {
     try {
       expect(await handle.runOnce()).toEqual([row.id]);
       expect(events.filter((e) => e.type === "session.inject")).toHaveLength(1);
+      expect(events.find((e) => e.type === "session.inject")).toMatchObject({ text: buildProgressReportGuidance() });
       expect(events.some((e) => e.type === "session.stall_nudged")).toBe(false);
       expect(claimNudgeDelivery(repo, row.id, ++activity, at, 600_000)).toBe(false);
       handle.stop();

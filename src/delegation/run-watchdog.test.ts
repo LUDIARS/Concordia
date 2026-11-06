@@ -327,5 +327,8 @@ describe("buildChildNudgeText", () => {
     expect(text).toContain("E:/prompts/run-1.md");
     expect(text).toContain("GET /v1/delegation/runs/run-1/status");
     expect(text).toContain("訂正できません");
+    expect(text).toContain("```cc-progress");
+    expect(text).toContain("GET /v1/sessions/:id");
+    expect(text).toContain("skills/session-followup/SKILL.md");
   });
 });

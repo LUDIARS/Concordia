@@ -158,7 +158,7 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
 | `CONCORDIA_DISCORD_FORUM_WEBHOOK_NAME` | `Concordia` | `discord/bot.ts` | Forum の Cc システム投稿に使う webhook 表示名。Session 投稿は metadata `discord_webhook_name` で上書き可。 |
 | `CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL` | 空 | `discord/bot.ts` | Forum の Cc システム投稿に使う webhook avatar URL。Session 投稿は metadata `discord_webhook_avatar_url` で上書き可。 |
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
-| `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
+| `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (正数は最小 1、0 は停止) | `discord/bot.ts` | monitor channel の更新間隔 (分)。作業・根拠付き進捗・リンク・G&Gを同一投稿へ反映する。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_TEST_FORUM_RECONCILE_SEC` | `30` (最小 5、`0` で停止) | `discord/bot.ts` | Revisorの `Open / Test OK` 一覧とDiscord Test Forum投稿を同期する間隔 (秒)。 |
 

@@ -2071,6 +2071,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // 拠点ロールの remote session (post-listen で起動)。 Discord の質問カードがメンションを付けるか判断するのに使う。
   let remoteSessionSite: ReturnType<typeof startRemoteSessionSite> | null = null;
   const chatReadModel = makeChatReadModel({
+    sessionMessages,
     chatRepo: chat,
     sessionsRepo: repo,
     sessionTaskRecordsRepo: sessionTaskRecords,

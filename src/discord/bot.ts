@@ -66,6 +66,7 @@ import { takeInjectAck } from "./inject-ack.js";
 import { ccInjectMirrorPost } from "./cc-inject-mirror.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
+import { canShareMonitorSource } from "./monitor-visibility.js";
 import { startServiceStatusDiscord } from "./service-status.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
 import { buildTeamAdminPanel, upsertTeamAdminPanelMessage } from "./team-admin-panel.js";
@@ -1521,6 +1522,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         await upsertMonitorChannelMessage(
           monitorCh,
           await deps.readModel.getMonitorSnapshot({
+            canShowSession: (sessionId) => {
+              const id = sessionChannelsRepo.findBySessionId(sessionId)?.channel_id;
+              return !!id && canShareMonitorSource(guild.channels.cache.get(id), monitorCh);
+            },
             subsidiaryId,
             costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
             channelForSession: (sessionId) => sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null,
@@ -1533,7 +1538,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           },
         );
       });
-      const monitorMins = readOptionalIntEnv("CONCORDIA_DISCORD_MONITOR_REFRESH_MIN", 0, 1);
+      const monitorMins = readOptionalIntEnv("CONCORDIA_DISCORD_MONITOR_REFRESH_MIN", 10, 1);
       if (monitorMins > 0) {
         scheduleBackground("monitor channel boot refresh", refreshMonitor, 1000);
         monitorTimer = setInterval(() => {

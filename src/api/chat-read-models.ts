@@ -1,4 +1,8 @@
 import type { ChatRepo, ChatMessageRow } from "../db/chat-repo.js";
+import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
+import { readMonitorProgress } from "../platform/monitor-progress.js";
+import { readGoalAndGoStatus } from "../control/goal-and-go.js";
+import { readHumanWait } from "../control/human-wait.js";
 import { readSessionWorkPhase } from "../work/session-work-phase.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
@@ -28,6 +32,7 @@ import type { ChatReadModel, ChatMessageMetadata, ChatMessageRelay, CostSnapshot
 const PR_QUEUE_CONTENT_LIMIT = 2000;
 
 export interface ChatReadModelDeps {
+  sessionMessages?: Pick<SessionMessagesRepo, "list">;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
   sessionTaskRecordsRepo: SessionTaskRecordsRepo;
@@ -192,7 +197,8 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     async getMonitorSnapshot(options) {
       const active = deps.sessionsRepo
         .listSessions({ status: "active" })
-        .filter((session) => sessionOwnedBy(session.metadata, options.subsidiaryId ?? null));
+        .filter((session) => sessionOwnedBy(session.metadata, options.subsidiaryId ?? null)
+          && (options.canShowSession?.(session.id) ?? false));
       const orgCostLines = options.costSubsidiaries
         ? renderOrgCostLines(await collectOrgCostWindows(
           deps.sessionsRepo,
@@ -203,6 +209,17 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         : [];
       const channelRows = await collectChannelCostRows(active, options.channelForSession, cachedChannelCostReader);
       return {
+        sessions: active.flatMap(session => {
+          const channelId = options.channelForSession(session.id);
+          if (!channelId) return [];
+          const message = deps.sessionMessages?.list(session.id, { limit: 50 }).reverse()
+            .find(row => row.author_type === "assistant" && row.content.includes("```cc-progress"));
+          const go = readGoalAndGoStatus(session.metadata);
+          const waiting = readHumanWait(session.metadata) || deps.hasPendingQuestion?.(session.id);
+          return [{ channelId, task: session.current_task,
+            progress: message ? readMonitorProgress(message.content, session.current_task, Date.now()) : null,
+            goalAndGo: `${!go.enabled ? "OFF" : go.stopped_reason ? `上限停止 (${go.stopped_reason})` : "ON"}${waiting ? " · 回答待ち" : ""}` }];
+        }),
         generatedAt: Math.floor(Date.now() / 1000),
         activeCount: active.length,
         orgCostLines,

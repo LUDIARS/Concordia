@@ -4,6 +4,7 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/api/(chat-read-models|monitor-read-model)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/meeting-links/.*\\.ts$" },
     { "pathPattern": "(^|/)src/api/register-chat\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
@@ -70,6 +71,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/session-progress-monitor.md",
     "spec/feature/company-pin-sharing.md",
     "spec/feature/actio-pr-continuation.md",
     "spec/feature/cloud-observation.md",

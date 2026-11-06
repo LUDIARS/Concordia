@@ -3,6 +3,8 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "monitor-C-1", "criterion": "C-1 readMonitorProgress(text,task,now): 同一依頼の根拠付き報告だけを表示し未知・古い報告・未完100%を未確認にする", "symbol": "readMonitorProgress", "file": "src/platform/monitor-progress.ts", "module": "src/platform/monitor-progress.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "monitor-C-2", "criterion": "C-2 monitorDeliveryAction(state,found): 結果不明の作成は既存投稿の照合以外で再送しない", "symbol": "monitorDeliveryAction", "file": "src/discord/monitor-delivery-policy.ts", "module": "src/discord/monitor-delivery-policy.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "qs-lock-C-1", "criterion": "C-1 verifyQsLockUpdate(before,after): qs の指定版への更新だけを許可し他の lock 情報と親要求レンジを維持する", "symbol": "verifyQsLockUpdate", "file": "tools/qs-lock.mjs", "module": "tools/qs-lock.contract.mjs", "mode": "observe", "sample": 1 },
     { "id": "status-preflight-C-20", "criterion": "C-20 preflightStatusJson(text): JSON と共有 status schema を検査し、入力値を含まないフィールド・コード・上限・長さだけの診断を返す", "symbol": "preflightStatusJson", "file": "src/delegation/status-preflight.ts", "module": "src/delegation/status-preflight.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "journal-boundary-C-1", "criterion": "C-1 journalText(value): 外部文字列をHTMLとMarkdownの構文として出力しない", "symbol": "journalText", "file": "src/rules/patrol-journal-text.ts", "module": "src/rules/patrol-journal-text.contract.ts", "mode": "observe", "sample": 1 },

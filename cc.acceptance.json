@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/monitor-channel.ts", "tests": ["src/discord/monitor-channel.test.ts"], "contracts": [] },
+    { "source": "src/discord/monitor-delivery-policy.ts", "tests": ["src/discord/monitor-delivery-policy.test.ts"], "contracts": ["monitor-C-2"] },
+    { "source": "src/discord/monitor-render.ts", "tests": ["src/discord/monitor-render.test.ts"], "contracts": [] },
+    { "source": "src/discord/monitor-visibility.ts", "tests": ["src/discord/monitor-visibility.test.ts"], "contracts": [] },
+    { "source": "src/platform/monitor-progress.ts", "tests": ["src/platform/monitor-progress.test.ts"], "contracts": ["monitor-C-1"] },
+    { "source": "src/platform/ontime-runtime.ts", "tests": ["src/platform/monitor-progress.test.ts"], "contracts": [] },
     { "source": "src/control/periodic-progress-policy.ts", "tests": ["src/control/periodic-progress-policy.test.ts", "src/control/periodic-progress-integration.test.ts"], "contracts": ["periodic-progress-C-1"] },
     { "source": "src/control/periodic-progress-guidance.ts", "tests": ["src/control/periodic-progress-policy.test.ts"], "contracts": ["periodic-progress-C-2"] },
     { "source": "src/control/periodic-progress-request.ts", "tests": ["src/control/periodic-progress-policy.test.ts", "src/control/periodic-progress-integration.test.ts"], "contracts": [] },

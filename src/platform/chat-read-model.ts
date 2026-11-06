@@ -3,6 +3,7 @@ import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 import type { WorkPhaseView } from "../work/session-work-phase.js";
 import type { Requester } from "../control/requester.js";
+import type { MonitorProgress } from "./monitor-progress.js";
 
 export type ChatPlatformName = "discord" | "slack";
 
@@ -159,6 +160,7 @@ export interface SessionStatusSnapshot {
 }
 
 export interface MonitorSnapshot {
+  sessions?: Array<{ channelId: string; task: string | null; progress: MonitorProgress | null; goalAndGo: string }>;
   generatedAt: number;
   activeCount: number;
   orgCostLines: string[];
@@ -190,6 +192,7 @@ export interface WorkflowTargetSnapshot {
 }
 
 export interface MonitorSnapshotOptions {
+  canShowSession?: (sessionId: string) => boolean;
   subsidiaryId?: string | null;
   costSubsidiaries?: Array<{ id: string; name: string; daily_token_budget: number }>;
   channelForSession(sessionId: string): string | null;

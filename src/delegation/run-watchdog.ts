@@ -24,6 +24,7 @@
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { buildStatusReportGuidance } from "./status-report-policy.js";
+import { buildProgressReportGuidance } from "../control/periodic-progress-guidance.js";
 import { isAwaitingHumanInput, readSessionTranscriptTail, shouldNudge } from "../control/stalled-session-nudge.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -57,6 +58,8 @@ export interface RunWatchdogSessionsRepo {
 }
 
 export interface DelegationRunWatchdogOptions {
+  /** Share a contact slot with periodic progress / stall nudge; false consumes no watchdog attempt. */
+  claimChildContact?: (child: SessionRow, activityMs: number, nowMs: number) => boolean;
   runs: RunWatchdogRunsRepo;
   sessions: RunWatchdogSessionsRepo;
   /** 子セッションの最終活動時刻 (epoch-秒)。 transcript_logs の MAX(ts)。 null = 計測不能。 */
@@ -86,9 +89,10 @@ export interface DelegationRunWatchdogHandle {
 /** 子への確認 inject の本文。 委託先はこの run の子セッション (AI)。 */
 export function buildChildNudgeText(run: DelegationRunRow, idleMinutes: number): string {
   return [
-    `[delegation:${run.id}] [自動確認] 委託元へ状況報告が ${idleMinutes} 分以上届いていません。`,
+    `[delegation:${run.id}] [自動確認] 最後の活動から ${idleMinutes} 分以上経過しました。進捗の報告を確認してください。`,
     "",
-    "- 現在の進捗と残作業を 1〜3 行で整理してください。 この確認は status の送信を求めていません。",
+    buildProgressReportGuidance(),
+    "- この確認は status の送信を求めていません。",
     ...(run.prompt_file_path ? [`- 依頼内容が手元に無ければ、 先に委託本文 \`${run.prompt_file_path}\` を読んでください。`] : []),
     "- 作業が続くなら継続してください。",
     ...buildStatusReportGuidance(`/v1/delegation/runs/${run.id}/status`),
@@ -287,6 +291,11 @@ export function startDelegationRunWatchdog(
 
       if (!eventBus.canDeliverInject({type:"session.inject",target_session_id:run.child_session_id,
         text:"",source:DELEGATION_WATCHDOG_SOURCE,ts:Math.floor(nowMs/1000)})) continue;
+      const latest = opts.sessions.findSession(child.id);
+      if (!latest || latest.status !== "active" || latest.metadata !== child.metadata
+        || latest.repo_path !== child.repo_path || latest.repo_origin !== child.repo_origin
+        || latest.branch !== child.branch || latest.current_task !== child.current_task) continue;
+      if (opts.claimChildContact && !opts.claimChildContact(latest, lastActivityMs, nowMs)) continue;
       opts.runs.recordWatchdogNudge(run.id, nowMs, lastActivityMs);
       deliverNudge(run.child_session_id, buildChildNudgeText(run, Math.round(idleMs / 60_000)), nowMs);
       actions.push({ runId: run.id, action: "nudged" });

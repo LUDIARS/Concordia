@@ -55,6 +55,7 @@
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",
   "specRefs": [
+    "spec/feature/periodic-progress-report.md",
     "spec/feature/daily-vulnerability-intelligence.md",
     "spec/feature/delegation-profile-defaults.md",
     "spec/feature/sidecar-lifecycle-model-refresh.md",

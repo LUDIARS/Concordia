@@ -19,10 +19,11 @@ export function startNudgeProgress(repo:Pick<SessionsRepo,"findSession" | "merge
   }) };
 }
 export function claimNudgeDelivery(repo: Pick<SessionsRepo,"findSession" | "updateMetadata">,
-  sessionId: string, activityMs: number, nowMs: number): boolean {
+  sessionId: string, activityMs: number, nowMs: number, cooldownMs = 0): boolean {
   let claimed = false;
   repo.updateMetadata(sessionId,(metadata) => {
     const last = metadata.cc_nudge_delivery as { activityMs?: number; sentAt?: number } | undefined;
+    if (typeof last?.sentAt === "number" && nowMs - last.sentAt < cooldownMs) return metadata;
     if (last && typeof last.activityMs === "number" && activityMs <= last.activityMs
       && Number(metadata.cc_nudge_progress_at ?? 0) <= Number(last.sentAt ?? 0)) return metadata;
     claimed = true;

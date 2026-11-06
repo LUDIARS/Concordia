@@ -85,7 +85,7 @@ import { startResidentSidecars } from "../delegation/sidecar/resident-runtime.js
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { decideAutomaticContinuation,isAutomaticContinuationSource } from "../control/automatic-continuation-policy.js";
 import { isWaitingForHumanResponse,recoverLegacyNudgeConfirmations } from "../control/human-response-confirmation.js";
-import { startNudgeProgress } from "../control/nudge-delivery.js";
+import { startNudgeProgress, claimNudgeDelivery } from "../control/nudge-delivery.js";
 import { isHumanWaitActive } from "../control/human-wait.js";
 import { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
@@ -181,11 +181,12 @@ import { startReaper } from "../control/reaper.js";
 import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/question-escalation.js";
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { canRequestProgress } from "../control/periodic-progress-request.js";
 import { resolveSessionFollowupSnapshot } from "../control/session-followup-snapshot.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startHumanWait } from "../control/human-wait.js";
-import { startAutoConfirmStrikeReset } from "../control/auto-confirm-strikes.js";
+import { startAutoConfirmStrikeReset, recordAutoConfirmStrike } from "../control/auto-confirm-strikes.js";
 import { reportHumanTodos } from "../control/human-todo-report.js";
 import { humanTodoQuestionLink } from "../control/human-todo-question-link.js";
 import { startSelfDeploymentReport } from "../deploy/self-deployment.js";
@@ -2925,6 +2926,12 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,
+        activeDelegationRunId: (session) => {
+          const run = delegationRepo.findRunByChildSession(session.id);
+          return run && ["launching", "spawned", "running"].includes(run.status) ? run.id : null;
+        },
+        progressLimits: { maxContinuations: cfg.goalAndGoMaxContinuations, maxRuntimeSec: cfg.goalAndGoMaxRuntimeSec },
+        progressEnabled: cfg.goalAndGoIdleSec > 0,
         isAutoCheckDisabled: isSessionAutoCheckDisabled,
         resolveWorkState: (session) => resolveSessionFollowupSnapshot({
           linkedTasks: (sessionId) => readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId }),
@@ -2979,6 +2986,13 @@ export async function startBackend(): Promise<BackendHandle> {
       startDelegationRunWatchdog({
         runs: delegationRepo,
         sessions: repo,
+        claimChildContact: (child, activityMs, nowMs) => {
+          if (cfg.goalAndGoIdleSec <= 0 || isSessionAutoCheckDisabled(child) || !canRequestProgress(child.metadata, nowMs, cfg.stallNudgeIntervalMs,
+            { maxContinuations: cfg.goalAndGoMaxContinuations, maxRuntimeSec: cfg.goalAndGoMaxRuntimeSec })
+            || !claimNudgeDelivery(repo, child.id, activityMs, nowMs, cfg.stallNudgeIntervalMs)) return false;
+          recordAutoConfirmStrike(repo, child.id);
+          return true;
+        },
         lastActivitySec: (sessionId) => transcriptLogs.tsSpan(sessionId)?.last_ts ?? null,
         resolveEnabled: () => adminState.getDelegationWatchdogEnabled(),
         resolveIdleSec: () => adminState.getDelegationWatchdogIdleSec(),

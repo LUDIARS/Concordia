@@ -70,6 +70,9 @@ import {
   writeUnknownFollowupNotice,
 } from "./unknown-followup-notice.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
+import { progressScope } from "./periodic-progress-policy.js";
+import { canRequestProgress, type ProgressLimits } from "./periodic-progress-request.js";
+import { buildProgressReportGuidance } from "./periodic-progress-guidance.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import {
   isBlockedByPendingQuestion,
@@ -90,6 +93,10 @@ export const STALL_NUDGE_SENTINEL = "[自動確認]";
 const TAIL_BYTES = 64 * 1024;
 
 export interface StalledSessionNudgeOptions {
+  /** Live delegation identity, not a stale session metadata marker. */
+  activeDelegationRunId?: (session: SessionRow) => string | null;
+  progressLimits?: ProgressLimits;
+  progressEnabled?: boolean;
   resolveWorkState?: (session: SessionRow) => Promise<SessionFollowupSnapshot>;
   repo: SessionsRepo;
   /** scan 周期 (ms)。 既定 10 分。 */
@@ -360,7 +367,8 @@ export function startStalledSessionNudge(
 
     const nudged: string[] = [];
     for (const s of active) {
-      if (readResidentMarker(s.metadata)) continue; // Resident work is watched by its current run; idle is intentional.
+      const scope = progressScope(s.metadata, opts.activeDelegationRunId?.(s) ?? null);
+      if (readResidentMarker(s.metadata) && !scope) continue; // Busy residents are tracked by their live run.
       if (opts.isAutoCheckDisabled?.(s)) continue;
       try {
         opts.reportHumanTodos?.(s);
@@ -371,6 +379,9 @@ export function startStalledSessionNudge(
       // 未完了という分類で上限を免除しない。停止後の外部照会も避ける。
       const struckOut = isAutoConfirmStruckOut(s.metadata);
       if (struckOut) continue;
+      if (scope && opts.progressEnabled === false) continue;
+      if (scope && !canRequestProgress(s.metadata, nowMs, intervalMs,
+        opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 })) continue;
       const activityMs = await activityOf(s);
       if (activityMs == null) continue; // 活動時刻不明 (idle 計測不能) はスキップ。
       const progressMs = readNudgeProgress(s.metadata);
@@ -380,10 +391,10 @@ export function startStalledSessionNudge(
       if (
         !shouldNudge({
           idleMs,
-          idleThresholdMs,
+          idleThresholdMs: scope ? 0 : idleThresholdMs,
           awaiting: false,
           lastNudgeMs: lastNudge.get(s.id) ?? null,
-          cooldownMs,
+          cooldownMs: scope ? intervalMs : cooldownMs,
           nowMs,
           lastActivityMs: activityMs,
         })
@@ -410,7 +421,8 @@ export function startStalledSessionNudge(
         log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
-      const workState = await opts.resolveWorkState?.(s).catch(() => undefined);
+      // Progress is assessed by the assigned agent; no external state scan is needed for a report request.
+      const workState = scope ? undefined : await opts.resolveWorkState?.(s).catch(() => undefined);
       const aiWork = !!workState && isAiWorkInProgress(selectSessionFollowupState(workState));
       // The registry request may outlive the user's transition to a question card.
       if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
@@ -422,9 +434,12 @@ export function startStalledSessionNudge(
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
       if (isAutoConfirmStruckOut(latest.metadata)) continue;
+      if (scope && (progressScope(latest.metadata, opts.activeDelegationRunId?.(latest) ?? null) !== scope
+        || !canRequestProgress(latest.metadata, nowMs, intervalMs,
+          opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 }))) continue;
       // 同じ中身の unknown (関連付けできないタスク等) は一度だけ示し、繰り返さない (unknown-followup-notice.ts)。
       // 状態照会が無い構成では中身を比べられないので、従来どおり 3 アウトに任せる。
-      const unknownKey = opts.resolveWorkState
+      const unknownKey = !scope && opts.resolveWorkState
         ? unknownFollowupNoticeKey(workState ? selectSessionFollowupState(workState) : "unknown", workState)
         : null;
       const shownUnknown = readUnknownFollowupNotice(latest.metadata);
@@ -432,7 +447,11 @@ export function startStalledSessionNudge(
         log.debug({ session_id: s.id }, "skip nudge: same unknown state already shown");
         continue;
       }
-      if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs)) continue;
+      const text = scope ? buildProgressReportGuidance() : buildNudgeText(s.provider, workState);
+      const injection = { type: "session.inject" as const, target_session_id: s.id,
+        text, source: STALL_NUDGE_SOURCE, ts: Math.floor(nowMs / 1000) };
+      if (!eventBus.canDeliverInject(injection)) continue;
+      if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) continue;
       writeUnknownFollowupNotice(opts.repo, s.id, unknownKey, shownUnknown);
       lastNudge.set(s.id, nowMs);
       // 未完了という分類だけでは、進捗のない確認を無制限に再開しない。
@@ -445,12 +464,12 @@ export function startStalledSessionNudge(
         target_session_id: s.id,
         // Read the local phase even when external review state is unavailable;
         // the guidance then requests an assessment without assuming review is idle.
-        text: [buildNudgeText(s.provider, workState), ...closing].join("\n"),
+        text: [text, ...closing].join("\n"),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });
       // Discord へ「自動確認を送った」事実だけを通知する (本文や個人識別子は載せない)。
-      eventBus.emit({
+      if (!scope) eventBus.emit({
         type: "session.stall_nudged",
         target_session_id: s.id,
         idle_sec: Math.round(idleMs / 1000),

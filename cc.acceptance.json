@@ -1,6 +1,11 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/control/periodic-progress-policy.ts", "tests": ["src/control/periodic-progress-policy.test.ts", "src/control/periodic-progress-integration.test.ts"], "contracts": ["periodic-progress-C-1"] },
+    { "source": "src/control/periodic-progress-guidance.ts", "tests": ["src/control/periodic-progress-policy.test.ts"], "contracts": ["periodic-progress-C-2"] },
+    { "source": "src/control/periodic-progress-request.ts", "tests": ["src/control/periodic-progress-policy.test.ts", "src/control/periodic-progress-integration.test.ts"], "contracts": [] },
+    { "source": "src/control/nudge-delivery.ts", "tests": ["src/control/periodic-progress-integration.test.ts"], "contracts": [] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/control/periodic-progress-integration.test.ts", "src/delegation/run-watchdog.test.ts"], "contracts": [] },
     { "source": "tools/qs-lock.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
     { "source": "tools/qs-lock.contract.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
     {"source":"src/taskflow/actio-acting-for.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},

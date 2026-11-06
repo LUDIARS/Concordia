@@ -101,6 +101,12 @@ function captureEvents(): { events: ConcordiaEvent[]; stop: () => void } {
 }
 
 describe("startDelegationRunWatchdog", () => {
+  it("does not consume an attempt when the periodic tick already owns the contact slot", async () => {
+    const deps = makeDeps({});
+    deps.options.claimChildContact = () => false;
+    expect(await runOnceWith(deps.options)).toEqual([]);
+    expect(deps.runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
+  });
   it("does not consume nudge attempts while current delivery is blocked", async () => {
     const deps = makeDeps({}); const remove = eventBus.registerInjectGate(() => false);
     try {

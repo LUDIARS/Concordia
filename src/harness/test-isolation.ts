@@ -2,6 +2,8 @@ interface TestIsolationAction {
   tool: string;
   command?: string;
   isWorktree?: boolean;
+  /** cwd のリポが Cc 登録済みプロジェクト。true のときだけセッション内のサービス起動を許可する。 */
+  projectRegistered?: boolean;
   /** team settings `test_policy` (teams §3.1)。拒否時に正しい実行経路を案内する。 */
   teamTestPolicy?: "confirm-queue" | "custos-unity";
 }
@@ -37,13 +39,16 @@ export function isOperationalTestCommand(command: string): boolean {
 
 export const noServiceStartInSession: TestIsolationPredicate = (action) => {
   if (action.tool !== "Bash" || !action.command || !isServiceStartCommand(action.command)) return null;
+  // neco 指示 (2026-11-07): Cc 登録済みプロジェクトに関係する起動はセッションから行ってよい。
+  // worktree での起動・動作テストは no-op-test-in-worktree が引き続き拒否し、custos-unity のチームは Custos 経路のまま。
+  if (action.projectRegistered === true && action.teamTestPolicy !== "custos-unity") return null;
   return {
     rule: action.teamTestPolicy === "custos-unity" ? "custos-unity-required" : "no-service-start-in-session",
     decision: "deny",
     reason: "セッション内からサービスを起動しようとしています。",
     suggestion: action.teamTestPolicy === "custos-unity"
       ? "Unity の動作テストは Custos の管理経路から実行してください。セッション内の直接起動は許可されません。"
-      : "サービス起動は Excubitor または confirm フロー経由で行ってください。",
+      : "Cc に登録されていないリポからのサービス起動です。Excubitor または confirm フロー経由で行うか、プロジェクトを Cc に登録してください。",
   };
 };
 

@@ -48,4 +48,14 @@ describe("project policy opt-in", () => {
     const off = await readJson(await post(makeApp({ ddd: false, contract: false }), "/v1/harness/context", { task: "実装する", session_id: "s-1" }));
     expect(off.rules.some((r: { title: string }) => r.title === "DDD/契約プロセス")).toBe(false);
   });
+
+  it("Cc 登録済みプロジェクトのリポからはセッション内のサービス起動を deny しない (neco 2026-11-07)", async () => {
+    const start = { tool: "Bash", command: "npm run dev", cwd: "E:/repo", branch: "main", isWorktree: false };
+    const registered = await readJson(await post(makeApp({ ddd: false, contract: false, registered: true }), "/v1/harness/gate", { action: start, session_id: "s-1" }));
+    expect(registered.hits.map((h: { rule: string }) => h.rule)).not.toContain("no-service-start-in-session");
+    const unregistered = await readJson(await post(makeApp({ ddd: false, contract: false, registered: false }), "/v1/harness/gate", { action: start, session_id: "s-1" }));
+    expect(unregistered.hits.map((h: { rule: string }) => h.rule)).toContain("no-service-start-in-session");
+    expect(unregistered.decision).toBe("deny");
+    expect(unregistered.local_policy.policy.registered).toBe(false);
+  });
 });

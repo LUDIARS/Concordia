@@ -1098,7 +1098,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const inspected = await inspectImplementationRepo(cwd);
           const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :
             deps.projectCodes.list().find((entry) => entry.repo_path.replace(/\\/g, "/").toLowerCase() === inspected.repoPath.replace(/\\/g, "/").toLowerCase());
-          return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1, testsRequired: row?.tests_required === 1, ontimeTestsRequired: row?.ontime_tests_required === 1 };
+          return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1, testsRequired: row?.tests_required === 1, ontimeTestsRequired: row?.ontime_tests_required === 1, registered: Boolean(row) };
         },
         audit: deps.harnessAudit,
         consultationSafety: consultationSafety ?? undefined,

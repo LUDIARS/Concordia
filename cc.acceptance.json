@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/harness/test-isolation.ts", "tests": ["src/harness/test-isolation-team-policy.test.ts", "src/api/harness-session-project-policy.test.ts"], "contracts": [] },
     { "source": "src/discord/monitor-channel.ts", "tests": ["src/discord/monitor-channel.test.ts"], "contracts": [] },
     { "source": "src/discord/monitor-delivery-policy.ts", "tests": ["src/discord/monitor-delivery-policy.test.ts"], "contracts": ["monitor-C-2"] },
     { "source": "src/discord/monitor-render.ts", "tests": ["src/discord/monitor-render.test.ts"], "contracts": [] },

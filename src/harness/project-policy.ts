@@ -2,7 +2,14 @@
 import type { HarnessAction, Predicate } from "./predicates.js";
 import { isEditTool } from "./predicates.js";
 
-export interface ProjectHarnessPolicy { ddd: boolean; contract: boolean; testsRequired?: boolean; ontimeTestsRequired?: boolean }
+export interface ProjectHarnessPolicy {
+  ddd: boolean;
+  contract: boolean;
+  testsRequired?: boolean;
+  ontimeTestsRequired?: boolean;
+  /** cwd のリポが Cc のプロジェクト登録 (project_codes) に載っている。サービス起動の許可判定に使う。 */
+  registered?: boolean;
+}
 
 /**
  * `contract_enabled` は「契約の確定・承認を **追加で** 要求するか」の opt-in であって、

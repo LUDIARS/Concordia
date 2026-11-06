@@ -64,6 +64,11 @@ export interface HarnessAction {
   useCaseReadOnly?: boolean;
   /** チーム所属セッションの team settings (teams §3.1)。 未所属は undefined。 */
   teamTestPolicy?: "confirm-queue" | "custos-unity";
+  /**
+   * cwd のリポが Cc 登録済みプロジェクト (project_codes) に該当する。
+   * true のときだけ、セッション内のサービス起動 (no-service-start-in-session) を許可する。判定できないときは undefined。
+   */
+  projectRegistered?: boolean;
   teamWorktreePolicy?: "allowed" | "repo-root-only";
   teamVisibility?: "public" | "private";
 }

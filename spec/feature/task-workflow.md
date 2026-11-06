@@ -230,7 +230,7 @@ predicates.ts の思想を踏襲する: 純関数、 判定不能なら null (�
 | rule | decision | 内容 |
 |---|---|---|
 | `no-op-test-in-worktree` | **deny** | cwd が linked worktree (`isWorktree`) で、 サービス起動・動作テスト系コマンド (start-*.bat / `npm run dev` / `npm start` / `node dist/` / integration・e2e スクリプト等) を実行しようとした |
-| `no-service-start-in-session` | **deny** | セッション内でのサービス起動コマンド (worktree 外でも)。 起動は Excubitor / confirm フロー経由のみ (HARNESS.md §4 の機械化) |
+| `no-service-start-in-session` | **deny** | セッション内でのサービス起動コマンド (worktree 外でも)。 起動は Excubitor / confirm フロー経由のみ (HARNESS.md §4 の機械化)。 例外: cwd のリポが Cc 登録済みプロジェクト (project_codes) なら許可する (neco 2026-11-07)。 worktree 内は `no-op-test-in-worktree` が引き続き拒否、 `custos-unity` チームは Custos 経路のまま |
 
 - `HarnessAction` に `isWorktree?: boolean` を追加。 判定は hook (resolver) 側で
   `git rev-parse --git-dir` と `--git-common-dir` の相違により解決して渡す。 不明なら省略 = 強制しない。

@@ -41,6 +41,7 @@ export function evaluateCachedAction(action: HarnessAction, snapshot: LocalPolic
   return evaluateAction({
     ...snapshot.context, ...action,
     sessionModel: snapshot.context.model,
+    projectRegistered: snapshot.policy.registered === true,
     editedRepos: [...new Set([...snapshot.editedRepos, action.cwd ?? ""])],
     editedFiles: [...new Set([...snapshot.editedFiles, ...(action.filePath ? [action.filePath] : [])])],
   }, [

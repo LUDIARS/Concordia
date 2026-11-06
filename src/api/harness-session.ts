@@ -270,6 +270,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // 未選択プロジェクトは undefined (= contract-incomplete を評価しない)。 false にすると契約を
     // seed しない全プロジェクトのコード編集が一律 deny になる (2026-09-16 supervisor 実走で確認)。
     enrichedAction.contractComplete = policy?.contract ? sessionContext?.contractComplete === true : undefined;
+    enrichedAction.projectRegistered = policy ? policy.registered === true : undefined;
     const basePredicates = projectPredicates(withMainPushAllowlist(mainPushAllowlist, DEFAULT_PREDICATES), policy);
     const predicates = deps.strongImplModels
       ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]

@@ -23,4 +23,17 @@ describe("test isolation harness", () => {
     expect(noServiceStartInSession({ ...command, teamTestPolicy: "confirm-queue" as const })?.decision).toBe("deny");
     expect(noOpTestInWorktree({ ...command, teamTestPolicy: "confirm-queue" as const })?.decision).toBe("deny");
   });
+
+  it("allows a session service start when the repo is a Cc-registered project (neco 2026-11-07)", () => {
+    const command = { tool: "Bash", command: "npm run dev", isWorktree: false };
+    expect(noServiceStartInSession({ ...command, projectRegistered: true })).toBeNull();
+    expect(noServiceStartInSession({ ...command, projectRegistered: false })?.decision).toBe("deny");
+    expect(noServiceStartInSession(command)?.decision).toBe("deny");
+  });
+
+  it("registration does not lift worktree isolation or the custos-unity route", () => {
+    const command = { tool: "Bash", command: "npm run dev", isWorktree: true, projectRegistered: true };
+    expect(noOpTestInWorktree(command)?.decision).toBe("deny");
+    expect(noServiceStartInSession({ ...command, teamTestPolicy: "custos-unity" as const })?.rule).toBe("custos-unity-required");
+  });
 });

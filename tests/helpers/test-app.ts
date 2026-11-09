@@ -134,6 +134,7 @@ export interface TestAppEnv {
   requesterProfiles: RequesterProfilesRepo;
   consultationIntakes: ConsultationIntakesRepo;
   adminState: AdminState;
+  projectCodes: ProjectCodesRepo;
   taskflowState: TaskflowStateStore;
   processManager: ProcessManager;
   config: ConcordiaConfig;
@@ -281,7 +282,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     db, repo, controlJobs, tasks, escalations, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig,
-    participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
+    participants, delegation, delegationService, modelCatalog, injectManuals, adminState, projectCodes,
     staff, subsidiary, teams, departments, departmentService,
     useCases, useCaseService, useCaseCorrections, requesterProfiles, consultationIntakes,
     taskflowState,

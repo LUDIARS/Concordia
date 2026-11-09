@@ -5,6 +5,7 @@ import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { readGoalAndGoStatus, setGoalAndGoEnabled } from "../../control/goal-and-go.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
+import { mayInferTargetProjectFromText } from "../../control/target-inference-policy.js";
 
 export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/impl-unlock", (c) => {
@@ -16,7 +17,8 @@ export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void 
   });
   app.post("/:id/title", async (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = TitleSetSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
@@ -24,7 +26,7 @@ export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void 
     // current_task も更新する。 Discord は title_renamed の payload からタイトルを読むが、
     // Slack ライブカードは session.current_task を読むため、 ここを書かないと rename が
     // Slack カードに反映されない (📌 がセッション id 先頭8桁のまま固まる)。
-    const inferredTargetProject = inferTargetProject(deps, parsed.data.text);
+    const inferredTargetProject = inferTargetProject(deps, session.repo_path, parsed.data.text);
     deps.repo.patchSession(id, {
       current_task: parsed.data.text.slice(0, 200),
       ...(inferredTargetProject ? { target_project: inferredTargetProject } : {}),
@@ -36,11 +38,12 @@ export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void 
 
 app.post("/:id/title-suggestion", async (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = TitleSuggestionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const inferredTargetProject = inferTargetProject(deps, parsed.data.text);
+    const inferredTargetProject = inferTargetProject(deps, session.repo_path, parsed.data.text);
     if (inferredTargetProject) {
       deps.repo.patchSession(id, { target_project: inferredTargetProject });
     }
@@ -123,6 +126,8 @@ app.post("/:id/goal-and-go", async (c) => {
   });
 }
 
-function inferTargetProject(deps: SessionsApiDeps, text: string): string | null {
+/** 文章からの作業対象推定。特定リポジトリで動くセッションには行わない (target-inference-policy)。 */
+function inferTargetProject(deps: SessionsApiDeps, repoPath: string, text: string): string | null {
+  if (!mayInferTargetProjectFromText(repoPath, deps.resolveWorkspaceRoots?.() ?? [])) return null;
   return createProjectResolver(deps.projectCodes?.list() ?? []).targetFromText(text)?.cwd ?? null;
 }

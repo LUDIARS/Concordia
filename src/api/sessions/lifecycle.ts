@@ -22,6 +22,7 @@ import { resolveDelegationRunIdForSession } from "../../delegation/coordination.
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
+import { mayInferTargetProjectFromText } from "../../control/target-inference-policy.js";
 import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
 import { decideDeclaredTargetPatch } from "../../control/session-working-repo.js";
 import { localDeclaredTargetIo } from "../../control/session-working-repo-io.js";
@@ -462,6 +463,7 @@ app.patch("/:id", async (c) => {
     ].filter((value): value is string => Boolean(value?.trim())).join("\n");
     const inferredTargetProject =
       parsed.data.target_project === undefined && projectClaimText
+        && mayInferTargetProjectFromText(parsed.data.repo_path ?? session.repo_path, deps.resolveWorkspaceRoots?.() ?? [])
         ? createProjectResolver(deps.projectCodes?.list() ?? []).targetFromText(projectClaimText)?.cwd
         : undefined;
     const { metadata, ...columnPatch } = {

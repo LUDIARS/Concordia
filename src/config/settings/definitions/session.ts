@@ -170,6 +170,14 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
   envBoolean("session.reaper_enabled", "session", "孤児プロセス回収", "CONCORDIA_REAPER_ENABLED", true, "終了済みセッションの残プロセスを回収する。"),
   envInteger("session.reaper_interval_ms", "session", "回収の走査間隔 (ms)", "CONCORDIA_REAPER_INTERVAL_MS", 300_000, "reaper の走査周期。"),
   envInteger("session.reaper_min_age_sec", "session", "回収の最小 age (秒)", "CONCORDIA_REAPER_MIN_AGE_SEC", 180, "起動からこの秒数未満のプロセスは回収対象にしない (登録レース回避)。"),
+  // 自動引き継ぎ・リポ担当 (spec/feature/session-auto-succession.md §4.2)。 監視が走査ごとに env を読み直す。
+  envBoolean("session.auto_handover", "session", "自動引き継ぎ", "CONCORDIA_AUTO_HANDOVER", true, "Claude セッションの占有トークンが閾値を超えたら、待機時に次セッションへ引き継ぐ。Codex は自前のコンパクションがあるので対象外。"),
+  envInteger("session.auto_handover_window_tokens", "session", "自動引き継ぎの設定窓 (トークン)", "CONCORDIA_AUTO_HANDOVER_WINDOW_TOKENS", 1_000_000, "閾値計算の母数。観測の窓ではなくこの値で計算する。"),
+  envInteger("session.auto_handover_pct", "session", "自動引き継ぎの閾値 (%)", "CONCORDIA_AUTO_HANDOVER_PCT", 70, "設定窓に対する占有の割合。既定 1M × 70% = 700,000 トークン。"),
+  envInteger("session.auto_succession_quiet_sec", "session", "待機中とみなす静止秒", "CONCORDIA_AUTO_SUCCESSION_QUIET_SEC", 60, "最後の frame が完了境界で、この秒数新しい frame が無ければ自動の依頼を送ってよい。"),
+  envBoolean("session.repo_agents", "session", "リポ担当エージェント", "CONCORDIA_REPO_AGENTS", true, "別リポの編集がゲートで止まったとき・リポが分岐したとき、その checkout の担当セッションを立てて渡す。"),
+  envInteger("session.repo_agents_max", "session", "リポ担当の上限", "CONCORDIA_REPO_AGENTS_MAX", 3, "1 つの親が同時に持てる担当の数。"),
+  envInteger("session.repo_agents_brief_timeout_sec", "session", "依頼文の待ち時間 (秒)", "CONCORDIA_REPO_AGENTS_BRIEF_TIMEOUT_SEC", 600, "担当の準備後、親の repo-brief をこの秒数待つ。過ぎたら取り下げる。"),
   envInteger("session.reaper_lost_grace_sec", "session", "回収の復帰猶予 (秒)", "CONCORDIA_REAPER_LOST_GRACE_SEC", 300, "lost 化から Lictor tree を回収するまでの復帰待ち。"),
   {
     key: "session.reaper_session_end_grace_sec",

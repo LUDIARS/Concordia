@@ -10,6 +10,12 @@ import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, genera
 import { withinTeardownGrace } from "../../platform/session-teardown-grace.js";
 import { recordHumanInjectFragments } from "./inject-fragments.js";
 
+function assistantTextOf(kind: string, payload: unknown): string | null {
+  if (kind !== "text" || !payload || typeof payload !== "object") return null;
+  const value = payload as { role?: unknown; text?: unknown };
+  return value.role === "assistant" && typeof value.text === "string" ? value.text : null;
+}
+
 export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/transcript-frame", async (c) => {
     const id = c.req.param("id");
@@ -60,6 +66,17 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
           "transcript_logs insert failed; falling back to WS-only broadcast",
         );
       }
+    }
+
+    // 親の発言の repo-brief ブロックをリポ担当の依頼として受け取る (session-auto-succession.md §3.3)。
+    // provider によらず Lictor が transcript を送るので、 ここが Claude / Codex 共通の受け口。
+    const repoBriefText = assistantTextOf(parsed.data.kind, parsed.data.payload);
+    // 同じ frame が再送されても、 担当の状態遷移 (requested→spawning は 1 回だけ) が二重 spawn を防ぐ。
+    if (repoBriefText && deps.repoAgents && session.status === "active") {
+      void deps.repoAgents.onAssistantText(id, repoBriefText).catch((err: unknown) => {
+        // frame の受信 (ログ流通) を担当の起動失敗で止めない。 失敗はログで観測する。
+        log.warn({ session_id: id, err: (err as Error).message }, "repo-brief handling failed");
+      });
     }
 
     const transcriptEvent = {

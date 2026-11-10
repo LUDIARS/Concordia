@@ -40,6 +40,9 @@ function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): Esca
 import { updateSessionWorkPhase } from "../../work/update-session-work-phase.js";
 import { DECLARED_TASK_METADATA_KEY } from "../../harness/reliability/task-branch-policy.js";
 import { serializeRegistration } from "./working-targets.js";
+import type { PendingRelictorKind, PendingRepoAgentLink } from "../../control/pending-relictor.js";
+import { REPO_AGENT_OF_METADATA_KEY, repoAgentOfMetadata } from "../../control/succession/repo-agents-state.js";
+import { successorReinject } from "./successor-reinject.js";
 import { INHERITED_REQUESTER_METADATA_KEY } from "../../personal-budget/session-facts.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -56,7 +59,8 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     const now = nowSec();
     // /co-relictor・/co-handover 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;
-    let relictorKind: "relictor" | "handover" = "relictor";
+    let relictorKind: PendingRelictorKind = "relictor";
+    let repoAgentLink: PendingRepoAgentLink | null = null;
     // 全ての新規 Session に共通の fail-closed 作業ポリシーを 1 回だけ inject する。
     let sessionWorkPolicyText: string | null = null;
 
@@ -220,6 +224,11 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         relictorHandoff = successor.handoff;
         relictorKind = successor.kind;
         if (successor.goal) meta.goal = successor.goal;
+        // リポ担当の子: 親との対応を子 metadata に焼く (spec/feature/session-auto-succession.md §3.4 3)。
+        if (successor.kind === "repo-agent" && successor.repoAgent) {
+          repoAgentLink = successor.repoAgent;
+          meta[REPO_AGENT_OF_METADATA_KEY] = repoAgentOfMetadata(successor.repoAgent);
+        }
       }
       deps.repo.insertSession({
         id: input.id,
@@ -237,6 +246,8 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         team_id: claimed?.teamId ?? claimedDelegationRun?.team_id ?? null,
         department_id: claimed?.departmentId ?? claimedDelegationRun?.department_id ?? null,
       });
+      // 親の行を active にして子の session id を書き、 親へ担当が立ったことを通知する。
+      if (repoAgentLink) deps.repoAgents?.onChildRegistered(repoAgentLink, input.id);
       // タスク名は insertSession の引数に無いので、登録直後に patch で入れる。
       // Discord / WebUI のセッション表示がそのまま「何をしている session か」になる。
       if (claimed?.memoriaTaskTitle) {
@@ -350,8 +361,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
 
     // /co-relictor 再起動・/co-handover 移行なら、引き継ぎ資料だけを inject して文脈を復元する。
     if (relictorHandoff) {
-      const header = relictorKind === "handover" ? HANDOVER_REINJECT_HEADER : RELICTOR_REINJECT_HEADER;
-      const source = relictorKind === "handover" ? HANDOVER_INJECT_SOURCE : RELICTOR_INJECT_SOURCE;
+      const { header, source } = successorReinject(relictorKind);
       const handoffText = `${header}${relictorHandoff}`;
       deps.repo.appendEvent({
         session_id: input.id,

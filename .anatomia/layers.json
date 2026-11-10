@@ -108,6 +108,7 @@
     { "glob": "src/*", "layer": "application" },
     { "glob": "src/bootstrap/*", "layer": "application" },
     { "glob": "src/control/*", "layer": "application" },
+    { "glob": "src/control/succession/*", "layer": "application" },
     { "glob": "src/daily/*", "layer": "application" },
     { "glob": "src/delegation/*", "layer": "application" },
     { "glob": "src/deploy/*", "layer": "application" },

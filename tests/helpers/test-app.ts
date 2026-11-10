@@ -94,6 +94,8 @@ export interface TestAppOptions {
   webSso?: AppDeps["webSso"];
   /** LINE webhook の転送先。 未指定なら受け口は常に 404。 */
   lineWebhook?: AppDeps["lineWebhook"];
+  /** リポ担当エージェント (spec/feature/session-auto-succession.md §3)。 未指定なら配線しない。 */
+  repoAgents?: AppDeps["repoAgents"];
 }
 
 export interface TestAppEnv {
@@ -267,6 +269,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     buildStale: opts.buildStale ?? false,
     webSso: opts.webSso ?? null,
     lineWebhook: opts.lineWebhook ?? null,
+    repoAgents: opts.repoAgents,
     inboxItems: () => inboxItems(db),
     sweeperRunOnce: async () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",

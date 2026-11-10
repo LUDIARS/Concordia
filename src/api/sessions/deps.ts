@@ -125,4 +125,8 @@ export interface SessionsApiDeps {
   applyModelEffort?: import("../../contract/runtime-apply.js").ApplyModelEffortFn;
   /** session-end ??????????????????????????????????????? (??????*/
   harnessAudit?: HarnessAuditRepo;
+  /** relictor / handover のユースケース。 未注入なら route が既定配線で組む (自動引き継ぎ監視と共有するため注入する)。 */
+  succession?: import("../../control/succession/session-succession-service.js").SessionSuccessionService;
+  /** リポ担当エージェント (spec/feature/session-auto-succession.md §3)。 未注入なら repo-brief 捕捉・子の結合をしない。 */
+  repoAgents?: import("../../control/succession/repo-agent-service.js").RepoAgentService;
 }

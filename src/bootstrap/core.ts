@@ -282,6 +282,9 @@ import { createContextLinkResolver } from "../control/inject-context-links.js";
 import { createInstructionFragmentSync } from "../work/instruction-fragments-client.js";
 import { allowDelegationDomainPreamble } from "../control/delegation-context-eligibility.js";
 import { requestStartupPolicyRefresh } from "../api/sessions/startup-policy-check.js";
+import { FORCE_EXIT_GRACE_MS, toSpawnProvider } from "../api/sessions/shared.js";
+import { estimateContextTokens } from "../cost/context-estimate.js";
+import { buildSuccessionRuntime } from "../control/succession/succession-runtime.js";
 import { AugurTools } from "../developer-tools/augur.js";
 import { ToolTestJobs } from "../developer-tools/test-jobs.js";
 import { readActioBindings } from "../taskflow/actio-binding.js";
@@ -2415,7 +2418,30 @@ export async function startBackend(): Promise<BackendHandle> {
   // LINE の共用チャネルのトークごとの紐付け。 受け口と管理 API で同じものを使う。
   const lineTalkLinks = new SqliteLineTalkLinkStore(db);
   const cloudBatchScheduleStops: Array<() => Promise<void>> = [];
+  // 自動引き継ぎ・リポ担当 (spec/feature/session-auto-succession.md)。 route と監視で同じインスタンスを使う。
+  const successionLog = createChildLogger("auto-succession");
+  const successionRuntime = buildSuccessionRuntime({
+    sessions: repo,
+    chat,
+    transcriptLogs,
+    controlJobs,
+    runClaude,
+    toSpawnProvider,
+    forceExitGraceMs: FORCE_EXIT_GRACE_MS,
+    registeredRepos: () => projectCodesRepo.list().map((row) => row.repo_path),
+    projectCodeFor: (repoPath) => projectCodesRepo.findByRepoPath(repoPath)?.code ?? null,
+    workspaceRoots: () => adminState.getWorkspaceRoots(),
+    childThread: (sessionId) => {
+      const channel = discordChannels.findBySessionId(sessionId);
+      return channel ? `<#${channel.channel_id}>` : null;
+    },
+    hasUnansweredQuestion: (sessionId) => pendingQuestions.listUnanswered(sessionId).length > 0,
+    readContextTokens: async (session) => (await estimateContextTokens(session))?.tokens ?? null,
+    log: { info: (message) => successionLog.info(message), warn: (message) => successionLog.warn(message) },
+  });
   const app = buildApp({
+    succession: successionRuntime.succession,
+    repoAgents: successionRuntime.repoAgents,
     webSso,
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
@@ -3042,6 +3068,7 @@ export async function startBackend(): Promise<BackendHandle> {
         },
       }),
     );
+    trackPostListenHandle(successionRuntime.start());
     trackPostListenHandle(
       startIdleNudge({
         repo,

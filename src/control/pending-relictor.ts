@@ -22,7 +22,14 @@ const TTL_MS = 5 * 60 * 1000; // 5 分で expire (取り違え防止)
  * 引き継ぎの種別。 relictor = 最新 Lictor での再起動、 handover = 次セッションへの
  * 作業移行 (/co-handover)。 機構は同一で、 新セッションへの再投入文言だけが変わる。
  */
-export type PendingRelictorKind = "relictor" | "handover";
+export type PendingRelictorKind = "relictor" | "handover" | "repo-agent";
+
+/** kind "repo-agent" のときの親子の対応 (spec/feature/session-auto-succession.md §3.4)。 */
+export interface PendingRepoAgentLink {
+  parentSessionId: string;
+  checkout: string;
+  projectCode: string | null;
+}
 
 export interface PendingRelictor {
   cwd: string;
@@ -33,6 +40,8 @@ export interface PendingRelictor {
   /** 旧セッションのゴール。 新セッション metadata に引き継ぐ。 */
   goal: Goal | null;
   kind: PendingRelictorKind;
+  /** kind "repo-agent" のみ。 */
+  repoAgent: PendingRepoAgentLink | null;
   at: number;
 }
 
@@ -46,6 +55,7 @@ export function recordPendingRelictor(
     handoff: string;
     goal?: Goal | null;
     kind?: PendingRelictorKind;
+    repoAgent?: PendingRepoAgentLink | null;
   },
   now = Date.now(),
 ): void {
@@ -57,6 +67,7 @@ export function recordPendingRelictor(
     handoff: input.handoff,
     goal: input.goal ?? null,
     kind: input.kind ?? "relictor",
+    repoAgent: input.repoAgent ?? null,
     at: now,
   });
   prune(now);

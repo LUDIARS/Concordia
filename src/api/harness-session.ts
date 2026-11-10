@@ -40,6 +40,7 @@ import { workflowGuidance } from "../harness/reliability/workflow-guidance.js";
 import type { OpenBountyEventNotice } from "../shared/bounty-event-notice.js";
 import type { TaskBranchService } from "../harness/reliability/task-branch-service.js";
 import { describeSubmittedTask, taskStartWarning } from "../harness/reliability/task-branch-policy.js";
+import { isRepoMismatchDenial } from "../control/succession/repo-agent-policy.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
 
@@ -160,6 +161,41 @@ export interface HarnessSessionApiDeps {
    * 未注入なら判定しない。 判定の失敗はツールを止めない (集計の不調で全作業を止めない)。
    */
   budgetGate?: (sessionId: string) => Promise<{ deny: false } | { deny: true; reason: string }>;
+  /**
+   * リポ担当への受け渡し (spec/feature/session-auto-succession.md §3.1 02a)。 deny 後に呼び、
+   * cwd と作業先のずれによる deny なら担当を準備して、 依頼文の書き方 (または既存担当の案内) を返す。
+   * 未注入・対象外なら null で、 deny 応答は従来どおり。
+   */
+  repoAgentGuidance?: (input: RepoAgentGateInput) => string | null;
+}
+
+export interface RepoAgentGateInput {
+  sessionId: string;
+  hits: ReadonlyArray<{ rule: string; decision: string }>;
+  cwd: string | null;
+  filePath: string | null;
+}
+
+/**
+ * cwd と作業先のずれによる deny に、 リポ担当への受け渡しの案内を載せる。 deny 自体は変えない
+ * (INV-6: 担当への受け渡しで deny を回避しない)。 モデルは拒否理由を受け取るので reason にも併記する。
+ */
+function attachRepoAgentGuidance(
+  verdict: { reason: string; hits: Array<{ rule: string; decision: string; suggestion?: string }> },
+  guidance: (input: RepoAgentGateInput) => string | null,
+  input: RepoAgentGateInput,
+): void {
+  let text: string | null = null;
+  try {
+    text = guidance(input);
+  } catch (e) {
+    // 案内の失敗でゲートの判定 (deny) を変えない。 失敗はログで観測する。
+    hlog.warn({ err: (e as Error).message, session_id: input.sessionId }, "repo-agent guidance failed");
+  }
+  if (!text) return;
+  const hit = verdict.hits.find((candidate) => candidate.decision === "deny" && isRepoMismatchDenial(candidate));
+  if (hit) hit.suggestion = text;
+  verdict.reason = `${verdict.reason}\n\n${text}`;
 }
 
 function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
@@ -328,6 +364,11 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         blackboxError = (e as Error).message;
         hlog.warn({ err: blackboxError, session_id, hook: hook ?? "gate" }, "harness blackbox gate failed");
       }
+    }
+    if (verdict.decision === "deny" && session_id && deps.repoAgentGuidance) {
+      attachRepoAgentGuidance(verdict, deps.repoAgentGuidance, {
+        sessionId: session_id, hits: verdict.hits, cwd: action.cwd ?? null, filePath: action.filePath ?? null,
+      });
     }
     const event: HarnessAuditEvent = verdict.decision === "deny" ? "block" : "gate";
     // 当たった hit の代表 rule (最悪 decision のもの)。

@@ -15,6 +15,7 @@ import { registerWorkPhaseRoutes } from "./work-phase.js";
 import { registerTaskLinksRoutes } from "./task-links.js";
 import { registerHumanWaitRoutes } from "./human-wait.js";
 import { registerWorkingTargetsRoutes } from "./working-targets.js";
+import { registerRepoAgentRoutes } from "./repo-agents.js";
 
 export type { SessionsApiDeps } from "./deps.js";
 
@@ -31,6 +32,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   registerRelayRoutes(app, deps);
   registerTitleGoalRoutes(app, deps);
   registerEndRoutes(app, deps);
+  registerRepoAgentRoutes(app, deps);
   registerSkillRoutes(app, deps);
   registerMessagesRoutes(app, deps);
   registerContractRoutes(app, deps);

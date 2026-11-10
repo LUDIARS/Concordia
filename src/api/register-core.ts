@@ -325,6 +325,10 @@ export interface CoreSessionDeps {
   projectSessionEvent: (event: ConcordiaEvent) => void;
   webPush: WebPushRepo;
   webPushService: WebPushService;
+  /** relictor / handover のユースケース (自動引き継ぎ監視と共有)。 */
+  succession?: import("../control/succession/session-succession-service.js").SessionSuccessionService;
+  /** リポ担当エージェント (spec/feature/session-auto-succession.md §3)。 */
+  repoAgents?: import("../control/succession/repo-agent-service.js").RepoAgentService;
 }
 
 export interface CoreDelegationDeps {
@@ -648,6 +652,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         }
       },
       harnessAudit: deps.harnessAudit,
+      succession: deps.succession,
+      repoAgents: deps.repoAgents,
     }),
   );
   app.route("/v1/push", pushRouter({ repo: deps.webPush, service: deps.webPushService }));
@@ -1101,6 +1107,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1, testsRequired: row?.tests_required === 1, ontimeTestsRequired: row?.ontime_tests_required === 1, registered: Boolean(row) };
         },
         audit: deps.harnessAudit,
+        ...(deps.repoAgents ? { repoAgentGuidance: deps.repoAgents.onGateDenied } : {}),
         consultationSafety: consultationSafety ?? undefined,
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,

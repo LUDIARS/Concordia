@@ -79,6 +79,10 @@ updated: 2026-11-10
   出ない (context-observation-authority.md) ので、観測の窓ではなくこの設定窓で計算する。観測ログに
   窓が出ている場合 (将来) もこの設定値を優先し、閾値がぶれないようにする。
 - 占有は「最後の request の input + cache_read + cache_creation」(既存の observation)。
+- 「人間への未回答質問」は stalled-session-nudge と同じ signal の和で判定する (`awaiting-human.ts`):
+  Cc の未回答質問カード・human-wait・人間の確認待ち (`human_response_confirmation`)・transcript 末尾の
+  ask マーカー。カードを出さない Lictor relay の ask で返事を待つセッションを畳まないため。
+  transcript 末尾の読み取りは、他の条件をすべて満たしたセッションだけで行う。
 - **1 セッション 1 回**。実行前に `metadata.auto_handover = {attempted_at, measure}` を記録し、
   結果が不明・失敗でも同じセッションでは再送しない。後継は別 ID なので改めて判定対象になる。
 

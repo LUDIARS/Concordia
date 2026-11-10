@@ -5548,6 +5548,7 @@
     {"source":"src/control/succession/context-handover-policy.ts","tests":["src/control/succession/context-handover-policy.test.ts"],"contracts":[]},
     {"source":"src/control/succession/auto-handover-metadata.ts","tests":["src/control/succession/context-handover-policy.test.ts","src/control/succession/auto-succession-watcher.test.ts"],"contracts":[]},
     {"source":"src/control/succession/session-idle.ts","tests":["src/control/succession/session-idle.test.ts"],"contracts":[]},
+    {"source":"src/control/succession/awaiting-human.ts","tests":["src/control/succession/awaiting-human.test.ts","src/control/succession/auto-succession-watcher.test.ts"],"contracts":[]},
     {"source":"src/control/succession/repo-agent-policy.ts","tests":["src/control/succession/repo-agent-policy.test.ts"],"contracts":[]},
     {"source":"src/control/succession/managed-session.ts","tests":["src/control/succession/repo-agent-policy.test.ts","src/control/succession/auto-succession-watcher.test.ts"],"contracts":[]},
     {"source":"src/control/succession/repo-brief.ts","tests":["src/control/succession/repo-brief.test.ts"],"contracts":[]},

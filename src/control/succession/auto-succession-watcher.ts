@@ -27,7 +27,8 @@ export interface AutoSuccessionWatcherPorts {
   /** 観測した占有トークン。 観測できなければ null。 */
   readContextTokens(session: SessionRow): Promise<number | null>;
   lastFrame(sessionId: string): LastTranscriptFrame | null;
-  hasUnansweredQuestion(sessionId: string): boolean;
+  /** 人間の返事待ち (質問カード・human-wait・確認待ち・ask マーカー)。 awaiting-human.ts。 */
+  isAwaitingHuman(session: SessionRow): Promise<boolean>;
   isSessionEnding(metadataJson: string | null): boolean;
   recordAttempt(sessionId: string, patch: Record<string, unknown>): void;
   succession: Pick<SessionSuccessionService, "handover" | "isInProgress">;
@@ -51,7 +52,12 @@ export interface AutoSuccessionWatcherHandle {
 export function createAutoSuccessionWatcher(ports: AutoSuccessionWatcherPorts): AutoSuccessionWatcher {
   let running = false;
 
-  const handoverInput = (session: SessionRow, idle: boolean, tokens: number | null): ContextHandoverInput => {
+  const handoverInput = (
+    session: SessionRow,
+    idle: boolean,
+    tokens: number | null,
+    awaitingHuman: boolean,
+  ): ContextHandoverInput => {
     const metadata = parseSessionMetadata(session.metadata);
     return {
       status: session.status,
@@ -59,7 +65,7 @@ export function createAutoSuccessionWatcher(ports: AutoSuccessionWatcherPorts): 
       managedElsewhere: isDelegatedSession(metadata),
       tokens,
       sessionEnding: ports.isSessionEnding(session.metadata),
-      awaitingHuman: ports.hasUnansweredQuestion(session.id),
+      awaitingHuman,
       idle,
       alreadyAttempted: readAutoHandoverRecord(metadata) !== null,
     };
@@ -68,10 +74,14 @@ export function createAutoSuccessionWatcher(ports: AutoSuccessionWatcherPorts): 
   const maybeHandover = async (session: SessionRow, idle: boolean, settings: SuccessionSettings): Promise<void> => {
     if (ports.succession.isInProgress(session.id)) return;
     // 安い条件 (provider・試行済み等) で落ちるセッションの占有は読まない。
-    const precheck = decideContextHandover(handoverInput(session, idle, null), settings.handover);
+    const precheck = decideContextHandover(handoverInput(session, idle, null, false), settings.handover);
     if (precheck.action === "skip" && precheck.reason !== "unknown_usage") return;
     const tokens = await ports.readContextTokens(session);
-    const decision = decideContextHandover(handoverInput(session, idle, tokens), settings.handover);
+    // 返事待ちの判定は transcript 末尾を読むので、 他の条件をすべて満たしたセッションだけで行う。
+    const measured = decideContextHandover(handoverInput(session, idle, tokens, false), settings.handover);
+    if (measured.action === "skip") return;
+    const awaitingHuman = await ports.isAwaitingHuman(session);
+    const decision = decideContextHandover(handoverInput(session, idle, tokens, awaitingHuman), settings.handover);
     if (decision.action === "skip") return;
     // 上限超過は記録せず次の走査へ回す (記録すると 1 回きりの試行を使い切ってしまう)。
     if (!ports.spawnBudget.tryTake()) {

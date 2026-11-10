@@ -23,7 +23,7 @@ function harness(sessions: SessionRow[], tokens: Record<string, number | null>, 
     listActiveSessions: () => sessions.map((s) => ({ ...s, metadata: metadata.has(s.id) ? JSON.stringify(metadata.get(s.id)) : s.metadata })),
     readContextTokens: async (s) => { calls.push(`read:${s.id}`); return tokens[s.id] ?? null; },
     lastFrame: (id) => (options.busy?.includes(id) ? { ts: 0, kind: "tool_use", payload: {} } : FINAL),
-    hasUnansweredQuestion: (id) => options.asking?.includes(id) ?? false,
+    isAwaitingHuman: async (s) => { calls.push(`awaiting:${s.id}`); return options.asking?.includes(s.id) ?? false; },
     isSessionEnding: () => false,
     recordAttempt: (id, patch) => { calls.push(`record:${id}`); metadata.set(id, { ...(metadata.get(id) ?? {}), ...patch }); },
     succession: {
@@ -51,7 +51,7 @@ describe("AutoSuccessionWatcher (§2.2)", () => {
   it("判定 → 記録 → 実行の順で呼ぶ", async () => {
     const h = harness([session("a")], { a: 720_000 });
     await h.watcher.tick();
-    expect(h.calls).toEqual(["sweep:a:true", "read:a", "record:a", "handover:a:ctx 72%"]);
+    expect(h.calls).toEqual(["sweep:a:true", "read:a", "awaiting:a", "record:a", "handover:a:ctx 72%"]);
     expect(h.metadata.get("a")).toEqual({ auto_handover: { attempted_at: 1000, measure: { tokens: 720_000, pct: 0.72 } } });
   });
 
@@ -84,6 +84,8 @@ describe("AutoSuccessionWatcher (§2.2)", () => {
     await h.watcher.tick();
     expect(h.calls.filter((c) => c.startsWith("record") || c.startsWith("handover"))).toEqual([]);
     expect(h.calls).toContain("sweep:busy:false");
+    // 返事待ちの判定 (transcript 末尾の読み取り) は、 他の条件を満たしたセッションだけで行う。
+    expect(h.calls.filter((c) => c.startsWith("awaiting"))).toEqual(["awaiting:ask"]);
   });
 
   it("前の走査が進行中なら次の走査は何もしない", async () => {

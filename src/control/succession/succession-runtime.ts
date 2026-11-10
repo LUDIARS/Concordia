@@ -18,6 +18,10 @@ import type { SessionRow } from "../../shared/types.js";
 import type { RunClaudeFn } from "../compaction.js";
 import { forgetPendingRelictorBySpawnId, recordPendingRelictor } from "../pending-relictor.js";
 import { isSessionEndPending } from "../session-end-process.js";
+import { isWaitingForHumanResponse } from "../human-response-confirmation.js";
+import { isHumanWaitActive } from "../human-wait.js";
+import { isAwaitingHumanInput, readSessionTranscriptTail } from "../stalled-session-nudge.js";
+import { isSessionAwaitingHuman } from "./awaiting-human.js";
 import { spawnSession, type SpawnProvider } from "../spawner.js";
 import {
   createAutoSuccessionWatcher,
@@ -50,6 +54,8 @@ export interface SuccessionRuntimeDeps {
   /** 子のスレッド表記 (Discord チャンネル等)。 */
   childThread(sessionId: string): string | null;
   hasUnansweredQuestion(sessionId: string): boolean;
+  /** transcript 末尾 (ask マーカー判定用)。 未指定なら stalled-session-nudge の既定実装。 */
+  readTranscriptTail?(session: SessionRow): Promise<string | null>;
   /** 観測した占有トークン (cost 層の estimateContextTokens)。 */
   readContextTokens(session: SessionRow): Promise<number | null>;
   env?: Readonly<Record<string, string | undefined>>;
@@ -141,7 +147,13 @@ export function buildSuccessionRuntime(deps: SuccessionRuntimeDeps): SuccessionR
       const [last] = deps.transcriptLogs.listBySession(sessionId, { tail: true, limit: 1 });
       return last ? { ts: last.ts, kind: last.kind, payload: last.payload } : null;
     },
-    hasUnansweredQuestion: deps.hasUnansweredQuestion,
+    isAwaitingHuman: (session) => isSessionAwaitingHuman({
+      hasUnansweredQuestion: deps.hasUnansweredQuestion,
+      isHumanWaitActive: (sessionId) => isHumanWaitActive(deps.sessions, sessionId),
+      isWaitingForHumanResponse: (sessionId) => isWaitingForHumanResponse(deps.sessions, sessionId),
+      readTranscriptTail: deps.readTranscriptTail ?? readSessionTranscriptTail,
+      isAskMarkerPending: isAwaitingHumanInput,
+    }, session),
     isSessionEnding: isSessionEndPending,
     recordAttempt: (sessionId, patch) => deps.sessions.mergeMetadata(sessionId, patch),
     succession,

@@ -28,6 +28,7 @@ const KEYS = {
   finishedRunGraceSec: "admin.delegation_finished_run_grace_sec",
   thinkingMessages: "admin.thinking_messages_enabled",
   languageGuard: "admin.language_guard_enabled",
+  goalStopQuestionGuard: "admin.goal_stop_question_guard_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -141,6 +142,16 @@ export class RuntimeSettingsStore {
    */
   getLanguageGuardEnabled(): boolean {
     const raw = this.store.get(KEYS.languageGuard);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    return true;
+  }
+
+  /**
+   * ゴールを止めるだけの質問に Cc が「推奨案で進めて」と答えるか (既定 ON — 2026-11-12 neco 指示)。
+   * 解決順は DB (WebUI 設定) → 既定。
+   */
+  getGoalStopQuestionGuardEnabled(): boolean {
+    const raw = this.store.get(KEYS.goalStopQuestionGuard);
     if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
     return true;
   }

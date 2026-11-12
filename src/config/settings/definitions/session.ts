@@ -215,6 +215,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: true,
     editable: true,
   },
+  {
+    key: "session.goal_stop_question_guard_enabled",
+    section: "session",
+    label: "ゴールを止める質問に答える",
+    description:
+      "依頼済みのゴールへ自力で進める前提整備・手段選択を選ばせるだけの質問なら、Cc が判定して「推奨案で進めて報告」と回答する。破壊的操作・ゴールが曖昧・他者と衝突する質問は人間に残す (spec/feature/goal-stop-question-guard.md)。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.goal_stop_question_guard_enabled",
+    defaultValue: true,
+    editable: true,
+  },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
   envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 指示)。"),

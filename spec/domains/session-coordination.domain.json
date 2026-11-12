@@ -48,6 +48,9 @@
     },
     {
       "pathPattern": "(^|/)src/api/sessions/inject-fragments.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/goal-stop-question/[^/]+(.test)?.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
@@ -70,6 +73,7 @@
     "spec/feature/project-rules-inject.md",
     "spec/feature/session-language-guard.md",
     "spec/feature/workplace-chat.md",
-    "spec/feature/shared-available-one-shot.md"
+    "spec/feature/shared-available-one-shot.md",
+    "spec/feature/goal-stop-question-guard.md"
   ]
 }

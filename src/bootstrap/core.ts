@@ -211,6 +211,8 @@ import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { startLanguageGuard } from "../control/language-guard.js";
+import { startGoalStopQuestionGuard } from "../control/goal-stop-question/guard.js";
+import { claudeGoalStopJudge } from "../control/goal-stop-question/judge.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
@@ -3107,6 +3109,23 @@ export async function startBackend(): Promise<BackendHandle> {
         isEnabled: () => adminState.getLanguageGuardEnabled(),
         // 質問の回答待ちには補正も送らない (言い直しで同じ質問を出し直させない)。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+        log: { info: (message) => log.info(message) },
+      }),
+    );
+    trackPostListenHandle(
+      startGoalStopQuestionGuard({
+        isEnabled: () => adminState.getGoalStopQuestionGuardEnabled(),
+        isActiveSession: (sessionId) => repo.findSession(sessionId)?.status === "active",
+        recentEvents: (sessionId) => repo.recentEvents(sessionId, 50),
+        judge: claudeGoalStopJudge((prompt, opts) => runClaude(prompt, opts)),
+        answer: (sessionId, questionId, text) =>
+          answerPendingQuestion(
+            { sessions: repo, questions: questionStoreFromRepo(pendingQuestions) },
+            sessionId,
+            { question_id: questionId, other_text: text },
+          ),
+        record: (sessionId, payload) =>
+          repo.appendEvent({ session_id: sessionId, ts: Math.floor(Date.now() / 1000), kind: "goal_stop_question_answered", payload }),
         log: { info: (message) => log.info(message) },
       }),
     );

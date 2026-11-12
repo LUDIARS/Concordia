@@ -17,11 +17,12 @@ import {
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
 import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 import { caseCollisionWarnings } from "../projects/project-code-case.js";
-import type {
-  RevisorRepositoryAdmin,
-  RevisorRepositoryRecord,
-} from "../pr/revisor-repository-client.js";
+import type { RevisorRepositoryAdmin } from "../pr/revisor-repository-client.js";
 import { createRevisorRepositorySnapshot } from "../pr/revisor-repository-snapshot.js";
+import { findRevisorRecord, listRevisorRepositories, ownerRepoFromOrigin } from "./project-revisor-record.js";
+import { projectRevisorTestsRouter } from "./project-revisor-tests.js";
+
+export { ownerRepoFromOrigin };
 
 // @implements spec/feature/project-code-registry.md — 操作面 / 管理 UI
 
@@ -350,7 +351,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     const row = deps.repo.findByCode(c.req.param("code"));
     if (!row) return c.json({ error: "project_code_not_found" }, 404);
 
-    const repos = await listRevisorRepositories(deps);
+    const repos = await listRevisorRepositories(deps.revisor);
     if (!repos.list) return c.json({ error: "revisor_unreachable" }, 502);
     const record = findRevisorRecord(repos.list, row);
     if (!record) {
@@ -367,6 +368,15 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     deps.repo.setRevisorWorkflow(row.code, parsed.data.workflow);
     return c.json({ ok: true, workflow: parsed.data.workflow });
   });
+
+  // 登録テストの一覧・追加・削除 (Revisor 登録の round-trip)。
+  if (deps.revisor) {
+    app.route("/", projectRevisorTestsRouter({
+      repo: deps.repo,
+      revisor: deps.revisor,
+      onChanged: () => revisorSnapshot?.invalidate(),
+    }));
+  }
 
   /**
    * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
@@ -426,44 +436,6 @@ async function inspectWorkspaceRepo(
     return { error: "repository_outside_workspace" };
   }
   return { repoPath: inspected.repoPath, repoOrigin: inspected.repoOrigin };
-}
-
-/** Revisor の登録一覧。 未注入は list: null (unknown)、 到達失敗も null。 */
-async function listRevisorRepositories(
-  deps: ProjectCodesRouterDeps,
-): Promise<{ list: RevisorRepositoryRecord[] | null }> {
-  if (!deps.revisor) return { list: null };
-  try {
-    return { list: await deps.revisor.listRepositories() };
-  } catch {
-    return { list: null };
-  }
-}
-
-/** repo_origin (owner/name) → rootPath の順で Revisor 登録を引く。 */
-function findRevisorRecord(
-  list: RevisorRepositoryRecord[],
-  row: ProjectCodeRow,
-): RevisorRepositoryRecord | null {
-  const ownerRepo = ownerRepoFromOrigin(row.repo_origin);
-  if (ownerRepo) {
-    const byName = list.find((record) => record.repository.toLowerCase() === ownerRepo.toLowerCase());
-    if (byName) return byName;
-  }
-  const normalizedPath = normalizePath(row.repo_path);
-  return list.find((record) => normalizePath(record.rootPath) === normalizedPath) ?? null;
-}
-
-/** `https://github.com/OWNER/NAME(.git)` / `git@github.com:OWNER/NAME.git` → `OWNER/NAME` */
-export function ownerRepoFromOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  const match = /^(?:https?:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i
-    .exec(origin.trim());
-  return match ? `${match[1]}/${match[2]}` : null;
-}
-
-function normalizePath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function groupAssignments<T>(

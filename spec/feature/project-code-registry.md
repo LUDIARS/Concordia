@@ -62,6 +62,28 @@ session title、forum routing の正本には使わない。
   Concordia actor identity を付け、token 未設定・未登録・到達不能は明示的に失敗する。
 - Revisor からの未検証データやエラー本文をブラウザへ素通ししない。
 
+### 登録テストの追加・削除 (CC-PCR-RVTEST-01)
+
+Revisor の登録テスト (審査で回す test_cases) を、CLI の `revisor repo register` で全項目を書き直さずに
+Cc の管理 UI から 1 件ずつ変えられるようにする。
+
+- `GET /v1/project-codes/:code/revisor-tests` — 登録テストの一覧 (`test_cases[]`: name / command / args /
+  cwd / timeout_ms / kinds / runtime / always)。
+- `POST /v1/project-codes/:code/revisor-tests` — 1 件追加。name と command は必須。args は既定 `[]`、
+  cwd は既定 `.`、timeout_ms は既定 10 分 (1 秒〜60 分)。kinds は Revisor の change kind
+  (`code` / `docs` / `test` / `config` / `infra` / `asset` / `generated`) か `null`。
+- `DELETE /v1/project-codes/:code/revisor-tests/:name` — 名前で 1 件削除。
+- 変更は毎回 Revisor の登録を読み直し (一覧キャッシュは使わない)、対象の 1 件だけを変えた test_cases を
+  workflow token と Concordia actor identity 付きで送り返す。workflow は送らず、Revisor の upsert で
+  workflow・notify などの既存値を保持する。成功後は一覧キャッシュを捨てる。
+- command と args は Revisor と同じ文字制限 (`" & | < > ^ % !`・改行・NUL を含まない) を Cc の入口で検査し、
+  cwd はリポジトリ内の相対パスに限る。
+- 名前の重複・32 件超は 409、存在しない名前の削除は 404、最後の 1 件の削除は 409
+  (`revisor_test_case_last`。Revisor は登録テスト 0 件の登録を受け付けない)。未登録は 409、
+  Revisor 不達は 502、Revisor が更新を拒んだ場合は 502 `revisor_test_cases_update_failed` を返し、
+  Revisor のエラー本文は返さない。
+- 管理 UI は Rv 列の「登録テスト」から行の下に一覧を開き、追加・削除 (削除は確認付き) を行う。
+
 ## Actio との同期 (spec/faq/actio-cc-task-project-sync.md §4.2)
 
 プロジェクトの正本は Cc の `project_codes`。Actio は `GET /v1/project-codes/admin` を 10 分ごとに取り込む。

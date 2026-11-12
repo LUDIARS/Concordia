@@ -255,6 +255,50 @@ export interface InboxResult {
   items: InboxItem[];
 }
 
+/** Revisor の登録テスト (CC-PCR-RVTEST-01)。 */
+export interface RevisorTestCase {
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  timeout_ms: number;
+  kinds: string[] | null;
+  runtime: boolean;
+  always: boolean;
+}
+
+export type RevisorTestCaseInput = Pick<RevisorTestCase, "name" | "command" | "args">
+  & Partial<Omit<RevisorTestCase, "name" | "command" | "args">>;
+
+export interface RevisorTestCasesResult {
+  repository?: string;
+  test_cases: RevisorTestCase[];
+}
+
+/** 失敗時は API の error コード (例: revisor_test_case_last) を code に載せて投げる。 */
+export class RevisorTestsError extends Error {
+  constructor(readonly status: number, readonly code: string) {
+    super(`${status} ${code}`);
+  }
+}
+
+async function revisorTestsRequest<T>(
+  method: "GET" | "POST" | "DELETE",
+  code: string,
+  name?: string,
+  body?: unknown,
+): Promise<T> {
+  const path = `/v1/project-codes/${encodeURIComponent(code)}/revisor-tests`
+    + (name === undefined ? "" : `/${encodeURIComponent(name)}`);
+  const r = await fetch(`${BASE}${path}`, {
+    method,
+    ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  });
+  const json = await r.json().catch(() => null) as { error?: unknown } | null;
+  if (!r.ok) throw new RevisorTestsError(r.status, typeof json?.error === "string" ? json.error : "unknown");
+  return json as T;
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${path}`);
@@ -893,6 +937,12 @@ export const api = {
     }),
   projectCodeSetRevisorWorkflow: (code: string, workflow: "revisor" | "github") =>
     put<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}/revisor-workflow`, { workflow }),
+  projectRevisorTests: (code: string) =>
+    revisorTestsRequest<RevisorTestCasesResult>("GET", code),
+  projectRevisorTestAdd: (code: string, testCase: RevisorTestCaseInput) =>
+    revisorTestsRequest<RevisorTestCasesResult>("POST", code, undefined, testCase),
+  projectRevisorTestRemove: (code: string, name: string) =>
+    revisorTestsRequest<RevisorTestCasesResult>("DELETE", code, name),
   projectCodeSetGithubIssueWorkflow: (code: string, enabled: boolean) =>
     put<{ ok: boolean; github_issue_workflow: boolean }>(
       `/v1/project-codes/${encodeURIComponent(code)}/github-issue-workflow`,

@@ -27,7 +27,9 @@
     { "pathPattern": "(^|/)web/src/api\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/(ProjectCodes|Setup)\\.tsx$" },
     { "pathPattern": "(^|/)web/src/project-notification-settings(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)web/src/pages/ProjectNotificationSettings\\.tsx$" }
+    { "pathPattern": "(^|/)web/src/pages/ProjectNotificationSettings\\.tsx$" },
+    { "pathPattern": "(^|/)src/api/project-revisor-(record|tests)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/ProjectRevisorTests\\.tsx$" }
   ],
   "cardTemplate": "Summarise the project-code-registry domain: empty initial state, validated idempotent registration, and restart-free repository resolution.",
   "mechanics": [
@@ -38,6 +40,7 @@
     "runtime-resolution-without-restart",
     "loopback-admin-management",
     "revisor-workflow-round-trip",
+    "revisor-test-case-round-trip",
     "project-notification-preference-management"
   ],
   "specRefs": ["spec/feature/implementation-tools.md", "spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md", "spec/feature/project-notification-preferences.md", "spec/feature/implementation-worktree.md"],

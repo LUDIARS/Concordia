@@ -7,26 +7,33 @@ import { toTokenResolver } from "./revisor-token.js";
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+export interface RevisorRepositoryTestCase {
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  timeoutMs: number;
+  kinds?: string[] | null;
+  runtime?: boolean;
+  always?: boolean;
+}
+
 export interface RevisorRepositoryRecord {
   repository: string;
   rootPath: string;
   baseRef: string;
   workflow?: "revisor" | "github";
-  testCases: Array<{
-    name: string;
-    command: string;
-    args: string[];
-    cwd: string;
-    timeoutMs: number;
-    kinds?: string[] | null;
-    runtime?: boolean;
-    always?: boolean;
-  }>;
+  testCases: RevisorRepositoryTestCase[];
 }
 
 export interface RevisorRepositoryAdmin {
   listRepositories(): Promise<RevisorRepositoryRecord[]>;
   setRepositoryWorkflow(record: RevisorRepositoryRecord, workflow: "revisor" | "github"): Promise<void>;
+  /**
+   * 登録テストだけを置き換える。 workflow は送らないので Revisor の upsert (shallow merge) で
+   * 保持され、 notify など Cc が読まない項目も Revisor 側の既存値が残る。
+   */
+  setRepositoryTestCases(record: RevisorRepositoryRecord, testCases: RevisorRepositoryTestCase[]): Promise<void>;
 }
 
 interface RevisorRepositoryClientOptions {
@@ -70,6 +77,17 @@ export class RevisorRepositoryClient implements RevisorRepositoryAdmin {
     record: RevisorRepositoryRecord,
     workflow: "revisor" | "github",
   ): Promise<void> {
+    await this.register({ ...toRegistrationBody(record, record.testCases), workflow }, "workflow");
+  }
+
+  async setRepositoryTestCases(
+    record: RevisorRepositoryRecord,
+    testCases: RevisorRepositoryTestCase[],
+  ): Promise<void> {
+    await this.register(toRegistrationBody(record, testCases), "test cases");
+  }
+
+  private async register(body: Record<string, unknown>, subject: string): Promise<void> {
     const token = this.token();
     if (!token) throw new Error("Revisor workflow token is required (workflow token unset)");
     const response = await this.request({
@@ -78,27 +96,12 @@ export class RevisorRepositoryClient implements RevisorRepositoryAdmin {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        repository: record.repository,
-        root_path: record.rootPath,
-        base_ref: record.baseRef,
-        test_cases: record.testCases.map((testCase) => ({
-          name: testCase.name,
-          command: testCase.command,
-          args: testCase.args,
-          cwd: testCase.cwd,
-          timeout_ms: testCase.timeoutMs,
-          kinds: testCase.kinds ?? null,
-          runtime: testCase.runtime === true,
-          always: testCase.always === true,
-        })),
-        workflow,
-      }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
-      const body = await response.json().catch(() => null) as { error?: unknown } | null;
-      const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
-      throw new Error(`Revisor repository workflow update failed (${response.status})${detail}`);
+      const responseBody = await response.json().catch(() => null) as { error?: unknown } | null;
+      const detail = typeof responseBody?.error === "string" ? `: ${responseBody.error}` : "";
+      throw new Error(`Revisor repository ${subject} update failed (${response.status})${detail}`);
     }
   }
 
@@ -129,6 +132,28 @@ export class RevisorRepositoryClient implements RevisorRepositoryAdmin {
   }
 }
 
+/** Revisor の登録 API (snake_case) の本文。 workflow は呼び出し側が必要なときだけ足す。 */
+function toRegistrationBody(
+  record: RevisorRepositoryRecord,
+  testCases: RevisorRepositoryTestCase[],
+): Record<string, unknown> {
+  return {
+    repository: record.repository,
+    root_path: record.rootPath,
+    base_ref: record.baseRef,
+    test_cases: testCases.map((testCase) => ({
+      name: testCase.name,
+      command: testCase.command,
+      args: testCase.args,
+      cwd: testCase.cwd,
+      timeout_ms: testCase.timeoutMs,
+      kinds: testCase.kinds ?? null,
+      runtime: testCase.runtime === true,
+      always: testCase.always === true,
+    })),
+  };
+}
+
 function parseRepositoryRecord(value: unknown): RevisorRepositoryRecord[] {
   if (!value || typeof value !== "object") return [];
   const row = value as Record<string, unknown>;
@@ -150,7 +175,7 @@ function parseRepositoryRecord(value: unknown): RevisorRepositoryRecord[] {
   }];
 }
 
-function parseRepositoryTestCase(value: unknown): RevisorRepositoryRecord["testCases"] {
+function parseRepositoryTestCase(value: unknown): RevisorRepositoryTestCase[] {
   if (!value || typeof value !== "object") return [];
   const row = value as Record<string, unknown>;
   if (

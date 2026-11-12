@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, type ProjectCodeAdminEntry, type ProjectCodesAdminResult } from "../api.js";
 import { NotificationSettingsPanel, NotificationSummary } from "./ProjectNotificationSettings.js";
+import { RevisorTestsPanel } from "./ProjectRevisorTests.js";
 
 // @implements spec/feature/project-code-registry.md — 管理 UI
 
@@ -11,6 +12,7 @@ import { NotificationSettingsPanel, NotificationSummary } from "./ProjectNotific
 //  - 略称/名前/パス/GitHub URL … Concordia DB `project_codes`
 //  - Rv モード … Revisor の repository workflow (revisor = GitHub App + Release 管理 /
 //    github = 通常 push)。 変更は Revisor 登録の upsert 経由 (未登録リポは変更不可)
+//  - 登録テスト … Revisor の repository test_cases。 Rv 列から 1 件ずつ追加・削除する
 //  - 関係チーム … `team_repos` (repo_origin 紐付け、複数可)
 //  - 関係会社 … `subsidiary_projects` (project 名紐付け、複数可。 未選択 = 本社のみ)
 //  - ドメインレビュー … `project_codes.domain_review`。 ON のプロジェクトだけ、
@@ -149,6 +151,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editingNotifications, setEditingNotifications] = useState(false);
+  const [editingRevisorTests, setEditingRevisorTests] = useState(false);
   const [draft, setDraft] = useState({
     code: entry.code,
     project: entry.project,
@@ -283,6 +286,13 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
             {data.revisor_available ? "Rv未登録" : "Rv不明"}
           </span>
         )}
+        {entry.revisor?.registered && (
+          <button type="button" disabled={!data.revisor_available}
+            onClick={() => setEditingRevisorTests((open) => !open)}
+            className="block text-[11px] text-subtle hover:text-text mt-1 disabled:opacity-40">
+            登録テスト{editingRevisorTests ? "を閉じる" : ""}
+          </button>
+        )}
         <div className="text-[10px] text-subtle mt-1">通知ミラー: {entry.revisor_workflow ?? "未確認"}</div>
       </td>
       <td className="py-1.5 pr-2">
@@ -366,6 +376,13 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
         )}
       </td>
     </tr>
+    {editingRevisorTests && (
+      <tr className="border-b border-border/50 bg-muted/40">
+        <td className="py-2 px-2" colSpan={12}>
+          <RevisorTestsPanel code={entry.code} onClose={() => setEditingRevisorTests(false)} />
+        </td>
+      </tr>
+    )}
     {editingNotifications && (
       <tr className="border-b border-border/50 bg-muted/40">
         <td className="py-2 px-2" colSpan={12}>

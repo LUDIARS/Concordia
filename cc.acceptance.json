@@ -580,6 +580,7 @@
       "source": "src/harness/reliability/task-branch-policy.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-recovery.test.ts",
         "tests/harness-reliability/task-branch-adapters.test.ts",
         "tests/harness-reliability/conflux.test.ts"
       ],
@@ -597,6 +598,7 @@
       "source": "src/harness/reliability/task-branch-service.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-recovery.test.ts",
         "tests/harness-reliability/conflux.test.ts"
       ],
       "contracts": []
@@ -4972,7 +4974,9 @@
     {"source":"src/contract/lifecycle.ts","tests":["src/contract/schema.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
     {"source":"src/contract/question-bridge.ts","tests":["src/contract/question-bridge.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
     {"source":"src/harness/project-policy.ts","tests":["src/harness/supervisor-policy.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
-    {"source":"src/harness/supervisor-cli.ts","tests":["src/harness/supervisor-policy.test.ts","src/harness/supervisor-online.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/harness/supervisor-cli.ts","tests":["src/harness/supervisor-policy.test.ts","src/harness/supervisor-online.test.ts","tests/harness-reliability/task-branch-recovery.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
+    {"source":"src/harness/reliability/task-branch-recovery.ts","tests":["tests/harness-reliability/task-branch-recovery.test.ts"],"contracts":[]},
+    {"source":"src/harness/work-area.ts","tests":["tests/harness-reliability/task-branch-recovery.test.ts"],"contracts":[]},
     {"source":"src/harness/supervisor-online.ts","tests":["src/harness/supervisor-online.test.ts"],"contracts":[]},
     {"source":"web/src/pages/teams/TeamRulesEditor.tsx","tests":["web/src/pages/teams/model.test.ts"],"contracts":["CC-FRAGMENT-01","CC-FRAGMENT-02","CC-FRAGMENT-03"]},
     {"source":"src/app.ts","tests":["tests/app-routes.test.ts"],"contracts":[]},

@@ -5,6 +5,7 @@ import { isEditTool, type HarnessAction, type PredicateHit } from "../predicates
 import { castraTargetRegistration, checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, describeCheckoutMismatch, deterministicTaskRelation, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
+import { isRecoveryCd } from "./task-branch-recovery.js";
 import { readWorkingTargets } from "./working-targets.js";
 
 const KEY = "task_branch_submission";
@@ -135,6 +136,11 @@ export class TaskBranchService {
         mismatch = null;
       }
     }
+    // TB-CD: 登録 checkout / workspace root へ戻る単独の cd は、不一致でも止めない (編集ツールは対象外)。
+    if (mismatch && !isEditTool(action.tool) && isRecoveryCd(action.command, action.cwd, [
+      primary.repo, ...(castra ? [castra.repo] : []),
+      ...readWorkingTargets(session.metadata).map(target => target.repo), ...this.workspaceRoots(),
+    ])) return null;
     let notice: PredicateHit | null = null;
     if (mismatch) {
       const restored = await this.restoreHome(id, session, registered, acting, registeredRepo);

@@ -4,7 +4,9 @@ import { resolve, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { evaluateAction, type GateVerdict } from "./session-gate.js";
-import { commonRootOf, type HarnessAction } from "./predicates.js";
+import { homedir, tmpdir } from "node:os";
+import { commonRootOf, isEditTool, type HarnessAction } from "./predicates.js";
+import { isClaudeWorkArea, type WorkAreaBases } from "./work-area.js";
 import { evaluateCachedAction, recoveryAllowed, usableSnapshot } from "./supervisor-policy.js";
 import { needsDddEvidence, DDD_INSTRUCTION } from "./project-policy.js";
 import { hasDddEvidence } from "./ddd-evidence.js";
@@ -46,6 +48,17 @@ function physicalPath(path: string): string {
   return join(realpathSync(current), ...tail);
 }
 
+/** TB-WORKAREA の基点。8.3 短縮名と実パスの両方を載せる (どちらの表記で来ても照合できるように)。 */
+function workAreaBases(): WorkAreaBases {
+  const spellings = (path: string): string[] => {
+    const out = [resolve(path)];
+    try { out.push(realpathSync(path), realpathSync.native(path)); } catch { /* 無いディレクトリは表記のまま */ }
+    return [...new Set(out)];
+  };
+  const configDirs = [process.env.CLAUDE_CONFIG_DIR, join(homedir(), ".claude")].filter((value): value is string => Boolean(value));
+  return { tmpDirs: spellings(tmpdir()), claudeConfigDirs: configDirs.flatMap(spellings) };
+}
+
 async function main(): Promise<void> {
   const configPath = process.argv[2];
   if (!configPath) throw new Error("Usage: node supervisor-cli.js <config.json>");
@@ -65,6 +78,13 @@ async function main(): Promise<void> {
   const filePath = hook.tool_input?.file_path ?? hook.tool_input?.notebook_path;
   const cwd = hook.cwd ?? process.cwd();
   const target = filePath ? physicalPath(resolve(cwd, filePath)) : undefined;
+  if (target && isEditTool(hook.tool_name) && isClaudeWorkArea(target, workAreaBases())) {
+    // TB-WORKAREA: git 管理外の Claude 作業領域。照合する checkout が無いので Cc に問わず通し、監査だけ残す。
+    mkdirSync(config.stateDir, { recursive: true });
+    appendFileSync(join(config.stateDir, "audit.jsonl"), JSON.stringify({ ts: Date.now(), mode: "workarea", decision: "allow",
+      project: "", tool: hook.tool_name, rules: [] }) + "\n", "utf8");
+    return;
+  }
   const probe = target ? dirname(target) : cwd;
   let existingProbe = probe;
   while (!existsSync(existingProbe)) existingProbe = dirname(existingProbe);

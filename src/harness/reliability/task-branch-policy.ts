@@ -55,7 +55,13 @@ function lictorCliArguments(words: string[]): string[] | null {
 
 const CHECKOUT_MISMATCH: PredicateHit = { rule: "task-branch", decision: "deny",
   reason: "実checkoutとCcの作業登録が一致しません。変更を保持して対象ブランチ・作業を登録してください。",
-  suggestion: "cd や && を付けずに `lictor cli task set --repo <実checkout> --branch <実branch> --desc \"<作業>\"` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`) で登録してください。" };
+  suggestion: "cd や && を付けずに `lictor cli task set --repo <実checkout> --branch <実branch> --desc \"<作業>\"` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`) で登録してください。"
+    + "登録済みの checkout へ戻るだけなら、記号を付けずに `cd <登録checkout>` を単独で実行すれば通ります。" };
+
+/** TB-CD: 拒否文に載せる、登録済み checkout へ戻るコマンド (このコマンドはゲートを通る)。 */
+export function returnCommand(registered: { repo: string }): string {
+  return `cd "${registered.repo.replace(/\\/g, "/")}"`;
+}
 
 /** 拒否文に載せる登録コマンド。区切りは / に揃え、記号 (< > など) を含めない: 含めるとこのコマンド自体がゲートの対象になる。 */
 export function registrationCommand(acting: { repo: string; branch: string }): string {
@@ -76,11 +82,14 @@ export function describeCheckoutMismatch(input: {
   const { registered, acting, targetProject } = input;
   const listed = registered.length ? registered.map(item => `${item.repo}@${item.branch || "(未登録)"}`).join(", ") : "(なし)";
   const values = `登録: [${listed}] / 実際: ${acting.repo}@${acting.branch || "(detached)"} / 推定対象: ${targetProject || "(なし)"}`;
-  const suggestion = acting.branch
+  const back = registered[0]
+    ? "登録済みの checkout へ戻るには `" + returnCommand(registered[0]) + "` を単独で実行してください (記号を付けなければこの cd はゲートを通ります)。"
+    : "";
+  const suggestion = (acting.branch
     ? "この checkout で作業するなら、cd や && を付けずに次を単独で実行して登録を足してください (既存の登録は残ります): `"
       + registrationCommand(acting) + "` (PATH に無ければ `node <Lictor>/bin/lictor.mjs cli task set ...`)。"
       + "この checkout を触るつもりが無いなら、登録済みの checkout で作業してください。"
-    : "この checkout は branch が無い (detached HEAD) ので登録できません。作業 branch を checkout してから登録してください。";
+    : "この checkout は branch が無い (detached HEAD) ので登録できません。作業 branch を checkout してから登録してください。") + back;
   return { ...CHECKOUT_MISMATCH, reason: `${CHECKOUT_MISMATCH.reason} ${values}`
     + (input.diagnostics ? ` ${input.diagnostics}` : ""), suggestion };
 }

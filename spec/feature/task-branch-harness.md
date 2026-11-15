@@ -26,6 +26,8 @@ domain: harness-reliability
 - TB-MULTI: セッションは repo_path / branch (先頭の登録) に加えて、checkout の登録を複数持てる (session metadata `working_targets`、`{repo, branch, source, registered_at}`、最大 8 件)。照合は先頭の登録・TB-CASTRA・各登録の順に同じ規則 (TB-REGISTERED) で行い、どれかに合えば通す。登録していない checkout の編集は引き続き拒否する。プロンプトからの作業対象推定 (target_project) はこの一覧を消さず、推定 (inferred) は明示 (explicit) の登録を上書きしない。
 - TB-SUGGEST: checkout 不一致の拒否文には、登録・実際の checkout・推定対象の値と、実際の checkout を登録する、そのまま打てるコマンド (`lictor cli task set --repo "<checkout>" --branch <b> --desc "作業内容"`) を載せる。そのコマンドがゲートの例外であり、実行すれば同じ操作が通ることを、すべての不一致の経路でテストする。
 - TB-REPEAT: 同じ checkout への同じ種類 (編集 / コマンド) の拒否が続いたら、2 回目から判定に使った値 (先頭の登録、working_targets、target_project、TB-CASTRA の照合結果、workspace roots) を拒否文に付け、登録をやり直さずに止めて人間に報告するよう案内する。2 回目のときだけ session event `harness.task_branch.repeated_denial` を記録する。通れば記録 (metadata `task_branch_denial`) を消す。
+- TB-CD: checkout 不一致でも、編集ツール以外で、記号を含まない単独の `cd <パス>` (`cd` / `chdir` / `Set-Location` / `sl` / `pushd`) の行き先が登録 checkout (先頭の登録・TB-CASTRA の対象・working_targets) か workspace root なら通す。linked worktree の cwd から登録 checkout へ戻れない状態を作らない。拒否文には戻るコマンド `cd "<登録checkout>"` を載せ、それが通ることをテストで固定する。編集ツールの checkout 一致要求は緩めない。
+- TB-WORKAREA: Claude Code の session scratchpad (`<tmpdir>/claude/<hash>/<session>/scratchpad/`) と project memory (`<Claude config dir>/projects/<slug>/memory/`) への編集は、git 管理外の作業領域として supervisor hook が Cc へ問わずに通し、監査 (`mode: "workarea"`) だけ残す。それ以外の git 管理外パスは従来どおり拒否する (fail-closed)。パスは symlink / junction を解決した実パスで照合する。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
 
@@ -128,3 +130,15 @@ kazumimitarai 指示「ゲートの不具合について、やりたかったこ
 
 検証: working-targets テスト 8 件 (提案コマンドで同じ操作が通ることを 4 経路で確認、推定対象が変わっても登録が残る、登録外は拒否のまま、同じ拒否 2 回で判定値と event) と既存の task-branch テスト、sessions API テストが成功。task-branch-adapters の「reads the checkout」1 件は本体 main でも同じく失敗する既存の失敗 (この PC の git hook 環境で `git init` が止まる)。TypeScript 静的検査の診断 0 件。再起動・デプロイは未実施。
 復旧: revert すれば登録は 1 つに戻る。metadata `working_targets` / `task_branch_denial` は残っても無害。migration はない。
+
+## worktree へ移ったセッションが戻れなくなる不具合を直す（2026-11-12）
+
+neco 指示「何もできなくなるのクソすぎる、治せ」「2度起こすな」「セキュリティも維持しろ」。
+症状: Castra root (main) 登録のセッションが `git:worktree` で linked worktree を作り、Bash の cwd がそこへ移った。commonDir が登録 repo と同じなので同一リポジトリ扱いになり、branch 不一致で `cd <Castra root>` 単独まで拒否された。拒否文の `lictor cli task set --repo` は Lictor CLI が `unexpected arg '--repo'` で拒否するため、案内に従っても戻れなかった。scratchpad / memory dir への Write は supervisor hook の `git rev-parse --show-toplevel` が失敗して拒否された。
+
+- TB-CD: 判定は `task-branch-recovery.ts` (`recoveryCdTarget` / `isRecoveryCd`)、適用は `TaskBranchService.gate` の拒否直前 (TB-HOME の登録戻しより前、登録を書き換えない)。戻るコマンドは `returnCommand`。
+- TB-WORKAREA: 判定は `src/harness/work-area.ts` (`isClaudeWorkArea`)、適用は `supervisor-cli.ts` の git 読み取りより前。基点は `os.tmpdir()` と `CLAUDE_CONFIG_DIR` / `~/.claude` (8.3 短縮名と実パスの両方)。
+- `lictor cli task set --repo` は Lictor 側の PR で足す (Cc の `PATCH /v1/sessions/:id/working-targets` へ中継)。それまでも TB-CD の cd で必ず戻れる。
+
+検証: task-branch-recovery テスト 8 件 (実例の判定値で cd 復旧が通る / 案内の戻りコマンドが通る / `&&`・`;`・未登録先・`cd -` は拒否 / 同じ worktree の Edit・Write は拒否 / scratchpad・memory は作業領域 / 他の git 管理外パスは対象外) と既存の task-branch / working-targets / supervisor-policy テストが成功。TypeScript 静的検査の診断 0 件。hook・セッションでの動作確認、再起動・デプロイは未実施。
+復旧: revert すれば従来の判定に戻る。metadata・migration の追加はない。

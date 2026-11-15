@@ -3,13 +3,15 @@
  * 流すかの内容判定。 両方の面が同じ規則で落とすように 1 か所に置く。
  *
  * 落とすもの: その面自身からの入力のこだま、 専用アダプタが持つ質問と許可要求、 (最適化時の) 思考、
- * 成功したツール呼び出し、 その面が流さない出所のユーザー入力 (端末入力・自動注入など)、 Cc 自身の指令の写し。
+ * 成功したツール呼び出し、 その面が流さない出所のユーザー入力 (端末入力・自動注入など)、 Cc 自身の指令の写し、
+ * 作業状態が変わらない自動確認への `[変化なし]` だけの返信。
  * 部署の出力方針 (relay-output-filter.ts) と配送状態による例外は各アダプタが続けて判定する。
  *
  * @implements spec/feature/slack-platform.md — egress
  */
 
 import type { SessionMessagePayload } from "../shared/session-message-types.js";
+import { isFollowupNoChangeReply } from "../control/followup-progress.js";
 
 export interface CanonicalRelayOptions {
   /** 流し先の面。 この面から入った発言はこだまなので流さない。 */
@@ -28,6 +30,8 @@ export function isRelayableCanonicalMessage(message: SessionMessagePayload, opti
   if (message.author_type === "tool" && !isToolFailure(message)) return false;
   if (message.author_type === "user" && !options.relayedUserOrigins.includes(message.author_platform ?? "")) return false;
   if (isCcInjectEcho(message)) return false;
+  // 作業状態が変わらない自動確認への「[変化なし]」だけの返信は、読み手に新しい情報が無い (2026-11-16)。
+  if (message.author_type === "assistant" && isFollowupNoChangeReply(message.content)) return false;
   return true;
 }
 

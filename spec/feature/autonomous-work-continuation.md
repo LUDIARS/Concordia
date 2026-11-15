@@ -102,8 +102,20 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 人間の反応が無いまま連続 3 回自動確認を送ったら、以後はセッションが返答していても送らない。
 2026-11-04 neco 指示により状態分類による例外は廃止。未完了は実行可能な作業の存在を証明しない。
 
+2026-11-16 neco 指示「Goal & Go を基本とし、残作業が無くなるまでループ。自動確認そのものは止めずに進捗を記録する」により、
+3 アウトで止めるのは Cc が作業状態を確認できないときに限る:
+
+- 止める: 状態照会 (`resolveWorkState`) を持たない構成、状態照会が失敗した・`state=unknown` の回、委託の定期進捗 (scope)。
+  状態照会を持たない構成と委託の定期進捗は、上限後に作業状態の外部照会もしない。
+- 止めない: `state` が unknown 以外 (task-active / task-blocked / delegation-wait / review-needed / review-wait /
+  review-failed / merge-confirmation / reflection-needed)。上限後も作業状態を照会して確認を送り、停止予告は添えない。
+- 往復の抑止は 3 アウト以外の仕組みが受け持つ: 前回確認に無反応なら送らない (cooldown)、作業状態が変わらない回は
+  Discord へ報告せず AI の `[変化なし]` 返信も流さない (下記「変化なしは報告しない」)、unknown の同一内容は一度だけ。
+- 人間待ち・質問カード・ask・人間応答待ちの永続 gate・部署の auto_check off は状態に関係なく従来どおり止める。
+
 - 回数はセッション metadata `cc_auto_confirm_strikes` に置き、Cc 再起動をまたいで保持する。
-- 3 回目の本文に、新しい入力・進展通知まで自動確認を送らない停止予告を添える。上限後は作業状態の外部取得も止める。
+- 3 回目の本文に、新しい入力・進展通知まで自動確認を送らない停止予告を添える (上限で止める回だけ)。
+- 回数の記録は全状態で続ける。unknown 以外で上限を超えた後に unknown へ移ると、その回から止まる。
 - 回数を 0 に戻すのは来歴の確かな人間の入力 (`question.answered`、依頼者付きの `session.inject`) と既存 nudge-delivery が受け取る新しい審査・委託・taskflow完了通知。
   判定は [人間応答待ちの確認制御](human-response-confirmation.md) の `humanResponseSession` と共通。
   自動確認、AI返答、状態分類の変更、既記録以前の時刻の通知では戻さない。明示停止・人間判断待ち・未回答質問は解除しない。
@@ -112,12 +124,29 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 2026-10-08 neco 指示「AIが実装中のものは、引き続き状況と残作業確認して処理を進めるよう自動確認で誘導」。
 
 - 作業状態 (`selectSessionFollowupState`) が `task-active` / `review-needed` / `review-failed` /
-  `merge-confirmation` / `reflection-needed` のときも、3 アウト制限を適用する。
+  `merge-confirmation` / `reflection-needed` のとき、
   本文の末尾に「状況と残作業を確認し、許可済みの範囲で処理を進める。人間の判断・回答が要る点は
-  human-wait か ask で待機する」を添える。この送信も 3 アウトの回数に数える。
+  human-wait か ask で待機する」を添える。この送信も 3 アウトの回数に数える (止めるかは上記 3 アウトの規則)。
   同じ結果の確認・報告は進捗ではない。実行可能な項目が無ければ一度理由を報告して待機する。
-- `review-wait` / `delegation-wait` / `task-blocked` / `unknown` と、作業状態を取得できない場合は
-  従来どおり 3 アウトで止める (通知待ちへ確認を続けると往復に戻るため)。
+- 全 state の本文に「人間の判断が要らない残作業は確認を求めずに進める」を添える (2026-11-16)。
+- `review-failed` の本文は「人間の判断を待たずに所見と失敗記録を読んで修正し、同じ PR へ再提出する。通るまで繰り返す。
+  同じ方式で 3 回直らなければ方式を見直す (three-out-rule)。結果不明の提出は再送せず状態を確かめる」を添える (2026-11-16)。
+- `review-wait` / `delegation-wait` / `task-blocked` / `unknown` には継続誘導を添えない (待機中へ「処理を進めて」と促さないため)。
+
+### 変化なしは報告しない (`src/control/followup-progress.ts`)
+2026-11-16 neco 指示「前回と作業状態が変わらない場合は確認 (inject) はするが Discord へは報告しない」。
+
+- 自動確認を送るたび、作業状態の指紋 (state・workflow・Actio タスクの status/reason・PR の status/checkStatus・
+  委託の status・関連付けできなかった参照・取得できなかった取得元を正規化しソートした JSON) をセッション metadata
+  `cc_followup_progress` (`{fingerprint, unchanged_count, last_checked_at, last_changed_at}`) に記録する。
+  会話の活動時刻は毎回変わるので指紋に含めない。
+- 指紋が前回と同じ回は `session.stall_nudged` を出さない (Discord に「🔔 [自動確認]」を投稿しない)。本文に
+  「前回の自動確認から作業状態は変わっていません。確認と実行可能な作業は続け、報告することが無ければ返信は
+  `[変化なし]` の一行だけにする」を添える。変わった回・初回は従来どおり通知する。
+- assistant 発言の本文が trim 後ちょうど `[変化なし]` なら Discord / Slack へ流さない
+  (`src/platform/session-message-relay.ts`)。それ以外の発言は従来どおり。
+- 状態照会を持たない構成と委託の定期進捗は比べない (従来どおり)。
+- 復旧: metadata `cc_followup_progress` を消せば次の自動確認は「変化あり」として通知される。
 - human-wait・未回答の質問カード・ask 待ち・人間応答待ちの永続 gate・「前回の確認に無反応」の
   抑止は、作業状態に関係なくそのまま効く。継続誘導は新しい実行許可ではない。
 

@@ -73,6 +73,15 @@ function linkFailureLines(snapshot?: SessionFollowupSnapshot): string[] {
   ];
 }
 
+/** 全 state 共通 (2026-11-16 neco 指示)。 */
+export const NO_HUMAN_JUDGMENT_GUIDANCE = "人間の判断が要らない残作業は確認を求めずに進めてください。";
+
+/** 審査テスト失敗時の自動修正・再提出 (2026-11-16 neco 指示)。 */
+export const REVIEW_FAILED_GUIDANCE: readonly string[] = [
+  "Revisor の審査テストが失敗しています。人間の判断を待たずに所見と失敗記録を読んで修正し、同じ PR へ再提出してください。通るまで繰り返します。",
+  "同じ方式で 3 回直らなければ方式を見直してください (three-out-rule)。結果不明の提出は再送せず、状態を確かめてください。",
+];
+
 export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): string {
   const state = snapshot ? selectSessionFollowupState(snapshot) : "unknown";
   const skill = fileURLToPath(new URL("../../skills/session-followup/SKILL.md", import.meta.url));
@@ -87,6 +96,8 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
     ...linkFailureLines(snapshot),
     "Actio タスクの現状態を正本として確認し、人間の指示と task link の対応を混ぜないでください。",
     ...REMAINING_WORK_GUIDANCE,
+    NO_HUMAN_JUDGMENT_GUIDANCE,
+    ...(state === "review-failed" ? REVIEW_FAILED_GUIDANCE : []),
     ...(state === "task-blocked" ? ["blocked タスクは依存待ち・人間判断待ちを照合し、待機中の同じ依頼を重複実行しないでください。"] : []),
     ...(state === "reflection-needed" ? ["PR の merged だけでループを完了にしないでください。対象変更の反映、Actio の残タスク、次の GO または人間判断待ちを確認してください。"] : []),
     `固定手順: ${JSON.stringify(skill)} の該当stateだけ読んでください。`,

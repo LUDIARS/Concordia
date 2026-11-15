@@ -37,4 +37,14 @@ describe("isRelayableCanonicalMessage", () => {
     expect(isRelayableCanonicalMessage(message({ author_type: "system", metadata: { inject_is_cc: true } }), slack)).toBe(false);
     expect(isRelayableCanonicalMessage(message({ author_type: "system", metadata: { inject_is_cc: true, injection: {} } }), slack)).toBe(true);
   });
+
+  it("作業状態が変わらない自動確認への `[変化なし]` だけの返信は Discord / Slack へ流さない", () => {
+    for (const platform of [slack, discord]) {
+      expect(isRelayableCanonicalMessage(message({ content: "[変化なし]" }), platform)).toBe(false);
+      expect(isRelayableCanonicalMessage(message({ content: " [変化なし]\n" }), platform)).toBe(false);
+      expect(isRelayableCanonicalMessage(message({ content: "[変化なし] PR を再提出しました" }), platform)).toBe(true);
+      expect(isRelayableCanonicalMessage(message({ content: "状態は変わっていません" }), platform)).toBe(true);
+    }
+    expect(isRelayableCanonicalMessage(message({ author_type: "user", author_platform: "web", content: "[変化なし]" }), slack)).toBe(true);
+  });
 });

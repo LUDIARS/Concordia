@@ -146,8 +146,10 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     const injected: string[] = [];
     const reported: string[] = [];
     let resolved = 0;
+    let stallNudged = 0;
     const off = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.target_session_id === "work") injected.push(event.text);
+      if (event.type === "session.stall_nudged" && event.target_session_id === "work") stallNudged += 1;
     });
     const h = startStalledSessionNudge({
       repo: fakeRepo([row]),
@@ -170,30 +172,34 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
       h.stop();
       off();
     }
-    return { injected, reported, strikes: readAutoConfirmStrikes(row.metadata) };
+    return { injected, reported, stallNudged, strikes: readAutoConfirmStrikes(row.metadata) };
   }
 
-  it("タスクが未完了でも、新しい進展が無ければ 3 回で止まる", async () => {
+  it("Cc が残作業を確認できる状態 (task-active) では 4 回目以降も確認を続ける (2026-11-16)", async () => {
     const result = await runLoop({ workflow: "github", tasks: [{ status: "in_progress" }], delegations: [], prs: [] }, 5);
-    expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.injected).toHaveLength(5);
     expect(result.injected.at(-1)).toContain("状況と残作業を確認し");
-    expect(result.injected.at(-1)).toContain("自動確認を送りません");
-    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.injected.join("\n")).not.toContain("自動確認を送りません");
+    expect(result.strikes).toBe(5);
   });
 
-  it("審査の通知待ちは従来どおり 3 回で止まる", async () => {
+  it("審査の通知待ち (review-wait) も止めず、変化の無い回は Discord へ通知しない", async () => {
     const result = await runLoop({ workflow: "github", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "running" }] }, 5);
-    expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
-    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.injected).toHaveLength(5);
+    expect(result.stallNudged).toBe(1);
+    expect(result.injected[0]).not.toContain("[変化なし]");
+    expect(result.injected[1]).toContain("作業状態は変わっていません");
+    expect(result.injected[1]).toContain("[変化なし]");
   });
 
-  it("task-active と取得不能由来の merge-confirmation が交互でも上限を維持する", async () => {
+  it("作業状態が毎回変われば毎回 Discord へ通知する", async () => {
     const result = await runLoop([
       { workflow: "revisor", tasks: [{ status: "in_progress" }], delegations: [], prs: [] },
       { workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "test_ok" }] },
     ], 6);
-    expect(result.injected).toHaveLength(AUTO_CONFIRM_STRIKE_LIMIT);
-    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.injected).toHaveLength(6);
+    expect(result.stallNudged).toBe(6);
+    expect(result.injected.join("\n")).not.toContain("作業状態は変わっていません");
   });
 
   it("3 アウト後も人間のやることの照合は毎周続ける", async () => {
@@ -201,7 +207,48 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.reported).toHaveLength(5);
   });
 
-  it("永続化された 3 アウトは状態分類では解除せず、新しい審査通知で再開する", async () => {
+  async function runOnceWithStrikes(snapshot: SessionFollowupSnapshot) {
+    const row = fakeSession("struck");
+    row.metadata = JSON.stringify({ cc_auto_confirm_strikes: AUTO_CONFIRM_STRIKE_LIMIT });
+    const injected: string[] = [];
+    const off = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.target_session_id === "struck") injected.push(event.text);
+    });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([row]),
+      now: () => 10_000_000,
+      transcriptMtimeMs: async () => 0,
+      readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
+      resolveWorkState: async () => snapshot,
+      idleSec: 600,
+      intervalMs: 1_000_000,
+    });
+    try {
+      return { nudged: await h.runOnce(), injected, strikes: readAutoConfirmStrikes(row.metadata) };
+    } finally {
+      h.stop();
+      off();
+    }
+  }
+
+  it("永続化された 3 アウトでも審査失敗 (review-failed) なら確認を送り、修正・再提出を促す", async () => {
+    const result = await runOnceWithStrikes(
+      { workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "failed" }] });
+    expect(result.nudged).toEqual(["struck"]);
+    expect(result.injected[0]).toContain("state=review-failed");
+    expect(result.injected[0]).toContain("同じ PR へ再提出");
+    expect(result.injected[0]).not.toContain("自動確認を送りません");
+    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT + 1);
+  });
+
+  it("永続化された 3 アウトは state=unknown では従来どおり止める", async () => {
+    const result = await runOnceWithStrikes({ workflow: "revisor", tasks: [{ status: "unknown" }], delegations: [], prs: [] });
+    expect(result.nudged).toEqual([]);
+    expect(result.injected).toEqual([]);
+    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+  });
+
+  it("永続化された 3 アウトは状態照会の無い構成では外部照会せず止め、新しい審査通知で再開する", async () => {
     let clock = 10_000_000;
     const row = fakeSession("resume");
     row.metadata = JSON.stringify({ cc_auto_confirm_strikes: AUTO_CONFIRM_STRIKE_LIMIT });
@@ -211,26 +258,19 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     });
     const repo = fakeRepo([row]);
     const progress = startNudgeProgress(repo);
-    let resolutions = 0;
     const h = startStalledSessionNudge({
       repo,
       now: () => clock,
       transcriptMtimeMs: async () => 0,
       readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
-      resolveWorkState: async () => {
-        resolutions += 1;
-        return { workflow: "github", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "failed" }] };
-      },
       idleSec: 600,
       intervalMs: 1_000_000,
     });
     try {
       expect(await h.runOnce()).toEqual([]);
-      expect(resolutions).toBe(0);
       eventBus.emit({ type: "session.inject", target_session_id: "resume", source: "revisor", text: "review complete", ts: 1 });
       injected.length = 0;
       expect(await h.runOnce()).toEqual(["resume"]);
-      expect(injected[0]).toContain("状況と残作業を確認し");
       expect(readAutoConfirmStrikes(row.metadata)).toBe(1);
     } finally {
       progress.stop();

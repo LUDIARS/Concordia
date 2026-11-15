@@ -5541,6 +5541,8 @@
     {"source":"src/control/unknown-followup-key.contract.ts","tests":["src/control/unknown-followup-notice.test.ts"],"contracts":["actio-link-C-2"]},
     {"source":"src/control/unknown-followup-shown.contract.ts","tests":["src/control/unknown-followup-notice.test.ts"],"contracts":["actio-link-C-3"]},
     {"source":"src/control/stalled-session-nudge.ts","tests":["src/control/unknown-followup-notice.test.ts","src/control/auto-confirm-strikes.test.ts","src/control/stalled-session-nudge.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP"]},
+    {"source":"src/control/followup-progress.ts","tests":["src/control/followup-progress.test.ts","src/control/stalled-session-nudge.test.ts","src/control/auto-confirm-strikes.test.ts"],"contracts":[]},
+    {"source":"src/platform/session-message-relay.ts","tests":["src/platform/session-message-relay.test.ts"],"contracts":[]},
     {"source":"src/consultation/consult-attachments.ts","tests":["src/consultation/consult-attachments.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
     {"source":"src/consultation/safety-policy.ts","tests":["src/consultation/consult-attachments.test.ts","src/consultation/safety-service.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
     {"source":"src/consultation/consult-fetch-link.ts","tests":["src/consultation/consult-fetch-link.test.ts","src/consultation/projectless-consult.test.ts"],"contracts":["CC-CONSULT-INV-12"]},

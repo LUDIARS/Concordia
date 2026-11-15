@@ -29,7 +29,10 @@
  *     真正の人間回答待ちは human-wait / 質問 / 対人確認の状態所有者で保護する。
  *   - **3 アウト** (2026-10-05 neco 指示): 人間の反応が無いまま連続 3 回確認したら、
  *     セッションが返答していても以後は送らず人間の入力を待つ (auto-confirm-strikes.ts)。
- *     AI が進められる作業が残っている状態では止めずに継続を誘導する (2026-10-08 neco 指示)。
+ *     2026-11-16 neco 指示: Cc が作業状態を確認できる (state が unknown 以外) 間は 3 アウトで
+ *     止めず、残作業が無くなるまで確認を続ける。止めるのは unknown・状態照会なし・委託の定期進捗だけ。
+ *   - **変化なしは報告しない** (2026-11-16 neco 指示): 作業状態の指紋 (followup-progress.ts) が
+ *     前回と同じ回は確認だけ送り、session.stall_nudged (Discord 通知) は出さない。
  *   - **人間のやることの報告** (2026-10-08 neco 指示): 巡回ごとに reportHumanTodos を呼び、
  *     内容が初出・変化したときだけメンション付きで報告する (human-todo-report.ts)。
  *
@@ -63,6 +66,11 @@ import {
   renderStrikeOutNotice,
 } from "./auto-confirm-strikes.js";
 import { selectSessionFollowupState } from "./session-followup-state.js";
+import {
+  followupProgressFingerprint,
+  recordFollowupProgress,
+  renderFollowupNoChangeNotice,
+} from "./followup-progress.js";
 import {
   isUnknownFollowupAlreadyShown,
   readUnknownFollowupNotice,
@@ -376,9 +384,10 @@ export function startStalledSessionNudge(
         // 報告の失敗で AI への自動確認や他セッションの巡回を止めない。
         log.warn({ session_id: s.id, err: (e as Error).message }, "human todo report failed");
       }
-      // 未完了という分類で上限を免除しない。停止後の外部照会も避ける。
+      // 状態照会が無い構成と委託の定期進捗は従来どおり 3 アウトで止め、外部照会も避ける。
+      // 状態照会がある構成は作業状態を解決してから、unknown のときだけ 3 アウトで止める。
       const struckOut = isAutoConfirmStruckOut(s.metadata);
-      if (struckOut) continue;
+      if (struckOut && (scope || !opts.resolveWorkState)) continue;
       if (scope && opts.progressEnabled === false) continue;
       if (scope && !canRequestProgress(s.metadata, nowMs, intervalMs,
         opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 })) continue;
@@ -423,7 +432,11 @@ export function startStalledSessionNudge(
       }
       // Progress is assessed by the assigned agent; no external state scan is needed for a report request.
       const workState = scope ? undefined : await opts.resolveWorkState?.(s).catch(() => undefined);
-      const aiWork = !!workState && isAiWorkInProgress(selectSessionFollowupState(workState));
+      const followupState = workState ? selectSessionFollowupState(workState) : "unknown";
+      const aiWork = !!workState && isAiWorkInProgress(followupState);
+      // Cc が残作業を確認できる状態では 3 アウトで止めない (2026-11-16 neco 指示)。
+      const strikeExempt = !scope && !!workState && followupState !== "unknown";
+      if (struckOut && !strikeExempt) continue;
       // The registry request may outlive the user's transition to a question card.
       if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
       const latest = opts.repo.findSession(s.id);
@@ -433,14 +446,14 @@ export function startStalledSessionNudge(
         || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
         || latest.current_task !== s.current_task) continue;
       if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
-      if (isAutoConfirmStruckOut(latest.metadata)) continue;
+      if (!strikeExempt && isAutoConfirmStruckOut(latest.metadata)) continue;
       if (scope && (progressScope(latest.metadata, opts.activeDelegationRunId?.(latest) ?? null) !== scope
         || !canRequestProgress(latest.metadata, nowMs, intervalMs,
           opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 }))) continue;
       // 同じ中身の unknown (関連付けできないタスク等) は一度だけ示し、繰り返さない (unknown-followup-notice.ts)。
       // 状態照会が無い構成では中身を比べられないので、従来どおり 3 アウトに任せる。
       const unknownKey = !scope && opts.resolveWorkState
-        ? unknownFollowupNoticeKey(workState ? selectSessionFollowupState(workState) : "unknown", workState)
+        ? unknownFollowupNoticeKey(followupState, workState)
         : null;
       const shownUnknown = readUnknownFollowupNotice(latest.metadata);
       if (isUnknownFollowupAlreadyShown(unknownKey, shownUnknown)) {
@@ -454,10 +467,17 @@ export function startStalledSessionNudge(
       if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) continue;
       writeUnknownFollowupNotice(opts.repo, s.id, unknownKey, shownUnknown);
       lastNudge.set(s.id, nowMs);
-      // 未完了という分類だけでは、進捗のない確認を無制限に再開しない。
+      const strikes = recordAutoConfirmStrike(opts.repo, s.id);
+      // 作業状態が前回と同じかを記録する。状態照会が無い構成・委託の定期進捗は比べない。
+      const progress = !scope && opts.resolveWorkState
+        ? recordFollowupProgress(opts.repo, s.id, followupProgressFingerprint(followupState, workState), nowMs)
+        : null;
+      const unchanged = progress !== null && !progress.changed;
       const closing = [
         ...(aiWork ? renderAiWorkContinuation() : []),
-        ...renderStrikeOutNotice(recordAutoConfirmStrike(opts.repo, s.id)),
+        ...(unchanged ? renderFollowupNoChangeNotice() : []),
+        // 3 アウトで止まらない状態には停止予告を出さない (実際には止まらないため)。
+        ...(strikeExempt ? [] : renderStrikeOutNotice(strikes)),
       ];
       eventBus.emit({
         type: "session.inject",
@@ -469,7 +489,8 @@ export function startStalledSessionNudge(
         ts: Math.floor(nowMs / 1000),
       });
       // Discord へ「自動確認を送った」事実だけを通知する (本文や個人識別子は載せない)。
-      if (!scope) eventBus.emit({
+      // 作業状態が前回と同じ回は通知しない (確認自体は上で送っている)。
+      if (!scope && !unchanged) eventBus.emit({
         type: "session.stall_nudged",
         target_session_id: s.id,
         idle_sec: Math.round(idleMs / 1000),
@@ -477,7 +498,7 @@ export function startStalledSessionNudge(
       });
       nudged.push(s.id);
       log.info(
-        { session_id: s.id, idle_sec: Math.round(idleMs / 1000) },
+        { session_id: s.id, idle_sec: Math.round(idleMs / 1000), state: followupState, unchanged },
         "stalled session nudged to continue",
       );
     }

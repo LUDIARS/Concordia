@@ -66,7 +66,8 @@ Cc taskflow v3 以前の形で登録された Actio タスク (source `cc-taskmd
   紐付けに成功したら消す。Actio 不通は残さない)。自動確認はこれを「関連付けできなかった Actio タスク」として示す。
 - 自動確認は unknown の中身 (タスクの unknown 理由・関連付けできなかった参照・取れなかった取得元) を鍵にし、同じ鍵の unknown は
   一度だけ送る (`cc_followup_unknown_notice`)。中身が変わるか、unknown 以外の状態で一度送れば、次の unknown はまた一度送る。
-  状態照会を持たない構成は従来どおり 3 アウトに任せる。
+  状態照会を持たない構成は従来どおり 3 アウトに任せる。unknown の回は 3 アウトでも止める (2026-11-16 以降、
+  3 アウトで止めるのは unknown・状態照会なし・委託の定期進捗だけ。autonomous-work-continuation.md §2)。
 - 実装: `src/taskflow/actio-reference-scope.ts`、`src/taskflow/actio-task-client.ts`、`src/work/session-task-links.ts`、
   `src/work/task-link-failures.ts`、`src/control/session-followup-snapshot.ts`、`src/control/session-followup-state.ts`、
   `src/control/unknown-followup-notice.ts`、`src/control/stalled-session-nudge.ts`。

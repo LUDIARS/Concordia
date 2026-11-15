@@ -14,6 +14,23 @@ describe("task-linked followup", () => {
     expect(selectSessionFollowupState({ ...snapshot, prs: [{ status: "open", checkStatus: "action_required" }] })).toBe("review-failed");
     expect(selectSessionFollowupState({ ...snapshot, prs: [{ status: "merged", checkStatus: "test_ok" }] })).toBe("reflection-needed");
   });
+  it("review-failed では人間に聞かず所見を読んで修正し、同じ PR へ再提出するよう促す (2026-11-16)", () => {
+    const failed = renderSessionFollowup({ ...empty, prs: [{ status: "open", checkStatus: "failed" }] });
+    expect(failed).toContain("state=review-failed");
+    expect(failed).toContain("人間の判断を待たずに所見と失敗記録を読んで修正し、同じ PR へ再提出");
+    expect(failed).toContain("通るまで繰り返します");
+    expect(failed).toContain("three-out-rule");
+    expect(failed).toContain("結果不明の提出は再送せず");
+    expect(renderSessionFollowup({ ...empty, prs: [{ status: "open", checkStatus: "running" }] })).not.toContain("同じ PR へ再提出");
+  });
+
+  it("全 state で人間の判断が要らない残作業は確認を求めずに進めるよう促す", () => {
+    for (const snapshot of [undefined, empty, { ...empty, tasks: [{ status: "in_progress" }] },
+      { ...empty, prs: [{ status: "open", checkStatus: "running" }] }]) {
+      expect(renderSessionFollowup(snapshot)).toContain("人間の判断が要らない残作業は確認を求めずに進めてください");
+    }
+  });
+
   it("uses linked Actio status independently of the legacy session phase", () => {
     expect(selectSessionFollowupState({ ...empty, tasks: [{ status: "open" }] })).toBe("task-active");
     expect(selectSessionFollowupState({ ...empty, tasks: [{ status: "in_progress" }] })).toBe("task-active");

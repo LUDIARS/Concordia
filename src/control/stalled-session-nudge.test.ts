@@ -323,6 +323,44 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect("mention_user_id" in notices[0]).toBe(false);
   });
 
+  it("作業状態が前回と同じ回は確認だけ送り、session.stall_nudged を出さず変化なし案内を添える (2026-11-16)", async () => {
+    const s = fakeSession({ id: "quiet-1" });
+    let clock = NOW;
+    let activity = NOW - 3_700_000;
+    let checkStatus = "running";
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([s]),
+      now: () => clock,
+      transcriptMtimeMs: async () => activity,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "通知を待ちます。" }),
+      resolveWorkState: async () => ({ workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus }] }),
+      idleSec: 600,
+      cooldownSec: 600,
+      intervalMs: 1_000_000,
+    });
+    const step = async () => {
+      await h.runOnce();
+      activity = clock + 60_000; // セッションは毎回返答する
+      clock += 3_600_000;
+    };
+    try {
+      await step(); // 初回: 変化あり
+      await step(); // 同じ状態: 通知なし
+      checkStatus = "failed";
+      await step(); // 審査失敗へ変化: 通知あり
+    } finally {
+      h.stop();
+    }
+    const texts = injects().map((e) => String(e.text));
+    expect(texts).toHaveLength(3);
+    expect(texts[0]).not.toContain("作業状態は変わっていません");
+    expect(texts[1]).toContain("作業状態は変わっていません");
+    expect(texts[1]).toContain("`[変化なし]`");
+    expect(texts[2]).toContain("state=review-failed");
+    expect(texts[2]).not.toContain("作業状態は変わっていません");
+    expect(received.filter((e) => e.type === "session.stall_nudged")).toHaveLength(2);
+  });
+
   it("goal metadata があっても未記録の設計を確認し、再実装を決めつけない", async () => {
     const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
     const h = startStalledSessionNudge({

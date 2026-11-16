@@ -104,6 +104,7 @@ updated: 2026-11-16
 | CC-CTL-INV-05 | 人間の判断待ち (質問カード・human-wait・応答待ちの確認・ask マーカー) と部署の自動確認 OFF のセッションには、一括指示も追加指示も送らない (照会できないときも送らない) |
 | CC-CTL-INV-06 | 指示は既存の inject 経路で来歴付きで届け、届け先の審査ゲート・許可範囲を回避しない。追加指示は現在の管制セッションからだけ受け付ける |
 | CC-CTL-INV-07 | 管制チャンネルのまとめは 1 時間に 1 回まで。進捗ボードだけを読んで作り、投稿に成功したときだけ時刻を記録する。本文にメンションを含めない |
+| CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの) だけ。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない。先に案内を 1 回送り、猶予後も同じなら既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない |
 
 ## API
 
@@ -120,9 +121,26 @@ updated: 2026-11-16
 - 管制セッションの起動は chores と同じく、spawn の直前に spawn ID を Cc 起動の登録 (pending spawn の enrollment) として記録し、起動に失敗したら取り消す。記録が無いと起動した Lictor のセッション登録が `invalid_or_consumed_session_enrollment` で拒否され、Lictor が作業場所の trust を焼かないため trust picker で止まる。
 - 巡回は起動を最大 60 秒だけ待つ。返らない・例外は起動失敗として扱い、ボード更新とまとめの投稿を続ける。保持者は起動前に記録済みなので、猶予内に重ねて起動しない (CC-CTL-INV-01)。
 
+### 9. 子セッションの片付け (CC-CTL-INV-08)
+
+neco 指示 (2026-11-16)「セッションから作業指示で起動したセッションが反応してないか役目を終えた際に閉じる役割も持つ」。
+
+- 対象: 既存の親子の記録がある子だけ (`reaper-policy.ts` の `classifyChild`)。
+  - リポ担当 (auto-succession): 子 metadata の `repo_agent_of.parent_session_id`。
+  - 委託 run の子: metadata の `delegation_run_id` の run が、`delegation_runs.child_session_id` でこのセッションを子として記録しているもの。
+  - 親を持つ `/v1/spawn`: metadata の `delegation_parent_session_id`。
+  - 対象外: 親の記録が無いもの (人間が起動したもの・相談セッションなど)、管制セッション自身、部署の常駐 (`resident_sidecars.child_session_id`)。
+- 閉じてよい条件:
+  - 役目を終えた: 委託 run の子は、親の記録に終端の通知 (source `delegation:<run>:status` の inject = completed / partial / failed) が届いていて、その後 30 分以上会話が無い。リポ担当は、担当ブランチの Revisor PR が merged で、その後 30 分以上会話が無い。Cc には反映済みの記録が無いため、反映中はリポ担当が testing claim を持つこと (下の除外) で代える。
+  - 反応しない: 60 分以上会話が無く、自動確認 (`cc_followup_progress`) で作業状態が変わらなかった回が 2 回以上 (自動確認と管制の追加指示の後も変化が無い)。
+- 閉じない (どれか 1 つでも当たるか、照会できないとき): human-wait・未回答の質問カード・人間の応答待ちの確認・ask マーカー・審査中の open PR (session か branch が一致)・testing claim 中・worktree に未コミットの変更がある・main より先のコミットがあり HEAD を head にした PR が Revisor に無い (`reaper-facts.ts`)。
+- 2 段 (`reaper.ts`): 先に子へ「役目を終えたので作業記録を残して session-end してください」を 1 回送り、子の metadata `control_reaper` に時刻を残す (届かなければ記録しない)。10 分後も閉じてよい条件のままなら、既存の終了経路 (`DELETE /v1/sessions/:id` → `endSessionNow`) で閉じる。閉じる前後に親へ inject し、管制チャンネルへ件数と対象を知らせる。終了を試みたら記録し、結果が分からなくても再送しない。
+- 会話が 30 分以内の子は照会しない (git / Revisor を叩かない)。open PR の一覧は 1 巡回で 1 回だけ読む。
+- 設定 `session.control_session_reaper_enabled` (既定 ON)。`session.control_session_enabled` が OFF なら動かない。OFF で次の巡回から止まる。
+
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - 既存部品の再利用: 停止の判定は `cc_followup_progress` (followup-progress.ts)、待ちの判定は pending-question-blocker / human-wait / human-response-confirmation / stalled-session-nudge の ask 判定、起動は `spawnSession` と pending spawn の相関 ID、側セッションは `runClaude` の会話専用実行。

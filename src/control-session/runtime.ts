@@ -23,6 +23,7 @@ import {
   type InjectPort,
   type InstructionOrigin,
 } from "./instruction-dispatch.js";
+import { createChildReaper, type ChildReaperDeps } from "./reaper.js";
 import { createSideDialogue, type OneShotRunner } from "./side-dialogue.js";
 import { createControlSupervisor, type ControlTickReport } from "./supervisor.js";
 
@@ -52,6 +53,8 @@ export interface ControlRuntimeDeps {
   workspaceRoot(): string;
   concordiaUrl: string;
   runOneShot: OneShotRunner;
+  /** 作業指示で起動した子セッションの片付け (§9)。管制が ON の間だけ巡回ごとに回す。 */
+  reaper?: Omit<ChildReaperDeps, "isControlSession" | "postToChannel" | "now" | "log">;
   now?: () => number;
   log: { info(message: string): void; warn(message: string): void };
 }
@@ -104,6 +107,14 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
 
   const side = createSideDialogue(deps.runOneShot);
 
+  const reaper = deps.reaper ? createChildReaper({
+    ...deps.reaper,
+    isControlSession: (session) => supervisor.isControlSession(session),
+    postToChannel: async (text) => { if (surface && surfaceReady) await surface.post(text); },
+    now,
+    log: deps.log,
+  }) : null;
+
   async function dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult> {
     const result = await dispatchControlInstruction({
       ...input, findSession: deps.sessions.findSession, probes, inject: deps.inject, nowMs: now(),
@@ -127,6 +138,10 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
       deps.settings.delete(CONTROL_SUMMARY_POSTED_KEY);
     }
     if (report.enabled && surface && surfaceReady) await postHourlySummary(surface);
+    if (report.enabled && reaper) {
+      await reaper.runOnce(deps.sessions.findAllActive())
+        .catch((error) => deps.log.warn(`control reaper failed: ${String(error)}`));
+    }
     return report;
   }
 

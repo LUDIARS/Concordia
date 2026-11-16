@@ -239,6 +239,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: false,
     editable: true,
   },
+  {
+    key: "session.control_session_reaper_enabled",
+    section: "session",
+    label: "管制が子セッションを片付ける",
+    description:
+      "他セッションの作業指示で Cc が起動した子セッション (リポ担当・委託 run の子・親を持つ spawn) が役目を終えたか反応しないとき、管制が終了を案内し、10 分後も同じなら既存の終了経路で閉じる。待ち・未保存の変更・照会できない事実があれば閉じない。管制セッションが OFF なら動かない。OFF で即止まる (spec/feature/control-session.md §9)。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.control_session_reaper_enabled",
+    defaultValue: true,
+    editable: true,
+  },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
   envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 指示)。"),

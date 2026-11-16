@@ -192,3 +192,64 @@ describe("control runtime spawn enrollment", () => {
     }
   });
 });
+
+describe("control runtime child reaper wiring", () => {
+  it("runs the child reaper only while the control session is ON", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cc-control-reap-"));
+    try {
+      const values = new Map<string, string>();
+      let enabled = false;
+      const nowMs = Date.UTC(2026, 10, 16, 8, 0, 0);
+      const child = session("child", { delegation_parent_session_id: "parent" });
+      const reaped: string[] = [];
+      const runtime = createControlRuntime({
+        db: makeTestDb(),
+        settings: { get: (k) => values.get(k) ?? null, set: (k, v) => { values.set(k, v); }, delete: (k) => { values.delete(k); } },
+        isEnabled: () => enabled,
+        sessions: { findAllActive: () => [child], findSession: (id) => (id === "child" ? child : null) },
+        projectOf: () => "Cc",
+        latestStat: () => null,
+        lastActivitySec: () => null,
+        probes: {
+          isAutoCheckDisabled: () => false, hasPendingQuestion: () => false, isHumanWaitActive: () => false,
+          isWaitingForHumanResponse: () => false, isAwaitingAsk: async () => false,
+        },
+        inject: { canDeliver: () => true, emit: () => {} },
+        injectToSession: () => true,
+        spawn: async () => ({ ok: true }),
+        enrollment: { record: () => {}, forget: () => {} },
+        workspaceRoot: () => root,
+        concordiaUrl: "http://127.0.0.1:1",
+        runOneShot: async () => ({ ok: true, stdout: "" }),
+        reaper: {
+          isEnabled: () => true,
+          findRun: () => null,
+          isResidentChild: () => false,
+          parentReceivedRunTerminal: () => false,
+          lastActivitySec: () => Math.floor(nowMs / 1000) - 2 * 60 * 60,
+          unchangedCount: () => 3,
+          hasPendingQuestion: () => false,
+          isHumanWaitActive: () => false,
+          isWaitingForHumanResponse: () => false,
+          isAwaitingAsk: async () => false,
+          hasTestingClaim: () => false,
+          listOpenLocalPrs: async () => [],
+          findLocalPrByBranch: async () => null,
+          git: async (_cwd, args) => ({ ok: true, stdout: args[0] === "rev-list" ? "0" : "" }),
+          updateMetadata: () => {},
+          inject: (sessionId) => { reaped.push(sessionId); return true; },
+          endSession: async () => {},
+        },
+        now: () => nowMs,
+        log: { info: () => {}, warn: () => {} },
+      });
+      await runtime.tick();
+      expect(reaped).toEqual([]);
+      enabled = true;
+      await runtime.tick();
+      expect(reaped).toEqual(["child", "parent"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

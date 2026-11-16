@@ -30,6 +30,7 @@ const KEYS = {
   languageGuard: "admin.language_guard_enabled",
   goalStopQuestionGuard: "admin.goal_stop_question_guard_enabled",
   controlSession: "admin.control_session_enabled",
+  controlSessionReaper: "admin.control_session_reaper_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -165,6 +166,16 @@ export class RuntimeSettingsStore {
     const raw = this.store.get(KEYS.controlSession);
     if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
     return false;
+  }
+
+  /**
+   * 管制の子セッションの片付けを動かすか (既定 ON — 2026-11-16 neco 指示)。管制セッション自体が OFF なら動かない。
+   * 解決順は DB (WebUI 設定) → 既定。巡回ごとに読むので切替に再起動は要らない。
+   */
+  getControlSessionReaperEnabled(): boolean {
+    const raw = this.store.get(KEYS.controlSessionReaper);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    return true;
   }
 
   /**

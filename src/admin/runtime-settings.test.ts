@@ -74,6 +74,18 @@ describe("RuntimeSettingsStore.getControlSessionEnabled", () => {
   });
 });
 
+describe("RuntimeSettingsStore.getControlSessionReaperEnabled", () => {
+  it("未設定なら ON、WebUI で保存した値を優先する (spec/feature/control-session.md §9)", () => {
+    const store = makeStore();
+    const settings = new RuntimeSettingsStore(store);
+    expect(settings.getControlSessionReaperEnabled()).toBe(true);
+    store.set("admin.control_session_reaper_enabled", "0");
+    expect(settings.getControlSessionReaperEnabled()).toBe(false);
+    store.setBoolean("admin.control_session_reaper_enabled", true);
+    expect(settings.getControlSessionReaperEnabled()).toBe(true);
+  });
+});
+
 describe("RuntimeSettingsStore.getLanguageGuardEnabled", () => {
   it("未設定なら ON、WebUI で保存した値を優先する", () => {
     const store = makeStore();

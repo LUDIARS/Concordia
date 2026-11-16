@@ -184,6 +184,9 @@ import { isAwaitingHumanInput, readSessionTranscriptTail, startStalledSessionNud
 import { createControlRuntime } from "../control-session/runtime.js";
 import type { SessionRow } from "../shared/types.js";
 import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
+import { CONTROL_REAPER_SOURCE } from "../control-session/reaper.js";
+import { readFollowupProgress } from "../control/followup-progress.js";
+import { defaultGitRunner } from "../control/ws-cleanup.js";
 import { spawnSession } from "../control/spawner.js";
 import { forgetPendingDelegationSpawnBySpawnId, recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { canRequestProgress } from "../control/periodic-progress-request.js";
@@ -2222,6 +2225,43 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoot: () => cfg.workspaceRoot || cfg.spawnDefaultCwd,
     concordiaUrl: publicUrl,
     runOneShot: (prompt) => runClaude(prompt, { model: "sonnet", conversationOnly: true, timeoutMs: 90_000 }),
+    // 作業指示で起動した子セッションの片付け (spec/feature/control-session.md §9)。
+    reaper: {
+      isEnabled: () => adminState.getControlSessionReaperEnabled(),
+      findRun: (runId) => delegationRepo.findRun(runId),
+      isResidentChild: (sessionId) => !!db.prepare(
+        "SELECT 1 FROM resident_sidecars WHERE child_session_id = ? AND state != 'closed' LIMIT 1",
+      ).get(sessionId),
+      parentReceivedRunTerminal: (parentSessionId, runId) => !!db.prepare(
+        "SELECT 1 FROM session_events WHERE session_id = ? AND kind = 'inject' AND json_extract(payload, '$.source') = ? LIMIT 1",
+      ).get(parentSessionId, `delegation:${runId}:status`),
+      lastActivitySec: (sessionId) => transcriptLogs.tsSpan(sessionId)?.last_ts ?? null,
+      unchangedCount: (session) => readFollowupProgress(session.metadata)?.unchanged_count ?? 0,
+      hasPendingQuestion: (sessionId) => isBlockedByPendingQuestion(pendingQuestionProbe(pendingQuestions), sessionId),
+      isHumanWaitActive: (sessionId) => isHumanWaitActive(repo, sessionId),
+      isWaitingForHumanResponse: (sessionId) => isWaitingForHumanResponse(repo, sessionId),
+      isAwaitingAsk: async (session) => isAwaitingHumanInput(await readSessionTranscriptTail(session)),
+      hasTestingClaim: (sessionId, nowSec) => testingClaims.hasActiveClaim(sessionId, nowSec),
+      listOpenLocalPrs: async () => (await revisorClient.listLocalPrs()).filter((pr) => pr.status === "open"),
+      findLocalPrByBranch: (repository, branch) => revisorClient.findLocalPrByBranch(repository, branch),
+      git: async (cwd, args) => {
+        const result = await defaultGitRunner(cwd, args);
+        return { ok: result.ok, stdout: result.stdout };
+      },
+      updateMetadata: (sessionId, update) => repo.updateMetadata(sessionId, update),
+      inject: (sessionId, text) => {
+        const event = { type: "session.inject" as const, target_session_id: sessionId, text,
+          source: CONTROL_REAPER_SOURCE, ts: Math.floor(Date.now() / 1000) };
+        if (!eventBus.canDeliverInject(event)) return false;
+        eventBus.emit(event);
+        return true;
+      },
+      // parttimer の退勤と同じく、既存の終了経路 (endSessionNow) を loopback DELETE で通す。
+      endSession: async (sessionId) => {
+        const res = await fetch(`${concordiaBaseUrl()}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`DELETE /v1/sessions/${sessionId} -> ${res.status}`);
+      },
+    },
     log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
   });
   // 管制セッション自身へは停止確認・Goal & Go・現況報告を送らない (管制の文脈を汚さない)。

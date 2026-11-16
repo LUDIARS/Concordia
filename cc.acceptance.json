@@ -580,6 +580,7 @@
       "source": "src/harness/reliability/task-branch-policy.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-castra-target.test.ts",
         "tests/harness-reliability/task-branch-recovery.test.ts",
         "tests/harness-reliability/task-branch-adapters.test.ts",
         "tests/harness-reliability/conflux.test.ts"
@@ -598,6 +599,7 @@
       "source": "src/harness/reliability/task-branch-service.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",
+        "tests/harness-reliability/task-branch-castra-target.test.ts",
         "tests/harness-reliability/task-branch-recovery.test.ts",
         "tests/harness-reliability/conflux.test.ts"
       ],
@@ -5592,6 +5594,7 @@
     {"source":"src/slack/bot.ts","tests":["src/platform/question-answered-display.test.ts","src/slack/bot-session-channels.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
     {"source":"src/events.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
     {"source":"src/shared/event-schema.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
-    {"source":"src/bootstrap/core.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-04"]}
+    {"source":"src/bootstrap/core.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-04"]},
+    {"source":"src/api/register-core.ts","tests":["tests/harness-reliability/task-branch-castra-target.test.ts","tests/harness-reliability/task-branch.test.ts"],"contracts":[]}
   ]
 }

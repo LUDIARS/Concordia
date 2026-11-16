@@ -1099,7 +1099,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ...(deps.openBountyEvents ? { openBountyEvents: deps.openBountyEvents } : {}),
         taskBranches: new TaskBranchService(deps.repo, undefined, (id, action) => conflux.gate(id, action),
           submittedPrStateReader({ revisor: deps.revisorLocalPrs, prs: deps.prs }),
-          () => deps.adminState.getWorkspaceRoots()),
+          () => deps.adminState.getWorkspaceRoots(),
+          () => deps.projectCodes.list().map(({ code, project, repo_path }) => ({ code, project, repo_path }))),
         projectPolicy: async (cwd) => {
           const inspected = await inspectImplementationRepo(cwd);
           const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :

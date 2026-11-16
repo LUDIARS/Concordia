@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { isEditTool, type HarnessAction, type PredicateHit } from "../predicates.js";
 import { isWorkspaceRootCwd } from "../../control/session-work-policy.js";
 import type { BranchSnapshot } from "./task-branch-git.js";
@@ -31,6 +31,8 @@ export function requiresTaskBranchCheck(action: HarnessAction): boolean {
   if (isEditTool(action.tool)) return true;
   if (!action.command) return false;
   const words = branchCommandWords(action.command);
+  // TB-CD: a lone `cd <path>` (no shell symbols) only moves the shell; the next command is checked where it lands.
+  if (isLoneCd(words)) return false;
   const args = gitArguments(words);
   if (args) {
     if (args[0] === "status") return false;
@@ -41,6 +43,11 @@ export function requiresTaskBranchCheck(action: HarnessAction): boolean {
   if (cli && cli[0] === "cli"
     && ((cli[1] === "implement" && cli[2] === "begin") || (cli[1] === "task" && cli[2] === "set"))) return false;
   return true;
+}
+
+/** TB-CD: `cd` with exactly one argument, as split by branchCommandWords (which yields nothing when symbols are present). */
+function isLoneCd(words: string[]): boolean {
+  return words.length === 2 && /^cd$/i.test(words[0]!) && words[1]!.trim() !== "";
 }
 
 /**
@@ -123,11 +130,62 @@ export function checkRegisteredCheckout(input: {
 export function castraTargetRegistration(
   session: { repo_path: string; branch: string | null; target_project?: string | null },
   workspaceRoots: readonly string[],
+  resolveTarget: (target: string) => string | null = absoluteTargetPath,
 ): { repo: string; branch: string } | null {
   const target = session.target_project?.trim();
   if (!target || !session.branch) return null;
-  if (!isWorkspaceRootCwd(session.repo_path, workspaceRoots) || isWorkspaceRootCwd(target, workspaceRoots)) return null;
-  return { repo: resolve(target), branch: session.branch };
+  if (!isWorkspaceRootCwd(session.repo_path, workspaceRoots)) return null;
+  const repo = resolveTarget(target);
+  if (!repo || isWorkspaceRootCwd(repo, workspaceRoots)) return null;
+  return { repo, branch: session.branch };
+}
+
+/** TB-CASTRA: an absolute target_project is used as is. A bare name is never resolved against the Cc process cwd. */
+export function absoluteTargetPath(target: string): string | null {
+  return isAbsolute(target) ? resolve(target) : null;
+}
+
+export interface ProjectRegistration { code: string; project: string; repo_path: string }
+
+/**
+ * TB-CASTRA: target_project may be a path, a project code (case-sensitive, e.g. `Mf`) or a project name
+ * (e.g. `Concordia`, case-insensitive). A name is resolved through the project registration's repo_path;
+ * an unregistered name or a registered path that does not exist yields null, so the Castra re-check is skipped.
+ */
+export function resolveTargetProjectPath(
+  target: string,
+  projects: readonly ProjectRegistration[],
+  exists: (path: string) => boolean,
+): string | null {
+  const absolute = absoluteTargetPath(target);
+  if (absolute) return absolute;
+  const lower = target.toLowerCase();
+  const row = projects.find(entry => entry.code === target) ?? projects.find(entry => entry.project.toLowerCase() === lower);
+  const repoPath = row?.repo_path?.trim();
+  if (!repoPath || !isAbsolute(repoPath)) return null;
+  const repo = resolve(repoPath);
+  return exists(repo) ? repo : null;
+}
+
+/**
+ * TB-CASTRA: the 「推定対象」 shown in a checkout-mismatch denial (display only, the decision is unchanged).
+ * A Castra-root session acting in a linked worktree of another repository on the registered branch is
+ * working in that repository, so its main checkout (the parent of the shared git dir) is shown.
+ */
+export function displayedTargetProject(input: {
+  primary: { repo: string; branch: string };
+  acting: { repo: string; branch: string; commonDir?: string };
+  targetProject: string | null;
+  workspaceRoots: readonly string[];
+}): string | null {
+  const { primary, acting } = input;
+  if (!acting.commonDir || !acting.branch || acting.branch !== primary.branch) return input.targetProject;
+  if (!isWorkspaceRootCwd(primary.repo, input.workspaceRoots)) return input.targetProject;
+  // Only a plain `<repo>/.git` names its main checkout (a submodule's lives under `.git/modules`).
+  if (basename(resolve(acting.commonDir)).toLowerCase() !== ".git") return input.targetProject;
+  const home = dirname(resolve(acting.commonDir));
+  const sameCheckout = home.replace(/[\\/]+$/, "").toLowerCase() === resolve(acting.repo).replace(/[\\/]+$/, "").toLowerCase();
+  return sameCheckout || isWorkspaceRootCwd(home, input.workspaceRoots) ? input.targetProject : home;
 }
 
 /**

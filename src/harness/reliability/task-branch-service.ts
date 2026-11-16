@@ -1,8 +1,9 @@
 import type { ConfluxGateResult } from "./conflux-service.js";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../../db/sessions-repo.js";
 import { isEditTool, type HarnessAction, type PredicateHit } from "../predicates.js";
-import { castraTargetRegistration, checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, describeCheckoutMismatch, deterministicTaskRelation, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, parseTaskRelation, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
+import { castraTargetRegistration, checkSubmittedTask, checkNewBranchCommand, checkRegisteredCheckout, describeCheckoutMismatch, deterministicTaskRelation, displayedTargetProject, homeRegistration, homeRestoredNotice, readDeclaredTask, releasesSubmittedBoundary, requiresTaskBranchCheck, resolveTargetProjectPath, parseTaskRelation, type ProjectRegistration, type SubmittedPrState, type SubmittedTask, type TaskRelation } from "./task-branch-policy.js";
 import { readBranchSnapshot, type BranchSnapshot } from "./task-branch-git.js";
 import { githubSubmission } from "./task-branch-submission.js";
 import { isRecoveryCd } from "./task-branch-recovery.js";
@@ -38,7 +39,16 @@ export class TaskBranchService {
     private readonly inspect: (cwd: string) => Promise<BranchSnapshot> = readBranchSnapshot,
     private readonly conflux?: (id: string, action: HarnessAction) => Promise<ConfluxGateResult>,
     private readonly submittedPrState?: (pr: string) => Promise<SubmittedPrState>,
-    private readonly workspaceRoots: () => readonly string[] = () => []) {}
+    private readonly workspaceRoots: () => readonly string[] = () => [],
+    /** TB-CASTRA: project registrations (code / name → repo_path) that resolve a non-path target_project. */
+    private readonly projects: () => readonly ProjectRegistration[] = () => [],
+    private readonly pathExists: (path: string) => boolean = existsSync) {}
+
+  /** TB-CASTRA: the Castra re-check registration, with target_project resolved through the project registrations. */
+  private castraRegistration(session: SessionRow): { repo: string; branch: string } | null {
+    return castraTargetRegistration(session, this.workspaceRoots(),
+      target => resolveTargetProjectPath(target, this.projects(), this.pathExists));
+  }
 
   read(id: string): SubmittedTask | null {
     const session = this.sessions.findSession(id);
@@ -119,7 +129,7 @@ export class TaskBranchService {
     let registeredRepo = acting.repo === registered.repo ? acting : await this.inspect(registered.repo).catch(() => null);
     this.rememberHome(id, session.metadata, registered.repo, registeredRepo);
     let mismatch = checkRegisteredCheckout({ registered, acting, registeredRepo, tool: action.tool });
-    const castra = mismatch ? castraTargetRegistration(session, this.workspaceRoots()) : null;
+    const castra = mismatch ? this.castraRegistration(session) : null;
     if (castra) {
       const targetRepo = acting.repo === castra.repo ? acting : await this.inspect(castra.repo).catch(() => null);
       if (!checkRegisteredCheckout({ registered: castra, acting, registeredRepo: targetRepo, tool: action.tool })) {
@@ -189,7 +199,9 @@ export class TaskBranchService {
     const previous = readDenial(session.metadata);
     const count = previous?.signature === signature ? previous.count + 1 : 1;
     this.sessions.mergeMetadata(id, { [DENIAL_KEY]: { signature, count } });
-    if (count < REPEATED_DENIAL_COUNT) return describeCheckoutMismatch({ registered, acting, targetProject: session.target_project ?? null });
+    const targetProject = displayedTargetProject({ primary: { repo: resolve(session.repo_path), branch: session.branch || "" },
+      acting, targetProject: session.target_project ?? null, workspaceRoots: this.workspaceRoots() });
+    if (count < REPEATED_DENIAL_COUNT) return describeCheckoutMismatch({ registered, acting, targetProject });
     const values = {
       tool, acting: { repo: acting.repo, branch: acting.branch, commonDir: acting.commonDir ?? null },
       primary, working_targets: targets, target_project: session.target_project ?? null,
@@ -198,7 +210,7 @@ export class TaskBranchService {
     if (count === REPEATED_DENIAL_COUNT) {
       this.sessions.appendEvent({ session_id: id, ts: Math.floor(Date.now() / 1000), kind: "harness.task_branch.repeated_denial", payload: values });
     }
-    return describeCheckoutMismatch({ registered, acting, targetProject: session.target_project ?? null,
+    return describeCheckoutMismatch({ registered, acting, targetProject,
       diagnostics: `同じ拒否が ${count} 回続いています。案内の登録をしても通らないならゲートの不具合なので、登録をやり直さずに作業を止め、次の判定値を添えて人間に報告してください: ${JSON.stringify(values)}` });
   }
 

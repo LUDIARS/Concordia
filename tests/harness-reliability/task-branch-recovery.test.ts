@@ -69,8 +69,9 @@ describe("a session parked in a linked worktree can always cd back (TB-CD)", () 
       expect((await gate({ tool: "Bash", command: "node build.mjs", cwd: worktree }))?.decision).toBe("deny");
       expect((await gate({ tool: "Bash", command: `cd ${root} && git commit -m x`, cwd: worktree }))?.decision).toBe("deny");
       expect((await gate({ tool: "Bash", command: `cd ${root}; rm -rf x`, cwd: worktree }))?.decision).toBe("deny");
-      expect((await gate({ tool: "Bash", command: `cd ${other}`, cwd: worktree }))?.decision).toBe("deny");
-      expect((await gate({ tool: "Bash", command: "cd -", cwd: worktree }))?.decision).toBe("deny");
+      expect((await gate({ tool: "Bash", command: `cd ${root} extra`, cwd: worktree }))?.decision).toBe("deny");
+      // Set-Location / pushd are exempt only toward a registered checkout or workspace root.
+      expect((await gate({ tool: "PowerShell", command: `Set-Location "${other}"`, cwd: worktree }))?.decision).toBe("deny");
     } finally { close(); }
   });
 
@@ -97,8 +98,19 @@ describe("a session parked in a linked worktree can always cd back (TB-CD)", () 
     }
   });
 
-  it("does not exempt cd from the check itself: the policy decides it per destination", () => {
-    expect(requiresTaskBranchCheck({ tool: "Bash", command: `cd ${root}`, cwd: worktree })).toBe(true);
+  it("exempts a lone symbol-free cd from the check; anything else around it is still checked", async () => {
+    expect(requiresTaskBranchCheck({ tool: "Bash", command: `cd ${root}`, cwd: worktree })).toBe(false);
+    expect(requiresTaskBranchCheck({ tool: "Bash", command: `cd "${other}"`, cwd: worktree })).toBe(false);
+    expect(requiresTaskBranchCheck({ tool: "Bash", command: `cd ${root} && node build.mjs`, cwd: worktree })).toBe(true);
+    expect(requiresTaskBranchCheck({ tool: "Bash", command: "cd $HOME", cwd: worktree })).toBe(true);
+    expect(requiresTaskBranchCheck({ tool: "Bash", command: "cd", cwd: worktree })).toBe(true);
+    expect(requiresTaskBranchCheck({ tool: "Edit", command: `cd ${root}`, cwd: worktree })).toBe(true);
+    const { gate, close } = setup();
+    try {
+      // The cd itself passes; what follows is checked in the checkout it landed in (editing there stays denied).
+      expect(await gate({ tool: "Bash", command: `cd ${other}`, cwd: worktree })).toBeNull();
+      expect((await gate({ tool: "Edit", cwd: other, filePath: join(other, "a.ts") }))?.decision).toBe("deny");
+    } finally { close(); }
   });
 });
 

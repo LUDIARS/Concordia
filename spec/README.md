@@ -82,12 +82,8 @@ UX シナリオ ID (`UX-CC-*`) は各 UX 文書が定義する。
 
 ## 新設予定・作業中の feature
 
-| feature | 状態 | 所属ドメイン |
-|---|---|---|
-| 管制セッション — `spec/feature/control-session.md` | 2026-11-16 neco 指示「新しくメジャーに上げる前に Cc の管制セッションを作ろう」。別担当が実装中 (文書は実装 PR で追加) | 実装 PR で `specRefs` に登録して確定する |
-
-> メジャーリリースは、この仕様整理 PR と管制セッション PR の両方がマージされてから切る。
-> 管制セッションの文書が入ったら、この表の行を体系索引の所属ドメインへ移す。
+なし。2026-11-16 に用意した管制セッションの欄は、実装 PR で体系索引の
+[`control-session`](#control-session) へ移した (既定 OFF、`session.control_session_enabled` で ON)。
 
 ## 体系索引 (ドメイン → feature → UX → 不変条件 ID)
 
@@ -716,6 +712,17 @@ UX シナリオ ID (`UX-CC-*`) は各 UX 文書が定義する。
 - feature:
   - [consultation-turn-status.md](feature/consultation-turn-status.md) — 応答の開始時刻と終了状態 (draft)
 - 不変条件 ID: — (feature 内に定義なし。横断の CC-INV-* は下表)
+
+#### `control-session`
+
+[domain.json](domains/control-session.domain.json) — 管制セッション (2026-11-16 neco 指示)。
+
+- feature:
+  - [control-session.md](feature/control-session.md) — 管制セッション — Cc の全セッションを 1 つの常駐セッションで見守り、進捗だけを上書きで持ち、止まった作業へ追加指示する (implemented)
+  - [autonomous-work-continuation.md](feature/autonomous-work-continuation.md) — 自律継続 (停止の判定に使う作業状態の指紋の正本)
+- UX: [session-coordination.md](ux/session-coordination.md) · [product.md](ux/product.md)
+- 設計・契約: [ddd.md](architecture/ddd.md)
+- 不変条件 ID: `CC-CTL-INV-01〜06`
 
 #### `daily-goal-run`
 

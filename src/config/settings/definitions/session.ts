@@ -227,6 +227,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: true,
     editable: true,
   },
+  {
+    key: "session.control_session_enabled",
+    section: "session",
+    label: "管制セッションを動かす",
+    description:
+      "Cc の全セッションを見守る管制セッションを 1 つだけ常駐させ、進捗ボード (上書き)・Discord の「管制」チャンネル (状況確認と一括指示)・自動確認でも変化の無いセッションへの追加指示を動かす。OFF (既定) では起動せず、ON 中の管制セッションへは終了を促す (spec/feature/control-session.md)。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.control_session_enabled",
+    defaultValue: false,
+    editable: true,
+  },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
   envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 指示)。"),

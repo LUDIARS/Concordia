@@ -12,6 +12,7 @@ import { choresRouter } from "./chores.js";
 import { managementAdminRouter, managementRouter } from "./management.js";
 import { sprintDialoguesRouter } from "./sprint-dialogues.js";
 import { dailyGoalRunRouter } from "./daily-goal-run.js";
+import { controlSessionRouter, type ControlSessionApiDeps } from "./control-session.js";
 import type { DailyGoalRunService } from "../daily-goal-run/service.js";
 import { actioChatRouter, type ActioChatDeps } from "./actio-chat.js";
 import type { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
@@ -454,6 +455,8 @@ export interface CoreRuntimeDeps {
   sprintDialogues?: SprintDialoguesRepository;
   /** デイリーゴール自走 (spec/feature/daily-goal-run.md)。 */
   dailyGoals?: DailyGoalRunService;
+  /** 管制セッション (spec/feature/control-session.md)。 */
+  controlSession?: ControlSessionApiDeps;
   chores?: ChoresService;
   /** CDGD マネジメント層 (spec/feature/cdgd-management.md)。 */
   management?: ManagementService;
@@ -523,6 +526,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.dailyGoals) {
     app.route("/v1/daily-goals", dailyGoalRunRouter(deps.dailyGoals, { isEnabled: () => deps.adminState.isWorkflowEnabled("daily_goal") }));
   }
+  if (deps.controlSession) app.route("/v1/control", controlSessionRouter(deps.controlSession));
   if (deps.chores) app.route("/v1/chores", choresRouter(deps.chores));
   if (deps.management) {
     app.route("/v1/management", managementRouter(deps.management));

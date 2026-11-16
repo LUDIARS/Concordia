@@ -54,6 +54,20 @@ describe("startStatScheduler", () => {
     }
   });
 
+  it("skips sessions excluded by skipSession (the control session, spec/feature/control-session.md)", () => {
+    const NOW = 100_000;
+    startSession(env.sessions, "control", { lastSeenAt: NOW - 30 });
+    startSession(env.sessions, "worker", { lastSeenAt: NOW - 30 });
+    const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000, skipSession: (s) => s.id === "control" });
+    try {
+      expect(sched.runOnce()).toBe(1);
+      expect(env.tasks.pull("control").find((t) => t.kind === "stat-collect")).toBeFalsy();
+      expect(env.tasks.pull("worker").find((t) => t.kind === "stat-collect")).toBeTruthy();
+    } finally {
+      sched.stop();
+    }
+  });
+
   it("skips sessions not in active status", () => {
     const NOW = 100_000;
     startSession(env.sessions, "lost-one", { lastSeenAt: NOW - 30, status: "lost" });

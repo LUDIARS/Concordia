@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 145;
+export const SCHEMA_VERSION = 146;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3802,6 +3802,30 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         is_active  INTEGER NOT NULL CHECK (is_active IN (0, 1)),
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (scope_kind, scope_key, category)
+      );
+    `);
+  },
+},
+{
+  version: 146,
+  name: "control-progress-board",
+  source: "control_progress_board (spec/feature/control-session.md §2 進捗ボード — セッションごとに最新 1 行の上書き)",
+  up(db) {
+    // 管制セッションの進捗ボード。履歴は持たず、セッションごとに最新 1 行だけを上書きする。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS control_progress_board (
+        session_id           TEXT PRIMARY KEY,
+        project              TEXT NOT NULL,
+        branch               TEXT,
+        followup_state       TEXT,
+        fingerprint          TEXT,
+        unchanged_count      INTEGER NOT NULL DEFAULT 0,
+        current_task         TEXT,
+        side_summary         TEXT,
+        side_reported_at     INTEGER,
+        last_activity_at     INTEGER,
+        updated_at           INTEGER NOT NULL,
+        digested_fingerprint TEXT
       );
     `);
   },

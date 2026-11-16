@@ -180,7 +180,11 @@ import { startWalGuard } from "../db/wal-guard.js";
 import { startReaper } from "../control/reaper.js";
 import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/question-escalation.js";
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
-import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { isAwaitingHumanInput, readSessionTranscriptTail, startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { createControlRuntime } from "../control-session/runtime.js";
+import type { SessionRow } from "../shared/types.js";
+import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
+import { spawnSession } from "../control/spawner.js";
 import { canRequestProgress } from "../control/periodic-progress-request.js";
 import { resolveSessionFollowupSnapshot } from "../control/session-followup-snapshot.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
@@ -214,7 +218,7 @@ import { startLanguageGuard } from "../control/language-guard.js";
 import { startGoalStopQuestionGuard } from "../control/goal-stop-question/guard.js";
 import { claudeGeniusAnswerJudge } from "../control/goal-stop-question/judge.js";
 import { geniusEvidenceLookup } from "../control/goal-stop-question/genius-evidence.js";
-import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
+import { isBlockedByPendingQuestion, pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
@@ -2172,8 +2176,57 @@ export async function startBackend(): Promise<BackendHandle> {
     isEnabled: () => isWorkflowEnabled("daily_goal"),
     log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
   });
+  // 管制セッション (spec/feature/control-session.md)。既定 OFF、session.control_session_enabled で ON。
+  const controlLog = createChildLogger("control-session");
+  const controlRuntime = createControlRuntime({
+    db,
+    settings: adminState.store,
+    isEnabled: () => adminState.getControlSessionEnabled(),
+    sessions: repo,
+    projectOf: (session) => {
+      const origin = session.repo_origin ? normalizeRepoOrigin(session.repo_origin) : null;
+      return (origin ? projectCodesRepo.findByRepoOrigin(origin)?.code : undefined)
+        ?? projectCodesRepo.findByRepoPath(session.repo_path)?.code
+        ?? (basename(session.repo_path || "") || "unknown");
+    },
+    latestStat: (sessionId) => {
+      const row = stats.latest(sessionId);
+      return row ? { ts: row.ts, payload: row.payload } : null;
+    },
+    lastActivitySec: (sessionId) => transcriptLogs.tsSpan(sessionId)?.last_ts ?? null,
+    probes: {
+      isAutoCheckDisabled: isSessionAutoCheckDisabled,
+      hasPendingQuestion: (sessionId) => isBlockedByPendingQuestion(pendingQuestionProbe(pendingQuestions), sessionId),
+      isHumanWaitActive: (sessionId) => isHumanWaitActive(repo, sessionId),
+      isWaitingForHumanResponse: (sessionId) => isWaitingForHumanResponse(repo, sessionId),
+      isAwaitingAsk: async (session) => isAwaitingHumanInput(await readSessionTranscriptTail(session)),
+    },
+    inject: { canDeliver: (event) => eventBus.canDeliverInject(event), emit: (event) => eventBus.emit(event) },
+    injectToSession: (sessionId, text) => {
+      const event = { type: "session.inject" as const, target_session_id: sessionId, text,
+        source: CONTROL_SUPERVISOR_SOURCE, ts: Math.floor(Date.now() / 1000) };
+      if (!eventBus.canDeliverInject(event)) return false;
+      eventBus.emit(event);
+      return true;
+    },
+    spawn: async ({ spawnId, cwd, title, prompt }) => {
+      const result = await spawnSession({ provider: "claude", cwd, cwdProvided: true, spawnId, title, args: [prompt] });
+      return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
+    },
+    workspaceRoot: () => cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    concordiaUrl: publicUrl,
+    runOneShot: (prompt) => runClaude(prompt, { model: "sonnet", conversationOnly: true, timeoutMs: 90_000 }),
+    log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
+  });
+  // 管制セッション自身へは停止確認・Goal & Go・現況報告を送らない (管制の文脈を汚さない)。
+  const isAutoCheckSuppressed = (session: SessionRow): boolean =>
+    isSessionAutoCheckDisabled(session) || controlRuntime.isControlSession(session);
   discordBotDeps = {
     dailyGoals: dailyGoalRuntime.surface,
+    controlSession: {
+      handleChannelPost: (post) => controlRuntime.handleChannelPost(post),
+      attachChannel: (surface) => controlRuntime.attachChannel(surface),
+    },
     backlogAdmission: createBacklogAdmission(excubitorClient, () => readActioChatSecret(process.env)),
     db,
     onHumanReturn: notifyHumanReturn,
@@ -2461,6 +2514,7 @@ export async function startBackend(): Promise<BackendHandle> {
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
+    controlSession: controlRuntime.api,
     actioChat: {
       secret: () => actioChatSharedSecret,
       scopeCache: createChatScopeCache(),
@@ -2962,7 +3016,7 @@ export async function startBackend(): Promise<BackendHandle> {
         },
         progressLimits: { maxContinuations: cfg.goalAndGoMaxContinuations, maxRuntimeSec: cfg.goalAndGoMaxRuntimeSec },
         progressEnabled: cfg.goalAndGoIdleSec > 0,
-        isAutoCheckDisabled: isSessionAutoCheckDisabled,
+        isAutoCheckDisabled: isAutoCheckSuppressed,
         resolveWorkState: (session) => resolveSessionFollowupSnapshot({
           linkedTasks: (sessionId) => readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId }),
           repositories: () => revisorRepositoryClient.listRepositories(),
@@ -3092,7 +3146,7 @@ export async function startBackend(): Promise<BackendHandle> {
       startGoalAndGo({
         repo,
         taskStore,
-        isAutoCheckDisabled: isSessionAutoCheckDisabled,
+        isAutoCheckDisabled: isAutoCheckSuppressed,
         // 人間の回答待ちのセッションは自走継続しない (未回答質問が blocker)。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
         seconds: cfg.goalAndGoIdleSec,
@@ -3142,7 +3196,10 @@ export async function startBackend(): Promise<BackendHandle> {
         learning: patrolRuntime.learning,
       }),
     );
-    trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
+    trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks,
+      skipSession: (session) => controlRuntime.isControlSession(session) }));
+    // 管制の巡回 (1 分周期)。OFF の間は保持者を消すだけで何も起動しない。
+    trackPostListenHandle(controlRuntime.start());
     trackPostListenHandle(startRepoChangeWatcher({ sessions: repo }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
   }

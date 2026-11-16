@@ -103,6 +103,7 @@ export class AdminState {
   getThinkingMessagesEnabled(): boolean { return this.runtime.getThinkingMessagesEnabled(); }
   setThinkingMessagesEnabled(value: boolean): void { this.runtime.setThinkingMessagesEnabled(value); }
   getLanguageGuardEnabled(): boolean { return this.runtime.getLanguageGuardEnabled(); }
+  getControlSessionEnabled(): boolean { return this.runtime.getControlSessionEnabled(); }
   getGoalStopQuestionGuardEnabled(): boolean { return this.runtime.getGoalStopQuestionGuardEnabled(); }
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }

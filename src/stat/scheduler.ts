@@ -43,6 +43,8 @@ export interface StatSchedulerDeps {
   now?: () => number;
   /** テスト用. tick 間隔をテスト時短縮する場合に上書き. */
   tickMs?: number;
+  /** 現況報告を求めないセッション (管制セッション自身。spec/feature/control-session.md §1)。 */
+  skipSession?: (session: ReturnType<SessionsRepo["listSessions"]>[number]) => boolean;
 }
 
 export interface StatSchedulerHandle {
@@ -67,6 +69,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
 
     const active = deps.sessions.listSessions({ status: "active" });
     for (const s of active) {
+      if (deps.skipSession?.(s)) continue;
       const intervalEligible =
         s.last_seen_at >= cutoff &&
         ((): boolean => {

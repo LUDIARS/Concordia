@@ -13,6 +13,8 @@ import { ensureBountyReportChannel } from "./bounty-report-channel.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import { startDailyGoalDiscord, type DailyGoalDiscord } from "./daily-goal-discord.js";
 import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
+import { createControlChannelDiscord, type ControlChannelDiscord, type ControlChannelPort } from "./control-channel.js";
+import type { ControlChannelSurface } from "../control-session/channel-surface.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -404,6 +406,8 @@ export interface DiscordBotDeps {
   prOperations?: DiscordCommandDeps["prOperations"];
   /** デイリーゴール自走の確定・停止・カード配達の口 (本社 Bot だけ)。 */
   dailyGoals?: DailyGoalSurfacePort;
+  /** 管制チャンネルの受付と、管制の巡回へ Discord 面を差し込む口 (本社 Bot だけ。spec/feature/control-session.md)。 */
+  controlSession?: ControlChannelPort & { attachChannel(surface: ControlChannelSurface | null): void };
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -1092,6 +1096,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
   let dailyGoalDiscord: DailyGoalDiscord | null = null;
+  let controlChannelDiscord: ControlChannelDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
     const session = deps.sessionsRepo.findSession(sessionId);
     return session ? readSessionWorkPhase(session).phase : "unknown" as const;
@@ -1265,6 +1270,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     sprintDialoguesDiscord = null;
     dailyGoalDiscord?.stop();
     dailyGoalDiscord = null;
+    controlChannelDiscord?.stop();
+    controlChannelDiscord = null;
+    deps.controlSession?.attachChannel(null);
     phaseTitleSync?.stop();
     phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
@@ -1349,6 +1357,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           ? await startDailyGoalDiscord({ guild, config: configRepo, port: deps.dailyGoals, log })
             .catch((error) => { log.warn(`daily goal channel unavailable: ${String(error)}`); return null; })
           : null;
+        // 管制チャンネルは ON の間だけ巡回が用意する (ここでは面を差し込むだけ)。
+        controlChannelDiscord?.stop();
+        controlChannelDiscord = deps.controlSession
+          ? createControlChannelDiscord({ guild, config: configRepo, port: deps.controlSession,
+            allowed: (userId) => isSessionControlUserAllowed?.(userId) === true, log })
+          : null;
+        deps.controlSession?.attachChannel(controlChannelDiscord);
         managementDiscord?.stop();
         managementDiscord = await startManagementDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
@@ -1932,6 +1947,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (cloudObservationForum?.handles(msg)) {
       void cloudObservationForum.answer(msg).catch(() => log.warn("cloud observation answer rejected or delivery incomplete"));
+      return;
+    }
+    // 管制チャンネルの投稿は状況確認と一括指示の入口。 他の ingress へ回さない。
+    if (controlChannelDiscord?.handlesMessage(msg)) {
+      void controlChannelDiscord.message(msg).catch((error) => log.warn(`control channel post failed: ${String(error)}`));
       return;
     }
     // デイリーゴールチャンネル (とその聞き返しスレッド) の投稿は登録の入口。 他の ingress へ回さない。

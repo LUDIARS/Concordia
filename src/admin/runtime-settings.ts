@@ -29,6 +29,7 @@ const KEYS = {
   thinkingMessages: "admin.thinking_messages_enabled",
   languageGuard: "admin.language_guard_enabled",
   goalStopQuestionGuard: "admin.goal_stop_question_guard_enabled",
+  controlSession: "admin.control_session_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -154,6 +155,16 @@ export class RuntimeSettingsStore {
     const raw = this.store.get(KEYS.goalStopQuestionGuard);
     if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
     return true;
+  }
+
+  /**
+   * 管制セッションを動かすか (既定 OFF — 2026-11-16 neco 指示、人間の決定待ち)。
+   * 解決順は DB (WebUI 設定) → 既定。巡回ごとに読むので切替に再起動は要らない。
+   */
+  getControlSessionEnabled(): boolean {
+    const raw = this.store.get(KEYS.controlSession);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    return false;
   }
 
   /**

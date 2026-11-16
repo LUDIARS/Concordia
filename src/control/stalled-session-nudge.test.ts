@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eventBus } from "../events.js";
+import { isActivityStalled } from "./session-activity.js";
 import type { SessionRow } from "../shared/types.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import {
@@ -323,42 +324,104 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect("mention_user_id" in notices[0]).toBe(false);
   });
 
-  it("作業状態が前回と同じ回は確認だけ送り、session.stall_nudged を出さず変化なし案内を添える (2026-11-16)", async () => {
-    const s = fakeSession({ id: "quiet-1" });
-    let clock = NOW;
-    let activity = NOW - 3_700_000;
-    let checkStatus = "running";
+  // 自動確認に返答するだけで他に動きが無いセッション。git・PR・現況は quietGit などで差し替える。
+  function activityHarness(id: string, over: Partial<Parameters<typeof startStalledSessionNudge>[0]> = {}) {
+    const s = fakeSession({ id });
+    const repo = fakeRepo([s]);
+    const state = { clock: NOW, activity: NOW - 3_700_000, tail: jsonl({ role: "user", content: "[自動確認] 前回" }, { role: "assistant", content: "[変化なし]" }) };
     const h = startStalledSessionNudge({
-      repo: fakeRepo([s]),
-      now: () => clock,
-      transcriptMtimeMs: async () => activity,
-      readTranscriptTail: async () => jsonl({ role: "assistant", content: "通知を待ちます。" }),
-      resolveWorkState: async () => ({ workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus }] }),
+      repo,
+      now: () => state.clock,
+      transcriptMtimeMs: async () => state.activity,
+      readTranscriptTail: async () => state.tail,
+      resolveWorkState: async () => ({ workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus: "running" }] }),
+      observeGit: async () => ({ head: "aaa", worktree: "" }),
+      sideReportedAt: () => 100,
       idleSec: 600,
       cooldownSec: 600,
       intervalMs: 1_000_000,
+      ...over,
     });
-    const step = async () => {
+    /** 1 周回し、セッションは自動確認へ返答だけする (末尾は自動確認とその返答)。 */
+    const step = async (reply: unknown[] = [{ role: "assistant", content: "[変化なし]" }]) => {
       await h.runOnce();
-      activity = clock + 60_000; // セッションは毎回返答する
-      clock += 3_600_000;
+      const nudge = injects().at(-1);
+      state.activity = state.clock + 60_000;
+      state.tail = jsonl({ role: "user", content: String(nudge?.text ?? "") }, ...reply);
+      state.clock += 3_600_000;
     };
+    const progress = () => JSON.parse(s.metadata ?? "{}").cc_followup_progress;
+    return { h, state, step, progress };
+  }
+
+  it("動きが無ければ unknown でも変化なしとして数え、止まっている扱いになる (確認は送り Discord へは報告しない)", async () => {
+    const { h, step, progress } = activityHarness("quiet-1", {
+      resolveWorkState: async () => ({ workflow: "unknown", tasks: [], delegations: [], prs: [], unavailable: ["actio"] }),
+    });
     try {
       await step(); // 初回: 変化あり
-      await step(); // 同じ状態: 通知なし
-      checkStatus = "failed";
-      await step(); // 審査失敗へ変化: 通知あり
+      await step(); // 返答だけ: 変化なし 1
+      await step(); // 返答だけ: 変化なし 2
     } finally {
       h.stop();
     }
     const texts = injects().map((e) => String(e.text));
     expect(texts).toHaveLength(3);
-    expect(texts[0]).not.toContain("作業状態は変わっていません");
-    expect(texts[1]).toContain("作業状態は変わっていません");
-    expect(texts[1]).toContain("`[変化なし]`");
-    expect(texts[2]).toContain("state=review-failed");
-    expect(texts[2]).not.toContain("作業状態は変わっていません");
-    expect(received.filter((e) => e.type === "session.stall_nudged")).toHaveLength(2);
+    expect(texts[0]).not.toContain("観測できる動き");
+    expect(texts[1]).toContain("観測できる動き");
+    expect(texts[2]).toContain("`[変化なし]`");
+    expect(progress().unchanged_count).toBe(2);
+    expect(progress().state).toBe("unknown");
+    expect(isActivityStalled(progress().unchanged_count)).toBe(true);
+    expect(received.filter((e) => e.type === "session.stall_nudged")).toHaveLength(1);
+  });
+
+  it("コミット・人間の入力・PR の状態変化・現況報告があれば変化ありとして数え直す", async () => {
+    let head = "aaa";
+    let checkStatus = "running";
+    let side = 100;
+    const { h, step, progress } = activityHarness("moving-1", {
+      observeGit: async () => ({ head, worktree: "" }),
+      resolveWorkState: async () => ({ workflow: "revisor", tasks: [], delegations: [], prs: [{ status: "open", checkStatus }] }),
+      sideReportedAt: () => side,
+    });
+    try {
+      await step(); // 初回
+      await step(); // 変化なし
+      expect(progress().unchanged_count).toBe(1);
+      head = "bbb";
+      await step(); // コミット
+      expect(progress().unchanged_count).toBe(0);
+      await step([{ role: "user", content: "PR の指摘を直して" }, { role: "assistant", content: "直します" }]);
+      await step(); // 人間の入力が前回の確認後にある
+      expect(progress().unchanged_count).toBe(0);
+      checkStatus = "failed";
+      await step(); // 審査失敗へ変化
+      expect(progress().unchanged_count).toBe(0);
+      side = 200;
+      await step(); // サイドチャンネル現況の更新
+      expect(progress().unchanged_count).toBe(0);
+    } finally {
+      h.stop();
+    }
+    const texts = injects().map((e) => String(e.text));
+    expect(texts[1]).toContain("観測できる動き");
+    expect(texts[2]).not.toContain("観測できる動き");
+    expect(texts[5]).toContain("state=review-failed");
+  });
+
+  it("自動確認への返答で道具を使っただけ (tool_result) は動きに数えない", async () => {
+    const { h, step, progress } = activityHarness("readonly-1");
+    try {
+      await step([
+        { type: "user", message: { role: "user", content: [{ type: "tool_result", content: "git status: clean" }] } },
+        { role: "assistant", content: "[変化なし]" },
+      ]);
+      await step();
+    } finally {
+      h.stop();
+    }
+    expect(progress().unchanged_count).toBe(1);
   });
 
   it("goal metadata があっても未記録の設計を確認し、再実装を決めつけない", async () => {

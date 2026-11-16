@@ -5541,6 +5541,8 @@
     {"source":"src/control/session-followup-state.ts","tests":["src/control/session-followup-state.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP"]},
     {"source":"src/control/stalled-session-nudge.ts","tests":["src/control/auto-confirm-strikes.test.ts","src/control/stalled-session-nudge.test.ts"],"contracts":["CC-TASK-LINKED-FOLLOWUP"]},
     {"source":"src/control/followup-progress.ts","tests":["src/control/followup-progress.test.ts","src/control/stalled-session-nudge.test.ts","src/control/auto-confirm-strikes.test.ts"],"contracts":[]},
+    {"source":"src/control/session-activity.ts","tests":["src/control/session-activity.test.ts","src/control/followup-progress.test.ts","src/control/stalled-session-nudge.test.ts"],"contracts":[]},
+    {"source":"src/control/session-activity-observe.ts","tests":["src/control/session-activity-observe.test.ts"],"contracts":[]},
     {"source":"src/platform/session-message-relay.ts","tests":["src/platform/session-message-relay.test.ts"],"contracts":[]},
     {"source":"src/consultation/consult-attachments.ts","tests":["src/consultation/consult-attachments.test.ts"],"contracts":["CC-CONSULT-INV-12"]},
     {"source":"src/consultation/safety-policy.ts","tests":["src/consultation/consult-attachments.test.ts","src/consultation/safety-service.test.ts"],"contracts":["CC-CONSULT-INV-12"]},

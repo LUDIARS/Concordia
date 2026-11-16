@@ -187,6 +187,7 @@ import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
 import { CONTROL_REAPER_SOURCE } from "../control-session/reaper.js";
 import { readFollowupProgress } from "../control/followup-progress.js";
 import { defaultGitRunner } from "../control/ws-cleanup.js";
+import { observeGitActivity } from "../control/session-activity-observe.js";
 import { spawnSession } from "../control/spawner.js";
 import { forgetPendingDelegationSpawnBySpawnId, recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { canRequestProgress } from "../control/periodic-progress-request.js";
@@ -3086,6 +3087,9 @@ export async function startBackend(): Promise<BackendHandle> {
         },
         // 質問カードを出して回答を待っているセッションは「停止」 ではない。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+        // 動きの指紋 (管制と共通): HEAD・作業ツリーとサイドチャンネル現況の報告時刻。
+        observeGit: (session) => observeGitActivity(defaultGitRunner, session),
+        sideReportedAt: (session) => stats.latest(session.id)?.ts ?? null,
         // 巡回ごとに人間のやること (human-wait + 未回答の質問カード) を照合し、変化時だけ報告する。
         reportHumanTodos: (session) => {
           reportHumanTodos({

@@ -70,7 +70,7 @@ updated: 2026-11-16
 
 ### 4. 停止したセッションへの追加指示 (CC-CTL-INV-04)
 
-- 自動確認 ([autonomous-work-continuation](autonomous-work-continuation.md)) が作業状態の指紋を記録し、「変化なし」が 2 回以上続いたセッションを停止とみなす。
+- 自動確認 ([autonomous-work-continuation](autonomous-work-continuation.md)) が観測された動き (会話・HEAD/作業ツリー・PR/委託・現況報告) の指紋を記録し、「変化なし」が 2 回以上続いたセッションを停止とみなす。比較と停止の基準は自動確認と同じ純関数 (`src/control/session-activity.ts` の `classifyActivity` / `isActivityStalled`) を使う。
 - 巡回は停止したセッションのうち §5 の送ってよい条件を満たすものだけを集め、まだ本体へ伝えていない指紋のものを 1 通の要約にして管制セッションへ送る (同じ指紋は 1 回だけ)。
 - 管制セッションは追加指示が要ると判断したら `POST /v1/control/instructions` で送る。Cc は送り手が現在の管制セッションであることを確かめ、§5 の条件を送る直前にもう一度確かめてから届ける。
 

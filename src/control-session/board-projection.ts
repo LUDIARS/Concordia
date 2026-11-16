@@ -16,7 +16,7 @@ function clip(value: string | null | undefined, limit: number): string | null {
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
-/** 指紋 JSON の先頭にある state を取り出す (followupProgressFingerprint の形)。 */
+/** 旧形式 (追跡状態の指紋) の記録から state を取り出す。新形式は記録の state を使う。 */
 export function fingerprintState(fingerprint: string | null): string | null {
   if (!fingerprint) return null;
   try {
@@ -57,7 +57,7 @@ export function projectBoardEntry(input: {
     session_id: input.session.id,
     project: input.project,
     branch: input.session.branch,
-    followup_state: fingerprintState(progress?.fingerprint ?? null),
+    followup_state: progress?.state ?? fingerprintState(progress?.fingerprint ?? null),
     fingerprint: progress?.fingerprint ?? null,
     unchanged_count: progress?.unchanged_count ?? 0,
     current_task: clip(input.session.current_task, TASK_LIMIT),

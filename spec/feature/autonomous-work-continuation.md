@@ -141,12 +141,22 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 ### 変化なしは報告しない (`src/control/followup-progress.ts`)
 2026-11-16 neco 指示「前回と作業状態が変わらない場合は確認 (inject) はするが Discord へは報告しない」。
 
-- 自動確認を送るたび、作業状態の指紋 (state・workflow・Actio タスクの status/reason・PR の status/checkStatus・
-  委託の status・関連付けできなかった参照・取得できなかった取得元を正規化しソートした JSON) をセッション metadata
-  `cc_followup_progress` (`{fingerprint, unchanged_count, last_checked_at, last_changed_at}`) に記録する。
-  会話の活動時刻は毎回変わるので指紋に含めない。
-- 指紋が前回と同じ回は `session.stall_nudged` を出さない (Discord に「🔔 [自動確認]」を投稿しない)。本文に
-  「前回の自動確認から作業状態は変わっていません。確認と実行可能な作業は続け、報告することが無ければ返信は
+- 2026-11-16 neco 指示「自動確認の更新判定も (管制と) 同じようにやって」: 指紋は追跡状態 (state・Actio タスク。
+  ほぼ unknown で空) ではなく、**観測された実際の動き**から作る (`src/control/session-activity.ts`)。
+  - 会話: 末尾の最後の自動確認 (`[自動確認]` で始まる user 発言) 以降の人間の入力。自動確認への返答
+    (`[変化なし]` や tool_result だけの読み直し) は動きに数えない。末尾 64KB に自動確認が見えないほど
+    会話が進んでいれば最終活動時刻 (transcript frame) で比べる。
+  - git: HEAD と作業ツリー (`status --porcelain`) の内容 (`src/control/session-activity-observe.ts`)。
+  - PR の status/checkStatus と委託の status。
+  - サイドチャンネル現況 (`/v1/stat`) の最終報告時刻。
+  - 観測できなかった項目は null として指紋に入る。
+- 自動確認を送るたび、この指紋をセッション metadata `cc_followup_progress`
+  (`{fingerprint, unchanged_count, last_checked_at, last_changed_at, state}`) に記録する。`state` は表示用で指紋に入れない。
+  比較 (`classifyActivity`) と停止判定 (`isActivityStalled`、2 回以上変化なし) は管制
+  ([control-session](control-session.md) §4) と同じ純関数を使い、変化あり / なし・止まっているの基準を一致させる。
+- 指紋が前回と同じ回は `session.stall_nudged` を出さない (Discord に「🔔 [自動確認]」を投稿しない)。見送りは
+  info ログ (`stall nudge report skipped: no observed activity since previous check`) に残す。本文に
+  「前回の自動確認から観測できる動きはありません。確認と実行可能な作業は続け、報告することが無ければ返信は
   `[変化なし]` の一行だけにする」を添える。変わった回・初回は従来どおり通知する。
 - assistant 発言の本文が trim 後ちょうど `[変化なし]` なら Discord / Slack へ流さない
   (`src/platform/session-message-relay.ts`)。それ以外の発言は従来どおり。

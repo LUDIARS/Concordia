@@ -1,10 +1,11 @@
-/** @implements spec/feature/autonomous-work-continuation.md §2 — 作業状態の指紋と変化なしの記録 */
+/** @implements spec/feature/autonomous-work-continuation.md §2 — 観測された動きの指紋と変化なしの記録 */
 import { describe, expect, it } from "vitest";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionFollowupSnapshot } from "./session-followup-state.js";
 import {
   FOLLOWUP_PROGRESS_KEY,
-  followupProgressFingerprint,
+  followupActivityFingerprint,
+  type FollowupActivityInput,
   isFollowupNoChangeReply,
   nextFollowupProgress,
   readFollowupProgress,
@@ -25,19 +26,34 @@ function fakeRepo(): { repo: Pick<SessionsRepo, "updateMetadata">; metadata: () 
   };
 }
 
-describe("followupProgressFingerprint", () => {
-  it("並び順に依存せず、同じ作業状態なら同じ指紋になる", () => {
-    const reordered = { ...base, tasks: [...base.tasks].reverse() };
-    expect(followupProgressFingerprint("task-active", reordered)).toBe(followupProgressFingerprint("task-active", base));
+const nudge = (text = "[自動確認] 状況を見直してください") => JSON.stringify({ role: "user", content: text });
+const reply = JSON.stringify({ role: "assistant", content: "[変化なし]" });
+const input = (over: Partial<FollowupActivityInput> = {}): FollowupActivityInput => ({
+  tail: [nudge(), reply].join("\n"), lastActivityMs: 1_000, nudgeSentinel: "[自動確認]",
+  git: { head: "aaa", worktree: "" }, snapshot: base, sideReportedAt: 10, ...over,
+});
+
+describe("followupActivityFingerprint", () => {
+  it("追跡状態 (タスク・取得不能の取得元) が変わっても、観測された動きが同じなら同じ指紋になる", () => {
+    const fp = followupActivityFingerprint(input());
+    expect(followupActivityFingerprint(input({ snapshot: { ...base, tasks: [], unavailable: ["actio"] } }))).toBe(fp);
+    // 自動確認に返答しただけなら最終活動時刻が進んでも変化なし。
+    expect(followupActivityFingerprint(input({ lastActivityMs: 9_999 }))).toBe(fp);
   });
 
-  it("state・PR の審査状態・委託・取得不能の取得元が変われば指紋も変わる", () => {
-    const fp = followupProgressFingerprint("task-active", base);
-    expect(followupProgressFingerprint("review-wait", base)).not.toBe(fp);
-    expect(followupProgressFingerprint("task-active", { ...base, prs: [{ status: "open", checkStatus: "failed" }] })).not.toBe(fp);
-    expect(followupProgressFingerprint("task-active", { ...base, delegations: [{ status: "completed" }] })).not.toBe(fp);
-    expect(followupProgressFingerprint("task-active", { ...base, unavailable: ["actio"] })).not.toBe(fp);
-    expect(followupProgressFingerprint("unknown", undefined)).toBe(followupProgressFingerprint("unknown", undefined));
+  it("コミット・作業ツリー・PR・委託・現況報告・人間の入力が動けば指紋も変わる", () => {
+    const fp = followupActivityFingerprint(input());
+    expect(followupActivityFingerprint(input({ git: { head: "bbb", worktree: "" } }))).not.toBe(fp);
+    expect(followupActivityFingerprint(input({ git: { head: "aaa", worktree: " M src/a.ts" } }))).not.toBe(fp);
+    expect(followupActivityFingerprint(input({ snapshot: { ...base, prs: [{ status: "open", checkStatus: "failed" }] } }))).not.toBe(fp);
+    expect(followupActivityFingerprint(input({ snapshot: { ...base, delegations: [{ status: "completed" }] } }))).not.toBe(fp);
+    expect(followupActivityFingerprint(input({ sideReportedAt: 11 }))).not.toBe(fp);
+    expect(followupActivityFingerprint(input({ tail: [nudge(), reply, JSON.stringify({ role: "user", content: "続けて" })].join("\n") }))).not.toBe(fp);
+  });
+
+  it("末尾に自動確認が見えないほど会話が進んでいれば最終活動時刻で比べる", () => {
+    const busy = (ms: number) => input({ tail: JSON.stringify({ role: "assistant", content: "実装中" }), lastActivityMs: ms });
+    expect(followupActivityFingerprint(busy(1))).not.toBe(followupActivityFingerprint(busy(2)));
   });
 });
 
@@ -48,7 +64,8 @@ describe("recordFollowupProgress", () => {
     expect(recordFollowupProgress(repo, "s", "a", 2)).toEqual({ changed: false, unchangedCount: 1 });
     expect(recordFollowupProgress(repo, "s", "a", 3)).toEqual({ changed: false, unchangedCount: 2 });
     expect(metadata()[FOLLOWUP_PROGRESS_KEY]).toEqual({ fingerprint: "a", unchanged_count: 2, last_checked_at: 3, last_changed_at: 1 });
-    expect(recordFollowupProgress(repo, "s", "b", 4)).toEqual({ changed: true, unchangedCount: 0 });
+    expect(recordFollowupProgress(repo, "s", "b", 4, "unknown")).toEqual({ changed: true, unchangedCount: 0 });
+    expect(readFollowupProgress(JSON.stringify(metadata()))?.state).toBe("unknown");
     expect(metadata().keep).toBe(1);
   });
 

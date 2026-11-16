@@ -145,6 +145,8 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
   ) {
     let clock = 10_000_000;
     let mtime = 0;
+    // セッションは自動確認へ返答するだけ (末尾は直前の自動確認とその返答)。
+    let tail = [JSON.stringify({ role: "user", content: "[自動確認] 前回" }), JSON.stringify({ role: "assistant", content: "続けます。" })].join("\n");
     const row = fakeSession("work");
     if (extra.metadata) row.metadata = JSON.stringify(extra.metadata);
     const injected: string[] = [];
@@ -159,7 +161,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
       repo: fakeRepo([row]),
       now: () => clock,
       transcriptMtimeMs: async () => mtime,
-      readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
+      readTranscriptTail: async () => tail,
       resolveWorkState: async () => {
         if (snapshot === null) throw new Error("state lookup failed");
         return Array.isArray(snapshot) ? snapshot[resolved++ % snapshot.length]! : snapshot;
@@ -173,6 +175,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     try {
       for (let i = 0; i < rounds; i += 1) {
         await h.runOnce();
+        tail = [JSON.stringify({ role: "user", content: injected.at(-1) ?? "" }), JSON.stringify({ role: "assistant", content: "続けます。" })].join("\n");
         mtime = clock + 60_000; // セッションは毎回返答する
         clock += 3_600_000;
       }
@@ -196,7 +199,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.injected).toHaveLength(5);
     expect(result.stallNudged).toBe(1);
     expect(result.injected[0]).not.toContain("[変化なし]");
-    expect(result.injected[1]).toContain("作業状態は変わっていません");
+    expect(result.injected[1]).toContain("観測できる動き");
     expect(result.injected[1]).toContain("[変化なし]");
   });
 
@@ -207,7 +210,7 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     ], 6);
     expect(result.injected).toHaveLength(6);
     expect(result.stallNudged).toBe(6);
-    expect(result.injected.join("\n")).not.toContain("作業状態は変わっていません");
+    expect(result.injected.join("\n")).not.toContain("観測できる動き");
   });
 
   it("3 アウト後も人間のやることの照合は毎周続ける", async () => {
@@ -273,13 +276,13 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.strikes).toBe(5);
   });
 
-  it("unknown の中身が変われば Discord へ通知する", async () => {
+  it("unknown の中身 (追跡状態) が変わるだけで動きが無ければ変化なしとして扱う (2026-11-16 管制と同じ基準)", async () => {
     const result = await runLoop([
       { workflow: "revisor", tasks: [], delegations: [], prs: [], linkFailures: [{ task_reference: "actio:a", reason: "not_found" }] },
       { workflow: "revisor", tasks: [], delegations: [], prs: [], linkFailures: [{ task_reference: "actio:b", reason: "not_found" }] },
     ], 4);
     expect(result.injected).toHaveLength(4);
-    expect(result.stallNudged).toBe(4);
+    expect(result.stallNudged).toBe(1);
   });
 
   it("状態照会が失敗した回 (unknown 扱い) も 3 アウトで止めない", async () => {

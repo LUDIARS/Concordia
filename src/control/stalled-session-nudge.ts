@@ -34,8 +34,10 @@
  *     2026-11-16 neco 指示「不明でも確認してくれ」: state=unknown でも 3 アウトで止めない。
  *     3 アウトで止めるのは状態照会なしの構成と委託の定期進捗だけ。同じ unknown も繰り返し確認し、
  *     変化の無い回は下記のとおり確認だけ送って Discord へは報告しない。
- *   - **変化なしは報告しない** (2026-11-16 neco 指示): 作業状態の指紋 (followup-progress.ts) が
- *     前回と同じ回は確認だけ送り、session.stall_nudged (Discord 通知) は出さない。
+ *   - **変化なしは報告しない** (2026-11-16 neco 指示): 観測された動きの指紋 (followup-progress.ts /
+ *     session-activity.ts) が前回と同じ回は確認だけ送り、session.stall_nudged (Discord 通知) は出さない。
+ *     動きは追跡状態 (ほぼ unknown) ではなく、自動確認以降の人間の入力・最終活動時刻・HEAD/作業ツリー・
+ *     PR/委託の状態・サイドチャンネル現況から見る。管制の停止判定と同じ記録・同じ基準を使う。
  *   - **人間のやることの報告** (2026-10-08 neco 指示): 巡回ごとに reportHumanTodos を呼び、
  *     内容が初出・変化したときだけメンション付きで報告する (human-todo-report.ts)。
  *
@@ -70,10 +72,11 @@ import {
 } from "./auto-confirm-strikes.js";
 import { selectSessionFollowupState } from "./session-followup-state.js";
 import {
-  followupProgressFingerprint,
+  followupActivityFingerprint,
   recordFollowupProgress,
   renderFollowupNoChangeNotice,
 } from "./followup-progress.js";
+import type { ObservedGitActivity } from "./session-activity-observe.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { progressScope } from "./periodic-progress-policy.js";
 import { canRequestProgress, type ProgressLimits } from "./periodic-progress-request.js";
@@ -137,6 +140,10 @@ export interface StalledSessionNudgeOptions {
    * 前回からの変化で決めるので、AI への確認を止めている間も人間への報告は続く。
    */
   reportHumanTodos?: (session: SessionRow) => void;
+  /** 作業ツリーの HEAD と未コミット変更 (動きの指紋に使う)。未指定・失敗なら null。 */
+  observeGit?: (session: SessionRow) => Promise<ObservedGitActivity | null>;
+  /** サイドチャンネル現況の最終報告時刻 (epoch-sec)。未指定なら null。 */
+  sideReportedAt?: (session: SessionRow) => number | null;
 }
 
 export interface StalledSessionNudgeHandle {
@@ -341,6 +348,14 @@ export function shouldNudge(args: {
   return true;
 }
 
+function safeSideReportedAt(opts: StalledSessionNudgeOptions, session: SessionRow): number | null {
+  try {
+    return opts.sideReportedAt?.(session) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function startStalledSessionNudge(
   opts: StalledSessionNudgeOptions,
 ): StalledSessionNudgeHandle {
@@ -454,9 +469,14 @@ export function startStalledSessionNudge(
       if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) continue;
       lastNudge.set(s.id, nowMs);
       const strikes = recordAutoConfirmStrike(opts.repo, s.id);
-      // 作業状態が前回と同じかを記録する。状態照会が無い構成・委託の定期進捗は比べない。
+      // 観測された動きが前回と同じかを記録する。状態照会が無い構成・委託の定期進捗は比べない。
       const progress = !scope && opts.resolveWorkState
-        ? recordFollowupProgress(opts.repo, s.id, followupProgressFingerprint(followupState, workState), nowMs)
+        ? recordFollowupProgress(opts.repo, s.id, followupActivityFingerprint({
+          tail, lastActivityMs: activityMs, nudgeSentinel: STALL_NUDGE_SENTINEL,
+          git: await opts.observeGit?.(s).catch(() => null) ?? null,
+          snapshot: workState,
+          sideReportedAt: safeSideReportedAt(opts, s),
+        }), nowMs, followupState)
         : null;
       const unchanged = progress !== null && !progress.changed;
       const closing = [
@@ -476,6 +496,12 @@ export function startStalledSessionNudge(
       });
       // Discord へ「自動確認を送った」事実だけを通知する (本文や個人識別子は載せない)。
       // 作業状態が前回と同じ回は通知しない (確認自体は上で送っている)。
+      if (unchanged) {
+        log.info(
+          { session_id: s.id, state: followupState, unchanged_count: progress.unchangedCount },
+          "stall nudge report skipped: no observed activity since previous check",
+        );
+      }
       if (!scope && !unchanged) eventBus.emit({
         type: "session.stall_nudged",
         target_session_id: s.id,

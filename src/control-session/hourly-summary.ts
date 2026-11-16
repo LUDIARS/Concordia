@@ -5,6 +5,7 @@
  * @implements spec/feature/control-session.md — 7. 1 時間ごとのまとめ / CC-CTL-INV-07
  */
 import type { ControlBoardRow } from "./board-repo.js";
+import { isActivityStalled } from "../control/session-activity.js";
 import { CONTROL_STALL_UNCHANGED_MIN } from "./stall-digest.js";
 
 export const CONTROL_SUMMARY_INTERVAL_MS = 60 * 60 * 1000;
@@ -69,7 +70,7 @@ function stallLine(row: ControlBoardRow): string {
 export function renderHourlySummary(rows: readonly ControlBoardRow[], nowMs: number): string {
   const header = `🗂️ [管制まとめ] ${formatJst(nowMs)} — 動いているセッション ${rows.length} 件`;
   if (rows.length === 0) return noMention(`${header}\n動いているセッションはありません。`);
-  const stalled = rows.filter((row) => row.unchanged_count >= CONTROL_STALL_UNCHANGED_MIN);
+  const stalled = rows.filter((row) => isActivityStalled(row.unchanged_count));
   const lines = [
     header,
     `状態別: ${countBy(rows, (row) => row.followup_state ?? "不明")}`,

@@ -7,7 +7,7 @@
  * 回数はセッション metadata に置き、Cc 再起動をまたいで保持する。
  *
  * 2026-11-16 neco 指示「Goal & Go を基本とし、残作業が無くなるまでループ」により、停止に使うのは
- * Cc が作業状態を確認できない場合 (state=unknown・状態照会なし) と委託の定期進捗だけ。判断は
+ * 状態照会を持たない構成と委託の定期進捗だけ。state=unknown でも止めない (2026-11-16 neco 指示「不明でも確認してくれ」)。判断は
  * stalled-session-nudge.ts の runOnce が持つ。回数の記録と人間入力による 0 戻しは全状態で続ける。
  *
  * @implements spec/feature/autonomous-work-continuation.md §2
@@ -60,7 +60,7 @@ export function renderStrikeOutNotice(count: number): string[] {
 /**
  * AI が自分で進められる作業が残っている状態 (2026-10-08 neco 指示「AIが実装中のものは、
  * 引き続き状況と残作業確認して処理を進めるよう自動確認で誘導」)。
- * この分類は継続案内の選択にだけ使う。3 アウトの免除は「state が unknown 以外」で決め、この分類では決めない
+ * この分類は継続案内の選択にだけ使う。3 アウトの免除は「状態照会がある構成か」で決め、この分類では決めない
  * (2026-11-16)。審査・委託の通知待ちと状態不明は含めない (待機中へ「処理を進めて」と促さないため)。
  */
 const AI_WORK_STATES: ReadonlySet<SessionFollowupState> = new Set<SessionFollowupState>([

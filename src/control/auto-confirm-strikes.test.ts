@@ -139,10 +139,14 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(isAiWorkInProgress(null)).toBe(false);
   });
 
-  async function runLoop(snapshot: SessionFollowupSnapshot | SessionFollowupSnapshot[], rounds: number) {
+  async function runLoop(
+    snapshot: SessionFollowupSnapshot | SessionFollowupSnapshot[] | null, rounds: number,
+    extra: { hasPendingQuestion?: (sessionId: string) => boolean; metadata?: Record<string, unknown> } = {},
+  ) {
     let clock = 10_000_000;
     let mtime = 0;
     const row = fakeSession("work");
+    if (extra.metadata) row.metadata = JSON.stringify(extra.metadata);
     const injected: string[] = [];
     const reported: string[] = [];
     let resolved = 0;
@@ -156,8 +160,12 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
       now: () => clock,
       transcriptMtimeMs: async () => mtime,
       readTranscriptTail: async () => JSON.stringify({ role: "assistant", content: "続けます。" }),
-      resolveWorkState: async () => Array.isArray(snapshot) ? snapshot[resolved++ % snapshot.length]! : snapshot,
+      resolveWorkState: async () => {
+        if (snapshot === null) throw new Error("state lookup failed");
+        return Array.isArray(snapshot) ? snapshot[resolved++ % snapshot.length]! : snapshot;
+      },
       reportHumanTodos: (session) => { reported.push(session.id); },
+      ...(extra.hasPendingQuestion ? { hasPendingQuestion: extra.hasPendingQuestion } : {}),
       idleSec: 600,
       cooldownSec: 600,
       intervalMs: 1_000_000,
@@ -241,11 +249,53 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT + 1);
   });
 
-  it("永続化された 3 アウトは state=unknown では従来どおり止める", async () => {
+  it("永続化された 3 アウトでも state=unknown なら確認を送り、停止予告を添えない (2026-11-16 不明でも確認)", async () => {
     const result = await runOnceWithStrikes({ workflow: "revisor", tasks: [{ status: "unknown" }], delegations: [], prs: [] });
-    expect(result.nudged).toEqual([]);
-    expect(result.injected).toEqual([]);
-    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT);
+    expect(result.nudged).toEqual(["struck"]);
+    expect(result.injected[0]).toContain("state=unknown");
+    expect(result.injected[0]).not.toContain("自動確認を送りません");
+    expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT + 1);
+  });
+
+  it("同じ中身の unknown も毎回確認し、変化の無い回は Discord へ通知せず [変化なし] を案内する", async () => {
+    const unlinked: SessionFollowupSnapshot = {
+      workflow: "revisor", tasks: [], delegations: [], prs: [], unavailable: [],
+      linkFailures: [{ task_reference: "actio:162bc3a6", reason: "task_out_of_scope" }],
+    };
+    const result = await runLoop(unlinked, 5);
+    expect(result.injected).toHaveLength(5);
+    expect(result.injected.every((text) => text.includes("state=unknown"))).toBe(true);
+    expect(result.injected[0]).toContain("actio:162bc3a6 (task_out_of_scope)");
+    expect(result.injected[0]).not.toContain("[変化なし]");
+    expect(result.injected.slice(1).every((text) => text.includes("[変化なし]"))).toBe(true);
+    expect(result.injected.join("\n")).not.toContain("自動確認を送りません");
+    expect(result.stallNudged).toBe(1);
+    expect(result.strikes).toBe(5);
+  });
+
+  it("unknown の中身が変われば Discord へ通知する", async () => {
+    const result = await runLoop([
+      { workflow: "revisor", tasks: [], delegations: [], prs: [], linkFailures: [{ task_reference: "actio:a", reason: "not_found" }] },
+      { workflow: "revisor", tasks: [], delegations: [], prs: [], linkFailures: [{ task_reference: "actio:b", reason: "not_found" }] },
+    ], 4);
+    expect(result.injected).toHaveLength(4);
+    expect(result.stallNudged).toBe(4);
+  });
+
+  it("状態照会が失敗した回 (unknown 扱い) も 3 アウトで止めない", async () => {
+    const result = await runLoop(null, 5);
+    expect(result.injected).toHaveLength(5);
+    expect(result.injected[0]).toContain("state=unknown");
+    expect(result.injected.join("\n")).not.toContain("自動確認を送りません");
+  });
+
+  it("unknown でも質問カード待ち・human-wait は従来どおり止める", async () => {
+    const unknown: SessionFollowupSnapshot = { workflow: "revisor", tasks: [{ status: "unknown" }], delegations: [], prs: [] };
+    expect((await runLoop(unknown, 3, { hasPendingQuestion: () => true })).injected).toEqual([]);
+    const waiting = await runLoop(unknown, 3, {
+      metadata: { cc_human_wait: { active: true, summary: "判断待ち", task_references: [], since: 1 } },
+    });
+    expect(waiting.injected).toEqual([]);
   });
 
   it("永続化された 3 アウトは状態照会の無い構成では外部照会せず止め、新しい審査通知で再開する", async () => {

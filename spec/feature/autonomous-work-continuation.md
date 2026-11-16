@@ -103,19 +103,24 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 2026-11-04 neco 指示により状態分類による例外は廃止。未完了は実行可能な作業の存在を証明しない。
 
 2026-11-16 neco 指示「Goal & Go を基本とし、残作業が無くなるまでループ。自動確認そのものは止めずに進捗を記録する」により、
-3 アウトで止めるのは Cc が作業状態を確認できないときに限る:
+3 アウトで止めるのは Cc が作業状態を確認できないときに限る。
+同日の neco 指示「不明でも確認してくれ」により、`state=unknown` も止めない側へ移した
+(根拠: 管制ボードで 23 件中 unknown 7 件、自動確認の記録なし 16 件)。
 
-- 止める: 状態照会 (`resolveWorkState`) を持たない構成、状態照会が失敗した・`state=unknown` の回、委託の定期進捗 (scope)。
-  状態照会を持たない構成と委託の定期進捗は、上限後に作業状態の外部照会もしない。
-- 止めない: `state` が unknown 以外 (task-active / task-blocked / delegation-wait / review-needed / review-wait /
-  review-failed / merge-confirmation / reflection-needed)。上限後も作業状態を照会して確認を送り、停止予告は添えない。
+- 止める: 状態照会 (`resolveWorkState`) を持たない構成、委託の定期進捗 (scope)。
+  どちらも上限後は作業状態の外部照会もしない。
+- 止めない: 状態照会を持つ構成のすべての `state` (task-active / task-blocked / delegation-wait / review-needed /
+  review-wait / review-failed / merge-confirmation / reflection-needed / unknown)。状態照会が失敗した回 (unknown 扱い) も含む。
+  上限後も作業状態を照会して確認を送り、停止予告は添えない。
 - 往復の抑止は 3 アウト以外の仕組みが受け持つ: 前回確認に無反応なら送らない (cooldown)、作業状態が変わらない回は
-  Discord へ報告せず AI の `[変化なし]` 返信も流さない (下記「変化なしは報告しない」)、unknown の同一内容は一度だけ。
+  Discord へ報告せず AI の `[変化なし]` 返信も流さない (下記「変化なしは報告しない」)。
+  同じ中身の unknown も毎回確認を送る (旧 `cc_followup_unknown_notice` による一度だけの抑止は廃止。変化の無い回は
+  「変化なしは報告しない」と同じく inject だけ行い `session.stall_nudged` を出さない)。
 - 人間待ち・質問カード・ask・人間応答待ちの永続 gate・部署の auto_check off は状態に関係なく従来どおり止める。
 
 - 回数はセッション metadata `cc_auto_confirm_strikes` に置き、Cc 再起動をまたいで保持する。
 - 3 回目の本文に、新しい入力・進展通知まで自動確認を送らない停止予告を添える (上限で止める回だけ)。
-- 回数の記録は全状態で続ける。unknown 以外で上限を超えた後に unknown へ移ると、その回から止まる。
+- 回数の記録は全状態で続ける。状態照会を持つ構成では、上限を超えても state の移り変わりで止まることはない。
 - 回数を 0 に戻すのは来歴の確かな人間の入力 (`question.answered`、依頼者付きの `session.inject`) と既存 nudge-delivery が受け取る新しい審査・委託・taskflow完了通知。
   判定は [人間応答待ちの確認制御](human-response-confirmation.md) の `humanResponseSession` と共通。
   自動確認、AI返答、状態分類の変更、既記録以前の時刻の通知では戻さない。明示停止・人間判断待ち・未回答質問は解除しない。

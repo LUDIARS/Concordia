@@ -64,13 +64,16 @@ Cc taskflow v3 以前の形で登録された Actio タスク (source `cc-taskmd
   404・Actio 不通はそこで確定する。表示は紐付けたときの binding (`link.repo_path`) で読む。
 - 範囲外・未存在で拒否した参照は理由とともにセッション metadata `cc_task_link_failures` に残す (最新 4 件、同じ参照は上書き、
   紐付けに成功したら消す。Actio 不通は残さない)。自動確認はこれを「関連付けできなかった Actio タスク」として示す。
-- 自動確認は unknown の中身 (タスクの unknown 理由・関連付けできなかった参照・取れなかった取得元) を鍵にし、同じ鍵の unknown は
-  一度だけ送る (`cc_followup_unknown_notice`)。中身が変わるか、unknown 以外の状態で一度送れば、次の unknown はまた一度送る。
-  状態照会を持たない構成は従来どおり 3 アウトに任せる。unknown の回は 3 アウトでも止める (2026-11-16 以降、
-  3 アウトで止めるのは unknown・状態照会なし・委託の定期進捗だけ。autonomous-work-continuation.md §2)。
+- ~~自動確認は unknown の中身を鍵にし、同じ鍵の unknown は一度だけ送る (`cc_followup_unknown_notice`)。~~
+  2026-11-16 neco 指示「不明でも確認してくれ」で廃止。同じ unknown も毎回確認を送り、3 アウトでも止めない。
+  変化の無い回は作業状態の指紋 (`cc_followup_progress`、関連付けできなかった参照・取れなかった取得元を含む) で判定し、
+  inject だけ行って `session.stall_nudged` を出さず `[変化なし]` を案内する (autonomous-work-continuation.md §2)。
+  3 アウトで止めるのは状態照会なしの構成と委託の定期進捗だけ。既存セッションに残った `cc_followup_unknown_notice` は読まない。
+  廃止に伴い `src/control/unknown-followup-notice.ts` (`unknownFollowupNoticeKey`・`isUnknownFollowupAlreadyShown`・
+  `readUnknownFollowupNotice`・`writeUnknownFollowupNotice`) と契約 actio-link-C-2 / C-3 を削除した。
 - 実装: `src/taskflow/actio-reference-scope.ts`、`src/taskflow/actio-task-client.ts`、`src/work/session-task-links.ts`、
   `src/work/task-link-failures.ts`、`src/control/session-followup-snapshot.ts`、`src/control/session-followup-state.ts`、
-  `src/control/unknown-followup-notice.ts`、`src/control/stalled-session-nudge.ts`。
+  `src/control/stalled-session-nudge.ts`、`src/control/followup-progress.ts`。
 
 ## Goal & Go と人間待ち
 

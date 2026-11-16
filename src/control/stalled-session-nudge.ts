@@ -30,7 +30,10 @@
  *   - **3 アウト** (2026-10-05 neco 指示): 人間の反応が無いまま連続 3 回確認したら、
  *     セッションが返答していても以後は送らず人間の入力を待つ (auto-confirm-strikes.ts)。
  *     2026-11-16 neco 指示: Cc が作業状態を確認できる (state が unknown 以外) 間は 3 アウトで
- *     止めず、残作業が無くなるまで確認を続ける。止めるのは unknown・状態照会なし・委託の定期進捗だけ。
+ *     止めず、残作業が無くなるまで確認を続ける。
+ *     2026-11-16 neco 指示「不明でも確認してくれ」: state=unknown でも 3 アウトで止めない。
+ *     3 アウトで止めるのは状態照会なしの構成と委託の定期進捗だけ。同じ unknown も繰り返し確認し、
+ *     変化の無い回は下記のとおり確認だけ送って Discord へは報告しない。
  *   - **変化なしは報告しない** (2026-11-16 neco 指示): 作業状態の指紋 (followup-progress.ts) が
  *     前回と同じ回は確認だけ送り、session.stall_nudged (Discord 通知) は出さない。
  *   - **人間のやることの報告** (2026-10-08 neco 指示): 巡回ごとに reportHumanTodos を呼び、
@@ -71,12 +74,6 @@ import {
   recordFollowupProgress,
   renderFollowupNoChangeNotice,
 } from "./followup-progress.js";
-import {
-  isUnknownFollowupAlreadyShown,
-  readUnknownFollowupNotice,
-  unknownFollowupNoticeKey,
-  writeUnknownFollowupNotice,
-} from "./unknown-followup-notice.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { progressScope } from "./periodic-progress-policy.js";
 import { canRequestProgress, type ProgressLimits } from "./periodic-progress-request.js";
@@ -385,7 +382,7 @@ export function startStalledSessionNudge(
         log.warn({ session_id: s.id, err: (e as Error).message }, "human todo report failed");
       }
       // 状態照会が無い構成と委託の定期進捗は従来どおり 3 アウトで止め、外部照会も避ける。
-      // 状態照会がある構成は作業状態を解決してから、unknown のときだけ 3 アウトで止める。
+      // 状態照会がある構成は state (unknown を含む) を問わず 3 アウトで止めない。
       const struckOut = isAutoConfirmStruckOut(s.metadata);
       if (struckOut && (scope || !opts.resolveWorkState)) continue;
       if (scope && opts.progressEnabled === false) continue;
@@ -434,8 +431,8 @@ export function startStalledSessionNudge(
       const workState = scope ? undefined : await opts.resolveWorkState?.(s).catch(() => undefined);
       const followupState = workState ? selectSessionFollowupState(workState) : "unknown";
       const aiWork = !!workState && isAiWorkInProgress(followupState);
-      // Cc が残作業を確認できる状態では 3 アウトで止めない (2026-11-16 neco 指示)。
-      const strikeExempt = !scope && !!workState && followupState !== "unknown";
+      // 状態照会がある構成では unknown を含むどの状態でも 3 アウトで止めない (2026-11-16 neco 指示)。
+      const strikeExempt = !scope && !!opts.resolveWorkState;
       if (struckOut && !strikeExempt) continue;
       // The registry request may outlive the user's transition to a question card.
       if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
@@ -450,22 +447,11 @@ export function startStalledSessionNudge(
       if (scope && (progressScope(latest.metadata, opts.activeDelegationRunId?.(latest) ?? null) !== scope
         || !canRequestProgress(latest.metadata, nowMs, intervalMs,
           opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 }))) continue;
-      // 同じ中身の unknown (関連付けできないタスク等) は一度だけ示し、繰り返さない (unknown-followup-notice.ts)。
-      // 状態照会が無い構成では中身を比べられないので、従来どおり 3 アウトに任せる。
-      const unknownKey = !scope && opts.resolveWorkState
-        ? unknownFollowupNoticeKey(followupState, workState)
-        : null;
-      const shownUnknown = readUnknownFollowupNotice(latest.metadata);
-      if (isUnknownFollowupAlreadyShown(unknownKey, shownUnknown)) {
-        log.debug({ session_id: s.id }, "skip nudge: same unknown state already shown");
-        continue;
-      }
       const text = scope ? buildProgressReportGuidance() : buildNudgeText(s.provider, workState);
       const injection = { type: "session.inject" as const, target_session_id: s.id,
         text, source: STALL_NUDGE_SOURCE, ts: Math.floor(nowMs / 1000) };
       if (!eventBus.canDeliverInject(injection)) continue;
       if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) continue;
-      writeUnknownFollowupNotice(opts.repo, s.id, unknownKey, shownUnknown);
       lastNudge.set(s.id, nowMs);
       const strikes = recordAutoConfirmStrike(opts.repo, s.id);
       // 作業状態が前回と同じかを記録する。状態照会が無い構成・委託の定期進捗は比べない。

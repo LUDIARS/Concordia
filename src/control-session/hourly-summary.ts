@@ -2,11 +2,12 @@
  * 管制チャンネルへ 1 時間に 1 回投げる進捗ボードのまとめ (純関数)。
  * 投稿の要否と本文だけを決め、投稿と最終投稿時刻の保存は runtime が行う。
  *
- * @implements spec/feature/control-session.md — 7. 1 時間ごとのまとめ / CC-CTL-INV-07
+ * @implements spec/feature/control-session.md §7
  */
 import type { ControlBoardRow } from "./board-repo.js";
-import { isActivityStalled } from "../control/session-activity.js";
-import { CONTROL_STALL_UNCHANGED_MIN } from "./stall-digest.js";
+import type { EndedSessionRecord } from "./ended-log.js";
+import { formatJstClock } from "./jst-clock.js";
+import { SESSION_STATUS_LABEL, SESSION_STATUS_ORDER, type SessionActivityStatus } from "../control/session-classify.js";
 
 export const CONTROL_SUMMARY_INTERVAL_MS = 60 * 60 * 1000;
 /**
@@ -14,7 +15,7 @@ export const CONTROL_SUMMARY_INTERVAL_MS = 60 * 60 * 1000;
  * (src/config/settings/coverage.test.ts はその名前空間のキーを設定として数える)。
  */
 export const CONTROL_SUMMARY_POSTED_KEY = "control_session.summary_posted_at";
-/** 停止セッションを個別に載せる上限。 */
+/** 分類ごとに個別に載せる上限。 */
 export const CONTROL_SUMMARY_STALL_LIMIT = 10;
 const TASK_HEAD_CHARS = 60;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -53,6 +54,33 @@ function countBy(rows: readonly ControlBoardRow[], key: (row: ControlBoardRow) =
     .join(" / ");
 }
 
+/** 1 件ずつ載せる分類 (停止・応答なし・人間待ち)。 */
+const LISTED_STATUSES: readonly SessionActivityStatus[] = ["stalled", "unresponsive", "human_wait"];
+
+/** 分類別の件数を表示順で並べる (0 件の分類も出す)。 */
+function countByStatus(rows: readonly ControlBoardRow[]): string {
+  const parts = SESSION_STATUS_ORDER.map((status) => `${SESSION_STATUS_LABEL[status]} ${rows.filter((row) => row.status === status).length}`);
+  const unclassified = rows.filter((row) => !row.status).length;
+  if (unclassified) parts.push(`未分類 ${unclassified}`);
+  return parts.join(" / ");
+}
+
+function rowLine(row: ControlBoardRow, nowMs: number): string {
+  const parts = [`- ${row.project} ${row.session_id}`];
+  if (row.last_activity_at !== null) parts.push(`無活動 ${Math.max(0, Math.floor((nowMs / 1000 - row.last_activity_at) / 60))} 分`);
+  parts.push(row.status_reason ?? "理由不明");
+  if (row.nudge_last_at) parts.push(`直近の追加指示 ${formatJstClock(row.nudge_last_at)} JST`);
+  const task = taskHead(row.current_task);
+  if (task) parts.push(`タスク: ${task}`);
+  return parts.join(" / ");
+}
+
+function section(title: string, lines: readonly string[]): string[] {
+  if (!lines.length) return [];
+  const shown = lines.slice(0, CONTROL_SUMMARY_STALL_LIMIT);
+  return [title, ...shown, ...(lines.length > shown.length ? [`…ほか ${lines.length - shown.length} 件`] : [])];
+}
+
 function taskHead(task: string | null): string | null {
   if (!task) return null;
   const first = task.split(/\r?\n/).find((l) => l.trim() !== "")?.trim() ?? "";
@@ -60,24 +88,23 @@ function taskHead(task: string | null): string | null {
   return first.length > TASK_HEAD_CHARS ? `${first.slice(0, TASK_HEAD_CHARS)}…` : first;
 }
 
-function stallLine(row: ControlBoardRow): string {
-  const parts = [`- ${row.project} ${row.session_id}`, `状態=${row.followup_state ?? "不明"}`, `変化なし=${row.unchanged_count} 回`];
-  const task = taskHead(row.current_task);
-  if (task) parts.push(`タスク: ${task}`);
-  return parts.join(" / ");
-}
-
-export function renderHourlySummary(rows: readonly ControlBoardRow[], nowMs: number): string {
+export function renderHourlySummary(
+  rows: readonly ControlBoardRow[], nowMs: number, ended: readonly EndedSessionRecord[] = [],
+): string {
   const header = `🗂️ [管制まとめ] ${formatJst(nowMs)} — 動いているセッション ${rows.length} 件`;
-  if (rows.length === 0) return noMention(`${header}\n動いているセッションはありません。`);
-  const stalled = rows.filter((row) => isActivityStalled(row.unchanged_count));
+  const endedLines = ended.map((record) => `- ${record.project} ${record.session_id} / ${record.reason} / ${formatJstClock(record.ended_at)} JST`);
+  if (rows.length === 0) {
+    return noMention([header, "動いているセッションはありません。", ...section(`終了したもの: ${ended.length} 件`, endedLines)].join("\n"));
+  }
   const lines = [
     header,
-    `状態別: ${countBy(rows, (row) => row.followup_state ?? "不明")}`,
+    `分類別: ${countByStatus(rows)}`,
     `プロジェクト別: ${countBy(rows, (row) => row.project)}`,
-    `止まっている (自動確認で ${CONTROL_STALL_UNCHANGED_MIN} 回以上変化なし): ${stalled.length} 件`,
-    ...stalled.slice(0, CONTROL_SUMMARY_STALL_LIMIT).map(stallLine),
   ];
-  if (stalled.length > CONTROL_SUMMARY_STALL_LIMIT) lines.push(`…ほか ${stalled.length - CONTROL_SUMMARY_STALL_LIMIT} 件`);
+  for (const status of LISTED_STATUSES) {
+    const matched = rows.filter((row) => row.status === status);
+    lines.push(...section(`${SESSION_STATUS_LABEL[status]}: ${matched.length} 件`, matched.map((row) => rowLine(row, nowMs))));
+  }
+  lines.push(...section(`終了したもの: ${ended.length} 件`, endedLines));
   return noMention(lines.join("\n"));
 }

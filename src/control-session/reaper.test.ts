@@ -68,7 +68,7 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     expect(h.posts[0]).toContain("終了を案内: 1 件 (child)");
 
     h.advanceSec(60);
-    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [] });
+    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [], endedDetail: [] });
     expect(h.injected.filter((i) => i.to === "child")).toHaveLength(1);
 
     h.advanceSec(REAP_NOTICE_GRACE_SEC);
@@ -96,7 +96,7 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     h.advanceSec(REAP_NOTICE_GRACE_SEC);
     expect((await h.tick()).failed).toEqual(["child"]);
     h.advanceSec(REAP_NOTICE_GRACE_SEC);
-    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [] });
+    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [], endedDetail: [] });
     expect(h.injected.filter((i) => i.to === "parent").at(-1)!.text).toContain("終了結果が分かりません");
   });
 
@@ -110,7 +110,7 @@ describe("child reaper (CC-CTL-INV-08)", () => {
       session("resident", { delegation_parent_session_id: "p" }),
       session("fresh", { delegation_parent_session_id: "p" }),
     );
-    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [] });
+    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [], endedDetail: [] });
     expect(h.injected).toEqual([]);
   });
 
@@ -125,11 +125,42 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     expect((await h2.tick()).noticed).toEqual([]);
   });
 
+  it("ends a standalone session whose branch PR is merged after one notice and the grace, without a parent", async () => {
+    const merged = { status: "merged", number: 7, headSha: "h" } as never;
+    const h = harness({ findLocalPrByBranch: async () => merged });
+    h.put(session("solo", {}));
+    expect((await h.tick()).noticed).toEqual(["solo"]);
+    expect(h.injected).toEqual([{ to: "solo", text: CONTROL_REAPER_NOTICE }]);
+    h.advanceSec(REAP_NOTICE_GRACE_SEC);
+    const report = await h.tick();
+    expect(report.ended).toEqual(["solo"]);
+    expect(report.endedDetail).toEqual([{ session_id: "solo", reason: "担当 PR がマージ済み" }]);
+    expect(h.ended).toEqual(["solo"]);
+    expect(h.injected.map((i) => i.to)).toEqual(["solo"]);
+  });
+
+  it("does not end a merged standalone session that waits for a human or has uncommitted changes", async () => {
+    const merged = { status: "merged", number: 7, headSha: "h" } as never;
+    const waiting = harness({ findLocalPrByBranch: async () => merged, isHumanWaitActive: () => true });
+    waiting.put(session("solo", {}));
+    expect((await waiting.tick()).noticed).toEqual([]);
+    const dirty = harness({ findLocalPrByBranch: async () => merged, git: async () => ({ ok: true, stdout: " M src/a.ts" }) });
+    dirty.put(session("solo", {}));
+    expect((await dirty.tick()).noticed).toEqual([]);
+    const onMain = harness({ findLocalPrByBranch: async () => merged });
+    onMain.put({ ...session("solo", {}), branch: "main" });
+    expect((await onMain.tick()).noticed).toEqual([]);
+    const unresponsiveOnly = harness({ unchangedCount: () => 5 });
+    unresponsiveOnly.put(session("solo", {}));
+    expect((await unresponsiveOnly.tick()).noticed).toEqual([]);
+    expect(dirty.ended).toEqual([]);
+  });
+
   it("does nothing while the setting is OFF and does not record a notice that was not delivered", async () => {
     const h = harness();
     h.put(child());
     h.disable();
-    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [] });
+    expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [], endedDetail: [] });
     const h2 = harness({ inject: () => false });
     h2.put(child());
     expect((await h2.tick()).noticed).toEqual([]);

@@ -4,6 +4,7 @@
  * @implements spec/feature/control-session.md — 2. 進捗ボード / CC-CTL-INV-02
  */
 import { readFollowupProgress } from "../control/followup-progress.js";
+import { describeNudgeSkip, readNudgeSkip } from "../control/nudge-skip-record.js";
 import type { SessionRow } from "../shared/types.js";
 import type { ControlBoardEntry } from "./board-repo.js";
 
@@ -64,6 +65,7 @@ export function projectBoardEntry(input: {
     side_summary: summarizeSidePayload(input.sideStat?.payload),
     side_reported_at: input.sideStat?.ts ?? null,
     last_activity_at: input.lastActivitySec,
+    last_skip_reason: describeNudgeSkip(readNudgeSkip(input.session.metadata)),
     updated_at: input.nowSec,
   };
 }

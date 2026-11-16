@@ -6,7 +6,7 @@ function entry(sessionId: string, patch: Partial<ControlBoardEntry> = {}): Contr
   return {
     session_id: sessionId, project: "Cc", branch: "feat/x", followup_state: "task-active", fingerprint: "fp1",
     unchanged_count: 0, current_task: "task", side_summary: null, side_reported_at: null,
-    last_activity_at: 10, updated_at: 100, ...patch,
+    last_activity_at: 10, last_skip_reason: null, updated_at: 100, ...patch,
   };
 }
 
@@ -26,6 +26,20 @@ describe("ControlBoardRepo", () => {
     repo.markDigested("s1", "fp1");
     repo.upsert(entry("s1", { updated_at: 300 }));
     expect(repo.find("s1")?.digested_fingerprint).toBe("fp1");
+  });
+
+  it("keeps the classification and nudge schedule across overwrites, and stores the last skip reason", () => {
+    const repo = new ControlBoardRepo(makeTestDb());
+    repo.upsert(entry("s1"));
+    repo.saveClassification("s1", {
+      status: "stalled", status_reason: "待つ理由なし", classified_at: 120,
+      nudge_count: 2, nudge_last_at: 110, unresponsive_reported_at: null,
+    });
+    repo.upsert(entry("s1", { last_skip_reason: "前回の自動確認が未返信 (at 99)", updated_at: 300 }));
+    expect(repo.find("s1")).toMatchObject({
+      status: "stalled", status_reason: "待つ理由なし", nudge_count: 2, nudge_last_at: 110,
+      last_skip_reason: "前回の自動確認が未返信 (at 99)",
+    });
   });
 
   it("removes rows of sessions that are no longer active", () => {

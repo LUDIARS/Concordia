@@ -10,7 +10,7 @@ import { projectBoardEntry } from "./board-projection.js";
 import { nextControlHolder, type ControlHolderStore } from "./holder-store.js";
 import { checkInstructionEligibility, type EligibilityProbes } from "./instruction-eligibility.js";
 import { decideControlSingleton, spawnIdOf } from "./singleton-policy.js";
-import { CONTROL_DIGEST_LIMIT, renderStallDigest, selectStalledRows } from "./stall-digest.js";
+import { CONTROL_DIGEST_LIMIT, digestKey, renderStallDigest, selectStalledRows } from "./stall-digest.js";
 
 export const CONTROL_SUPERVISOR_SOURCE = "auto:control-supervisor";
 /** 起動を待つ上限。超えたら失敗として巡回を続ける (保持者は記録済みなので猶予内に重ねて起動しない)。 */
@@ -138,7 +138,7 @@ export function createControlSupervisor(deps: ControlSupervisorDeps) {
     }
     if (!eligible.length) return [];
     if (!deps.injectToControl(controlId, renderStallDigest(eligible))) return [];
-    for (const row of eligible) deps.board.markDigested(row.session_id, row.fingerprint!);
+    for (const row of eligible) deps.board.markDigested(row.session_id, digestKey(row));
     return eligible.map((row) => row.session_id);
   }
 

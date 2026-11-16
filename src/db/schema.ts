@@ -9,7 +9,7 @@ import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./pro
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
 
-export const SCHEMA_VERSION = 146;
+export const SCHEMA_VERSION = 147;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3827,6 +3827,23 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_at           INTEGER NOT NULL,
         digested_fingerprint TEXT
       );
+    `);
+  },
+},{
+  version: 147,
+  name: "control-board-classification",
+  source: "control_progress_board の分類列 (spec/feature/control-session.md §2 分類 / §4 追加指示の再送)",
+  up(db) {
+    // 観測された動きによる分類 (status / status_reason) と、巡回が自分で送る追加指示の段取り、
+    // 自動確認の最後の見送り理由。行は従来どおりセッションごとに 1 行の上書き。
+    db.exec(`
+      ALTER TABLE control_progress_board ADD COLUMN status TEXT;
+      ALTER TABLE control_progress_board ADD COLUMN status_reason TEXT;
+      ALTER TABLE control_progress_board ADD COLUMN classified_at INTEGER;
+      ALTER TABLE control_progress_board ADD COLUMN nudge_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE control_progress_board ADD COLUMN nudge_last_at INTEGER;
+      ALTER TABLE control_progress_board ADD COLUMN unresponsive_reported_at INTEGER;
+      ALTER TABLE control_progress_board ADD COLUMN last_skip_reason TEXT;
     `);
   },
 },

@@ -1,15 +1,17 @@
 /**
- * 作業指示で起動した子セッションの片付け。巡回ごとに対象の子を判定し、
+ * セッションの片付け。作業指示で起動した子に加え、親の記録が無いセッションも担当作業 (担当 PR) が
+ * マージ済みなら終了候補にする (2026-11-17 neco 指示「作業が終わったパートはセッション終了」)。巡回ごとに対象を判定し、
  * 先に案内を 1 回送り、猶予後も閉じてよければ既存のセッション終了経路で閉じる。
  * 終了の結果が分からないときは再送しない (試みた記録を残し、状態で照合する)。
  *
- * @implements spec/feature/control-session.md — 9. 子セッションの片付け / CC-CTL-INV-08
+ * @implements spec/feature/control-session.md §9
  */
 import type { SessionRow } from "../shared/types.js";
-import { gatherReapInput, type ReaperFactPorts } from "./reaper-facts.js";
+import { gatherReapInput, type ReaperFactPorts, type ReapTarget } from "./reaper-facts.js";
 import {
   classifyChild,
   decideReap,
+  isStandaloneReapTarget,
   nextReapStep,
   parseReapState,
   REAP_DONE_IDLE_SEC,
@@ -25,6 +27,7 @@ export const CONTROL_REAPER_NOTICE =
 const REASON_LABEL: Record<ReapReason, string> = {
   done_delegation: "委託 run の終了を親が受け取り済み",
   done_repo_agent: "担当 PR がマージ済み",
+  done_merged: "担当 PR がマージ済み",
   unresponsive: "長く会話が無く自動確認にも反応が無い",
 };
 
@@ -48,6 +51,12 @@ export interface ReaperTickReport {
   noticed: string[];
   ended: string[];
   failed: string[];
+  /** 閉じたものの理由 (管制まとめに列挙する)。 */
+  endedDetail: Array<{ session_id: string; reason: string }>;
+}
+
+export function reapReasonLabel(reason: ReapReason): string {
+  return REASON_LABEL[reason];
 }
 
 function metadataOf(session: SessionRow): Record<string, unknown> {
@@ -67,23 +76,27 @@ export function createChildReaper(deps: ChildReaperDeps) {
     }));
   }
 
-  async function end(session: SessionRow, parentId: string, reason: ReapReason, nowSec: number): Promise<boolean> {
-    deps.inject(parentId, `[管制] 子セッション ${session.id} を閉じます (${REASON_LABEL[reason]})。`);
+  function toParent(parentId: string | null, text: string): void {
+    if (parentId) deps.inject(parentId, text);
+  }
+
+  async function end(session: SessionRow, parentId: string | null, reason: ReapReason, nowSec: number): Promise<boolean> {
+    toParent(parentId, `[管制] 子セッション ${session.id} を閉じます (${REASON_LABEL[reason]})。`);
     // 結果が分からなくても再送しないよう、試みる前に記録する。
     writeState(session.id, { end_attempted_at: nowSec });
     try {
       await deps.endSession(session.id);
-      deps.inject(parentId, `[管制] 子セッション ${session.id} を閉じました。`);
+      toParent(parentId, `[管制] 子セッション ${session.id} を閉じました。`);
       return true;
     } catch (error) {
       deps.log.warn(`control reaper: end failed session=${session.id}: ${String(error)}`);
-      deps.inject(parentId, `[管制] 子セッション ${session.id} の終了結果が分かりません。再送はしません。状態を確かめてください。`);
+      toParent(parentId, `[管制] 子セッション ${session.id} の終了結果が分かりません。再送はしません。状態を確かめてください。`);
       return false;
     }
   }
 
   async function runOnce(active: readonly SessionRow[]): Promise<ReaperTickReport> {
-    const report: ReaperTickReport = { noticed: [], ended: [], failed: [] };
+    const report: ReaperTickReport = { noticed: [], ended: [], failed: [], endedDetail: [] };
     if (!deps.isEnabled()) return report;
     const nowSec = Math.floor(deps.now() / 1000);
     // open PR の一覧は 1 巡回で 1 回だけ読む。
@@ -92,7 +105,9 @@ export function createChildReaper(deps: ChildReaperDeps) {
     for (const session of active) {
       if (deps.isControlSession(session) || deps.isResidentChild(session.id)) continue;
       const metadata = metadataOf(session);
-      const link = classifyChild({ sessionId: session.id, metadata, findRun: deps.findRun });
+      const child = classifyChild({ sessionId: session.id, metadata, findRun: deps.findRun });
+      const link: ReapTarget | null = child
+        ?? (isStandaloneReapTarget(session) ? { kind: "standalone", parentSessionId: null, runId: null } : null);
       if (!link) continue;
       const state = parseReapState(metadata[REAP_STATE_METADATA_KEY]);
       if (state?.end_attempted_at) continue;
@@ -105,10 +120,15 @@ export function createChildReaper(deps: ChildReaperDeps) {
       if (step === "notice") {
         if (!deps.inject(session.id, CONTROL_REAPER_NOTICE)) continue;
         writeState(session.id, { noticed_at: nowSec, reason: verdict.reason, end_attempted_at: null });
-        deps.inject(link.parentSessionId, `[管制] 子セッション ${session.id} に終了を案内しました (${REASON_LABEL[verdict.reason]})。10 分後も同じ状態なら閉じます。`);
+        toParent(link.parentSessionId, `[管制] 子セッション ${session.id} に終了を案内しました (${REASON_LABEL[verdict.reason]})。10 分後も同じ状態なら閉じます。`);
         report.noticed.push(session.id);
       } else if (step === "end") {
-        (await end(session, link.parentSessionId, verdict.reason, nowSec) ? report.ended : report.failed).push(session.id);
+        if (await end(session, link.parentSessionId, verdict.reason, nowSec)) {
+          report.ended.push(session.id);
+          report.endedDetail.push({ session_id: session.id, reason: REASON_LABEL[verdict.reason] });
+        } else {
+          report.failed.push(session.id);
+        }
       }
     }
     const lines = [
@@ -117,7 +137,7 @@ export function createChildReaper(deps: ChildReaperDeps) {
       report.failed.length ? `終了結果が不明: ${report.failed.length} 件 (${report.failed.join(", ")})` : null,
     ].filter((line): line is string => line !== null);
     if (lines.length) {
-      await deps.postToChannel(["🧹 [管制] 子セッションの片付け", ...lines].join("\n"))
+      await deps.postToChannel(["🧹 [管制] セッションの片付け", ...lines].join("\n"))
         .catch((error) => deps.log.warn(`control reaper: channel notice failed: ${String(error)}`));
     }
     return report;

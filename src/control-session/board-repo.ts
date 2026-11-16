@@ -1,9 +1,10 @@
 /**
  * 進捗ボード (control_progress_board) の読み書き。セッションごとに最新 1 行を上書きする。
  *
- * @implements spec/feature/control-session.md — 2. 進捗ボード / CC-CTL-INV-02 / CC-CTL-INV-04
+ * @implements spec/feature/control-session.md §2 §4
  */
 import type Database from "better-sqlite3";
+import type { SessionActivityStatus } from "../control/session-classify.js";
 
 export interface ControlBoardEntry {
   session_id: string;
@@ -20,33 +21,52 @@ export interface ControlBoardEntry {
   side_summary: string | null;
   side_reported_at: number | null;
   last_activity_at: number | null;
+  /** 自動確認 (stalled-session-nudge) が最後に見送った理由。 */
+  last_skip_reason: string | null;
   updated_at: number;
 }
 
 export interface ControlBoardRow extends ControlBoardEntry {
   /** 管制セッションへ停止を伝えた指紋。同じ指紋は再送しない。 */
   digested_fingerprint: string | null;
+  /** 観測された動きによる分類 (session-classify.ts)。未分類なら null。 */
+  status: SessionActivityStatus | null;
+  status_reason: string | null;
+  classified_at: number | null;
+  /** 最後の活動以降に巡回が届けた追加指示の数。 */
+  nudge_count: number;
+  nudge_last_at: number | null;
+  unresponsive_reported_at: number | null;
+}
+
+export interface ControlBoardClassification {
+  status: SessionActivityStatus;
+  status_reason: string;
+  classified_at: number;
+  nudge_count: number;
+  nudge_last_at: number | null;
+  unresponsive_reported_at: number | null;
 }
 
 export class ControlBoardRepo {
   constructor(private readonly db: Database.Database) {}
 
-  /** 1 行を上書きする。停止を伝えた記録 (digested_fingerprint) は保つ。 */
+  /** 1 行を上書きする。停止を伝えた記録 (digested_fingerprint) と分類・追加指示の段取りは保つ。 */
   upsert(entry: ControlBoardEntry): void {
     this.db.prepare(`
       INSERT INTO control_progress_board (
         session_id, project, branch, followup_state, fingerprint, unchanged_count, current_task,
-        side_summary, side_reported_at, last_activity_at, updated_at, digested_fingerprint
+        side_summary, side_reported_at, last_activity_at, last_skip_reason, updated_at, digested_fingerprint
       ) VALUES (
         @session_id, @project, @branch, @followup_state, @fingerprint, @unchanged_count, @current_task,
-        @side_summary, @side_reported_at, @last_activity_at, @updated_at, NULL
+        @side_summary, @side_reported_at, @last_activity_at, @last_skip_reason, @updated_at, NULL
       )
       ON CONFLICT(session_id) DO UPDATE SET
         project = excluded.project, branch = excluded.branch, followup_state = excluded.followup_state,
         fingerprint = excluded.fingerprint, unchanged_count = excluded.unchanged_count,
         current_task = excluded.current_task, side_summary = excluded.side_summary,
         side_reported_at = excluded.side_reported_at, last_activity_at = excluded.last_activity_at,
-        updated_at = excluded.updated_at
+        last_skip_reason = excluded.last_skip_reason, updated_at = excluded.updated_at
     `).run(entry);
   }
 
@@ -69,6 +89,16 @@ export class ControlBoardRepo {
       removed += del.run(row.session_id).changes;
     }
     return removed;
+  }
+
+  /** 分類と追加指示の段取りを保存する (巡回が毎回上書きする)。 */
+  saveClassification(sessionId: string, value: ControlBoardClassification): void {
+    this.db.prepare(`
+      UPDATE control_progress_board SET status = @status, status_reason = @status_reason,
+        classified_at = @classified_at, nudge_count = @nudge_count, nudge_last_at = @nudge_last_at,
+        unresponsive_reported_at = @unresponsive_reported_at
+      WHERE session_id = @session_id
+    `).run({ ...value, session_id: sessionId });
   }
 
   markDigested(sessionId: string, fingerprint: string): void {

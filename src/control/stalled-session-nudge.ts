@@ -61,6 +61,7 @@ import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isWaitingForHumanResponse } from "./human-response-confirmation.js";
 import { claimNudgeDelivery,readNudgeProgress } from "./nudge-delivery.js";
+import { recordNudgeSkip, type NudgeSkipReason } from "./nudge-skip-record.js";
 import { readResidentMarker } from "../delegation/sidecar/lifecycle-policy.js";
 import { isHumanWaitActive } from "./human-wait.js";
 import {
@@ -386,6 +387,7 @@ export function startStalledSessionNudge(
     }
 
     const nudged: string[] = [];
+    const skip = (sessionId: string, reason: NudgeSkipReason) => recordNudgeSkip(opts.repo, log, sessionId, reason, nowMs);
     for (const s of active) {
       const scope = progressScope(s.metadata, opts.activeDelegationRunId?.(s) ?? null);
       if (readResidentMarker(s.metadata) && !scope) continue; // Busy residents are tracked by their live run.
@@ -424,22 +426,19 @@ export function startStalledSessionNudge(
       }
       // Cc の質問カード待ちは DB 1 本で判る。 transcript 末尾読みより安いので先に見る。
       if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) {
-        log.debug(
-          { session_id: s.id },
-          "skip nudge: pending question card or question state unavailable",
-        );
+        skip(s.id, "pending_question_or_human_wait");
         continue;
       }
       const tail = await readTail(s);
       if (isAwaitingHumanInput(tail)) {
-        log.debug({ session_id: s.id }, "skip nudge: awaiting human input (ask)");
+        skip(s.id, "awaiting_human_input_ask");
         continue;
       }
       // 前回の自動確認が transcript 末尾に未応答のまま残っている = 反応が無い。
       // in-memory の lastNudge が消えていて (Cc 再起動後など) 活動時刻ゲートを
       // 素通りした場合も、 ここで再確認を止める。
       if (isUnansweredNudge(tail) && progressMs <= activityMs) {
-        log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
+        skip(s.id, "previous_nudge_unanswered");
         continue;
       }
       // Progress is assessed by the assigned agent; no external state scan is needed for a report request.
@@ -448,25 +447,28 @@ export function startStalledSessionNudge(
       const aiWork = !!workState && isAiWorkInProgress(followupState);
       // 状態照会がある構成では unknown を含むどの状態でも 3 アウトで止めない (2026-11-16 neco 指示)。
       const strikeExempt = !scope && !!opts.resolveWorkState;
-      if (struckOut && !strikeExempt) continue;
+      if (struckOut && !strikeExempt) { skip(s.id, "struck_out"); continue; }
       // The registry request may outlive the user's transition to a question card.
-      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) continue;
+      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id) || isHumanWaitActive(opts.repo, s.id)) {
+        skip(s.id, "pending_question_or_human_wait");
+        continue;
+      }
       const latest = opts.repo.findSession(s.id);
       if (!latest || latest.status !== "active") continue;
       if (latest.repo_path !== s.repo_path || latest.repo_origin !== s.repo_origin
         || latest.branch !== s.branch || latest.target_project !== s.target_project
         || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(s.metadata)
-        || latest.current_task !== s.current_task) continue;
-      if (isWaitingForHumanResponse(opts.repo,s.id)) continue;
-      if (!strikeExempt && isAutoConfirmStruckOut(latest.metadata)) continue;
+        || latest.current_task !== s.current_task) { skip(s.id, "session_changed"); continue; }
+      if (isWaitingForHumanResponse(opts.repo,s.id)) { skip(s.id, "awaiting_human_response"); continue; }
+      if (!strikeExempt && isAutoConfirmStruckOut(latest.metadata)) { skip(s.id, "struck_out"); continue; }
       if (scope && (progressScope(latest.metadata, opts.activeDelegationRunId?.(latest) ?? null) !== scope
         || !canRequestProgress(latest.metadata, nowMs, intervalMs,
           opts.progressLimits ?? { maxContinuations: 6, maxRuntimeSec: 7200 }))) continue;
       const text = scope ? buildProgressReportGuidance() : buildNudgeText(s.provider, workState);
       const injection = { type: "session.inject" as const, target_session_id: s.id,
         text, source: STALL_NUDGE_SOURCE, ts: Math.floor(nowMs / 1000) };
-      if (!eventBus.canDeliverInject(injection)) continue;
-      if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) continue;
+      if (!eventBus.canDeliverInject(injection)) { skip(s.id, "undeliverable"); continue; }
+      if (!claimNudgeDelivery(opts.repo,s.id,activityMs,nowMs, scope ? intervalMs : 0)) { skip(s.id, "delivery_claim_lost"); continue; }
       lastNudge.set(s.id, nowMs);
       const strikes = recordAutoConfirmStrike(opts.repo, s.id);
       // 観測された動きが前回と同じかを記録する。状態照会が無い構成・委託の定期進捗は比べない。

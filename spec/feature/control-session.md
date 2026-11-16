@@ -16,7 +16,7 @@ related:
   - feature/daily-goal-run.md
   - ux/session-coordination.md
   - architecture/ddd.md
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 # 管制セッション
@@ -34,6 +34,9 @@ updated: 2026-11-16
   3. ユーザーと対話できるチャンネル (Discord) を用意する。主用途は状況確認と、多数のセッションへの一括指示。
   4. ユーザーとの対話も全部サイドセッションで行う。
   5. 自動確認でそれぞれの動きが止まっているとき、管制セッションが追加指示をする。
+- 2026-11-17 neco 指示:「進捗確認のやり方を根本的に見直せ」「自動確認の更新判定も同じように」「作業が終わったパートはセッション終了」。
+  実測では、全セッションが 100 分以上無活動でも管制ボードは「止まっている 0 件」と報告していた (旧基準 `unchanged_count>=2` は自動確認が送られて指紋が記録されたときしか増えない)。
+  旧基準を廃止し、観測された動きと待つ理由だけで各セッションを 1 つに分類する (§2)。
 - 人間の決定待ちのため、既定は OFF。`session.control_session_enabled` を 1 つ ON にすれば全部が動く。
 
 ## 構成要素と状態の所有者
@@ -58,7 +61,21 @@ updated: 2026-11-16
 
 ### 2. 進捗ボード (CC-CTL-INV-02)
 
-- 巡回ごとに active なセッションを 1 行ずつ上書きする。行の中身は: プロジェクト・branch・作業状態 (自動確認が記録した `cc_followup_progress` の state と「変化なし」回数)・現在のタスク (先頭だけ)・サイドチャンネルの最新の現況 (`/v1/stat` に届いた最新 1 件の要約)・最後の会話時刻。
+- 巡回ごとに active なセッションを 1 行ずつ上書きする。行の中身は: プロジェクト・branch・作業状態 (自動確認が記録した `cc_followup_progress` の state と「変化なし」回数。参考表示で判定には使わない)・現在のタスク (先頭だけ)・サイドチャンネルの最新の現況 (`/v1/stat` に届いた最新 1 件の要約)・最後の会話時刻・自動確認が最後に見送った理由 (`last_skip_reason`)・分類 (`status` / `status_reason`)・巡回の追加指示の段取り (`nudge_count` / `nudge_last_at` / `unresponsive_reported_at`)。
+- 分類 (`src/control/session-classify.ts` の `classifySession`、入力は `src/control-session/classify-facts.ts` が集める)。優先順に 1 つ:
+
+  | 分類 | 条件 | 理由に出すもの |
+  |---|---|---|
+  | 人間の判断待ち (`human_wait`) | 部署の自動確認 OFF・未回答の質問カード・human-wait・人間の応答待ちの確認・ask マーカー。照会できないときもここ | 待ちの種類 |
+  | 審査・委託の結果待ち (`awaiting_result`) | session か branch が一致する審査中 (open) の Revisor PR、このセッションが親の実行中の委託 run。PR 一覧を読めないときもここ | PR 番号と checkStatus / run id |
+  | 作業中 (`working`) | 最終活動が 20 分以内、または最終活動を観測できない | 何分前に活動 |
+  | 終了候補 (`end_candidate`) | 担当作業が終わった (委託 run の終了を親が受信済み、または担当ブランチの Revisor PR が merged) かつ未コミットの変更が無い | 根拠と無活動分 |
+  | 応答なし (`unresponsive`) | 最後の活動以降に巡回の追加指示が 3 回届いた、または届けた追加指示が猶予 (3 分) 後も会話に現れない | 回数 / 会話に入っていない疑い |
+  | 停止 (`stalled`) | 上のどれでもない (待つ理由なし・無活動 20 分以上) | 無活動分・未コミットの変更の有無・未反応の回数 |
+
+- transcript・git・Revisor を読む照会は、無活動が 20 分を超え人間待ちでないものだけに行う (Revisor の PR 一覧は 1 巡回で 1 回)。
+- 旧基準 (自動確認の「変化なし」が 2 回以上で停止) は廃止した。自動確認が送られない・指紋が無いセッションも、最終活動と待つ理由だけで停止になる (CC-CTL-INV-09)。
+- 自動確認 (stalled-session-nudge) が送るのを見送ったときは、info ログに session_id と理由を出し、セッション metadata `stall_nudge_skip` に最後の 1 件を残す (`src/control/nudge-skip-record.ts`)。ボードはそれを `last_skip_reason` として写す。
 - 終了したセッションの行は消す。行の履歴は持たない。管制セッションの会話文脈にもボードを積まない (必要なときに `GET /v1/control/board` で読む)。
 
 ### 3. 管制チャンネルと側セッション (CC-CTL-INV-03)
@@ -70,8 +87,13 @@ updated: 2026-11-16
 
 ### 4. 停止したセッションへの追加指示 (CC-CTL-INV-04)
 
-- 自動確認 ([autonomous-work-continuation](autonomous-work-continuation.md)) が観測された動き (会話・HEAD/作業ツリー・PR/委託・現況報告) の指紋を記録し、「変化なし」が 2 回以上続いたセッションを停止とみなす。比較と停止の基準は自動確認と同じ純関数 (`src/control/session-activity.ts` の `classifyActivity` / `isActivityStalled`) を使う。
-- 巡回は停止したセッションのうち §5 の送ってよい条件を満たすものだけを集め、まだ本体へ伝えていない指紋のものを 1 通の要約にして管制セッションへ送る (同じ指紋は 1 回だけ)。
+- 停止・応答なしの判定は §2 の分類による (旧基準の「変化なし 2 回」は使わない)。
+- 停止・応答なしには、管制の巡回が自分で追加指示を送る (`src/control-session/patrol.ts`、stall-nudge のゲートには依存しない)。届け方は §5 と同じ (送る直前に送ってよい条件を確かめ直す)。来歴は `[管制] 管制の巡回からの追加指示です`。本文の先頭に目印 `[管制停止確認 #n]` を入れ、会話に入ったかの照合に使う。
+  - 未返信でも黙らない。最後の活動以降に届けた回数 n に対して、次の送信まで 20 → 40 → 80 分 (上限 2 時間) 待って再送する (`patrol-nudge-policy.ts`)。会話が動けば回数を数え直す。
+  - 届けた回数が 3 回に達しても会話が動かない、または届けた追加指示が猶予後も transcript に現れないものは「応答なし」に上げ、管制チャンネルへ 1 回だけ名指しで報告する (プロジェクト・session_id・理由・直近の追加指示の時刻)。
+  - 人間待ち・審査待ちには送らない。理由はボードの `status_reason` に必ず残す。
+- 巡回は停止・応答なしのうち §5 の送ってよい条件を満たすものを 1 通の要約にして管制セッションへ送る。同じ停止 (分類と最終活動の組) は 1 回だけ伝える。既定の追加指示とは別の指示が要るときだけ、管制セッションが下の API で送る。
+- inject の「成功」は届いたことの確認ではない: `eventBus.canDeliverInject` は配信ゲートだけを見て、宛先の WS クライアントが接続しているかは見ない。届いたかは会話に目印が現れたかで確かめる (2026-11-16 21:00 JST の Cc 再起動後、lictor-9f9a75a2 宛ての inject が別のセッションの会話に入った件。Cc の配信は WS の `?session=` と一致する接続だけに送るので、別の会話へ入るのは Lictor が再接続で別の id を名乗ったとき)。
 - 管制セッションは追加指示が要ると判断したら `POST /v1/control/instructions` で送る。Cc は送り手が現在の管制セッションであることを確かめ、§5 の条件を送る直前にもう一度確かめてから届ける。
 
 ### 5. 指示の送り方 (CC-CTL-INV-05/06)
@@ -89,7 +111,9 @@ updated: 2026-11-16
 ### 7. 1 時間ごとのまとめ (CC-CTL-INV-07)
 
 - 設定が ON で管制チャンネルが用意できている間、巡回のたびに最終投稿時刻 (内部状態キー `control_session.summary_posted_at`、設定レジストリの名前空間の外) を読み、未投稿・時計が戻った・1 時間経過のどれかなら、進捗ボードのまとめを管制チャンネルへ 1 通投げる (`hourly-summary.ts`)。
-- 本文: 「🗂️ [管制まとめ] <JST 時刻> — 動いているセッション N 件」、状態別とプロジェクト別の件数、自動確認で 2 回以上変化なしの停止セッションの件数と、そのうち最大 10 行 (プロジェクト・session_id・状態・変化なし回数・現在のタスクの先頭 60 字)。超えた分は「…ほか n 件」。0 件なら「動いているセッションはありません。」。停止の判定は §4 と同じ回数だが、本体へ伝えたかどうかは問わない。
+- 本文: 「🗂️ [管制まとめ] <JST 時刻> — 動いているセッション N 件」、分類別 (§2、0 件の分類も出す) とプロジェクト別の件数、停止・応答なし・人間の判断待ちの各件数とそれぞれ最大 10 行 (プロジェクト・session_id・無活動分・理由・直近の追加指示の時刻・現在のタスクの先頭 60 字)、前回のまとめ以降に管制が終了したもの (プロジェクト・session_id・理由・時刻)。超えた分は「…ほか n 件」。0 件なら「動いているセッションはありません。」。
+- 終了したものの記録は内部状態キー `control_session.recent_ended` に溜め (上限 50 件)、まとめの投稿に成功したら消す (`ended-log.ts`)。
+- 停止の要約 (§4 の管制セッションへの要約) も同じ分類を使う。
 - 投稿に成功したときだけ時刻を残す。失敗は警告ログにして次の巡回で再試行する。OFF にすると時刻を消す (再 ON 直後に 1 回投げる)。
 - まとめは管制チャンネルへの投稿だけで、管制セッション本体には送らない (CC-CTL-INV-02)。
 
@@ -104,7 +128,8 @@ updated: 2026-11-16
 | CC-CTL-INV-05 | 人間の判断待ち (質問カード・human-wait・応答待ちの確認・ask マーカー) と部署の自動確認 OFF のセッションには、一括指示も追加指示も送らない (照会できないときも送らない) |
 | CC-CTL-INV-06 | 指示は既存の inject 経路で来歴付きで届け、届け先の審査ゲート・許可範囲を回避しない。追加指示は現在の管制セッションからだけ受け付ける |
 | CC-CTL-INV-07 | 管制チャンネルのまとめは 1 時間に 1 回まで。進捗ボードだけを読んで作り、投稿に成功したときだけ時刻を記録する。本文にメンションを含めない |
-| CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの) だけ。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない。先に案内を 1 回送り、猶予後も同じなら既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない |
+| CC-CTL-INV-09 | 待つ理由 (人間の判断・審査・委託の結果) の無いセッションが 20 分以上無活動なら、自動確認の記録の有無にかかわらず停止か応答なしに分類する (全員が無活動なのに停止 0 件、にはならない)。停止への追加指示は未返信でも上限 2 時間の間隔で送り続ける |
+| CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの) と、親の記録が無くても担当ブランチの PR がマージ済みのセッション。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない。先に案内を 1 回送り、猶予後も同じなら既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない |
 
 ## API
 
@@ -124,17 +149,19 @@ updated: 2026-11-16
 ### 9. 子セッションの片付け (CC-CTL-INV-08)
 
 neco 指示 (2026-11-16)「セッションから作業指示で起動したセッションが反応してないか役目を終えた際に閉じる役割も持つ」。
+2026-11-17 neco 指示「作業が終わったパートはセッション終了」で、子に限らず全セッションへ広げた。
 
-- 対象: 既存の親子の記録がある子だけ (`reaper-policy.ts` の `classifyChild`)。
+- 対象: 既存の親子の記録がある子 (`reaper-policy.ts` の `classifyChild`) と、親の記録が無いセッション (`standalone`、担当 branch と repo_origin があり、branch が main / master / develop でないもの)。
   - リポ担当 (auto-succession): 子 metadata の `repo_agent_of.parent_session_id`。
   - 委託 run の子: metadata の `delegation_run_id` の run が、`delegation_runs.child_session_id` でこのセッションを子として記録しているもの。
   - 親を持つ `/v1/spawn`: metadata の `delegation_parent_session_id`。
-  - 対象外: 親の記録が無いもの (人間が起動したもの・相談セッションなど)、管制セッション自身、部署の常駐 (`resident_sidecars.child_session_id`)。
+  - 対象外: 管制セッション自身、部署の常駐 (`resident_sidecars.child_session_id`)、担当 branch の無い standalone (相談セッションなど)。人間が対話中のものは、会話が 30 分以内なら照会もしないので閉じない。
 - 閉じてよい条件:
   - 役目を終えた: 委託 run の子は、親の記録に終端の通知 (source `delegation:<run>:status` の inject = completed / partial / failed) が届いていて、その後 30 分以上会話が無い。リポ担当は、担当ブランチの Revisor PR が merged で、その後 30 分以上会話が無い。Cc には反映済みの記録が無いため、反映中はリポ担当が testing claim を持つこと (下の除外) で代える。
-  - 反応しない: 60 分以上会話が無く、自動確認 (`cc_followup_progress`) で作業状態が変わらなかった回が 2 回以上 (自動確認と管制の追加指示の後も変化が無い)。
+  - standalone: 担当ブランチの Revisor PR が merged で、その後 30 分以上会話が無い (`done_merged`)。standalone は「反応しない」では閉じない (§4 の応答なしとして報告する)。
+  - 反応しない (子だけ): 60 分以上会話が無く、自動確認 (`cc_followup_progress`) で作業状態が変わらなかった回が 2 回以上 (自動確認と管制の追加指示の後も変化が無い)。
 - 閉じない (どれか 1 つでも当たるか、照会できないとき): human-wait・未回答の質問カード・人間の応答待ちの確認・ask マーカー・審査中の open PR (session か branch が一致)・testing claim 中・worktree に未コミットの変更がある・main より先のコミットがあり HEAD を head にした PR が Revisor に無い (`reaper-facts.ts`)。
-- 2 段 (`reaper.ts`): 先に子へ「役目を終えたので作業記録を残して session-end してください」を 1 回送り、子の metadata `control_reaper` に時刻を残す (届かなければ記録しない)。10 分後も閉じてよい条件のままなら、既存の終了経路 (`DELETE /v1/sessions/:id` → `endSessionNow`) で閉じる。閉じる前後に親へ inject し、管制チャンネルへ件数と対象を知らせる。終了を試みたら記録し、結果が分からなくても再送しない。
+- 2 段 (`reaper.ts`): 先に子へ「役目を終えたので作業記録を残して session-end してください」を 1 回送り、子の metadata `control_reaper` に時刻を残す (届かなければ記録しない)。10 分後も閉じてよい条件のままなら、既存の終了経路 (`DELETE /v1/sessions/:id` → `endSessionNow`) で閉じる。閉じる前後に親へ inject し (親の記録がある場合)、管制チャンネルへ件数と対象を知らせる。閉じたものは §7 のまとめに列挙する。終了を試みたら記録し、結果が分からなくても再送しない。
 - 会話が 30 分以内の子は照会しない (git / Revisor を叩かない)。open PR の一覧は 1 巡回で 1 回だけ読む。
 - 設定 `session.control_session_reaper_enabled` (既定 ON)。`session.control_session_enabled` が OFF なら動かない。OFF で次の巡回から止まる。
 
@@ -143,4 +170,5 @@ neco 指示 (2026-11-16)「セッションから作業指示で起動したセ�
 - `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
-- 既存部品の再利用: 停止の判定は `cc_followup_progress` (followup-progress.ts)、待ちの判定は pending-question-blocker / human-wait / human-response-confirmation / stalled-session-nudge の ask 判定、起動は `spawnSession` と pending spawn の相関 ID、側セッションは `runClaude` の会話専用実行。
+- `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。
+- 既存部品の再利用: 作業状態の表示は `cc_followup_progress` (followup-progress.ts)、待ちの判定は pending-question-blocker / human-wait / human-response-confirmation / stalled-session-nudge の ask 判定、起動は `spawnSession` と pending spawn の相関 ID、側セッションは `runClaude` の会話専用実行。

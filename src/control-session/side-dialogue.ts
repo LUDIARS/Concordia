@@ -4,6 +4,7 @@
  *
  * @implements spec/feature/control-session.md — 3. 管制チャンネルと側セッション / CC-CTL-INV-03
  */
+import { SESSION_STATUS_LABEL } from "../control/session-classify.js";
 import type { ControlBoardRow } from "./board-repo.js";
 
 export const SIDE_DIALOGUE_MAX_CONCURRENT = 2;
@@ -23,6 +24,7 @@ function boardTable(rows: readonly ControlBoardRow[], nowSec: number): string {
     const idleMin = row.last_activity_at == null ? "不明" : `${Math.max(0, Math.round((nowSec - row.last_activity_at) / 60))} 分前`;
     return [
       `- ${row.project}${row.branch ? ` / ${row.branch}` : ""} [${row.session_id}]`,
+      `分類=${row.status ? SESSION_STATUS_LABEL[row.status] : "未分類"}${row.status_reason ? ` (${row.status_reason})` : ""}`,
       `状態=${row.followup_state ?? "未確認"}`,
       `変化なし=${row.unchanged_count}`,
       `最後の会話=${idleMin}`,

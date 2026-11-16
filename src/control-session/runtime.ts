@@ -2,7 +2,7 @@
  * 管制の組み立て: 巡回・指示の届け方・管制チャンネル・API の口を 1 か所でつなぐ。
  * Discord 面は attachChannel で後から差し込む (Bot が無い構成でも巡回と API は動く)。
  *
- * @implements spec/feature/control-session.md — 構成要素と状態の所有者 / 6. ON / OFF / 7. 1 時間ごとのまとめ
+ * @implements spec/feature/control-session.md §4 §6 §7
  */
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
@@ -13,6 +13,8 @@ import { ControlBoardRepo, type ControlBoardRow } from "./board-repo.js";
 import type { ControlChannelSurface } from "./channel-surface.js";
 import { handleControlChannelPost, renderDispatchSummary, type ControlChannelPost } from "./channel-service.js";
 import { CONTROL_START_PROMPT, prepareControlWorkspace } from "./charter.js";
+import type { ClassifyFactPorts } from "./classify-facts.js";
+import { createEndedLog } from "./ended-log.js";
 import { ControlHolderStore } from "./holder-store.js";
 import { CONTROL_SUMMARY_POSTED_KEY, isSummaryDue, parseSummaryPostedAt, renderHourlySummary } from "./hourly-summary.js";
 import type { EligibilityProbes } from "./instruction-eligibility.js";
@@ -23,6 +25,7 @@ import {
   type InjectPort,
   type InstructionOrigin,
 } from "./instruction-dispatch.js";
+import { createControlPatrol } from "./patrol.js";
 import { createChildReaper, type ChildReaperDeps } from "./reaper.js";
 import { createSideDialogue, type OneShotRunner } from "./side-dialogue.js";
 import { createControlSupervisor, type ControlTickReport } from "./supervisor.js";
@@ -55,6 +58,8 @@ export interface ControlRuntimeDeps {
   runOneShot: OneShotRunner;
   /** 作業指示で起動した子セッションの片付け (§9)。管制が ON の間だけ巡回ごとに回す。 */
   reaper?: Omit<ChildReaperDeps, "isControlSession" | "postToChannel" | "now" | "log">;
+  /** 分類と停止への追加指示 (§2 §4) に使う照会。無ければ分類しない。 */
+  patrol?: Omit<ClassifyFactPorts, "probes">;
   now?: () => number;
   log: { info(message: string): void; warn(message: string): void };
 }
@@ -106,6 +111,29 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
   isControl = supervisor.isControlSession;
 
   const side = createSideDialogue(deps.runOneShot);
+  const endedLog = createEndedLog(deps.settings);
+
+  async function postIfReady(text: string): Promise<boolean> {
+    if (!surface || !surfaceReady) return false;
+    try {
+      await surface.post(text);
+      return true;
+    } catch (error) {
+      deps.log.warn(`control channel post failed: ${String(error)}`);
+      return false;
+    }
+  }
+
+  const patrol = deps.patrol ? createControlPatrol({
+    board,
+    facts: { ...deps.patrol, probes: deps.probes },
+    findSession: deps.sessions.findSession,
+    probes,
+    inject: deps.inject,
+    postToChannel: postIfReady,
+    now,
+    log: deps.log,
+  }) : null;
 
   const reaper = deps.reaper ? createChildReaper({
     ...deps.reaper,
@@ -120,7 +148,8 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
       ...input, findSession: deps.sessions.findSession, probes, inject: deps.inject, nowMs: now(),
     });
     if (surface && result.delivered.length) {
-      const who = input.origin.kind === "control" ? `管制セッション第 ${input.origin.generation} 世代` : input.origin.label;
+      const who = input.origin.kind === "control" ? `管制セッション第 ${input.origin.generation} 世代`
+        : input.origin.kind === "patrol" ? "管制の巡回" : input.origin.label;
       await surface.post([`${who} の指示を届けました: ${result.delivered.join(", ")}`, renderDispatchSummary(result)].join("\n"))
         .catch((error) => deps.log.warn(`control channel notice failed: ${String(error)}`));
     }
@@ -136,12 +165,22 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
     if (!report.enabled) {
       surfaceReady = false;
       deps.settings.delete(CONTROL_SUMMARY_POSTED_KEY);
+      endedLog.clear();
+      return report;
     }
-    if (report.enabled && surface && surfaceReady) await postHourlySummary(surface);
-    if (report.enabled && reaper) {
-      await reaper.runOnce(deps.sessions.findAllActive())
-        .catch((error) => deps.log.warn(`control reaper failed: ${String(error)}`));
+    if (patrol) {
+      const targets = deps.sessions.findAllActive().filter((session) => !supervisor.isControlSession(session));
+      await patrol.runOnce(targets).catch((error) => deps.log.warn(`control patrol failed: ${String(error)}`));
     }
+    if (reaper) {
+      const reaped = await reaper.runOnce(deps.sessions.findAllActive())
+        .catch((error) => { deps.log.warn(`control reaper failed: ${String(error)}`); return null; });
+      const nowSec = Math.floor(now() / 1000);
+      endedLog.append((reaped?.endedDetail ?? []).map((item) => ({
+        session_id: item.session_id, project: board.find(item.session_id)?.project ?? "unknown", reason: item.reason, ended_at: nowSec,
+      })));
+    }
+    if (surface && surfaceReady) await postHourlySummary(surface);
     return report;
   }
 
@@ -150,8 +189,9 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
     const nowMs = now();
     if (!isSummaryDue(parseSummaryPostedAt(deps.settings.get(CONTROL_SUMMARY_POSTED_KEY)), nowMs)) return;
     try {
-      await target.post(renderHourlySummary(board.list(), nowMs));
+      await target.post(renderHourlySummary(board.list(), nowMs, endedLog.list()));
       deps.settings.set(CONTROL_SUMMARY_POSTED_KEY, String(nowMs));
+      endedLog.clear();
     } catch (error) {
       deps.log.warn(`control hourly summary failed: ${String(error)}`);
     }

@@ -1,13 +1,14 @@
 {
   "name": "control-session",
-  "description": "管制セッション (2026-11-16 neco 指示)。Cc の起動と同時に 1 つだけ動く常駐の管制セッションの singleton 起動・世代交代・退役世代への終了案内、セッションごとに最新 1 行を上書きする進捗ボード (サイドチャンネル = stat-collect の最新現況とセッション行から作り、管制の会話文脈には積まない)、Discord の管制チャンネル (状況確認は対話ごとの短命の側セッションが答え、一括指示は Cc が対象を絞る)、自動確認でも作業状態が変わらないセッションの要約を管制セッションへ送り追加指示を受ける経路、管制チャンネルへの 1 時間ごとのまとめ、作業指示で起動した子セッションの片付け (案内 → 猶予 → 既存の終了経路)、既定 OFF の ON / OFF を所有する。各セッションの作業状態の判定 (cc_followup_progress)・待ちの状態 (質問カード・human-wait・応答待ち)・inject の配達は既存の所有者が持ち、ここでは読むだけ。UX-CC-SC-W2/W3, UX-CC-W4; CC-CTL-INV-01〜08。",
+  "description": "管制セッション (2026-11-16 neco 指示)。Cc の起動と同時に 1 つだけ動く常駐の管制セッションの singleton 起動・世代交代・退役世代への終了案内、セッションごとに最新 1 行を上書きする進捗ボード (サイドチャンネル = stat-collect の最新現況とセッション行から作り、管制の会話文脈には積まない)、Discord の管制チャンネル (状況確認は対話ごとの短命の側セッションが答え、一括指示は Cc が対象を絞る)、自動確認でも作業状態が変わらないセッションの要約を管制セッションへ送り追加指示を受ける経路、管制チャンネルへの 1 時間ごとのまとめ、作業指示で起動した子セッションの片付け (案内 → 猶予 → 既存の終了経路)、観測された動きと待つ理由による各セッションの分類 (作業中・人間の判断待ち・審査/委託の結果待ち・停止・応答なし・終了候補) と停止への巡回の追加指示 (20→40→80 分、上限 2 時間の再送と応答なしの名指し報告)、担当 PR がマージ済みの全セッションの片付け、既定 OFF の ON / OFF を所有する。各セッションの作業状態の判定 (cc_followup_progress)・待ちの状態 (質問カード・human-wait・応答待ち)・inject の配達は既存の所有者が持ち、ここでは読むだけ。UX-CC-SC-W2/W3, UX-CC-W4; CC-CTL-INV-01〜09。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)spec/feature/control-session\\.md$" },
     { "pathPattern": "(^|/)src/control-session/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/control-session(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/discord/control-channel(\\.test)?\\.ts$" }
+    { "pathPattern": "(^|/)src/discord/control-channel(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/control/session-classify(\\.test)?\\.ts$" }
   ],
   "cardTemplate": "Explain which generation of the control session is live and why it was (re)spawned, what the progress board holds for each session, which stalled sessions were summarized to the control session, which instructions were delivered or skipped and why, and whether the feature is enabled.",
   "specRefs": [

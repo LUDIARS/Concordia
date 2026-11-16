@@ -2263,6 +2263,27 @@ export async function startBackend(): Promise<BackendHandle> {
         if (!res.ok) throw new Error(`DELETE /v1/sessions/${sessionId} -> ${res.status}`);
       },
     },
+    // 観測された動きによる分類と停止への追加指示 (spec/feature/control-session.md §2 §4)。
+    patrol: {
+      listOpenLocalPrs: async () => (await revisorClient.listLocalPrs()).filter((pr) => pr.status === "open"),
+      runningDelegations: (sessionId) => (db.prepare(
+        `SELECT id FROM delegation_runs WHERE parent_session_id = ?
+          AND status IN ('queued', 'launching', 'pending', 'spawned', 'running', 'blocked') ORDER BY created_at`,
+      ).all(sessionId) as Array<{ id: string }>).map((row) => row.id),
+      findLocalPrByBranch: (repository, branch) => revisorClient.findLocalPrByBranch(repository, branch),
+      findRun: (runId) => delegationRepo.findRun(runId),
+      parentReceivedRunTerminal: (parentSessionId, runId) => !!db.prepare(
+        "SELECT 1 FROM session_events WHERE session_id = ? AND kind = 'inject' AND json_extract(payload, '$.source') = ? LIMIT 1",
+      ).get(parentSessionId, `delegation:${runId}:status`),
+      transcriptContains: async (session, token) => {
+        const tail = await readSessionTranscriptTail(session);
+        return tail === null || tail === undefined ? null : tail.includes(token);
+      },
+      git: async (cwd, args) => {
+        const result = await defaultGitRunner(cwd, args);
+        return { ok: result.ok, stdout: result.stdout };
+      },
+    },
     log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
   });
   // 管制セッション自身へは停止確認・Goal & Go・現況報告を送らない (管制の文脈を汚さない)。

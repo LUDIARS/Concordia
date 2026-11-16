@@ -14,6 +14,7 @@ export const CONTROL_INJECT_SOURCE = "auto:control";
 
 export type InstructionOrigin =
   | { kind: "control"; generation: number }
+  | { kind: "patrol" }
   | { kind: "human"; label: string };
 
 export interface InjectPort {
@@ -35,9 +36,9 @@ export interface DispatchResult {
 }
 
 export function renderOriginHeader(origin: InstructionOrigin): string {
-  return origin.kind === "control"
-    ? `[管制] 管制セッション第 ${origin.generation} 世代からの追加指示です。`
-    : `[管制] ${origin.label} の一括指示です。`;
+  if (origin.kind === "control") return `[管制] 管制セッション第 ${origin.generation} 世代からの追加指示です。`;
+  if (origin.kind === "patrol") return "[管制] 管制の巡回からの追加指示です (止まっているセッションへの確認)。";
+  return `[管制] ${origin.label} の一括指示です。`;
 }
 
 /** 来歴付きの本文。許可範囲は足さないことを明示する。 */

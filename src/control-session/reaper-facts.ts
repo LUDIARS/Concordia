@@ -7,7 +7,14 @@
 import type { RevisorLocalPr } from "../pr/revisor-local-pr-types.js";
 import { matchLocalPrByBranch } from "../pr/revisor-branch-lookup.js";
 import type { SessionRow } from "../shared/types.js";
-import type { ChildLink, ReapBlockers, ReapInput } from "./reaper-policy.js";
+import type { ChildLink, ReapBlockers, ReapInput, ReapKind } from "./reaper-policy.js";
+
+/** 片付けの対象。親の記録が無い (standalone) ものは parentSessionId が null。 */
+export interface ReapTarget {
+  kind: ReapKind;
+  parentSessionId: string | null;
+  runId: string | null;
+}
 
 export interface ReaperGitResult { ok: boolean; stdout: string }
 export type ReaperGitRunner = (cwd: string, args: string[]) => Promise<ReaperGitResult>;
@@ -88,7 +95,7 @@ async function repoAgentPrMerged(ports: ReaperFactPorts, session: SessionRow): P
 export async function gatherReapInput(
   ports: ReaperFactPorts,
   session: SessionRow,
-  link: ChildLink,
+  link: ChildLink | ReapTarget,
   nowSec: number,
 ): Promise<ReapInput> {
   const last = sync(() => ports.lastActivitySec(session.id));
@@ -106,10 +113,10 @@ export async function gatherReapInput(
     kind: link.kind,
     idleSec: last === null ? null : Math.max(0, nowSec - last),
     unchangedCount: sync(() => ports.unchangedCount(session)) ?? 0,
-    delegationDone: link.kind === "delegation" && link.runId
-      ? sync(() => ports.parentReceivedRunTerminal(link.parentSessionId, link.runId!))
+    delegationDone: link.kind === "delegation" && link.runId && link.parentSessionId
+      ? sync(() => ports.parentReceivedRunTerminal(link.parentSessionId!, link.runId!))
       : null,
-    repoAgentPrMerged: link.kind === "repo-agent" ? await repoAgentPrMerged(ports, session) : null,
+    repoAgentPrMerged: link.kind === "repo-agent" || link.kind === "standalone" ? await repoAgentPrMerged(ports, session) : null,
     blockers,
   };
 }

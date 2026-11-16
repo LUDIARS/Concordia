@@ -15,6 +15,8 @@ export const REAP_UNRESPONSIVE_UNCHANGED_MIN = 2;
 export const REAP_NOTICE_GRACE_SEC = 10 * 60;
 
 export type ChildKind = "repo-agent" | "delegation" | "spawn";
+/** 親の記録が無いセッション (人間が起動したものなど)。担当 PR のマージ済みだけで終了候補になる。 */
+export type ReapKind = ChildKind | "standalone";
 
 export interface ChildLink {
   kind: ChildKind;
@@ -62,10 +64,15 @@ export interface ReapBlockers {
 }
 
 export type ReapBlockReason = keyof ReapBlockers | `${keyof ReapBlockers}_unknown`;
-export type ReapReason = "done_delegation" | "done_repo_agent" | "unresponsive";
+export type ReapReason = "done_delegation" | "done_repo_agent" | "done_merged" | "unresponsive";
+
+/** 親の記録が無いセッションを終了候補の対象にしてよいか (担当ブランチがあり、基点ブランチでない)。 */
+export function isStandaloneReapTarget(session: { repo_origin: string | null; branch: string | null }): boolean {
+  return !!session.repo_origin && !!session.branch && !["main", "master", "develop"].includes(session.branch);
+}
 
 export interface ReapInput {
-  kind: ChildKind;
+  kind: ReapKind;
   /** 最後の会話からの経過秒。分からなければ null。 */
   idleSec: number | null;
   unchangedCount: number;
@@ -92,6 +99,10 @@ function dueReason(input: ReapInput): ReapReason | null {
   if (input.idleSec === null) return null;
   if (input.kind === "delegation" && input.delegationDone === true && input.idleSec >= REAP_DONE_IDLE_SEC) return "done_delegation";
   if (input.kind === "repo-agent" && input.repoAgentPrMerged === true && input.idleSec >= REAP_DONE_IDLE_SEC) return "done_repo_agent";
+  if (input.kind === "standalone") {
+    // 人間が起動したものは「反応しない」では閉じない (担当作業の完了だけを根拠にする)。
+    return input.repoAgentPrMerged === true && input.idleSec >= REAP_DONE_IDLE_SEC ? "done_merged" : null;
+  }
   if (input.idleSec >= REAP_UNRESPONSIVE_IDLE_SEC && input.unchangedCount >= REAP_UNRESPONSIVE_UNCHANGED_MIN) return "unresponsive";
   return null;
 }
@@ -127,7 +138,7 @@ export function parseReapState(value: unknown): ReapNoticeState | null {
   const raw = value as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object" || typeof raw.noticed_at !== "number") return null;
   const reason = raw.reason;
-  if (reason !== "done_delegation" && reason !== "done_repo_agent" && reason !== "unresponsive") return null;
+  if (reason !== "done_delegation" && reason !== "done_repo_agent" && reason !== "done_merged" && reason !== "unresponsive") return null;
   return {
     noticed_at: raw.noticed_at,
     reason,

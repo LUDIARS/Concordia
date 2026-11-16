@@ -95,14 +95,21 @@ describe("control supervisor", () => {
     expect(h.board.list().map((r) => r.session_id)).toEqual(["b"]);
   });
 
-  it("sends a digest of stalled sessions once per fingerprint (CC-CTL-INV-04)", async () => {
-    const h = harness([stalled("w1"), session("w2"), session("ctl", { concordia_spawn_id: "spawn-1" })]);
+  it("sends a digest of sessions classified as stalled once per stop, regardless of fingerprints (CC-CTL-INV-04)", async () => {
+    const h = harness([session("w1"), session("w2"), session("ctl", { concordia_spawn_id: "spawn-1" })]);
     h.holders.write({ spawn_id: "spawn-1", generation: 1, spawned_at: 0, retired: [] });
+    // 分類が無い (= 巡回がまだ分類していない) 行は伝えない。
+    expect((await h.supervisor.runOnce()).digested).toEqual([]);
+    const classify = (id: string, status: "stalled" | "unresponsive" | "working") => h.board.saveClassification(id, {
+      status, status_reason: "待つ理由なし / 無活動 100 分", classified_at: 1, nudge_count: 0, nudge_last_at: null, unresponsive_reported_at: null,
+    });
+    classify("w1", "stalled");
+    classify("w2", "working");
     expect((await h.supervisor.runOnce()).digested).toEqual(["w1"]);
     expect(h.injected[0].sessionId).toBe("ctl");
     expect(h.injected[0].text.startsWith(CONTROL_DIGEST_SENTINEL)).toBe(true);
     expect((await h.supervisor.runOnce()).digested).toEqual([]);
-    h.setActive([stalled("w1", '{"state":"review-wait"}'), session("ctl", { concordia_spawn_id: "spawn-1" })]);
+    classify("w1", "unresponsive");
     expect((await h.supervisor.runOnce()).digested).toEqual(["w1"]);
   });
 
@@ -114,6 +121,10 @@ describe("control supervisor", () => {
       },
     });
     h.holders.write({ spawn_id: "spawn-1", generation: 1, spawned_at: 0, retired: [] });
+    await h.supervisor.runOnce();
+    h.board.saveClassification("w1", {
+      status: "stalled", status_reason: "待つ理由なし", classified_at: 1, nudge_count: 0, nudge_last_at: null, unresponsive_reported_at: null,
+    });
     expect((await h.supervisor.runOnce()).digested).toEqual([]);
     expect(h.injected).toEqual([]);
   });

@@ -20,6 +20,7 @@ import {
   shouldSendPatrolNudge,
   type PatrolNudgeState,
 } from "./patrol-nudge-policy.js";
+import { nextReviewLookupStreak } from "./review-status-source.js";
 
 export interface ControlPatrolDeps {
   board: Pick<ControlBoardRepo, "find" | "saveClassification">;
@@ -55,12 +56,25 @@ export function renderUnresponsiveReport(rows: ReadonlyArray<{ row: ControlBoard
 }
 
 export function createControlPatrol(deps: ControlPatrolDeps) {
+  // 審査状況の読み取り失敗が何巡回続いているか (review-status-source.ts)。
+  let reviewLookupStreak = 0;
+
   async function runOnce(active: readonly SessionRow[]): Promise<PatrolTickReport> {
     const report: PatrolTickReport = { classified: [], nudged: [], unresponsiveReported: [] };
     const nowSec = Math.floor(deps.now() / 1000);
-    // 審査中 PR の一覧は 1 巡回で 1 回だけ読む。読めなければ null (= 審査状況不明で待つ側)。
+    // 審査中 PR の一覧は 1 巡回で 1 回だけ読む。読めなければ null (= 審査状況不明で待つ側。
+    // ただし REVIEW_LOOKUP_GIVE_UP_TICKS 巡回続いたら無活動基準に戻す)。
     let openPrs: Promise<RevisorLocalPr[] | null> | null = null;
-    const readOpenPrs = () => (openPrs ??= deps.facts.listOpenLocalPrs().catch(() => null));
+    let lookupOutcome: "ok" | "failed" | null = null;
+    const readOpenPrs = () => (openPrs ??= deps.facts.listOpenLocalPrs().then(
+      (rows) => { lookupOutcome = "ok"; return rows; },
+      (error: unknown) => {
+        lookupOutcome = "failed";
+        deps.log.warn(`control patrol: review status lookup failed (${error instanceof Error ? error.message : String(error)})`);
+        return null;
+      },
+    ));
+    const currentStreak = () => nextReviewLookupStreak(reviewLookupStreak, lookupOutcome);
     const toReport: Array<{ row: ControlBoardRow; reason: string; lastNudgeAt: number | null }> = [];
     const states = new Map<string, PatrolNudgeState>();
 
@@ -69,7 +83,8 @@ export function createControlPatrol(deps: ControlPatrolDeps) {
       if (!row) continue;
       let state = settleNudgeState(nudgeStateOf(row), row.last_activity_at);
       const input = await gatherClassifyInput({
-        ports: deps.facts, session, lastActivitySec: row.last_activity_at, nudge: state, openPrs: readOpenPrs, nowSec,
+        ports: deps.facts, session, lastActivitySec: row.last_activity_at, nudge: state, openPrs: readOpenPrs,
+        reviewLookupStreak: currentStreak, nowSec,
       });
       const verdict = classifySession(input);
       report.classified.push({ session_id: session.id, ...verdict });
@@ -110,6 +125,7 @@ export function createControlPatrol(deps: ControlPatrolDeps) {
         report.unresponsiveReported.push(row.session_id);
       }
     }
+    reviewLookupStreak = currentStreak();
     if (report.nudged.length) {
       deps.log.info(`control patrol: nudged ${report.nudged.length} stalled session(s): ${report.nudged.join(", ")}`);
     }

@@ -67,13 +67,16 @@ updated: 2026-11-17
   | 分類 | 条件 | 理由に出すもの |
   |---|---|---|
   | 人間の判断待ち (`human_wait`) | 部署の自動確認 OFF・未回答の質問カード・human-wait・人間の応答待ちの確認・ask マーカー。照会できないときもここ | 待ちの種類 |
-  | 審査・委託の結果待ち (`awaiting_result`) | session か branch が一致する審査中 (open) の Revisor PR、このセッションが親の実行中の委託 run。PR 一覧を読めないときもここ | PR 番号と checkStatus / run id |
+  | 審査・委託の結果待ち (`awaiting_result`) | session か branch が一致する審査中 (open) の Revisor PR、このセッションが親の実行中の委託 run。PR 一覧を読めないときもここ (ただし 3 巡回続けて読めなければ待つ理由にしない。下記) | PR 番号と checkStatus / run id / 読めない連続巡回数 |
   | 作業中 (`working`) | 最終活動が 20 分以内、または最終活動を観測できない | 何分前に活動 |
   | 終了候補 (`end_candidate`) | 担当作業が終わった (委託 run の終了を親が受信済み、または担当ブランチの Revisor PR が merged) かつ未コミットの変更が無い | 根拠と無活動分 |
   | 応答なし (`unresponsive`) | 最後の活動以降に巡回の追加指示が 3 回届いた、または届けた追加指示が猶予 (3 分) 後も会話に現れない | 回数 / 会話に入っていない疑い |
   | 停止 (`stalled`) | 上のどれでもない (待つ理由なし・無活動 20 分以上) | 無活動分・未コミットの変更の有無・未反応の回数 |
 
 - transcript・git・Revisor を読む照会は、無活動が 20 分を超え人間待ちでないものだけに行う (Revisor の PR 一覧は 1 巡回で 1 回)。
+- 審査状況の読み口 (`src/control-session/review-status-source.ts`、2026-11-17 追加): Revisor の一覧 API には repository / branch の絞り込みが無いため、open の詳細一覧 (`?state=open`) だけを読み (決着済みの要約一覧 `state=all` は読まない)、成功した結果を 60 秒キャッシュして巡回と終了候補の判定で共有する。セッションごとの照合は Cc 内で session id → repository + branch の順に絞る。読み取り失敗はキャッシュしない。
+- 審査状況の読み取り失敗は巡回単位で数える (読まなかった巡回は数を変えない、成功で 0 に戻す)。1〜2 巡回目は「審査状況を確認できない (n 巡回連続)」で結果待ちにし、3 巡回続いたら待つ理由にせず無活動基準で分類する。そのとき `status_reason` に「審査状況を 3 巡回続けて確認できないため無活動基準で判定」を添える (CC-CTL-INV-10)。
+- 人間の応答待ちの確認 (`human_response_confirmation`) が立っているセッションは、分類の前にそのセッション自身の動き (確認後のコミット・審査中 PR の提出/更新) を観測し、動いていれば確認を解いてから分類する (`src/control-session/confirmation-activity.ts`、判定は [human-response-confirmation.md](human-response-confirmation.md) の「観測された動きによる解除」)。
 - 旧基準 (自動確認の「変化なし」が 2 回以上で停止) は廃止した。自動確認が送られない・指紋が無いセッションも、最終活動と待つ理由だけで停止になる (CC-CTL-INV-09)。
 - 自動確認 (stalled-session-nudge) が送るのを見送ったときは、info ログに session_id と理由を出し、セッション metadata `stall_nudge_skip` に最後の 1 件を残す (`src/control/nudge-skip-record.ts`)。ボードはそれを `last_skip_reason` として写す。
 - 終了したセッションの行は消す。行の履歴は持たない。管制セッションの会話文脈にもボードを積まない (必要なときに `GET /v1/control/board` で読む)。
@@ -129,6 +132,7 @@ updated: 2026-11-17
 | CC-CTL-INV-06 | 指示は既存の inject 経路で来歴付きで届け、届け先の審査ゲート・許可範囲を回避しない。追加指示は現在の管制セッションからだけ受け付ける |
 | CC-CTL-INV-07 | 管制チャンネルのまとめは 1 時間に 1 回まで。進捗ボードだけを読んで作り、投稿に成功したときだけ時刻を記録する。本文にメンションを含めない |
 | CC-CTL-INV-09 | 待つ理由 (人間の判断・審査・委託の結果) の無いセッションが 20 分以上無活動なら、自動確認の記録の有無にかかわらず停止か応答なしに分類する (全員が無活動なのに停止 0 件、にはならない)。停止への追加指示は未返信でも上限 2 時間の間隔で送り続ける |
+| CC-CTL-INV-10 | 待つ理由の照会 (審査状況) が失敗し続けても、停止の検出を無期限に止めない。3 巡回続けて読めなければ無活動基準に戻し、理由を `status_reason` に残す。人間の応答待ちの確認も、そのセッションが確認後にコミット・PR の提出/更新をしていれば解く |
 | CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの) と、親の記録が無くても担当ブランチの PR がマージ済みのセッション。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない。先に案内を 1 回送り、猶予後も同じなら既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない |
 
 ## API
@@ -170,5 +174,5 @@ neco 指示 (2026-11-16)「セッションから作業指示で起動したセ�
 - `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
-- `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。
+- `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`review-status-source.ts` — 審査状況の読み口 (open 一覧の短時間キャッシュ・セッションへの絞り込み・読み取り失敗の連続数)。`confirmation-activity.ts` — 応答待ちの確認を解く判定の入力 (HEAD・審査中 PR)。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。
 - 既存部品の再利用: 作業状態の表示は `cc_followup_progress` (followup-progress.ts)、待ちの判定は pending-question-blocker / human-wait / human-response-confirmation / stalled-session-nudge の ask 判定、起動は `spawnSession` と pending spawn の相関 ID、側セッションは `runClaude` の会話専用実行。

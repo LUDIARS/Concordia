@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SessionRow } from "../shared/types.js";
 import { awaitingResultReason, gatherClassifyInput, humanWaitReason, type ClassifyFactPorts } from "./classify-facts.js";
 import { EMPTY_NUDGE_STATE } from "./patrol-nudge-policy.js";
@@ -73,6 +73,41 @@ describe("classify facts", () => {
     expect(await humanWaitReason(session(), { ...broken, isAwaitingAsk: async () => true }, true)).toBe("ask で人間の入力待ち");
     expect(awaitingResultReason(session(), null, [])).toBe("審査状況を確認できない");
     expect(awaitingResultReason(session(), [], ["run-1", "run-2"])).toBe("委託 run run-1 ほか 1 件 の結果待ち");
+  });
+
+  it("stops treating an unreadable review status as a reason to wait after three failed patrols", async () => {
+    expect(awaitingResultReason(session(), null, [], 2)).toBe("審査状況を確認できない (2 巡回連続)");
+    expect(awaitingResultReason(session(), null, [], 3)).toBeNull();
+    expect(awaitingResultReason(session(), null, ["run-1"], 3)).toBe("委託 run run-1 の結果待ち");
+    const input = await gatherClassifyInput({
+      ports: ports(), session: session(), lastActivitySec: NOW - 3600, nudge: EMPTY_NUDGE_STATE,
+      openPrs: openPrs(null), reviewLookupStreak: () => 3, nowSec: NOW,
+    });
+    expect(input).toMatchObject({ awaitingResult: null, reviewNote: "審査状況を 3 巡回続けて確認できないため無活動基準で判定" });
+  });
+
+  it("releases a human response confirmation when the session commits after it, before reading the wait state", async () => {
+    let waiting = true;
+    const released: Array<{ head: string | null; headCommittedAt: number | null; prs: string[] | null }> = [];
+    const p = ports({
+      git: async (_cwd, args) => (args[0] === "log" ? { ok: true, stdout: "abc1234 999990\n" } : { ok: true, stdout: "" }),
+      releaseConfirmationOnActivity: (_id, observed) => { released.push(observed); waiting = false; return "確認の後に新しいコミット"; },
+    });
+    p.probes = { ...p.probes, isWaitingForHumanResponse: () => waiting };
+    const prs = [{ id: "p", number: 5, repository: "LUDIARS/Concordia", headRef: "feat/s", status: "open", headSha: "def", sessionId: null }];
+    const input = await gatherClassifyInput({
+      ports: p, session: session(), lastActivitySec: NOW - 60, nudge: EMPTY_NUDGE_STATE, openPrs: openPrs(prs), nowSec: NOW,
+    });
+    expect(released).toEqual([{ head: "abc1234", headCommittedAt: 999990, prs: ["5:def"] }]);
+    expect(input.humanWait).toBeNull();
+  });
+
+  it("does not observe activity for sessions that are not waiting for a human response", async () => {
+    const release = vi.fn(() => null);
+    const p = ports({ releaseConfirmationOnActivity: release });
+    await gatherClassifyInput({ ports: p, session: session(), lastActivitySec: NOW - 60, nudge: EMPTY_NUDGE_STATE, openPrs: openPrs([]), nowSec: NOW });
+    expect(release).not.toHaveBeenCalled();
+    expect(p.calls).toEqual([]);
   });
 
   it("flags a delivered nudge missing from the conversation after the grace", async () => {

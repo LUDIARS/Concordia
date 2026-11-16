@@ -51,6 +51,7 @@ import {
   rootRunId,
 } from "../delegation/partial-requeue.js";
 import { scanFinishedRuns } from "../delegation/finished-run-reaper.js";
+import { isWaitOnlyPartial, notifiedStatus, runAfterRecorded } from "../delegation/status-followups.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { contractModelOverrides } from "../contract/delegation-model-scope.js";
 import { contractAppliesToDelegation } from "../contract/delegation-target-scope.js";
@@ -990,6 +991,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       : parsed.data.remaining ?? [];
     const workRemaining = effectiveRemaining.filter((item) => !isWaitRemaining(item));
     const isPartial = workRemaining.length > 0;
+    const waitOnlyPartial = isWaitOnlyPartial({
+      status, remainingCount: effectiveRemaining.length, workRemainingCount: workRemaining.length,
+    });
     const residentMarker = readResidentMarker(row.child_session_id ? deps.sessions?.findSession(row.child_session_id)?.metadata ?? null : null);
     const continuation = isPartial ? (residentMarker ? "in-session" : readRunContinuation(deps.sessions, row.child_session_id)) : "requeue";
     let requeuedRun = null;
@@ -1086,7 +1090,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       void sweepCommitRequest(updated, deps);
     }
     if ((status === "completed" || status === "partial" || status === "failed") && updated.parent_session_id) {
-      const text = buildDelegationStatusNotification(updated, { ...parsed.data, status: partialFailureError ? "failed" : isPartial ? "partial" : persistedStatus });
+      const text = buildDelegationStatusNotification(updated, {
+        ...parsed.data,
+        status: notifiedStatus({ partialFailure: !!partialFailureError, workPartial: isPartial, waitOnlyPartial, persisted: persistedStatus }),
+      });
       deps.sessions?.appendEvent({
         session_id: updated.parent_session_id,
         ts: nowSec(),
@@ -1113,10 +1120,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (updated.status === "completed" || updated.status === "failed") {
       void deps.queue?.drain();
     }
-    if (updated.status === "completed" && !isPartial && !residentMarker && deps.sessions && deps.taskStore) {
-      await injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
+    const finishedWork = updated.status === "completed" && !isPartial && !waitOnlyPartial && !residentMarker;
+    const sessions = deps.sessions;
+    const taskStore = deps.taskStore;
+    if (finishedWork && sessions && taskStore) {
+      // 状態はもう記録済み。後続処理の失敗を 500 にしない (status-followups.ts)。
+      await runAfterRecorded(updated.id, "decomposition check", () => injectDecompositionWhenMissing({
+        run: updated, sessions, store: taskStore, hasPendingQuestion: deps.hasPendingQuestion,
+      }));
     }
-    if (updated.status === "completed" && !isPartial && !residentMarker) void deps.onTaskflowCompleted?.(updated);
+    if (finishedWork) void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated), requeued_run: requeuedRun ? serializeRun(requeuedRun) : null });
   });
 

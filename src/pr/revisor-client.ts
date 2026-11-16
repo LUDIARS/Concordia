@@ -146,6 +146,17 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
   }
 
   /**
+   * 審査中 (open) の local PR だけ。決着済みの要約一覧 (state=all) を読まないので、
+   * 管制の分類のように open だけが要る呼び出しはこちらを使う。open の詳細一覧は審査レポートを
+   * 含んで 1MB 近くになり、Revisor 側の再生成中は既定の 10 秒を超えることがあるので、
+   * 呼び出し側でキャッシュする前提で要約一覧と同じ長めの上限で待つ。
+   */
+  async listOpenLocalPrs(): Promise<RevisorLocalPr[]> {
+    const port = await this.resolvePort();
+    return (await this.fetchListing(port, "?state=open", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr);
+  }
+
+  /**
    * マージ済みの local PR (巡回チャットの知識、 spec/feature/patrol-chat.md「知識」)。
    * 決着時刻は updatedAt で代える (Revisor の一覧にマージ時刻の列は無い)。 sinceMs より前は返さない。
    */

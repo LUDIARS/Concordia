@@ -28,6 +28,15 @@ describe("RevisorClient", () => {
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("http://127.0.0.1:4240/v1/local-prs/target%2F1");
   });
 
+  it("lists only open PRs without reading the settled summary listing", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request) => new Response(JSON.stringify({ pullRequests: [
+      { id: "p1", number: 3, repository: "LUDIARS/Concordia", status: "open", headRef: "feat/x", sessionId: "s" },
+    ] })));
+    const client = new RevisorClient({ excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) }, fetchImpl });
+    expect((await client.listOpenLocalPrs()).map((pr) => [pr.number, pr.headRef, pr.sessionId])).toEqual([[3, "feat/x", "s"]]);
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual(["http://127.0.0.1:4240/v1/local-prs?state=open"]);
+  });
+
   it.each([
     { id: "other", repository: "LUDIARS/Ludellus", status: "merged" },
     { id: "target", status: "merged" },

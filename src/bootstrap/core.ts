@@ -185,6 +185,8 @@ import { createControlRuntime } from "../control-session/runtime.js";
 import type { SessionRow } from "../shared/types.js";
 import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
 import { CONTROL_REAPER_SOURCE } from "../control-session/reaper.js";
+import { createOpenPrCache } from "../control-session/review-status-source.js";
+import { releaseConfirmationOnActivity } from "../control/human-response-activity-release.js";
 import { readFollowupProgress } from "../control/followup-progress.js";
 import { defaultGitRunner } from "../control/ws-cleanup.js";
 import { observeGitActivity } from "../control/session-activity-observe.js";
@@ -1317,6 +1319,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorConfigRepo = makeRevisorConfigRepo(db);
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
   const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
+  // 管制の分類・終了候補が共有する審査中 PR の一覧 (open だけを短時間キャッシュ)。
+  const controlOpenPrs = createOpenPrCache(() => revisorClient.listOpenLocalPrs());
   const revisorRepositoryClient = createRevisorRepositoryClient(excubitorClient, resolveRevisorToken);
   const serviceDeployed = {
     ledger: new SqliteDeploymentLedger(db),
@@ -2243,7 +2247,7 @@ export async function startBackend(): Promise<BackendHandle> {
       isWaitingForHumanResponse: (sessionId) => isWaitingForHumanResponse(repo, sessionId),
       isAwaitingAsk: async (session) => isAwaitingHumanInput(await readSessionTranscriptTail(session)),
       hasTestingClaim: (sessionId, nowSec) => testingClaims.hasActiveClaim(sessionId, nowSec),
-      listOpenLocalPrs: async () => (await revisorClient.listLocalPrs()).filter((pr) => pr.status === "open"),
+      listOpenLocalPrs: () => controlOpenPrs.read(),
       findLocalPrByBranch: (repository, branch) => revisorClient.findLocalPrByBranch(repository, branch),
       git: async (cwd, args) => {
         const result = await defaultGitRunner(cwd, args);
@@ -2265,7 +2269,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 観測された動きによる分類と停止への追加指示 (spec/feature/control-session.md §2 §4)。
     patrol: {
-      listOpenLocalPrs: async () => (await revisorClient.listLocalPrs()).filter((pr) => pr.status === "open"),
+      listOpenLocalPrs: () => controlOpenPrs.read(),
       runningDelegations: (sessionId) => (db.prepare(
         `SELECT id FROM delegation_runs WHERE parent_session_id = ?
           AND status IN ('queued', 'launching', 'pending', 'spawned', 'running', 'blocked') ORDER BY created_at`,
@@ -2282,6 +2286,11 @@ export async function startBackend(): Promise<BackendHandle> {
       git: async (cwd, args) => {
         const result = await defaultGitRunner(cwd, args);
         return { ok: result.ok, stdout: result.stdout };
+      },
+      releaseConfirmationOnActivity: (sessionId, observed, nowSec) => {
+        const reason = releaseConfirmationOnActivity(repo, sessionId, observed, nowSec);
+        if (reason) controlLog.info(`control patrol: human response confirmation released session=${sessionId} reason=${reason}`);
+        return reason;
       },
     },
     log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },

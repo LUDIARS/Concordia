@@ -7,13 +7,15 @@
  * @implements spec/feature/control-session.md §2
  */
 import { STALL_IDLE_SEC, type SessionClassifyInput } from "../control/session-classify.js";
-import { matchLocalPrByBranch } from "../pr/revisor-branch-lookup.js";
 import type { RevisorLocalPr } from "../pr/revisor-local-pr-types.js";
 import type { SessionRow } from "../shared/types.js";
 import { INELIGIBLE_REASON_LABEL, type EligibilityProbes } from "./instruction-eligibility.js";
 import { needsReflectCheck, PATROL_ANSWER_MIN_DELAY_SEC, patrolNudgeToken, type PatrolNudgeState } from "./patrol-nudge-policy.js";
 import type { ReaperGitRunner } from "./reaper-facts.js";
 import { classifyChild } from "./reaper-policy.js";
+import { openPrForSession, reviewLookupGiveUpNote, reviewLookupGivenUp } from "./review-status-source.js";
+import type { ConfirmationActivity } from "../control/human-response-activity-release.js";
+import { observeConfirmationActivity } from "./confirmation-activity.js";
 
 export interface ClassifyFactPorts {
   probes: Omit<EligibilityProbes, "isControlSession">;
@@ -27,6 +29,11 @@ export interface ClassifyFactPorts {
   /** transcript 末尾に目印が入っているか。読めなければ null。 */
   transcriptContains(session: SessionRow, token: string): Promise<boolean | null>;
   git: ReaperGitRunner;
+  /**
+   * 人間の応答待ちの確認を、観測された動き (確認後のコミット・PR の提出/更新) で解く。
+   * 解いたら理由、据え置きなら null (human-response-activity-release.ts)。
+   */
+  releaseConfirmationOnActivity?(sessionId: string, observed: ConfirmationActivity, nowSec: number): string | null;
 }
 
 const BASE_BRANCHES = new Set(["main", "master", "develop"]);
@@ -58,13 +65,17 @@ export async function humanWaitReason(
   }
 }
 
-/** 審査中 PR・実行中の委託。PR 一覧を読めなければ待っている側に倒す。 */
+/**
+ * 審査中 PR・実行中の委託。PR 一覧を読めなければ待っている側に倒すが、読み取り失敗が
+ * REVIEW_LOOKUP_GIVE_UP_TICKS 巡回続いたら (lookupFailedTicks) 待つ理由にしない。
+ */
 export function awaitingResultReason(
-  session: SessionRow, openPrs: readonly RevisorLocalPr[] | null, runningRuns: readonly string[],
+  session: SessionRow, openPrs: readonly RevisorLocalPr[] | null, runningRuns: readonly string[], lookupFailedTicks = 0,
 ): string | null {
-  if (openPrs === null) return "審査状況を確認できない";
-  const pr = openPrs.find((candidate) => candidate.sessionId === session.id)
-    ?? (session.repo_origin && session.branch ? matchLocalPrByBranch(openPrs, session.repo_origin, session.branch) : null);
+  if (openPrs === null && !reviewLookupGivenUp(lookupFailedTicks)) {
+    return lookupFailedTicks > 0 ? `審査状況を確認できない (${lookupFailedTicks} 巡回連続)` : "審査状況を確認できない";
+  }
+  const pr = openPrs ? openPrForSession(openPrs, session) : null;
   if (pr) return `審査中 PR #${pr.number} (${pr.checkStatus})`;
   if (runningRuns.length) return `委託 run ${runningRuns[0]}${runningRuns.length > 1 ? ` ほか ${runningRuns.length - 1} 件` : ""} の結果待ち`;
   return null;
@@ -108,17 +119,35 @@ async function injectUnreflected(
   }
 }
 
+/** 人間の応答待ちの確認が立っているセッションだけ、動きを観測して解けるか確かめる。 */
+async function releaseConfirmationIfMoved(input: {
+  ports: ClassifyFactPorts; session: SessionRow; openPrs: () => Promise<RevisorLocalPr[] | null>; nowSec: number;
+}): Promise<void> {
+  const { ports, session } = input;
+  if (!ports.releaseConfirmationOnActivity) return;
+  try {
+    if (!ports.probes.isWaitingForHumanResponse(session.id)) return;
+    const observed = await observeConfirmationActivity(ports.git, session, await input.openPrs());
+    ports.releaseConfirmationOnActivity(session.id, observed, input.nowSec);
+  } catch {
+    // 解けなければ従来どおり待ちのまま (humanWaitReason が読む)。
+  }
+}
+
 export async function gatherClassifyInput(input: {
   ports: ClassifyFactPorts;
   session: SessionRow;
   lastActivitySec: number | null;
   nudge: PatrolNudgeState;
   openPrs: () => Promise<RevisorLocalPr[] | null>;
+  /** 今回を含む審査状況の読み取り失敗の連続巡回数 (openPrs を読んだ後に呼ぶ)。 */
+  reviewLookupStreak?: () => number;
   nowSec: number;
 }): Promise<SessionClassifyInput> {
   const { ports, session, nowSec } = input;
   const idleSec = input.lastActivitySec === null ? null : Math.max(0, nowSec - input.lastActivitySec);
   const idle = idleSec !== null && idleSec >= STALL_IDLE_SEC;
+  await releaseConfirmationIfMoved(input);
   const base: SessionClassifyInput = {
     idleSec,
     humanWait: await humanWaitReason(session, ports.probes, idle),
@@ -135,10 +164,13 @@ export async function gatherClassifyInput(input: {
   } catch {
     running = [];
   }
-  const awaiting = awaitingResultReason(session, await input.openPrs(), running);
+  const openPrs = await input.openPrs();
+  const failedTicks = openPrs === null ? (input.reviewLookupStreak?.() ?? 0) : 0;
+  const awaiting = awaitingResultReason(session, openPrs, running, failedTicks);
   if (awaiting) return { ...base, awaitingResult: awaiting };
   return {
     ...base,
+    reviewNote: openPrs === null ? reviewLookupGiveUpNote(failedTicks) : null,
     uncommitted: await uncommitted(ports, session),
     workDone: await workDoneReason(ports, session),
     injectUnreflected: await injectUnreflected(ports, session, input.nudge, input.lastActivitySec, nowSec),

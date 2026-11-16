@@ -53,6 +53,8 @@ export interface SessionClassifyInput {
   unansweredNudges: number;
   /** 届けたはずの追加指示が会話に現れていない (inject が会話に入っていない疑い)。 */
   injectUnreflected: boolean;
+  /** 待つ理由を確かめられず無活動基準に戻した注記 (審査状況の読み取り打ち切り)。 */
+  reviewNote?: string | null;
 }
 
 export interface SessionClassification {
@@ -69,7 +71,8 @@ export function classifySession(input: SessionClassifyInput): SessionClassificat
   if (input.awaitingResult) return { status: "awaiting_result", reason: input.awaitingResult };
   if (input.idleSec === null) return { status: "working", reason: "最終活動を観測できない (起動直後など)" };
   if (input.idleSec < STALL_IDLE_SEC) return { status: "working", reason: `直近 ${idleMinutes(input.idleSec)} 分前に活動` };
-  const idle = `無活動 ${idleMinutes(input.idleSec)} 分`;
+  const idle = [`無活動 ${idleMinutes(input.idleSec)} 分`, input.reviewNote ?? null]
+    .filter((part): part is string => part !== null).join(" / ");
   if (input.workDone && input.uncommitted === false) return { status: "end_candidate", reason: `${input.workDone} / ${idle}` };
   if (input.injectUnreflected) {
     return { status: "unresponsive", reason: `追加指示が会話に入っていない疑い / ${idle}` };

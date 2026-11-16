@@ -898,6 +898,13 @@ persona の汎用報告例は共通案内を参照し、kind を省略した par
 
 契約: C-1 buildStatusReportGuidance(endpoint): 人間判断・権限待ちを kind=wait、実行可能作業を kind=work と案内し、両方の JSON 例を示す。
 回帰確認は合成データで JSON 例を解析し、persona への共通案内の包含と省略例の除去を確認する。
+
+#### 待ちだけの partial と記録後の後続処理 (2026-11-17)
+
+`src/delegation/status-followups.ts`。run 3c61e7ab で、Actio から本文を取れず停止した委託先の partial (残りは `kind=wait` だけ) が、記録後の分解確認 (`injectDecompositionWhenMissing` が Actio を読む) の例外で 500 を返したのに completed で記録され、報告側は「記録されていない」と読んだ。
+
+- 待ちだけの partial は従来どおり run を閉じる (completed。新しい run は起こさない) が、作業の完了とは扱わない。親への通知は `partial` と書き、完了扱いの後続処理 (分解の注入・`onTaskflowCompleted`) は走らせない。
+- 状態を記録した後の後続処理の失敗は、ログに残して応答を 200 のまま返す (記録の成否と混ぜない)。
 テストの実行は別途許可された範囲に限る。復旧は案内の変更を戻すことで行え、データ移行は不要。
 
 ### status 報告の UTF-8 検証

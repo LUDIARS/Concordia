@@ -329,6 +329,38 @@ describe("delegation partial status", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("notifies the parent of a wait-only partial as partial and does not run completion follow-ups", async () => {
+    const db = makeTestDb();
+    const repo = new DelegationRepo(db);
+    const sessions = new SessionsRepo(db);
+    sessions.insertSession({
+      id: "parent-session", provider: "codex-cli", repo_path: "E:/repo", repo_origin: "LUDIARS/Concordia", branch: "main",
+      host: "test-host", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null,
+    });
+    repo.createRun({
+      id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: "parent-session",
+      args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "E:/tmp/prompt.md", spawn_pid: 1,
+      spawn_command: ["codex"], triggered_by: null, status: "running", spawn_cwd: "E:/repo",
+    });
+    const onTaskflowCompleted = vi.fn(async () => undefined);
+    const findForProject = vi.fn(async () => { throw new Error("Actio task service unavailable"); });
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo, sessions, onTaskflowCompleted,
+      taskStore: { findForProject, writeRemainingTasks: vi.fn() } as unknown as TaskMdStore,
+      service: { invoke: vi.fn(), recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    const response = await postStatus(app, {
+      status: "partial", result: "未着手 (変更なし)",
+      remaining: [{ title: "Actio の復旧待ち", kind: "wait" }],
+    });
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+    expect(sessions.eventsByKind("parent-session", "inject")[0]?.payload).toContain("Delegation partial");
+    expect(onTaskflowCompleted).not.toHaveBeenCalled();
+    expect(findForProject).not.toHaveBeenCalled();
+  });
+
   it("requeues when at least one remaining task was newly written", async () => {
     const db = makeTestDb();
     const repo = createSourceRun(repoFor(db));

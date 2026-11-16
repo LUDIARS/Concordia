@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
-import { claimHumanResponseConfirmation, isWaitingForHumanResponse, startHumanResponseConfirmation, recoverLegacyNudgeConfirmations } from "./human-response-confirmation.js";
+import { claimHumanResponseConfirmation, isWaitingForHumanResponse, parseRelayHumanSource, startHumanResponseConfirmation, recoverLegacyNudgeConfirmations } from "./human-response-confirmation.js";
 import { checkResidual } from "../taskflow/residual-blackbox.js";
 import type { TaskMdStore } from "../taskflow/md-store.js";
 import { startPhaseCompaction } from "./phase-compaction.js";
@@ -54,6 +54,31 @@ describe("human response confirmation", () => {
       eventBus.emit({ type: "question.answered", target_session_id: "session", question_id: 1, answer_index: 0, answer_text: "continue", ts: 5 });
       expect(claimHumanResponseConfirmation(h.repo, "session")).toBe(true);
     } finally { watch.stop(); }
+  });
+
+  it("reopens on a parent relay in the canonical relay-human source, never on free-form relay text", () => {
+    expect(parseRelayHumanSource("relay-human:lictor-24e68c85:neco")).toEqual({ parentSessionId: "lictor-24e68c85", label: "neco" });
+    expect(parseRelayHumanSource("relay-human:lictor-24e68c85")).toEqual({ parentSessionId: "lictor-24e68c85", label: null });
+    expect(parseRelayHumanSource("relay-human:")).toBeNull();
+    expect(parseRelayHumanSource("neco (親 lictor-24e68c85 経由)")).toBeNull();
+    const h = harness();
+    const watch = startHumanResponseConfirmation(h.repo);
+    try {
+      expect(claimHumanResponseConfirmation(h.repo, "session")).toBe(true);
+      eventBus.emit({ type: "session.inject", target_session_id: "session", source: "neco (親 lictor-24e68c85 経由)", text: "続けて", ts: 1 });
+      expect(isWaitingForHumanResponse(h.repo, "session")).toBe(true);
+      eventBus.emit({ type: "session.inject", target_session_id: "session", source: "relay-human:lictor-24e68c85:neco", text: "続けて", ts: 2 });
+      expect(isWaitingForHumanResponse(h.repo, "session")).toBe(false);
+    } finally { watch.stop(); }
+  });
+
+  it("stamps the claim time and drops the previous cycle's activity baseline", () => {
+    const h = harness();
+    h.row.metadata = JSON.stringify({ human_response_confirmation_baseline: { head: "old", prs: [] } });
+    expect(claimHumanResponseConfirmation(h.repo, "session")).toBe(true);
+    const metadata = JSON.parse(h.row.metadata ?? "{}") as Record<string, unknown>;
+    expect(typeof metadata.human_response_confirmation_at).toBe("number");
+    expect(metadata.human_response_confirmation_baseline).toBeNull();
   });
 
   it("coalesces repeated residual checks and emits no new phase event while waiting", async () => {

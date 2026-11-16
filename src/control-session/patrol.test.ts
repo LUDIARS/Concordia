@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import type { SessionRow } from "../shared/types.js";
 import { ControlBoardRepo, type ControlBoardEntry } from "./board-repo.js";
@@ -106,6 +106,25 @@ describe("control patrol (CC-CTL-INV-09)", () => {
     expect(h.injected).toEqual([]);
     expect(h.board.find("q")).toMatchObject({ status: "human_wait", status_reason: "質問カードの回答待ち" });
     expect(h.board.find("r")).toMatchObject({ status: "awaiting_result", status_reason: "審査中 PR #42 (running)" });
+  });
+
+  it("waits while the review status is unreadable, then falls back to idleness after three failed patrols", async () => {
+    const listOpenLocalPrs = vi.fn(async (): Promise<never> => { throw new Error("Revisor listing timeout"); });
+    const h = harness({ facts: { listOpenLocalPrs } });
+    h.put("s", 120 * MIN);
+    await h.tick();
+    expect(h.board.find("s")).toMatchObject({ status: "awaiting_result", status_reason: "審査状況を確認できない (1 巡回連続)" });
+    await h.tick();
+    expect(h.board.find("s")).toMatchObject({ status: "awaiting_result", status_reason: "審査状況を確認できない (2 巡回連続)" });
+    expect(h.injected).toEqual([]);
+    await h.tick();
+    expect(h.board.find("s")).toMatchObject({
+      status: "stalled",
+      status_reason: "待つ理由なし / 無活動 120 分 / 審査状況を 3 巡回続けて確認できないため無活動基準で判定",
+    });
+    expect(h.injected).toHaveLength(1);
+    // 1 巡回で 1 回だけ読む。
+    expect(listOpenLocalPrs).toHaveBeenCalledTimes(3);
   });
 
   it("resends unanswered nudges at 20, 40 minutes, and after three deliveries reports the session as unresponsive by name", async () => {

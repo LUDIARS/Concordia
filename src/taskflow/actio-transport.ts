@@ -7,6 +7,8 @@ import { actingForHeaders } from "./actio-acting-for.js";
 const LocalTeams = z.object({ teams: z.array(z.object({ id: z.string(), role: z.string() })) });
 /** How long a port resolved from the catalog may stand in when the catalog lookup itself fails. */
 const LAST_PORT_TTL_MS = 5 * 60_000;
+/** Upper bound for the liveness probe used when the catalog state disagrees. */
+const LIVENESS_TIMEOUT_MS = 3_000;
 
 /** Authenticated, bounded Actio I/O. Never log response bodies or credentials. */
 export class ActioTransport {
@@ -16,6 +18,8 @@ export class ActioTransport {
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly timeoutMs = 10_000,
     private readonly now: () => number = Date.now,
+    /** Records catalog state disagreements (state value and port only; never bodies or credentials). */
+    private readonly log: (message: string) => void = (message) => console.warn(message),
   ) {}
 
   private lastPort: { port: number; at: number } | null = null;
@@ -70,11 +74,54 @@ export class ActioTransport {
     const port = service?.catalog_snapshot?.port !== undefined
       ? resolveServicePort({ port: service.catalog_snapshot.port }) : resolveServicePort(service);
     if (!service || service.state !== "running" || port === null) {
+      // Excubitor's state can lag or flap while Actio keeps serving (2026-11-17: Actio
+      // answered directly while the catalog said otherwise, failing delegation sealing).
+      // Actio's own liveness decides; the catalog state is only logged.
+      const live = await this.liveFallbackPort([port, this.recentPort()]);
+      const state = service ? String(service.state) : "missing";
+      if (live !== null) {
+        this.log(`actio-transport: catalog state=${state} port=${port ?? "none"}; /api/health/live answered on ${live}, using it`);
+        this.lastPort = { port: live, at: this.now() };
+        return live;
+      }
+      this.log(`actio-transport: catalog state=${state} port=${port ?? "none"}; no live Actio endpoint`);
       this.lastPort = null;
       throw new Error("Actio task service unavailable");
     }
     this.lastPort = { port, at: this.now() };
     return port;
+  }
+
+  private recentPort(): number | null {
+    return this.lastPort && this.now() - this.lastPort.at <= LAST_PORT_TTL_MS ? this.lastPort.port : null;
+  }
+
+  /** The first candidate whose /api/health/live identifies itself as Actio. */
+  private async liveFallbackPort(candidates: ReadonlyArray<number | null>): Promise<number | null> {
+    for (const port of new Set(candidates.filter((value): value is number => value !== null))) {
+      if (await this.isLive(port)) return port;
+    }
+    return null;
+  }
+
+  private async isLive(port: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, LIVENESS_TIMEOUT_MS));
+    try {
+      const response = await this.fetchImpl(`http://127.0.0.1:${port}/api/health/live`, {
+        method: "GET", redirect: "error", signal: controller.signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return false;
+      }
+      const body = await response.json() as unknown;
+      return !!body && typeof body === "object" && "service" in body && body.service === "actio";
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async send(base: string, token: string | undefined, method: string, path: string, body?: unknown,

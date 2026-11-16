@@ -185,6 +185,7 @@ import { createControlRuntime } from "../control-session/runtime.js";
 import type { SessionRow } from "../shared/types.js";
 import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
 import { spawnSession } from "../control/spawner.js";
+import { forgetPendingDelegationSpawnBySpawnId, recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { canRequestProgress } from "../control/periodic-progress-request.js";
 import { resolveSessionFollowupSnapshot } from "../control/session-followup-snapshot.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
@@ -2212,6 +2213,11 @@ export async function startBackend(): Promise<BackendHandle> {
     spawn: async ({ spawnId, cwd, title, prompt }) => {
       const result = await spawnSession({ provider: "claude", cwd, cwdProvided: true, spawnId, title, args: [prompt] });
       return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
+    },
+    // chores と同じく spawn 前に enrollment を記録する (Lictor の登録と workspace trust の seed の前提)。
+    enrollment: {
+      record: ({ spawnId, cwd }) => recordPendingDelegationSpawn({ cwd, spawnId, callName: "control-session", goalAndGo: false }),
+      forget: (spawnId) => forgetPendingDelegationSpawnBySpawnId(spawnId),
     },
     workspaceRoot: () => cfg.workspaceRoot || cfg.spawnDefaultCwd,
     concordiaUrl: publicUrl,

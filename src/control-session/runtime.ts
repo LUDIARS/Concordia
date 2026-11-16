@@ -2,7 +2,7 @@
  * 管制の組み立て: 巡回・指示の届け方・管制チャンネル・API の口を 1 か所でつなぐ。
  * Discord 面は attachChannel で後から差し込む (Bot が無い構成でも巡回と API は動く)。
  *
- * @implements spec/feature/control-session.md — 構成要素と状態の所有者 / 6. ON / OFF
+ * @implements spec/feature/control-session.md — 構成要素と状態の所有者 / 6. ON / OFF / 7. 1 時間ごとのまとめ
  */
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
@@ -14,6 +14,7 @@ import type { ControlChannelSurface } from "./channel-surface.js";
 import { handleControlChannelPost, renderDispatchSummary, type ControlChannelPost } from "./channel-service.js";
 import { CONTROL_START_PROMPT, prepareControlWorkspace } from "./charter.js";
 import { ControlHolderStore } from "./holder-store.js";
+import { CONTROL_SUMMARY_POSTED_KEY, isSummaryDue, parseSummaryPostedAt, renderHourlySummary } from "./hourly-summary.js";
 import type { EligibilityProbes } from "./instruction-eligibility.js";
 import {
   CONTROL_INJECT_SOURCE,
@@ -43,6 +44,11 @@ export interface ControlRuntimeDeps {
   /** 管制セッション本体への案内・要約 (source は巡回用)。 */
   injectToSession(sessionId: string, text: string): boolean;
   spawn(input: { spawnId: string; cwd: string; title: string; prompt: string }): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * spawn ID を Cc 起動の登録 (enrollment) として先に記録する / 取り消す。記録が無いと起動した Lictor の
+   * セッション登録が invalid_or_consumed_session_enrollment で拒否され、作業場所の trust も焼かれない。
+   */
+  enrollment: { record(input: { spawnId: string; cwd: string }): void; forget(spawnId: string): void };
   workspaceRoot(): string;
   concordiaUrl: string;
   runOneShot: OneShotRunner;
@@ -80,8 +86,12 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
     spawnControl: async ({ spawnId, generation }) => {
       try {
         const cwd = await prepareControlWorkspace({ workspaceRoot: deps.workspaceRoot(), concordiaUrl: deps.concordiaUrl, generation });
-        return await deps.spawn({ spawnId, cwd, title: `[管制] 第 ${generation} 世代`, prompt: CONTROL_START_PROMPT });
+        deps.enrollment.record({ spawnId, cwd });
+        const result = await deps.spawn({ spawnId, cwd, title: `[管制] 第 ${generation} 世代`, prompt: CONTROL_START_PROMPT });
+        if (!result.ok) deps.enrollment.forget(spawnId);
+        return result;
       } catch (error) {
+        deps.enrollment.forget(spawnId);
         return { ok: false, error: String(error) };
       }
     },
@@ -112,8 +122,24 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
       await surface.ensure().then(() => { surfaceReady = true; })
         .catch((error) => deps.log.warn(`control channel unavailable: ${String(error)}`));
     }
-    if (!report.enabled) surfaceReady = false;
+    if (!report.enabled) {
+      surfaceReady = false;
+      deps.settings.delete(CONTROL_SUMMARY_POSTED_KEY);
+    }
+    if (report.enabled && surface && surfaceReady) await postHourlySummary(surface);
     return report;
+  }
+
+  /** ボードだけを読み、1 時間に 1 回まとめを投げる。投稿に成功したときだけ時刻を残す (CC-CTL-INV-07)。 */
+  async function postHourlySummary(target: ControlChannelSurface): Promise<void> {
+    const nowMs = now();
+    if (!isSummaryDue(parseSummaryPostedAt(deps.settings.get(CONTROL_SUMMARY_POSTED_KEY)), nowMs)) return;
+    try {
+      await target.post(renderHourlySummary(board.list(), nowMs));
+      deps.settings.set(CONTROL_SUMMARY_POSTED_KEY, String(nowMs));
+    } catch (error) {
+      deps.log.warn(`control hourly summary failed: ${String(error)}`);
+    }
   }
 
   return {

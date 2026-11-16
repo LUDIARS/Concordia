@@ -139,4 +139,29 @@ describe("control supervisor", () => {
     await h.supervisor.runOnce();
     expect(h.holders.read()?.generation).toBe(1);
   });
+
+  it("does not let a spawn that never returns stop the board update, and respawns after the grace", async () => {
+    let calls = 0;
+    const h = harness([session("worker")], {
+      spawnTimeoutMs: 20,
+      spawnControl: () => { calls += 1; return new Promise(() => {}); },
+    });
+    const report = await h.supervisor.runOnce();
+    expect(report.spawned).toBe(false);
+    expect(report.boardRows).toBe(1);
+    expect(h.board.list().map((r) => r.session_id)).toEqual(["worker"]);
+    await h.supervisor.runOnce();
+    expect(calls).toBe(1);
+    h.advance(CONTROL_SPAWN_GRACE_MS);
+    await h.supervisor.runOnce();
+    expect(calls).toBe(2);
+    expect(h.holders.read()?.generation).toBe(2);
+  });
+
+  it("treats a spawn that throws as a failed spawn", async () => {
+    const h = harness([session("worker")], { spawnControl: async () => { throw new Error("hooks prep failed"); } });
+    const report = await h.supervisor.runOnce();
+    expect(report.spawned).toBe(false);
+    expect(report.boardRows).toBe(1);
+  });
 });

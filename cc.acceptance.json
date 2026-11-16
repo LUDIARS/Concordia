@@ -5603,6 +5603,7 @@
     {"source":"src/control-session/instruction-eligibility.ts","tests":["src/control-session/instruction-eligibility.test.ts"],"contracts":[]},
     {"source":"src/control-session/instruction-dispatch.ts","tests":["src/control-session/instruction-dispatch.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
     {"source":"src/control-session/stall-digest.ts","tests":["src/control-session/stall-digest.test.ts","src/control-session/supervisor.test.ts"],"contracts":[]},
+    {"source":"src/control-session/hourly-summary.ts","tests":["src/control-session/hourly-summary.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
     {"source":"src/control-session/bulk-command.ts","tests":["src/control-session/bulk-command.test.ts"],"contracts":[]},
     {"source":"src/control-session/side-dialogue.ts","tests":["src/control-session/side-dialogue.test.ts"],"contracts":[]},
     {"source":"src/control-session/charter.ts","tests":["src/control-session/charter.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},

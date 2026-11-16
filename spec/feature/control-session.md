@@ -86,6 +86,13 @@ updated: 2026-11-16
 - OFF にすると、巡回は起動・要約・ボード更新をやめ、active な管制セッションへ終了を促す案内を 1 回送り、保持者を消す。API は `control_disabled` を返す。
 - 戻し方: 設定を OFF にする。進捗ボードは表だけなので、消しても各セッションの状態には影響しない。
 
+### 7. 1 時間ごとのまとめ (CC-CTL-INV-07)
+
+- 設定が ON で管制チャンネルが用意できている間、巡回のたびに最終投稿時刻 (内部状態キー `control_session.summary_posted_at`、設定レジストリの名前空間の外) を読み、未投稿・時計が戻った・1 時間経過のどれかなら、進捗ボードのまとめを管制チャンネルへ 1 通投げる (`hourly-summary.ts`)。
+- 本文: 「🗂️ [管制まとめ] <JST 時刻> — 動いているセッション N 件」、状態別とプロジェクト別の件数、自動確認で 2 回以上変化なしの停止セッションの件数と、そのうち最大 10 行 (プロジェクト・session_id・状態・変化なし回数・現在のタスクの先頭 60 字)。超えた分は「…ほか n 件」。0 件なら「動いているセッションはありません。」。停止の判定は §4 と同じ回数だが、本体へ伝えたかどうかは問わない。
+- 投稿に成功したときだけ時刻を残す。失敗は警告ログにして次の巡回で再試行する。OFF にすると時刻を消す (再 ON 直後に 1 回投げる)。
+- まとめは管制チャンネルへの投稿だけで、管制セッション本体には送らない (CC-CTL-INV-02)。
+
 ## 不変条件
 
 | ID | 条件 |
@@ -96,6 +103,7 @@ updated: 2026-11-16
 | CC-CTL-INV-04 | 停止の要約は同じ作業状態の指紋につき 1 回だけ本体へ送る |
 | CC-CTL-INV-05 | 人間の判断待ち (質問カード・human-wait・応答待ちの確認・ask マーカー) と部署の自動確認 OFF のセッションには、一括指示も追加指示も送らない (照会できないときも送らない) |
 | CC-CTL-INV-06 | 指示は既存の inject 経路で来歴付きで届け、届け先の審査ゲート・許可範囲を回避しない。追加指示は現在の管制セッションからだけ受け付ける |
+| CC-CTL-INV-07 | 管制チャンネルのまとめは 1 時間に 1 回まで。進捗ボードだけを読んで作り、投稿に成功したときだけ時刻を記録する。本文にメンションを含めない |
 
 ## API
 
@@ -107,9 +115,14 @@ updated: 2026-11-16
 
 すべて既存の loopback 認可の内側。OFF のときは 409 `control_disabled`。
 
+### 8. 起動の登録と詰まり (2026-11-16 障害対応)
+
+- 管制セッションの起動は chores と同じく、spawn の直前に spawn ID を Cc 起動の登録 (pending spawn の enrollment) として記録し、起動に失敗したら取り消す。記録が無いと起動した Lictor のセッション登録が `invalid_or_consumed_session_enrollment` で拒否され、Lictor が作業場所の trust を焼かないため trust picker で止まる。
+- 巡回は起動を最大 60 秒だけ待つ。返らない・例外は起動失敗として扱い、ボード更新とまとめの投稿を続ける。保持者は起動前に記録済みなので、猶予内に重ねて起動しない (CC-CTL-INV-01)。
+
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - 既存部品の再利用: 停止の判定は `cc_followup_progress` (followup-progress.ts)、待ちの判定は pending-question-blocker / human-wait / human-response-confirmation / stalled-session-nudge の ask 判定、起動は `spawnSession` と pending spawn の相関 ID、側セッションは `runClaude` の会話専用実行。

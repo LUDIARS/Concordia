@@ -13,6 +13,8 @@ import { decideControlSingleton, spawnIdOf } from "./singleton-policy.js";
 import { CONTROL_DIGEST_LIMIT, renderStallDigest, selectStalledRows } from "./stall-digest.js";
 
 export const CONTROL_SUPERVISOR_SOURCE = "auto:control-supervisor";
+/** 起動を待つ上限。超えたら失敗として巡回を続ける (保持者は記録済みなので猶予内に重ねて起動しない)。 */
+export const CONTROL_SPAWN_TIMEOUT_MS = 60 * 1000;
 export const CONTROL_RETIRE_NOTICE = "[管制] 管制セッションは別の世代へ交代したか OFF になりました。作業を終えて、このセッションを終了してください。";
 
 export interface ControlSupervisorDeps {
@@ -26,6 +28,8 @@ export interface ControlSupervisorDeps {
   /** 管制セッションを起動する。spawnId は保持者へ先に記録済み。 */
   spawnControl(input: { spawnId: string; generation: number }): Promise<{ ok: true } | { ok: false; error: string }>;
   newSpawnId(): string;
+  /** spawnControl を待つ上限 (既定 CONTROL_SPAWN_TIMEOUT_MS)。 */
+  spawnTimeoutMs?: number;
   /** 管制セッションへの案内・要約。届けられなければ false。 */
   injectToControl(sessionId: string, text: string): boolean;
   probes: EligibilityProbes;
@@ -69,6 +73,24 @@ export function createControlSupervisor(deps: ControlSupervisorDeps) {
     deps.log.info("control session disabled: holder cleared");
   }
 
+  /** 起動の準備や spawn が返らなくても巡回 (ボード更新・まとめ) を止めない。 */
+  async function spawnWithTimeout(input: { spawnId: string; generation: number }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const timeoutMs = deps.spawnTimeoutMs ?? CONTROL_SPAWN_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<{ ok: false; error: string }>((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: `spawn did not return within ${timeoutMs} ms` }), timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([
+        deps.spawnControl(input).catch((error: unknown) => ({ ok: false as const, error: String(error) })),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async function ensureSingleton(active: readonly SessionRow[], nowMs: number): Promise<{ id: string | null; spawned: boolean }> {
     const holder = deps.holders.read();
     const live = holder ? liveBySpawnId(active, holder.spawn_id) : null;
@@ -78,7 +100,7 @@ export function createControlSupervisor(deps: ControlSupervisorDeps) {
     // 起動の意図を先に記録する。起動の途中で落ちても猶予内に重ねて起動しない。
     const next = nextControlHolder(holder, deps.newSpawnId(), nowMs);
     deps.holders.write(next);
-    const result = await deps.spawnControl({ spawnId: next.spawn_id, generation: next.generation });
+    const result = await spawnWithTimeout({ spawnId: next.spawn_id, generation: next.generation });
     if (result.ok) deps.log.info(`control session spawned generation=${next.generation} reason=${decision.reason}`);
     else deps.log.warn(`control session spawn failed generation=${next.generation}: ${result.error}`);
     return { id: null, spawned: result.ok };

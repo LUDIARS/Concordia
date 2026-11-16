@@ -3,12 +3,17 @@ type: feature
 id: CC-PLANNING-ADJUSTMENT
 title: 企画調整課 — 体験の言葉で相談から調整まで進める
 service: concordia
-domain: dialogue-context
+domain:
+  - dialogue-context
+  - governance
+  - http-interface
 status: draft
 updated: 2026-10-02
 ---
 
 # 企画調整課
+
+> 所属ドメイン: [`dialogue-context`](../domains/dialogue-context.domain.json) · [`governance`](../domains/governance.domain.json) · [`http-interface`](../domains/http-interface.domain.json)
 
 2026-10-02 neco の「Ludellus のプランナーが非エンジニアでも調整可能な会話をできる新しい課」
 という依頼を実装する。Actio: `c2ae77d1-8795-4fb3-b317-4cf01f224ac2`。

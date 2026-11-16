@@ -1,5 +1,7 @@
 # 終了セッションの未回答質問
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 状態: draft / UX: UX-CC-PRODUCT / domain: governance
 
 人間が回収する未回答一覧に、通常セッションの終了・ロスト後の質問を残さない。

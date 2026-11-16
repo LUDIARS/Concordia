@@ -1,5 +1,7 @@
 # Genius command-pattern の push 注入
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 ## 背景 / 課題
 
 Memoria のタスク整理、Revisor local PR の提出、マージ処理などの定型作業は、Terra / Sonnet

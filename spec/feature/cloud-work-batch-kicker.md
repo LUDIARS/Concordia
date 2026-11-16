@@ -7,6 +7,8 @@ domain: cloud-execution
 
 # Codex Cloud batch kicker
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 Request (neco, 2026-10-23): run Codex Cloud in parallel for training and
 render-farm style work; build the missing kicker. Agreed design: default
 concurrency 3, maximum 10, automatic kicks by Cc every few minutes. Follow-up

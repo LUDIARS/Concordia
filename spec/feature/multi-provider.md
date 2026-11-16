@@ -3,7 +3,7 @@ type: feature
 title: "Concordia — Multi-Provider Spec"
 description: "複数の AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI) を 1 つの Concordia インスタンスで扱うための AgentProvider 抽象レイヤーの仕様。v0.1 では claude-code が完全実装済み、gemini-cli / codex-cli は interface stub のみでトランスクリプトパーサ・hook 設定生成は v0.2 以降の予定。"
 service: concordia
-domain: analysis-core
+domain: session-coordination
 tags:
   - typescript
   - llm
@@ -21,6 +21,8 @@ updated: 2026-06-30
 
 
 # Concordia — Multi-Provider Spec
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
 
 複数の AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI など)
 を 1 つの Concordia インスタンスで扱うための provider 抽象。

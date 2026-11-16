@@ -3,7 +3,7 @@ type: feature
 title: "セッション終了プロセスの回収 (reaper)"
 description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの回収設計。session-end完了通知による確定停止、失敗時のlost回収、OSプロセス走査の3段構成。agent-client 自体は2026-09-07に廃止し、回収側のみ残す。"
 service: concordia
-domain: session-coordination
+domain: session-lifecycle
 tags:
   - typescript
   - lifecycle
@@ -19,6 +19,8 @@ updated: 2026-09-07
 
 
 # セッション終了プロセスの回収 (reaper)
+
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 終了したセッションの周辺プロセス (Lictor ラッパ `node lictor.mjs` と
 `concordia-agent-client.mjs`) が残留してメモリを食う問題への対処。

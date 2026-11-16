@@ -21,6 +21,8 @@ updated: 2026-08-24
 
 # バイブスモード
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 > **2026-10-06 撤廃。** vibes モードと、その testing claim 自動取得・時間上限・編集ファイル上限・
 > 昇格カード・[OK] 完了レーンはすべて撤廃した。後継は [session-fragment.md](session-fragment.md)。
 > 以下は経緯の記録として残す。

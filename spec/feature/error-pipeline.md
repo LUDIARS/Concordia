@@ -21,6 +21,8 @@ updated: 2026-06-30
 
 # エラー集約パイプライン + 自動修正
 
+> 所属ドメイン: [`observability`](../domains/observability.domain.json)
+
 > 監視ロガー検知 / Concordia 内部失敗を本社ログ・WebSocketへ集約し、
 > 常駐 error-fixer Codex に自動修正させる経路。Discordにはリレーしない。
 

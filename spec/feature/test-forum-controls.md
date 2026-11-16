@@ -20,6 +20,8 @@ updated: 2026-09-13
 
 # テストフォーラムの操作面 — テスト開始 / マージ
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 1. 背景
 
 `revisor-test-forum-sync` は Revisor に登録された open な local PR を Discord の

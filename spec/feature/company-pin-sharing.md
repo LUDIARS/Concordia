@@ -7,6 +7,8 @@ domain: chat-platforms
 
 # 会社内のピン止め・保存操作の共有
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 依頼: 2026-10-19 neco。Actio: 07f5c6e6-1651-4c30-84a4-5379f5e3b7d8。
 UX-CC-W15 / UX-CC-S16。失いたくない状態は、会社内の参加者が他の会話で
 選ばれた有用な内容を雑談で発見し、原文へ戻れること。

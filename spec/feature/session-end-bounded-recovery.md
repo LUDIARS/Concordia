@@ -3,10 +3,14 @@ type: feature
 id: SPEC-SESSION-END-BOUNDED-RECOVERY
 title: Explicit session end has a bounded recovery path
 status: draft
-domain: session-coordination
+domain:
+  - session-coordination
+  - session-lifecycle
 ---
 
 # 終了要求と期限付き回収
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 2026-10-04 neco の「修正をSolに委託してPR」に対応する設計案。
 Actio: `actio:e072a95c-47ca-4782-a6ba-da0564c370c4`。

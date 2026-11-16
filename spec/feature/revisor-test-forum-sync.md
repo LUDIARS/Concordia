@@ -2,11 +2,13 @@
 title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
-domain: release-coordination
+domain: revisor-local-pr
 updated: 2026-09-13
 ---
 
 # Revisor Test Workflow synchronization
+
+> 所属ドメイン: [`revisor-local-pr`](../domains/revisor-local-pr.domain.json)
 
 ## Purpose
 

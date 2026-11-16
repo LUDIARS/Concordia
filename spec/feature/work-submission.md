@@ -1,5 +1,7 @@
 # 作業成果の提出 (commit / submit の共通入口)
 
+> 所属ドメイン: [`work-submission`](../domains/work-submission.domain.json)
+
 価値: UX-CC-W3 (終了・審査通過・公開・マージを区別して成果を受け取れる)、UX-CC-W1 (対象と権限を取り違えない)。
 不変条件: CC-INV-02 (権限)、CC-INV-05 (成果引渡し)。
 

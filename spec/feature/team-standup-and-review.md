@@ -3,7 +3,7 @@ type: feature
 title: "チーム朝礼と定例 — チームごとの定時報告と、人間同席のタスク棚卸し"
 description: "チームごとに 1 本ずつ起動する Timer Delegation を 2 本追加する。朝礼 (毎朝 9:30) はチームの稼働状況と対応状況を 目標 面へカードとして報告し、証跡で裏付けられる完了だけを台帳 (Memoria タスク / director case step) へ毎日反映する。定例 (火・金 13:00) はタスクの棚卸し議題を提示して neco の返信を待ち、Memoria タスクと director case step へ反映するまでを 1 回とする。既存 cron が持たなかった「チームごとの fanout」を scheduler に追加する。"
 service: concordia
-domain: governance
+domain: parttimer-review-scheduling
 tags:
   - teams
   - delegation
@@ -20,6 +20,8 @@ updated: 2026-09-01
 ---
 
 # チーム朝礼と定例
+
+> 所属ドメイン: [`parttimer-review-scheduling`](../domains/parttimer-review-scheduling.domain.json)
 
 > **休止 (2026-09-01 neco 指示)**: チーム簡素化 (teams.md §0.5) により、朝礼
 > `team-standup-daily` と定例 `team-review-regular` の cron 登録を外した。

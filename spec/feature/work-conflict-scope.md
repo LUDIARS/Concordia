@@ -1,5 +1,7 @@
 # Work 衝突監視スコープ (target_project 宣言 + ルート除外)
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## 目的
 
 複数セッションが「同じ個別プロジェクトを同時に触っている」作業衝突を検知し、

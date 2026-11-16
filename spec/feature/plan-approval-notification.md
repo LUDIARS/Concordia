@@ -1,8 +1,11 @@
 ---
 id: SPEC-PLAN-APPROVAL-NOTIFICATION
 status: draft
+domain: plan-approval-notification
 ---
 # Provider plan approval notification
+
+> 所属ドメイン: [`plan-approval-notification`](../domains/plan-approval-notification.domain.json)
 
 2026-10-03 neco implementation request; Actio 908fc672-8587-4e9e-b943-9e6682d6af42.
 UX-CC-W4/W6, CC-INV-02/03/06/08. A user must notice a provider's plan approval dialog before answering and must not answer a stale or different request.

@@ -3,9 +3,12 @@ title: Windowsの短命ウィンドウとフォーカス移動の調査
 type: feature
 id: CC-WINDOWS-CONSOLE-FOCUS
 status: investigating
+domain: hook-transport
 ---
 
 # 2026-09-23 調査記録
+
+> 所属ドメイン: [`hook-transport`](../domains/hook-transport.domain.json)
 
 人間報告: コマンド/テストのたびにウィンドウが一瞬出て消え、フォーカスが奪われる。
 windowsHide:trueへ変更したとの前回報告後も再発。解消済みという判断を撤回。

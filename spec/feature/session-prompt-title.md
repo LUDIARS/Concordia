@@ -9,6 +9,8 @@ updated: 2026-10-16
 
 # セッションタイトルを人の指示から決める {#SPEC-SESSION-PROMPT-TITLE}
 
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
+
 ## 背景
 
 hook (`tools/concordia-hook-runtime.mjs`) は UserPromptSubmit のたびに本文先頭 200 文字を

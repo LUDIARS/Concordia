@@ -41,7 +41,9 @@
     "spec/feature/director-patrol.md",
     "spec/feature/director-goal-flow.md",
     "spec/feature/director-workflow.md",
-    "spec/feature/curiosity-walk.md"
+    "spec/feature/curiosity-walk.md",
+    "spec/feature/director-issue-scout.md",
+    "spec/feature/director.md"
   ],
   "rationale": "従来の Director case 巡回 runtime は休止中だが再開可能な純粋ロジックと runtime を保持する。現在稼働する巡回由来機構は curiosity walk だけで、素材と発火履歴を所有する一方、delegation の invoke/spawn 実体は agent-delegation に委ねる。"
 }

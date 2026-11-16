@@ -1,5 +1,7 @@
 # Task workflow failure visibility
 
+> 所属ドメイン: [`http-interface`](../domains/http-interface.domain.json) · [`session-message-webui`](../domains/session-message-webui.domain.json) · [`taskflow`](../domains/taskflow.domain.json)
+
 ## CC-TF-ERROR-01
 
 2026-10-17 neco requested investigation of task workflow errors and a visible place to inspect them.

@@ -3,7 +3,7 @@ type: feature
 title: "Director ゴールフロー — 案件単位のゴール定義・工程自動進行・可視化"
 description: "人間が案件単位のゴールを定義すると、Director が分解→委託→レビュー→確認を自動進行し、WebUI/Discord/Slack で進捗を可視化する。director.md の「後続工程」とされた自動進行を確定する spec。"
 service: concordia
-domain: governance
+domain: director-patrol
 tags:
   - director
   - goal-and-go
@@ -22,6 +22,8 @@ updated: 2026-08-11
 ---
 
 # Director ゴールフロー — 案件単位のゴール定義・工程自動進行・可視化
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 ## 0. 位置づけ
 

@@ -1,5 +1,7 @@
 # Standard cloud setup and recovery
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 This is operator configuration, not a record of completed setup. No live target or
 storage has been configured by this change. No extra cloud compute is provisioned.
 

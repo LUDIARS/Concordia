@@ -21,6 +21,8 @@ updated: 2026-08-12
 
 # ブラックボックス チャットエンジン + 中央 Haiku 描画
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 > **移管 (2026-08-12 neco 決定)**: 本 spec の発話判定・描画・persona 系
 > (`chat/render` `chat/responder` `rules/*` `personas/*`) の実装先は **Histrio**
 > (`Histrio/spec/feature/persona-chat-engine.md`) に変更された。Concordia 側に残るのは

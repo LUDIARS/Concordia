@@ -3,7 +3,7 @@ type: feature
 title: "Director 問診セッション — 人間への問いかけを LLM セッションに作らせる"
 description: "Director が人間の判断を要する状態を検出したとき、機械文の通知カードで終わらせず、読み取り専用の問診セッションを spawn する。セッションが case/step/task md/run ログを読んで Decision Request を組み立て、既存の Genius 判定 + ask_human 質問カード経路に載せて人間へ問いかける。"
 service: concordia
-domain: governance
+domain: director-inquiry
 tags:
   - director
   - inquiry
@@ -20,6 +20,8 @@ updated: 2026-08-20
 ---
 
 # Director 問診セッション
+
+> 所属ドメイン: [`director-inquiry`](../domains/director-inquiry.domain.json)
 
 > 2026-08-20 neco 指示。「ディレクターがタスクセッションを spawn して人間に問いかけて
 > くる仕組みを作りたい」。

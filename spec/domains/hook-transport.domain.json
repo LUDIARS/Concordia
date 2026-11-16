@@ -12,6 +12,7 @@
   "presetRules": [],
   "templateRules": [],
   "specRefs": [
-    "spec/feature/codex-hook-console-free.md"
+    "spec/feature/codex-hook-console-free.md",
+    "spec/feature/windows-console-focus-investigation.md"
   ]
 }

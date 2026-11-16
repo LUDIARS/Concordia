@@ -3,11 +3,15 @@ id: CC-PERIODIC-PROGRESS
 type: feature
 title: 委託・明示ゴールの10分進捗報告
 service: concordia
-domain: autonomous-continuation
+domain:
+  - autonomous-continuation
+  - agent-delegation
 status: draft
 ---
 
 # 委託・明示ゴールの10分進捗報告
+
+> 所属ドメイン: [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`agent-delegation`](../domains/agent-delegation.domain.json)
 
 Actio: `actio:6f195c99-35a4-4548-a987-f172a59fbc01`。
 価値 UX-CC-W2/W4/W5、シナリオ UX-CC-S2/S3/S5、

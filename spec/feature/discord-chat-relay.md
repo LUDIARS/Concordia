@@ -12,6 +12,8 @@ related:
 
 # Discord チャット中継 (指定チャンネル → サービス → 返信)
 
+> 所属ドメイン: [`discord-chat-relay`](../domains/discord-chat-relay.domain.json)
+
 Actio タスク: `actio:512e81e3-4744-4cee-a8e2-45b23cdbf0c2`、
 `actio:262ba08f-20e5-4125-b2d5-4047a386c060` (お知らせチャンネルの中継と LINE への push)。
 

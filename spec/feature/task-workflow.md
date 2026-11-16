@@ -3,7 +3,9 @@ type: feature
 title: "タスクワークフロー — 分解 → 委託実装 → 安定ブランチテスト → 自走"
 description: "実装タスクの一貫パイプライン設計。タスクは md ローカル正本 + Memoria/Actio 登録、Delegation はプロジェクトルート起動 + メモリリンク、実装は新規 worktree、動作テストは安定ブランチの confirm キューのみ (wt テスト絶対禁止・決定論ハーネスで強制)。実装完了検知と残作業チェックは成長型ブラックボックス (機械 seed + LLM フォールバック)、強推論モデルの直接実装はハーネスでブロックして確認する。"
 service: concordia
-domain: governance
+domain:
+  - blackbox-decision
+  - taskflow-instructions
 tags:
   - delegation
   - harness
@@ -28,6 +30,8 @@ updated: 2026-08-31
 ---
 
 # タスクワークフロー — 分解 → 委託実装 → 安定ブランチテスト → 自走
+
+> 所属ドメイン: [`blackbox-decision`](../domains/blackbox-decision.domain.json) · [`taskflow-instructions`](../domains/taskflow-instructions.domain.json)
 
 > **v3.0 (2026-09-08):** タスク本文・状態の正本は Actio に変更する。
 > 現行の記録・参照・移行契約は [task-workflow-v3.md](task-workflow-v3.md)。

@@ -3,7 +3,9 @@ type: feature
 id: CC-HOOK-NO-CONSOLE
 title: Codex Cc hook transport without per-event shells
 status: draft
+domain: hook-transport
 ---
+> 所属ドメイン: [`hook-transport`](../domains/hook-transport.domain.json)
 
 UX-CC-W4/W5: ツールを使っても利用者のフォーカスを奪わず、Ccの観測/復旧文脈を受け取れる。
 状態所有者は既存Cc session/reliability API。CLIとMCPは同じhook関数を呼ぶadapter。

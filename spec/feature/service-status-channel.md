@@ -2,10 +2,14 @@
 title: 子会社別のサービス稼働チャンネル
 id: CC-SERVICE-STATUS
 status: draft
-domain: service-status
+domain:
+  - service-status
+  - chat-platforms
 ---
 
 # 子会社別のサービス稼働チャンネル
+
+> 所属ドメイン: [`service-status`](../domains/service-status.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 neco 2026-10-06 の要求と「実装開始」に対応。UX-CC-W1/W4/W5。
 進捗の正本は Actio `actio:845a7ca2-d106-49aa-b49e-8b0ceda7516d`。この文書は仕様と検証の根拠でありtask状態を代替しない。

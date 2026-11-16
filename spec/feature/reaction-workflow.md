@@ -22,6 +22,8 @@ updated: 2026-09-05
 
 # Reaction Workflow — リアクション駆動の処理ディスパッチ
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 Concordia のセッション面 (Discord の session thread / Slack の専用 session channel) にある
 chat メッセージへ付けられた**リアクション**を
 「指示」として解釈し、 種類に応じた処理を **LLM (headless `claude -p`) / session.inject** で実行する。

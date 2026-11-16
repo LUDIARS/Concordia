@@ -1,11 +1,18 @@
 ---
 title: 対象と会話の確証に応じた主要 Inject
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - agent-delegation
+  - http-interface
+  - runtime-orchestration
+  - session-lifecycle
 status: implementation
 ---
 
 # 対象と会話の確証に応じた主要 Inject
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`agent-delegation`](../domains/agent-delegation.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 主要 Inject を「基本」と「拡張」に分ける。基本は全 session に共通して届く作業・協調文である。拡張は機械的な適用条件が揃った場合にのみ基本へ加算する。DDD、Pf、An は互いに独立した拡張であり、複数一致した場合はすべて加算する。自由記述の判定ルールや動的な実行 DSL は設けない。
 

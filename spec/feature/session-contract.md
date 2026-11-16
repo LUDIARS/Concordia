@@ -23,6 +23,8 @@ updated: 2026-08-13
 
 # セッション契約 (session contract)
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 > 2026-08-13 neco 指示。 spawn 時に個別に走っていた判定 (model-review の model/effort、
 > delegation spawn の cwd/branch 記録、 goal-and-go opt-in の焼き込み) を 1 本の
 > 「セッション契約」判定に統合する。 **LLM を使ってすべての条件を契約的に決め、

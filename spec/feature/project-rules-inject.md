@@ -12,6 +12,8 @@ updated: 2026-09-29
 
 # プロジェクト登録後の実装ポリシー / ルール inject
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## 依頼
 
 neco 2026-09-29「プロジェクト登録が終わった後、Cc からプロジェクトに関する実装ポリシー/ルールを Inject して。複数のプロジェクトになる場合も同様」。Actio task `actio:3653ffd0`。

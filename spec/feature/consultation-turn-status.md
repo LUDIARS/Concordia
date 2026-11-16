@@ -1,8 +1,11 @@
 ---
 id: SPEC-CONSULTATION-TURN-STATUS
 status: draft
+domain: consultation-turn-status
 ---
 # 応答の開始時刻と終了状態
+
+> 所属ドメイン: [`consultation-turn-status`](../domains/consultation-turn-status.domain.json)
 
 2026-10-03 neco の開始指示。Actio: ad04b269-483c-403e-8e8b-ae9f482cf621。
 UX-CC-W4/W6、CC-INV-02/03/06を適用する。最終回答だけを表示する部署でも、応答開始を知り、失敗・中断後を作業中と誤認しない。

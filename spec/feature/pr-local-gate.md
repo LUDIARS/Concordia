@@ -1,5 +1,7 @@
 # PR local gate
 
+> 所属ドメイン: [`revisor-local-pr`](../domains/revisor-local-pr.domain.json)
+
 ## Purpose
 
 GitHub-hosted Actions request a local, opposite-model review through a

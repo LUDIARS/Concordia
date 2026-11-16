@@ -3,9 +3,12 @@ title: Cc経由の内部Agentモデル選定
 type: feature
 id: CC-INTERNAL-AGENT-MODEL
 status: draft
+domain: internal-agent-model-policy
 ---
 
 # 内部Agentの選定方針
+
+> 所属ドメイン: [`internal-agent-model-policy`](../domains/internal-agent-model-policy.domain.json)
 
 価値は UX-CC-W1/W2、シナリオは UX-CC-S1/S2。利用者が失うと困る状態は、
 子への分担でも合意したモデル選定と費用管理が保たれ、委任先を追跡できること。

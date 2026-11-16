@@ -1,5 +1,7 @@
 # 連合ロールの設定を Concordia 内で完結させる
 
+> 所属ドメイン: [`federation`](../domains/federation.domain.json)
+
 ## 目的
 
 連合の本社ロール (listener) と拠点ロール (site client) は env でしか有効化できず、

@@ -2,9 +2,13 @@
 id: CC-ACTIO-CHAT-01
 type: feature
 service: concordia
-domain: chat-platforms
+domain:
+  - chat-platforms
+  - http-interface
+  - runtime-orchestration
 title: Actioの通常チャンネル配送
 ---
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 価値: UX-CC-W1/W4/W5。シナリオ: UX-CC-S1/S3/S5。失うと困る状態は「人間の判断が必要なバックログ内容とスプリント進捗を、指定したチームの会話面から追えること」。necoのCc経由/独立Bot連携要求と2026-09-27「実装開始添付可」「OKそれで実装はじめて」に基づく。
 

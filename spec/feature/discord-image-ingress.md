@@ -20,6 +20,8 @@ updated: 2026-08-23
 
 # Discord 添付・embed のセッション取り込み
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 目的
 
 Discord の session channel に添付された画像と `Message.embeds` の表示内容を、対象の

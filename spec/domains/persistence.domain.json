@@ -23,6 +23,7 @@
     "spec/feature/major-inject-editor.md",
     "spec/data/schema.md",
     "spec/feature/github-issue-workflow.md#状態",
-    "spec/feature/task-branch-harness.md"
+    "spec/feature/task-branch-harness.md",
+    "spec/feature/transcript-frame-async-persist.md"
   ]
 }

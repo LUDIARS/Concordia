@@ -3,7 +3,9 @@ type: feature
 title: "Session message layer — later phases (WebUI chat, Lictor capture, delegation links)"
 description: "Design for the phases that build on the session message layer: the Discord-style WebUI work chat with Web Push, the log-inspection view, Lictor-side event capture fixes, and bidirectional delegation links."
 service: concordia
-domain: session-message-layer
+domain:
+  - chat-platforms
+  - session-message-webui
 owner: Concordia
 tags:
   - session-coordination
@@ -17,6 +19,8 @@ updated: 2026-09-10
 ---
 
 # セッションメッセージ層 — 後続フェーズ設計
+
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json) · [`session-message-webui`](../domains/session-message-webui.domain.json)
 
 `spec/feature/session-message-layer.md` が第 1 フェーズ (D1: `session_messages` の
 永続化・projector・REST/WS) の実装契約を定める。本書はその上に載る後続フェーズ

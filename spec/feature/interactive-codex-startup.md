@@ -1,5 +1,7 @@
 # 通常 Codex spawn の初期依頼と対話寿命
 
+> 所属ドメイン: [`delegation-provider`](../domains/delegation-provider.domain.json)
+
 - ID: CC-INTERACTIVE-CODEX-STARTUP
 - Domain: delegation-provider
 - UX: UX-CC-W2 / UX-CC-W3

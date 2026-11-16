@@ -20,6 +20,8 @@ updated: 2026-08-12
 
 # ぼやき channel + meta channel 日本語ラベル
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 > **移管 (2026-08-12 neco 決定)**: persona への収集 (`persona_feedback_log`) と
 > AI 返信の判定は **Histrio** (`Histrio/spec/feature/persona-chat-engine.md`) の管轄に
 > 変更された。Concordia 側は channel の provision・ラベル・ingress/egress routing のみを

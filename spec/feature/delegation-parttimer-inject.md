@@ -3,7 +3,7 @@ type: feature
 title: "パートタイマー inject — タスク本文を先頭に置き、終わり方を 1 系統にする"
 description: "category=parttimer の委託は実装委託と別書式で渡す。タスク本文を prompt file の先頭にそのまま置き、Concordia が足すのは「本文が全文」「迷っても止まらない」「報告 → status → 退勤」の 3 点だけ。実装マニュアル・why・着手時バンドル・完了条件チェックリスト・Memoria 起票・コミット代行は載せない。完了判定の feature branch 要求もパートタイマーには適用しない。"
 service: concordia
-domain: governance
+domain: delegation-parttimer-inject
 tags:
   - delegation
   - inject
@@ -17,6 +17,8 @@ updated: 2026-09-09
 ---
 
 # パートタイマー inject
+
+> 所属ドメイン: [`delegation-parttimer-inject`](../domains/delegation-parttimer-inject.domain.json)
 
 ## 実作業と報告までを仕事とする（2026-09-09）
 

@@ -1,5 +1,7 @@
 # ハーネス状態カード (フック3) — 実装スペック (Codex 委託用)
 
+> 所属ドメイン: [`harness-reliability`](../domains/harness-reliability.domain.json)
+
 対象リポ: `E:/Document/Ars/Concordia` (単一リポ完結)。design=Claude / impl=Codex。
 このスペック通りに実装し、末尾のチェックリスト結果を PR 説明に貼ること。
 

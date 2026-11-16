@@ -3,7 +3,10 @@ type: feature
 title: "部署 — 会社の下でセッショングループと処理を分ける"
 description: "本社・子会社の下に部署を置き、セッションを部署ごとに束ねる。部署は起動既定値 (テンプレート / provider / model / effort / 担当プロジェクト) と自然文ルールを持ち、起動時と着手前ルール供給で適用する。組織セッション画面を部署ごとに分けて表示する。"
 service: concordia
-domain: governance
+domain:
+  - governance
+  - chat-platforms
+  - dialogue-context
 tags:
   - departments
   - organization
@@ -21,6 +24,8 @@ updated: 2026-10-09
 ---
 
 # 部署 — 会社の下でセッショングループと処理を分ける
+
+> 所属ドメイン: [`governance`](../domains/governance.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`dialogue-context`](../domains/dialogue-context.domain.json)
 
 > 2026-09-30 neco 指示:「セッションなんだけど、いまの子会社や本社で区切ってるけどここに部署を作って
 > セッショングループと処理を分ける」。設計方向は「推奨案で着手」(同日回答)。Actio task `a488ab8f`。

@@ -3,7 +3,7 @@ type: feature
 title: "Director 巡回 — 30 分ごとのチーム監視と実装セッションの自動起動"
 description: "30 分ごとに各チームの director case を巡回し、完了した委託を工程へ反映し、実行可能な残 step があればチーム帰属の実装セッションを delegation で起動する。人間の判断が要る状態は direction 面の question カードへ上げる。タスクリストと目標のデイリー更新は朝礼 (team-standup-daily) に統合する。"
 service: concordia
-domain: governance
+domain: director-patrol
 tags:
   - director
   - teams
@@ -21,6 +21,8 @@ updated: 2026-09-01
 ---
 
 # Director 巡回 — 30 分ごとのチーム監視と実装セッションの自動起動
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 > **休止 (2026-09-01 neco 指示)**: 「チームの動作が形骸化しており巡回があまり有効でない。
 > チームはチーム内で spawn するだけにする。巡回由来の装置は散歩セッション

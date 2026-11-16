@@ -15,6 +15,8 @@ updated: 2026-10-10
 
 # Discord セッションのタスク本文投稿と pin
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 1. 動機 (問題)
 
 委託したタスクの本文が Discord のセッション thread にほとんど出ていなかった。

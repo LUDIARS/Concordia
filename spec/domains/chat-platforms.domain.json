@@ -100,7 +100,22 @@
     "spec/feature/astra-with-sidecar.md",
     "spec/feature/private-channels.md",
     "spec/feature/consultation-title-summary.md",
-    "spec/feature/service-status-channel.md"
+    "spec/feature/service-status-channel.md",
+    "spec/feature/ambient-listener.md",
+    "spec/feature/blackbox-chat-engine.md",
+    "spec/feature/boyaki-channel.md",
+    "spec/feature/discord-control-ui.md",
+    "spec/feature/discord-excubitor-commands.md",
+    "spec/feature/discord-forum-migration.md",
+    "spec/feature/discord-lictor-relay.md",
+    "spec/feature/discord-session-direct-inject.md",
+    "spec/feature/discord-session-task-post.md",
+    "spec/feature/discord-ui-pr-b.md",
+    "spec/feature/participants.md",
+    "spec/feature/reaction-workflow.md",
+    "spec/feature/slack-platform.md",
+    "spec/feature/test-forum-controls.md",
+    "spec/feature/working-indicator.md"
   ],
   "rationale": "チャット面は Discord 固有 API をここに閉じ込め、状態遷移 (test-forum-controls.ts) と副作用 (test-forum-actions.ts / test-forum-discord.ts) を分ける。spawn / merge の実行そのものは Concordia API・Revisor クライアント側の責務で、この層は入口と描画だけを持つ。"
 }

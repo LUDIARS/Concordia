@@ -3,7 +3,7 @@ type: feature
 title: "Session cost observability"
 description: "Concordia が管理するセッションの token/cost を本社・子会社・Discord channel・provider・時系列・one-shot 単位で集計し、Web/API と日次予算 kill switch に公開する。"
 service: concordia
-domain: observability
+domain: chat-platforms
 tags:
   - cost
   - tokens
@@ -16,6 +16,8 @@ updated: 2026-09-07
 ---
 
 # Session cost observability
+
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 ## 目的
 

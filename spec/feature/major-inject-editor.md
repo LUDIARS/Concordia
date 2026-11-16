@@ -2,13 +2,20 @@
 type: feature
 title: 主要 Inject 文面の編集と適用
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - agent-delegation
+  - http-interface
+  - persistence
+  - session-lifecycle
 status: implementation
 owner: Concordia
 updated: 2026-09-27
 ---
 
 # 主要 Inject 文面の編集と適用
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`agent-delegation`](../domains/agent-delegation.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`persistence`](../domains/persistence.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 ## 価値と状態
 

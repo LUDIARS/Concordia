@@ -16,6 +16,8 @@ updated: 2026-07-31
 
 # spec-index — spec frontmatter の機械生成索引
 
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json)
+
 `tools/build-spec-index.mjs` が正本。`spec/**/*.md` の OKF frontmatter を集約し、
 リポ root の `spec-index.jsonl` に **1 行 = 1 ファイル**の JSON として書き出す。
 spec をグラフ的に検索したいとき (どの spec がどのドメイン / タグを持つか) に使う。

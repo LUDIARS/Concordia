@@ -1,5 +1,7 @@
 # 委託 spawn の着地検証とゾンビ回収
 
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`delegation-launch`](../domains/delegation-launch.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json)
+
 2026-09-05 の障害調査から。 委託 (delegation) の spawn が「指示した場所以外」で
 走ってしまう穴と、 run が終わってもプロセスが残る事象を塞ぐ。
 

@@ -22,6 +22,8 @@ updated: 2026-10-20
 
 # Slack platform（Hub + session-per-channel）
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 目的と接続方式
 
 Slack は Discord と対等な `ChatPlatform` adapter である。出力は in-process `eventBus`、

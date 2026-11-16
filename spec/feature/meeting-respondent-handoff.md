@@ -8,6 +8,8 @@ domain: chat-platforms
 
 # 契約
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 Actio: a910a673-78c1-4b12-b70c-f14604da21a6。neco の「Concordiaも修正する」「組織内のユーザに限り限定的なリンクを作る」を根拠とする。
 価値は [UX-CC-MEETING-LINK-W1](../ux/meeting-respondent-handoff.md)。支援境界 chat-platforms が所属確認と証明の発行・消費を所有し、Ae が予定と回答を所有する。
 

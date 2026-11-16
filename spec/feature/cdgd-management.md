@@ -2,9 +2,12 @@
 title: CDGD マネジメント層 (dots サイドカー)
 id: CC-MGMT
 status: draft
+domain: management
 ---
 
 # CDGD マネジメント層 (dots サイドカー)
+
+> 所属ドメイン: [`management`](../domains/management.domain.json)
 
 2026-10-01 neco 指示: 「CDGD のマネジメントレイヤに dots を配置する / Cc サイドカーに置く」の
 実装設計 (Codex セッション lictor-76713395、2026-09-30〜10-01) をレビューして実装する。

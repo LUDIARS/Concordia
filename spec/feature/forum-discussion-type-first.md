@@ -1,5 +1,7 @@
 # 議論タイプと Cc 自動起動の境界
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 契約: CC-FORUM-TYPE-01。価値: UX-CC-SC-W1 / UX-CC-SC-W3。
 所属: chat-platforms（支援境界）。根拠: neco のタイプ決定前の通知抑止と企画/議論でのプロジェクト質問不具合の修正指示。
 

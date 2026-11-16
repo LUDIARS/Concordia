@@ -20,6 +20,8 @@ updated: 2026-08-20
 
 # PR キュー (PR Queue)
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 > 各 AI セッションが作った PR を横断で 1 本のキューにし、 「対応すべき順」 で
 > Concordia (API / MCP) と Discord に出す機能。 schema v16 で追加。
 

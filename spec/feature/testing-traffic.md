@@ -1,5 +1,7 @@
 # テスト交通整備 (testing traffic control)
 
+> 所属ドメイン: [`testing-traffic`](../domains/testing-traffic.domain.json)
+
 再起動・起動テストの運用ルールを Concordia が管理・交通整備するための機構。
 
 ## ルール (運用合意 2026-07-02)

@@ -1,5 +1,7 @@
 # Ex Viewer のベースパス
 
+> 所属ドメイン: [`web-access`](../domains/web-access.domain.json)
+
 Ex Viewer 内で画面を開いた場合、Ex が注入する script[data-excubitor-viewer] の
 data-prefix を BrowserRouter の basename として使用する。直接アクセス時には
 この属性が存在しないため従来のルーティングを維持する。

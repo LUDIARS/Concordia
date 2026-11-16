@@ -7,6 +7,9 @@ domain: tooling
 ---
 
 # Purpose and ownership
+
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json)
+
 UX-CC-W1/W3/W5 and UX-CC-S1/S4/S3: users must retain the ability to identify a command's target, declared effects, verified version and actual outcome. Cc owns the definition format, creator, verification and execution lifecycle. The target repository owns its versioned script definitions. The existing harness owns execution authorization; neither manifests nor verification receipts grant permissions.
 
 The common entry is command-runner, with script:create/inspect/verify/run/list operations. New scripts are data registrations, not new per-script privileged command handlers. Existing named built-ins remain compatible. A skill routes requests such as ツール作成, スクリプトにして and コマンドにして into this workflow.

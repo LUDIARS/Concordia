@@ -1,7 +1,9 @@
 ---
 id: CC-ORBIS
 type: feature
-domain: browser-bridge
+domain:
+  - browser-bridge
+  - http-interface
 status: draft
 task: actio:262ba08f-20e5-4125-b2d5-4047a386c060
 related_tasks:
@@ -9,6 +11,8 @@ related_tasks:
 ---
 
 # Orbis Vinculum クライアント
+
+> 所属ドメイン: [`browser-bridge`](../domains/browser-bridge.domain.json) · [`http-interface`](../domains/http-interface.domain.json)
 
 UX-CC-W1/W5、CC-INV-02/04/05/07 を対象とする draft。人間が指定したページを
 セッションが読み、必要なクリック・入力を行って作業を継続する。人間承認・実機評価は未実施。

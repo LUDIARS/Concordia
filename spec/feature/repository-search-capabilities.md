@@ -9,6 +9,8 @@ status: draft
 
 # Repository search capability guidance
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 After a registered work repository is determined, Concordia inspects a bounded set of existing manifest, source, and known search-tool locations and gives the session a short search route. This supports UX-CC-W1 (the correct work target), W4 (the next action is clear), and W5 (uncertainty survives reconnect), with CC-INV-01/04 and CC-NODE-01/02. A person who loses this guidance may spend a session searching the wrong repository or mistake an installed tool for a working language server.
 
 The selected repository owns the source facts. Cc owns only an expiring observation of that repository on the Cc host. A source or configuration observation is not an assertion about the remote agent terminal. Reports distinguish installed, configured, and actually callable; a tool that was not invoked has `callable: unknown`. The inspection never launches a language server, downloads dependencies, or prints secret settings. Missing project registration or unresolved target yields no repository-specific claim.

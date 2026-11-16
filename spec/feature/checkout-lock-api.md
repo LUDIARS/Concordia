@@ -19,6 +19,8 @@ updated: 2026-08-21
 
 # checkout lock 照会 API
 
+> 所属ドメイン: [`checkout-lock`](../domains/checkout-lock.domain.json)
+
 ## 背景
 
 Revisor はマージ済みの base ref を登録 checkout (`repository.rootPath`) へ

@@ -3,7 +3,9 @@ type: feature
 title: "レビュー発火 — 作業ブランチの local PR 自動提出"
 description: "セッション終了時に作業ブランチを Revisor の local PR として自動提出する。GitHub lane でも事前審査に提出できる。提出可否は純関数で判定し理由付きでスキップする。提出時に session_id を binding し、審査の終局結果だけが提出元セッションへ戻る。"
 service: concordia
-domain: revisor-local-pr
+domain:
+  - revisor-local-pr
+  - revisor-credentials
 owner: Concordia
 tags:
   - revisor
@@ -19,6 +21,8 @@ updated: 2026-10-02
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
+
+> 所属ドメイン: [`revisor-local-pr`](../domains/revisor-local-pr.domain.json) · [`revisor-credentials`](../domains/revisor-credentials.domain.json)
 
 ## 1. なぜ必要だったか
 

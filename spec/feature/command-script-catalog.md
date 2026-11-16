@@ -3,10 +3,14 @@ title: Command and generated script catalog
 id: CC-COMMAND-CATALOG-01
 status: draft
 service: concordia
-domain: tooling
+domain:
+  - tooling
+  - http-interface
 ---
 
 # Read-only command and script catalog
+
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json) · [`http-interface`](../domains/http-interface.domain.json)
 
 UX-CC-W1/W3/W5, S1/S4/S3: developers identify a command's target, usage, effects, and verification state before choosing it. The WebUI has MCP tools, common commands, and generated scripts tabs. Search applies within the selected tab. Generated scripts are scoped to a selected registered project code; an empty registry is distinct from a read failure.
 

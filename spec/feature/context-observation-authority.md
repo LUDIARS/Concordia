@@ -7,6 +7,8 @@ domain: observability
 
 # Context observation
 
+> 所属ドメイン: [`observability`](../domains/observability.domain.json)
+
 UX-CC-W4/W5, CC-INV-01 and CC-NODE-01/02: context indicators must use the session's actual log without blocking coordination or showing a guessed percentage.
 
 ## Ownership

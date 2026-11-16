@@ -22,6 +22,8 @@ updated: 2026-09-10
 
 # Session message layer — canonical work stream
 
+> 所属ドメイン: [`session-message-layer`](../domains/session-message-layer.domain.json)
+
 ## 1. Scope
 
 This phase introduces the durable message layer used as the canonical, display-ready session work

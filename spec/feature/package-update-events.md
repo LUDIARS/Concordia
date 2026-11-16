@@ -1,5 +1,7 @@
 # パッケージ更新のお知らせ (package-update-events)
 
+> 所属ドメイン: [`service-deployed-notify`](../domains/service-deployed-notify.domain.json)
+
 Excubitor の ergo-watch が Ergo パッケージの更新を見つけると、1 回の実行で組み立てたお知らせ文を
 `POST /v1/events/package-updates` で Concordia へ送る。Concordia は各文を本社のデプロイ通知チャンネル
 (`discord.deploy_notify_channel_id`) へ Bot で順に投稿する。宛先と Bot 配送の所有者は Concordia、

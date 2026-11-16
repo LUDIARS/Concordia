@@ -16,6 +16,8 @@ related:
 
 # Develop confirm flow
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 ## 0. 目的
 
 実装が終わったものを **いきなり main に入れない**。 develop に集めてから人間が

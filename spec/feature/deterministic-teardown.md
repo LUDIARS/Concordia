@@ -3,7 +3,7 @@ type: feature
 title: "決定論終了と再キュー — タスクワーカー残留の根治"
 description: "セッションの終了を LLM の善意任せにしない。completed + residual none で provider 別 session-end を再送可能に inject し、応答しなければ Cc が強制終了する。途中報告は status {completed|partial, remaining} で受け、残作業は同一セッションの延命ではなく新規ワンショット run として再キューする。未回答質問はプロセスと寿命を分離し、blocked 化してセッションを畳む。"
 service: concordia
-domain: session-coordination
+domain: taskflow-instructions
 tags:
   - lifecycle
   - taskflow
@@ -22,6 +22,8 @@ updated: 2026-08-25
 ---
 
 # 決定論終了と再キュー
+
+> 所属ドメイン: [`taskflow-instructions`](../domains/taskflow-instructions.domain.json)
 
 > 2026-08-13 neco 指示。 タスクワーカー / パートタイマーが残る理由は
 > (1) タスクに続きがあるのに途中報告と継続指示が連携していない、

@@ -3,9 +3,12 @@ title: Cc頻出指示の集計とスキル整理
 type: feature
 id: CC-INSTRUCTION-FREQUENCY
 status: draft
+domain: governance
 ---
 
 # 2026/9/21–9/22のCc関連指示
+
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
 
 JST 9/21 00:00以上、9/23 00:00未満。ローカルClaude projectsとCodex sessions/archived_sessions。
 Claude候補7417ファイル中mtimeで絞った870ファイルを走査。userメッセージのuuidで重複除去しCc関連428件。

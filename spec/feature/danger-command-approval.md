@@ -8,6 +8,8 @@ status: draft
 ---
 # 危険なpushのWARNING承認特例
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 ## 価値とシナリオ
 UX-CC-W1/W4、UX-CC-S1/S5。通常のRevisor公開ではできない履歴修正を人間が認可する。
 現時点の対象はRevisor workflowのGit pre-push。任意のshellコマンド、Castra本体、未知のworkflow、起動やテストの制限を解除する仕組みではない。

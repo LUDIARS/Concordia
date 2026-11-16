@@ -2,12 +2,16 @@
 type: feature
 title: "GitHub Issue ワークフロー — Cc ラベル起点の対応 → 審査 → GitHub PR"
 service: concordia
-domain: github-issue-workflow
+domain:
+  - github-issue-workflow
+  - persistence
 status: implemented
 updated: 2026-09-07
 ---
 
 # GitHub Issue ワークフロー
+
+> 所属ドメイン: [`github-issue-workflow`](../domains/github-issue-workflow.domain.json) · [`persistence`](../domains/persistence.domain.json)
 
 GitHub Issue に運用ラベル (既定 `Cc`) が付いたら、Cc が対象リポジトリの対応を委託し、
 Revisor local PR の審査を通ってから GitHub PR を作り、Issue に PR リンクを返す。

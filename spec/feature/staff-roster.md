@@ -23,6 +23,8 @@ updated: 2026-08-24
 
 # 社員名簿 (役職権限登録リスト)
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 ## 1. 目的
 
 Concordia の LLM に触れる platform ユーザ (Discord / Slack) を台帳に記録し、 **役職**で

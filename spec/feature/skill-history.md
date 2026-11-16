@@ -17,6 +17,8 @@ updated: 2026-07-11
 
 # Skill snapshot と履歴レビュー
 
+> 所属ドメイン: [`analysis-core`](../domains/analysis-core.domain.json)
+
 ## 目的
 
 各 agent session の hook から repository ごとの `SKILL.md` 内容を snapshot として受け取り、

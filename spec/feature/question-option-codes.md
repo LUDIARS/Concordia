@@ -1,5 +1,7 @@
 # 質問カードの選択肢コード
 
+> 所属ドメイン: [`plan-approval-notification`](../domains/plan-approval-notification.domain.json)
+
 ## 目的
 
 質問カード (pending-question) は 3 経路から答えられる — Discord / Slack のボタン、WebUI、

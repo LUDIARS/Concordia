@@ -9,6 +9,8 @@ domain: tooling
 
 # Resumable design review
 
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json)
+
 UX-CC-W2/W5, scenarios UX-CC-S3/S6: an interrupted investigation must retain its
 evidence and expose missing work before another reviewer relies on its summary.
 This is a supporting `tooling` boundary, not a new core domain or task registry.

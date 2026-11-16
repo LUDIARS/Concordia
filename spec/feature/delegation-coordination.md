@@ -3,7 +3,7 @@ type: feature
 title: "Delegation coordination API"
 description: "Parent-child delegation run coordination: parent_session_id/child_session_id linkage, child status updates, parent-to-child inject, parent filtered run listing, invoke overrides, spawn env propagation, and Discord mirroring through the parent session channel."
 service: concordia
-domain: governance
+domain: runtime-orchestration
 tags:
   - delegation
   - sqlite
@@ -23,6 +23,8 @@ updated: 2026-09-07
 ---
 
 # Delegation 協働管理 — 親↔子 API + Status/Inject + Discord 挙動
+
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 親 (active セッション) が delegation で投げた子タスクを、Cc を介して監視・制御する。
 既存の delegation 基盤 (テンプレ / run / spawn / 「外注」欄 / metadata.delegation_run_id)

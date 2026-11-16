@@ -3,7 +3,7 @@ type: feature
 title: "フェーズ境界の文脈再配置 + コンテキスト残量の可視化"
 description: "taskflow の確定イベントで、契約・プラン・タスク正本から機械組み立てした文脈を clear せず再投入する。"
 service: concordia
-domain: session-coordination
+domain: session-lifecycle
 tags:
   - compaction
   - taskflow
@@ -20,6 +20,8 @@ updated: 2026-08-24
 ---
 
 # フェーズ境界の文脈再配置 + コンテキスト残量の可視化
+
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 > 2026-08-13 neco 指示。 「タスクがひと段落して次のフェーズへ進むとき」
 > 「残作業を確認して片づけるとき」にコンパクションしてコンテキストを再配置する。

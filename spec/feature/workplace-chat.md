@@ -1,9 +1,18 @@
 ---
 id: SPEC-CC-WORKPLACE
 status: draft
+domain:
+  - consultation
+  - governance
+  - session-coordination
+  - session-lifecycle
+  - session-message-layer
+  - session-message-webui
 ---
 
 # 職場チャットと相談の境界
+
+> 所属ドメイン: [`consultation`](../domains/consultation.domain.json) · [`governance`](../domains/governance.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json) · [`session-message-layer`](../domains/session-message-layer.domain.json) · [`session-message-webui`](../domains/session-message-webui.domain.json)
 
 2026-10-03 の人間の実装依頼（追加指示を含む）。対象は Concordia。
 UX-CC-W1/W4/W6、CC-INV-02/03/06、CC-DEPT-INV-01 を維持する。

@@ -2,10 +2,16 @@
 type: feature
 title: 人間の応答がない確認ループを止める
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - autonomous-continuation
+  - blackbox-decision
+  - taskflow-instructions
 ---
 
 # 人間の応答がない確認ループを止める
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`blackbox-decision`](../domains/blackbox-decision.domain.json) · [`taskflow-instructions`](../domains/taskflow-instructions.domain.json)
 
 `UX-CC-W4` と `CC-INV-08` に従い、人間待ちの確認は一度送ったら、確認可能な人間の応答まで
 繰り返さない。確認停止はセッションの終了や許可の代行を意味しない。

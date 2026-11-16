@@ -1,5 +1,7 @@
 # Discord フォーラム移行 — Session / Test / TaskWorkflow
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 - Status: **approved (2026-07-13 未決4点をユーザ決定済み)**
 - 起票: 2026-07-13 neco 指示
 - 関連: `spec/discord-ui.md` (現行カテゴリ運用) / `spec/discord-lictor-relay.md` /

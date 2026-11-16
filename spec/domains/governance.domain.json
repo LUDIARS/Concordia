@@ -87,6 +87,16 @@
     "spec/feature/tech-consultation.md#4-プライベート相談",
     "spec/feature/workplace-chat.md",
     "spec/feature/patrol-chat.md",
-    "spec/feature/shared-available-one-shot.md"
+    "spec/feature/shared-available-one-shot.md",
+    "spec/feature/cc-instruction-frequency.md",
+    "spec/feature/develop-confirm-flow.md",
+    "spec/feature/genius-command-patterns.md",
+    "spec/feature/inquiry.md",
+    "spec/feature/memory-library.md",
+    "spec/feature/plan-gate.md",
+    "spec/feature/pr-queue.md",
+    "spec/feature/session-contract.md",
+    "spec/feature/staff-roster.md",
+    "spec/feature/vibes-mode.md"
   ]
 }

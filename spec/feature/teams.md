@@ -3,7 +3,7 @@ type: feature
 title: "チーム — プロジェクト主単位の可視化・ルールスコープ・Discord カテゴリ"
 description: "プロジェクト+タスクを単位とする「チーム」を新設し、Discord カテゴリ (目標/タスクボード/コスト/direction/管理/セッションフォーラム/タスクフォーラム) を自動プロビジョニングする。チーム独自ルール (typed settings + 自然文 harness_rules) を Cc と Lictor に注入し、WebUI で目標・タスク・セッション・ルールを可視化する。上部メニューは左サイドバーへ改修する。"
 service: concordia
-domain: governance
+domain: chat-platforms
 tags:
   - teams
   - discord
@@ -21,6 +21,8 @@ updated: 2026-08-27
 ---
 
 # チーム — プロジェクト主単位の管理
+
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 > 2026-08-13 neco 指示。 GoalAndGo で生まれる Director の監督がユーザから可視化しづらい。
 > プロジェクトを主単位とする「チーム」で束ねて管理する。

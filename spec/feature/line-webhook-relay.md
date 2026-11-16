@@ -2,7 +2,9 @@
 type: feature
 title: "LINE の共用チャネルを Cc が持ち、グループ + 言葉でサービスへ振り分けて中継し、返信を代行する"
 service: concordia
-domain: line-webhook-relay
+domain:
+  - line-webhook-relay
+  - discord-chat-relay
 status: implemented
 updated: 2026-10-19
 related:
@@ -11,6 +13,8 @@ related:
 ---
 
 # LINE webhook のハブ (受け口・検証・振り分け・中継・返信)
+
+> 所属ドメイン: [`line-webhook-relay`](../domains/line-webhook-relay.domain.json) · [`discord-chat-relay`](../domains/discord-chat-relay.domain.json)
 
 Actio タスク: `actio:605bbdbf-c384-4d31-9860-6b5d090dbcee` (受け口の新設)、
 `actio:54cb27c9-b772-4e8d-baf2-e17d01d95ce3` (チャネルを Cc が持つハブへの作り変え)、

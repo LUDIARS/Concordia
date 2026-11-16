@@ -1,11 +1,15 @@
 ---
 id: SPEC-SESSION-END-INJECT-VISIBILITY
 type: feature
-domain: session-message-layer
+domain:
+  - session-message-layer
+  - chat-platforms
 status: implemented
 ---
 
 # 内部の終了指示をチャットへ投稿しない
+
+> 所属ドメイン: [`session-message-layer`](../domains/session-message-layer.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 2026-10-03 neco の「/session-endとか投稿しないように」に基づく。
 Actio: actio:908fc672-8587-4e9e-b943-9e6682d6af42。

@@ -3,7 +3,9 @@ type: feature
 title: "checkout 前進後の deploy — checkout_published を受けて build と再起動へ繋ぐ"
 description: "Revisor が登録 checkout を merge commit へ前進させた通知 (lifecycle event checkout_published) を既存の Revisor → Cc inject から拾い、Excubitor 登録のサービスがあるリポだけを build → Excubitor 再起動へ繋ぐ。実行有無は理由付きで 1 行残し、build/再起動の失敗はマージや checkout 前進を巻き戻さない。"
 service: concordia
-domain: checkout-published-deploy
+domain:
+  - checkout-published-deploy
+  - service-deployed-notify
 owner: Concordia
 tags:
   - revisor
@@ -19,6 +21,8 @@ updated: 2026-08-21
 ---
 
 # checkout 前進後の deploy
+
+> 所属ドメイン: [`checkout-published-deploy`](../domains/checkout-published-deploy.domain.json) · [`service-deployed-notify`](../domains/service-deployed-notify.domain.json)
 
 ## 1. 問題
 

@@ -1,5 +1,7 @@
 # プライベートチャンネル — 指定した人だけが見られる Discord チャンネル
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 > 2026-09-30 neco 指示「プライベートチャンネルの生成ロジック作って」(Actio `e83728cc`、#2187) と、
 > 同日のプライベート相談 ([技術相談](tech-consultation.md) §4) を、2026-10-01 neco 判断「プライベート相談に統合」で
 > 1 本の実装にまとめた。設計は director case `dir_2a273424` plan v1 (承認済み)。

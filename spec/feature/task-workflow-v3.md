@@ -1,5 +1,7 @@
 # Task workflow v3.0 — Actio authority
 
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`taskflow`](../domains/taskflow.domain.json)
+
 Target release: 3.0.0. Source: neco, 2026-09-08; Pf fragment 01M206XEV4JRC1N3PMEZGGN2P5. The manifest version is not edited here: Revisor syncs `package.json` from the release version file just before publishing, so this line states the intended release, not the current manifest value.
 
 This supersedes the Markdown-authority and Memoria-reconciliation rules in task-workflow.md.

@@ -3,11 +3,18 @@ title: セッションの設計・開始確認・実装・調整
 id: CC-SESSION-WORK-PHASES
 type: feature
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - autonomous-continuation
+  - chat-platforms
+  - session-lifecycle
+  - session-message-webui
 status: draft
 ---
 
 # セッションの設計・開始確認・実装・調整
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json) · [`session-message-webui`](../domains/session-message-webui.domain.json)
 
 2026-09-12 neco 指示: 初期 inject で止まらず、設計が固まったら人間に開始を確認して
 実装へ進む。放置セッションの状況確認時にも設計の状態を判断する。

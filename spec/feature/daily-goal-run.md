@@ -20,6 +20,8 @@ updated: 2026-10-14
 
 # デイリーゴール (WM-2)
 
+> 所属ドメイン: [`daily-goal-run`](../domains/daily-goal-run.domain.json)
+
 価値: UX-CC-W9 (主)、UX-CC-W2/W3/W4。シナリオ UX-CC-S10。
 方式一覧での位置づけは [work-modes](work-modes.md)。
 

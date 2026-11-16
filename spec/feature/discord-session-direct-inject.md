@@ -24,6 +24,8 @@ updated: 2026-06-30
 
 # Discord session channel 直接 inject — 仕様 (PR-B 後の小機能)
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## Context
 
 PR-A 時点では session channel での投稿は「`/inject` slash command を使ってください」 と案内 reply するだけ。 PR-B で `/inject` が動くようになっても、 **毎回 slash を打つのは面倒**。 session channel で普通にメッセージを打ったら、 それをそのまま `/v1/sessions/:id/inject` に流したい。

@@ -2,9 +2,12 @@
 title: Discord雑務とWeb専用ページ
 id: CC-CHORES
 status: draft
+domain: chores
 ---
 
 # 雑務のワンショットと継続
+
+> 所属ドメイン: [`chores`](../domains/chores.domain.json)
 
 2026-09-25 neco指示: Discordに雑務チャンネル、WebUIに専用ページを作る。
 専用ディレクトリで `claude -p` または `codex exec` を実行し、完了後にOK/Continueを提示する。

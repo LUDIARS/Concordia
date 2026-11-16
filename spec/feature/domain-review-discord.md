@@ -20,6 +20,8 @@ updated: 2026-10-13
 
 # Discord でのドメインレビュー
 
+> 所属ドメイン: [`domain-review`](../domains/domain-review.domain.json)
+
 > 正本の設計書は上位計画 `2026-09-05-anatomia-domain-plan-tool.md` §7-§8。
 > 本書はその Concordia 側 C-3〜C-6 の実装契約。 C-7 以降 (RWF のスキル割り当て、
 > スキル一覧 API、組み込み inject のスキル化) は本書の範囲外。

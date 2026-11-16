@@ -2,11 +2,13 @@
 title: "Cc workflow injection"
 status: implemented
 service: concordia
-domain: session-coordination
+domain: escalation-mode
 updated: 2026-08-20
 ---
 
 # Cc workflow injection
+
+> 所属ドメイン: [`escalation-mode`](../domains/escalation-mode.domain.json)
 
 Concordia injects a startup workflow packet into each registered agent session.
 The packet is returned as `context_packet.cc_workflow` from `POST /v1/sessions`

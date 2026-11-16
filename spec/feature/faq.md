@@ -18,14 +18,19 @@ updated: 2026-07-09
 
 # Concordia FAQ
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## `E:/Document/Ars/Concordia-RWF` ディレクトリは何か？削除してよいか？
 
-**削除しない。** Reaction-WorkFlow (RWF) 機能を管理する独立リポジトリ
-(`LUDIARS/Concordia-RWF`) のクローン。Concordia 本体からは
-[`plugins/concordia-rwf/`](../../plugins/concordia-rwf/README.md) として
-ランタイム動的 import される「ユーザカスタマイズプラグイン」の開発元。
+Reaction-WorkFlow (RWF) を旧プラグイン方式で開発していた独立リポジトリ
+(`LUDIARS/Concordia-RWF`) のクローン。**現行の Concordia は外部プラグインを読み込まない。**
+設定 `workflow.rwf_plugin_path` (`CONCORDIA_RWF_PLUGIN_PATH`) は廃止済みで互換表示のみ
+(`src/config/settings/definitions/operations.ts`)。リアクションワークフローはローカルスキルと
+リアクション WF の定義データで動く ([reaction-workflow.md](reaction-workflow.md))。
+本 repo に `plugins/` も submodule も無い。ディレクトリの削除可否は所有者 (人間) が判断する。
 
-- 現状は submodule 化されており、`Concordia` フォルダ以下で開発できる構成になっている。
+- 2026-11-16 仕様整理: 旧記述「`plugins/concordia-rwf/` として動的 import / submodule 化」は
+  実装と食い違っていたため、上記へ改めた。
 - worktree 整理 (2026-07-09) の際、独立 clone のため `git worktree list` には出ず、
   かつ現行 `main` より古いコミットで止まっていたため一見孤立ディレクトリに見えるが、
   意図して残されている前提で扱うこと。

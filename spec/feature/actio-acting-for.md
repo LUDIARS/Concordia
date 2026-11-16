@@ -1,5 +1,7 @@
 # Actio への書き込みに指示者を付ける (SPEC-ACTIO-ACTING-FOR)
 
+> 所属ドメイン: [`taskflow`](../domains/taskflow.domain.json)
+
 依頼: neco「Cc の指示の主体を見分けたい」→ パターン 2「操作ログだけ」(2026-11-01)。
 Actio 側の契約: Actio `spec/feature/cc-acting-for.md` (AT-CC-ACTING-FOR)。
 

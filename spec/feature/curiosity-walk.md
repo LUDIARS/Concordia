@@ -3,7 +3,7 @@ type: feature
 title: "散歩セッション — 無関係な素材と他サービスへの興味から問いを起こす"
 description: "1 日数回のランダムなタイミングで、互いに関連の薄い 2 件の素材 (別サービスの spec / タスク / 直近マージ) を引き当て、片方の制約をもう片方に当てたらどうなるかを 1 問だけ投げる読み取り専用セッションを起こす。決定を求めず、外れても流れて消える面に出す。"
 service: concordia
-domain: governance
+domain: director-patrol
 tags:
   - director
   - curiosity
@@ -24,6 +24,8 @@ updated: 2026-09-01
 ---
 
 # 散歩セッション
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 > 2026-08-20 neco 指示。「ランダムなタイミングで起きる問いかけと議論が多分発明に
 > つながるんじゃないかな理論」「他のサービスに興味を持つとかも良い」。

@@ -15,7 +15,8 @@
   "cardTemplate": "Summarise the personal-ai-budget domain: per-person monthly and reward token budgets for subsidiary members, monthly-first consumption, dispatch gating under the global and subsidiary caps, idempotent reward grants by kind and source, head-office manual adjustments with a recorded reason, and balance views limited to the person and head-office approvers.",
   "specRefs": [
     "spec/feature/personal-ai-budget.md",
-    "spec/ux/product.md"
+    "spec/ux/product.md",
+    "spec/feature/usage-budgets.md"
   ],
   "rationale": "個人の予算は、報奨の理由 (バグ報告・相談・公開・調整) とも、組織の上限 (全体・子会社の日次 budget) とも別の理由で変わる。台帳と消費の順序を 1 か所に閉じ、報奨を依頼する側と払い出しを止める側の両方へ port で答える。支援ドメイン (運用・組織) であり、コアではない。"
 }

@@ -1,5 +1,7 @@
 # Rv高スコアsystem通知
 
+> 所属ドメイン: [`http-interface`](../domains/http-interface.domain.json)
+
 契約: CC-RV-RISK-NOTICE-01。価値: UX-CC-PRODUCT（人間が判断すべき状態を取りこぼさない）。
 失うと困る状態: 高スコアのマージや修正後も残るリスクを人間が認識できない。
 状態所有者: Rvはスコア・再審査・通知受付状態、Ccは管理者メンション先とchat配送を所有する。

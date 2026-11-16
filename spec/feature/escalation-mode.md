@@ -2,11 +2,13 @@
 title: "Escalation mode"
 status: implemented
 service: concordia
-domain: session-coordination
+domain: escalation-mode
 updated: 2026-08-21
 ---
 
 # エスカレーションモード
+
+> 所属ドメイン: [`escalation-mode`](../domains/escalation-mode.domain.json)
 
 インフラ (Concordia / Revisor / Excubitor 等) が停止し、通常のワークフローでは復旧そのものが
 進められない状況で、**まず動作状況を確保する**ためのセッション状態。

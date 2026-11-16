@@ -20,6 +20,8 @@ updated: 2026-06-30
 
 # participants — 人間入力者の identity レジストリ + クロスプラットフォーム・ミラー
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 目的
 - **環境同期**: あるプラットフォーム(Slack)から session に入れた人間の入力を、相手
   プラットフォーム(Discord)の同 session channel/thread にも**発言者付きで転記**し、

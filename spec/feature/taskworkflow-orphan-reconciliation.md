@@ -1,5 +1,7 @@
 # TaskWorkflow orphan thread recovery
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 - Value: UX-CC-W3 / UX-CC-W4 in spec/ux/product.md
 - Contract: CC-DISCORD-TASK-ORPHAN-01
 - Approved scope: 2026-09-27 neco requested investigation and remediation for thread 1545602528555569273.

@@ -12,6 +12,8 @@ related:
 
 # Web UI の公開ホストを Cloudflare ログイン 1 回で使う
 
+> 所属ドメイン: [`web-access`](../domains/web-access.domain.json)
+
 設計: [../plan/2026-10-15-cf-cernere-sso.md](../plan/2026-10-15-cf-cernere-sso.md) (PR #3003)。
 Cernere の Cloudflare 企業認証 (Cr `spec/feature/cloudflare-enterprise-sso.md`) に Cc を 1 つの managed project として乗せる。
 

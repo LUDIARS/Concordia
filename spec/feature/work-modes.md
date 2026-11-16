@@ -3,7 +3,9 @@ type: feature
 title: "作業の進め方 (work modes) — 方式の一覧と選び方"
 description: "Cc が扱う作業の進め方を 7 方式 (対話・デイリーゴール自走・委託・定期パートタイマー・Director 案件・相談・スプリント) に分け、方式ごとの起点・ゴールの所有者・セッションの形・確認の周期・完了・正本 spec を定義する。スプリントは 2026-10-10 の neco 判断で休止。"
 service: concordia
-domain: work-modes
+domain:
+  - work-modes
+  - daily-goal-run
 tags:
   - work-modes
   - goal-and-go
@@ -24,6 +26,8 @@ updated: 2026-10-10
 ---
 
 # 作業の進め方 (work modes)
+
+> 所属ドメイン: [`work-modes`](../domains/work-modes.domain.json) · [`daily-goal-run`](../domains/daily-goal-run.domain.json)
 
 価値: UX-CC-W1/W2/W4、UX-CC-W9。どの仕事がどの進め方で動いているかを取り違えず、
 方式ごとのゴール・予算・確認の仕方を混ぜない。

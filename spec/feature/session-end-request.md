@@ -1,5 +1,7 @@
 # 発話による「セッション終了」
 
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
+
 ## 目的
 
 「セッション終了」と発言してもプロセスが閉じず、人間が改めて `/end-session` を叩く必要が

@@ -17,6 +17,8 @@ updated: 2026-07-11
 
 # Session log browser
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## 目的
 
 `/session-end` と handoff workflow が作る過去の作業記録を、プロジェクト別・全文 query で

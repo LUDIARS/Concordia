@@ -2,9 +2,12 @@
 title: 人間依頼チャンネル
 id: CC-HUMAN-REQUEST
 status: draft
+domain: chat-platforms
 ---
 
 # 人間依頼チャンネル
+
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 2026-10-05 neco 指示「Discord はコピーがしづらい UI。分類器に止められて打たないといけないコマンドを
 別のチャンネルに投稿して欲しい。説明と関連セッション投稿後、コマンドだけ投稿 (! は不要)、OK ボタンを

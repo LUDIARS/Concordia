@@ -2,12 +2,14 @@
 type: feature
 title: "Cc 内蔵 Task と Actio 復旧同期"
 service: concordia
-domain: task-management
+domain: task-fallback
 status: implemented
 updated: 2026-08-24
 ---
 
 # Cc 内蔵 Task と Actio 復旧同期
+
+> 所属ドメイン: [`task-fallback`](../domains/task-fallback.domain.json)
 
 Actio が未登録・停止・接続不能でも、Cc は `POST /v1/tasks` で受けた Task を SQLite
 `cc_tasks` に先に永続化して返す。Task は `GET /v1/tasks`、`GET /v1/tasks/:id`、

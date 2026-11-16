@@ -17,6 +17,8 @@ updated: 2026-08-03
 
 # Runtime function metrics
 
+> 所属ドメイン: [`observability`](../domains/observability.domain.json)
+
 ## 目的
 
 Concordia の HTTP request と主要 Discord callback の呼び出し回数、成功/失敗、duration を

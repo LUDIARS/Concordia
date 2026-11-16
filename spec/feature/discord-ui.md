@@ -22,6 +22,8 @@ updated: 2026-06-30
 
 # Concordia Discord-UI 統合 — 仕様 (PR-A)
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 目的
 
 Web UI でチャットを打ちづらい課題を、 Discord を主 UI として使う形で解消する。 起動経路 (Memoria の AI 委託 / Discord slash command / 手動 `lictor claude`) を問わず、 Concordia の `session.started` event を hook して Discord channel を auto-create する。

@@ -3,12 +3,17 @@ title: Astra With Sidecar
 type: feature
 id: CC-ASTRA-WITH-SIDECAR
 service: concordia
-domain: agent-delegation
+domain:
+  - agent-delegation
+  - chat-platforms
+  - session-coordination
 status: draft
 updated: 2026-09-29
 ---
 
 # Astra With Sidecar
+
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json)
 
 ## 依頼と適用範囲
 

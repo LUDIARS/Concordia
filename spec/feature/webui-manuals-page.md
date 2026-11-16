@@ -21,6 +21,8 @@ updated: 2026-07-30
 
 # マニュアルページ統合と WebUI ページ整理
 
+> 所属ドメイン: [`http-interface`](../domains/http-interface.domain.json)
+
 ## 1. マニュアルページ (`/manuals`)
 
 「AI に注入する自然文」の設定を 1 ページに集約する。 運用中に一番よく触る設定が

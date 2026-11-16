@@ -2,10 +2,15 @@
 type: feature
 title: プロジェクト別DDD・契約適用と復旧可能なハーネス
 service: concordia
-domain: governance
+domain:
+  - agent-delegation
+  - harness-reliability
+  - project-code-registry
 ---
 
 # プロジェクト別の実装方針
+
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`harness-reliability`](../domains/harness-reliability.domain.json) · [`project-code-registry`](../domains/project-code-registry.domain.json)
 
 UX-CC-W4（必要な判断だけを人間へ戻す）と、Cc停止から同じ仕事を復旧する価値を支える。
 プロジェクト設定のDDDとセッション契約は独立したopt-in。状態所有者はCcのproject_codes。

@@ -8,6 +8,8 @@ domain: cloud-execution
 
 # 標準クラウドへの委託条件
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 2026-10-16 neco 指示。価値 UX-CC-W2/W5、不変条件 CC-CLOUD-09。
 Codex Cloud / Claude Code Cloud 共通で、次の4条件をすべて満たす依頼だけを対象とする。
 

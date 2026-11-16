@@ -9,6 +9,8 @@ updated: 2026-07-16
 
 # Gameplay applicability and system specification
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## Applicability decision
 
 **[source] Concordia is multi-agent coordination software, not a game** (`README.md:3-6`). Therefore rules about players, win/loss, authored challenges, game loops, progression, combat, and game economy are `not-applicable`. This file exists to satisfy the Omnipotens artifact contract without relabeling software behavior as gameplay.

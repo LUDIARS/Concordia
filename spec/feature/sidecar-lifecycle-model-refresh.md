@@ -2,9 +2,19 @@
 id: CC-SIDECAR-LIFECYCLE-MODELS
 status: draft
 updated: 2026-10-03
+domain:
+  - agent-delegation
+  - autonomous-continuation
+  - http-interface
+  - model-catalog
+  - runtime-orchestration
+  - session-coordination
+  - taskflow-instructions
 ---
 
 # 常駐サイドカー・待機判定・モデル更新
+
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`model-catalog`](../domains/model-catalog.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json) · [`taskflow-instructions`](../domains/taskflow-instructions.domain.json)
 
 ## 価値と範囲
 

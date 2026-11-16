@@ -1,5 +1,7 @@
 # デプロイ反映通知
 
+> 所属ドメイン: [`service-deployed-notify`](../domains/service-deployed-notify.domain.json)
+
 Excubitor はサービスの hash が変化して健康状態へ戻った後、`POST /v1/events/service-deployed` を送る。Concordia は `(code,currentHash)` を一度だけ処理し、project registry の `deploy_notify` に指定された Discord、Slack、Cc 専用チャンネルへ通知する。
 
 Revisor の repository / changes が未登録または利用不能でも、デプロイ反映そのものは通知する。本文は短縮 hash、version、merged PR 数、Revisor notice の先頭 10 行だけを用い、本文由来の mention は許可しない。

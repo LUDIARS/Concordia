@@ -13,6 +13,6 @@
     {"pathPattern":"(^|/)src/(events|shared/event-schema)\\.ts$"},
     {"pathPattern":"(^|/)tests/plan-approval-notification\\.test\\.ts$"}
   ],
-  "specRefs":["spec/feature/plan-approval-notification.md"],
+  "specRefs":["spec/feature/plan-approval-notification.md", "spec/feature/question-option-codes.md"],
   "rationale":"Supporting provider notification boundary; pending question persistence and existing response authorization are retained."
 }

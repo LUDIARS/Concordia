@@ -2,7 +2,10 @@
 type: feature
 title: "Concordia platform identity and trust boundaries"
 service: concordia
-domain: governance
+domain:
+  - discord-chat-relay
+  - line-webhook-relay
+  - web-access
 status: implemented
 updated: 2026-07-24
 related:
@@ -12,6 +15,8 @@ related:
 ---
 
 # Concordia platform identity and trust boundaries
+
+> 所属ドメイン: [`discord-chat-relay`](../domains/discord-chat-relay.domain.json) · [`line-webhook-relay`](../domains/line-webhook-relay.domain.json) · [`web-access`](../domains/web-access.domain.json)
 
 Concordia HTTP is an internal loopback API. It does not use a shared admin
 service token: such a token identifies a process path, not the human who

@@ -16,6 +16,8 @@ updated: 2026-08-02
 
 # Operational log lifecycle — bounded cc-live retention
 
+> 所属ドメイン: [`observability`](../domains/observability.domain.json)
+
 `src/shared/logger.ts` が file destination を開く前に、
 `src/shared/log-file-rotation.ts` が対象サイズを確認する。既定は 128 MiB、保持は5世代で、
 `CONCORDIA_LOG_FILE_MAX_MB` と `CONCORDIA_LOG_FILE_KEEP` により正の整数へ変更できる。

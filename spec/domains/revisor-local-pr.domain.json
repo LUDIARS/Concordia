@@ -77,7 +77,8 @@
     "spec/feature/revisor-local-pr-submission.md#6-token",
     "spec/feature/local-pr-merge-authorization.md#2-現在の規則",
     "spec/tasks/revisor-merge-feedback.md#完了条件",
-    "spec/feature/revisor-test-forum-sync.md#runtime-boundary"
+    "spec/feature/revisor-test-forum-sync.md#runtime-boundary",
+    "spec/feature/pr-local-gate.md"
   ],
   "rationale": "Local PR review and merge operations are separate from GitHub PR synchronization. Session-derived requester identity is checked against the live staff roster before Revisor receives a merge request."
 }

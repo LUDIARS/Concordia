@@ -2,9 +2,17 @@
 title: Actio PR evidence and continuation
 type: feature
 id: CC-ACTIO-PR-GOAL-01
+domain:
+  - autonomous-continuation
+  - blackbox-decision
+  - chat-platforms
+  - session-message-layer
+  - taskflow
 ---
 
 # Actio PR evidence and continuation
+
+> 所属ドメイン: [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`blackbox-decision`](../domains/blackbox-decision.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`session-message-layer`](../domains/session-message-layer.domain.json) · [`taskflow`](../domains/taskflow.domain.json)
 
 UX-CC-W1/W2/W4/W5, scenarios S1/S2/S3: users must see where a task's
 deliverable is, why it is waiting, and which dependency limits progress.

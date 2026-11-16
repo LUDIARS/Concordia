@@ -1,5 +1,7 @@
 # local PR マージの認可
 
+> 所属ドメイン: [`revisor-local-pr`](../domains/revisor-local-pr.domain.json)
+
 `POST /v1/prs/local/:id/merge` が誰のどの操作を通すか。
 
 ## 1. 置き換えの経緯 (2026-09-05)

@@ -2,12 +2,14 @@
 type: feature
 title: "Fenced worker leases"
 service: concordia
-domain: runtime
+domain: runtime-orchestration
 status: implemented
 updated: 2026-09-07
 ---
 
 # Fenced worker leases
+
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 Chat, workflow, and cost workers acquire their role-specific key with a SQLite
 compare-and-swap. A lease records `owner`, `pid`, `expires_at`, and a monotonically

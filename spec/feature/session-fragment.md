@@ -3,7 +3,7 @@ type: feature
 title: "フラグメントとストラクチャード — plan / vibes モードの撤廃後の運用"
 description: "セッション契約の plan / vibes モードと、それに付随するゲート (plan-unapproved の編集封鎖、vibes の testing claim 自動取得・時間上限・編集ファイル上限・昇格/降格カード・[OK] 完了レーン) を撤廃する。セッションで指示される作業は設計の大小によらず fragment とし、大きめの設計を Director のプラン工程で整理する流れを structured として残す。作業場所 (repo-root / worktree) はモードと連動させず、repo-root で見たい内容かどうかで初回タスク指示とタスク切り替え時に判定する。"
 service: concordia
-domain: governance
+domain: session-lifecycle
 tags:
   - session-contract
   - fragment
@@ -19,6 +19,8 @@ updated: 2026-10-06
 ---
 
 # フラグメントとストラクチャード
+
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 > 2026-10-06 neco 指示。「Cc の plan と vibes の仕様は邪魔なので撤廃する。大きめの『設計』で
 > プランモード的な整理を起動するのは残す」「撤廃後はフラグメントとストラクチャードとして運用する」

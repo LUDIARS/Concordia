@@ -3,10 +3,14 @@ title: ハーネスの復旧と適用状況
 type: feature
 id: CC-HARNESS-RELIABILITY
 status: draft
-domain: harness-reliability
+domain:
+  - harness-reliability
+  - tooling
 ---
 
 # 利用者に起きる変化
+
+> 所属ドメイン: [`harness-reliability`](../domains/harness-reliability.domain.json) · [`tooling`](../domains/tooling.domain.json)
 
 UX-CC-W2/W4/W5、UX-CC-S3/S5: コンパクション後も合意と未回答事項へ戻れ、認証切れと未観測を区別できる。
 UX-CC-W3/S4: コミットの存在を契約条件達成と混同しない。

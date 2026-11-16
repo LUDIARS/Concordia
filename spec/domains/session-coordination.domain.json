@@ -74,6 +74,12 @@
     "spec/feature/session-language-guard.md",
     "spec/feature/workplace-chat.md",
     "spec/feature/shared-available-one-shot.md",
-    "spec/feature/goal-stop-question-guard.md"
+    "spec/feature/goal-stop-question-guard.md",
+    "spec/feature/faq.md",
+    "spec/feature/game-spec.md",
+    "spec/feature/multi-provider.md",
+    "spec/feature/product-brief.md",
+    "spec/feature/session-log-browser.md",
+    "spec/feature/work-conflict-scope.md"
   ]
 }

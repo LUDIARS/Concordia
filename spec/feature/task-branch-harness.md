@@ -3,10 +3,17 @@ id: CC-TASK-BRANCH-HARNESS
 title: 作業境界とブランチの二重確認
 status: draft
 service: concordia
-domain: harness-reliability
+domain:
+  - harness-reliability
+  - http-interface
+  - parttimer-review-scheduling
+  - persistence
+  - tooling
 ---
 
 # 作業境界とブランチの二重確認
+
+> 所属ドメイン: [`harness-reliability`](../domains/harness-reliability.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`parttimer-review-scheduling`](../domains/parttimer-review-scheduling.domain.json) · [`persistence`](../domains/persistence.domain.json) · [`tooling`](../domains/tooling.domain.json)
 
 価値: UX-CC-W1 / UX-CC-W3、シナリオ UX-CC-S1 / S4。別作業の変更が提出済みの成果へ混ざらず、依頼者が何をレビューしているか分かる状態を守る。
 

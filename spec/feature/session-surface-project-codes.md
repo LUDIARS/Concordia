@@ -3,7 +3,7 @@ type: feature
 title: "セッション投稿タイトルのプロジェクトコード — 触っている全リポを載せる"
 description: "forum スレッド名の [..] 接頭辞を、repo_path 1 本の leaf 推測から『Lictor が追跡している active repo 群を正準リポ root に解決し、その全プロジェクトコードを並べる』方式へ変える。worktree ディレクトリ名やワークスペース root (Ar) がそのまま出るのを止める。"
 service: concordia
-domain: interface
+domain: project-code-registry
 tags:
   - discord
   - forum
@@ -18,6 +18,8 @@ updated: 2026-08-02
 ---
 
 # セッション投稿タイトルのプロジェクトコード
+
+> 所属ドメイン: [`project-code-registry`](../domains/project-code-registry.domain.json)
 
 > 2026-08-02 neco 指示 (項目 1)。 「Lictor に作業リポジトリを登録した後の挙動が不安定。
 > 投稿のタイトルにアクセスしているプロジェクトコードを設定する。 wt 名や Ar のままは NG。

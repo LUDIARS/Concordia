@@ -1,5 +1,7 @@
 # 技術相談 — 事前ヒアリング・プライベート相談・Tabula への公開
 
+> 所属ドメイン: [`consultation`](../domains/consultation.domain.json) · [`dialogue-context`](../domains/dialogue-context.domain.json) · [`governance`](../domains/governance.domain.json)
+
 > 2026-09-30 neco 指示:「技術相談課の相談は、事前情報として『何について知りたいか』『説明にあたっての
 > 技術レベル』『あなたの役職』を取得し、可能な限り『目的』を問う (知ることが目的の問いもあるので問題はない)」
 > 「プライベートでブロックするものも作りたいのでフォーラムではないやり方。プライベート設定を作り、

@@ -9,6 +9,8 @@ updated: 2026-07-16
 
 # Concordia product brief
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 ## Product intent
 
 - **[source]** Concordia is a local service for coordination, awareness, and durable records across concurrent AI coding-agent sessions (`README.md:3-6`).

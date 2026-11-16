@@ -3,8 +3,7 @@ type: feature
 title: "AI プレイテスト感想の投稿"
 description: "Ingenium の ingenium playtest が渡す AI プレイテスト感想 (良い点・悪い点必須) を、Cc が設定した本社の Discord チャンネルと Slack webhook へ投稿する。送り手は宛先も秘密も持たない。"
 service: concordia
-domain:
-  - playtest-review-notify
+domain: playtest-review-notify
 status: implemented
 updated: 2026-10-25
 tags:
@@ -14,6 +13,8 @@ tags:
 ---
 
 # AI プレイテスト感想の投稿
+
+> 所属ドメイン: [`playtest-review-notify`](../domains/playtest-review-notify.domain.json)
 
 2026-10-15 neco 指示: 「AIオートプレイヤーが画面と説明書を見て操作しながら、UX/操作感/ゲームの感想を投稿していく仕組みを Ingenium に用意。
 Voluptas を通して匿名性の情報として扱う。プレイ時の感想・挙動・反省を Discord や Slack に投稿する。良い点と悪い点をちゃんと投稿する。」

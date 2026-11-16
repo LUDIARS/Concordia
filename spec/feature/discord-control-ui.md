@@ -23,6 +23,8 @@ updated: 2026-06-30
 
 # Discord コントロール UI — 仕様 (codex / 並行 session 向け)
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 PR-B (Slash Command 等) と独立した追加機能。 PR-B に積むか別 PR にするかは codex 判断で OK。
 
 ## 概要

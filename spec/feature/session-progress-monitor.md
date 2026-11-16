@@ -8,6 +8,8 @@ related: [../ux/product.md, ../architecture/ddd.md, autonomous-work-continuation
 
 # セッション進捗モニター
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 Actio: `actio:6f195c99-35a4-4548-a987-f172a59fbc01`。UX-CC-W2/W4/W5、CC-INV-02/03/04/06/08。
 通常チャンネルと公開フォーラムスレッドで作業する担当を既存 concordia-monitor から辿る。
 モニターは表示のみを所有し、進捗は担当、G&G と質問/人間待ちは既存 control が所有する。

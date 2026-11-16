@@ -17,6 +17,8 @@ updated: 2026-10-10
 
 # 「作業中」インジケータ
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## Discord
 
 指令またはtranscript進捗を受けた時点でForum状態タグを `作業中` にし、`summary` または `final_answer` がWebhookへ

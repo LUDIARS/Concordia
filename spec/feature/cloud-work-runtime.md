@@ -7,6 +7,8 @@ domain: cloud-execution
 
 # Runtime integration
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 The authorized implementation extends `/v1/delegation/cloud`, mounted by the
 existing core API composition. It does not introduce another scheduler or convert
 remote sessions into local Lictor children. Actio remains the task owner.

@@ -1,5 +1,7 @@
 # 言語補正 — 英語に流れたセッションを日本語へ戻す
 
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json)
+
 > 2026-10-01 neco 指示「Opus が急に英語しか話さなくなることがある。傾向的に FINAL ANSWER の前から英語で話すのと、
 > 継続するようなので、FINAL ANSWER の英語を受け取る前にフックか何かで日本語で補正できるような inject を入れてほしい」。
 

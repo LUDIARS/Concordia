@@ -19,6 +19,8 @@ updated: 2026-07-31
 
 # 連合リンク基盤 (マルチ拠点 Phase 0+1+2)
 
+> 所属ドメイン: [`federation`](../domains/federation.domain.json)
+
 [../plan/multi-site-federation.md](../plan/multi-site-federation.md) の Phase 0
 (信頼境界の分離) + Phase 1 (連合リンク基盤) + Phase 2 (設定配布) の実装仕様。
 

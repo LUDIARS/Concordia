@@ -1,5 +1,7 @@
 # AIノートの記事完成通知
 
+> 所属ドメイン: [`ai-note-publication`](../domains/ai-note-publication.domain.json)
+
 ## 目的と範囲
 
 2026-09-11 neco 指示。Memoria #563 / `ai-note-discord-intake` の仕様を更新する。

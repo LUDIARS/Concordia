@@ -1,10 +1,14 @@
 ---
 title: クラウド作業の観測と確認フォーラム
 status: draft
-domain: cloud-observation
+domain:
+  - cloud-observation
+  - chat-platforms
 ---
 
 # クラウド作業の観測と確認
+
+> 所属ドメイン: [`cloud-observation`](../domains/cloud-observation.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 2026-10-17 neco の実装指示。既存 Actio 参照は
 `actio:b0483e60-297d-4dc6-a4bf-54e1f8752e04`。タスクの状態をこの文書で代替しない。

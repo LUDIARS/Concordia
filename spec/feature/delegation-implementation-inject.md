@@ -3,7 +3,9 @@ type: feature
 title: "Delegation 実装委託の 1 通注入 — why + タスク + Memoria + 完了条件"
 description: "実装委託の初回 inject で、理由 (why)・タスク本文・Memoria 追跡タスク・完了条件を 1 通にまとめて渡す。事前の調査ブリーフ工程 (段階注入) は廃止し、コードベース把握は委託先が Anatomia の解析グラフで自走する。完了報告まで終えたら委託先はその場で session-end する。"
 service: concordia
-domain: governance
+domain:
+  - delegation-implementation-inject
+  - delegation-launch
 tags:
   - delegation
   - inject
@@ -18,6 +20,8 @@ updated: 2026-09-01
 ---
 
 # Delegation 実装委託の 1 通注入
+
+> 所属ドメイン: [`delegation-implementation-inject`](../domains/delegation-implementation-inject.domain.json) · [`delegation-launch`](../domains/delegation-launch.domain.json)
 
 > 2026-08-21 neco 指示。 委託タスクの終わり方が不安定なので、 二段階のタスク渡しをやめる。
 > 調査ブリーフは Anatomia の解析グラフを探せば済む。 タスクが終わったらとっとと

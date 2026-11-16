@@ -3,7 +3,7 @@ type: feature
 title: "ディレクターワークフロー — 現場を回す人のワークロード定義とタスク整理"
 description: "「現場を回す人 (ディレクター)」の定常ワークロードを 1 つのワークフロー概念として定義する。Memoria から関連する未完了タスクを引く delegation (director-task-pull) と、それを使ってチームごとにタスク整理を行う delegation (director-task-organize、毎日 10:00) を用意し、整理結果を director case step として巡回 (director-patrol) が実行できる形へ落とす。step 追加 API とタスクボード面カードを追加する。"
 service: concordia
-domain: governance
+domain: director-patrol
 tags:
   - director
   - teams
@@ -22,6 +22,8 @@ updated: 2026-09-01
 ---
 
 # ディレクターワークフロー — 現場を回す人のワークロード
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 > **休止 (2026-09-01 neco 指示)**: チーム簡素化 (teams.md §0.5) により、タスク整理
 > `director-task-organize-daily` と課題スカウトの cron 登録を外した (巡回の自動実装

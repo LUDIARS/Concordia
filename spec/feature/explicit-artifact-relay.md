@@ -9,6 +9,8 @@ status: draft
 
 # Explicit artifact delivery under final-only output
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## Value and authorization
 
 UX-CC-W3/W4: a person who requests an artifact must receive the file even when

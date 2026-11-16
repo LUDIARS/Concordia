@@ -4,8 +4,8 @@ title: "プロジェクト別デプロイ・リリース通知設定"
 description: "project registry の各プロジェクトに、デプロイ通知とリリース通知それぞれの有効/無効・本社宛て・子会社の範囲 (なし / 運用対象 / 全子会社 / 個別選択) を独立に持たせ、管理 UI のチェックボックスと選択式で編集する。未設定のプロジェクトは現行の配送規則を引き継ぎ、Ex/Cc/Pf/El/Rv/Di には指定の初期値を一度だけ入れる。"
 service: concordia
 domain:
-  - service-deployed-notify
   - project-code-registry
+  - service-deployed-notify
 status: implemented
 updated: 2026-09-14
 tags:
@@ -16,6 +16,8 @@ tags:
 ---
 
 # プロジェクト別デプロイ・リリース通知設定
+
+> 所属ドメイン: [`project-code-registry`](../domains/project-code-registry.domain.json) · [`service-deployed-notify`](../domains/service-deployed-notify.domain.json)
 
 2026-09-14 neco の設計指示。各プロジェクトにデプロイとリリースの独立した通知設定を設ける。
 

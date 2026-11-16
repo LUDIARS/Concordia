@@ -15,6 +15,8 @@ updated: 2026-08-24
 
 # Cc 依存サービス診断コマンド
 
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
+
 ## コマンド
 
 `/co-doctor` は Excubitor catalog を正本として Anatomia、Augur、Memoria、Actio、Revisor の

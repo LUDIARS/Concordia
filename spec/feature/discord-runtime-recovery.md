@@ -16,6 +16,8 @@ updated: 2026-07-11
 
 # Discord bot runtime recovery
 
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
+
 ## 目的
 
 Concordia process 内で動く embedded Discord bot が予期せず停止したとき、同じ process を

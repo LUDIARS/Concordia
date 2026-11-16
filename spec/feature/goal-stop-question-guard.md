@@ -1,5 +1,7 @@
 # ゴールを止める質問のガード
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json)
+
 > 状態: 実装 (2026-11-12、2026-11-16 改訂: Genius が判断できる質問だけ)。ドメイン `session-coordination`。関連: [session-language-guard.md](session-language-guard.md)、`src/control/pending-question-blocker.ts`。
 
 ## 1. 背景と指示

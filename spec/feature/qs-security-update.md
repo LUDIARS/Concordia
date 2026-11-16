@@ -3,7 +3,9 @@ title: qs の安全な固定版更新
 status: draft
 task: actio:50d03d12-f65c-4a93-b6bc-2116e1324999
 followup_task: actio:491e03ca-7bac-485a-9120-23b5702c1f02
+domain: tooling
 ---
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json)
 
 既知の Medium 依存脆弱性の解消として qs 6.16.0 を 6.16.2 に更新する。
 UX-CC-W5 / UX-CC-S6 の安全なサービス継続を支える依存保守であり、

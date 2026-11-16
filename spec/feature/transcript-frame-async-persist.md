@@ -17,6 +17,8 @@ updated: 2026-08-15
 
 # transcript-frame の非同期永続化
 
+> 所属ドメイン: [`persistence`](../domains/persistence.domain.json)
+
 ## 背景
 
 `POST /v1/sessions/:id/transcript-frame` (`src/api/sessions/relay.ts`) は

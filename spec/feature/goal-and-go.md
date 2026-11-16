@@ -3,7 +3,11 @@ type: feature
 title: "ゴールアンドゴー (goal-and-go 自走継続)"
 description: "全セッションで既定有効とし、明示OFF以外へゴール達成または残作業解消のための上限付き続行injectを送る。"
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - autonomous-continuation
+  - daily-goal-run
+  - delegation-provider
 tags:
   - lifecycle
   - state-machine
@@ -17,6 +21,8 @@ related:
 ---
 
 # ゴールアンドゴー (goal-and-go 自走継続)
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`autonomous-continuation`](../domains/autonomous-continuation.domain.json) · [`daily-goal-run`](../domains/daily-goal-run.domain.json) · [`delegation-provider`](../domains/delegation-provider.domain.json)
 
 `idle-nudge`の最終回答後待機判定を土台に、待機を人間への催促だけでなく、AIセッション
 自身の自走継続につなげる。2026-08-25 neco 指示により全セッション既定 ON とし、明示的な

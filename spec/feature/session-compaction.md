@@ -3,7 +3,7 @@ type: feature
 title: "セッション・コンパクション (引き継ぎ型) — 設計"
 description: "人間が明示したときだけ、handoff 投稿後に /clear して続行する手動コンパクション。"
 service: concordia
-domain: session-coordination
+domain: session-lifecycle
 tags:
   - compaction
   - session-lifecycle
@@ -19,6 +19,8 @@ updated: 2026-08-24
 
 
 # セッション・コンパクション (引き継ぎ型) — 設計
+
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 > 長くなったセッションを「一般的な要約 compact」ではなく **タスク引き継ぎ** で圧縮する。
 > 引き継ぎ資料を生成 → Discord/Slack チャンネルへ投稿 → `/clear` → 引き継ぎを読み直して続行。

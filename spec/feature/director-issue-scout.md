@@ -3,7 +3,7 @@ type: feature
 title: "Director 課題スカウト — 上流推論・将来予測・前例照合による課題発見"
 description: "ディレクターワークロードに「課題発見」を追加する。チームの問題 signal (blocked step・停滞 case 等) から上流課題を推論し、レビュー成果物から将来課題を予測し、Genius の課題発見判断カードで前例照合した課題仮説を、チーム面へ issue-hypothesis カードとして進言する。case の自動生成はしない。2026-08-25 neco 指示で新設。"
 service: concordia
-domain: governance
+domain: director-patrol
 tags:
   - director
   - teams
@@ -21,6 +21,8 @@ updated: 2026-08-25
 ---
 
 # Director 課題スカウト — 課題発見ワークロード
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 > 2026-08-25 neco 指示。「課題発見用のツールを Cc のディレクターワークフローに組み込む。
 > ①発生している問題の上流にある問題を想定して発言する ②将来予測をベースに課題を推察して

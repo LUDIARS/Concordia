@@ -1,5 +1,7 @@
 # 個人の AI 予算 — 月間分と報酬分
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json) · [`configuration`](../domains/configuration.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`persistence`](../domains/persistence.domain.json) · [`personal-ai-budget`](../domains/personal-ai-budget.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
+
 > 2026-10-02 neco 指示:「報酬として AI 予算をあげる」「(付与先は) 個人」「(本社は) 対象外」
 > 「Tabula の取り込みと技術相談課についても報酬を用意」「本社で『〇〇に報酬』で調整できるようにする」
 > (〇〇は人)「予算だけど月間分と報酬分で分けて、月間予算から先に消費する」「公開したものに対して報酬」。

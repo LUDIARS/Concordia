@@ -1,11 +1,15 @@
 ---
 title: 新規セッションへの最小共通コンテキスト
 service: concordia
-domain: session-coordination
+domain:
+  - session-coordination
+  - delegation-provider
 status: implemented
 ---
 
 # 新規セッションへの最小共通コンテキスト
+
+> 所属ドメイン: [`session-coordination`](../domains/session-coordination.domain.json) · [`delegation-provider`](../domains/delegation-provider.domain.json)
 
 2026-09-12 追加: [作業段階](session-work-phases.md)を初期 inject と定期確認で参照する。
 設計が固まったら人間に実装開始を確認し、同じ範囲の開始指示を確認済みなら作業を進める。

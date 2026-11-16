@@ -1,9 +1,12 @@
 ---
 title: Genius model / effort review
 status: implemented
+domain: analysis-core
 ---
 
 # Genius model / effort review
+
+> 所属ドメイン: [`analysis-core`](../domains/analysis-core.domain.json)
 
 ## Scope
 

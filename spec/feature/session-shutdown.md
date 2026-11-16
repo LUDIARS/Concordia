@@ -3,7 +3,7 @@ type: feature
 title: "セッション shutdown — session-end の最後に Lictor を確実に畳む"
 description: "session-end スキルの最終ステップとして Lictor へ shutdown 命令を送る。Lictor は POST /v1/shutdown を受けたらラップ中の CLI プロセスを終了させ、セッションログ (transcript JSONL + 状態ファイル) をアーカイブし、後始末が終わってから自プロセスを落とす。"
 service: concordia
-domain: lifecycle
+domain: session-lifecycle
 tags:
   - lictor
   - session-end
@@ -18,6 +18,8 @@ updated: 2026-08-02
 ---
 
 # セッション shutdown
+
+> 所属ドメイン: [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 > 2026-08-02 neco 指示 (項目 2)。 「session-end またはセッション終了で session-end
 > スキルを実行した際、 最後に Lictor へ shutdown 命令を送る。 Lictor は対応する CLI

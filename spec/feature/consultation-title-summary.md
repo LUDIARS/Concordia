@@ -1,10 +1,14 @@
 ---
 id: CC-CONSULT-TITLE
 status: draft
-domain: consultation
+domain:
+  - consultation
+  - chat-platforms
 ---
 
 # 公開相談の短いスレッド名
+
+> 所属ドメイン: [`consultation`](../domains/consultation.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json)
 
 neco の開始指示「相談開始したらチャンネル名をHaikuで要約、次回は変化が薄ければそのまま」に対応する Actio task は `9eb5faee-88ec-4e23-a4a8-a6e45fd341cc`。価値は UX-CC-W2/W4/W6、情報境界は CC-CONSULT-INV-03/05、依頼同一性・所有権は CC-INV-03/07/08。
 

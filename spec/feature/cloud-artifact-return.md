@@ -6,6 +6,8 @@ domain: cloud-execution
 
 # Artifact return revision — 2026-10-17
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 Human instruction: neco requests hosted setup instructions, defines local artifact storage and CF routing on behalf of the operator, wants a fresh access credential per work request, prefers non-Git file transfer when sufficient, and rejects permanently fixed job parameters. Existing Actio b0483e60-297d-4dc6-a4bf-54e1f8752e04 owns this work. Blender/preparation is reported installed by the human; no reinstall was performed.
 
 ## Fixed configuration versus individual work

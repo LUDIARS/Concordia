@@ -2,11 +2,17 @@
 id: CC-SPRINT-DIALOGUES
 title: スプリントの人間判断と会話
 type: feature
-domain: sprint-dialogues
+domain:
+  - sprint-dialogues
+  - chat-platforms
+  - http-interface
+  - runtime-orchestration
 status: draft
 ---
 
 # スプリントの人間判断と会話
+
+> 所属ドメイン: [`sprint-dialogues`](../domains/sprint-dialogues.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 > **休止 (2026-10-10 neco 判断)**: スプリントは今の LUDIARS の進め方に合わないため、新しいスプリントを
 > 既定経路から案内しない。仕事の単位はデイリーゴール ([daily-goal-run](daily-goal-run.md)) と

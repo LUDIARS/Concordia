@@ -9,6 +9,8 @@ updated: 2026-09-02
 
 # Project code registry
 
+> 所属ドメイン: [`project-code-registry`](../domains/project-code-registry.domain.json)
+
 Concordia が project code とローカル Git repository の対応を SQLite に保持する。
 `LUDIARS/PROJECT-CODES.md` は人間向け略称表として残せるが、Cc の repository binding、
 session title、forum routing の正本には使わない。

@@ -1,10 +1,18 @@
 ---
 id: CC-SHARED-ONESHOT
 status: draft
-domain: governance
+domain:
+  - governance
+  - agent-delegation
+  - http-interface
+  - observability
+  - session-coordination
+  - tooling
 ---
 
 # Provider-neutral text generation
+
+> 所属ドメイン: [`governance`](../domains/governance.domain.json) · [`agent-delegation`](../domains/agent-delegation.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`observability`](../domains/observability.domain.json) · [`session-coordination`](../domains/session-coordination.domain.json) · [`tooling`](../domains/tooling.domain.json)
 
 Value: UX-CC-W2/W5, scenarios UX-CC-S3/S6. Users must retain summaries and
 recognizable task titles when one subscription has exhausted its allowance.

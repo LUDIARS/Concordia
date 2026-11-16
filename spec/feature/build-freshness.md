@@ -1,8 +1,11 @@
 ---
 updated: 2026-09-04
+domain: runtime-orchestration
 ---
 
 # ビルド鮮度 (dist が src より古いまま稼働していないか)
+
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 ## 背景
 

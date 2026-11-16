@@ -3,7 +3,11 @@ type: feature
 title: "承認インボックス — 人間宛て未回答事項の一元化"
 description: "ask_human 判断カード・inquiry・confirm 待ち・merge 承認待ちなど、散在する人間宛ての未回答事項を WebUI inbox と朝夕ダイジェストに集約し、セッション再訪時に通知する read model 機能。"
 service: concordia
-domain: governance
+domain:
+  - governance
+  - director-patrol
+  - http-interface
+  - runtime-orchestration
 tags:
   - inquiry
   - director
@@ -21,6 +25,8 @@ updated: 2026-08-11
 ---
 
 # 承認インボックス — 人間宛て未回答事項の一元化
+
+> 所属ドメイン: [`governance`](../domains/governance.domain.json) · [`director-patrol`](../domains/director-patrol.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 ## 0. 課題
 

@@ -19,6 +19,8 @@ updated: 2026-10-18
 
 # 巡回チャット
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 設計の経緯と根拠は [実装引継ぎ設計](../plan/2026-10-15-patrol-chat-implementation-design.md)。本書は実装済みの契約を記す。
 数値の初期値は設計案であり、人間が承認した値ではない。UX の評価は未測定。
 

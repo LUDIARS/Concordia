@@ -77,6 +77,7 @@
     "spec/feature/developer-toolset.md",
     "spec/feature/inject-context-gating.md",
     "spec/feature/astra-with-sidecar.md",
-    "spec/feature/shared-available-one-shot.md"
+    "spec/feature/shared-available-one-shot.md",
+    "spec/feature/subsidiary-delegation.md"
   ]
 }

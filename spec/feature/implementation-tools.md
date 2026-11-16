@@ -2,11 +2,15 @@
 title: "Implementation tool fast paths"
 status: implemented
 service: concordia
-domain: session-coordination
+domain:
+  - project-code-registry
+  - session-lifecycle
 updated: 2026-08-06
 ---
 
 # Implementation tool fast paths
+
+> 所属ドメイン: [`project-code-registry`](../domains/project-code-registry.domain.json) · [`session-lifecycle`](../domains/session-lifecycle.domain.json)
 
 実装作業で繰り返す既存操作を、一回のtool requestへまとめる。単一セッションが複数実装を
 並行して扱えるよう、session-levelのworkflow stageや新しい状態機械は持たない。

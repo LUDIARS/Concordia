@@ -2,11 +2,18 @@
 title: Ccが作成する作業worktreeとActio参照
 type: feature
 service: concordia
-domain: project-code-registry
+domain:
+  - project-code-registry
+  - agent-delegation
+  - http-interface
+  - runtime-orchestration
+  - taskflow
 status: draft
 ---
 
 # Ccが作成する作業worktreeとActio参照
+
+> 所属ドメイン: [`project-code-registry`](../domains/project-code-registry.domain.json) · [`agent-delegation`](../domains/agent-delegation.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json) · [`taskflow`](../domains/taskflow.domain.json)
 
 2026-09-25 necoの「Actioに登録されているならそれでいい」「wtをCcがツールで作成」「ignore領域に情報を置く」「ツール作って対応」に対応する。
 

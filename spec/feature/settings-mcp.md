@@ -1,5 +1,7 @@
 # Cc 設定の MCP 操作
 
+> 所属ドメイン: [`configuration`](../domains/configuration.domain.json)
+
 状態: draft / 対象: configuration / UX: UX-CC-PRODUCT
 
 利用者がチャットから設定値と出所を確認し、指定した項目だけ変更できる。

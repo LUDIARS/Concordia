@@ -3,7 +3,7 @@ type: feature
 title: "Director — 原稿フロー進行と Genius 判断代理"
 description: "依頼を原稿フローの工程として管理し、実装の進行管理を Concordia Director、判断を Genius、権限判断を人間へ分離する。"
 service: concordia
-domain: governance
+domain: director-patrol
 status: implemented
 related:
   - feature/task-workflow.md
@@ -13,6 +13,8 @@ related:
 ---
 
 # Director — 原稿フロー進行と Genius 判断代理
+
+> 所属ドメイン: [`director-patrol`](../domains/director-patrol.domain.json)
 
 ## 0. 原則
 

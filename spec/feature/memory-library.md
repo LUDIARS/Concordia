@@ -18,6 +18,8 @@ updated: 2026-07-11
 
 # Memory / Skill Library Hygiene
 
+> 所属ドメイン: [`governance`](../domains/governance.domain.json)
+
 ## 目的
 
 Concordia が管理する workspace roots から memory / skill の source を走査し、重複・古さ・

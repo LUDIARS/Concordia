@@ -22,6 +22,8 @@ updated: 2026-06-30
 
 # Concordia Discord-UI PR-B — 実装指示 (codex 向け)
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 前提
 
 PR-A (PR #50, branch `feat/discord-ui`) は bot 常駐 / session channel CRUD / chat egress / reaction 評価まで完成済。 [spec/discord-ui.md](discord-ui.md) を先に読むこと。

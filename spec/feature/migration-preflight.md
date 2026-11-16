@@ -7,6 +7,8 @@ domain: tooling
 
 # 価値と境界
 
+> 所属ドメイン: [`tooling`](../domains/tooling.domain.json)
+
 UX-CC-W1/W3/W5、CC-INV-01/04/05。並行作業の開発者が、提出前に自分のコミットと
 ローカル main・未マージ branch の番号衝突を確認する。Git が ref とソースの状態所有者、
 tooling が比較結果の所有者。永続状態を作らず、失敗後は前提を直して読み直す。

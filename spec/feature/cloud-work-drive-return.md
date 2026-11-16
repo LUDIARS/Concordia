@@ -7,6 +7,8 @@ domain: cloud-execution
 
 # Drive return for non-code outputs — 2026-11-02
 
+> 所属ドメイン: [`cloud-execution`](../domains/cloud-execution.domain.json)
+
 Human instruction (2026-11-02, Discord thread "opus-5-5"): run Claude Code in the cloud kicked by Cc; code
 returns by Git, everything else by Google Drive; Git keeps the existing Cloudflare receiver
 (`concordia-cloud-git`). Synergos was rejected as a return route (its external transport itself depends on

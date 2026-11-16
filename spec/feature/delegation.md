@@ -3,7 +3,12 @@ type: feature
 title: "Delegation Templates — 設計"
 description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / codex-sdk (Satelles ヘッドレス) / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。spawn + render、Cc管理のmodel/effort確認、コミット代行を扱う。"
 service: concordia
-domain: governance
+domain:
+  - agent-delegation
+  - delegation-launch
+  - delegation-provider
+  - parttimer-review-scheduling
+  - runtime-orchestration
 tags:
   - delegation
   - llm
@@ -29,6 +34,8 @@ ID・prompt 編集履歴・モデル pin・run 履歴を保ち、名前衝突は
 
 
 # Delegation Templates — 設計
+
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`delegation-launch`](../domains/delegation-launch.domain.json) · [`delegation-provider`](../domains/delegation-provider.domain.json) · [`parttimer-review-scheduling`](../domains/parttimer-review-scheduling.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
 
 > AI エージェント間の作業委託フレームワーク。 Claude / Codex / Gemini が
 > 「呼び出し名」 で別エージェントに作業を投げ、 Concordia がテンプレ resolve

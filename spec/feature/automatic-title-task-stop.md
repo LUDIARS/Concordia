@@ -1,9 +1,12 @@
 ---
 id: CC-AUTO-TITLE-TASK-STOP
 status: draft
+domain: observability
 ---
 
 # 自動タイトル変更タスクの停止
+
+> 所属ドメイン: [`observability`](../domains/observability.domain.json)
 
 neco の2026-10-04開始指示に対応する。セッションの初回観測、repo変更、prompt受信を理由に、CcからLictorへタイトル変更だけの仕事を注入しない。
 

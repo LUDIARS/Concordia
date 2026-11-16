@@ -21,6 +21,8 @@ updated: 2026-08-11
 
 # モジュール台帳 — サービスモジュールの宣言的 manifest と ON/OFF 操作面
 
+> 所属ドメイン: [`runtime-orchestration`](../domains/runtime-orchestration.domain.json)
+
 ## 0. 課題と原則
 
 プロセス分割の骨格 (backend / control-worker / chat-worker / cost-worker / workflow-worker、

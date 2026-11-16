@@ -2,9 +2,17 @@
 title: Cc 共通開発ツールセット
 status: draft
 service: concordia
+domain:
+  - agent-delegation
+  - chat-platforms
+  - http-interface
+  - runtime-orchestration
+  - tooling
 ---
 
 # 目的と契約
+
+> 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json) · [`chat-platforms`](../domains/chat-platforms.domain.json) · [`http-interface`](../domains/http-interface.domain.json) · [`runtime-orchestration`](../domains/runtime-orchestration.domain.json) · [`tooling`](../domains/tooling.domain.json)
 
 2026-09-25 neco 指示。Cc はハーモナイザーであり、共通作業を実行するツールセットでもある。
 繰り返す操作は型付きツールへ、選択手順と結果の解釈はスキルへ置く。

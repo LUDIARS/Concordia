@@ -16,6 +16,8 @@ updated: 2026-07-11
 
 # Discord からの Excubitor project 起動・再起動
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 ## 目的
 
 Discord から Excubitor dashboard の project を選び、その project に属する実行 component を

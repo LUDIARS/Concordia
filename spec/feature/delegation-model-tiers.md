@@ -3,9 +3,14 @@ title: Delegation model tiers and quota substitution
 type: feature
 id: CC-DELEGATION-MODEL-TIERS
 status: draft
+domain:
+  - delegation-launch
+  - observability
 ---
 
 # Model allocation at the shared launch boundary
+
+> 所属ドメイン: [`delegation-launch`](../domains/delegation-launch.domain.json) · [`observability`](../domains/observability.domain.json)
 
 User instruction: neco 2026-10-21; all Delegation entry points, including taskflow.
 Value: UX-CC-W2 / AD-S2 and AD-S5 (spec/ux/agent-delegation.md): preserve the

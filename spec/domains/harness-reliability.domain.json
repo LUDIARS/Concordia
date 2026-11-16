@@ -35,7 +35,8 @@
     "spec/ux/product.md",
     "spec/setup/hooks-claude-code.md",
     "spec/setup/harness-supervisor.md",
-    "spec/feature/project-harness-policy.md"
+    "spec/feature/project-harness-policy.md",
+    "spec/feature/harness-status-card.md"
   ],
   "cardTemplate": "Describe checkpoint recovery, observed applicability and bounded advisory; never equate hook installation with successful execution."
 }

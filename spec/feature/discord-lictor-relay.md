@@ -23,6 +23,8 @@ updated: 2026-08-03
 
 # Discord ↔ Lictor 仲介リレー設計 (返信混線の根治)
 
+> 所属ドメイン: [`chat-platforms`](../domains/chat-platforms.domain.json)
+
 2026-05-30 起草。 関連: [discord-ui.md](./discord-ui.md) / [service-schema.md](../interface/service-schema.md) /
 Lictor `DESIGN.md`。
 

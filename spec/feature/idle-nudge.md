@@ -1,5 +1,7 @@
 # Feature: idle-after-final-answer nudge (待機催促通知)
 
+> 所属ドメイン: [`autonomous-continuation`](../domains/autonomous-continuation.domain.json)
+
 ## 目的
 
 Concordia がラップするセッション (Lictor 経由の Claude / Codex / Gemini) が

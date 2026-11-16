@@ -1,5 +1,7 @@
 # Shared one-shot launch boundary
 
+> 所属ドメイン: [`chores`](../domains/chores.domain.json) · [`delegation-provider`](../domains/delegation-provider.domain.json) · [`sprint-dialogues`](../domains/sprint-dialogues.domain.json) · [`tooling`](../domains/tooling.domain.json)
+
 UX-CC-W2/W5 and UX-CC-S2/S3/S6: preserve the original request, result and execution identity when a CLI fails or is stopped. Applies CC-INV-03/04/07 and CC-NODE-02/03/08.
 
 The chores adapter, sprint-dialogues Claude adapter and delegation-provider worker use @ludiars/one-shot from the pinned lib/lapilli submodule (file dependency, Node >=22.12). This is a supporting process boundary for agent-delegation, not a new core domain. Lapilli owns model resolution, executable resolution and subscription-auth child environment. Cc owns request identity, prompts, permissions, deadlines, cancellation, output limits, persistence and terminal status. Parent worker metadata remains available; only the inference child's environment is cleaned. No retry, service control or permission bypass is added.

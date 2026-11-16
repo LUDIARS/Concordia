@@ -6,5 +6,5 @@
   "membership": [
     { "pathPattern": "(^|/)src/web-sso/[^/]+\\.ts$" }
   ],
-  "specRefs": ["spec/feature/web-sso.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/trust-boundaries.md"]
+  "specRefs": ["spec/feature/web-sso.md", "spec/ux/product.md", "spec/architecture/ddd.md", "spec/feature/trust-boundaries.md", "spec/feature/ex-viewer-base.md"]
 }

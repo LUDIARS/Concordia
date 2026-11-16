@@ -12,6 +12,12 @@ export type AnswerQuestionBody =
   | { question_id: number; answer_indices: number[] }
   | { question_id: number; other_text: string };
 
+/**
+ * 人以外が答えたときの回答者。人がボタン・自由入力・WebUI で答えたときは付けない。
+ * `genius` は Genius (判断カード) に基づく Cc の自動回答 (spec/feature/goal-stop-question-guard.md)。
+ */
+export type QuestionAnsweredBy = "genius";
+
 export type AnswerQuestionResult =
   | { ok: true; answer_text: string }
   | {

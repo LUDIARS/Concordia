@@ -16,6 +16,7 @@ import { formatAuthorName } from "../platform/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { stopLifecycle } from "../platform/lifecycle.js";
+import { slackAnsweredLabel } from "../platform/question-answered-display.js";
 import type { ChatReadModel, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
@@ -649,7 +650,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       void handleQuestionPosted(ev).catch((e) => log.warn(`question.posted dispatch: ${(e as Error).message}`));
       sessionsCanvas.schedule();
     } else if (ev.type === "question.answered") {
-      void clearQuestionButtons(ev.question_id, `✅ *回答済み* — 選択肢 ${ev.answer_index + 1}`);
+      // 回答者 (Genius の自動回答など) と回答内容を残す。自由文の回答 (index -1) も正しく出す。
+      void clearQuestionButtons(ev.question_id, slackAnsweredLabel(ev));
       sessionsCanvas.schedule();
     } else if (ev.type === "question.resolved") {
       void clearQuestionButtons(ev.question_id, "✅ *回答済み（ローカル）*");

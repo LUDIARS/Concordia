@@ -14,7 +14,8 @@ import {
 } from "discord.js";
 import { labelWithOptionCode } from "../shared/option-code.js";
 import type { DiscordCommandDeps } from "./command-port.js";
-import type { AnswerQuestionBody } from "../platform/answer-question.js";
+import type { AnswerQuestionBody, QuestionAnsweredBy } from "../platform/answer-question.js";
+import { discordAnsweredFieldName } from "../platform/question-answered-display.js";
 import type {
   DiscordPendingQuestionsRepo,
   DiscordSessionChannelsRepo,
@@ -240,6 +241,41 @@ export async function resolveQuestionMessage(
   }
 }
 
+/**
+ * 人以外 (Genius の自動回答) が答えたとき (`question.answered` に answered_by がある)、投稿済みの
+ * 質問カードを人が押したときと同じ見た目 (緑・「✅ 回答」・ボタン除去) に閉じ、回答者を見出しに出す。
+ * 人の回答はボタン / modal のハンドラがその場で閉じるので、ここでは扱わない (二重の追記を避ける)。
+ * best-effort (spec/feature/goal-stop-question-guard.md)。
+ *
+ * @implements SPEC-GOAL-STOP-Q-06
+ */
+export async function markQuestionMessageAnswered(
+  input: {
+    guild: Pick<Guild, "channels">;
+    sessionChannelsRepo: Pick<DiscordSessionChannelsRepo, "findBySessionId">;
+    pendingQuestionsRepo: Pick<DiscordPendingQuestionsRepo, "findById">;
+    log: { warn: (m: string) => void };
+  },
+  ev: { target_session_id: string; question_id: number; answer_text: string; answered_by?: QuestionAnsweredBy },
+): Promise<boolean> {
+  if (!ev.answered_by) return false;
+  const row = input.pendingQuestionsRepo.findById(ev.question_id);
+  if (!row || !row.discord_message_id) return false;
+  const channelId = row.discord_channel_id
+    ?? input.sessionChannelsRepo.findBySessionId(ev.target_session_id)?.channel_id;
+  if (!channelId) return false;
+  try {
+    const channel = await input.guild.channels.fetch(channelId);
+    if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return false;
+    const msg = await channel.messages.fetch(row.discord_message_id);
+    await msg.edit(answeredCardEdit(msg.embeds?.[0], ev.answer_text, discordAnsweredFieldName(ev.answered_by)));
+    return true;
+  } catch (e) {
+    input.log.warn(`markQuestionMessageAnswered failed qid=${ev.question_id}: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 /** answer-question 用の body 形。単一 / 複数 / 自由文 のいずれか (control 側と共有)。 */
 type AnswerBody = AnswerQuestionBody;
 
@@ -406,12 +442,13 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
 function answeredCardEdit(
   baseEmbed: { toJSON?: () => unknown } | undefined | null,
   answerText: string,
+  fieldName = "✅ 回答",
 ): { embeds?: EmbedBuilder[]; components: [] } {
   const value = (answerText.trim() || "(送信済み)").slice(0, 1024);
   if (!baseEmbed) return { components: [] };
   try {
     const embed = EmbedBuilder.from(baseEmbed as Parameters<typeof EmbedBuilder.from>[0])
-      .addFields({ name: "✅ 回答", value })
+      .addFields({ name: fieldName, value })
       .setColor(0x3ba55d);
     return { embeds: [embed], components: [] };
   } catch {

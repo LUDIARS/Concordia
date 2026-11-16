@@ -14,10 +14,10 @@
 
 import { eventBus } from "../events.js";
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
-import type { AnswerQuestionBody, AnswerQuestionResult } from "../platform/answer-question.js";
+import type { AnswerQuestionBody, AnswerQuestionResult, QuestionAnsweredBy } from "../platform/answer-question.js";
 
 // 型契約は platform 層 (chat が import 可能な境界) に置き、ここから再エクスポートする。
-export type { AnswerQuestionBody, AnswerQuestionResult } from "../platform/answer-question.js";
+export type { AnswerQuestionBody, AnswerQuestionResult, QuestionAnsweredBy } from "../platform/answer-question.js";
 
 /** 回答対象 question 行の必要最小形 (DiscordPendingQuestionsRepo が構造的に満たす)。 */
 export interface AnswerQuestionStore {
@@ -89,6 +89,8 @@ export function answerPendingQuestion(
   deps: AnswerQuestionDeps,
   sessionId: string,
   body: AnswerQuestionBody,
+  /** 人以外が答えるとき (Genius など) の回答者。event と session event に残し、チャット面の表示に使う。 */
+  opts: { answeredBy?: QuestionAnsweredBy } = {},
 ): AnswerQuestionResult {
   if (!deps.sessions.findSession(sessionId)) {
     return { ok: false, status: 404, error: "not_found" };
@@ -145,13 +147,19 @@ export function answerPendingQuestion(
     question_id: row.id,
     answer_index: answerIndex,
     answer_text: answerText,
+    ...(opts.answeredBy ? { answered_by: opts.answeredBy } : {}),
     ts,
   });
   deps.sessions.appendEvent({
     session_id: sessionId,
     ts,
     kind: "question_answered",
-    payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
+    payload: {
+      question_id: row.id,
+      answer_index: answerIndex,
+      answer_text: answerText,
+      ...(opts.answeredBy ? { answered_by: opts.answeredBy } : {}),
+    },
   });
   return { ok: true, answer_text: answerText };
 }

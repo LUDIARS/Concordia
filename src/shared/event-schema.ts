@@ -323,6 +323,7 @@ const eventSchemas = {
     question_id: z.number(),
     answer_index: z.number(),
     answer_text: z.string(),
+    answered_by: z.literal("genius").optional(),
     ts: z.number(),
   }).passthrough(),
   "question.resolved": z.object({

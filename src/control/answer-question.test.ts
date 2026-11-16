@@ -39,6 +39,26 @@ function makeDeps(rowOverrides: Partial<ReturnType<AnswerQuestionStore["findById
 }
 
 describe("answerPendingQuestion", () => {
+  it("回答者 genius を event と session event に残す (SPEC-GOAL-STOP-Q-06)", () => {
+    const { deps, calls } = makeDeps();
+    const emitted: unknown[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if ((ev as { type?: string }).type === "question.answered") emitted.push(ev);
+    });
+    try {
+      const r = answerPendingQuestion(deps, SESSION, { question_id: 42, other_text: "[Genius 判断] 進める" }, { answeredBy: "genius" });
+      expect(r.ok).toBe(true);
+      expect(emitted[0]).toMatchObject({ question_id: 42, answer_index: -1, answered_by: "genius" });
+      expect(calls.events[0]).toMatchObject({ kind: "question_answered", payload: { answered_by: "genius" } });
+      // 人の回答には付けない。
+      const human = makeDeps();
+      answerPendingQuestion(human.deps, SESSION, { question_id: 42, answer_index: 0 });
+      expect(human.calls.events[0]).not.toHaveProperty("payload.answered_by");
+    } finally {
+      unsub();
+    }
+  });
+
   it("単一選択: label を確定し question.answered を emit する", () => {
     const { deps, calls } = makeDeps();
     const emitted: unknown[] = [];

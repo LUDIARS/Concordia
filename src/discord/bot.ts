@@ -89,7 +89,7 @@ import {
   invalidateAndRefreshDelegationTemplateCache,
   prewarmDelegationTemplateCache,
 } from "./delegation-template-cache.js";
-import { postQuestion, resolveQuestionMessage } from "./question.js";
+import { markQuestionMessageAnswered, postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
@@ -3318,6 +3318,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void postPermissionRequest({ guild, sessionChannelsRepo, permissionActions, log }, ev)
         .catch((e) => log.warn(`permission request post failed session=${ev.target_session_id}: ${(e as Error).message}`));
+      return;
+    }
+    if (ev.type === "question.answered") {
+      // Genius の自動回答などボタンを通らない回答も、カードを回答済みに閉じる (人の回答はハンドラが閉じる)。
+      if (!ev.answered_by || !isActiveDiscordSession(ev.target_session_id)) return;
+      void markQuestionMessageAnswered({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
       return;
     }
     if (ev.type === "question.resolved") {

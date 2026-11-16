@@ -220,7 +220,7 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     section: "session",
     label: "ゴールを止める質問に答える",
     description:
-      "依頼済みのゴールへ自力で進める前提整備・手段選択を選ばせるだけの質問なら、Cc が判定して「推奨案で進めて報告」と回答する。破壊的操作・ゴールが曖昧・他者と衝突する質問は人間に残す (spec/feature/goal-stop-question-guard.md)。",
+      "依頼済みのゴールへ自力で進める前提整備・手段選択を選ばせるだけの質問のうち、Genius の判断カードで判断できるものだけ、カードに基づいて Cc が回答する (回答者は Genius と記録し、Discord / Slack のカードも回答済みにする)。Genius 不在・前例なし・人の好みや破壊的操作の質問は人間に残す (spec/feature/goal-stop-question-guard.md)。",
     kind: "boolean",
     envName: null,
     dbKey: "admin.goal_stop_question_guard_enabled",

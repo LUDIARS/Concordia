@@ -5578,6 +5578,20 @@
     {"source":"src/api/register-core.ts","tests":["src/api/sessions/repo-agents.test.ts"],"contracts":[]},
     {"source":"src/control/pending-relictor.ts","tests":["src/api/sessions/succession-enrollment.test.ts"],"contracts":[]},
     {"source":"src/bootstrap/core.ts","tests":["src/control/succession/succession-runtime.test.ts"],"contracts":[]},
-    {"source":"src/config/settings/definitions/session.ts","tests":["src/control/succession/succession-settings.test.ts"],"contracts":[]}
+    {"source":"src/config/settings/definitions/session.ts","tests":["src/control/succession/succession-settings.test.ts"],"contracts":[]},
+    {"source":"src/control/goal-stop-question/guard.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-04"]},
+    {"source":"src/control/goal-stop-question/judge.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-02"]},
+    {"source":"src/control/goal-stop-question/genius-evidence.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-05"]},
+    {"source":"src/control/goal-stop-question/prefilter.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-01"]},
+    {"source":"src/control/goal-stop-question/human-instructions.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-03"]},
+    {"source":"src/control/answer-question.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/platform/answer-question.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/platform/question-answered-display.ts","tests":["src/platform/question-answered-display.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/discord/question.ts","tests":["src/discord/question-answered-by.test.ts","src/discord/question-answer.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/discord/bot.ts","tests":["src/discord/question-answered-by.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/slack/bot.ts","tests":["src/platform/question-answered-display.test.ts","src/slack/bot-session-channels.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/events.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/shared/event-schema.ts","tests":["src/control/answer-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-06"]},
+    {"source":"src/bootstrap/core.ts","tests":["src/control/goal-stop-question/goal-stop-question.test.ts"],"contracts":["SPEC-GOAL-STOP-Q-04"]}
   ]
 }

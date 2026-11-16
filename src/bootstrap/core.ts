@@ -212,7 +212,8 @@ import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { startLanguageGuard } from "../control/language-guard.js";
 import { startGoalStopQuestionGuard } from "../control/goal-stop-question/guard.js";
-import { claudeGoalStopJudge } from "../control/goal-stop-question/judge.js";
+import { claudeGeniusAnswerJudge } from "../control/goal-stop-question/judge.js";
+import { geniusEvidenceLookup } from "../control/goal-stop-question/genius-evidence.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
@@ -3117,12 +3118,15 @@ export async function startBackend(): Promise<BackendHandle> {
         isEnabled: () => adminState.getGoalStopQuestionGuardEnabled(),
         isActiveSession: (sessionId) => repo.findSession(sessionId)?.status === "active",
         recentEvents: (sessionId) => repo.recentEvents(sessionId, 50),
-        judge: claudeGoalStopJudge((prompt, opts) => runClaude(prompt, opts)),
+        // 自動回答は Genius のカードで判断できる質問だけ (2026-11-16 neco)。
+        evidence: geniusEvidenceLookup(new CatalogGeniusClient(excubitorClient), () => cfg.inquiryScoreMin),
+        judge: claudeGeniusAnswerJudge((prompt, opts) => runClaude(prompt, opts)),
         answer: (sessionId, questionId, text) =>
           answerPendingQuestion(
             { sessions: repo, questions: questionStoreFromRepo(pendingQuestions) },
             sessionId,
             { question_id: questionId, other_text: text },
+            { answeredBy: "genius" },
           ),
         record: (sessionId, payload) =>
           repo.appendEvent({ session_id: sessionId, ts: Math.floor(Date.now() / 1000), kind: "goal_stop_question_answered", payload }),

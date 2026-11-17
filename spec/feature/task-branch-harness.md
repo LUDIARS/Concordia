@@ -36,6 +36,7 @@ domain:
 - TB-CD: checkout 不一致でも、編集ツール以外で、記号を含まない単独の `cd <パス>` (`cd` / `chdir` / `Set-Location` / `sl` / `pushd`) の行き先が登録 checkout (先頭の登録・TB-CASTRA の対象・working_targets) か workspace root なら通す。linked worktree の cwd から登録 checkout へ戻れない状態を作らない。拒否文には戻るコマンド `cd "<登録checkout>"` を載せ、それが通ることをテストで固定する。編集ツールの checkout 一致要求は緩めない。2026-11-16 以降、記号を含まない `cd <1引数>` (コマンド名 `cd` のみ) は行き先を問わず requiresTaskBranchCheck の検査対象外とする (シェルを移すだけで、次のコマンドは移った先で検査される)。`chdir` / `Set-Location` / `sl` / `pushd` は従来どおり行き先で判定する。
 - TB-CASTRA: Castra root 登録のセッションで root 自体に登録 branch が無いとき、登録を target_project の側で照合し直す。target_project が絶対パスならそのまま使い、プロジェクトコード (大文字小文字を区別) かプロジェクト名 (区別しない) ならプロジェクト登録の repo_path で実パスへ解決する。解決できない名前・存在しない repo_path は照合しない (Cc プロセスの cwd 基準のパスで照合しない)。拒否文の「推定対象」は、acting が別リポの linked worktree で登録 branch を持ち、先頭の登録が Castra root のとき、その worktree の本体 checkout (git common dir の親) を示す (表示のみ、判定は変えない)。
 - TB-WORKAREA: Claude Code の session scratchpad (`<tmpdir>/claude/<hash>/<session>/scratchpad/`) と project memory (`<Claude config dir>/projects/<slug>/memory/`) への編集は、git 管理外の作業領域として supervisor hook が Cc へ問わずに通し、監査 (`mode: "workarea"`) だけ残す。それ以外の git 管理外パスは従来どおり拒否する (fail-closed)。パスは symlink / junction を解決した実パスで照合する。
+- TB-ROOT-CMD: workspace root (Cc 設定の workspace roots。例 `E:/Document/Ars`) と同じか、その配下を cwd にしたシェルコマンド (`Bash` / `PowerShell`) は、作業境界のずれ系 rule (`task-branch` / `outside-scope` / `max-repos` / `submitted-task-boundary` / `branch-before-edit`) の deny を warn へ下げて通す。安全境界 (main 直 push、既知の地雷、サービス起動、問診・ユースケースの読み取り専用、予算、受入条件、DDD 根拠、相談の情報保護など) の deny は下げない。編集ツールは対象外 (TB-REGISTERED を維持)。適用は決定的判定と学習ルールの集約後。`CONCORDIA_HARNESS_ROOT_COMMAND_RELAX=0` で従来の deny に戻せる。
 
 セッションのブランチ・作業・PR 提出境界は session-lifecycle の保存 API を介して記録する。純粋な分岐判断は harness-reliability、Git 読み取りは adapter、手順は use case が所有する。PR の状態は Rv / GitHub が正本であり、境界記録を審査通過と扱わない。
 
@@ -161,3 +162,16 @@ Actio: actio:80d4da98-692e-439c-b9c7-415aa7107a18
 
 検証: task-branch-castra-target テスト 6 件 (実例の判定値で案内の cd・Castra root への cd が通る / castra_registration が存在しないパスにならない / 推定対象が作業リポを示す / コード指定で作業リポに照合 / 解決規則 / 表示の条件) と tests/harness-reliability 全 12 ファイル 94 件が成功。
 復旧: revert すれば従来の判定に戻る。metadata・migration の追加はない。
+
+## グローバルルート配下のコマンドを作業境界のずれで止めない（2026-11-17）
+
+neco 指示「Cc のコマンドブロック、LUDIARS の使い方がイレギュラーなのは承知だが今あまりに使いづらい。ので、『グローバルルート以下の作業ならヨシ』というコマンドのブロック機構そのものを緩和する実装が欲しい」。
+根拠: supervisor 監査 (`.claude/state/harness-supervisor/audit.jsonl`) の直近 2 万件で、コマンドの deny は `task-branch` 635 件・`submitted-task-boundary` 133 件・`max-repos` 119 件が上位で、安全境界 (`no-main-push` 29 件・`no-service-start-in-session` 17 件など) より桁が大きい。LUDIARS は 1 つの root に多数のリポを並べて横断的に読む・調べる・ビルドするため、ずれ系の deny が大半誤停止になっていた。
+
+- TB-ROOT-CMD: 判定は `src/harness/reliability/workspace-root-command-relax.ts` (`isUnderWorkspaceRoot` / `relaxWorkspaceRootCommand`、対象 rule は `WORKSPACE_ROOT_RELAXABLE_RULES`)。適用は `src/api/harness-session.ts` の `/gate` で blackbox の集約後・repo-agent 案内の前。root は `register-core.ts` が `adminState.getWorkspaceRoots()` を都度渡す。
+- 状態所有者: workspace roots は configuration (admin state)。本変更は新しい状態を持たない。
+- 編集ツールは緩めない: 登録外 checkout への書き込みが別作業の混入 (TB-PR / TB-PRESERVE) を起こすため。編集の緩和は別判断とする。
+- offline / cached モード (supervisor-cli) は対象外。Cc に届かないときは従来どおり復旧範囲だけを通す。
+
+検証: `tests/harness-reliability/workspace-root-command-relax.test.ts` (root 配下判定・ずれ系 rule の降格・安全境界の維持・編集ツール対象外・root 外/未設定は不変) と `src/api/harness-session-root-relax.test.ts` (`/gate` 実経路で task-branch deny がコマンドだけ warn、編集と main 直 push は deny)。
+復旧: `CONCORDIA_HARNESS_ROOT_COMMAND_RELAX=0` を設定して Cc を再起動すれば従来の deny へ戻る (gate ごとに評価)。revert でも戻る。metadata・migration の追加はない。

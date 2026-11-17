@@ -16,6 +16,7 @@ import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { layerSessionRules, type DepartmentRuleSource } from "../departments/rule-layers.js";
 import { evaluateAction } from "../harness/session-gate.js";
+import { relaxWorkspaceRootCommand } from "../harness/reliability/workspace-root-command-relax.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
 import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { hasDddEvidenceAsync, resolveDddEvidenceRoot } from "../harness/ddd-evidence.js";
@@ -167,6 +168,11 @@ export interface HarnessSessionApiDeps {
    * 未注入・対象外なら null で、 deny 応答は従来どおり。
    */
   repoAgentGuidance?: (input: RepoAgentGateInput) => string | null;
+  /**
+   * TB-ROOT-CMD (spec/feature/task-branch-harness.md): この root 配下のシェルコマンドは、作業境界のずれ系
+   * rule の deny を warn へ下げる。未注入・空なら従来どおり。都度呼ぶ (WebUI の変更を再起動なしで反映)。
+   */
+  workspaceRootCommandRelaxRoots?: () => readonly string[];
 }
 
 export interface RepoAgentGateInput {
@@ -365,6 +371,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
         hlog.warn({ err: blackboxError, session_id, hook: hook ?? "gate" }, "harness blackbox gate failed");
       }
     }
+    // TB-ROOT-CMD: 決定的・学習ルールの両方を集約した後に適用する (ずれ系 rule だけを下げ、安全境界は残す)。
+    const relaxRoots = deps.workspaceRootCommandRelaxRoots?.() ?? [];
+    if (relaxRoots.length > 0) verdict = relaxWorkspaceRootCommand(verdict, action, relaxRoots);
     if (verdict.decision === "deny" && session_id && deps.repoAgentGuidance) {
       attachRepoAgentGuidance(verdict, deps.repoAgentGuidance, {
         sessionId: session_id, hits: verdict.hits, cwd: action.cwd ?? null, filePath: action.filePath ?? null,

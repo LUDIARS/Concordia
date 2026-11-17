@@ -588,6 +588,14 @@
       "contracts": []
     },
     {
+      "source": "src/harness/reliability/workspace-root-command-relax.ts",
+      "tests": [
+        "tests/harness-reliability/workspace-root-command-relax.test.ts",
+        "src/api/harness-session-root-relax.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/harness/reliability/task-branch-git.ts",
       "tests": [
         "tests/harness-reliability/task-branch.test.ts",

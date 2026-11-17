@@ -1208,6 +1208,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),
         mainPushAllowlist: () => deps.adminState.getHarnessMainPushAllowlist(),
         mentionUserId: () => deps.adminState.getMentionUserId(),
+        // TB-ROOT-CMD: 既定で有効。CONCORDIA_HARNESS_ROOT_COMMAND_RELAX=0 で従来の deny に戻す (復旧手段)。
+        workspaceRootCommandRelaxRoots: () => process.env.CONCORDIA_HARNESS_ROOT_COMMAND_RELAX === "0"
+          ? [] : deps.adminState.getWorkspaceRoots(),
       }),
     );
   }

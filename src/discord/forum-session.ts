@@ -142,6 +142,9 @@ export async function updateForumSessionState(
   const kept = thread.appliedTags.filter((id) => !stateTagIds.includes(id));
 
   if (state === "ended" || state === "lost") {
+    // 既に閉じているスレッドは編集できない (Discord は "Thread is archived" で拒否する)。
+    // 閉じていること自体が終了の表示なので、そのままにする。
+    if (thread.archived) return;
     await thread.edit({
       appliedTags: kept,
       archived: true,

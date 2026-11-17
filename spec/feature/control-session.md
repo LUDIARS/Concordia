@@ -133,7 +133,7 @@ updated: 2026-11-17
 | CC-CTL-INV-07 | 管制チャンネルのまとめは 1 時間に 1 回まで。進捗ボードだけを読んで作り、投稿に成功したときだけ時刻を記録する。本文にメンションを含めない |
 | CC-CTL-INV-09 | 待つ理由 (人間の判断・審査・委託の結果) の無いセッションが 20 分以上無活動なら、自動確認の記録の有無にかかわらず停止か応答なしに分類する (全員が無活動なのに停止 0 件、にはならない)。停止への追加指示は未返信でも上限 2 時間の間隔で送り続ける |
 | CC-CTL-INV-10 | 待つ理由の照会 (審査状況) が失敗し続けても、停止の検出を無期限に止めない。3 巡回続けて読めなければ無活動基準に戻し、理由を `status_reason` に残す。人間の応答待ちの確認も、そのセッションが確認後にコミット・PR の提出/更新をしていれば解く |
-| CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの) と、親の記録が無くても担当ブランチの PR がマージ済みのセッション。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない。先に案内を 1 回送り、猶予後も同じなら既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない |
+| CC-CTL-INV-08 | 管制が閉じるのは、他セッションの作業指示で Cc が起動した子 (親子の記録があるもの、委託 run の子は親を引けなくても対象) と、親の記録が無くても担当ブランチの PR がマージ済みのセッション。委託 run の子は run が終端 (completed / partial / failed) で担当 PR がマージ済みかクローズ済みなら役目を終えたとみなす。人間の判断待ち・審査中の PR・testing claim・未保存の変更があるか、どれかを照会できなければ閉じない (古い質問カードだけは §9 の方針に従う)。先に案内を 1 回送り、猶予後も同じで案内に反応が無ければ既存のセッション終了経路で閉じる (プロセスを直接 kill しない)。終了の結果が分からなければ再送しない。閉じない理由はセッションに記録する |
 
 ## API
 
@@ -168,6 +168,42 @@ neco 指示 (2026-11-16)「セッションから作業指示で起動したセ�
 - 2 段 (`reaper.ts`): 先に子へ「役目を終えたので作業記録を残して session-end してください」を 1 回送り、子の metadata `control_reaper` に時刻を残す (届かなければ記録しない)。10 分後も閉じてよい条件のままなら、既存の終了経路 (`DELETE /v1/sessions/:id` → `endSessionNow`) で閉じる。閉じる前後に親へ inject し (親の記録がある場合)、管制チャンネルへ件数と対象を知らせる。閉じたものは §7 のまとめに列挙する。終了を試みたら記録し、結果が分からなくても再送しない。
 - 会話が 30 分以内の子は照会しない (git / Revisor を叩かない)。open PR の一覧は 1 巡回で 1 回だけ読む。
 - 設定 `session.control_session_reaper_enabled` (既定 ON)。`session.control_session_enabled` が OFF なら動かない。OFF で次の巡回から止まる。
+
+#### 9.1 閉じられずに残っていた例と対応 (2026-11-17、Actio 2eb4a28e-6444-4407-ab3d-06565cd14a32)
+
+neco 指示 2026-11-17「終わったセッションをアーカイブしていきたい」→「管制が自動で閉じる」。親 lictor-24e68c85 が手で閉じた例を DB から調べた結果:
+
+- `lictor-88db0fbf` (Revisor、委託 run `c2aad04c` completed、PR マージ済み): run の `parent_session_id` が空で、親は `triggered_by` にしか無かった。旧 `classifyChild` は親が引けない委託の子を null (対象外) にし、branch が main (provided-cwd) なので standalone にもならず、一度も判定されなかった。親が空なので `delegation:<run>:status` の inject も親に届いておらず、`done_delegation` も成り立たなかった。直近 14 日の委託 run はほとんどが `parent_session_id` 空 (cron・partial-requeue・セッション起動の一部)。
+- 共有 checkout (基点ブランチ) で起動したセッションの未保存判定は `git status --porcelain` を共有 checkout で読み、他の作業の未追跡ファイル・submodule 差分で常に「未保存あり」になっていた。
+- `lictor-baab89c6` (Concordia、親の記録の無い `/v1/spawn`、branch main): 対象外のうえ、未回答の質問カード (`discord_pending_questions`、約 18 時間前) が残っていた。
+- partial で終わった委託: 終端扱いの判定 (`done_delegation`) は partial も含むが、親への通知の記録が前提で、親の空な run では成り立たなかった。
+
+対応:
+
+- 親の解決 (`runParentSessionId`): `parent_session_id` → metadata `delegation_parent_session_id` → `triggered_by` がセッション id (`lictor-<uuid>`) のとき、の順。cron 等の起動元は親にしない。親を引けない委託の子も対象にする (親への inject は省き、管制チャンネルにだけ知らせる)。
+- 閉じてよい条件を追加:
+  - `done_run_settled`: 委託 run が終端 (completed / partial / failed) で、担当 PR が merged か closed、その後 30 分以上会話が無い。担当 PR は作業ブランチならブランチで、共有 checkout (基点ブランチ) なら Revisor の PR の `sessionId` で引く (`findLocalPrBySession`: open の詳細一覧 → 同じリポジトリの直近の決着済みを単一取得)。PR が無い・照会できないときは閉じない。
+  - 親を持つ `/v1/spawn` の子も、担当 PR がマージ済みなら `done_merged`。
+  - 終了候補の案内後に反応が無いもの: 案内の後に会話があれば (案内から 60 秒より後の活動) 反応したとみなし、猶予後でも閉じずに案内からやり直す。反応が無いまま猶予を過ぎたら閉じる。
+- 共有 checkout (基点ブランチ) のセッションは、追跡ファイルの変更だけを未保存とみなす (`--untracked-files=no --ignore-submodules=all`)。作業ブランチのセッションは従来どおり。
+- 古い質問カードの方針: 未回答の質問カードは原則「人の回答待ち」で閉じない。ただしカードを出した後もセッションが 10 分以上作業を続けた (最終活動 ≥ カードの時刻 + 10 分) なら、カードは別経路で解決済みの古いものとみなし、作業が終わった根拠 (`done_*`) があるときに限り閉じない理由に数えない。根拠が「反応しない」だけのときは人の回答待ちとして閉じない。古いカードを無視して閉じるときは、親と管制チャンネルへの通知にその旨を書く。human-wait・人間の応答待ちの確認・ask マーカーは従来どおり閉じない。
+- 閉じない理由の記録: 判定で閉じなかったセッションは metadata `control_reaper.last_skip_reason` / `last_skip_at` に理由 (`not_due` / `pendingQuestion` / `unsavedWork_unknown` など) を残す (変わったときだけ書く)。
+- 通知: 案内・終了の通知 (親への inject と管制チャンネル) に、どのセッションを、なぜ閉じたかを書く。
+
+#### 9.2 終了済みなのに Discord 側が開いたままのもの (2026-11-17 追加依頼)
+
+Cc の記録では終了済みのセッションのチャンネル/スレッドは全件 `discord_session_channels.status` も ended / lost だが、Discord 側を閉じ直す照合 (`session-channel.ts` の `reconcileEndedSessionChannels` / `reconcileLostSessionChannels`、TaskWorkflow の取り残し `taskworkflow-orphan-reconcile.ts`) が過去分を拾えていなかった。稼働ログで確かめた原因:
+
+- 照合が起動時の 1 回しか動いていなかった。定期実行は `CONCORDIA_DISCORD_STATUS_RECONCILE_SEC` (状態カードの定期照合、既定 0 = OFF) に相乗りしており、OFF のままだと終了イベントを取りこぼしたものが次の再起動まで開いたまま残る。
+- 起動時の 1 回も、キャッシュに無いスレッドを「確かめられない」として全件 1 件ずつ取り直していた (`guild.channels.fetch()` はスレッドを読まない)。2026-11-17 の起動では ended 3,056 件・lost 406 件を取り直して 57 分かかった。
+- 既に閉じたスレッドを閉じ直そうとして Discord が `Thread is archived` で拒否し、毎回失敗していた (同日 68 件)。
+- `CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN` は稼働設定に無く (試運転ではない)、TaskWorkflow の取り残しは紐付けが消えたスレッドだけが対象で、今回の残りとは別。
+
+対応:
+
+- 照合の先頭で開いているスレッドの一覧 (`fetchActiveThreads`) を 1 回読み、読めたら「キャッシュに無いスレッド = 既に閉じている」として取り直さない。読めなければ従来どおり 1 件ずつ確かめる。
+- 既に閉じたスレッドを終了表示にするときは編集しない (閉じていること自体が終了の表示)。
+- 状態カードの定期照合を OFF にしていても、終了したセッションのチャンネル/スレッドを閉じる照合を `CONCORDIA_DISCORD_SESSION_FORUM_RECONCILE_SEC` (既定 600 秒、0 で停止) ごとに回す。会話記録は消さない (アーカイブへ移す・スレッドを閉じるだけ)。
 
 ## 実装の対応
 

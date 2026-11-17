@@ -2249,6 +2249,8 @@ export async function startBackend(): Promise<BackendHandle> {
       hasTestingClaim: (sessionId, nowSec) => testingClaims.hasActiveClaim(sessionId, nowSec),
       listOpenLocalPrs: () => controlOpenPrs.read(),
       findLocalPrByBranch: (repository, branch) => revisorClient.findLocalPrByBranch(repository, branch),
+      findLocalPrBySession: (repository, sessionId) => revisorClient.findLocalPrBySession(repository, sessionId),
+      latestUnansweredQuestionTs: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId)?.ts ?? null,
       git: async (cwd, args) => {
         const result = await defaultGitRunner(cwd, args);
         return { ok: result.ok, stdout: result.stdout };

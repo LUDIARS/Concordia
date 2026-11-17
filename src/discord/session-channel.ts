@@ -178,15 +178,31 @@ async function ensureEagerWebhook(deps: SessionChannelDeps, sessionId: string): 
   );
 }
 
+/**
+ * 開いている (アーカイブされていない) スレッドを 1 回だけ読んでキャッシュへ載せる。読めたら true。
+ * 読めた後は「キャッシュに無いスレッド = 既に閉じている」と判断でき、終了済みの全スレッドを
+ * 1 件ずつ取り直さずに済む (2026-11-17: 約 3,000 件を毎回取り直し、起動時の 1 回に 57 分かかっていた)。
+ * 読めなければ従来どおり 1 件ずつ確かめる。
+ */
+async function prefetchActiveThreads(deps: SessionChannelDeps): Promise<boolean> {
+  try {
+    await deps.guild.channels.fetchActiveThreads();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function reconcileEndedSessionChannels(
   deps: SessionChannelDeps & { isSessionEnded: (sessionId: string) => boolean },
 ): Promise<{ scanned: number; reconciled: number }> {
   await deps.guild.channels.fetch().catch(() => null);
+  const activeThreadsKnown = await prefetchActiveThreads(deps);
   const rows = deps.repo.listAll();
   let reconciled = 0;
   for (const row of rows) {
     if (row.status !== "ended" && !deps.isSessionEnded(row.session_id)) continue;
-    if (!needsEndedArchiveReconcile(deps, row)) continue;
+    if (!needsEndedArchiveReconcile(deps, row, activeThreadsKnown)) continue;
     await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
     reconciled += 1;
   }
@@ -213,11 +229,12 @@ export async function reconcileLostSessionChannels(
   deps: SessionChannelDeps & { isSessionLost: (sessionId: string) => boolean },
 ): Promise<{ scanned: number; reconciled: number }> {
   await deps.guild.channels.fetch().catch(() => null);
+  const activeThreadsKnown = await prefetchActiveThreads(deps);
   const rows = deps.repo.listAll();
   let reconciled = 0;
   for (const row of rows) {
     if (row.status !== "lost" && !deps.isSessionLost(row.session_id)) continue;
-    if (!needsLostArchiveReconcile(deps, row)) continue;
+    if (!needsLostArchiveReconcile(deps, row, activeThreadsKnown)) continue;
     await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "lost" });
     reconciled += 1;
   }
@@ -342,11 +359,14 @@ function isPrivateConsultChannel(deps: SessionChannelDeps, ch: { parentId: strin
 function needsEndedArchiveReconcile(
   deps: SessionChannelDeps,
   row: DiscordSessionChannelRow,
+  activeThreadsKnown = false,
 ): boolean {
   if (row.channel_kind === "thread") {
     if (row.status !== "ended" || row.display_state !== "ended") return true;
     const thread = deps.guild.channels.cache.get(row.channel_id);
-    return thread?.type === ChannelType.PublicThread ? thread.archived !== true : true;
+    if (thread?.type === ChannelType.PublicThread) return thread.archived !== true;
+    // 開いているスレッドを読めていれば、キャッシュに無いものは既に閉じている。
+    return !activeThreadsKnown;
   }
   if (row.status !== "ended" || row.display_state !== "ended") return true;
   if (row.webhook_id || row.webhook_token) return true;
@@ -360,13 +380,15 @@ function needsEndedArchiveReconcile(
 function needsLostArchiveReconcile(
   deps: SessionChannelDeps,
   row: DiscordSessionChannelRow,
+  activeThreadsKnown = false,
 ): boolean {
   if (row.channel_kind === "thread") {
     if (row.status !== "lost" || row.display_state !== "lost") return true;
     const thread = deps.guild.channels.cache.get(row.channel_id);
-    return thread?.type === ChannelType.PublicThread && thread.parent?.type === ChannelType.GuildForum
-      ? !hasForumSessionState(thread, "lost")
-      : true;
+    if (thread?.type === ChannelType.PublicThread && thread.parent?.type === ChannelType.GuildForum) {
+      return !hasForumSessionState(thread, "lost");
+    }
+    return thread ? true : !activeThreadsKnown;
   }
   if (row.status !== "lost" || row.display_state !== "lost") return true;
   const ch = deps.guild.channels.cache.get(row.channel_id);

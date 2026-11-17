@@ -99,4 +99,33 @@ describe("gatherReapInput", () => {
     expect((await gatherReapInput(ports({ findLocalPrByBranch: async () => pr({ status: "merged" }) }), session(), repoAgent, NOW)).repoAgentPrMerged).toBe(true);
     expect((await gatherReapInput(ports(), session({ branch: null }), repoAgent, NOW)).repoAgentPrMerged).toBeNull();
   });
+
+  it("reads a shared-checkout session's PR by session, its run terminal state and tracked-only changes", async () => {
+    const shared = git({
+      "status --porcelain --untracked-files=no --ignore-submodules=all": { ok: true, stdout: "" },
+      "rev-list --count main..HEAD": { ok: true, stdout: "0" },
+    });
+    const base = ports({
+      git: shared,
+      parentReceivedRunTerminal: () => false,
+      findRun: () => ({ child_session_id: "c", parent_session_id: null, status: "partial" }),
+      findLocalPrBySession: async (_repo, sid) => (sid === "c" ? pr({ status: "merged", headRef: "feat/other" }) : null),
+    });
+    const result = await gatherReapInput(base, session({ branch: "main" }), delegation, NOW);
+    expect(result).toMatchObject({ runSettled: true, delegationDone: false });
+    expect(result.blockers.unsavedWork).toBe(false);
+    const running = ports({ ...base, findRun: () => ({ child_session_id: "c", parent_session_id: null, status: "running" }) });
+    expect((await gatherReapInput(running, session({ branch: "main" }), delegation, NOW)).runSettled).toBe(false);
+    const unknown = ports({ ...base, findLocalPrBySession: async () => { throw new Error("x"); } });
+    expect((await gatherReapInput(unknown, session({ branch: "main" }), delegation, NOW)).runSettled).toBeNull();
+  });
+
+  it("marks a question card as stale only when the session kept working after it", async () => {
+    const asked = NOW - 4000 - 11 * 60;
+    expect((await gatherReapInput(ports({ hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => asked }), session(), delegation, NOW))
+      .staleQuestionOnly).toBe(true);
+    expect((await gatherReapInput(ports({ hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => NOW - 4000 }), session(), delegation, NOW))
+      .staleQuestionOnly).toBe(false);
+    expect((await gatherReapInput(ports({ latestUnansweredQuestionTs: () => asked }), session(), delegation, NOW)).staleQuestionOnly).toBe(false);
+  });
 });

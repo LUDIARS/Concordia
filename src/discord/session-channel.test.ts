@@ -248,6 +248,34 @@ describe("onSessionStatusChanged ended archive", () => {
     }));
   });
 
+  // 2026-11-17: キャッシュに無い終了済みスレッドを毎回 1 件ずつ取り直し、起動時の照合が 57 分かかっていた。
+  it("skips ended thread rows that are not among the active threads once the active list is read", async () => {
+    const m = makeEndedArchiveMocks();
+    m.row.channel_kind = "thread";
+    m.row.channel_id = "thread-closed";
+    const openThread: any = { id: "thread-open", type: ChannelType.PublicThread, archived: false };
+    const guild: any = {
+      channels: {
+        cache: new Map<string, any>(),
+        fetch: vi.fn(async () => guild.channels.cache),
+        fetchActiveThreads: vi.fn(async () => {
+          guild.channels.cache.set(openThread.id, openThread);
+          return { threads: new Map([[openThread.id, openThread]]) };
+        }),
+      },
+    };
+    const openRow = { ...m.row, session_id: "sess-open", channel_id: "thread-open" };
+    const repo: any = { ...m.repo, listAll: vi.fn(() => [m.row, openRow]), findBySessionId: vi.fn(() => null) };
+
+    const result = await reconcileEndedSessionChannels({
+      guild, layout: m.layout, repo, isSessionEnded: () => true, log: m.log,
+    });
+
+    expect(guild.channels.fetchActiveThreads).toHaveBeenCalledOnce();
+    // 閉じたスレッドは取り直さず、まだ開いている終了済みスレッドだけ閉じ直す。
+    expect(result).toEqual({ scanned: 2, reconciled: 1 });
+  });
+
   it("reconciles ended sessions whose channels are still outside archive", async () => {
     const m = makeEndedArchiveMocks();
     m.isSessionEnded.mockReturnValue(false);

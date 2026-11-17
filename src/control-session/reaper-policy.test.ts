@@ -6,7 +6,9 @@ import {
   parseReapState,
   REAP_DONE_IDLE_SEC,
   REAP_NOTICE_GRACE_SEC,
+  REAP_NOTICE_RESPONSE_SEC,
   REAP_UNRESPONSIVE_IDLE_SEC,
+  runParentSessionId,
   type ReapBlockers,
   type ReapInput,
 } from "./reaper-policy.js";
@@ -43,6 +45,46 @@ describe("classifyChild (CC-CTL-INV-08: 作業指示で起動した子だけ)", 
       .toEqual({ kind: "spawn", parentSessionId: "p", runId: null });
     expect(classifyChild({ sessionId: "human", metadata: {}, findRun: noRun })).toBeNull();
     expect(classifyChild({ sessionId: "c", metadata: { repo_agent_of: { parent_session_id: " " } }, findRun: noRun })).toBeNull();
+  });
+
+  it("resolves a delegation parent from triggered_by only when it is a session id, and keeps parentless runs", () => {
+    const sid = "lictor-24e68c85-b529-4592-8a5d-cf40fcbcee44";
+    const run = (triggered_by: string | null) => () => ({ child_session_id: "c", parent_session_id: null, triggered_by });
+    expect(classifyChild({ sessionId: "c", metadata: { delegation_run_id: "r" }, findRun: run(sid) }))
+      .toEqual({ kind: "delegation", parentSessionId: sid, runId: "r" });
+    expect(classifyChild({ sessionId: "c", metadata: { delegation_run_id: "r" }, findRun: run("cron:quaestor") }))
+      .toEqual({ kind: "delegation", parentSessionId: null, runId: "r" });
+    expect(runParentSessionId({ child_session_id: "c", parent_session_id: null, triggered_by: sid }, { delegation_parent_session_id: "m" }))
+      .toBe("m");
+  });
+});
+
+describe("decideReap: widened close conditions (2026-11-17)", () => {
+  it("closes a delegation child whose run is terminal and PR is settled, even without the parent's receipt", () => {
+    expect(decideReap(input({ delegationDone: false, runSettled: true }))).toEqual({ eligible: true, reason: "done_run_settled" });
+    expect(decideReap(input({ delegationDone: false, runSettled: null })).eligible).toBe(false);
+    expect(decideReap(input({ kind: "spawn", delegationDone: null, repoAgentPrMerged: true })))
+      .toEqual({ eligible: true, reason: "done_merged" });
+  });
+
+  it("ignores a stale question card only for done reasons", () => {
+    const blockers = { ...clear, pendingQuestion: true };
+    expect(decideReap(input({ blockers, staleQuestionOnly: true })))
+      .toEqual({ eligible: true, reason: "done_delegation", staleQuestion: true });
+    expect(decideReap(input({ blockers, staleQuestionOnly: false }))).toEqual({ eligible: false, reason: "pendingQuestion" });
+    expect(decideReap(input({
+      kind: "spawn", delegationDone: null, idleSec: REAP_UNRESPONSIVE_IDLE_SEC, unchangedCount: 3, blockers, staleQuestionOnly: true,
+    }))).toEqual({ eligible: false, reason: "pendingQuestion" });
+    expect(decideReap(input({ blockers: { ...blockers, humanWait: true }, staleQuestionOnly: true })))
+      .toEqual({ eligible: false, reason: "humanWait" });
+  });
+
+  it("starts over from the notice when the session answered after it", () => {
+    const state = { noticed_at: 1000, reason: "done_delegation" as const, end_attempted_at: null };
+    const ok = { eligible: true as const, reason: "done_delegation" as const };
+    expect(nextReapStep(ok, state, 1000 + REAP_NOTICE_GRACE_SEC, 1000 + REAP_NOTICE_RESPONSE_SEC + 1)).toBe("notice");
+    expect(nextReapStep(ok, state, 1000 + REAP_NOTICE_GRACE_SEC, 1000 + 10)).toBe("end");
+    expect(parseReapState({ noticed_at: 1, reason: "done_run_settled" })?.reason).toBe("done_run_settled");
   });
 });
 

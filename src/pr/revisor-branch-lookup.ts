@@ -79,3 +79,26 @@ export async function findLocalPrByBranch(
   }
   return null;
 }
+
+/**
+ * (リポジトリ, セッション) の local PR を 1 件探す。共有 checkout で起動したセッションは
+ * 自分のブランチが基点ブランチのままで、提出した PR の headRef と一致しない。そこで
+ * 提出時に Revisor へ渡した sessionId で照合する (open の詳細一覧 → 直近の決着済みの単一取得)。
+ * 失敗はそのまま投げる。
+ */
+export async function findLocalPrBySession(
+  source: RevisorBranchLookupSource,
+  repository: string,
+  sessionId: string,
+): Promise<RevisorLocalPr | null> {
+  const key = repositoryKey(repository);
+  if (!key || !sessionId) return null;
+  const mine = (pr: RevisorLocalPr) => repositoryKey(pr.repository) === key && pr.sessionId === sessionId;
+  const open = (await source.listOpenLocalPrs()).find(mine);
+  if (open) return open;
+  for (const candidate of selectSettledCandidates(await source.listLocalPrSummaries(), repository)) {
+    const detail = await source.getLocalPrDetail(candidate.id);
+    if (detail && mine(detail)) return detail;
+  }
+  return null;
+}

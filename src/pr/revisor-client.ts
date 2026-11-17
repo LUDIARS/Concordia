@@ -4,7 +4,11 @@ import { toTokenResolver } from "./revisor-token.js";
 import { RevisorMergeError } from "./revisor-merge-outcome.js";
 import { requestRevisorJson, RevisorRequestError } from "./revisor-http.js";
 import { overlayOpenDetails } from "./revisor-listing-overlay.js";
-import { findLocalPrByBranch as lookupLocalPrByBranch } from "./revisor-branch-lookup.js";
+import {
+  findLocalPrByBranch as lookupLocalPrByBranch,
+  findLocalPrBySession as lookupLocalPrBySession,
+  type RevisorBranchLookupSource,
+} from "./revisor-branch-lookup.js";
 import type { RevisorLocalPr } from "./revisor-local-pr-types.js";
 
 export type { RevisorLocalPr } from "./revisor-local-pr-types.js";
@@ -176,8 +180,17 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
    * (`revisor-branch-lookup.ts`)。 全件の詳細一覧は読まない。
    */
   async findLocalPrByBranch(repository: string, branch: string): Promise<RevisorLocalPr | null> {
+    return lookupLocalPrByBranch(await this.lookupSource(), repository, branch);
+  }
+
+  /** (リポジトリ, セッション) の local PR (`revisor-branch-lookup.ts` の findLocalPrBySession)。 */
+  async findLocalPrBySession(repository: string, sessionId: string): Promise<RevisorLocalPr | null> {
+    return lookupLocalPrBySession(await this.lookupSource(), repository, sessionId);
+  }
+
+  private async lookupSource(): Promise<RevisorBranchLookupSource> {
     const port = await this.resolvePort();
-    return lookupLocalPrByBranch({
+    return {
       listOpenLocalPrs: async () => (await this.fetchListing(port, "?state=open", this.timeoutMs)).flatMap(toLocalPr),
       listLocalPrSummaries: async () =>
         (await this.fetchListing(port, "?view=summary&state=all", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr),
@@ -195,7 +208,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
         if (!row) throw new RevisorRequestError("Revisor returned an invalid local PR", "invalid_response");
         return row;
       },
-    }, repository, branch);
+    };
   }
 
   /** 失敗は RevisorRequestError (timeout / unreachable / http_error / invalid_response)。 */

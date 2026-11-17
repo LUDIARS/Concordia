@@ -1105,6 +1105,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let serviceStatusDiscord: ReturnType<typeof startServiceStatusDiscord> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  let forumReconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
   let consultClosureTimer: ReturnType<typeof setInterval> | null = null;
   let personalBudgetNoticeLoop: PeriodicHandle | null = null;
@@ -1283,6 +1284,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     serviceStatusDiscord = null;
     if (prQueueTimer) { clearInterval(prQueueTimer); prQueueTimer = null; }
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
+    if (forumReconcileTimer) { clearInterval(forumReconcileTimer); forumReconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
     if (consultClosureTimer) { clearInterval(consultClosureTimer); consultClosureTimer = null; }
     personalBudgetNoticeLoop?.stop();
@@ -1868,6 +1870,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         reconcileTimer.unref?.();
       } else {
         log.info("status-card periodic reconcile disabled");
+      }
+      // 終了したセッションのチャンネル/スレッドを閉じる照合は、状態カードの定期照合を OFF にしていても回す。
+      // OFF のままだと起動時の 1 回だけになり、終了イベントを取りこぼしたものが次の再起動まで開いたまま
+      // 残っていた (2026-11-17)。0 で止める。
+      const forumReconcileSec = readOptionalIntEnv("CONCORDIA_DISCORD_SESSION_FORUM_RECONCILE_SEC", 600, 60);
+      if (reconcileSec <= 0 && forumReconcileSec > 0) {
+        forumReconcileTimer = setInterval(() => {
+          void runSessionForumReconcile("periodic")
+            .catch((e) => log.warn(`session-forum periodic reconcile failed: ${(e as Error).message}`));
+        }, forumReconcileSec * 1000);
+        forumReconcileTimer.unref?.();
       }
       // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
       // ログ保存してから削除する (sessions/archive カテゴリ、 稼働中は保護)。

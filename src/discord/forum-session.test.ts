@@ -127,4 +127,15 @@ describe("forum session surfaces", () => {
       archived: true,
     }));
   });
+
+  // 2026-11-17: 既に閉じたスレッドへの編集は Discord が "Thread is archived" で拒否し、照合のたびに失敗していた。
+  it("leaves an already archived thread as it is", async () => {
+    const thread = {
+      id: "thread-closed", appliedTags: ["active-tag"], archived: true,
+      parent: { type: ChannelType.GuildForum, availableTags: [{ id: "active-tag", name: SESSION_STATE_TAG_NAMES.active }] },
+      edit: vi.fn(async () => { throw new Error("Thread is archived"); }),
+    };
+    await updateForumSessionState(thread as any, "ended");
+    expect(thread.edit).not.toHaveBeenCalled();
+  });
 });

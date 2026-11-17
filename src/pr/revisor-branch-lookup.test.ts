@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RevisorLocalPr } from "./revisor-client.js";
 import {
   findLocalPrByBranch,
+  findLocalPrBySession,
   matchLocalPrByBranch,
   selectSettledCandidates,
   SETTLED_LOOKUP_LIMIT,
@@ -88,5 +89,30 @@ describe("findLocalPrByBranch", () => {
       listLocalPrSummaries: async () => [],
       getLocalPrDetail: async () => null,
     }, "LUDIARS/Concordia", "feat/x")).rejects.toThrow("timed out");
+  });
+});
+
+describe("findLocalPrBySession", () => {
+  it("matches an open PR by session, then the newest settled detail of the repository", async () => {
+    const open = await findLocalPrBySession({
+      listOpenLocalPrs: async () => [pr("o", { sessionId: "s1" })],
+      listLocalPrSummaries: async () => { throw new Error("must not read settled"); },
+      getLocalPrDetail: async () => null,
+    }, "LUDIARS/Concordia", "s1");
+    expect(open?.id).toBe("o");
+
+    const settled = await findLocalPrBySession({
+      listOpenLocalPrs: async () => [pr("o", { sessionId: "other" })],
+      listLocalPrSummaries: async () => [pr("m", { status: "merged", updatedAt: "2026-11-17T00:00:00Z" })],
+      getLocalPrDetail: async (id) => pr(id, { status: "merged", sessionId: "s1" }),
+    }, "LUDIARS/Concordia", "s1");
+    expect(settled?.id).toBe("m");
+
+    const none = await findLocalPrBySession({
+      listOpenLocalPrs: async () => [],
+      listLocalPrSummaries: async () => [pr("m", { status: "merged" })],
+      getLocalPrDetail: async (id) => pr(id, { status: "merged", sessionId: "someone" }),
+    }, "LUDIARS/Concordia", "s1");
+    expect(none).toBeNull();
   });
 });

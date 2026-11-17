@@ -65,7 +65,7 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     expect(h.injected[0]).toEqual({ to: "child", text: CONTROL_REAPER_NOTICE });
     expect(h.injected[1].to).toBe("parent");
     expect(JSON.parse(h.rows.get("child")!.metadata!)[REAP_STATE_METADATA_KEY].reason).toBe("done_delegation");
-    expect(h.posts[0]).toContain("終了を案内: 1 件 (child)");
+    expect(h.posts[0]).toContain("終了を案内: 1 件 (child (委託 run の終了を親が受け取り済み))");
 
     h.advanceSec(60);
     expect(await h.tick()).toEqual({ noticed: [], ended: [], failed: [], endedDetail: [] });
@@ -75,7 +75,7 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     expect((await h.tick()).ended).toEqual(["child"]);
     expect(h.ended).toEqual(["child"]);
     expect(h.injected.filter((i) => i.to === "parent").map((i) => i.text).at(-1)).toContain("を閉じました");
-    expect(h.posts.at(-1)).toContain("閉じた: 1 件 (child)");
+    expect(h.posts.at(-1)).toContain("閉じた: 1 件 (child (委託 run の終了を親が受け取り済み))");
   });
 
   it("does not end when a blocker appears during the grace", async () => {
@@ -154,6 +154,62 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     unresponsiveOnly.put(session("solo", {}));
     expect((await unresponsiveOnly.tick()).noticed).toEqual([]);
     expect(dirty.ended).toEqual([]);
+  });
+
+  // 2026-11-17: 親が triggered_by にしか無い委託 (parent_session_id 空) と、共有 checkout (main) で
+  // 起動し別ブランチから提出したセッションは対象外のまま残っていた (lictor-88db0fbf)。
+  it("closes a delegation child whose run is terminal and whose PR is settled, resolving the parent from triggered_by", async () => {
+    const parent = "lictor-24e68c85-b529-4592-8a5d-cf40fcbcee44";
+    const h = harness({
+      findRun: (id) => (id === "r1"
+        ? { child_session_id: "child", parent_session_id: null, triggered_by: parent, status: "partial" }
+        : null),
+      parentReceivedRunTerminal: () => false,
+      findLocalPrBySession: async (_repo, sid) => (sid === "child" ? { status: "closed", number: 9, headSha: "h" } as never : null),
+      git: async (_cwd, args) => ({
+        ok: true, stdout: args[0] === "rev-list" ? "0" : args.includes("--untracked-files=no") ? "" : "?? junk.log",
+      }),
+    });
+    h.put({ ...child(), branch: "main" });
+    expect((await h.tick()).noticed).toEqual(["child"]);
+    expect(h.injected.map((i) => i.to)).toEqual(["child", parent]);
+    h.advanceSec(REAP_NOTICE_GRACE_SEC);
+    const report = await h.tick();
+    expect(report.endedDetail).toEqual([{ session_id: "child", reason: "委託 run が終了し担当 PR も決着済み" }]);
+    expect(h.posts.at(-1)).toContain("委託 run が終了し担当 PR も決着済み");
+  });
+
+  it("starts over when the child answered the notice instead of staying silent", async () => {
+    let last = Math.floor(10_000_000_000 / 1000) - 7200;
+    const h = harness({ lastActivitySec: () => last });
+    h.put(child());
+    await h.tick();
+    // 案内に反応 (会話) してから 30 分以上黙った → 終了ではなく案内からやり直す。
+    last = Math.floor(10_000_000_000 / 1000) + 120;
+    h.advanceSec(REAP_NOTICE_GRACE_SEC + 31 * 60);
+    expect((await h.tick()).noticed).toEqual(["child"]);
+    expect(h.ended).toEqual([]);
+  });
+
+  it("treats a stale question card as answered only when the work is done, and records why it keeps a session", async () => {
+    const asked = Math.floor(10_000_000_000 / 1000) - 5 * 60 * 60;
+    const stale = harness({ hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => asked });
+    stale.put(child());
+    expect((await stale.tick()).noticed).toEqual(["child"]);
+    expect(stale.injected[1].text).toContain("古いもの");
+
+    const fresh = harness({
+      hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => Math.floor(10_000_000_000 / 1000) - 7200,
+    });
+    fresh.put(child());
+    expect((await fresh.tick()).noticed).toEqual([]);
+    expect(JSON.parse(fresh.rows.get("child")!.metadata!)[REAP_STATE_METADATA_KEY].last_skip_reason).toBe("pendingQuestion");
+
+    const unresponsive = harness({
+      hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => asked, unchangedCount: () => 5,
+    });
+    unresponsive.put(session("spawned", { delegation_parent_session_id: "parent" }));
+    expect((await unresponsive.tick()).noticed).toEqual([]);
   });
 
   it("does nothing while the setting is OFF and does not record a notice that was not delivered", async () => {

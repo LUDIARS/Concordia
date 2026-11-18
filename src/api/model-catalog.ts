@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { ModelRoleRepo } from "../db/model-role-repo.js";
 import { resolveRoleSnapshot } from "../model-catalog/role-policy.js";
+import { buildRoleMap } from "../model-catalog/role-map.js";
 import { randomUUID } from "node:crypto";
 import {
   MODEL_PROVIDERS,
@@ -40,10 +41,18 @@ export interface ModelCatalogApiDeps {
   repo: ModelCatalogRepo;
   roles?: ModelRoleRepo;
   now?: () => number;
+  /** カタログ・役割が変わった後に呼ぶ (role map ファイルの書き直し)。 */
+  onRoleMapChanged?: () => void;
 }
 
 export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
   const app = new Hono();
+  const changed = () => {
+    try { deps.onRoleMapChanged?.(); } catch { /* 書き出し失敗で API 応答は変えない */ }
+  };
+  // 役割 → モデル ID の対応表。 LUDIARS の各サービスはモデル ID を直書きせずこれを使う。
+  app.get("/role-map", (c) => c.json(buildRoleMap({ roles: deps.roles?.list() ?? [],
+    catalog: deps.repo.list(), nowMs: (deps.now ?? Date.now)() })));
   app.get("/refresh-status",(c) => c.json({status:deps.roles?.refreshStatus() ?? null}));
   app.get("/roles/:provider/:role", (c) => {
     if (!deps.roles) return c.json({ error:"model_catalog_unavailable" },503);
@@ -59,12 +68,14 @@ export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
     if (!current) return c.json({ error:"model_role_not_found" },404);
     const next = { ...current,pinned:parsed.data.pinned,revision:randomUUID() };
     if (!deps.roles!.adopt(parsed.data.expectedRevision,next,"manual_pin_changed",(deps.now ?? Date.now)())) return c.json({ error:"revision_conflict" },409);
+    changed();
     return c.json(next);
   });
   app.post("/roles/:provider/:role/rollback", async (c) => {
     const parsed = z.object({ revision:z.string().min(1) }).strict().safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error:"invalid_body" },400);
     if (!deps.roles?.rollback(c.req.param("provider"),c.req.param("role"),parsed.data.revision,randomUUID(),(deps.now ?? Date.now)())) return c.json({ error:"rollback_unavailable" },409);
+    changed();
     return c.json(deps.roles.find(c.req.param("provider"),c.req.param("role")));
   });
 
@@ -86,6 +97,7 @@ export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     try {
       const row = deps.repo.create(parsed.data);
+      changed();
       return c.json({ model: serialize(row) }, 201);
     } catch (err) {
       // UNIQUE(provider, model_id) 違反など
@@ -101,6 +113,7 @@ export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     try {
       const row = deps.repo.update(id, parsed.data);
+      changed();
       return c.json({ model: serialize(row) });
     } catch (err) {
       return c.json({ error: "update_failed", detail: (err as Error).message }, 409);
@@ -111,6 +124,7 @@ export function modelCatalogRouter(deps: ModelCatalogApiDeps): Hono {
     const id = c.req.param("id");
     const ok = deps.repo.remove(id);
     if (!ok) return c.json({ error: "not_found" }, 404);
+    changed();
     return c.json({ ok: true });
   });
 

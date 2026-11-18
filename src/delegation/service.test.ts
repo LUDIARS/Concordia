@@ -172,7 +172,7 @@ describe("DelegationService.invoke", () => {
 
   it("allocates Astra before spawn when an Opus quota is exhausted", async () => {
     repo.createTemplate({ call_name: "astra", title: "Astra", target_provider: "codex",
-      model: "gpt-6-astra", prompt_template: "${msg}", input_schema: [] });
+      model: "gpt-6.2-astra", prompt_template: "${msg}", input_schema: [] });
     const quota = (used: number) => [{ used, reset: null }, { used, reset: null }];
     const service = new DelegationService({ repo, promptsDir,
       modelQuota: async () => ({ claude: quota(100), codex: quota(10) }),
@@ -182,7 +182,7 @@ describe("DelegationService.invoke", () => {
       overrides: { provider: "claude", model: "claude-opus-5-5" } });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.run).toMatchObject({ target_provider: "codex", effective_model: "gpt-6-astra" });
+    expect(result.run).toMatchObject({ target_provider: "codex", effective_model: "gpt-6.2-astra" });
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toMatchObject({ provider: "codex" });
   });

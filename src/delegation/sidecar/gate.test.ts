@@ -24,7 +24,7 @@ const solMid = {
   call_name: "sol-mid",
   is_active: 1,
   target_provider: "codex",
-  model: "gpt-6.1-sol",
+  model: "gpt-6.2-sol",
   runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
 };
 
@@ -62,11 +62,11 @@ describe("decideSidecarInvoke", () => {
   });
 
   it("rejects model / effort overrides instead of silently switching", () => {
-    expect(decideSidecarInvoke(input({ requestedOverride: { model: "gpt-6-astra" } })))
+    expect(decideSidecarInvoke(input({ requestedOverride: { model: "gpt-6.2-astra" } })))
       .toMatchObject({ allow: false, code: "sidecar_override_rejected" });
     expect(decideSidecarInvoke(input({ requestedOverride: { reasoning_effort: "xhigh" } })))
       .toMatchObject({ allow: false, code: "sidecar_override_rejected" });
-    expect(decideSidecarInvoke(input({ requestedOverride: { model: "gpt-6.1-sol", reasoning_effort: "medium" } })).allow).toBe(true);
+    expect(decideSidecarInvoke(input({ requestedOverride: { model: "gpt-6.2-sol", reasoning_effort: "medium" } })).allow).toBe(true);
   });
 
   it("keeps the child on a different branch from the parent", () => {

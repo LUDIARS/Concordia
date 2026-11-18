@@ -11,7 +11,7 @@ status: draft
 > 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json)
 
 neco の2026-10-04開始指示が実装範囲の根拠。UX-CC-AD-W1 に対応する。
-Sol は sol-6-1 / gpt-6.1-sol、初期 medium。sol-xhigh の別テンプレートは削除する。
+Sol は sol-6-1 / gpt-6.1-sol、初期 medium (2026-11-18 から gpt-6.2-sol)。sol-xhigh の別テンプレートは削除する。
 Sonnet は sonnet-5-5 / claude-sonnet-5-5。Opus/Fable は名前の movable を外す。
 effort は基本可変であり、起動時値を永久固定値として扱わない。
 

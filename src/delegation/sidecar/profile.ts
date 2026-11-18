@@ -22,7 +22,7 @@ export interface SidecarModelSpec {
 // 親子ともターミナルの codex (Lictor)。 Satelles 起動は会話が届かずコンソールごと落ちることがあった
 // (2026-10-15)。 node_repl 退避は spawner の LICTOR_CODEX_SANDBOX と Lictor の node_repl 無効化で塞ぐ。
 export const ASTRA_WITH_SIDECAR_PROFILE = {
-  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: "gpt-6-astra", effort: "medium" },
+  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: initialRoleModel("astra"), effort: "medium" },
   child: { call_name: "sol-6-1", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
   /** 初期同時実行数。親子の同じファイルへの同時編集を避けるため 1 から始める。 */
   maxConcurrentChildren: 1,

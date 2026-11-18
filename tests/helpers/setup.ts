@@ -13,9 +13,13 @@
  * テストが外部バイナリとネットワークに依存しなくなる。
  */
 
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach } from "vitest";
 import { flushCleanups } from "./cleanup.js";
+import { buildRoleMap } from "../../src/model-catalog/role-map.js";
+import { writeRoleMapFile } from "../../src/model-catalog/role-map-file.js";
 
 // TEMP / TMP が 8.3 短縮形 (C:\Users\MITARA~1.KAZ\...) の PC では、 tmpdir() 由来のパスと
 // git / realpath が返す長い形が一致せず、 cwd を比べるテストが環境だけで赤くなる
@@ -38,6 +42,14 @@ process.env.CONCORDIA_DISABLE_CLAUDE = "1";
 // server を叩く。 テストを外部サービスの生死に依存させないため既定で切る
 // (織り込みそのものは domain-preamble.test.ts が deps 差し替えで検証する)。
 process.env.CONCORDIA_DELEGATION_DOMAIN_PREAMBLE = "0";
+// Lapilli one-shot は役割名を role map ファイルから解決する (spec/feature/model-role-map.md)。
+// 実機のファイル (%LOCALAPPDATA%\LUDIARS\model-roles.json) に依存させず、 Cc の初期値で作った表を読ませる。
+if (!process.env.CONCORDIA_TEST_ROLE_MAP_FILE) {
+  const file = join(mkdtempSync(join(tmpdir(), "cc-test-role-map-")), "model-roles.json");
+  writeRoleMapFile(file, buildRoleMap({ roles: [], catalog: [], nowMs: 0 }));
+  process.env.CONCORDIA_TEST_ROLE_MAP_FILE = file;
+}
+process.env.LUDIARS_MODEL_ROLES_FILE = process.env.CONCORDIA_TEST_ROLE_MAP_FILE;
 
 afterEach(() => {
   flushCleanups();

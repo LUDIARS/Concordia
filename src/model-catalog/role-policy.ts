@@ -25,9 +25,18 @@ export interface ProviderModel {
   capabilities: ModelCapabilities;
   upgrade: string | null;
 }
-export const INITIAL_ROLE_MODELS = { sol: "gpt-6.1-sol", astra: "gpt-6-astra", luna: "gpt-6-luna" } as const;
+export const INITIAL_ROLE_MODELS = { sol: "gpt-6.2-sol", astra: "gpt-6.2-astra", luna: "gpt-6-luna" } as const;
+/**
+ * Claude の役割ごとの既定モデル。 Claude には公式の一覧取得が無いので自動更新はせず、
+ * モデルカタログ (Settings → Models) の有効行が優先される (role-map.ts)。
+ * LUDIARS でモデル ID を直書きしてよいのは、 この表と INITIAL_ROLE_MODELS だけ。
+ */
+export const INITIAL_CLAUDE_ROLE_MODELS = {
+  opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001", fable: "claude-fable-5-1",
+} as const;
 export function initialRoleModel(role: string): string {
-  const model = INITIAL_ROLE_MODELS[role as keyof typeof INITIAL_ROLE_MODELS];
+  const model = INITIAL_ROLE_MODELS[role as keyof typeof INITIAL_ROLE_MODELS]
+    ?? INITIAL_CLAUDE_ROLE_MODELS[role as keyof typeof INITIAL_CLAUDE_ROLE_MODELS];
   if (!model) throw new Error(`unsupported model role: ${role}`);
   return model;
 }

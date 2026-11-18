@@ -402,6 +402,8 @@ export interface CoreDelegationDeps {
   delegationQueue?: DelegationQueue;
   modelCatalog: ModelCatalogRepo;
   modelRoles?: ModelRoleRepo;
+  /** role map ファイルを書き直す (src/model-catalog/role-map-file.ts)。 */
+  onRoleMapChanged?: () => void;
   residentSidecars?: ResidentSidecarPorts;
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
@@ -950,7 +952,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     syncForumTags: deps.syncDiscordForumTags,
     hasPendingQuestion,
   }));
-  app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog,roles:deps.modelRoles }));
+  app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog,roles:deps.modelRoles,onRoleMapChanged:deps.onRoleMapChanged }));
   app.route("/v1/inquiry", inquiryRouter({
     sessions: deps.repo,
     config: deps.config,

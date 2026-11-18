@@ -12,6 +12,7 @@
  * @implements SPEC-BOUNTY-TRIAGE
  */
 
+import { initialRoleModel } from "../model-catalog/role-policy.js";
 import type { CreateTemplateInput } from "../db/delegation-repo.js";
 
 /** 仕分けの委託テンプレートの call_name。 */
@@ -22,7 +23,7 @@ export const BOUNTY_TRIAGE_TEMPLATE: CreateTemplateInput = {
   title: "バグ報告の仕分け (読み取り専用レビュー)",
   description: "バウンティに届いたバグ報告 1 件を、対象プロジェクトのコードと spec を読んで採用・重複・対象外・情報不足に仕分ける。Cc の bug-bounty が受付後に起動する。",
   target_provider: "claude",
-  model: "claude-sonnet-5-5",
+  model: initialRoleModel("sonnet"),
   runtime_options: { effort: "medium", thinking: false, tool_policy: "read_only" },
   call_only: true,
   category: "freelancer",

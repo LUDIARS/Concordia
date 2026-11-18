@@ -17,6 +17,8 @@ const SEED_MODELS: CreateModelInput[] = [
   { provider: "claude", model_id: "claude-fable-5", label: "Fable 5", sort_order: 25 },
   { provider: "claude", model_id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", sort_order: 30 },
   // ── Codex ────────────────────────────────────────────────
+  { provider: "codex", model_id: "gpt-6.2-astra", label: "GPT-6.2 Astra", sort_order: 4 },
+  { provider: "codex", model_id: "gpt-6.2-sol", label: "GPT-6.2 Sol", sort_order: 9 },
   { provider: "codex", model_id: "gpt-6-astra", label: "GPT-6 Astra", sort_order: 5 },
   { provider: "codex", model_id: "gpt-6.1-sol", label: "GPT-6.1 Sol", sort_order: 10 },
   { provider: "codex", model_id: "gpt-6-luna", label: "GPT-6 Luna", sort_order: 30 },
@@ -32,6 +34,8 @@ const ROLLING_SEED_MODELS: CreateModelInput[] = [
   { provider: "claude", model_id: "claude-opus-5-5", label: "Opus 5.5", sort_order: 10 },
   { provider: "claude", model_id: "claude-sonnet-5-5", label: "Sonnet 5.5", sort_order: 20 },
   { provider: "claude", model_id: "claude-fable-5-1", label: "Fable 5.1", sort_order: 24 },
+  { provider: "codex", model_id: "gpt-6.2-astra", label: "GPT-6.2 Astra", sort_order: 4 },
+  { provider: "codex", model_id: "gpt-6.2-sol", label: "GPT-6.2 Sol", sort_order: 9 },
   { provider: "codex", model_id: "gpt-6-astra", label: "GPT-6 Astra", sort_order: 5 },
   { provider: "codex", model_id: "gpt-6.1-sol", label: "GPT-6.1 Sol", sort_order: 10 },
   { provider: "codex", model_id: "gpt-6-luna", label: "GPT-6 Luna", sort_order: 30 },

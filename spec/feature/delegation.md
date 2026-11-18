@@ -299,6 +299,10 @@ Sol / Luna は GPT-6、Opus は 5.5 を使用する。2026-09-27 necoの回答�
 migration 128 `delegation-sol-6-1` で gpt-6.1-sol にそろえる (seed に無いテンプレートも含む)。`astra-xhigh` は廃止し、
 `LEGACY_DELEGATION_CALL_NAMES` で起動時に定義行を消す (run の履歴は残る)。Astra は `astra-mid` / `astra-with-sidecar` の 2 本。
 
+2026-11-18 neco 指示「Astra6.2とSol6.2きたのでモデル更新して」: `INITIAL_ROLE_MODELS` を sol = gpt-6.2-sol / astra = gpt-6.2-astra にし、
+Astra のテンプレート (astra-mid / astra-with-sidecar / kaizen-daily) も直書きをやめて `initialRoleModel("astra")` を参照する。
+稼働 DB はテンプレート API で切り替える (migration は追加しない)。下表の model 列は当時の値で、現行は 6.2。
+
 
 | call_name | target | model | 用途 |
 |-----------|--------|-------|------|

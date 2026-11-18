@@ -77,6 +77,8 @@ import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "../model-catalog/seed.js";
 import { ModelRoleRepo } from "../db/model-role-repo.js";
 import { seedInitialRoles } from "../model-catalog/initial-roles.js";
+import { buildRoleMap } from "../model-catalog/role-map.js";
+import { defaultRoleMapPath, writeRoleMapFile } from "../model-catalog/role-map-file.js";
 import { startDailyModelRefresh } from "../model-catalog/daily-refresh.js";
 import { codexOfficialModelProvider } from "../model-catalog/codex-provider.js";
 import { resolveCodexModelCommand } from "../model-catalog/codex-command.js";
@@ -1171,6 +1173,12 @@ export async function startBackend(): Promise<BackendHandle> {
   const sidecarRecords = new SidecarRecordsRepo(db);
   const modelRoles = new ModelRoleRepo(db,(before,next) => delegationRepo.followRoleModels(before,next));
   seedInitialRoles(modelRoles);
+  // 各サービスが読む role map (Lapilli one-shot)。 失敗しても Cc の起動は止めない。
+  const exportRoleMap = (): void => {
+    try {
+      writeRoleMapFile(defaultRoleMapPath(), buildRoleMap({ roles: modelRoles.list(), catalog: modelCatalog.list(), nowMs: Date.now() }));
+    } catch (error) { log.warn(`role map export failed: ${error instanceof Error ? error.message : "unknown"}`); }
+  };
   const residentSidecars = {
     residents:new ResidentSidecarRepo(db),runs:delegationRepo,sessions:repo,now:Date.now,
     canStartRequest:() => !delegationQueue.enabled() || delegationQueue.hasCapacity(),
@@ -2714,6 +2722,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegationQueue,
     modelCatalog,
     modelRoles,
+    onRoleMapChanged: exportRoleMap,
     residentSidecars,
     testingClaims,
     subsidiary: subsidiaryRepo,
@@ -2886,7 +2895,8 @@ export async function startBackend(): Promise<BackendHandle> {
     recoverLegacyNudgeConfirmations(repo);
     trackPostListenHandle(startNudgeProgress(repo));
     trackPostListenHandle(startResidentSidecars(residentSidecars));
-    trackPostListenHandle(startDailyModelRefresh({ repo:modelRoles,log,
+    exportRoleMap();
+    trackPostListenHandle(startDailyModelRefresh({ repo:modelRoles,log,onAdopted:exportRoleMap,
       provider:{ async discover(signal) {
         const command = await resolveCodexModelCommand({ platform:process.platform,path:process.env.PATH ?? "",
           explicit:process.env.CONCORDIA_CODEX_MODEL_CATALOG_EXECUTABLE,nodeExecutable:process.execPath });

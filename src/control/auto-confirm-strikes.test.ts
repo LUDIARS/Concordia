@@ -260,17 +260,18 @@ describe("AI が進められる作業の継続誘導 (2026-10-08 neco 指示)", 
     expect(result.strikes).toBe(AUTO_CONFIRM_STRIKE_LIMIT + 1);
   });
 
-  it("同じ中身の unknown も毎回確認し、変化の無い回は Discord へ通知せず [変化なし] を案内する", async () => {
+  it("作業項目なし (untracked) も毎回確認し、変化の無い回は Discord へ通知せず原因調査モードに入れる (FU-INVESTIGATE)", async () => {
     const unlinked: SessionFollowupSnapshot = {
       workflow: "revisor", tasks: [], delegations: [], prs: [], unavailable: [],
       linkFailures: [{ task_reference: "actio:162bc3a6", reason: "task_out_of_scope" }],
     };
     const result = await runLoop(unlinked, 5);
     expect(result.injected).toHaveLength(5);
-    expect(result.injected.every((text) => text.includes("state=unknown"))).toBe(true);
+    expect(result.injected.every((text) => text.includes("state=untracked"))).toBe(true);
     expect(result.injected[0]).toContain("actio:162bc3a6 (task_out_of_scope)");
-    expect(result.injected[0]).not.toContain("[変化なし]");
-    expect(result.injected.slice(1).every((text) => text.includes("[変化なし]"))).toBe(true);
+    expect(result.injected[0]).not.toContain("[原因調査モード]");
+    expect(result.injected.slice(1).every((text) => text.includes("[原因調査モード]")
+      && text.includes("セッション終了を提案"))).toBe(true);
     expect(result.injected.join("\n")).not.toContain("自動確認を送りません");
     expect(result.stallNudged).toBe(1);
     expect(result.strikes).toBe(5);

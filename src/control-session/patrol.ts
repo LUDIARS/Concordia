@@ -13,6 +13,13 @@ import { gatherClassifyInput, type ClassifyFactPorts } from "./classify-facts.js
 import { dispatchControlInstruction, type InjectPort } from "./instruction-dispatch.js";
 import type { EligibilityProbes } from "./instruction-eligibility.js";
 import { formatJstClock } from "./jst-clock.js";
+import { describeRootCommandDrift, readRootCommandDrift } from "../harness/reliability/root-command-drift.js";
+
+/** TB-ROOT-DRIFT: 分類理由に、止めずに通した作業場所のずれを添える (記録が無ければそのまま)。 */
+export function withRootCommandDrift(reason: string, metadata: string | null): string {
+  const drift = describeRootCommandDrift(readRootCommandDrift(metadata));
+  return drift ? `${reason} / ${drift}` : reason;
+}
 import {
   renderPatrolNudge,
   settleNudgeState,
@@ -109,7 +116,7 @@ export function createControlPatrol(deps: ControlPatrolDeps) {
       if (shouldReportUnresponsive(verdict.status, state)) toReport.push({ row, reason: verdict.reason, lastNudgeAt: state.lastAt });
       states.set(session.id, state);
       deps.board.saveClassification(session.id, {
-        status: verdict.status, status_reason: verdict.reason, classified_at: nowSec,
+        status: verdict.status, status_reason: withRootCommandDrift(verdict.reason, session.metadata), classified_at: nowSec,
         nudge_count: state.count, nudge_last_at: state.lastAt, unresponsive_reported_at: state.reportedAt,
       });
     }

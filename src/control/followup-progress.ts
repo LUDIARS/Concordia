@@ -19,6 +19,7 @@ import {
   type ActivityProgress,
 } from "./session-activity.js";
 import type { ObservedGitActivity } from "./session-activity-observe.js";
+import { computeFollowupProgressRate } from "./followup-progress-rate.js";
 
 export const FOLLOWUP_PROGRESS_KEY = "cc_followup_progress";
 
@@ -39,9 +40,12 @@ export interface FollowupActivityInput {
   sideReportedAt: number | null;
 }
 
-/** 観測された動きの指紋。PR・委託は照会できた回だけ状態を並べる。 */
+/**
+ * 観測された動きの指紋。PR・委託は照会できた回だけ状態を並べる。
+ * FU-INVESTIGATE: 進捗率 (FU-RATE) も末尾に加え、率が動いた回は変化ありにする。
+ */
 export function followupActivityFingerprint(input: FollowupActivityInput): string {
-  return activityFingerprint({
+  const activity = activityFingerprint({
     conversation: conversationActivityMark(input.tail, input.lastActivityMs, input.nudgeSentinel),
     head: input.git?.head ?? null,
     worktree: input.git?.worktree ?? null,
@@ -49,6 +53,7 @@ export function followupActivityFingerprint(input: FollowupActivityInput): strin
     delegations: input.snapshot?.delegations.map((run) => run.status) ?? [],
     sideReportedAt: input.sideReportedAt,
   });
+  return `${activity}|rate:${computeFollowupProgressRate(input.snapshot) ?? "none"}`;
 }
 
 /** 保存済みの記録。不正値は null (= 初回扱い)。 */

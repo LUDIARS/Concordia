@@ -51,6 +51,26 @@ describe("followup snapshot sources", () => {
     expect(stale.unavailable).toEqual([]);
   });
 
+  it("FU-PR: finds the session's PR by session id even after the registered branch went back to main", async () => {
+    const onMain = { ...session, branch: "main" } as SessionRow;
+    const open = await resolveSessionFollowupSnapshot(ports(), onMain);
+    expect(open.prs).toEqual([{ sessionId: "s", headRef: "feat/x", status: "open", checkStatus: "running" }]);
+
+    const settledPr = vi.fn(async () => ({ status: "merged", checkStatus: "test_ok" }));
+    const merged = await resolveSessionFollowupSnapshot(ports({ localPrs: async () => [], settledPr }), onMain);
+    expect(merged.prs).toEqual([{ status: "merged", checkStatus: "test_ok" }]);
+    expect(settledPr).toHaveBeenCalledWith(onMain);
+
+    // open が見つかれば決着済みは引かない。
+    const unused = vi.fn();
+    await resolveSessionFollowupSnapshot(ports({ settledPr: unused }), onMain);
+    expect(unused).not.toHaveBeenCalled();
+
+    const failed = await resolveSessionFollowupSnapshot(ports({ localPrs: async () => [],
+      settledPr: async () => { throw new Error("down"); } }), onMain);
+    expect(failed.unavailable).toEqual(["revisor-prs"]);
+  });
+
   it("carries the task references the session could not link (162bc3a6)", async () => {
     const metadata = JSON.stringify({ cc_task_link_failures: [{ task_reference: "actio:T-9", reason: "task_out_of_scope", at: 1 }] });
     const snapshot = await resolveSessionFollowupSnapshot(ports(), { ...session, metadata } as SessionRow);

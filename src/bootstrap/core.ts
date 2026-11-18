@@ -3100,6 +3100,12 @@ export async function startBackend(): Promise<BackendHandle> {
           linkedTasks: (sessionId) => readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId }),
           repositories: () => revisorRepositoryClient.listRepositories(),
           localPrs: () => revisorClient.listLocalPrs(),
+          // FU-PR: open が無いとき、このセッションの直近の決着済み PR (reaper と同じ照合)。
+          settledPr: async (s) => {
+            if (!s.repo_origin) return null;
+            const pr = await revisorClient.findLocalPrBySession(s.repo_origin, s.id);
+            return pr ? { status: pr.status, checkStatus: pr.checkStatus } : null;
+          },
           githubPrs: (s) => prs.list({ author_session_id: s.id, limit: 100 })
             .filter((pr) => pr.head_branch === s.branch
               && normalizeRepoOrigin(pr.repo_origin).toLowerCase() === normalizeRepoOrigin(s.repo_origin ?? "").toLowerCase())

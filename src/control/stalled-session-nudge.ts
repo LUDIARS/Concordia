@@ -75,8 +75,9 @@ import { selectSessionFollowupState } from "./session-followup-state.js";
 import {
   followupActivityFingerprint,
   recordFollowupProgress,
-  renderFollowupNoChangeNotice,
 } from "./followup-progress.js";
+import { renderFollowupInvestigation } from "./followup-investigation.js";
+import { computeFollowupProgressRate } from "./followup-progress-rate.js";
 import type { ObservedGitActivity } from "./session-activity-observe.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { progressScope } from "./periodic-progress-policy.js";
@@ -483,7 +484,8 @@ export function startStalledSessionNudge(
       const unchanged = progress !== null && !progress.changed;
       const closing = [
         ...(aiWork ? renderAiWorkContinuation() : []),
-        ...(unchanged ? renderFollowupNoChangeNotice() : []),
+        // FU-INVESTIGATE: 進捗率も動きも前回と同じなら「[変化なし]」ではなく原因調査モードへ入れる。
+        ...(unchanged ? renderFollowupInvestigation(computeFollowupProgressRate(workState), progress.unchangedCount) : []),
         // 3 アウトで止まらない状態には停止予告を出さない (実際には止まらないため)。
         ...(strikeExempt ? [] : renderStrikeOutNotice(strikes)),
       ];

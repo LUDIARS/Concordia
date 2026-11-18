@@ -199,6 +199,7 @@ import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
+import { nextRootCommandDrift, readRootCommandDrift, ROOT_COMMAND_DRIFT_KEY } from "../harness/reliability/root-command-drift.js";
 import { submittedPrStateReader } from "../harness/reliability/task-branch-merge-state.js";
 import { harnessReliabilityRouter } from "./harness-reliability.js";
 import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
@@ -1211,6 +1212,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         // TB-ROOT-CMD: 既定で有効。CONCORDIA_HARNESS_ROOT_COMMAND_RELAX=0 で従来の deny に戻す (復旧手段)。
         workspaceRootCommandRelaxRoots: () => process.env.CONCORDIA_HARNESS_ROOT_COMMAND_RELAX === "0"
           ? [] : deps.adminState.getWorkspaceRoots(),
+        // TB-ROOT-DRIFT: ずれの記録はセッション metadata に 1 件上書き (管制の分類理由が読む)。
+        recordRootCommandDrift: (sessionId, input) => deps.repo.updateMetadata(sessionId, (metadata) => ({
+          ...metadata,
+          [ROOT_COMMAND_DRIFT_KEY]: nextRootCommandDrift(readRootCommandDrift(JSON.stringify(metadata)), input,
+            Math.floor(Date.now() / 1000)),
+        })),
       }),
     );
   }

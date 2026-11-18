@@ -16,7 +16,7 @@ import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { layerSessionRules, type DepartmentRuleSource } from "../departments/rule-layers.js";
 import { evaluateAction } from "../harness/session-gate.js";
-import { relaxWorkspaceRootCommand } from "../harness/reliability/workspace-root-command-relax.js";
+import { relaxWorkspaceRootCommand, WORKSPACE_ROOT_RELAXABLE_RULES } from "../harness/reliability/workspace-root-command-relax.js";
 import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
 import { acceptanceRequirements, inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { hasDddEvidenceAsync, resolveDddEvidenceRoot } from "../harness/ddd-evidence.js";
@@ -173,6 +173,8 @@ export interface HarnessSessionApiDeps {
    * rule の deny を warn へ下げる。未注入・空なら従来どおり。都度呼ぶ (WebUI の変更を再起動なしで反映)。
    */
   workspaceRootCommandRelaxRoots?: () => readonly string[];
+  /** TB-ROOT-DRIFT: TB-ROOT-CMD で止めずに通したずれの記録先。未注入なら記録しない。 */
+  recordRootCommandDrift?: (sessionId: string, input: { repo: string; branch: string | null; rules: string[] }) => void;
 }
 
 export interface RepoAgentGateInput {
@@ -373,7 +375,17 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     }
     // TB-ROOT-CMD: 決定的・学習ルールの両方を集約した後に適用する (ずれ系 rule だけを下げ、安全境界は残す)。
     const relaxRoots = deps.workspaceRootCommandRelaxRoots?.() ?? [];
-    if (relaxRoots.length > 0) verdict = relaxWorkspaceRootCommand(verdict, action, relaxRoots);
+    if (relaxRoots.length > 0) {
+      const before = verdict;
+      verdict = relaxWorkspaceRootCommand(verdict, action, relaxRoots);
+      // TB-ROOT-DRIFT: 止めずに通したずれを記録する。記録の失敗でゲートの判定は変えない。
+      if (verdict !== before && session_id && action.cwd && deps.recordRootCommandDrift) {
+        const rules = before.hits.filter((hit) => hit.decision === "deny" && WORKSPACE_ROOT_RELAXABLE_RULES.has(hit.rule))
+          .map((hit) => hit.rule);
+        try { deps.recordRootCommandDrift(session_id, { repo: action.cwd, branch: action.branch ?? null, rules }); }
+        catch (e) { hlog.warn({ err: (e as Error).message, session_id }, "root command drift record failed"); }
+      }
+    }
     if (verdict.decision === "deny" && session_id && deps.repoAgentGuidance) {
       attachRepoAgentGuidance(verdict, deps.repoAgentGuidance, {
         sessionId: session_id, hits: verdict.hits, cwd: action.cwd ?? null, filePath: action.filePath ?? null,

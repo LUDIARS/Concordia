@@ -16,7 +16,9 @@ import { harnessSessionRouter } from "./harness-session.js";
 const root = resolve("fixture/ars");
 const inside = resolve("fixture/ars/Concordia");
 
-function makeApp(roots: readonly string[]) {
+type DriftRecord = { sessionId: string; repo: string; branch: string | null; rules: string[] };
+
+function makeApp(roots: readonly string[], drifts: DriftRecord[] = []) {
   const db = makeTestDb();
   const rules = new HarnessRulesRepo(db);
   seedHarnessRules(rules);
@@ -25,6 +27,7 @@ function makeApp(roots: readonly string[]) {
   app.route("/v1/harness", harnessSessionRouter({
     audit: new HarnessAuditRepo(db), rules, blackbox: createHarnessBlackbox(db), taskBranches,
     workspaceRootCommandRelaxRoots: () => roots,
+    recordRootCommandDrift: (sessionId, input) => { drifts.push({ sessionId, ...input }); },
   }));
   return app;
 }
@@ -45,6 +48,19 @@ describe("/v1/harness/gate workspace root command relax (TB-ROOT-CMD)", () => {
     const v = await gate(makeApp([root]), { tool: "Bash", command: "git log --oneline -3", cwd: inside, branch: "feat/x" });
     expect(v.blocked).toBe(false);
     expect(v.hits.find((h) => h.rule === "task-branch")?.decision).toBe("warn");
+  });
+
+  it("TB-ROOT-DRIFT: records the drift only when a deny was relaxed", async () => {
+    const drifts: DriftRecord[] = [];
+    const app = makeApp([root], drifts);
+    await gate(app, { tool: "Bash", command: "git log --oneline -3", cwd: inside, branch: "feat/x" });
+    expect(drifts).toEqual([{ sessionId: "sess-root", repo: inside, branch: "feat/x", rules: ["task-branch"] }]);
+    await gate(app, { tool: "Edit", filePath: resolve(inside, "README.md"), cwd: inside, branch: "feat/x" });
+    expect(drifts).toHaveLength(1); // 編集は緩めないので記録もしない
+
+    const none: DriftRecord[] = [];
+    await gate(makeApp([], none), { tool: "Bash", command: "git log", cwd: inside, branch: "feat/x" });
+    expect(none).toEqual([]);
   });
 
   it("still denies the same command when no root is configured", async () => {

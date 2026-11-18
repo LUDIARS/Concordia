@@ -175,3 +175,14 @@ neco 指示「Cc のコマンドブロック、LUDIARS の使い方がイレギ�
 
 検証: `tests/harness-reliability/workspace-root-command-relax.test.ts` (root 配下判定・ずれ系 rule の降格・安全境界の維持・編集ツール対象外・root 外/未設定は不変) と `src/api/harness-session-root-relax.test.ts` (`/gate` 実経路で task-branch deny がコマンドだけ warn、編集と main 直 push は deny)。
 復旧: `CONCORDIA_HARNESS_ROOT_COMMAND_RELAX=0` を設定して Cc を再起動すれば従来の deny へ戻る (gate ごとに評価)。revert でも戻る。metadata・migration の追加はない。
+
+## 止めずに通したずれを管制へ見せる（2026-11-18）
+
+neco 指示「管制というからにはちゃんと管理させたい」。TB-ROOT-CMD で止めなくなったずれを、Cc が把握しないまま流さない。
+
+- TB-ROOT-DRIFT: `/gate` で TB-ROOT-CMD が deny を warn へ下げたときだけ、セッション metadata `root_command_drift` (`{count, last_at, last_repo, last_branch, last_rules}`、1 件上書き・履歴なし) を更新する (`src/harness/reliability/root-command-drift.ts`、配線は `register-core.ts`)。記録の失敗はゲートの判定を変えない。編集ツールは緩めないので記録しない。
+- 管制の巡回は分類理由 (`control_progress_board.status_reason`) に「作業場所のずれ N 回 (最終 <repo>@<branch>: <rules>)」を添える (`src/control-session/patrol.ts` の `withRootCommandDrift`)。DB の列は増やさない (migration なし)。
+- 状態所有者: 記録はセッション行 (session-lifecycle の metadata)。管制は読むだけ。
+
+検証: `tests/harness-reliability/root-command-drift.test.ts` (回数・上書き・壊れた値・分類理由の文面) と `src/api/harness-session-root-relax.test.ts` (緩めた回だけ記録、編集・root 未設定では記録しない)。
+復旧: revert すれば記録しなくなる。metadata `root_command_drift` は残っても無害。migration はない。

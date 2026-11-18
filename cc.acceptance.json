@@ -588,6 +588,24 @@
       "contracts": []
     },
     {
+      "source": "src/harness/reliability/root-command-drift.ts",
+      "tests": [
+        "tests/harness-reliability/root-command-drift.test.ts",
+        "src/api/harness-session-root-relax.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/control/followup-progress-rate.ts",
+      "tests": ["src/control/followup-progress-rate.test.ts", "src/control/followup-progress.test.ts"],
+      "contracts": []
+    },
+    {
+      "source": "src/control/followup-investigation.ts",
+      "tests": ["src/control/followup-progress-rate.test.ts", "src/control/auto-confirm-strikes.test.ts"],
+      "contracts": []
+    },
+    {
       "source": "src/harness/reliability/workspace-root-command-relax.ts",
       "tests": [
         "tests/harness-reliability/workspace-root-command-relax.test.ts",

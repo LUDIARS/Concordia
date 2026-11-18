@@ -34,9 +34,16 @@ const input = (over: Partial<FollowupActivityInput> = {}): FollowupActivityInput
 });
 
 describe("followupActivityFingerprint", () => {
-  it("追跡状態 (タスク・取得不能の取得元) が変わっても、観測された動きが同じなら同じ指紋になる", () => {
+  it("FU-INVESTIGATE: 動きが同じでも進捗率 (タスクの完了) が動けば指紋が変わる", () => {
     const fp = followupActivityFingerprint(input());
-    expect(followupActivityFingerprint(input({ snapshot: { ...base, tasks: [], unavailable: ["actio"] } }))).toBe(fp);
+    expect(followupActivityFingerprint(input({ snapshot: { ...base,
+      tasks: [{ status: "in_progress" }, { status: "done" }] } }))).not.toBe(fp);
+  });
+
+  it("追跡状態 (unknown のタスク・取得不能の取得元) が変わっても、観測された動きと進捗率が同じなら同じ指紋になる", () => {
+    const fp = followupActivityFingerprint(input());
+    expect(followupActivityFingerprint(input({ snapshot: { ...base,
+      tasks: [...base.tasks, { status: "unknown" }], unavailable: ["actio"] } }))).toBe(fp);
     // 自動確認に返答しただけなら最終活動時刻が進んでも変化なし。
     expect(followupActivityFingerprint(input({ lastActivityMs: 9_999 }))).toBe(fp);
   });

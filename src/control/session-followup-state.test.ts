@@ -66,7 +66,9 @@ describe("task-linked followup", () => {
 
   it("names the Actio tasks that could not be linked and why (162bc3a6)", () => {
     const text = renderSessionFollowup({ ...empty, linkFailures: [{ task_reference: "actio:T-9", reason: "task_out_of_scope" }] });
-    expect(text).toContain("state=unknown");
+    // FU-UNTRACKED: 紐付けに失敗してタスク・PR・委託が無い = 作業項目なし (取得失敗ではない)。
+    expect(text).toContain("state=untracked");
+    expect(text).toContain("Actio タスクを紐付けてください");
     expect(text).toContain("関連付けできなかった Actio タスク: actio:T-9 (task_out_of_scope)");
     expect(renderSessionFollowup(empty)).not.toContain("関連付けできなかった");
   });

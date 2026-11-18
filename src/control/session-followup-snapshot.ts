@@ -12,6 +12,8 @@ export interface FollowupSnapshotPorts {
   repositories(): Promise<readonly RevisorRepositoryRecord[]>;
   localPrs(): Promise<readonly (PrState & { sessionId?: string | null; headRef: string })[]>;
   githubPrs(session: SessionRow): readonly PrState[];
+  /** FU-PR: open が無いとき、このセッションの直近の決着済み local PR (merged / closed)。未注入なら引かない。 */
+  settledPr?(session: SessionRow): Promise<PrState | null>;
   delegations(sessionId: string): readonly { status: string }[];
 }
 
@@ -35,7 +37,12 @@ export async function resolveSessionFollowupSnapshot(
     prs = ports.githubPrs(session);
   } else if (workflow === "revisor") {
     try {
-      prs = (await ports.localPrs()).filter((pr) => pr.sessionId === session.id && pr.headRef === session.branch);
+      // FU-PR: branch ではなくセッション id で引く (登録 branch が main へ戻ってもマージ済み PR を見失わない)。
+      prs = (await ports.localPrs()).filter((pr) => pr.sessionId === session.id);
+      if (!prs.length && ports.settledPr) {
+        const settled = await ports.settledPr(session);
+        if (settled) prs = [settled];
+      }
     } catch {
       unavailable.push("revisor-prs");
     }

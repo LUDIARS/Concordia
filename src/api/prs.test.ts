@@ -7,6 +7,9 @@ import { makeTestApp } from "../../tests/helpers/test-app.js";
 import { RevisorMergeError } from "../pr/revisor-merge-outcome.js";
 import type { RevisorLocalPr, RevisorLocalPrReader } from "../pr/revisor-client.js";
 
+// makeTestApp は DB と全ルートを組み立てるため、審査で他ドメインと並走すると既定の 5 秒を超えることがある。
+const APP_TEST_TIMEOUT_MS = 20_000;
+
 function addSession(env: ReturnType<typeof makeTestApp>, sessionId = "session-1"): void {
   env.repo.insertSession({
     id: sessionId,
@@ -99,7 +102,7 @@ function closeRequest(body: unknown): RequestInit {
   };
 }
 
-describe("POST /v1/prs/local/:id/merge", () => {
+describe("POST /v1/prs/local/:id/merge", { timeout: APP_TEST_TIMEOUT_MS }, () => {
   it("merges with the last human requester's merge_pr capability and records an audit event", async () => {
     const env = makeTestApp();
     addSession(env);
@@ -401,7 +404,7 @@ describe("POST /v1/prs/local/:id/merge", () => {
   });
 });
 
-describe("POST /v1/prs/local and fast-lane promotion", () => {
+describe("POST /v1/prs/local and fast-lane promotion", { timeout: APP_TEST_TIMEOUT_MS }, () => {
   it("passes only a strict explicit fast_lane opt-in to manual submission", async () => {
     const EMPTY_PRS = { list: () => [] } as never;
     let active = true;
@@ -496,7 +499,7 @@ describe("POST /v1/prs/local and fast-lane promotion", () => {
   });
 });
 
-describe("POST /v1/prs/local/:id/close", () => {
+describe("POST /v1/prs/local/:id/close", { timeout: APP_TEST_TIMEOUT_MS }, () => {
   it("closes with the last human requester's merge_pr capability and records an audit event", async () => {
     const env = makeTestApp();
     addSession(env);
@@ -600,7 +603,7 @@ describe("POST /v1/prs/local/:id/close", () => {
   });
 });
 
-describe("GET /v1/prs/revisor/digest", () => {
+describe("GET /v1/prs/revisor/digest", { timeout: APP_TEST_TIMEOUT_MS }, () => {
   it("renders the Revisor local PR digest with the teaching note", async () => {
     const env = makeTestApp();
     const app = makePrsApp(env, async () => undefined, undefined, {

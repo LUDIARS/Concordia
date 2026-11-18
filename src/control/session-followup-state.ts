@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { DELEGATION_RUN_STATUSES } from "../db/delegation-repo.js";
 import type { ProjectStartupWorkflow } from "./project-startup-workflow.js";
 import { REMAINING_WORK_GUIDANCE } from "./remaining-work-guidance.js";
+import { computeFollowupProgressRate, renderProgressRate } from "./followup-progress-rate.js";
 
 /** Sources fetched independently for the followup; one failure must not discard the others. */
 export type FollowupSource = "actio" | "revisor-registry" | "revisor-prs";
@@ -27,7 +28,7 @@ export interface SessionFollowupSnapshot {
 }
 
 export type SessionFollowupState = "task-active" | "delegation-wait" | "review-needed" | "review-wait"
-  | "review-failed" | "merge-confirmation" | "reflection-needed" | "unknown" | "task-blocked";
+  | "review-failed" | "merge-confirmation" | "reflection-needed" | "unknown" | "task-blocked" | "untracked";
 
 /**
  * Every delegation status that means "the child may still be working".
@@ -55,6 +56,8 @@ export function selectSessionFollowupState(snapshot: SessionFollowupSnapshot): S
   if (snapshot.prs.some((pr) => pr.status === "merged")) return "reflection-needed";
   if (snapshot.delegations[0]?.status === "failed") return "review-failed";
   if (snapshot.tasks.length || snapshot.delegations[0]?.status === "completed") return "review-needed";
+  // FU-UNTRACKED: タスク・PR・委託のどれも無い (取れなかったのではなく、無い)。
+  if (!snapshot.prs.length && !snapshot.delegations.length && !snapshot.unavailable?.length) return "untracked";
   return "unknown";
 }
 
@@ -73,6 +76,9 @@ function linkFailureLines(snapshot?: SessionFollowupSnapshot): string[] {
   ];
 }
 
+/** FU-UNTRACKED の案内。 */
+export const UNTRACKED_GUIDANCE = "このセッションには Actio タスク・PR・委託の作業項目がありません。人間の指示に対応する Actio タスクを紐付けてください (cc-work-management)。作業が終わっていれば、原因調査モードの手順で人間にセッション終了を提案してください。";
+
 /** 全 state 共通 (2026-11-16 neco 指示)。 */
 export const NO_HUMAN_JUDGMENT_GUIDANCE = "人間の判断が要らない残作業は確認を求めずに進めてください。";
 
@@ -88,6 +94,7 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
   return [
     "[自動確認] Cc の作業状態に応じた確認です。",
     `workflow=${snapshot?.workflow ?? "unknown"}; state=${state}`,
+    renderProgressRate(computeFollowupProgressRate(snapshot)),
     ...(!snapshot ? ["Actio・審査・委託状態は取得できていません。保存済みのタスク参照から再照合してください。"] : []),
     ...(snapshot?.unavailable?.length
       ? [`取得できなかった状態: ${snapshot.unavailable.map((source) => SOURCE_LABELS[source]).join("・")}。取れた状態だけで判断し、取れなかったものは保存済みの参照から再照合してください。`]
@@ -98,6 +105,7 @@ export function renderSessionFollowup(snapshot?: SessionFollowupSnapshot): strin
     ...REMAINING_WORK_GUIDANCE,
     NO_HUMAN_JUDGMENT_GUIDANCE,
     ...(state === "review-failed" ? REVIEW_FAILED_GUIDANCE : []),
+    ...(state === "untracked" ? [UNTRACKED_GUIDANCE] : []),
     ...(state === "task-blocked" ? ["blocked タスクは依存待ち・人間判断待ちを照合し、待機中の同じ依頼を重複実行しないでください。"] : []),
     ...(state === "reflection-needed" ? ["PR の merged だけでループを完了にしないでください。対象変更の反映、Actio の残タスク、次の GO または人間判断待ちを確認してください。"] : []),
     `固定手順: ${JSON.stringify(skill)} の該当stateだけ読んでください。`,

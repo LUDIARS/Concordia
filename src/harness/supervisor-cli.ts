@@ -7,10 +7,12 @@ import { evaluateAction, type GateVerdict } from "./session-gate.js";
 import { homedir, tmpdir } from "node:os";
 import { commonRootOf, isEditTool, type HarnessAction } from "./predicates.js";
 import { isClaudeWorkArea, type WorkAreaBases } from "./work-area.js";
-import { evaluateCachedAction, recoveryAllowed, usableSnapshot } from "./supervisor-policy.js";
+import { evaluateCachedAction, recoveryAllowed, snapshotUnusableReason, usableSnapshot } from "./supervisor-policy.js";
 import { needsDddEvidence, DDD_INSTRUCTION } from "./project-policy.js";
 import { hasDddEvidence } from "./ddd-evidence.js";
 import { queryGate } from "./supervisor-online.js";
+import { LocalGitError, describeCacheFailure, describeCcFailure, describeLocalGitFailure, fallbackDenyReason,
+  formatFailures, invalidResponseFailure, type GateFailure } from "./gate-failure.js";
 
 interface Config {
   catalog: string;
@@ -19,9 +21,16 @@ interface Config {
   recoveryCommands: string[];
 }
 
+/** Every hook-side git failure carries its operation, so the denial names it (local_git_failed). */
 function git(cwd: string, args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 3000, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 3000, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch (error) {
+    throw new LocalGitError(args.join(" "), error);
+  }
 }
+
+let auditDir: string | undefined;
 
 function catalogPort(path: string): number {
   const text = readFileSync(path, "utf8");
@@ -67,6 +76,7 @@ async function main(): Promise<void> {
     || ![config.recoveryRoots, config.recoveryCommands].every((values) => Array.isArray(values) && values.every((value) => typeof value === "string"))) {
     throw new Error("Invalid supervisor configuration");
   }
+  auditDir = config.stateDir;
   const port = catalogPort(config.catalog);
   let input = "";
   for await (const chunk of process.stdin) {
@@ -100,7 +110,7 @@ async function main(): Promise<void> {
   try { origin = git(root, ["config", "--get-regexp", "^remote\\..*\\.url$"]); }
   catch (error) {
     // git config exits 1 when no remote URL exists; other failures must remain visible.
-    if ((error as { status?: number }).status !== 1) throw error;
+    if (!(error instanceof LocalGitError) || error.status !== 1) throw error;
     origin = "";
   }
   const cacheKey = createHash("sha256").update(`${root}\n${origin}\n${sessionId}`).digest("hex");
@@ -109,13 +119,19 @@ async function main(): Promise<void> {
   const response = outcome.kind === "online" ? outcome.response : null;
   let mode = "online";
   let verdict: GateVerdict;
+  const failures: GateFailure[] = [];
   if (response && response.status < 500) {
     const body = response.body as (GateVerdict & { local_policy?: unknown }) | null;
     if (response.status !== 200 || !body || !["allow", "warn", "deny"].includes(body.decision)
       || typeof body.blocked !== "boolean" || typeof body.reason !== "string") {
-      verdict = reject("Cc returned an invalid gate response; offline permission was not substituted.");
+      const failure = invalidResponseFailure(response.status, response.body);
+      failures.push(failure);
+      verdict = reject(`${formatFailures([failure])}; offline permission was not substituted.`);
     } else {
       verdict = { ...body, blocked: body.blocked || body.decision === "deny" };
+      // gate が既知の失敗 (unnamed_branch 等) を理由付き deny で返した場合も種別を監査に残す。
+      const code = (body as { error?: unknown }).error;
+      if (typeof code === "string" && code) failures.push({ kind: "cc_error", message: code });
       if (usableSnapshot(body.local_policy, action, sessionId, Date.now())) {
         const temporary = `${cachePath}.${randomUUID()}.tmp`;
         writeFileSync(temporary, JSON.stringify(body.local_policy), "utf8");
@@ -123,6 +139,8 @@ async function main(): Promise<void> {
       }
     }
   } else {
+    const ccFailure = describeCcFailure(outcome);
+    if (ccFailure) failures.push(ccFailure);
     let cached: unknown;
     // 破損して読めない場合も「存在した」ことは権限判定に効かせる。 読めないキャッシュを
     // 未取得と同一視すると、 問診など制限の強い session が復旧権限へ格上げされうる。
@@ -131,6 +149,7 @@ async function main(): Promise<void> {
       try { cached = JSON.parse(readFileSync(cachePath, "utf8")); }
       catch { process.stderr.write("[harness-supervisor] Invalid cache; recovery-only mode.\n"); }
     }
+    const cacheFailure = describeCacheFailure(hadCacheFile, snapshotUnusableReason(cached, action, sessionId, Date.now()));
     if (usableSnapshot(cached, action, sessionId, Date.now())) {
       mode = "cached";
       verdict = evaluateCachedAction(action, cached);
@@ -163,22 +182,28 @@ async function main(): Promise<void> {
       // キャッシュはあるが照合に失敗した (期限切れ・別 session/branch・破損)。 どの権限で
       // 起動された session か確認できないため、 復旧権限へ格上げしない。
       mode = "recovery";
-      verdict = reject("Cached policy does not match this session/branch or has expired. Reconnect to Cc to refresh it.");
+      if (cacheFailure) failures.push(cacheFailure);
+      verdict = reject(fallbackDenyReason(failures));
     } else {
       // /health が応答しているのにゲートが上限内に返らない場合は「停止」ではなく「遅延」。
       // 権限は復旧範囲のまま広げず、 再試行で通りうることを区別して伝える。
       mode = outcome.kind === "slow" ? "slow" : "recovery";
+      if (cacheFailure) failures.push(cacheFailure);
       verdict = recoveryAllowed(action, config.recoveryRoots.map((path) => realpathSync(path)), config.recoveryCommands)
         ? evaluateAction(action)
-        : reject(outcome.kind === "slow"
-          ? "Cc is running (/health OK) but the gate did not answer in time and no policy cache exists for this repo. Retry the command."
-          : "Cc unavailable and no current policy cache. Only configured recovery roots and commands are permitted.");
+        : reject(fallbackDenyReason(failures));
     }
   }
   // No command text, file contents, or prompt payload in the offline audit.
   appendFileSync(join(config.stateDir, "audit.jsonl"), JSON.stringify({ ts: Date.now(), mode, decision: verdict.decision,
-    project: cacheKey, tool: action.tool, rules: verdict.hits?.map((hit) => hit.rule) ?? [] }) + "\n", "utf8");
-  if (mode !== "online") process.stderr.write(`[harness-supervisor] ${mode} mode: ${verdict.reason}\n`);
+    project: cacheKey, tool: action.tool, rules: verdict.hits?.map((hit) => hit.rule) ?? [],
+    ...(failures.length ? { failure_kind: failures.map((failure) => failure.kind) } : {}) }) + "\n", "utf8");
+  if (mode !== "online") {
+    // 原因が拒否文にまだ含まれていない (キャッシュ判定で止めた / 通した) ときだけ前置する。
+    const summary = formatFailures(failures);
+    const causes = failures.length && !verdict.reason.includes(summary) ? ` ${summary} ->` : "";
+    process.stderr.write(`[harness-supervisor] ${mode} mode:${causes} ${verdict.reason}\n`);
+  }
   if (verdict.blocked) {
     process.stderr.write(`[harness-supervisor] ${verdict.reason}\n`);
     process.exitCode = 2;
@@ -188,6 +213,19 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
+  if (error instanceof LocalGitError) {
+    const failure = describeLocalGitFailure(error);
+    process.stderr.write(`[harness-supervisor] ${formatFailures([failure])}. The command was not checked against Cc.\n`);
+    if (auditDir) {
+      try {
+        mkdirSync(auditDir, { recursive: true });
+        appendFileSync(join(auditDir, "audit.jsonl"), JSON.stringify({ ts: Date.now(), mode: "error", decision: "deny",
+          project: "", tool: "", rules: [], failure_kind: [failure.kind] }) + "\n", "utf8");
+      } catch { /* an audit write failure must not change the fail-closed exit */ }
+    }
+    process.exitCode = 2;
+    return;
+  }
   process.stderr.write(`[harness-supervisor] ${error instanceof Error ? error.message : "Unexpected failure"}\n`);
   process.exitCode = 2;
 });

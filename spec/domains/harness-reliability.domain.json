@@ -26,6 +26,12 @@
       "pathPattern": "(^|/)src/harness/supervisor-(policy|online)(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/harness/gate-failure(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/harness-gate-bind-failure(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/ingest\\.ts$"
     }
   ],

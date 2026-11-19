@@ -34,6 +34,12 @@ checkout (最も近い `.git` を持つ祖先、worktree を含む) の spec/ux 
 
 ## 障害時の監督処理
 
+supervisor hook が fail-closed で止めたときは、拒否理由に失敗の種別 (`cc_unreachable` / `cc_slow` /
+`cc_error` / `cc_invalid_response` / `local_git_failed` / `cache_expired` / `cache_session_mismatch` /
+`cache_branch_mismatch` / `cache_corrupt` / `cache_missing`) を `[種別] 説明` の形で載せ、監査に
+`failure_kind` を残す。止める判定は変えない。種別の定義と gate の detached HEAD 応答は
+`spec/setup/harness-supervisor.md` を正とする (Actio 32de4b3e)。
+
 ## コード実装の受入条件
 
 project_codes が所有する `tests_required` と `ontime_tests_required` は既定falseの独立設定。

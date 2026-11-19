@@ -40,6 +40,25 @@ Codex等で別のhookプロトコルを使う場合は、そのproviderの入口
 - オフライン使用でキャッシュ期限は延長しない。再接続時に最新設定を取得する。
 - 対応する編集ツールでDDDのUX文書とdomain membershipを確認する。shell内の任意プログラムが書く全ファイルを検出するサンドボックスではない。
 - 設定のチェックは編集ゲートへ即時反映する。セッション契約の初期生成は選択済みプロジェクトの起動・task変更時に行う。
+- 拒否・warn の文は `[種別] 説明` の形で出し、原因が複数あるときは ` / ` で並べて全部出す (例: `[cc_unreachable] … / [cache_expired] …`)。監査 `audit.jsonl` には `failure_kind` (種別の配列) を記録する。種別は表示と監査のためだけに使い、許可/拒否の判定は変えない。
+- gate がリポ文脈を解けない既知の失敗 (`ImplementationBindFailure`。detached HEAD は `unnamed_branch`) は素の 5xx にせず、`{ decision: "deny", blocked: true, reason: "[cc_error] …", error: "<reason>", stage }` の明示応答で返す。deny のまま緩めず、`local_policy` を返さないのでキャッシュも更新しない。
+
+### 失敗の種別 (`src/harness/gate-failure.ts`)
+
+| 種別 | 意味 |
+|---|---|
+| `cc_unreachable` | gate も `/health` も応答しない (接続拒否・応答なし) |
+| `cc_slow` | `/health` は応答したが gate が上限内に返らない (再試行で通りうる) |
+| `cc_error` | gate が 5xx を返した。本文の `error` / `reason` / `stage` があれば含め、無ければ HTTP status。gate が理由付き deny の `error` を返した場合も監査に記録する |
+| `cc_invalid_response` | 200 以外の 4xx、または 200 だが形式不正 |
+| `local_git_failed` | hook 内の git 呼び出しの失敗。git の操作 (例 `rev-parse --show-toplevel`) と timeout / exit code / git 不在を示す |
+| `cache_expired` | キャッシュが 15 分を超えた (または未来時刻) |
+| `cache_session_mismatch` | 別 session のキャッシュ (または `LICTOR_SESSION_ID` が無い) |
+| `cache_branch_mismatch` | 別 branch で取得したキャッシュ |
+| `cache_corrupt` | キャッシュが読めない・形式不正・キーと repo が一致しない |
+| `cache_missing` | キャッシュファイルが無い |
+
+キャッシュ不成立の理由は `snapshotUnusableReason` で判定し、`usableSnapshot` はその結果が null のときだけ真とする (診断と権限判定が食い違わない)。
 - 監査にはコマンド本文やプロンプトを残さない。キャッシュ・監査の配置先は運用者と当該アカウントだけが編集できるよう管理する。
 
 この文書の追加は、全プロジェクトへのhook配置や稼働環境への反映完了を意味しない。

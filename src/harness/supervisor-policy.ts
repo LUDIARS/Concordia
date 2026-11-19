@@ -20,17 +20,32 @@ export interface LocalPolicySnapshot {
   taskBranchLiveRequired?: boolean;
 }
 
-export function usableSnapshot(value: unknown, action: HarnessAction, sessionId: string, now: number): value is LocalPolicySnapshot {
-  if (!value || typeof value !== "object") return false;
+export type SnapshotUnusableReason = "expired" | "session_mismatch" | "branch_mismatch" | "corrupt";
+
+/**
+ * Why a cached snapshot cannot be used, or null when it can. `usableSnapshot` is defined from
+ * this so the diagnosis and the permission decision can never disagree.
+ * Repo mismatch is reported as corrupt: the cache key already hashes the repo root, so a
+ * different `repo` means the file does not belong to its own key.
+ */
+export function snapshotUnusableReason(value: unknown, action: HarnessAction, sessionId: string, now: number): SnapshotUnusableReason | null {
+  if (!value || typeof value !== "object") return "corrupt";
   const snapshot = value as LocalPolicySnapshot;
-  return snapshot.version === 1 && Number.isFinite(snapshot.capturedAt)
-    && now >= snapshot.capturedAt && now - snapshot.capturedAt <= 15 * 60_000
-    && snapshot.sessionId === sessionId && !!sessionId && !!action.cwd
-    && snapshot.repo === action.cwd && snapshot.branch === action.branch
+  const wellFormed = snapshot.version === 1 && Number.isFinite(snapshot.capturedAt)
+    && typeof snapshot.sessionId === "string" && typeof snapshot.repo === "string" && typeof snapshot.branch === "string"
     && !!snapshot.context && typeof snapshot.context === "object"
     && typeof snapshot.policy?.ddd === "boolean" && typeof snapshot.policy?.contract === "boolean"
     && [snapshot.mainPushAllowlist, snapshot.strongImplModels, snapshot.editedRepos, snapshot.editedFiles]
       .every((items) => Array.isArray(items) && items.every((item) => typeof item === "string"));
+  if (!wellFormed || !action.cwd || snapshot.repo !== action.cwd) return "corrupt";
+  if (!sessionId || snapshot.sessionId !== sessionId) return "session_mismatch";
+  if (snapshot.branch !== action.branch) return "branch_mismatch";
+  if (now < snapshot.capturedAt || now - snapshot.capturedAt > 15 * 60_000) return "expired";
+  return null;
+}
+
+export function usableSnapshot(value: unknown, action: HarnessAction, sessionId: string, now: number): value is LocalPolicySnapshot {
+  return snapshotUnusableReason(value, action, sessionId, now) === null;
 }
 
 export function evaluateCachedAction(action: HarnessAction, snapshot: LocalPolicySnapshot): GateVerdict {

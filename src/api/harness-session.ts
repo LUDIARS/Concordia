@@ -23,6 +23,8 @@ import { hasDddEvidenceAsync, resolveDddEvidenceRoot } from "../harness/ddd-evid
 import { buildProcessGuidance } from "../control/process-guidance.js";
 import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
+import { ImplementationBindFailure } from "../implementation-tools/bind-failure.js";
+import { bindFailureDenial } from "./harness-gate-bind-failure.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
 import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
 import {
@@ -307,7 +309,22 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
     const mainPushAllowlist = deps.mainPushAllowlist?.() ?? [];
-    const policy = action.cwd ? await deps.projectPolicy?.(action.cwd) : undefined;
+    let policy: ProjectHarnessPolicy | undefined;
+    try {
+      policy = action.cwd ? await deps.projectPolicy?.(action.cwd) : undefined;
+    } catch (e) {
+      // 既知の bind 失敗 (detached HEAD = unnamed_branch 等) は素の 5xx にせず、理由付きの deny で返す。
+      // 判定は緩めない (deny のまま)。 local_policy は返さないので hook のキャッシュも更新されない。
+      if (!(e instanceof ImplementationBindFailure)) throw e;
+      const denial = bindFailureDenial(e);
+      recordSafe(deps.audit, {
+        session_id, project: action.project, hook: hook ?? "gate", event: "block",
+        tool: action.tool, action: action.command ?? action.filePath ?? "", repo,
+        rule: denial.hits[0]!.rule, decision: "deny", reason: denial.reason,
+        detail: { hits: denial.hits, branch: action.branch, error: denial.error, stage: denial.stage }, ms: Date.now() - t0,
+      });
+      return c.json(denial);
+    }
     // contract opt-in の効果はここだけ: 契約が解決できない (undefined) 場合を fail-closed の
     // false に倒し、 contractIncomplete に deny させる。 未選択プロジェクトは undefined のまま
     // = 追加要件を強制しない。 どちらの場合も述語セット自体は削らない (project-policy.ts 参照)。

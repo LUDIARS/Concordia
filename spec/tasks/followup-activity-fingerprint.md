@@ -33,7 +33,7 @@ neco 指示 (2026-11-16)「自動確認の更新判定も同じようにやっ�
 
 ### 受入
 
-- 全員無活動 (自動確認への返答だけ・unknown) のデータで `unchanged_count` が増え、止まっている扱い (`isActivityStalled`) になり、Discord 通知 (`session.stall_nudged`) は初回だけ。
+- 全員無活動 (自動確認への返答だけ・unknown) のデータで `unchanged_count` が増え、止まっている扱い (`isActivityStalled`) になり、`session.stall_nudged` の発行は初回だけ (2026-11-19 neco 指示以降、Discord へは初回も含め投稿しない。autonomous-work-continuation.md §2)。
 - コミット・人間の入力・PR の状態変化・現況報告があれば変化ありとして 0 に戻る。
 - tool_result だけの返答は動きに数えない。
 

@@ -12,6 +12,7 @@
     { "pathPattern": "(^|/)src/control/nudge-delivery(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/nudge-skip-record(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/auto-confirm-strikes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/session-event-discord-policy(\\.contract|\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/followup-progress(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/followup-(progress-rate|investigation)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/control/session-activity(-observe)?(\\.test)?\\.ts$" },

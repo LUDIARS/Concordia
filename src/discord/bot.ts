@@ -69,6 +69,7 @@ import { ccInjectMirrorPost } from "./cc-inject-mirror.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { canShareMonitorSource } from "./monitor-visibility.js";
+import { isDiscordSilentEvent } from "./session-event-discord-policy.js";
 import { startServiceStatusDiscord } from "./service-status.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
 import { buildTeamAdminPanel, upsertTeamAdminPanelMessage } from "./team-admin-panel.js";
@@ -2600,6 +2601,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (gatewayClosed || stopping) return;
+    // 投稿しないイベント (自動確認 session.stall_nudged など) は Discord 配信境界で落とす。
+    // イベント自体は WS 購読者へ届く。
+    if (isDiscordSilentEvent(ev.type)) return;
     if (ev.type === "consultation.safety_blocked") {
       // HQ administrator DM only: no consultation text or personal data enters a shared channel.
       if (subsidiaryId !== null) return;
@@ -3363,41 +3367,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
       void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
-      return;
-    }
-    if (ev.type === "session.stall_nudged") {
-      // 自動確認 (stall nudge) の発生通知。nudge 本文は転記しない — 「送った」事実
-      // だけを短文で知らせる (2026-08-25 neco 指示: 全文は通知しない)。
-      if (!isActiveDiscordSession(ev.target_session_id) || !webhooks) return;
-      const webhookPool = webhooks;
-      void (async () => {
-        const client = await webhookPool.getForSession(ev.target_session_id);
-        if (!client) return;
-        // 個人識別子は WS event に載せず、Discord 配信境界でだけ解決する。
-        let configuredMentionUserId: string | null = null;
-        try {
-          configuredMentionUserId = deps.resolveMentionUserId?.() ?? null;
-        } catch {
-          // 通知は best-effort。設定読み取り失敗時もメンションなしで本文を届ける。
-        }
-        // Admin setting の破損値で Discord API 送信全体を失敗させない。
-        const mentionUserId = configuredMentionUserId && /^\d{17,20}$/.test(configuredMentionUserId)
-          ? configuredMentionUserId
-          : null;
-        const mention = mentionUserId ? `<@${mentionUserId}> ` : "";
-        const idleMin = Math.max(1, Math.round(ev.idle_sec / 60));
-        // 止まっているセッションほど「あとどれだけ入るか」を知りたいので、
-        // 自動確認の通知に使用量を併記する (別投稿にせず 1 通に収める)。
-        const usage = await contextUsageLine(ev.target_session_id);
-        await webhookPool.send(client, {
-          content: `${mention}🔔 [自動確認] 応答が約 ${idleMin} 分止まっていたため、セッションへ自動確認を送信しました。`
-            + (usage ? `\n${usage}` : ""),
-          username: "Concordia 自動巡回",
-          allowedMentions: mentionUserId
-            ? { parse: [], users: [mentionUserId] }
-            : { parse: [] },
-        });
-      })().catch((e) => log.warn(`stall nudge notice failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.human_todos_changed") {

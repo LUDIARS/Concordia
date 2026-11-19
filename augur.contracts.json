@@ -3,6 +3,7 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "stall-discord-C-1", "criterion": "C-1 isDiscordSilentEvent(type): session.stall_nudged は Discord に投稿せず、他のイベントは従来どおり投稿対象に残す", "symbol": "isDiscordSilentEvent", "file": "src/discord/session-event-discord-policy.ts", "module": "src/discord/session-event-discord-policy.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "monitor-C-1", "criterion": "C-1 readMonitorProgress(text,task,now): 同一依頼の根拠付き報告だけを表示し未知・古い報告・未完100%を未確認にする", "symbol": "readMonitorProgress", "file": "src/platform/monitor-progress.ts", "module": "src/platform/monitor-progress.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "monitor-C-2", "criterion": "C-2 monitorDeliveryAction(state,found): 結果不明の作成は既存投稿の照合以外で再送しない", "symbol": "monitorDeliveryAction", "file": "src/discord/monitor-delivery-policy.ts", "module": "src/discord/monitor-delivery-policy.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "qs-lock-C-1", "criterion": "C-1 verifyQsLockUpdate(before,after): qs の指定版への更新だけを許可し他の lock 情報と親要求レンジを維持する", "symbol": "verifyQsLockUpdate", "file": "tools/qs-lock.mjs", "module": "tools/qs-lock.contract.mjs", "mode": "observe", "sample": 1 },

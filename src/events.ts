@@ -191,9 +191,9 @@ type ConcordiaEventPayload =
   // source が "discord:<uid>:…" / "slack:<uid>:…" の人間メッセージのときに付く。
   | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; provenance?: InjectionProvenance; ts: number }
   /**
-   * 停滞セッションへ自動確認 (stall nudge) を注入した事実の通知。inject 本文は
-   * 含めない (Discord へは「送った」ことだけを短文で知らせる — 2026-08-25 neco 指示)。
-   * メンション先の個人識別子は WS へ流さず、Discord bot の配信境界で解決する。
+   * 停滞セッションへ自動確認 (stall nudge) を注入した事実の通知。inject 本文は含めない。
+   * WS 購読者向け。Discord へは投稿しない (2026-11-19 neco 指示、
+   * src/discord/session-event-discord-policy.ts)。
    */
   | { type: "session.stall_nudged"; target_session_id: string; idle_sec: number; ts: number }
   /**

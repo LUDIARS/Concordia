@@ -35,7 +35,8 @@
  *     3 アウトで止めるのは状態照会なしの構成と委託の定期進捗だけ。同じ unknown も繰り返し確認し、
  *     変化の無い回は下記のとおり確認だけ送って Discord へは報告しない。
  *   - **変化なしは報告しない** (2026-11-16 neco 指示): 観測された動きの指紋 (followup-progress.ts /
- *     session-activity.ts) が前回と同じ回は確認だけ送り、session.stall_nudged (Discord 通知) は出さない。
+ *     session-activity.ts) が前回と同じ回は確認だけ送り、session.stall_nudged は出さない
+ *     (このイベントは 2026-11-19 以降 Discord へは投稿されない。WS 購読者向け)。
  *     動きは追跡状態 (ほぼ unknown) ではなく、自動確認以降の人間の入力・最終活動時刻・HEAD/作業ツリー・
  *     PR/委託の状態・サイドチャンネル現況から見る。管制の停止判定と同じ記録・同じ基準を使う。
  *   - **人間のやることの報告** (2026-10-08 neco 指示): 巡回ごとに reportHumanTodos を呼び、

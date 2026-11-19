@@ -154,14 +154,18 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
   (`{fingerprint, unchanged_count, last_checked_at, last_changed_at, state}`) に記録する。`state` は表示用で指紋に入れない。
   比較 (`classifyActivity`) と停止判定 (`isActivityStalled`、2 回以上変化なし) は管制
   ([control-session](control-session.md) §4) と同じ純関数を使い、変化あり / なし・止まっているの基準を一致させる。
-- 指紋が前回と同じ回は `session.stall_nudged` を出さない (Discord に「🔔 [自動確認]」を投稿しない)。見送りは
+- Discord には自動確認を一切投稿しない (2026-11-19 neco 指示)。`session.stall_nudged` は WS 購読者向けに
+  従来どおり発行するが、Discord 配信境界 (`src/discord/session-event-discord-policy.ts` の
+  `isDiscordSilentEvent`、`src/discord/bot.ts` の `routeEvent` 冒頭) で落とし、「🔔 [自動確認]」は投稿しない。
+  セッションへの自動確認 (inject) は変えない。復旧: この変更を revert すれば変化のあった回の投稿に戻る。
+- 指紋が前回と同じ回は `session.stall_nudged` を出さない。見送りは
   info ログ (`stall nudge report skipped: no observed activity since previous check`) に残す。本文に
   「前回の自動確認から観測できる動きはありません。確認と実行可能な作業は続け、報告することが無ければ返信は
-  `[変化なし]` の一行だけにする」を添える。変わった回・初回は従来どおり通知する。
+  `[変化なし]` の一行だけにする」を添える。変わった回・初回は従来どおり `session.stall_nudged` を発行する (Discord へは投稿しない)。
 - assistant 発言の本文が trim 後ちょうど `[変化なし]` なら Discord / Slack へ流さない
   (`src/platform/session-message-relay.ts`)。それ以外の発言は従来どおり。
 - 状態照会を持たない構成と委託の定期進捗は比べない (従来どおり)。
-- 復旧: metadata `cc_followup_progress` を消せば次の自動確認は「変化あり」として通知される。
+- 復旧: metadata `cc_followup_progress` を消せば次の自動確認は「変化あり」として `session.stall_nudged` が発行される (Discord へは投稿しない)。
 - human-wait・未回答の質問カード・ask 待ち・人間応答待ちの永続 gate・「前回の確認に無反応」の
   抑止は、作業状態に関係なくそのまま効く。継続誘導は新しい実行許可ではない。
 

@@ -39,7 +39,7 @@ neco 指示 (2026-11-16) の 4 点を自動確認 (stall nudge) に入れる。�
 
 ### 復旧方法
 
-- metadata `cc_followup_progress` を消せば、次の自動確認は「変化あり」として従来どおり Discord へ通知される。
+- metadata `cc_followup_progress` を消せば、次の自動確認は「変化あり」として従来どおり `session.stall_nudged` が発行される (2026-11-19 以降 Discord へは投稿しない。autonomous-work-continuation.md §2)。
 - 3 アウトを全状態で効かせる従来挙動に戻すには、runOnce の `strikeExempt` を常に false にする (1 行) か、この PR を revert する。
 - `[変化なし]` の非転記は session-message-relay.ts の 1 行を外せば戻る。
 

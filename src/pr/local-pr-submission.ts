@@ -285,7 +285,7 @@ export async function submitSessionLocalPr(
       fastLane: request.fastLane === true,
     });
     if (!plan.submit && "retry" in plan) {
-      let pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId);
+      let pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId, request.sessionId);
       if (
         request.fastLane === true
         && request.sessionId

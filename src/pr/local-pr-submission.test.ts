@@ -533,7 +533,7 @@ describe("submitSessionLocalPr", () => {
     }, request);
 
     expect(result).toEqual({ submitted: false, resubmitted: true, pullRequest: expect.objectContaining({ id: "pr-9" }) });
-    expect(retryLocalPullRequest).toHaveBeenCalledWith("pr-9");
+    expect(retryLocalPullRequest).toHaveBeenCalledWith("pr-9", request.sessionId);
     expect(submitLocalPullRequest).not.toHaveBeenCalled();
   });
 

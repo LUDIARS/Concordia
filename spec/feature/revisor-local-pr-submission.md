@@ -120,6 +120,7 @@ Excubitor 経由の再起動が必要である。再起動操作そのものは�
 
 同じ open PR が `failed` / `action_required` の場合、手動で別の retry API を探させず、同じ
 提出操作が `POST /v1/local-prs/:id/retry` へ進む。Revisor が head 前進と再審査範囲を判定する。
+Cc は再提出元のセッション ID を同じ要求の session_id に渡し、再審査の通知先を貼り直す。
 
 repository 名と base ref の照合は大文字小文字を無視する。 head ブランチ名だけは git と
 同じく大文字小文字を区別する。

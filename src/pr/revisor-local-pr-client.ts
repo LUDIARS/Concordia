@@ -54,7 +54,7 @@ export interface RevisorLocalPrGateway {
    */
   listLocalPullRequests(filter?: LocalPrListFilter): Promise<RevisorLocalPrSummary[]>;
   submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary>;
-  retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary>;
+  retryLocalPullRequest(id: string, sessionId?: string | null): Promise<RevisorLocalPrSummary>;
   promoteLocalPullRequest(id: string, sessionId: string): Promise<RevisorLocalPrSummary>;
 }
 
@@ -215,9 +215,10 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
     return pullRequest;
   }
 
-  async retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary> {
+  async retryLocalPullRequest(id: string, sessionId?: string | null): Promise<RevisorLocalPrSummary> {
     const body = await this.request(`/v1/local-prs/${encodeURIComponent(id)}/retry`, {
       method: "POST",
+      ...(sessionId ? { body: JSON.stringify({ session_id: sessionId }) } : {}),
     }) as { pullRequest?: unknown } | null;
     const pullRequest = asLocalPr(body?.pullRequest);
     if (!pullRequest) throw new Error("Revisor returned an invalid retried local PR");

@@ -576,6 +576,11 @@ delegation テンプレ / spawn の `--model` 候補を DB で持ち、 Web UI �
 
 ### 12.3 spawn からのテンプレ起動
 
+起動 API は初回指示 `prompt` に文字列を受け付ける。Windows PowerShell が
+`Get-Content -Raw` を JSON にした場合は、文字列の `PSPath` と `value` を持つ
+オブジェクトの `value` を本文として同じ経路に渡す。サーバーはそのパスを開かない。
+省略・null は従来通り。本文を解釈できない型は部署既定値の適用・起動前に HTTP 400 とする。
+
 `/v1/admin/spawn-session` は `template` (call_name) でテンプレ起動でき、
 `inject_prompt=true` で delegation invoke 本体に委譲する (既存)。 v0.2 で
 **Discord `/spawn`** にも `template` (autocomplete) + `inject` option を追加。

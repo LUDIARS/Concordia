@@ -1263,6 +1263,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     } catch {
       return c.json({ error: "invalid JSON" }, 400);
     }
+    if (!isPlainObject(body)) return c.json({ error: "spawn request must be an object" }, 400);
+    // Windows PowerShell can serialize Get-Content -Raw as an extended string.
+    // Use its inline text only; never open a path supplied by the caller.
+    const prompt = body.prompt;
+    if (isPlainObject(prompt) && typeof prompt.PSPath === "string" && typeof prompt.value === "string") {
+      body.prompt = prompt.value;
+    } else if (prompt != null && typeof prompt !== "string") {
+      return c.json({ error: "prompt must contain text" }, 400);
+    }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     // 子会社 Bot 由来の spawn は subsidiary_id を引き継ぎ、 spawn したセッションに焼く
     // (session.started 時に cwd で claim → metadata.subsidiary_id)。 これが無いと

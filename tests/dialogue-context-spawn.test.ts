@@ -97,6 +97,33 @@ describe("dialogue context on department spawn", () => {
     expect(env.repo.findSession("default-session")?.department_id).toBe(general.department.id);
   });
 
+  it("delivers the inline PowerShell file text alongside department guidance", async () => {
+    const department = qaDepartment();
+    const text = "Fg 再審査\r\nClaude Cloud への引き継ぎ";
+    const response = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "claude", department: department.id, cwd: env.logsDir,
+        prompt: { value: text, PSPath: "FileSystem::unused.md", ReadCount: 1 } }),
+    });
+    expect(response.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    const delivered = startupPrompt(spawnCalls[0]);
+    expect(delivered).toContain("技術相談課");
+    expect(delivered).toContain(text);
+    expect(delivered).not.toContain("unused.md");
+  });
+
+  it("rejects an unreadable prompt before launching a session", async () => {
+    const response = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "claude", cwd: env.logsDir, prompt: { PSPath: "unused.md" } }),
+    });
+    expect(response.status).toBe(400);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
   // departments.md §9.8: 非エンジニア向けの部署は、 ユースケースが無くても話し方の節が初回指示に入る。
   it("adds the non-engineer guidance to a department without a use case", async () => {
     const general = env.departmentService.create({

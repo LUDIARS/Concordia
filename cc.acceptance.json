@@ -1850,6 +1850,20 @@
       ]
     },
     {
+      "source": "src/pr/revisor-endpoint.ts",
+      "tests": [
+        "src/pr/revisor-endpoint.test.ts"
+      ],
+      "contracts": []
+    },
+    {
+      "source": "src/pr/revisor-catalog-port.ts",
+      "tests": [
+        "src/pr/revisor-catalog-port.test.ts"
+      ],
+      "contracts": []
+    },
+    {
       "source": "src/pr/revisor-local-pr-client.ts",
       "tests": [
         "src/pr/revisor-local-pr-client.test.ts"
@@ -5023,6 +5037,7 @@
     {"source":"src/shared/human-todo-report-record.ts","tests":["src/control/human-todo-report.test.ts","src/discord/human-todo-post.test.ts"],"contracts":[]},
     {"source":"src/federation/protocol.ts","tests":["src/federation/protocol.test.ts"],"contracts":[]},
     {"source":"src/pr/local-pr-lookup.ts","tests":["src/pr/local-pr-submission.test.ts","src/pr/submission-reconcile.test.ts"],"contracts":[]},
+    {"source":"src/pr/submission-reconcile.ts","tests":["src/pr/submission-reconcile.test.ts"],"contracts":[]},
     {"source":"src/taskflow/actio-team-selection.ts","tests":["src/taskflow/actio-team-selection.test.ts"],"contracts":[]},
     {"source":"src/control/session-followup-state.ts","tests":["src/control/session-followup-state.test.ts"],"contracts":[]},
     {"source":"src/control/session-followup-snapshot.ts","tests":["src/control/session-followup-snapshot.test.ts"],"contracts":[]},

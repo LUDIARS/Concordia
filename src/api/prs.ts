@@ -178,7 +178,7 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         base_url: null,
         pull_requests: [],
         error: error instanceof Error ? error.message : "Revisor request failed",
-        // timeout / unreachable / http_error / invalid_response。 分類できない失敗は null。
+        // timeout / unreachable / http_error / invalid_response / lookup_failed。 分類できない失敗は null。
         error_reason: revisorFailureReason(error),
       });
     }

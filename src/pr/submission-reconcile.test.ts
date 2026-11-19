@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { RevisorLocalPrSummary } from "./revisor-local-pr-client.js";
+import { RevisorRequestError } from "./revisor-http.js";
 import { isInconclusiveSubmissionError, reconcileInconclusiveSubmission } from "./submission-reconcile.js";
 
 function pr(overrides: Partial<RevisorLocalPrSummary> = {}): RevisorLocalPrSummary {
@@ -32,6 +33,14 @@ describe("isInconclusiveSubmissionError", () => {
   it("treats a Revisor status response as conclusive", () => {
     expect(isInconclusiveSubmissionError(new Error("Revisor /v1/local-prs failed (409): duplicate"))).toBe(false);
     expect(isInconclusiveSubmissionError(new Error("Revisor returned an invalid local PR"))).toBe(false);
+  });
+
+  it("treats an unresolved Revisor endpoint as conclusive because nothing was sent", () => {
+    const error = new RevisorRequestError(
+      "Revisor endpoint could not be resolved (Excubitor lookup failed). The request was not sent to Revisor",
+      "lookup_failed",
+    );
+    expect(isInconclusiveSubmissionError(error)).toBe(false);
   });
 });
 

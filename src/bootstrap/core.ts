@@ -260,6 +260,7 @@ import { createRevisorClient } from "../pr/revisor-client.js";
 import { RevisorServiceVersionsClient } from "../service-versions/revisor-versions-client.js";
 import { createRevisorRepositoryClient } from "../pr/revisor-repository-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
+import { readRevisorCatalogPort } from "../pr/revisor-catalog-port.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
 import { SessionPrOperations } from "../pr/session-pr-operations.js";
@@ -1626,7 +1627,10 @@ export async function startBackend(): Promise<BackendHandle> {
   // 自動提出する。 旧経路 (GitHub PR の CI success → /v1/pr-gate/jobs) は Revisor が
   // local PR ワークフローへ移行したときにエンドポイントごと無くなり、 以来「人が手で
   // 提出したときだけレビューされる」状態だった。 失敗してもセッション終了処理は止めない。
-  const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient, resolveRevisorToken);
+  // Excubitor 無応答時は Revisor catalog の宣言ポートを /health で確かめて使う (SPEC-REVISOR-ENDPOINT-FALLBACK)。
+  const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient, resolveRevisorToken, {
+    declaredPort: () => readRevisorCatalogPort(workspaceRootDefault),
+  });
   const githubBranchPusher = createRevisorBranchPusher({ excubitor: excubitorClient });
   const githubWorkerDeps = (): GithubIssueWorkerDeps => ({
     runs: githubIssueRuns,

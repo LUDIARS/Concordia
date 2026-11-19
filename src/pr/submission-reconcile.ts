@@ -15,6 +15,7 @@
 
 import type { RevisorLocalPrSummary } from "./revisor-local-pr-client.js";
 import { findOpenLocalPrForBranch } from "./local-pr-lookup.js";
+import { RevisorRequestError } from "./revisor-http.js";
 
 /**
  * 結果が確定していない失敗か。 abort (client timeout) と、 応答に到達しなかった
@@ -23,6 +24,8 @@ import { findOpenLocalPrForBranch } from "./local-pr-lookup.js";
  * @implements SPEC-REVISOR-LOCAL-PR-SUBMISSION-RECONCILE
  */
 export function isInconclusiveSubmissionError(error: unknown): boolean {
+  // 接続先を解決できず送信していない失敗は結果が確定している (SPEC-REVISOR-ENDPOINT-FALLBACK)。
+  if (error instanceof RevisorRequestError && error.reason === "lookup_failed") return false;
   if (error instanceof Error && error.name === "AbortError") return true;
   const message = error instanceof Error ? error.message : String(error);
   // Revisor が status 付きで返した失敗 (`Revisor /v1/... failed (409)`) は確定的。

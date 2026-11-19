@@ -10,7 +10,7 @@
  */
 
 import type { ExcubitorClient } from "../excubitor/client.js";
-import { resolveServicePort } from "../excubitor/service-port.js";
+import { RevisorEndpointResolver } from "./revisor-endpoint.js";
 import { toTokenResolver } from "./revisor-token.js";
 import type { PrSourceLink } from "./session-source-links.js";
 import { requestRevisorJson, RevisorRequestError } from "./revisor-http.js";
@@ -19,7 +19,6 @@ import type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./rev
 
 export type { RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-types.js";
 
-const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface SubmitLocalPrInput {
@@ -68,6 +67,11 @@ export interface RevisorLocalPrClientOptions {
   token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * Revisor catalog の宣言ポート。 Excubitor 照会が失敗したときの候補に使う
+   * (SPEC-REVISOR-ENDPOINT-FALLBACK)。 未指定なら直近ポートだけを候補にする。
+   */
+  declaredPort?: () => Promise<number | null>;
 }
 
 function asRepository(value: unknown): RevisorRepositoryRegistration | null {
@@ -111,27 +115,28 @@ function toLocalPrList(body: unknown): RevisorLocalPrSummary[] {
 }
 
 export class RevisorLocalPrClient implements RevisorLocalPrGateway {
-  private readonly excubitor: Pick<ExcubitorClient, "findService">;
+  private readonly endpoint: RevisorEndpointResolver;
   private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(options: RevisorLocalPrClientOptions) {
-    this.excubitor = options.excubitor;
     this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.endpoint = new RevisorEndpointResolver({
+      excubitor: options.excubitor,
+      fetchImpl: this.fetchImpl,
+      ...(options.declaredPort ? { declaredPort: options.declaredPort } : {}),
+    });
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  /** ポートは Excubitor catalog が正本 (port-source-rule)。 ハードコードしない。 */
-  private async resolvePort(): Promise<number> {
-    const service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
-    // Excubitor の top-level port は実行時の観測値で null のことがある。 catalog が正本。
-    const port = resolveServicePort(service);
-    if (port === null) {
-      throw new Error(`Excubitor service "${REVISOR_SERVICE_CODE}" has no valid port`);
-    }
-    return port;
+  /**
+   * ポートは Excubitor catalog が正本 (port-source-rule)。 照会失敗時の扱いは
+   * RevisorEndpointResolver (SPEC-REVISOR-ENDPOINT-FALLBACK)。
+   */
+  private resolvePort(): Promise<number> {
+    return this.endpoint.resolvePort();
   }
 
   /**
@@ -243,6 +248,7 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
 export function createRevisorLocalPrClient(
   excubitor: Pick<ExcubitorClient, "findService">,
   resolveToken: () => string | undefined,
+  options: Pick<RevisorLocalPrClientOptions, "declaredPort"> = {},
 ): RevisorLocalPrClient {
-  return new RevisorLocalPrClient({ excubitor, token: resolveToken });
+  return new RevisorLocalPrClient({ excubitor, token: resolveToken, ...options });
 }

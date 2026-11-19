@@ -13,7 +13,9 @@ export type RevisorRequestFailureReason =
   | "timeout"
   | "unreachable"
   | "http_error"
-  | "invalid_response";
+  | "invalid_response"
+  /** 接続先ポートが解決できず、 Revisor へは送っていない (SPEC-REVISOR-ENDPOINT-FALLBACK)。 */
+  | "lookup_failed";
 
 export class RevisorRequestError extends Error {
   constructor(

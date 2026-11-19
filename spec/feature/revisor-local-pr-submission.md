@@ -185,6 +185,28 @@ head branch が一致する PR があれば、Revisor 側では作成済みと�
 重複を防ぐ。一覧取得やコミット確認など、提出開始前の失敗では照合しない。HTTP status を伴う
 確定的な失敗でも照合しない。再取得自体が失敗した場合は元の失敗結果を保つ。
 
+### 接続先の解決
+
+**Requirement ID: `SPEC-REVISOR-ENDPOINT-FALLBACK`**
+
+Revisor のポートは Excubitor 照会で解決する (port-source-rule)。Excubitor が再起動中・無応答で
+照会が例外になる、または有効なポートを返さないときに限り、`src/pr/revisor-endpoint.ts` の
+`RevisorEndpointResolver` が次の候補を順に試す (`revisorFallbackCandidates`)。
+
+1. 直近に Excubitor 照会で解決したポート (30 分以内)
+2. Revisor catalog fragment (`<workspace root>/Revisor/excubitor.catalog.yaml`) の宣言ポート
+   (`src/pr/revisor-catalog-port.ts` の `readRevisorCatalogPort`)
+
+各候補へ `GET /health` (2 秒) を送り、応答が `{ ok: true, service: "revisor" }` の候補だけを
+採用する (`isRevisorHealth`)。別サービスが同じポートで応答しても採用しない。期限切れ・不正値・
+重複の候補は試さない。
+
+どの候補も Revisor と確認できなければ、Revisor へは何も送らず `RevisorRequestError`
+(reason `lookup_failed`) で失敗する。メッセージは
+`Revisor endpoint could not be resolved (...). The request was not sent to Revisor` で、
+`fetch failed` / `ECONNREFUSED` などの例外本文を含めない。送信していないので結果は確定しており、
+提出の照合 (`isInconclusiveSubmissionError`) は行わない。
+
 ## 6. token
 
 Revisor の読み取り (`GET /v1/repositories` / `GET /v1/local-prs`) は loopback 限定で
@@ -216,6 +238,8 @@ none の 2 値しか取らない。
   ポート解決は Excubitor catalog が正本 (port-source-rule)
 - `src/pr/revisor-repository-open-prs.ts` — 提出の照合に使う 1 リポジトリ分の open PR (CC-RV-OPEN-LIST-01)
 - `src/pr/revisor-http.ts` — Revisor への JSON リクエストと失敗理由の分類 (CC-RV-LIST-SCOPE-01)
+- `src/pr/revisor-endpoint.ts` — 接続先ポートの解決と照会失敗時の候補確認 (SPEC-REVISOR-ENDPOINT-FALLBACK)
+- `src/pr/revisor-catalog-port.ts` — Revisor catalog fragment の宣言ポート読み取り
 - `src/pr/revisor-listing-overlay.ts` — 一覧の組み立て (要約一覧に open の詳細を重ねる、#2263 の方式)
 - `src/pr/revisor-branch-lookup.ts` — (リポジトリ, ブランチ) からの PR 照合 (決着済みを含む)
 - `src/pr/local-pr-submission.ts` — 判定 (純関数) と提出の実行

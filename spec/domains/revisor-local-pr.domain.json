@@ -41,6 +41,9 @@
       "pathPattern": "(^|/)src/pr/revisor-(http|repository-open-prs|listing-overlay|branch-lookup)(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/pr/revisor-(endpoint|catalog-port)(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/revisor-(repository-scope|failure-reason|listing-overlay|branch-lookup)\\.contract\\.ts$"
     },
     {
@@ -74,6 +77,7 @@
     "spec/feature/revisor-local-pr-submission.md#3-判定-planlocalprsubmission-純関数",
     "spec/feature/revisor-local-pr-submission.md#4-提出内容",
     "spec/feature/revisor-local-pr-submission.md#応答喪失時の照合",
+    "spec/feature/revisor-local-pr-submission.md#接続先の解決",
     "spec/feature/revisor-local-pr-submission.md#6-token",
     "spec/feature/local-pr-merge-authorization.md#2-現在の規則",
     "spec/tasks/revisor-merge-feedback.md#完了条件",

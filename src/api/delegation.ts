@@ -55,6 +55,8 @@ import { isWaitOnlyPartial, notifiedStatus, runAfterRecorded } from "../delegati
 import { parseContractMetadata } from "../contract/schema.js";
 import { contractModelOverrides } from "../contract/delegation-model-scope.js";
 import { contractAppliesToDelegation } from "../contract/delegation-target-scope.js";
+import { resolveDelegationWorkTarget } from "../contract/delegation-explicit-target.js";
+import { delegationBranchSource } from "../delegation/auto-branch-name.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
@@ -363,6 +365,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       ...row,
       args,
       spawn_command: row.spawn_command ? safeJsonParse(row.spawn_command, []) : null,
+      // 自動命名した branch か (Actio 31556a85)。 列を増やさず spawn_branch と run id から導出する。
+      spawn_branch_source: delegationBranchSource(row.spawn_branch ?? null, row.id),
       // queued の待ち順 (1 始まり)。 それ以外は null。 起動入力 (payload) は内部専用なので返さない。
       queue_position: row.status === "queued" ? (deps.queue?.position(row.id) ?? null) : null,
       queue_payload_json: undefined,
@@ -820,14 +824,20 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       delegationProvider,
       parsed.data.overrides,
     );
+    // 呼び出し側の明示 (cwd / branch / worktree) は契約に勝ち、 契約は未指定だけを埋める (Actio 31556a85)。
+    const workTarget = resolveDelegationWorkTarget({
+      explicit: { cwd: parsed.data.cwd, branch: parsed.data.branch, worktree: parsed.data.worktree },
+      contract: contract ? { work_location: contract.work_location?.value, work_branch: contract.work_branch?.value } : null,
+      parentRepoPath: parentSession?.repo_path,
+    });
     const result = await deps.service.invoke({
       model_tier: parsed.data.model_tier,
       call_name: parsed.data.call_name,
       args: parsed.data.args,
-      cwd: contract?.work_location?.value === "repo-root" ? parentSession?.repo_path : parsed.data.cwd,
-      contract_branch: contract?.work_branch?.value,
-      branch: parsed.data.branch,
-      worktree: contract ? contract.work_location?.value === "worktree" : parsed.data.worktree,
+      cwd: workTarget.cwd,
+      contract_branch: workTarget.contractBranch,
+      branch: workTarget.branch,
+      worktree: workTarget.worktree,
       extra_prompt: parsed.data.extra_prompt,
       memory_links: parsed.data.memory_links,
       triggered_by: parsed.data.triggered_by,
@@ -862,6 +872,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       spawn_command: result.spawn_command,
       spawn_cwd: result.spawn_cwd,
       spawn_branch: result.spawn_branch,
+      spawn_branch_source: delegationBranchSource(result.spawn_branch, result.run.id),
       spawn_worktree_path: result.spawn_worktree_path,
       spawn_worktree_created: result.spawn_worktree_created,
       spawn_worktree_state: result.spawn_worktree_state,

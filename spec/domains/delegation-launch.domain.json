@@ -13,7 +13,9 @@
     },
     {
       "pathPattern": "(^|/)src/delegation/executor(\\.test)?\\.ts$"
-    }
+    },
+    { "pathPattern": "(^|/)src/delegation/(auto-branch-name|service-auto-branch)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/contract/delegation-explicit-target(\\.test)?\\.ts$" }
   ],
   "specRefs": [
     "spec/feature/delegation-model-tiers.md",

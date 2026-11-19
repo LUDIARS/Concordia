@@ -201,6 +201,46 @@ run の `completed` は decision verdict `ok`、`failed` は `ng` として返�
 呼び出し側 (Claude / MCP / CLI) は spawn 後の Codex 端末に prompt を渡す責任を持つ
 (v0.1 は手動。 ユーザが新規 tab で `cat <prompt_file_path>` などして貼る運用)。
 
+### 4.2 明示指定の優先と worktree ブランチの自動付与 (Actio 31556a85)
+
+2026-11-19 の人間の仕様判断「明示優先 + ブランチ名は自動で付ける」による。以前は次の 2 経路で、
+呼び出し側が明示した作業場所が無視され、run が共有 main checkout で起動していた。
+
+- `worktree: true` だけを渡し branch を渡さないと、`parseSpawnWorktree` が false に倒れて
+  `none-by-design` (呼び出し元の cwd) で起動した (31556a85)。
+- 親と同じリポへの委託では親の作業契約が適用され、契約の `work_location` / `work_branch` が
+  明示した cwd / worktree / branch を無条件に上書きした。親が main に束縛されていると、
+  `worktree: true` と feature branch を明示した委託が共有 main で起動した (1bb4f41d)。
+
+規則:
+
+1. 契約を持ち込むかどうかは従来どおり `contractAppliesToDelegation` が決める。呼び出し側が
+   親の作業リポ (`repo_path`) の外の cwd を明示した委託には契約を適用しない (Actio 442bd0cc)。
+2. 契約を適用する場合も、invoke body で明示された値は契約に勝つ。契約は未指定の項目だけを埋める
+   (`src/contract/delegation-explicit-target.ts` の `resolveDelegationWorkTarget`)。
+   - cwd: 明示があればそれ。無いときだけ `work_location=repo-root` の契約が親の `repo_path` を入れる。
+   - worktree: 明示 (`true` / `false`) があればそれ。無いときだけ契約の `work_location === "worktree"`。
+   - branch: 引数 → 契約の順 (`src/delegation/branch-source.ts` の `resolveDelegationBranch`)。
+     指示書本文の branch 言及との突き合わせは変えない。
+   - model / effort の契約適用 (`contractModelOverrides`) は変えない。
+3. worktree を明示的に有効にし (`true` / `"1"` / `"true"` / `"yes"` / `"on"` / `"worktree"`。未指定は対象外)、
+   branch が引数にも契約にも無く、spawn する場合は、run id 確定後に Concordia がブランチ名を決める
+   (`src/delegation/auto-branch-name.ts`)。
+   - 名前は `delegation/<call_name を [a-z0-9-] に slug 化した最大 40 文字>-<run id 先頭 8 文字>`。決定的で、
+     slug が空なら `run` を使う。
+   - ローカル main 起点の task worktree を `prepareSpawnTarget` (`requireNewBranch`) で作り、run の
+     `spawn_branch` / `spawn_worktree_path` / `spawn_worktree_state=created` に記録する。
+   - 名前は run id で一意なので、同名のローカルブランチが既にあれば連番で逃げず起動を拒否する
+     (`auto-named branch already exists`)。origin に同名があっても main 起点で作る。
+   - cwd が git checkout でない / cwd が分からない場合は worktree を作れないので拒否する (400)。
+     黙って `none-by-design` に落とさない。
+   - 自動で付けたことは、run と invoke 応答の `spawn_branch_source` (`auto` / `requested` / null) で分かる。
+     列は増やさず、`spawn_branch` と run id から導出する。
+4. 既存の正常経路は変えない。branch と worktree を明示した委託は従来どおりの worktree、
+   branch も worktree も指定しない委託は `none-by-design`、branch だけを渡し worktree 未指定なら
+   既定で worktree を作る (`parseSpawnWorktree`)。partial の再委託は前 run の branch を明示して
+   worktree を引き継ぐので自動付与の対象外。
+
 ## 5. API (HTTP)
 
 | Method | Path | Auth | 用途 |

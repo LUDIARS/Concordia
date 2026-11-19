@@ -152,6 +152,60 @@ describe("spawn target branch/worktree", () => {
     }
   });
 
+  // 自動命名した branch は run id で一意。 既存ブランチがあれば再利用せず止める (Actio 31556a85)。
+  it("refuses an auto-named branch that already exists instead of reusing it", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-auto-"));
+    const calls: string[][] = [];
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      calls.push(args);
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args[0] === "show-ref") return "";
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+    try {
+      const result = await prepareSpawnTarget({
+        cwd: repo, branch: "delegation/impl-3f2a9c1b", worktree: true, requireNewBranch: true,
+        git, projectResources: noProjectResources,
+      });
+      expect(result).toEqual({ ok: false, error: "auto-named branch already exists: delegation/impl-3f2a9c1b" });
+      expect(calls.some((args) => args[0] === "worktree")).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("creates an auto-named branch from local main even when origin has the name", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-auto-new-"));
+    const calls: string[][] = [];
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      calls.push(args);
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") return `worktree ${repo}\nbranch refs/heads/main\n`;
+      if (args[0] === "show-ref" && args[3] === "refs/remotes/origin/delegation/impl-3f2a9c1b") return "";
+      if (args[0] === "show-ref") throw new Error("missing ref");
+      if (args[0] === "worktree" && args[1] === "add") return "";
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+    try {
+      const result = await prepareSpawnTarget({
+        cwd: repo, branch: "delegation/impl-3f2a9c1b", worktree: true, requireNewBranch: true,
+        git, projectResources: noProjectResources,
+      });
+      expect(result.ok && result.worktree_state).toBe("created");
+      if (!result.ok) return;
+      expect(calls).toContainEqual(["worktree", "add", "-b", "delegation/impl-3f2a9c1b", result.cwd!, "main"]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an auto-named branch without a worktree", async () => {
+    const result = await prepareSpawnTarget({
+      branch: "delegation/impl-3f2a9c1b", worktree: false, requireNewBranch: true, projectResources: noProjectResources,
+    });
+    expect(result).toEqual({ ok: false, error: "auto-named branch requires a worktree" });
+  });
+
   it("retries one transient worktree creation failure before succeeding", async () => {
     const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-retry-"));
     let worktreeCalls = 0;

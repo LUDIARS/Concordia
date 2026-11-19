@@ -39,8 +39,17 @@ describe("findBranchMentions", () => {
 });
 
 describe("resolveDelegationBranch", () => {
-  it("prefers the contract branch over the argument", () => {
+  // 明示優先 (2026-11-19 人間の仕様判断、 Actio 31556a85 / 1bb4f41d)。
+  it("prefers the argument branch over the contract", () => {
     expect(resolveDelegationBranch({ contractBranch: "feat/a", argumentBranch: "feat/b" })).toEqual({
+      ok: true,
+      branch: "feat/b",
+      source: "argument",
+    });
+  });
+
+  it("falls back to the contract branch when no argument is given", () => {
+    expect(resolveDelegationBranch({ contractBranch: "feat/a", argumentBranch: "  " })).toEqual({
       ok: true,
       branch: "feat/a",
       source: "contract",

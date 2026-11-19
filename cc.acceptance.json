@@ -5677,6 +5677,13 @@
     {"source":"src/admin/state.ts","tests":["src/admin/runtime-settings.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
     {"source":"src/config/settings/definitions/session.ts","tests":["src/admin/runtime-settings.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
     {"source":"src/db/schema.ts","tests":["src/db/migration-ledger.test.ts","src/control-session/board-repo.test.ts"],"contracts":[]},
-    {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts"],"contracts":[]}
+    {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts"],"contracts":[]},
+    {"source":"src/contract/delegation-explicit-target.ts","tests":["src/contract/delegation-explicit-target.test.ts"],"contracts":[]},
+    {"source":"src/delegation/auto-branch-name.ts","tests":["src/delegation/auto-branch-name.test.ts","src/delegation/service-auto-branch.test.ts"],"contracts":[]},
+    {"source":"src/delegation/branch-source.ts","tests":["src/delegation/branch-source.test.ts","src/contract/delegation-explicit-target.test.ts"],"contracts":[]},
+    {"source":"src/delegation/service.ts","tests":["src/delegation/service-auto-branch.test.ts","src/delegation/service.test.ts"],"contracts":[]},
+    {"source":"src/delegation/contracts.ts","tests":["src/delegation/service-auto-branch.test.ts"],"contracts":[]},
+    {"source":"src/control/spawn-target.ts","tests":["src/control/spawn-target.test.ts","src/delegation/service-auto-branch.test.ts"],"contracts":[]},
+    {"source":"src/api/delegation.ts","tests":["src/contract/delegation-explicit-target.test.ts","src/delegation/auto-branch-name.test.ts"],"contracts":[]}
   ]
 }

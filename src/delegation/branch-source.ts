@@ -10,10 +10,11 @@
  * ことの確実な兆候なので、 spawn 前に止める。 本文と構造化フィールドが食い違う
  * 場合も、 どちらが正なのか機械では決められないので止める。
  *
- * 優先順位は contract → 引数。 これは api/delegation.ts の既存規則
- * (`contract?.work_branch?.value ?? parsed.data.branch`) をそのまま単一の
- * 関数へ移したもので、 /v1/delegation/invoke と /v1/admin/spawn の 2 経路で
- * 挙動が割れていたのを揃える。
+ * 優先順位は 引数 → contract。 呼び出し元が明示した branch は親の作業契約に勝つ
+ * (2026-11-19 人間の仕様判断「明示優先」、 Actio 31556a85 / 1bb4f41d)。 以前は contract が
+ * 勝っていたため、 親が main に束縛されていると feature branch を明示した委託が
+ * 共有 main checkout で起動した。 /v1/delegation/invoke と /v1/admin/spawn の 2 経路は
+ * この関数で揃える。
  */
 
 /** branch 値がどこから来たか。 不一致時の診断に使う。 */
@@ -33,9 +34,9 @@ export interface BranchResolutionErr {
 export type BranchResolution = BranchResolutionOk | BranchResolutionErr;
 
 export interface ResolveDelegationBranchInput {
-  /** session contract の work_branch (最優先)。 */
+  /** session contract の work_branch (引数が無いときだけ使う)。 */
   contractBranch?: string | null;
-  /** 呼び出し元が明示した branch。 */
+  /** 呼び出し元が明示した branch (最優先)。 */
   argumentBranch?: string | null;
   /** 委託指示書の本文。 branch の言及を突き合わせるために読む。 */
   promptText?: string | null;
@@ -90,8 +91,8 @@ function isCreationInstruction(text: string, matchIndex: number, nameLength: num
 export function resolveDelegationBranch(input: ResolveDelegationBranchInput): BranchResolution {
   const contractBranch = normalize(input.contractBranch);
   const argumentBranch = normalize(input.argumentBranch);
-  const branch = contractBranch ?? argumentBranch;
-  const source: BranchSource = contractBranch ? "contract" : argumentBranch ? "argument" : "none";
+  const branch = argumentBranch ?? contractBranch;
+  const source: BranchSource = argumentBranch ? "argument" : contractBranch ? "contract" : "none";
   const mentions = findBranchMentions(input.promptText);
 
   if (!branch) {

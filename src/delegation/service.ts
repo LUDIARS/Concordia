@@ -29,6 +29,7 @@ import {
 import { prepareSpawnTarget, type SpawnWorktreeState } from "../control/spawn-target.js";
 import { rebaseSeedCwd } from "../control/seed-cwd-rebase.js";
 import { resolveDelegationBranch } from "./branch-source.js";
+import { autoDelegationBranchName, isExplicitWorktreeOn } from "./auto-branch-name.js";
 import { resolveDepartmentLaunch, type DepartmentLookupPort } from "../departments/launch-resolution.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
@@ -303,6 +304,11 @@ export class DelegationService {
     input = { ...input, branch: branchResolution.branch ?? undefined };
 
     const runId = input.reserved_run_id ?? randomUUID();
+    // worktree を明示的に有効にしたのに branch が無いときは、 共有 checkout へ落とさず
+    // run id から branch 名を決めて task worktree を作る (Actio 31556a85)。
+    if (!input.branch && input.spawn !== false && isExplicitWorktreeOn(input.worktree)) {
+      input = { ...input, branch: autoDelegationBranchName(def.call_name, runId), worktree: true, branch_auto: true };
+    }
     if (this.deps.taskStore && resolveManualKind(def) === IMPLEMENTATION_MANUAL_KIND && input.task_binding !== "caller") {
       try {
         const sealed = await sealDelegationTask({ store: this.deps.taskStore(), definition: def, invocation: input, runId,
@@ -561,6 +567,7 @@ export class DelegationService {
         branch: input.branch,
         worktree: input.worktree,
         ...(input.base_ref ? { baseRef: input.base_ref } : {}),
+        ...(input.branch_auto ? { requireNewBranch: true } : {}),
       });
       if (!target.ok) return { ok: false, error: target.error };
       cwd = target.cwd;

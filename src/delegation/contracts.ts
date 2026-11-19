@@ -68,6 +68,11 @@ export interface InvokeInput {
   branch?: string;
   worktree?: boolean;
   /**
+   * branch を Concordia が自動で付けた (Actio 31556a85)。 invoke が設定し、 launch は
+   * 既存ブランチの再利用を許さず新規 worktree だけを作る。 呼び出し元は渡さない。
+   */
+  branch_auto?: boolean;
+  /**
    * 新規 worktree の起点 (commit)。 未指定はローカル main。 Sidecar は親の作業 commit から
    * 始めるためにこれを使う (spec/feature/astra-with-sidecar.md)。
    */

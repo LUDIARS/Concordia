@@ -35,6 +35,11 @@ export interface SpawnTargetRequest {
   /** Implementation tools pin the local main commit; ordinary spawn keeps its branch policy. */
   baseRef?: string;
   retainOnResourceFailure?: boolean;
+  /**
+   * Concordia が自動で付けた branch (Actio 31556a85)。 名前は run id で一意なので、
+   * 既存ブランチや worktree があれば再利用せず失敗させる (黙って他の作業に相乗りしない)。
+   */
+  requireNewBranch?: boolean;
   git?: SpawnTargetGitRunner;
   projectResources?: SpawnTargetResourcePreparer;
 }
@@ -138,6 +143,9 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   if (!validated.ok) return validated;
   const cwd = validated.cwd;
 
+  if (input.requireNewBranch && !(branch && worktree)) {
+    return { ok: false, error: "auto-named branch requires a worktree" };
+  }
   if (!branch || !worktree) {
     return {
       ok: true,
@@ -157,6 +165,9 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   const repoRoot = validated.repoRoot;
   if (!repoRoot) return { ok: false, error: "cwd is not a git repository" };
 
+  if (input.requireNewBranch && await refExists(git, repoRoot, `refs/heads/${branch}`)) {
+    return { ok: false, error: `auto-named branch already exists: ${branch}` };
+  }
   const worktrees = await listWorktrees(git, repoRoot);
   const configSourceRoot = worktrees[0]?.path ?? repoRoot;
   const existing = worktrees.find((entry) => entry.branch === branch)?.path ?? null;
@@ -205,7 +216,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   }
 
   const localBranch = await refExists(git, repoRoot, `refs/heads/${branch}`);
-  const remoteBranch = localBranch || input.baseRef ? false : await refExists(git, repoRoot, `refs/remotes/origin/${branch}`);
+  const remoteBranch = localBranch || input.baseRef || input.requireNewBranch ? false : await refExists(git, repoRoot, `refs/remotes/origin/${branch}`);
   const args = localBranch
     ? ["worktree", "add", worktreePath, branch]
     : remoteBranch

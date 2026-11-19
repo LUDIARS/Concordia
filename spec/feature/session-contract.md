@@ -54,6 +54,11 @@ updated: 2026-08-13
    契約 (work_location / work_branch / model / effort) を一切適用しない。親が別リポで作った契約が
    明示した作業先・ブランチ・worktree・モデルを上書きし、子が親のリポ・親のブランチで起動した
    (Actio 442bd0cc。`src/contract/delegation-target-scope.ts`)。
+   親のリポ内への委託で契約を適用する場合も、呼び出し側が invoke で明示した cwd / branch / worktree は
+   契約に勝ち、契約は未指定の項目だけを埋める。worktree を明示的に有効にして branch が無い委託には
+   Concordia がブランチ名を自動で付ける (Actio 31556a85、2026-11-19 の人間の仕様判断「明示優先 +
+   ブランチ名は自動で付ける」。`src/contract/delegation-explicit-target.ts`、詳細は
+   `spec/feature/delegation.md` §4.2)。
 5. Cc は LLM を内包しない原則を維持する。 judge は既存 model-review の小型 judge 経路
    (黒箱側) を使い、 Cc 本体は seed 判定・スキーマ検証・質問カードの取り次ぎだけを行う。
 

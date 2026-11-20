@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
-import { seedDelegationTemplates } from "./seed.js";
+import { plannedSeedTemplates, seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
   it("follows a declared default and retains a manual same-ID pin", () => {
@@ -158,7 +158,7 @@ describe("seedDelegationTemplates", () => {
     expect(opus5?.model).toBe("opus");
   });
 
-  it("uses Opus 5.5 across implementation profiles, analysis, and review delegations", () => {
+  it("uses the Opus role across implementation profiles, analysis, and review delegations", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
@@ -167,11 +167,31 @@ describe("seedDelegationTemplates", () => {
     }
     expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("opus");
 
+    const planned = plannedSeedTemplates();
     for (const callName of ["review-duo", "ludiars-review-daily-dual"]) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
-      expect(prompt).toContain("claude-opus-5-5");
-      expect(prompt).not.toContain("claude-opus-4-8");
+      expect(planned.find((template) => template.call_name === callName)?.prompt_template).toBe(prompt);
+      expect(prompt).toContain("`claude -p --model opus`");
+      expect(prompt).toContain("`sol` Delegation");
+      expect(prompt).not.toMatch(/\bclaude-opus-[\w.-]+\b/);
     }
+  });
+
+  it("creates the bounty triage template with Sonnet and repairs its old model ID in place", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const triage = repo.findTemplateByCallName("bounty-triage-review")!;
+    expect(triage).toMatchObject({ model: "sonnet", target_provider: "claude", call_only: 1 });
+    expect(JSON.parse(triage.runtime_options_json)).toMatchObject({ tool_policy: "read_only" });
+
+    repo.updateTemplate(triage.id, { model: "claude-sonnet-5-5" });
+    seedDelegationTemplates(repo);
+    seedDelegationTemplates(repo);
+
+    expect(repo.findTemplateByCallName("bounty-triage-review")).toMatchObject({
+      id: triage.id, model: "sonnet", target_provider: "claude", call_only: 1,
+    });
   });
 
   it("assigns employment categories to every seed template", () => {
@@ -534,9 +554,8 @@ describe("seedDelegationTemplates", () => {
 
     const duo = repo.findTemplateByCallName("review-duo");
     expect(duo?.is_active).toBe(1);
-    expect(duo?.prompt_template).toContain("claude-opus-5-5");
-    expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
-    expect(duo?.prompt_template).toContain("gpt-6.2-sol");
+    expect(duo?.prompt_template).toContain("`claude -p --model opus`");
+    expect(duo?.prompt_template).not.toMatch(/\bgpt-[\w.-]+-sol\b/);
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("`sol` Delegation");
     expect(duo?.prompt_template).toContain("`codex` / Lictor");

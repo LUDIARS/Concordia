@@ -6,7 +6,6 @@
 
 import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
-import { initialRoleModel } from "../model-catalog/role-policy.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
 import { BOUNTY_TRIAGE_TEMPLATE } from "../bounty/triage-template.js";
 
@@ -41,6 +40,9 @@ import {
   VULTUS_CATALOG_REFRESH_DAILY_PROMPT,
   WEEKLY_REVIEW_PROMPT,
 } from "./parttimer-prompts.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:8a8ffb54 */
+import augurContract_c16c2f12 from './seed-triage-model.contract.js'; /* augur-inject:contract-predicate:f66b2114 */
+import augurContract_a7dc864e from './seed-review-model.contract.js'; /* augur-inject:contract-predicate:937c5690 */
 
 /**
  * 委託テンプレートの Sol。 テンプレートは役割名だけを持ち、 spawn 直前に role map でモデル ID へ
@@ -1144,8 +1146,8 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
       "",
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
-      "- Reviewer A: `claude -p --model " + initialRoleModel("opus") + "`",
-      "- Reviewer B: Cc の `sol` Delegation (`codex` / Lictor) — model " + initialRoleModel("sol") + ", effort `${sol_effort:xhigh}`",
+      "- Reviewer A: `claude -p --model opus`",
+      "- Reviewer B: Cc の `sol` Delegation (`codex` / Lictor), effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",
@@ -1273,11 +1275,15 @@ export function seedDelegationTemplates(
     if (legacy) repo.deleteTemplatePermanently(legacy.id);
   }
 }
+// @ts-expect-error augur-inject
+seedDelegationTemplates = contract(seedDelegationTemplates, { ...augurContract_c16c2f12, contractId: 'seed-model-roles-C-1', mode: 'observe', sample: 1, where: 'src/delegation/seed.ts:1242', rule: 'contract-wrap', id: 'c16c2f12' }); /* augur-inject:contract-wrap:c16c2f12 */
 
 /** Read-only current seed content for an exact, identifier-aware legacy comparison. */
 export function plannedSeedTemplates(identifiers: SeedIdentifiers = {}): CreateTemplateInput[] {
   return withParttimerCallOnly(seedTemplates(identifiers));
 }
+// @ts-expect-error augur-inject
+plannedSeedTemplates = contract(plannedSeedTemplates, { ...augurContract_a7dc864e, contractId: 'seed-model-roles-C-2', mode: 'observe', sample: 1, where: 'src/delegation/seed.ts:1281', rule: 'contract-wrap', id: 'a7dc864e' }); /* augur-inject:contract-wrap:a7dc864e */
 
 /** Remove only the old contiguous seed-owned block; callers must compare with a planned seed. */
 export function stripKnownSeedAnatomiaBlock(content: string): string | null {

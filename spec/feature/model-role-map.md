@@ -56,6 +56,9 @@ Actio f0b8cfc3 (2026-11-19 neco 指示「今回こそハードコード根絶で
   拠点別の上書き (`delegation_template_overrides.patch_json`) は人の明示指定なので触らない。
   戻すときは、役割名を当時の ID へ戻す UPDATE を次の migration で行う (既存 migration は書き換えない)。
 - MRM-TPL-05: seed (`src/delegation/seed.ts`) も役割名で書く。
+  `bounty-triage-review` は `sonnet` を保存する。起動時の seed upsert が既存行の ID を保ってモデル指定を更新する。
+  seed が配布する日次 2 人レビューと `review-duo` の指示文は Claude CLI の `--model opus` を使い、`review-duo` の Sol は `sol` 委託で起動する。
+  Actio: `actio:8c09322f-3a33-4728-b052-11658eca73a0`。
 - MRM-TPL-06: テンプレートの call_name もモデルの版・廃止した役割を含めない (Actio eddd123d、2026-11-20 neco 指示「Delegation template も古いね」。
   MRM-TPL-05 の旧記述「call_name は改名しない」は撤回)。
 

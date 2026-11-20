@@ -13,7 +13,7 @@ const observeCommand: ObserveCommand = async (executable, args, cwd) => (await e
 // Official `codex cloud list --json`: { tasks: TaskSummary[], cursor }. Only id/status are kept;
 // titles and summaries are provider text and never leave this adapter.
 const ListPage = z.object({
-  tasks: z.array(z.object({ id: z.string(), status: z.string() }).passthrough()).max(200),
+  tasks: z.array(z.object({ id: z.string(), status: z.string(), title: z.unknown().optional() }).passthrough()).max(200),
   cursor: z.string().nullable().optional(),
 });
 const KNOWN: ReadonlySet<string> = new Set(["pending", "ready", "applied", "error"]);
@@ -25,6 +25,28 @@ export async function observeCodexCloudTasks(input: {
 }, run: ObserveCommand = observeCommand): Promise<Map<string, RemoteTaskStatus>> {
   const observed = new Map<string, RemoteTaskStatus>();
   if (input.wanted.size === 0) return observed;
+  for await (const batch of listCodexCloudTasks(input, run)) {
+    for (const task of batch) {
+      if (input.wanted.has(task.id) && KNOWN.has(task.status)) observed.set(task.id, task.status as RemoteTaskStatus);
+    }
+    if ([...input.wanted].every(id => observed.has(id))) break;
+  }
+  return observed;
+}
+
+export async function findCodexCloudTask(input: { executable: string; cwd: string; environmentId: string },
+  fingerprint: string, run: ObserveCommand = observeCommand): Promise<string | undefined> {
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) return undefined;
+  const matches = new Set<string>();
+  for await (const batch of listCodexCloudTasks(input, run)) {
+    for (const task of batch) {
+      if (task.title === `CC ${fingerprint}` && /^task_[A-Za-z0-9_-]{1,195}$/.test(task.id)) matches.add(task.id);
+    }
+  }
+  return matches.size === 1 ? [...matches][0] : undefined;
+}
+
+async function* listCodexCloudTasks(input: { executable: string; cwd: string; environmentId: string }, run: ObserveCommand) {
   let cursor: string | null | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const args = ["cloud", "list", "--env", input.environmentId, "--json", "--limit", String(PAGE_SIZE)];
@@ -32,11 +54,8 @@ export async function observeCodexCloudTasks(input: {
     let parsed: z.infer<typeof ListPage>;
     try { parsed = ListPage.parse(JSON.parse(await run(input.executable, args, input.cwd))); }
     catch { throw new Error("codex_cloud_observation_failed"); }
-    for (const task of parsed.tasks) {
-      if (input.wanted.has(task.id) && KNOWN.has(task.status)) observed.set(task.id, task.status as RemoteTaskStatus);
-    }
+    yield parsed.tasks;
     cursor = parsed.cursor;
-    if (!cursor || [...input.wanted].every(id => observed.has(id))) break;
+    if (!cursor) break;
   }
-  return observed;
 }

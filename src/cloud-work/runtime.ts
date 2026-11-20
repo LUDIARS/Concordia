@@ -14,6 +14,7 @@ import { createClaudeCloudAdapter } from "./claude-adapter.js";
 import { S3CloudArtifacts } from "./artifact-transfer.js";
 import { join } from "node:path";
 import { CloudGitReturn, type SubmitCloudLocalPr } from "./git-return.js";
+import { readHostedWorkerReport } from "./worker-report.js";
 import { cloudObservationInstructions, preflightObservation } from "../cloud-observation/instructions.js";
 
 const exec = promisify(execFile);
@@ -37,7 +38,7 @@ export async function preflightCloudTarget(target: CloudTarget, run: PreflightCo
   }
 }
 
-function cloudTaskAuthorizer(tasks: TaskStore) {
+export function cloudTaskAuthorizer(tasks: TaskStore) {
   return async (reference: string, scope: CloudScope, requireActive?: boolean): Promise<void> => {
     if (!tasks.read) throw new Error("cloud_task_store_unavailable");
     const task = await tasks.read(scope.repositoryKey, reference, scope.subsidiaryId);
@@ -70,6 +71,8 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
     if (!target.drive) throw new Error("cloud_drive_transfer_not_selected");
     return new DriveCloudArtifacts(target, driveArtifactNames(target), new GoogleOAuthTokens(target.drive, env));
   };
+  const collect = (target: CloudTarget, attemptId: string) => target.transferMode === "s3"
+    ? new S3CloudArtifacts(target, env).collect(attemptId) : driveArtifacts(target).collect(attemptId);
   return new CloudWorkRuntime({
     root: input.root, env, now: () => Date.now(),
     targets: () => readCloudTargets(env.CONCORDIA_CLOUD_CONFIG_FILE), repositoryKey: mainRepositoryKey,
@@ -81,7 +84,7 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
       if (target.transferMode === "git" && !input.submitLocalPr) throw new Error("cloud_review_unavailable");
       await preflightCloudTarget(target);
     },
-    adapter: target => {
+    adapter: (target, attemptId) => {
       const transferInstructions = async (request: import("./submission.js").CloudSubmission): Promise<string> => {
         const drive = driveArtifactNames(target).length
           ? await driveArtifacts(target).uploadInstructions(request.attemptId) : "";
@@ -94,13 +97,17 @@ export function createCloudWorkRuntime(input: { root: string; tasks: TaskStore; 
         const observation = await cloudObservationInstructions(env, target.id, request.attemptId, Date.now());
         return [transfer, observation].filter(Boolean).join("\n\n");
       };
+      const collectRun = () => {
+        if (!attemptId) throw new Error("invalid_cloud_attempt_id");
+        return collect(target, attemptId);
+      };
       return target.provider === "codex-cloud"
-        ? createCodexCloudAdapter({ executable: target.codexExecutable!, cwd: target.repoPath, publishedBranch: target.publishedBranch, transientInstructions })
+        ? createCodexCloudAdapter({ executable: target.codexExecutable!, cwd: target.repoPath, publishedBranch: target.publishedBranch, transientInstructions, collect: collectRun, environmentId: target.environmentId })
         : createClaudeCloudAdapter({ triggerId: target.claudeTriggerId!, fireToken: env[target.claudeTokenEnv!] ?? "",
-          executable: target.claudeExecutable!, cwd: target.repoPath, transientInstructions });
+          executable: target.claudeExecutable!, cwd: target.repoPath, transientInstructions, collect: collectRun });
     },
-    collect: (target, attemptId) => target.transferMode === "s3"
-      ? new S3CloudArtifacts(target, env).collect(attemptId) : driveArtifacts(target).collect(attemptId),
+    collect,
+    workerReport: async (target, attempt) => readHostedWorkerReport(env, target, attempt),
     collectGit: (target, attemptId) => git.collect(target, attemptId),
   });
 }

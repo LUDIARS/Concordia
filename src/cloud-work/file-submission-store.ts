@@ -32,7 +32,11 @@ export class FileCloudSubmissionStore implements CloudSubmissionStore {
     await this.writeRecord(attemptId, "receipt", receipt);
   }
 
-  async readRecord(attemptId: string, kind: "intent" | "receipt" | "reconciliation" | "verified"): Promise<unknown | null> {
+  async recordIntermediateReceipt(attemptId: string, receipt: CloudReceipt): Promise<void> {
+    await this.writeRecord(attemptId, "receipt-intermediate", receipt);
+  }
+
+  async readRecord(attemptId: string, kind: "intent" | "receipt" | "receipt-intermediate" | "reconciliation" | "verified" | "provider-running" | "provider-terminal"): Promise<unknown | null> {
     try { return JSON.parse(await readFile(this.path(attemptId, kind), "utf8")) as unknown; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -40,7 +44,7 @@ export class FileCloudSubmissionStore implements CloudSubmissionStore {
     }
   }
 
-  async writeRecord(attemptId: string, kind: "receipt" | "reconciliation" | "verified", value: unknown): Promise<void> {
+  async writeRecord(attemptId: string, kind: "receipt" | "receipt-intermediate" | "reconciliation" | "verified" | "provider-running" | "provider-terminal", value: unknown): Promise<void> {
     const handle = await open(this.path(attemptId, kind), "wx", 0o600);
     try {
       await handle.writeFile(JSON.stringify(value), { encoding: "utf8" });

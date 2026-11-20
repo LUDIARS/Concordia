@@ -12,6 +12,24 @@ function driveTarget(): CloudTarget {
 }
 
 describe("Drive artifact transfer", () => {
+  it("verifies checkpoints through Drive metadata without downloading the bytes", async () => {
+    const name = "model.bin", bytes = 2_500_000_000, sha256 = "a".repeat(64), id = "testdrivefileid";
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({
+      files: [{ id, size: String(bytes), sha256Checksum: sha256, appProperties: { ccName: name } }],
+    }));
+    const drive = new DriveCloudArtifacts(driveTarget(), [name], tokens, fetcher);
+    const report = [{ name, bytes, sha256 }];
+    await expect(drive.verifyCheckpoints("attempt-1", report)).resolves.toEqual([
+      { ...report[0], uri: `https://drive.google.com/open?id=${id}` },
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get("fields")).toContain("sha256Checksum");
+    fetcher.mockResolvedValueOnce(Response.json({
+      files: [{ id, size: String(bytes), sha256Checksum: "0".repeat(64), appProperties: { ccName: name } }],
+    }));
+    await expect(drive.verifyCheckpoints("attempt-1", report)).rejects.toThrow("cloud_artifact_integrity_failed");
+  });
+
   it("opens one upload session per file, tags it with the attempt and never reveals the credential", async () => {
     let n = 0;
     const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 200, headers: { location: `${SESSION}${++n}` } }));

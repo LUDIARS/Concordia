@@ -14,13 +14,14 @@ interface Row { target: string; attempt: string; state: string; revision: number
  */
 export class ObservationStore {
   private readonly db: Database.Database;
-  constructor(root: string) {
+  constructor(root: string, readOnly = false) {
     const info = lstatSync(root);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("observation_root_invalid");
     const path = join(root, "observations.sqlite");
     try { if (lstatSync(path).isSymbolicLink()) throw new Error("observation_file_invalid"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    this.db = new Database(path);
+    this.db = readOnly ? new Database(path, { readonly: true, fileMustExist: true, timeout: 250 }) : new Database(path);
+    if (readOnly) return;
     try {
       this.db.pragma("journal_mode = WAL");
       this.db.pragma("busy_timeout = 1000");

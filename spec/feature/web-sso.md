@@ -24,7 +24,7 @@ Cernere の Cloudflare 企業認証 (Cr `spec/feature/cloudflare-enterprise-sso.
 
 ## 状態の所有者
 
-利用者の身元・組織ロール・失効は Cernere が持つ。Cc は企業セッション token を `__Host-cc-sso` Cookie (Secure、HttpOnly、SameSite=Lax) に置くだけで、身元を保存しない。
+利用者の身元・組織ロール・失効は Cernere が持つ。Cc は企業セッション token を `__Host-cc-sso` Cookie (Secure、HttpOnly、SameSite=Lax) に置くだけで、Web セッションには身元を保存しない。Cloud Work の本人同席操作には、検証済みの主体と組織をその要求の内部コンテキストで渡す。Colab 台帳は実行の所有者を保持する。
 
 ## 不変条件
 

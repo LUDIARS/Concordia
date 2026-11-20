@@ -27,7 +27,7 @@ export class CloudGitReturn {
   }
 
   async instructions(target: CloudTarget, request: CloudSubmission): Promise<string> {
-    if (target.transferMode !== "git" || !target.git) throw new Error("cloud_git_binding_missing");
+    if (target.provider === "colab" || target.transferMode !== "git" || !target.git) throw new Error("cloud_git_binding_missing");
     const accessValue = this.env[target.git.accessHeaderEnv];
     if (!accessValue || /[\r\n]/.test(accessValue)) throw new Error("cloud_git_access_binding_missing");
     const issuedAt = this.now();

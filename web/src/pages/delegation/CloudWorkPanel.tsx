@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, type SessionRow } from "../../api.js";
 import { mutate } from "./model.js";
+import { CloudBatchPanel } from "./CloudBatchPanel.js";
+import { CloudColabPanel } from "./CloudColabPanel.js";
 
 type Target = { id: string; label: string; provider: string; transferMode: "git" | "s3" | "drive"; ready: boolean };
 type Run = { attemptId: string; targetId: string; state: string; receipt: { state: string; remoteId?: string };
@@ -95,10 +97,13 @@ export function CloudWorkPanel() {
       {(run.receipt.remoteId || run.reconciliation?.remoteId) && <p>クラウド側の参照: {run.receipt.remoteId ?? run.reconciliation?.remoteId}</p>}
       <button className="foundation-form" disabled={busy || !!run.verified} onClick={() => void action(`/runs/${run.attemptId}/collect`, { session_id: sessionId })}>成果物を回収する</button>
       {run.state === "submission_unknown" && !run.reconciliation && <div>
+        <button className="foundation-form" disabled={busy} onClick={() => void action(`/runs/${run.attemptId}/reconcile`, { session_id: sessionId })}>保存済みの依頼情報で照合</button>
         <label>提供元で確認した作業ID<input className="foundation-form" value={remoteIds[run.attemptId] ?? ""} onChange={e => setRemoteIds({ ...remoteIds, [run.attemptId]: e.target.value })} /></label>
         <button disabled={busy || !remoteIds[run.attemptId]} onClick={() => void action(`/runs/${run.attemptId}/reconcile`, { session_id: sessionId, remoteId: remoteIds[run.attemptId] })}>確認した参照を記録（再送なし）</button>
       </div>}
       {run.verified?.artifacts?.map(a => <a key={a.name} className="block underline" href={`${base}/runs/${run.attemptId}/artifacts/${encodeURIComponent(a.name)}?${query}`}>{a.name} を保存</a>)}
     </article>)}
+    {sessionId && <CloudBatchPanel key={sessionId} sessionId={sessionId} />}
+    {sessionId && <CloudColabPanel key={sessionId} sessionId={sessionId} taskReference={taskReference} />}
   </section>;
 }

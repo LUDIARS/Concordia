@@ -1,6 +1,6 @@
 import { assessCloudEligibility, type CloudEligibilityEvidence } from "./eligibility.js";
 
-export type CloudProvider = "codex-cloud" | "claude-cloud";
+export type CloudProvider = "codex-cloud" | "claude-cloud" | "colab";
 
 /** No access URLs, tokens, or mutable local paths belong in this persisted record. */
 export interface CloudSubmission {
@@ -16,21 +16,24 @@ export interface CloudSubmission {
   gpuVerified: boolean;
   sourceAvailable: boolean;
   artifactTransferReady: boolean;
+  requestFingerprint?: string;
 }
 
-export type CloudReceipt =
+export type CloudReceipt = (
   | { state: "submitted"; remoteId: string }
-  | { state: "submission_unknown" };
+  | { state: "submission_unknown"; remoteId?: string }
+) & { operationId?: string; requestId?: string };
 
 export interface CloudSubmissionStore {
   /** Durable atomic insert-if-absent. A prior intent, including unknown, returns false. */
   reserve(request: CloudSubmission): Promise<boolean>;
   recordReceipt(attemptId: string, receipt: CloudReceipt): Promise<void>;
+  recordIntermediateReceipt?(attemptId: string, receipt: CloudReceipt): Promise<void>;
 }
 
 export interface CloudSubmitter {
   readonly provider: CloudProvider;
-  submit(request: CloudSubmission): Promise<CloudReceipt>;
+  submit(request: CloudSubmission, save?: (receipt: CloudReceipt) => Promise<void>): Promise<CloudReceipt>;
 }
 
 /** @implements CC-CLOUD-01 CC-CLOUD-02 CC-CLOUD-03 CC-CLOUD-07 CC-CLOUD-09 */
@@ -55,12 +58,16 @@ export async function submitCloudWork(
   // A crash at any later point leaves an intent. Reconciliation must not re-submit it.
   if (!await store.reserve(request)) return { state: "already_reserved" };
   let receipt: CloudReceipt;
+  let intermediate: CloudReceipt | undefined;
   try {
-    receipt = await adapter.submit(request);
+    receipt = await adapter.submit(request, async value => {
+      intermediate = value;
+      await store.recordIntermediateReceipt?.(request.attemptId, value);
+    });
   } catch {
     // Transport exceptions may occur after provider acceptance; never persist raw
     // provider errors (which can contain credentials), or infer permission to retry.
-    receipt = { state: "submission_unknown" };
+    receipt = intermediate ?? { state: "submission_unknown" };
   }
   await store.recordReceipt(request.attemptId, receipt);
   return receipt;

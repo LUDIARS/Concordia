@@ -5,6 +5,7 @@ import { cloudWorkRouter } from "./cloud-work.js";
 import { orbisRouter } from "./orbis.js";
 import { createOrbisRuntime } from "../orbis/runtime.js";
 import { createCloudBatchKicker, createCloudWorkRuntime } from "../cloud-work/runtime.js";
+import { createColabRuntime, settingsColabCredentials } from "../cloud-work/colab-runtime.js";
 import { startCloudBatchSchedule } from "../cloud-work/batch-schedule.js";
 import { serviceStatusRouter } from "./service-status.js";
 import { serviceStatusClient } from "../service-status/client.js";
@@ -907,12 +908,19 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     void stopCloudBatchSchedule();
     throw new Error("cloud_batch_schedule_owner_required");
   }
-  deps.ownCloudBatchSchedule?.(async () => { await stopCloudBatchSchedule(); await cloudBatches.waitForIdle(); });
+  const colab = deps.ownCloudBatchSchedule ? createColabRuntime({ root: cloudRoot, runtime: cloudRuntime, tasks: deps.taskStore,
+    credentials: settingsColabCredentials(deps.adminState.store) }) : undefined;
+  colab?.startRecovery();
+  deps.ownCloudBatchSchedule?.(async () => {
+    await Promise.all([colab?.close(), stopCloudBatchSchedule()]);
+    await cloudBatches.waitForIdle();
+  });
   app.route("/v1/delegation/cloud", cloudWorkRouter({
     sessions: deps.repo,
     authorizeSubmit: authorizeCloudSubmit,
     runtime: cloudRuntime,
     batches: cloudBatches,
+    colab,
   }));
   app.route("/v1/delegation", delegationRouter({
     checkSessionCap: (subsidiaryId) => sessionCaps.check(subsidiaryId),

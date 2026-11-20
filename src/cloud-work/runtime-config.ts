@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
+import { ColabBindingSchema } from "./colab-config.js";
 
 const Name = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 const EnvName = z.string().regex(/^[A-Z][A-Z0-9_]+$/);
@@ -7,7 +8,7 @@ const ArtifactName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$/).refi
 export const CloudTargetSchema = z.object({
   id: Name, label: z.string().min(1).max(120), repoPath: z.string().min(1),
   subsidiaryId: z.string().nullable(),
-  provider: z.enum(["codex-cloud", "claude-cloud"]), environmentId: Name,
+  provider: z.enum(["codex-cloud", "claude-cloud", "colab"]), environmentId: Name,
   standardHosted: z.literal(true), publishedBranch: z.literal("main"),
   sourceRevision: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
   repositoryBytes: z.number().int().min(0).max(50_000_000),
@@ -20,7 +21,8 @@ export const CloudTargetSchema = z.object({
   /** Non-code outputs returned through Drive while code travels by Git. */
   driveExpectedNames: z.array(ArtifactName).min(1).max(20).optional(),
   maxArtifactBytes: z.number().int().positive().max(512_000_000),
-  transferMode: z.enum(["git", "s3", "drive"]).default("git"),
+  transferMode: z.enum(["git", "s3", "drive", "jupyter"]).default("git"),
+  colab: ColabBindingSchema.optional(),
   git: z.object({
     publicHost: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/i),
     accessHeaderEnv: EnvName,
@@ -43,11 +45,18 @@ export const CloudTargetSchema = z.object({
 });
 export type CloudTarget = z.infer<typeof CloudTargetSchema>;
 type TransferBindings = Pick<Partial<CloudTarget>, "transferMode" | "git" | "storage" | "drive" | "provider"
-  | "codexExecutable" | "claudeExecutable" | "claudeTriggerId" | "claudeTokenEnv" | "expectedNames" | "driveExpectedNames">;
+  | "codexExecutable" | "claudeExecutable" | "claudeTriggerId" | "claudeTokenEnv" | "expectedNames" | "driveExpectedNames" | "colab" | "sourceRevision">;
 
 /** @implements CC-CLOUD-DRIVE-01 — pure policy shared by fixed targets and environments whose work is supplied per run. */
 function transferBindingIssues(value: TransferBindings): string[] {
   const issues: string[] = [];
+  if (value.provider === "colab") {
+    if (!value.colab || value.transferMode !== "jupyter" || !value.sourceRevision || value.git || value.storage || value.drive) {
+      issues.push("Colab requires a fixed source revision and Jupyter binding");
+    }
+    return issues;
+  }
+  if (value.colab || value.transferMode === "jupyter") issues.push("Colab binding requires the Colab provider");
   if (value.transferMode === "git" && !value.git) issues.push("Git return binding required");
   if (value.transferMode === "s3" && !value.storage) issues.push("S3 return binding required");
   if (value.transferMode === "drive" && !value.drive) issues.push("Drive return binding required");
@@ -118,6 +127,7 @@ export async function readCloudTargets(path: string | undefined): Promise<CloudE
 }
 
 export function cloudTargetReady(target: CloudEnvironment, env: NodeJS.ProcessEnv, now: number): boolean {
+  if (target.provider === "colab") return false; // Owner-specific readiness is shown by the attended entry point.
   const age = target.verifiedAt ? now - Date.parse(target.verifiedAt) : 0;
   const storage = target.storage, drive = target.drive;
   const driveReady = !!drive && !!env[drive.clientIdEnv] && !!env[drive.clientSecretEnv] && !!env[drive.refreshTokenEnv];

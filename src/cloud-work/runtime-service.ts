@@ -5,6 +5,8 @@ import type { CloudTarget, CloudEnvironment, CloudWorkPlan } from "./runtime-con
 import { cloudTargetReady, driveArtifactNames, resolveCloudWork, CloudWorkPlanSchema } from "./runtime-config.js";
 import { FileCloudSubmissionStore } from "./file-submission-store.js";
 import { submitCloudWork, type CloudSubmission, type CloudSubmitter } from "./submission.js";
+import { executionEvidence, requestFingerprint, type CloudExecutionAdapter, type ExecutionIdentity, type ProviderTerminal } from "./execution-adapter.js";
+import type { CloudReceipt } from "./submission.js";
 import { verifyCloudArtifacts } from "./artifact-verification.js";
 import type { AttemptJournal } from "./batch-policy.js";
 
@@ -21,9 +23,10 @@ export interface CloudRuntimePorts {
   repositoryKey(path: string): Promise<string>;
   authorizeTask(reference: string, scope: CloudScope, requireActive?: boolean): Promise<void>;
   preflight(target: CloudTarget): Promise<void>;
-  adapter(target: CloudTarget): CloudSubmitter;
+  adapter(target: CloudTarget, attemptId?: string): CloudSubmitter & Partial<CloudExecutionAdapter<CloudSubmission, Awaited<ReturnType<CloudRuntimePorts["collect"]>>>>;
   collect(target: CloudTarget, attemptId: string): Promise<{ manifest: unknown; received: Map<string, Buffer> }>;
   collectGit?(target: CloudTarget, attemptId: string): Promise<unknown>;
+  workerReport?(targetId: string, attemptId: string): Promise<unknown>;
   env: NodeJS.ProcessEnv;
   now(): number;
 }
@@ -53,7 +56,7 @@ export class CloudWorkRuntime {
   }
 
   async availability(scope: CloudScope): Promise<Array<{ id: string; label: string; provider: string; transferMode: string; ready: boolean }>> {
-    return (await this.targets(scope)).map(t => ({ id: t.id, label: t.label, provider: t.provider,
+    return (await this.targets(scope)).filter(t => t.provider !== "colab").map(t => ({ id: t.id, label: t.label, provider: t.provider,
       transferMode: t.transferMode, ready: cloudTargetReady(t, this.ports.env, this.ports.now()) }));
   }
 
@@ -66,6 +69,7 @@ export class CloudWorkRuntime {
   async submit(scope: CloudScope, input: CloudWorkInput): Promise<unknown> {
     const environment = await this.target(scope, input.targetId);
     await this.ports.authorizeTask(input.taskReference, scope, true);
+    if (environment.provider === "colab") throw new Error("cloud_colab_owner_required");
     if (!input.computeReason.trim() || !input.llmReason.trim()) throw new Error("cloud_work_evidence_missing");
     const store = this.store(scope);
     // Avoid even a preflight after an ambiguous submission. The same ID is never replayed.
@@ -85,6 +89,8 @@ export class CloudWorkRuntime {
       work: CloudWorkPlanSchema.parse(Object.fromEntries(Object.keys(CloudWorkPlanSchema.shape).map(key => [key, target[key as keyof CloudTarget]]))),
       inputWorkHash: hash(JSON.stringify(input.work ? CloudWorkPlanSchema.parse(input.work) : null)),
       computeReason: input.computeReason, llmReason: input.llmReason, createdAt: this.ports.now(),
+      requestFingerprint: requestFingerprint([scope, input.attemptId, input.taskReference, configurationKey(target),
+        input.instruction, input.computeReason, input.llmReason, input.gpuRequired]),
       configurationKey: configurationKey(target), provider: target.provider, environmentId: target.environmentId,
       sourceRevision: target.sourceRevision, instruction: input.instruction,
       eligibility: { repositoryBytes: target.repositoryBytes, environmentPreparable: target.environmentPreparable,
@@ -92,7 +98,7 @@ export class CloudWorkRuntime {
       standardHosted: target.standardHosted, gpuRequired: input.gpuRequired, gpuVerified: target.gpuVerified,
       sourceAvailable: true, artifactTransferReady: true,
     };
-    const receipt = await submitCloudWork(request, store, this.ports.adapter(target));
+    const receipt = await submitCloudWork(request, store, this.ports.adapter(target, input.attemptId));
     if (receipt.state === "already_reserved" && !this.sameRequest(await this.run(scope, input.attemptId), input)) {
       throw new Error("cloud_attempt_conflict");
     }
@@ -115,13 +121,23 @@ export class CloudWorkRuntime {
 
   async status(scope: CloudScope, attemptId: string): Promise<unknown> {
     const run = await this.run(scope, attemptId), store = this.store(scope);
-    const receipt = await store.readRecord(attemptId, "receipt");
+    const receipt = await this.receipt(store, attemptId);
     const reconciliation = await store.readRecord(attemptId, "reconciliation");
     const verified = await store.readRecord(attemptId, "verified");
+    const observation = (await store.readRecord(attemptId, "provider-terminal")
+      ?? await store.readRecord(attemptId, "provider-running")) as { state: ProviderTerminal; at: number } | null;
+    const workerReport = scope.subsidiaryId === null
+      ? await this.ports.workerReport?.(run.targetId, attemptId) ?? null : null;
     return { attemptId, taskReference: run.taskReference, provider: run.provider, targetId: run.targetId, transferMode: run.transferMode ?? "s3",
-      receipt: receipt ?? { state: "submission_unknown" }, reconciliation, verified,
+      ...executionEvidence(receipt, observation?.state ?? "unknown", verified, "pending", "not_applicable", workerReport),
+      providerObservedAt: observation?.at ?? null, reconciliation, verified,
       state: verified ? (run.transferMode === "git" ? (verified as { state: string }).state : "artifacts_verified")
         : (receipt as { state?: string } | null)?.state ?? "submission_unknown" };
+  }
+
+  private async receipt(store: FileCloudSubmissionStore, attemptId: string): Promise<CloudReceipt> {
+    return (await store.readRecord(attemptId, "receipt") ?? await store.readRecord(attemptId, "receipt-intermediate")
+      ?? { state: "submission_unknown" }) as CloudReceipt;
   }
 
   /** Journal facts only; task authorization is the caller's responsibility. */
@@ -170,13 +186,58 @@ export class CloudWorkRuntime {
     return Promise.all(runs.sort((a, b) => b.createdAt - a.createdAt).slice(0, 200).map(r => this.status(scope, r.attemptId)));
   }
 
-  async reconcile(scope: CloudScope, attemptId: string, remoteId: string): Promise<unknown> {
-    const run = await this.run(scope, attemptId);
-    if (!(run.provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^(?:session|cse)_[A-Za-z0-9_-]+$/).test(remoteId)) {
+  async reconcile(scope: CloudScope, attemptId: string, remoteId?: string): Promise<unknown> {
+    const run = await this.run(scope, attemptId), store = this.store(scope);
+    const receipt = await this.receipt(store, attemptId);
+    const prior = await store.readRecord(attemptId, "reconciliation") as { remoteId: string } | null;
+    if (remoteId && ((receipt.remoteId && receipt.remoteId !== remoteId) || (prior && prior.remoteId !== remoteId))) {
+      throw new Error("cloud_attempt_conflict");
+    }
+    if (prior) return this.status(scope, attemptId);
+    const target = remoteId || receipt.remoteId ? undefined : await this.checkedTarget(scope, run);
+    const adapter = target ? this.ports.adapter(target, attemptId) : undefined;
+    const matched = remoteId ?? receipt.remoteId ?? (await adapter?.reconcile?.(this.identity(run, receipt)))?.remoteId;
+    if (!matched) return this.status(scope, attemptId);
+    if (!(run.provider === "codex-cloud" ? /^task_[A-Za-z0-9_-]+$/ : /^(?:session|cse)_[A-Za-z0-9_-]+$/).test(matched) || matched.length > 200) {
       throw new Error("invalid_cloud_remote_id");
     }
-    await this.store(scope).writeRecord(attemptId, "reconciliation", { remoteId, source: "operator_observation" });
+    try {
+      await store.writeRecord(attemptId, "reconciliation", { remoteId: matched, source: remoteId ? "operator_observation" : "provider_receipt" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const raced = await store.readRecord(attemptId, "reconciliation") as { remoteId?: string } | null;
+      if (raced?.remoteId !== matched) throw new Error("cloud_attempt_conflict");
+    }
     return this.status(scope, attemptId);
+  }
+
+  async observe(scope: CloudScope, attemptId: string): Promise<unknown> {
+    const run = await this.run(scope, attemptId), store = this.store(scope);
+    const target = await this.checkedTarget(scope, run), adapter = this.ports.adapter(target, attemptId);
+    const receipt = await this.receipt(store, attemptId);
+    const reconciliation = await store.readRecord(attemptId, "reconciliation") as { remoteId: string } | null;
+    const identity = this.identity(run, receipt.remoteId || !reconciliation ? receipt : { ...receipt, remoteId: reconciliation.remoteId });
+    const providerTerminal = await adapter.observe?.(identity) ?? "unknown";
+    if (providerTerminal !== "unknown") {
+      try {
+        await store.writeRecord(attemptId, providerTerminal === "running" ? "provider-running" : "provider-terminal",
+          { state: providerTerminal, at: this.ports.now() });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+    return this.status(scope, attemptId);
+  }
+
+  private identity(run: StoredRun, receipt: CloudReceipt): ExecutionIdentity {
+    return { receipt, requestFingerprint: run.requestFingerprint ?? "" };
+  }
+
+  private async checkedTarget(scope: CloudScope, run: StoredRun): Promise<CloudTarget> {
+    const target = resolveCloudWork(await this.target(scope, run.targetId), run.work);
+    if ((!run.transferMode && target.transferMode !== "s3")
+      || configurationKey(target, !run.transferMode) !== run.configurationKey) throw new Error("cloud_target_configuration_changed");
+    return target;
   }
 
   async collect(scope: CloudScope, attemptId: string): Promise<unknown> {
@@ -192,9 +253,7 @@ export class CloudWorkRuntime {
   private async collectOnce(scope: CloudScope, attemptId: string): Promise<unknown> {
     const run = await this.run(scope, attemptId), store = this.store(scope);
     if (await store.readRecord(attemptId, "verified")) return this.status(scope, attemptId);
-    const target = resolveCloudWork(await this.target(scope, run.targetId), run.work);
-    if ((!run.transferMode && target.transferMode !== "s3")
-      || configurationKey(target, !run.transferMode) !== run.configurationKey) throw new Error("cloud_target_configuration_changed");
+    const target = await this.checkedTarget(scope, run);
     if (run.transferMode === "git") {
       if (!this.ports.collectGit) throw new Error("cloud_git_collection_unavailable");
       // CC-CLOUD-DRIVE-04: side-effect-free Drive verification precedes Git promotion and its review submission.
@@ -212,7 +271,10 @@ export class CloudWorkRuntime {
   /** Saves verified bytes; the caller writes the verified marker last, so partial collection is never downloadable. */
   private async collectArtifacts(scope: CloudScope, attemptId: string, run: StoredRun, target: CloudTarget,
     expectedNames: string[]): Promise<ReturnType<typeof verifyCloudArtifacts>> {
-    const result = await this.ports.collect(target, attemptId);
+    const adapter = this.ports.adapter(target, attemptId);
+    const result = adapter.collect
+      ? await adapter.collect(this.identity(run, await this.receipt(this.store(scope), attemptId)))
+      : await this.ports.collect(target, attemptId);
     const verified = verifyCloudArtifacts({ ...result, attemptId, sourceRevision: run.sourceRevision,
       expectedNames, maxTotalBytes: target.maxArtifactBytes });
     const directory = join(this.root(scope), `${attemptId}.artifacts`);

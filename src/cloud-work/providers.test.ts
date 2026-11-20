@@ -30,6 +30,21 @@ describe("standard hosted provider adapters", () => {
     await expect(adapter.submit(cloudSubmissionFixture())).resolves.toEqual({ state: "submission_unknown" });
   });
 
+  it("reconciles an exact Codex task name without rerunning cloud exec", async () => {
+    const requestFingerprint = "a".repeat(64);
+    const run = vi.fn<CloudCliExecute>();
+    const observe = vi.fn(async () => JSON.stringify({ tasks: [
+      { id: "task_matching", status: "pending", title: `CC ${requestFingerprint}` },
+      { id: "task_unrelated", status: "ready", title: `seen CC ${requestFingerprint}` },
+    ] }));
+    const adapter = createCodexCloudAdapter({ executable: "codex.exe", cwd: "workspace", publishedBranch: "main", environmentId: "env" },
+      run, observe);
+    const reconciled = await adapter.reconcile({ receipt: { state: "submission_unknown" }, requestFingerprint });
+    expect(reconciled).toEqual({ state: "submission_unknown", remoteId: "task_matching" });
+    await expect(adapter.observe({ receipt: reconciled, requestFingerprint })).resolves.toBe("running");
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("rejects Windows shell wrappers", () => {
     expect(() => createCodexCloudAdapter({ executable: "codex.cmd", cwd: "workspace", publishedBranch: "main" })).toThrow();
   });
@@ -70,10 +85,17 @@ describe("standard hosted provider adapters", () => {
     });
 
   it("reports unknown when the transfer message was not confirmed for the created session", async () => {
-    const run = vi.fn<CloudCliExecute>().mockResolvedValue(JSON.stringify({ ok: false, session_id: "session_01AbCdEfGh", error: "archived" }));
+    const save = vi.fn(async () => undefined);
+    const run = vi.fn<CloudCliExecute>().mockImplementation(async () => {
+      expect(save).toHaveBeenCalledWith({ state: "submission_unknown", remoteId: "session_01AbCdEfGh" });
+      throw new Error("reply lost");
+    });
     const adapter = createClaudeCloudAdapter({ ...claudeConfig, transientInstructions: () => "secret" },
       { fetcher: vi.fn<typeof fetch>().mockResolvedValue(fired()), run });
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submission_unknown" });
+    const receipt = { state: "submission_unknown", remoteId: "session_01AbCdEfGh" } as const;
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"), save)).resolves.toEqual(receipt);
+    await expect(adapter.reconcile({ receipt, requestFingerprint: "" })).resolves.toEqual(receipt);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("fires nothing when transfer preparation fails, and rejects shell wrappers or bad triggers", async () => {

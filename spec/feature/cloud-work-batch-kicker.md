@@ -71,4 +71,7 @@ never delete intents to retry. Use operator reconciliation for unknown attempts.
 
 Focused cloud-work/API tests use injected provider transports. Live Codex Cloud
 submission needs a configured environment ID and return destination; not yet
-performed. WebUI and MCP controls for batches are not implemented.
+performed. WebUI の委託画面は一覧、shard 状態、追加投入停止を既存 API で操作する。
+MCP の `delegation_cloud_work` には `batch_list`、`batch_status`、`batch_stop` がある。
+MCP の session はラッパーが付与する。どちらの停止操作も実行中の shard は取り消さない。
+Actio `actio:cf6b45c9-6e28-47c1-b030-7cad7d551ffa`。

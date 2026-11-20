@@ -9,6 +9,8 @@ import { CloudWorkPlanSchema } from "../cloud-work/runtime-config.js";
 import { CloudBatchDefinitionSchema } from "../cloud-work/batch-plan.js";
 import type { CloudBatchKicker } from "../cloud-work/batch-kicker.js";
 import { publicCloudError } from "../cloud-work/public-error.js";
+import { cloudColabRoutes } from "./cloud-colab-routes.js";
+import type { ColabService } from "../cloud-work/colab-service.js";
 
 const BatchCreate = CloudBatchDefinitionSchema.extend({ session_id: z.string().min(1).max(200) }).strict();
 const SessionOnly = z.object({ session_id: z.string().min(1).max(200) }).strict();
@@ -30,6 +32,7 @@ export function cloudWorkRouter(deps: {
   sessions: Pick<SessionsRepo, "findSession">;
   runtime: CloudWorkRuntime;
   batches?: CloudBatchKicker;
+  colab?: ColabService;
   authorizeSubmit?: (sessionId: string, scope: CloudScope) => Promise<void>;
   repositoryKey?: (path: string) => Promise<string>;
 }): Hono {
@@ -47,6 +50,7 @@ export function cloudWorkRouter(deps: {
     if (!session || !["active", "blocked"].includes(session.status) || !session.repo_path) return null;
     return { repositoryKey: await (deps.repositoryKey ?? mainRepositoryKey)(session.repo_path), subsidiaryId: readSubsidiaryId(session.metadata) };
   }
+  if (deps.colab) app.route("/colab", cloudColabRoutes({ colab: deps.colab, scope, authorizeSubmit: deps.authorizeSubmit }));
   app.get("/targets", async c => {
     const owner = await scope(c.req.query("session_id"));
     if (!owner) return c.json({ error: "cloud_active_session_required" }, 403);
@@ -71,16 +75,18 @@ export function cloudWorkRouter(deps: {
     if (!owner) return c.json({ error: "cloud_active_session_required" }, 403);
     return c.json(await deps.runtime.status(owner, c.req.param("id")));
   });
-  for (const action of ["collect", "reconcile"] as const) {
+  for (const action of ["collect", "reconcile", "observe"] as const) {
     app.post(`/runs/:id/${action}`, async c => {
       if (!Id.safeParse(c.req.param("id")).success) return c.json({ error: "invalid_cloud_attempt_id" }, 400);
-      const schema = z.object({ session_id: z.string().min(1), ...(action === "reconcile" ? { remoteId: Id } : {}) }).strict();
+      const schema = z.object({ session_id: z.string().min(1), ...(action === "reconcile" ? { remoteId: z.string().regex(/^[A-Za-z0-9_-]{1,206}$/).optional() } : {}) }).strict();
       const parsed = schema.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: "invalid_cloud_request" }, 400);
       const owner = await scope(parsed.data.session_id);
       if (!owner) return c.json({ error: "cloud_active_session_required" }, 403);
-      return c.json(action === "collect" ? await deps.runtime.collect(owner, c.req.param("id"))
-        : await deps.runtime.reconcile(owner, c.req.param("id"), (parsed.data as { remoteId: string }).remoteId));
+      const id = c.req.param("id");
+      if (action === "collect") return c.json(await deps.runtime.collect(owner, id));
+      if (action === "observe") return c.json(await deps.runtime.observe(owner, id));
+      return c.json(await deps.runtime.reconcile(owner, id, (parsed.data as { remoteId?: string }).remoteId));
     });
   }
   app.get("/runs/:id/artifacts/:name", async c => {

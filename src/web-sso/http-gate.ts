@@ -5,6 +5,11 @@
 
 import type { IncomingMessage } from "node:http";
 import type { MiddlewareHandler } from "hono";
+import type { EnterpriseSessionInfo } from "./enterprise-session-client.js";
+
+declare module "hono" {
+  interface ContextVariableMap { concordiaWebIdentity?: EnterpriseSessionInfo }
+}
 import { createChildLogger } from "../shared/logger.js";
 import { CernereProjectChannel } from "./cernere-project-channel.js";
 import type { WebSsoConfig } from "./config.js";
@@ -44,6 +49,7 @@ export function webSsoMiddleware(gate: WebSsoGate): MiddlewareHandler {
       c.header("cache-control", "no-store");
       return c.text(decision.reason, decision.status);
     }
+    c.set("concordiaWebIdentity", decision.session);
     await next();
     if (!decision.setCookie) return;
     // 静的配信などの Response は headers が不変のことがあるので、包み直してから付ける。

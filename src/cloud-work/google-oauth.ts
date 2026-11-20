@@ -2,6 +2,8 @@ import { readCloudResponse } from "./artifact-transfer.js";
 
 export interface GoogleOAuthBinding { clientIdEnv: string; clientSecretEnv: string; refreshTokenEnv: string }
 export interface AccessTokenSource { accessToken(): Promise<string> }
+export const GOOGLE_COLAB_SCOPE = "https://www.googleapis.com/auth/colaboratory";
+export interface GoogleOAuthCredential { clientId: string; clientSecret: string; refreshToken: string }
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -16,9 +18,12 @@ export class GoogleOAuthTokens implements AccessTokenSource {
   private readonly clientSecret: string;
   private readonly refreshToken: string;
 
-  constructor(binding: GoogleOAuthBinding, env: NodeJS.ProcessEnv,
-    private readonly fetcher: typeof fetch = fetch, private readonly now: () => number = Date.now) {
-    const clientId = env[binding.clientIdEnv], clientSecret = env[binding.clientSecretEnv], refreshToken = env[binding.refreshTokenEnv];
+  constructor(binding: GoogleOAuthBinding | GoogleOAuthCredential, env: NodeJS.ProcessEnv,
+    private readonly fetcher: typeof fetch = fetch, private readonly now: () => number = Date.now,
+    private readonly scope?: string) {
+    const { clientId, clientSecret, refreshToken } = "clientId" in binding ? binding : {
+      clientId: env[binding.clientIdEnv], clientSecret: env[binding.clientSecretEnv], refreshToken: env[binding.refreshTokenEnv],
+    };
     if (!clientId || !clientSecret || !refreshToken) throw new Error("cloud_drive_credentials_missing");
     this.clientId = clientId; this.clientSecret = clientSecret; this.refreshToken = refreshToken;
   }
@@ -31,7 +36,7 @@ export class GoogleOAuthTokens implements AccessTokenSource {
         method: "POST", redirect: "error", signal: AbortSignal.timeout(30_000),
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "refresh_token", client_id: this.clientId,
-          client_secret: this.clientSecret, refresh_token: this.refreshToken }).toString(),
+          client_secret: this.clientSecret, refresh_token: this.refreshToken, ...(this.scope ? { scope: this.scope } : {}) }).toString(),
       });
       value = JSON.parse((await readCloudResponse(response, 16_384)).toString("utf8"));
     } catch { throw new Error("cloud_drive_auth_failed"); }

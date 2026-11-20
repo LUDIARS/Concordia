@@ -25,10 +25,10 @@ export type SpawnMode = "tab" | "window";
  * (このファイル中の SPAWN_PROVIDERS、 spawn / admin/spawn-session ハンドラ) を
  * 同時に更新する.
  */
-export type SpawnProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
+export type SpawnProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
 
 /** Runtime 用 provider allow-list. API 側の validation で参照する. */
-export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "codex-sdk", "gemini", "gemma4-12"];
+export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "codex-sdk", "gemini", "agy", "gemma4-12"];
 
 /**
  * codex-sdk (Satelles) はウィンドウ / PTY / Lictor を使わないヘッドレス spawn。

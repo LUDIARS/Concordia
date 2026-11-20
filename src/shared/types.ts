@@ -7,6 +7,8 @@ export type SessionStatus = "active" | "blocked" | "ended" | "lost" | "abandoned
 export type ProviderName =
   | "claude-code"
   | "gemini-cli"
+  /** Antigravity CLI (Lictor の agy provider、 Gemini 4 Neon 等)。 transcript 非対応。 */
+  | "antigravity-cli"
   | "codex-cli"
   /** Satelles (codex app-server 直叩き)。rollout JSONL を書かないので集計経路が別。 */
   | "codex-sdk"

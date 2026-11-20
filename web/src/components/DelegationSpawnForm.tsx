@@ -6,7 +6,7 @@ import type { DelegationTemplateLite, Department, SpawnProvider } from "../api.j
 type LaunchKind = "template" | "provider";
 type WindowMode = "tab" | "window";
 
-const DIRECT_PROVIDERS: SpawnProvider[] = ["claude", "codex", "gemini", "gemma4-12"];
+const DIRECT_PROVIDERS: SpawnProvider[] = ["claude", "codex", "gemini", "agy", "gemma4-12"];
 
 export function DelegationSpawnForm({
   subsidiaryId = null,

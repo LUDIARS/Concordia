@@ -29,14 +29,21 @@ export const INITIAL_ROLE_MODELS = { sol: "gpt-6.2-sol", astra: "gpt-6.2-astra",
 /**
  * Claude の役割ごとの既定モデル。 Claude には公式の一覧取得が無いので自動更新はせず、
  * モデルカタログ (Settings → Models) の有効行が優先される (role-map.ts)。
- * LUDIARS でモデル ID を直書きしてよいのは、 この表と INITIAL_ROLE_MODELS だけ。
+ * LUDIARS でモデル ID を直書きしてよいのは、 この表と INITIAL_ROLE_MODELS / INITIAL_GEMINI_ROLE_MODELS だけ。
  */
 export const INITIAL_CLAUDE_ROLE_MODELS = {
   opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-2",
 } as const;
+/**
+ * Gemini の役割ごとの既定モデル (2026-11-20 neco 指示「Gemini Neon を組み込みたい」「Argon と Neon を指定できるように」)。
+ * Claude と同じく自動更新はせず、 モデルカタログの有効行が優先される (role-map.ts、 MRM-GEM-01)。
+ * Gemini 系の既定役割は neon。 argon は明示指定のみ (MRM-GEM-05)。
+ */
+export const INITIAL_GEMINI_ROLE_MODELS = { neon: "gemini-4-neon", argon: "gemini-4-argon" } as const;
 export function initialRoleModel(role: string): string {
   const model = INITIAL_ROLE_MODELS[role as keyof typeof INITIAL_ROLE_MODELS]
-    ?? INITIAL_CLAUDE_ROLE_MODELS[role as keyof typeof INITIAL_CLAUDE_ROLE_MODELS];
+    ?? INITIAL_CLAUDE_ROLE_MODELS[role as keyof typeof INITIAL_CLAUDE_ROLE_MODELS]
+    ?? INITIAL_GEMINI_ROLE_MODELS[role as keyof typeof INITIAL_GEMINI_ROLE_MODELS];
   if (!model) throw new Error(`unsupported model role: ${role}`);
   return model;
 }

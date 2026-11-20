@@ -18,6 +18,7 @@
  */
 
 import type { SpawnProvider } from "./spawner.js";
+import { INITIAL_GEMINI_ROLE_MODELS } from "../model-catalog/role-policy.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("control/provider-preset");
@@ -44,6 +45,7 @@ export const DELEGATION_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex (OpenAI)",
   "codex-sdk": "Codex SDK (Satelles headless)",
   gemini: "Gemini",
+  agy: "Antigravity",
   "gemma4-12": "gemma4-12 (ローカル LLM / Ollama)",
 };
 
@@ -394,6 +396,10 @@ function tomlScalar(value: unknown): string {
  *            Lictor を使わない (spawner.ts の HEADLESS_SPAWN_PROVIDERS)。 model は
  *            `--model` (Satelles が `-c model=` に変換)、 effort は
  *            resolveDelegationRuntimeArgs の `--effort`。
+ *  - agy (Antigravity CLI) : `lictor agy`。 model 未指定でも既定役割 neon の ID を `--model` で
+ *            明示する (agy 側の既定値に頼らない、 MRM-GEM-04)。 委託経路は resolveTemplateModel が
+ *            role map (カタログ優先) で先に解決するので、 ここに来る空 model は role map を通らない
+ *            直接 spawn 経路だけ。 その場合は初期値 (INITIAL_GEMINI_ROLE_MODELS.neon) を使う。
  *  - それ以外 (claude/codex/gemini) : 同名 CLI をそのまま起動。 model 指定時のみ `--model`。
  */
 export function resolveDelegationSpawn(
@@ -410,7 +416,7 @@ export function resolveDelegationSpawn(
       env: { LICTOR_LOCAL_MODEL: effectiveModel },
     };
   }
-  const m = (model ?? "").trim();
+  const m = (model ?? "").trim() || (target === "agy" ? INITIAL_GEMINI_ROLE_MODELS.neon : "");
   return {
     provider: target as SpawnProvider,
     args: m ? ["--model", m] : [],

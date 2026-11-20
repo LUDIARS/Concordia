@@ -4,6 +4,7 @@ import { parseModelRole, resolveTemplateModel } from "./template-model-role.js";
 const roles = {
   claude: { opus: "claude-opus-next", sonnet: "claude-sonnet-next", haiku: "claude-haiku-next", fable: "claude-fable-next" },
   codex: { sol: "gpt-next-sol", astra: "gpt-next-astra", luna: "gpt-next-luna" },
+  gemini: { neon: "gemini-next-neon", argon: "gemini-next-argon" },
 };
 
 describe("parseModelRole", () => {
@@ -27,6 +28,50 @@ describe("resolveTemplateModel", () => {
   it("resolves a Codex role for codex and codex-sdk", () => {
     expect(resolveTemplateModel({ provider: "codex", model: "sol", roles })).toMatchObject({ ok: true, model: "gpt-next-sol" });
     expect(resolveTemplateModel({ provider: "codex-sdk", model: "luna", roles })).toMatchObject({ ok: true, model: "gpt-next-luna" });
+  });
+
+  it("resolves the Gemini neon role and rejects cross-family or [1m] use (MRM-GEM-02)", () => {
+    expect(parseModelRole("neon")).toEqual({ role: "neon", suffix: "" });
+    expect(resolveTemplateModel({ provider: "gemini", model: "neon", roles }))
+      .toEqual({ ok: true, model: "gemini-next-neon", role: "neon" });
+    expect(resolveTemplateModel({ provider: "gemini", model: "neon[1m]", roles }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("delegation_model_role_unresolved:neon[1m]") });
+    expect(resolveTemplateModel({ provider: "claude", model: "neon", roles }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("delegation_model_role_unresolved:neon") });
+    expect(resolveTemplateModel({ provider: "codex", model: "neon", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "gemini", model: "sol", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "gemini", model: "neon", roles: { ...roles, gemini: {} } }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("role map has no gemini entry") });
+    expect(resolveTemplateModel({ provider: "gemini", model: "gemini-2.5-pro", roles }))
+      .toEqual({ ok: true, model: "gemini-2.5-pro", role: null });
+  });
+
+  it("resolves neon / argon for agy and only for the Gemini family (MRM-GEM-04)", () => {
+    expect(parseModelRole("argon")).toEqual({ role: "argon", suffix: "" });
+    expect(resolveTemplateModel({ provider: "agy", model: "neon", roles }))
+      .toEqual({ ok: true, model: "gemini-next-neon", role: "neon" });
+    expect(resolveTemplateModel({ provider: "agy", model: "argon", roles }))
+      .toEqual({ ok: true, model: "gemini-next-argon", role: "argon" });
+    expect(resolveTemplateModel({ provider: "gemini", model: "argon", roles }))
+      .toEqual({ ok: true, model: "gemini-next-argon", role: "argon" });
+    expect(resolveTemplateModel({ provider: "agy", model: "argon[1m]", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "claude", model: "argon", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "codex", model: "argon", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "agy", model: "sonnet", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "agy", model: "gemini-4-argon-high", roles }))
+      .toEqual({ ok: true, model: "gemini-4-argon-high", role: null });
+  });
+
+  it("starts agy with the neon role when the model is empty; argon only when named (MRM-GEM-05)", () => {
+    for (const model of [null, undefined, "", "  "]) {
+      expect(resolveTemplateModel({ provider: "agy", model, roles }))
+        .toEqual({ ok: true, model: "gemini-next-neon", role: "neon" });
+    }
+    expect(resolveTemplateModel({ provider: "agy", model: null, roles: { ...roles, gemini: {} } }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("role map has no gemini entry") });
+    // gemini (Gemini CLI) と他 provider の空 model は従来どおり CLI 既定に任せる。
+    expect(resolveTemplateModel({ provider: "gemini", model: null, roles })).toEqual({ ok: true, model: null, role: null });
+    expect(resolveTemplateModel({ provider: "claude", model: "", roles })).toEqual({ ok: true, model: "", role: null });
   });
 
   it("passes explicit model IDs, auto and empty values through unchanged", () => {

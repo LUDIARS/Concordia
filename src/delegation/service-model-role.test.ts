@@ -10,6 +10,7 @@ import { INITIAL_CLAUDE_ROLE_MODELS } from "../model-catalog/role-policy.js";
 const roles = {
   claude: { opus: "claude-opus-next", sonnet: "claude-sonnet-next", haiku: "claude-haiku-next", fable: "claude-fable-next" },
   codex: { sol: "gpt-next-sol", astra: "gpt-next-astra", luna: "gpt-next-luna" },
+  gemini: { neon: "gemini-next-neon" },
 };
 
 describe("DelegationService role-named templates", () => {

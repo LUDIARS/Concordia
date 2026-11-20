@@ -237,6 +237,32 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).toContain("更新不要なら既存の日報と今回取得した情報を照合した根拠");
   });
 
+  it("seeds the Gemini Neon / Argon implementation templates on agy by role name (MRM-GEM-03/04/05)", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const neon = repo.findTemplateByCallName("neon");
+    const argon = repo.findTemplateByCallName("argon");
+    expect(neon).toMatchObject({
+      target_provider: "agy", model: "neon", emoji: "💎", sort_order: 28, category: "employee", is_active: 1,
+    });
+    expect(argon).toMatchObject({
+      target_provider: "agy", model: "argon", sort_order: 29, category: "employee", is_active: 1,
+    });
+    expect(argon?.emoji).not.toBe(neon?.emoji);
+    // 既定は Neon なので並びも Neon が先。
+    expect(neon!.sort_order).toBeLessThan(argon!.sort_order);
+  });
+
+  it("moves an existing gemini-provider neon row onto agy at reseed", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const neon = repo.findTemplateByCallName("neon")!;
+    repo.updateTemplate(neon.id, { target_provider: "gemini" });
+    expect(repo.findTemplateByCallName("neon")?.target_provider).toBe("gemini");
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplateByCallName("neon")?.target_provider).toBe("agy");
+  });
+
   it("keeps basic implementation templates free of unverified Anatomia requirements", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
@@ -252,6 +278,8 @@ describe("seedDelegationTemplates", () => {
       "opus",
       "sonnet-mid",
       "fable",
+      "neon",
+      "argon",
       "haiku",
       "gemma4-12-impl",
     ];

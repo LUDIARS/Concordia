@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
-import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_ROLE_MODELS } from "./role-policy.js";
+import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_ROLE_MODELS } from "./role-policy.js";
 import { buildRoleMap } from "./role-map.js";
 import { currentRoleSeedModels, seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
   it("keeps the active Claude/Codex seed rows equal to the role-policy values", () => {
     const seeded = currentRoleSeedModels().map((row) => row.model_id).sort();
-    const policy = [...Object.values(INITIAL_CLAUDE_ROLE_MODELS), ...Object.values(INITIAL_ROLE_MODELS)].sort();
+    const policy = [
+      ...Object.values(INITIAL_CLAUDE_ROLE_MODELS), ...Object.values(INITIAL_ROLE_MODELS), ...Object.values(INITIAL_GEMINI_ROLE_MODELS),
+    ].sort();
     expect(seeded).toEqual(policy);
   });
 
@@ -17,6 +19,21 @@ describe("seedModelCatalog", () => {
     seedModelCatalog(repo);
     const map = buildRoleMap({ roles: [], catalog: repo.list(), nowMs: 0 });
     expect(map.roles.claude).toEqual(INITIAL_CLAUDE_ROLE_MODELS);
+    expect(map.roles.gemini).toEqual(INITIAL_GEMINI_ROLE_MODELS);
+  });
+
+  it("adds the Gemini neon row to an existing catalog and keeps the older Gemini rows", () => {
+    const repo = new ModelCatalogRepo(makeTestDb());
+    repo.create({ provider: "gemini", model_id: "gemini-2.5-pro", sort_order: 10 });
+    seedModelCatalog(repo);
+    const rows = repo.list({ includeInactive: true });
+    expect(rows.find((m) => m.model_id === INITIAL_GEMINI_ROLE_MODELS.neon))
+      .toMatchObject({ provider: "gemini", label: "Gemini 4 Neon", sort_order: 5, is_active: 1 });
+    // Argon も gemini 行 (agy 専用行は作らない)。 既定は Neon なので並びは Neon が先 (MRM-GEM-05)。
+    expect(rows.find((m) => m.model_id === INITIAL_GEMINI_ROLE_MODELS.argon))
+      .toMatchObject({ provider: "gemini", label: "Gemini 4 Argon", sort_order: 6, is_active: 1 });
+    expect(rows.some((m) => (m.provider as string) === "agy")).toBe(false);
+    expect(rows.find((m) => m.model_id === "gemini-2.5-pro")).toMatchObject({ is_active: 1 });
   });
 
   it("retires existing older-generation rows across reseeding", () => {

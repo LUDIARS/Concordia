@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CODEX_DEFAULT_REASONING_EFFORT,
   CLAUDE_OPUS_DEFAULT_EFFORT,
+  DELEGATION_PROVIDER_LABELS,
   delegationOptionSuggestions,
   GEMMA4_12_DEFAULT_MODEL,
   resolveDelegationRuntimeEnv,
@@ -9,6 +10,7 @@ import {
   resolveDelegationSpawn,
   resolveEffectiveDelegationRuntimeOptions,
 } from "./provider-preset.js";
+import { INITIAL_GEMINI_ROLE_MODELS } from "../model-catalog/role-policy.js";
 
 describe("resolveDelegationSpawn", () => {
   it("gemma4-12 → Lictor ネイティブ local-agent (codex 経由しない) + LICTOR_LOCAL_MODEL env", () => {
@@ -31,6 +33,23 @@ describe("resolveDelegationSpawn", () => {
     expect(resolveDelegationSpawn("gamma", null)).toEqual(
       resolveDelegationSpawn("gemma4-12", null),
     );
+  });
+
+  it("agy は lictor agy を起動し、 model 未指定でも既定 Neon を --model で明示する (MRM-GEM-04/05)", () => {
+    expect(resolveDelegationSpawn("agy", null)).toEqual({
+      provider: "agy",
+      args: ["--model", INITIAL_GEMINI_ROLE_MODELS.neon],
+      effectiveModel: INITIAL_GEMINI_ROLE_MODELS.neon,
+    });
+    expect(resolveDelegationSpawn("agy", "  ").args).toEqual(["--model", INITIAL_GEMINI_ROLE_MODELS.neon]);
+    expect(resolveDelegationSpawn("agy", "gemini-4-argon")).toEqual({
+      provider: "agy",
+      args: ["--model", "gemini-4-argon"],
+      effectiveModel: "gemini-4-argon",
+    });
+    // Gemini CLI は従来どおり model 未指定なら --model を付けない。
+    expect(resolveDelegationSpawn("gemini", null).args).toEqual([]);
+    expect(DELEGATION_PROVIDER_LABELS.agy).toBe("Antigravity");
   });
 
   it("codex は同名 CLI + model 指定時のみ --model", () => {

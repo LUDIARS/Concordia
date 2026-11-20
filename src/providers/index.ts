@@ -12,6 +12,8 @@ const PROVIDERS: Record<ProviderName, AgentProvider | null> = {
   "claude-code": claudeCodeProvider,
   "gemini-cli": geminiCliProvider,
   "codex-cli": codexCliProvider,
+  // antigravity-cli (Lictor の agy) は transcript / recovery 解析を持たない。 null で degrade する。
+  "antigravity-cli": null,
   // codex-sdk (Satelles) は codex app-server を直接話すので、CLI 固有の
   // recovery / rollout 走査を持たない。null で degrade する。
   "codex-sdk": null,

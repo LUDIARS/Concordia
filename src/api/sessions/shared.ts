@@ -47,6 +47,10 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
       return "codex-sdk";
     case "gemini-cli":
       return "gemini";
+    // Lictor の agy provider (Antigravity CLI、 Gemini 4 Neon 等) は concordiaProvider
+    // "antigravity-cli" で登録してくる。 spawn 時は `lictor agy`。
+    case "antigravity-cli":
+      return "agy";
     default:
       return null;
   }
@@ -61,7 +65,7 @@ const WritableMetadataSchema = z.record(z.unknown()).refine(
 
 export const StartSchema = z.object({
   id: z.string().min(1).max(128),
-  provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
+  provider: z.enum(["claude-code", "gemini-cli", "antigravity-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
   repo_path: z.string().min(1),
   repo_origin: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),

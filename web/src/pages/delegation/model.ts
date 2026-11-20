@@ -5,7 +5,26 @@ import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js
 
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
 // codex-sdk = Satelles ヘッドレスランナー (wt.exe / Lictor を使わない codex ファミリレーン)。
-export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
+// agy = Antigravity CLI (`lictor agy`)。 Gemini 4 Neon / Argon を起動する Gemini 系レーン。
+export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
+
+/**
+ * モデルカタログの行を引く provider。 codex-sdk は codex の行、 agy は gemini の行を共有する
+ * (カタログに専用行は持たない、 spec/feature/model-role-map.md MRM-GEM-04)。
+ */
+export function catalogProviderFor(provider: Provider): string {
+  if (provider === "codex-sdk") return "codex";
+  if (provider === "agy") return "gemini";
+  return provider;
+}
+
+/**
+ * model 未指定のときの表示。 agy は未指定でも既定役割 neon で起動する (MRM-GEM-05) ので、
+ * 「CLI 既定」ではなく Neon を明示する。
+ */
+export function emptyModelLabel(provider: Provider): string {
+  return provider === "agy" ? "(既定: Neon)" : "(provider CLI 既定)";
+}
 
 // 雇用形態カテゴリ (サーバ側正本: src/db/delegation-repo.ts DELEGATION_CATEGORIES)。
 export type Category = "employee" | "freelancer" | "parttimer" | "test-qa";

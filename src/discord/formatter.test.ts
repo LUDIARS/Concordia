@@ -45,6 +45,8 @@ describe("agentEmoji / buildSessionChannelName", () => {
     expect(agentEmoji("claude-code")).toBe("🔹");
     expect(agentEmoji("codex-cli")).toBe("🤖");
     expect(agentEmoji("gemini-cli")).toBe("♊");
+    expect(agentEmoji("antigravity-cli")).toBe("🪐");
+    expect(agentEmoji("agy")).toBe("🪐");
     expect(agentEmoji(null)).toBe("🔹");
   });
   it("buildSessionChannelName: <状態><エージェント>-body", () => {

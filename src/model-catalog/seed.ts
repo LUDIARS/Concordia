@@ -20,6 +20,10 @@ const CURRENT_ROLE_MODELS: CreateModelInput[] = [
   { provider: "codex", model_id: "gpt-6.2-astra", label: "GPT-6.2 Astra", sort_order: 4 },
   { provider: "codex", model_id: "gpt-6.2-sol", label: "GPT-6.2 Sol", sort_order: 9 },
   { provider: "codex", model_id: "gpt-6-luna", label: "GPT-6 Luna", sort_order: 30 },
+  // 2026-11-20 neco 指示「Gemini Neon を組み込みたい」「Argon と Neon を指定できるように」。 役割 neon / argon (MRM-GEM-01)。
+  // Gemini 系の既定は Neon なので sort_order は neon < argon (MRM-GEM-05)。
+  { provider: "gemini", model_id: "gemini-4-neon", label: "Gemini 4 Neon", sort_order: 5 },
+  { provider: "gemini", model_id: "gemini-4-argon", label: "Gemini 4 Argon", sort_order: 6 },
 ];
 
 const SEED_MODELS: CreateModelInput[] = [

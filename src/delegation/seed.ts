@@ -581,6 +581,28 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 25,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
+  // Gemini 4 Neon (2026-11-20 neco 指示「Gemini Neon を組み込みたい」、 MRM-GEM-03)。 call_name に版を含めない (MRM-TPL-06)。
+  // Gemini CLI は Gemini 4 向けに調整されていないため、 Antigravity CLI (`lictor agy`) で起動する (MRM-GEM-04)。
+  // Gemini 系の既定は Neon なので、 並びも Argon より先 (MRM-GEM-05)。
+  implementationTemplate({
+    callName: "neon",
+    label: "Gemini Neon",
+    note: "Gemini 4 Neon。コーディング・知識作業向きの中上位。",
+    model: "neon",
+    provider: "agy",
+    emoji: "💎",
+    sortOrder: 28,
+  }),
+  // Gemini 4 Argon (2026-11-20 neco 指示「Delegation で Argon と Neon を指定できるようにして」)。 明示指定でだけ使う。
+  implementationTemplate({
+    callName: "argon",
+    label: "Gemini Argon",
+    note: "Gemini 4 Argon。明示指定で使う Gemini 系の別系統。",
+    model: "argon",
+    provider: "agy",
+    emoji: "🔷",
+    sortOrder: 29,
+  }),
   // GPT-6 Astra (2026-09 追加)。 Codex 側の最上位プロファイル。
   implementationTemplate({
     callName: "astra-mid",

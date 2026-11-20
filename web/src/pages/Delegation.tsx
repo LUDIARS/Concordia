@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../api.js";
 import { RuntimeOptionsBuilder } from "../components/RuntimeOptionsBuilder.js";
-import { CATEGORIES, CATEGORY_LABELS, EMPTY_FORM, type Category, type Provider } from "./delegation/model.js";
+import { CATEGORIES, CATEGORY_LABELS, EMPTY_FORM, catalogProviderFor, emptyModelLabel, type Category, type Provider } from "./delegation/model.js";
 import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/RunCards.js";
 import { useDelegationState } from "./delegation/useDelegationState.js";
 import { TemplateOverrides } from "./delegation/TemplateOverrides.js";
@@ -178,6 +178,7 @@ export function Delegation() {
                 <option value="codex-sdk">codex-sdk (Satelles headless)</option>
                 <option value="claude">claude</option>
                 <option value="gemini">gemini</option>
+                <option value="agy">agy (Antigravity / 既定 Neon)</option>
                 <option value="gemma4-12">gemma4-12 (ローカル LLM / Ollama)</option>
               </select>
             </label>
@@ -187,9 +188,7 @@ export function Delegation() {
                 // provider に紐づく候補 (provider 一致 + 'any') を sort_order 順で。
                 // codex-sdk は codex ファミリで同じ OpenAI モデルを使うため、
                 // model_catalog は codex の行を共有する (専用行は持たない)。
-                const catalogProvider = form.target_provider === "codex-sdk"
-                  ? "codex"
-                  : form.target_provider;
+                const catalogProvider = catalogProviderFor(form.target_provider);
                 const opts = models.filter(
                   (m) => m.provider === "any" || m.provider === catalogProvider,
                 );
@@ -204,7 +203,7 @@ export function Delegation() {
                       value={form.model}
                       onChange={(e) => setForm({ ...form, model: e.target.value })}
                     >
-                      <option value="">(provider CLI 既定)</option>
+                      <option value="">{emptyModelLabel(form.target_provider)}</option>
                       {opts.map((m) => (
                         <option key={m.id} value={m.model_id}>
                           {m.label ? `${m.label} — ${m.model_id}` : m.model_id}

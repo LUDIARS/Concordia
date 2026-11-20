@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildRoleMap } from "./role-map.js";
 import { defaultRoleMapPath, writeRoleMapFile } from "./role-map-file.js";
-import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_ROLE_MODELS, type RoleSnapshot } from "./role-policy.js";
+import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_ROLE_MODELS, type RoleSnapshot } from "./role-policy.js";
 
 const snapshot = (role: string, modelId: string): RoleSnapshot => ({
   schemaVersion: 1, provider: "codex", role, modelId, revision: role, observedAt: "2026-11-18T00:00:00Z",
@@ -27,6 +27,40 @@ describe("buildRoleMap", () => {
     expect(map.roles.codex).toEqual({ ...INITIAL_ROLE_MODELS, sol: "gpt-7-sol" });
     expect(map.roles.claude).toEqual({ ...INITIAL_CLAUDE_ROLE_MODELS, opus: "claude-opus-6" });
     expect(map.generatedAt).toBe("2026-11-18T00:00:00.000Z");
+    expect(map.roles.gemini).toEqual(INITIAL_GEMINI_ROLE_MODELS);
+  });
+
+  it("Gemini は argon 系統も neon と別に引き、 片方の行がもう片方を上書きしない (MRM-GEM-01)", () => {
+    const map = buildRoleMap({
+      roles: [],
+      catalog: [
+        { provider: "gemini", model_id: "gemini-4-neon", sort_order: 5, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-4-argon", sort_order: 6, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-4.1-argon", sort_order: 2, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-4-argon-high", sort_order: 0, is_active: 1 },
+      ],
+      nowMs: Date.parse("2026-11-20T00:00:00Z"),
+    });
+    expect(map.roles.gemini).toEqual({ neon: "gemini-4-neon", argon: "gemini-4.1-argon" });
+  });
+
+  it("Gemini は neon 系統の有効行を sort_order 順に採り、 他 provider や別系統の行は無視する (MRM-GEM-01)", () => {
+    const nowMs = Date.parse("2026-11-20T00:00:00Z");
+    expect(buildRoleMap({ roles: [], catalog: [], nowMs }).roles.gemini).toEqual({ neon: "gemini-4-neon", argon: "gemini-4-argon" });
+    const map = buildRoleMap({
+      roles: [],
+      catalog: [
+        { provider: "gemini", model_id: "gemini-4-neon", sort_order: 5, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-4.1-neon", sort_order: 3, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-5-neon", sort_order: 1, is_active: 0 },
+        { provider: "gemini", model_id: "gemini-2.5-pro", sort_order: 0, is_active: 1 },
+        { provider: "gemini", model_id: "gemini-4-neon-preview", sort_order: 0, is_active: 1 },
+        { provider: "codex", model_id: "gemini-9-neon", sort_order: 0, is_active: 1 },
+      ],
+      nowMs,
+    });
+    expect(map.roles.gemini).toEqual({ neon: "gemini-4.1-neon", argon: INITIAL_GEMINI_ROLE_MODELS.argon });
+    expect(map.roles.claude).toEqual(INITIAL_CLAUDE_ROLE_MODELS);
   });
 });
 

@@ -31,6 +31,17 @@ describe("設定レジストリのカバレッジ", () => {
     }
   });
 
+  it("role map の書き出し先と root command 緩和は設定として登録し、XDG_STATE_HOME は OS 提供として除外する", () => {
+    for (const name of ["LUDIARS_MODEL_ROLES_FILE", "CONCORDIA_HARNESS_ROOT_COMMAND_RELAX"]) {
+      expect(scanned.envNames.has(name)).toBe(true);
+      expect(registeredEnvNames().has(name)).toBe(true);
+      expect(name in ENV_COVERAGE_EXCLUSIONS).toBe(false);
+    }
+    expect(scanned.envNames.has("XDG_STATE_HOME")).toBe(true);
+    expect(ENV_COVERAGE_EXCLUSIONS.XDG_STATE_HOME).toContain("OS 提供");
+    expect(registeredEnvNames().has("XDG_STATE_HOME")).toBe(false);
+  });
+
   it("ソースが読む env は全てレジストリに登録されている", () => {
     const registered = registeredEnvNames();
     const missing = [...scanned.envNames]

@@ -67,6 +67,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   VITEST: "vitest が立てるフラグ。 テスト時のみ",
   COMSPEC: "Windows のシェルパス (OS 提供)",
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
+  XDG_STATE_HOME: "POSIX のユーザー別状態ディレクトリ (XDG Base Directory、OS 提供)。role map の既定の書き出し先を決めるときに読むだけで、Concordia の設定ではない",
   USERPROFILE: "Windows のユーザーホーム (OS 提供)。 claude.exe の既定の置き場所を探すときに読むだけで、 Concordia の設定ではない",
   HOME: "POSIX のユーザーホーム (OS 提供)。 USERPROFILE が無い環境で claude.exe の既定の置き場所を探すときに読む",
   PATH: "実行ファイルの探索パス (OS 提供)。 repo 検索のツール検出で読むだけで、 Concordia の設定ではない",

@@ -87,7 +87,7 @@ patrol の tick 内で、従来 §1.4 の question カードを出していた�
 
 ## 2. 起動
 
-- delegation call: `claude-sonnet-5-ask` (env `CONCORDIA_DIRECTOR_ASK_CALL_NAME` で上書き可)
+- delegation call: `sonnet-ask` (旧 `claude-sonnet-5-ask` は別名、env `CONCORDIA_DIRECTOR_ASK_CALL_NAME` で上書き可)
 - options: `{ team: <team_id>, goal_and_go: false }` — 自走させない。1 ターンで終わる仕事。
 - `triggered_by`: `director-inquiry:<step_id-or-case_id>:<reason>:<UTC YYYY-MM-DD>` を
   日次の冪等キーにする。対象 step が無い停滞では `case_id` を使う。実行前に同じキーを

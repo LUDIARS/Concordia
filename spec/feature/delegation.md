@@ -29,6 +29,10 @@ updated: 2026-10-04
 effort は基本可変で、`movable` を名前・表示から外す。Opus / Fable は `opus-5-5` /
 `fable-5-1` に改名し、初期 medium と実行中変更入口を維持する。
 旧 `sol-mid` / `sonnet-mid` / `*-movable` は呼び出し互換として解決するが選択肢には重複表示しない。
+2026-11-20 (neco 指示「Delegation template も古いね」、Actio eddd123d): call_name から版と廃止した役割を外した
+(`opus-5-5`→`opus`、`sonnet-5-5`→`sonnet`、`fable-5-1`→`fable`、`sol-6-1`→`sol`、`terra-xhigh`→`luna-xhigh`、
+`claude-sonnet-5-ask`→`sonnet-ask`、`claude-sonnet-5-walk`→`sonnet-walk`、`design-hard-fable5`→`design-hard-fable`)。
+旧名は解決表で新名へ引き、既存行は migration 149 で改名する (spec/feature/model-role-map.md §委託テンプレートの名前)。
 ID・prompt 編集履歴・モデル pin・run 履歴を保ち、名前衝突は上書きせず停止する。
 以下の旧プロファイル記載よりこの更新を優先する。価値 UX-CC-AD-W1。
 
@@ -171,6 +175,9 @@ MELPOT 拠点で不要なパートタイマーが動いていたことが発端)
 3. rendered_prompt を `<concordia-data>/delegation/<run_id>.md` に保存
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
+   - `template.model` (と one-shot の `overrides.model`) が役割名 (`opus` / `sonnet` / `haiku` / `fable` / `sol` / `astra` / `luna`、Claude は `[1m]` 可) なら、
+     tier 選定の後・spawn の直前に role map でモデル ID へ解決する。明示 ID はそのまま。解決できない役割は spawn せず
+     `delegation_model_role_unresolved:<role>` を返す。`effective_model` は解決後の ID (spec/feature/model-role-map.md §委託テンプレート、2026-11-19)
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
    - Claude / Gemini / gemma4-12 は Lictor の通常セッション経路で起動する
    - Codex Delegation は `target_provider` の値どおりに起動する。`codex` は wt.exe / Lictor 経由の Windows native ターミナルレーン (2026-08-25 復帰 — WSL/Satelles 経路が codex 認証ローテーションと lsass クラッシュで継続不能になったため。native の CreateProcessWithLogonW リークは sandbox 起動を外す運用で回避)。`codex-sdk` は Satelles ヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`、`satelles run` を detached child として直接起動、§13.2)。かつて行っていた永続化／起動境界での `codex` → `codex-sdk` 正規化は撤回した (`applyDelegationProviderPolicy` は pass-through)。2026-10-13 に既定の実装テンプレート (terra-xhigh / luna / impl-from-design / fix-bug / refactor / ci-failure-fix / github-issue-fix / kaizen-daily) を `codex-sdk` (runtime=native、`SATELLES_CODEX_SANDBOX=danger-full-access`) へ戻した。ターミナルレーンは shell の sandbox setup 失敗時に node_repl へ退避し、node_repl が `LICTOR_PORT` を継承しないため local PR 提出前で止まるため。WSL を使わないので 2026-08-25 の lsass クラッシュ経路は踏まない。Astra With Sidecar の親子 (astra-with-sidecar / sol-6-1) と、相談の起動テンプレートを兼ねる astra-mid は `codex` のまま (sidecar profile の provider 固定、相談の閉じ込め引数 `confinementArgsFor` が codex にしか無いため)。2026-10-14 に対話の forum-codex-session も `codex-sdk` (`satelles serve`) へ移した。`/v1/admin/spawn-session` のテンプレート起動は `forum-session-launch.ts` で判定し、forum_tag のテンプレートを相談でなく起動したときだけ内部フラグ `forumSessionHostAccess` を立て、spawner が operator の `danger-full-access` を渡す (Satelles 側は `CONCORDIA_SPAWN_ID` のある Cc 起動だけ受理)。閉じ込めの必要な相談はターミナルの `codex` へ落として閉じ込め引数を維持し、相談には枠なしを渡さない (**Requirement ID: `SPEC-DELEGATION-FORUM-SATELLES`**)
@@ -329,7 +336,7 @@ delegation テンプレ選択ベースで起動する:
 UX-CC-AD-W1: 利用者が指定した現行モデルで委託を開始でき、再起動で旧世代へ戻らない。
 テンプレートのモデル初期値は agent-delegation、選択肢は model-catalog seed が所有する。
 Sol / Luna は GPT-6、Opus は 5.5 を使用する。2026-09-27 necoの回答により、旧Terra委託も雑務向けGPT-6 Lunaへ移す。
-`terra-xhigh` は既存呼び出しの互換名として保持し、実行モデル・表示名をLunaにする。Lunaのeffortはxhighに統一する（同日neco指示）。既存の call_name / ID、Luna以外のeffortと編集済みプロンプトを保持する。
+`terra-xhigh` は既存呼び出しの互換名として保持し (2026-11-20 から定義行は `luna-xhigh`、`terra-xhigh` は別名)、実行モデル・表示名をLunaにする。Lunaのeffortはxhighに統一する（同日neco指示）。既存の call_name / ID、Luna以外のeffortと編集済みプロンプトを保持する。
 旧 Sol / Terra / Luna のカタログ行は履歴のため保持し、選択肢として無効化する。
 実行済み・実行中 run の effective_model は実行事実なので書き換えない。
 初期定義の差戻しは対象コミットを戻し、稼働DBのモデル設定は公開APIから明示的に戻す。
@@ -357,7 +364,7 @@ Astra のテンプレート (astra-mid / astra-with-sidecar / kaizen-daily) も�
 | `opus-mid` | claude | claude-opus-5-5 | Opus / mid で実装委託 |
 | `fable-xhigh` | claude | claude-fable-5-1 | Fable / xhigh で実装委託 |
 | `sonnet-mid` | claude | claude-sonnet-5 | Sonnet / mid で実装委託 (一般実装の主力) |
-| `terra-xhigh` | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
+| `terra-xhigh` (現 `luna-xhigh`) | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
 | `haiku` | claude | claude-haiku-4-5-20251001 | Haiku で実装委託 |
 | `luna` | codex-sdk | gpt-5.6-luna | Luna / mid で実装委託 |
 | `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Ollama) に実装委託、 API 課金ゼロ |

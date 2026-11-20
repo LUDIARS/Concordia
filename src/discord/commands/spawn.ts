@@ -3,6 +3,7 @@ import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
 import { executeSiteSpawn } from "./spawn-site.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
+import { canonicalTemplateCallName } from "../../delegation/template-call-names.js";
 import {
   guardSubsidiarySpawn,
   knownSessionIds,
@@ -84,7 +85,11 @@ const spawnCommand: DiscordCommandSpec = {
     if (!await markExplicitSpawnThread(ix, deps)) return;
 
     const cached = await delegationTemplateCache.get(deps.concordiaUrl, deps.log);
-    const templateProvider = cached.templates.find((candidate) => candidate.call_name === template)?.target_provider ?? null;
+    // 旧 call_name (opus-5-5 等) で指定されても改名後のテンプレートの provider を引く。
+    const canonicalTemplate = canonicalTemplateCallName(template);
+    const templateProvider = cached.templates.find(
+      (candidate) => candidate.call_name === template || candidate.call_name === canonicalTemplate,
+    )?.target_provider ?? null;
     // model / effort の再評価は spawn 前ではなく、 session.started 後の契約 (contract lifecycle) が行う。
     const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
       deps.concordiaUrl,

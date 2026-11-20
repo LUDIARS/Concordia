@@ -17,7 +17,8 @@ describe("migration 128 delegation-sol-6-1", () => {
       const astra = repo.createTemplate({ call_name: "astra-mid", title: "a", target_provider: "codex", model: "gpt-6-astra", prompt_template: "x" });
       const pinned = repo.createTemplate({ call_name: "old-sol", title: "o", target_provider: "codex", model: "gpt-5.6-sol", prompt_template: "x" });
 
-      runMigrations(db, MIGRATIONS, 128);
+      // 148 (役割名への移行) 以降まで当てると model が役割名になるので 128 で止める。
+      runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 128), 128);
 
       expect(repo.findTemplate(custom.id)?.model).toBe("gpt-6.1-sol");
       expect(repo.findTemplate(astra.id)?.model).toBe("gpt-6-astra");

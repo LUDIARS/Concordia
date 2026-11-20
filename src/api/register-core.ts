@@ -140,6 +140,7 @@ import type { DelegationMemoriaPort } from "../delegation/memoria-task.js";
 import type { MemoriaClient, MemoriaTask } from "../memoria/client.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
+import { canonicalTemplateCallName } from "../delegation/template-call-names.js";
 import type { DelegationQueue } from "../delegation/queue.js";
 import { refreshDelegationIdentifierTemplates } from "../delegation/seed.js";
 import { forumLaunchProvider, forumSessionHostAccess } from "../delegation/forum-session-launch.js";
@@ -1148,9 +1149,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             typeof metadata.delegation_run_id === "string" ? metadata.delegation_run_id : "",
           );
           const configuredAskCall = (
-            process.env.CONCORDIA_DIRECTOR_ASK_CALL_NAME ?? "claude-sonnet-5-ask"
-          ).trim() || "claude-sonnet-5-ask";
-          const inquirySubject = inquiryRun?.call_name === configuredAskCall
+            process.env.CONCORDIA_DIRECTOR_ASK_CALL_NAME ?? "sonnet-ask"
+          ).trim() || "sonnet-ask";
+          // 改名前 (claude-sonnet-5-ask) に起動した run も同じ問診テンプレとして扱う。
+          const inquirySubject = inquiryRun
+            && canonicalTemplateCallName(inquiryRun.call_name) === canonicalTemplateCallName(configuredAskCall)
             ? inquirySubjectFromTriggeredBy(inquiryRun.triggered_by)
             : null;
           const inquiryCaseId = inquirySubject

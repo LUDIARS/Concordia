@@ -191,7 +191,7 @@
     ツールの制限と設定フォルダは子会社と同じ (2026-10-02 neco 指示「本社の相談も同じで」)。プロジェクト無しでは cwd を決められず起動に失敗していた (`project cwd is required`) のを直す。
 - モデル (2026-10-31 neco 指示「Consultの相談でOpus解禁する」): 2026-10-19 の全役職 Astra 固定を解除し、
   本社・子会社とも以前の役職別選択へ戻す。デザイナー・サウンドは Astra (`astra-mid`、codex)、
-  エンジニア・企画・不明・役職未入力は Opus (`opus-5-5-movable`、claude)。effort は medium。
+  エンジニア・企画・不明・役職未入力は Opus (`opus`、claude。旧 `opus-5-5-movable` は別名)。effort は medium。
   テンプレート名は `CONCORDIA_CONSULT_ASTRA_TEMPLATE` / `CONCORDIA_CONSULT_OPUS_TEMPLATE` で差し替えられる。
   既存のテンプレート・provider・モデルの明示指定と、各 provider の専用ログイン要件は維持する。
   部署フォーラムからの相談でもモデルを聞き返さない。モデル選択方針の所有者は consultation

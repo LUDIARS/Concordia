@@ -589,4 +589,14 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     name: "control-board-classification",
     checksum: "bcd653ceb77f66f90a23a26fccbd142a52f9796b0392c33ccd2277f2dddb118d",
   },
+  {
+    version: 148,
+    name: "delegation-template-model-roles",
+    checksum: "a0abedb26b17fc63e3a8694b11cd014b6ab806605713379760f7557760164ac8",
+  },
+  {
+    version: 149,
+    name: "delegation-template-call-name-roles",
+    checksum: "9ec19881144d5fbdaa0c653065b400c433c43c5743e05536c43f56f8ef099ba4",
+  },
 ];

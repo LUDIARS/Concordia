@@ -24,7 +24,7 @@ const solMid = {
   call_name: "sol-mid",
   is_active: 1,
   target_provider: "codex",
-  model: "gpt-6.2-sol",
+  model: "sol",
   runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
 };
 
@@ -46,6 +46,8 @@ describe("decideSidecarInvoke", () => {
   });
 
   it("accepts the versioned Sol profile and its historic medium alias", () => {
+    expect(decideSidecarInvoke(input({ requestedCallName: "sol" })).allow).toBe(true);
+    // 改名前の名前 (sol-6-1) も同じ子テンプレとして許可する。
     expect(decideSidecarInvoke(input({ requestedCallName: "sol-6-1" })).allow).toBe(true);
     expect(decideSidecarInvoke(input({ requestedCallName: "sol-mid" })).allow).toBe(true);
     expect(decideSidecarInvoke(input({ requestedCallName: "sol-xhigh" })).allow).toBe(false);
@@ -66,7 +68,7 @@ describe("decideSidecarInvoke", () => {
       .toMatchObject({ allow: false, code: "sidecar_override_rejected" });
     expect(decideSidecarInvoke(input({ requestedOverride: { reasoning_effort: "xhigh" } })))
       .toMatchObject({ allow: false, code: "sidecar_override_rejected" });
-    expect(decideSidecarInvoke(input({ requestedOverride: { model: "gpt-6.2-sol", reasoning_effort: "medium" } })).allow).toBe(true);
+    expect(decideSidecarInvoke(input({ requestedOverride: { model: "sol", reasoning_effort: "medium" } })).allow).toBe(true);
   });
 
   it("keeps the child on a different branch from the parent", () => {

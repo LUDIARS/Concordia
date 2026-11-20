@@ -56,14 +56,16 @@ export function friendlyModelName(
   model: string | null | undefined,
   provider?: string | null,
 ): string {
+  // 表示名はモデル ID の形から導く (ID ごとの固定表は持たない: 新世代で表を足し忘れないため)。
   const normalized = model?.trim().toLowerCase() ?? "";
-  const exact = FRIENDLY_MODEL_NAMES[normalized];
-  if (exact) return exact;
-  if (normalized.startsWith("gpt-")) {
-    return normalized
-      .split("-")
-      .map((part, index) => index === 0 ? "GPT" : titlePart(part))
-      .join("-");
+  const gpt = /^gpt-(\d+(?:\.\d+)*)(?:-(.+))?$/.exec(normalized);
+  if (gpt) {
+    const rest = gpt[2] ? ` ${gpt[2].split("-").map(titlePart).join(" ")}` : "";
+    return `GPT-${gpt[1]}${rest}`;
+  }
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(normalized);
+  if (claude) {
+    return `${titlePart(claude[1]!)} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
   if (normalized.startsWith("claude-")) {
     return normalized
@@ -72,27 +74,12 @@ export function friendlyModelName(
       .map(titlePart)
       .join(" ");
   }
+  if (/^[a-z]+(?:\[1m\])?$/.test(normalized)) return titlePart(normalized);
   if (model?.trim()) return normalizeWhitespace(model);
   if (provider?.toLowerCase().includes("codex")) return "Codex";
   if (provider?.toLowerCase().includes("claude")) return "Claude";
   return "Concordia";
 }
-
-const FRIENDLY_MODEL_NAMES: Readonly<Record<string, string>> = {
-  "claude-fable-5-1": "Fable 5.1",
-  "claude-fable-5": "Fable 5",
-  "claude-opus-5-5": "Opus 5.5",
-  "claude-opus-5": "Opus 5",
-  "claude-opus-4-8": "Opus 4.8",
-  "claude-sonnet-4-6": "Sonnet 4.6",
-  "claude-haiku-4-5": "Haiku 4.5",
-  "gpt-6.2-astra": "GPT-6.2 Astra",
-  "gpt-6.2-sol": "GPT-6.2 Sol",
-  "gpt-6-astra": "GPT-6 Astra",
-  "gpt-5.6-sol": "GPT-5.6 Sol",
-  "gpt-5.6-terra": "GPT-5.6 Terra",
-  "gpt-5.6-luna": "GPT-5.6 Luna",
-};
 
 function firstNormalized(values: Array<string | null | undefined>): string | null {
   for (const value of values) {

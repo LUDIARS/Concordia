@@ -34,7 +34,7 @@ import { emitStepChanged } from "./step-events.js";
 const log = createChildLogger("director-patrol");
 const TICK_MS = 30 * 60 * 1000;
 const DEFAULT_IMPL_CALL_NAME = "sonnet-mid";
-const DEFAULT_ASK_CALL_NAME = "claude-sonnet-5-ask";
+const DEFAULT_ASK_CALL_NAME = "sonnet-ask";
 
 /** 巡回起動の triggered_by 固定キー (冪等性の正本)。 */
 export function patrolTriggeredBy(stepId: string): string {
@@ -102,7 +102,7 @@ export interface DirectorPatrolDeps {
   workspaceRoots: string[];
   /** 実装委託テンプレ。既定 sonnet-mid (env CONCORDIA_DIRECTOR_IMPL_CALL_NAME)。 */
   implCallName?: string;
-  /** 問診委託テンプレ。既定 claude-sonnet-5-ask (env CONCORDIA_DIRECTOR_ASK_CALL_NAME)。 */
+  /** 問診委託テンプレ。既定 sonnet-ask (env CONCORDIA_DIRECTOR_ASK_CALL_NAME)。 */
   askCallName?: string;
   /** 問診指示に載せる Concordia endpoint。既定は service-urls の正本。 */
   concordiaUrl?: string;

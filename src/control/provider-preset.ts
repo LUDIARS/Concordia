@@ -190,9 +190,11 @@ export function isClaudeOpusModel(provider: string, model: string | null | undef
 function supportsCodexReasoningEffort(model: string | null | undefined): boolean {
   const normalized = (model ?? "").trim().toLowerCase();
   if (!normalized) return true;
+  // 世代番号を列挙しない (gpt-7 以降も同じ規則で通す)。 役割名 (sol / astra / luna) も対象。
+  const generation = /^gpt-(\d+)/.exec(normalized);
   return (
-    normalized.startsWith("gpt-5") ||
-    normalized.startsWith("gpt-6") ||
+    (generation !== null && Number(generation[1]) >= 5) ||
+    CODEX_ROLE_NAMES.has(normalized) ||
     normalized.startsWith("o3") ||
     normalized.startsWith("o4") ||
     normalized.includes("codex")
@@ -207,8 +209,12 @@ function supportsCodexReasoningEffort(model: string | null | undefined): boolean
 function supportsUltraEffort(model: string | null | undefined): boolean {
   const normalized = (model ?? "").trim().toLowerCase();
   if (normalized === "sol" || normalized.endsWith("-sol")) return true;
-  return normalized.startsWith("gpt-6");
+  if (CODEX_ROLE_NAMES.has(normalized)) return true;
+  const generation = /^gpt-(\d+)/.exec(normalized);
+  return generation !== null && Number(generation[1]) >= 6;
 }
+
+const CODEX_ROLE_NAMES = new Set(["sol", "astra", "luna"]);
 
 /** Opus delegations default to no extended thinking; an explicit boolean wins. */
 function resolveClaudeThinkingEnabled(value: unknown, model: string | null | undefined): boolean | null {

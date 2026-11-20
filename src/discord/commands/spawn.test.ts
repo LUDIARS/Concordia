@@ -128,6 +128,25 @@ describe("/spawn Delegation 起動", () => {
     expect(body).not.toHaveProperty("memoria_task_id");
   });
 
+  it("旧 call_name (opus-5-5) の指定でも改名後テンプレートの provider を添える", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => String(input).endsWith("/v1/admin/spawn-session")
+      ? new Response(JSON.stringify({ ok: true, pid: 4 }), { status: 200 })
+      : new Response(JSON.stringify({ templates: [{ call_name: "opus", title: "Opus", target_provider: "claude", is_active: true }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const interaction = makeChannelInteraction({ template: "opus-5-5", project: "Concordia" });
+
+    await spawnCommand.execute(interaction as never, {
+      ...makeDeps(),
+      sessionChannelsRepo: {
+        listActive: vi.fn().mockReturnValueOnce([]).mockReturnValue([{ session_id: "s-new", channel_id: "c-new" }]),
+      } as unknown as DiscordCommandDeps["sessionChannelsRepo"],
+    });
+
+    const call = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/v1/admin/spawn-session"));
+    const body = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ template: "opus-5-5", provider: "claude" });
+  });
+
   it("子会社の担当外 project は起動しない", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

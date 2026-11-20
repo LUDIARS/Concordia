@@ -81,6 +81,15 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("codex", "gpt-5.5")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
   });
 
+  it("世代番号を列挙せず gpt-7 以降と役割名テンプレートも判定する", () => {
+    const choices = (model: string) =>
+      delegationOptionSuggestions("codex", model).find((s) => s.key === "model_reasoning_effort")?.choices?.map((c) => c.value);
+    expect(choices("gpt-7-astra")).toEqual(expect.arrayContaining(["medium", "xhigh", "ultra"]));
+    expect(choices("gpt-12.1-luna")).toContain("ultra");
+    for (const role of ["sol", "astra", "luna"]) expect(choices(role)).toContain("ultra");
+    expect(choices("gpt-4o")).toBeUndefined();
+  });
+
   it("GPT-6 でも reasoning effort の選択肢が出る (gpt-5 前提の判定に落ちない)", () => {
     const efforts = delegationOptionSuggestions("codex", "gpt-6-astra").find((s) => s.key === "model_reasoning_effort");
     expect(efforts?.choices?.map((c) => c.value)).toEqual(

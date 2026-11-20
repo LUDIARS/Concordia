@@ -9,6 +9,7 @@ import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { seedDelegationTemplates } from "../src/delegation/seed.js";
 import { DelegationService } from "../src/delegation/service.js";
 import { makeTestDb } from "./helpers/db.js";
+import { INITIAL_CLAUDE_ROLE_MODELS } from "../src/model-catalog/role-policy.js";
 
 interface RuntimeOptionDto {
   key: string;
@@ -65,9 +66,9 @@ describe("Fable delegation reasoning effort", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { templates: TemplateDto[] };
 
-    for (const callName of ["fable-5-1", "design-hard-fable5"]) {
+    for (const callName of ["fable", "design-hard-fable"]) {
       const template = body.templates.find((item) => item.call_name === callName);
-      expect(template?.model).toBe("claude-fable-5-1");
+      expect(template?.model).toBe("fable");
       const effort = template?.runtime_options.find((option) => option.key === "effort");
       expect(effort?.choices?.map((choice) => choice.value)).toEqual(
         expect.arrayContaining(["medium", "xhigh"]),
@@ -99,7 +100,7 @@ describe("Fable delegation reasoning effort", () => {
       });
       expect(spawnCalls).toEqual([{
         provider: "claude",
-        args: ["--model", "claude-fable-5-1", "--effort", effort],
+        args: ["--model", INITIAL_CLAUDE_ROLE_MODELS.fable, "--effort", effort],
       }]);
     },
   );

@@ -9,7 +9,7 @@ describe("seedDelegationTemplates", () => {
     const old = repo.createTemplate({call_name:"sol-mid",title:"Sol",target_provider:"codex",model:"gpt-6-sol",prompt_template:"custom"});
     repo.trackTemplateModel(old.id);
     seedDelegationTemplates(repo);
-    expect(repo.findTemplate(old.id)?.model).toBe("gpt-6.2-sol");
+    expect(repo.findTemplate(old.id)?.model).toBe("sol");
     repo.pinTemplateModel(old.id);
     repo.updateTemplate(old.id,{model:"gpt-6-sol"});
     seedDelegationTemplates(repo);
@@ -20,7 +20,7 @@ describe("seedDelegationTemplates", () => {
     repo.createTemplate({ call_name: "astra-xhigh", title: "Astra / xhigh", target_provider: "codex", model: "gpt-6.2-astra", prompt_template: "x" });
     seedDelegationTemplates(repo);
     expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
-    expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({ model: "gpt-6.2-astra" });
+    expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({ model: "astra" });
   });
 
   it("preserves an explicitly selected Sol model and edited prompt", () => {
@@ -30,7 +30,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     seedDelegationTemplates(repo);
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({ id: old.id, model: "gpt-5.6-sol", prompt_template: "operator instructions" });
-    expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("gpt-6.2-sol");
+    expect(repo.findTemplateByCallName("forum-codex-session")?.model).toBe("sol");
   });
 
   it("keeps an administrator-edited prompt through a later seed", () => {
@@ -41,6 +41,35 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     expect(repo.findTemplate(original.id)?.prompt_template).toBe("運用で修正した本文");
   });
+  it("renames versioned template rows to role names in place and keeps old names as aliases", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    const make = (call_name: string, target_provider: "claude" | "codex") =>
+      repo.createTemplate({ call_name, title: call_name, target_provider, model: null, prompt_template: "old" });
+    const ids = {
+      opus: make("opus-5-5", "claude").id,
+      ask: make("claude-sonnet-5-ask", "claude").id,
+      walk: make("claude-sonnet-5-walk", "claude").id,
+      terra: make("terra-xhigh", "codex").id,
+      design: make("design-hard-fable5", "claude").id,
+    };
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplate(ids.opus)).toMatchObject({ call_name: "opus", model: "opus", title: "実装委託 (Opus)" });
+    expect(repo.findTemplate(ids.ask)?.call_name).toBe("sonnet-ask");
+    expect(repo.findTemplate(ids.walk)?.call_name).toBe("sonnet-walk");
+    expect(repo.findTemplate(ids.terra)).toMatchObject({ call_name: "luna-xhigh", model: "luna" });
+    expect(repo.findTemplate(ids.design)?.call_name).toBe("design-hard-fable");
+    // 旧名で引いても新名の行が返る (invoke の call_name 解決)。
+    expect(repo.findTemplateByCallName("opus-5-5")?.id).toBe(ids.opus);
+    expect(repo.findTemplateByCallName("claude-sonnet-5-ask")?.id).toBe(ids.ask);
+    const names = repo.listTemplates({ includeInactive: true }).map((t) => t.call_name);
+    for (const old of ["opus-5-5", "sonnet-5-5", "fable-5-1", "sol-6-1", "terra-xhigh",
+      "claude-sonnet-5-ask", "claude-sonnet-5-walk", "design-hard-fable5"]) {
+      expect(names).not.toContain(old);
+    }
+    expect(names).toEqual(expect.arrayContaining(["opus", "sonnet", "fable", "sol", "luna-xhigh",
+      "sonnet-ask", "sonnet-walk", "design-hard-fable", "haiku", "luna", "astra-mid"]));
+  });
+
   it("migrates the existing Kaizen template to Astra without replacing its identity", () => {
     const repo = new DelegationRepo(makeTestDb());
     const old = repo.createTemplate({
@@ -50,7 +79,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     const template = repo.findTemplateByCallName("kaizen-daily");
     expect(template).toMatchObject({
-      id: old.id, target_provider: "codex", model: "gpt-6.2-astra", category: "parttimer", call_only: 1,
+      id: old.id, target_provider: "codex", model: "astra", category: "parttimer", call_only: 1,
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(template?.prompt_template).toContain("高難度はこの Astra セッション自身が実装");
@@ -70,7 +99,7 @@ describe("seedDelegationTemplates", () => {
 
     expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
       target_provider: "codex",
-      model: "gpt-6.2-sol",
+      model: "sol",
       is_active: 1,
     });
   });
@@ -90,18 +119,18 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("claude-sonnet-4-6-impl")).toBeNull();
     const sonnet5 = repo.findTemplateByCallName("sonnet-mid");
     expect(sonnet5?.is_active).toBe(1);
-    expect(sonnet5?.model).toBe("claude-sonnet-5-5");
+    expect(sonnet5?.model).toBe("sonnet");
   }, 15_000);
 
   it("seeds the Director inquiry template as a non-implementation, read-only prompt", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    const inquiry = repo.findTemplateByCallName("claude-sonnet-5-ask");
+    const inquiry = repo.findTemplateByCallName("sonnet-ask");
     expect(inquiry).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       call_only: 1,
       category: "freelancer",
       prompt_template: "${task}",
@@ -111,7 +140,7 @@ describe("seedDelegationTemplates", () => {
     expect(inquiry?.prompt_template).not.toMatch(/implement|branch|commit|push|PR/i);
   });
 
-  it("deletes the Opus 4.8 implementation template and seeds Opus 5.5", () => {
+  it("deletes the Opus 4.8 implementation template and seeds the opus profile", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "claude-opus-4-8-impl",
@@ -124,19 +153,19 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("claude-opus-4-8-impl")).toBeNull();
-    const opus5 = repo.findTemplateByCallName("opus-5-5");
+    const opus5 = repo.findTemplateByCallName("opus");
     expect(opus5?.is_active).toBe(1);
-    expect(opus5?.model).toBe("claude-opus-5-5");
+    expect(opus5?.model).toBe("opus");
   });
 
   it("uses Opus 5.5 across implementation profiles, analysis, and review delegations", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    for (const callName of ["opus-5-5"]) {
-      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5-5");
+    for (const callName of ["opus"]) {
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("opus");
     }
-    expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5-5");
+    expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("opus");
 
     for (const callName of ["review-duo", "ludiars-review-daily-dual"]) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
@@ -174,7 +203,7 @@ describe("seedDelegationTemplates", () => {
       call_only: 1,
       category: "parttimer",
       target_provider: "codex",
-      model: "gpt-6.2-sol",
+      model: "sol",
       default_cwd: "E:\\Document\\Ars\\LUDIARS",
     });
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
@@ -196,13 +225,13 @@ describe("seedDelegationTemplates", () => {
       "astra-mid",
       "sol-mid",
       "sol-xhigh",
-      "terra-xhigh",
+      "luna-xhigh",
       "luna",
       "impl-from-design",
       "fix-bug",
-      "opus-5-5",
+      "opus",
       "sonnet-mid",
-      "fable-5-1",
+      "fable",
       "haiku",
       "gemma4-12-impl",
     ];
@@ -298,7 +327,7 @@ describe("seedDelegationTemplates", () => {
     const prompt = template?.prompt_template ?? "";
     expect(template).toMatchObject({
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       category: "parttimer",
       call_only: 1,
       is_active: 1,
@@ -366,7 +395,7 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
     expect(tpl?.target_provider).toBe("codex");
-    expect(tpl?.model).toBe("gpt-6.2-sol");
+    expect(tpl?.model).toBe("sol");
     expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
@@ -423,18 +452,18 @@ describe("seedDelegationTemplates", () => {
     }
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("fable-5-1")).toMatchObject({
+    expect(repo.findTemplateByCallName("fable")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-fable-5-1",
+      model: "fable",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("fable-5-1")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("fable")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     // Astra は claude 既定の implementationTemplate をターミナルの codex (Lictor) で使う (2026-10-15 に
     // Satelles から戻した)。 sandbox 準備の失敗で LICTOR_PORT を失う問題は spawner の LICTOR_CODEX_SANDBOX で塞ぐ。
     expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-6.2-astra",
+      model: "astra",
     });
     // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
     expect(JSON.parse(repo.findTemplateByCallName("astra-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
@@ -442,36 +471,36 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("astra-xhigh")).toBeNull();
     // Astra With Sidecar: 親は Astra medium。 起動側 (sidecar/profile.ts) と同じ値でなければならない。
     const sidecarParent = repo.findTemplateByCallName("astra-with-sidecar");
-    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "gpt-6.2-astra", title: "Astra With Sidecar", forum_tag: 0 });
+    expect(sidecarParent).toMatchObject({ is_active: 1, target_provider: "codex", model: "astra", title: "Astra With Sidecar", forum_tag: 0 });
     expect(JSON.parse(sidecarParent?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(sidecarParent?.prompt_template).toContain("/v1/delegation/sidecar/route");
     expect(sidecarParent?.prompt_template).toContain("args.sidecar_packet");
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
-      model: "gpt-6.2-sol",
+      model: "sol",
     });
     // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(repo.findTemplateByCallName("sol-xhigh")).toBeNull();
-    expect(repo.findTemplateByCallName("opus-5-5")).toMatchObject({
+    expect(repo.findTemplateByCallName("opus")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-opus-5-5",
+      model: "opus",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("opus-5-5")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(JSON.parse(repo.findTemplateByCallName("opus")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     // effort 固定の旧プロファイルは movable へ統合した (2026-09-29 neco 指示)。
     for (const legacy of ["opus-mid", "opus-xhigh", "fable-mid", "fable-xhigh"]) {
       expect(repo.findTemplateByCallName(legacy)).toBeNull();
     }
-    for (const callName of ["opus-5-5", "fable-5-1"]) {
+    for (const callName of ["opus", "fable"]) {
       const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
       expect(prompt).toContain("Effort can change during work");
       expect(prompt).toContain("/v1/sessions/<your Concordia session id>/effort");
     }
     expect(repo.findTemplateByCallName("sonnet-mid")?.prompt_template).toContain("Effort can change during work");
-    expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");
-    expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-6-luna");
+    expect(repo.findTemplateByCallName("haiku")?.model).toBe("haiku");
+    expect(repo.findTemplateByCallName("luna")?.model).toBe("luna");
     expect(JSON.parse(repo.findTemplateByCallName("luna")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
 
     for (const callName of [
@@ -494,8 +523,8 @@ describe("seedDelegationTemplates", () => {
       expect(repo.findTemplateByCallName(callName)).toBeNull();
     }
 
-    const terra = repo.findTemplateByCallName("terra-xhigh");
-    expect(terra).toMatchObject({ is_active: 1, model: "gpt-6-luna", target_provider: "codex" });
+    const terra = repo.findTemplateByCallName("luna-xhigh");
+    expect(terra).toMatchObject({ is_active: 1, model: "luna", target_provider: "codex" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
@@ -509,7 +538,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
     expect(duo?.prompt_template).toContain("gpt-6.2-sol");
     expect(duo?.prompt_template).toContain("xhigh");
-    expect(duo?.prompt_template).toContain("sol-6-1");
+    expect(duo?.prompt_template).toContain("`sol` Delegation");
     expect(duo?.prompt_template).toContain("`codex` / Lictor");
     expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
@@ -527,7 +556,7 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.target_provider).toBe("claude");
     expect(claude?.title).toBe("週次レビュー");
     expect(claude?.is_active).toBe(1);
-    expect(claude?.model).toBe("claude-sonnet-5-5");
+    expect(claude?.model).toBe("sonnet");
     expect(claude?.prompt_template).toContain("service-map.json");
     expect(claude?.prompt_template).toContain("daily_review: true");
     expect(claude?.prompt_template).toContain("別 AI は起動しません");
@@ -565,7 +594,7 @@ describe("seedDelegationTemplates", () => {
       // 時限起動なので parttimer (spec/feature/delegation.md の category 表)。
       expect(tpl?.category).toBe("parttimer");
       expect(tpl?.target_provider).toBe("claude");
-      expect(tpl?.model).toBe("claude-sonnet-5-5");
+      expect(tpl?.model).toBe("sonnet");
       expect(tpl?.default_cwd).toBe("E:\\Document\\Ars\\Genius");
       expect(JSON.parse(tpl?.input_schema ?? "null")).toEqual([
         { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
@@ -597,7 +626,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
@@ -617,7 +646,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -692,7 +721,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -720,7 +749,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars\\Quaestor",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
@@ -741,7 +770,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars\\Discutere",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -769,7 +798,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     for (const callName of ["steam-persona-daily", "vultus-catalog-refresh-daily"]) {
-      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-sonnet-5-5");
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("sonnet");
     }
   });
 
@@ -782,7 +811,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       default_cwd: "E:\\Document\\Ars\\Vultus",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -957,7 +986,7 @@ describe("seedDelegationTemplates", () => {
     const template = repo.findTemplateByCallName("deps-sweep-repo");
     expect(template).toMatchObject({
       target_provider: "claude",
-      model: "claude-sonnet-5-5",
+      model: "sonnet",
       category: "parttimer",
       call_only: 1,
       default_cwd: "${target_repo}",

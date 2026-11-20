@@ -29,7 +29,7 @@ export function consultModelForRole(roleTitle: string | null | undefined): Consu
 export function consultTemplateFor(nick: ConsultModelNick, env: Readonly<Record<string, string | undefined>> = process.env): string {
   return nick === "astra"
     ? env.CONCORDIA_CONSULT_ASTRA_TEMPLATE?.trim() || "astra-mid"
-    : env.CONCORDIA_CONSULT_OPUS_TEMPLATE?.trim() || "opus-5-5-movable";
+    : env.CONCORDIA_CONSULT_OPUS_TEMPLATE?.trim() || "opus";
 }
 
 /** effort を provider ごとの起動オプションにする。 */

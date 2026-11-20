@@ -162,7 +162,7 @@ export function ModelCatalogSection() {
           <span className="text-subtle">model_id (--model に渡す実値)</span>
           <input
             className="foundation-form w-full"
-            placeholder="例: claude-opus-5 / gpt-5.6-sol"
+            placeholder="provider が公開しているモデル ID をそのまま入力"
             value={draft.model_id}
             onChange={(e) => setDraft({ ...draft, model_id: e.target.value })}
           />

@@ -174,7 +174,7 @@ describe("isDomainPreambleTarget", () => {
       callName: "refactor", title: "局所リファクタ", category: "freelancer",
     })).toBe(true);
     expect(isDomainPreambleTarget({
-      callName: "claude-sonnet-5-ask", title: "設計相談", category: "freelancer",
+      callName: "sonnet-ask", title: "設計相談", category: "freelancer",
     })).toBe(false);
     expect(isDomainPreambleTarget({
       callName: "review-duo", title: "レビュー", category: "freelancer",

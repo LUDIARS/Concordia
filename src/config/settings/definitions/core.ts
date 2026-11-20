@@ -140,11 +140,11 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     key: "workspace.consult_opus_template",
     section: "workspace",
     label: "相談の Opus テンプレート",
-    description: "エンジニア・企画・不明の役職の相談を起動するテンプレート名 (tech-consultation.md §6)。 未設定なら opus-5-5-movable。",
+    description: "エンジニア・企画・不明の役職の相談を起動するテンプレート名 (tech-consultation.md §6)。 未設定なら opus。",
     kind: "string",
     envName: "CONCORDIA_CONSULT_OPUS_TEMPLATE",
     dbKey: null,
-    defaultValue: "opus-5-5-movable",
+    defaultValue: "opus",
     editable: false,
   },
   {

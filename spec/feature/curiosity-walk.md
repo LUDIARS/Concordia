@@ -87,7 +87,7 @@ case の中で詰まった点**を人間に問う。決定を得るための問�
   λ は活動時間帯 (既定 10:00〜22:00 JST) の経過時間に対して適用する。次の発火が
   活動時間帯の外へ掛かる場合は捨てず、残りの待ち時間を次の活動時間帯へ繰り越す。
 - delegation call は `CONCORDIA_CURIOSITY_CALL_NAME` で解決し、未設定時の既定は
-  `claude-sonnet-5-walk`。options は `{ goal_and_go: false }`、1 ターンで終わる。
+  `sonnet-walk` (旧 `claude-sonnet-5-walk` は別名)。options は `{ goal_and_go: false }`、1 ターンで終わる。
   設定キーと既定値は `setup/config-reference.md` にも記載する。
 - workflow binding key は `curiosity` (単独で ON/OFF できる。**既定 OFF**。
   面が荒れる装置なので、有効化は人間の意思で行う)。

@@ -11,6 +11,7 @@ import { createContextLinkResolver } from "./control/inject-context-links.js";
 import { allowDelegationDomainPreamble } from "./control/delegation-context-eligibility.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
+import { createRoleMapSource } from "./model-catalog/role-map-source.js";
 import { collectDelegationModelQuota } from "./delegation/model-tier-usage.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
   const majorInjectEditor = new MajorInjectEditor(new MajorInjectRepo(db), injectManualsRepo, delegationRepo);
   const service = new DelegationService({
     modelQuota: collectDelegationModelQuota,
+    roleMap: createRoleMapSource(db),
     repo: delegationRepo,
     concordiaUrl,
     siteId: () => resolveFederationSiteId(

@@ -8,20 +8,20 @@ import type { SpawnRequest } from "../src/control/spawner.js";
 
 const EXPECTED_SEED_CALLS = [
   // 2026-10-14 neco 指示: Opus を先頭、Fable を 5 番目。
-  "opus-5-5",
+  "opus",
   // GPT-6 Astra (2026-09 追加)
   "astra-mid",
   // Astra With Sidecar (2026-09-29、spec/feature/astra-with-sidecar.md)
   "astra-with-sidecar",
   // astra-xhigh は 2026-10-03 に廃止 (neco 指示「Astra の xhigh を消して」)。
-  "sol-6-1",
-  "fable-5-1",
-  "claude-sonnet-5-ask",
-  "claude-sonnet-5-walk",
+  "sol",
+  "fable",
+  "sonnet-ask",
+  "sonnet-walk",
   // バグバウンティの仕分け (読み取り専用、spec/feature/bug-bounty.md §17.2)。 bounty runtime だけが invoke する。
   "bounty-triage-review",
-  "sonnet-5-5",
-  "terra-xhigh",
+  "sonnet",
+  "luna-xhigh",
   "haiku",
   "luna",
   "forum-claude-session",
@@ -43,7 +43,7 @@ const EXPECTED_SEED_CALLS = [
   "deps-sweep-daily",
   "deps-sweep-repo",
   "design-analysis-opus",
-  "design-hard-fable5",
+  "design-hard-fable",
   // ディレクターワークフロー (2026-08-20 neco 指示、spec/feature/director-workflow.md)
   "director-issue-scout",
   "director-task-organize",
@@ -88,13 +88,41 @@ describe("delegation seed regression", () => {
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
     expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 20, 25, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
-    expect(json.templates.find((t) => t.call_name === "sol-6-1")?.emoji).toBe("☀️");
-    expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
+    expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
+    expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
     expect(json.templates.filter((t) => t.forum_tag).map((t) => t.call_name)).toEqual([
       "forum-claude-session",
       "forum-codex-session",
     ]);
+  });
+
+  it("starts the role-named template when invoked by a former versioned call_name", async () => {
+    const spawnCalls: SpawnRequest[] = [];
+    const env = makeTestApp({
+      delegationSpawn: (req) => {
+        spawnCalls.push(req);
+        return { ok: true, pid: 20_000 + spawnCalls.length, command: ["stub-spawn", req.provider] };
+      },
+      delegationWorkspaceRoots: [WORKSPACE_ROOT],
+    });
+    const list = await env.app.request("/v1/delegation/templates");
+    const { templates } = (await list.json()) as { templates: Template[] };
+    for (const [previous, next] of [["opus-5-5", "opus"], ["sol-6-1", "sol"], ["terra-xhigh", "luna-xhigh"]] as const) {
+      const template = templates.find((t) => t.call_name === next)!;
+      const args = argsFor(template);
+      mirrorSeedCwd(expectedSeedCwd(template, args));
+      const invoke = await env.app.request("/v1/delegation/invoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ call_name: previous, args, triggered_by: "regression-test", spawn: true }),
+      });
+      expect(invoke.status, previous).toBe(200);
+      const json = (await invoke.json()) as { ok: boolean; run: { call_name: string } };
+      expect(json.ok, previous).toBe(true);
+      expect(json.run.call_name).toBe(next);
+      expect(spawnCalls.at(-1)?.env?.CONCORDIA_DELEGATION_CALL_NAME).toBe(next);
+    }
   });
 
   it("invokes every active seed delegation through the public API", async () => {

@@ -11,13 +11,13 @@ status: draft
 > 所属ドメイン: [`agent-delegation`](../domains/agent-delegation.domain.json)
 
 neco の2026-10-04開始指示が実装範囲の根拠。UX-CC-AD-W1 に対応する。
-Sol は sol-6-1 / gpt-6.1-sol、初期 medium (2026-11-18 から gpt-6.2-sol)。sol-xhigh の別テンプレートは削除する。
-Sonnet は sonnet-5-5 / claude-sonnet-5-5。Opus/Fable は名前の movable を外す。
+Sol は sol (旧 sol-6-1) / 役割 sol、初期 medium。sol-xhigh の別テンプレートは削除する。
+Sonnet は sonnet (旧 sonnet-5-5)。Opus/Fable は名前の movable を外し、2026-11-20 から版も外す (opus / fable、spec/feature/model-role-map.md §委託テンプレートの名前)。
 effort は基本可変であり、起動時値を永久固定値として扱わない。
 
 DP-01: 名前を更新しても既存 ID、編集済み prompt、モデル pin を保持する。
 DP-02: 旧呼び出し名は標準名へ解決し、sol-xhigh を互換名として復活させない。
-DP-03: 再seedは冪等。名前が衝突したときは既存行を上書きせず停止する。
+DP-03: 再seedは冪等。名前が衝突したときは既存行を上書きせず、改名しない (旧名の行を残す)。
 DP-04: Sidecar は旧 sol-mid の依頼も新標準へ解決し、起動時 medium と既存所有権境界を維持する。
 
 状態所有者は DelegationRepo。呼び出し名ポリシーは純関数、seed は更新ユースケース。

@@ -14,7 +14,7 @@ describe("resolveManualKind", () => {
   });
 
   it("design / 設計 → 設計相談", () => {
-    expect(resolveManualKind({ call_name: "design-hard-fable5", title: "Design Hard" })).toBe("設計相談");
+    expect(resolveManualKind({ call_name: "design-hard-fable", title: "Design Hard" })).toBe("設計相談");
     expect(resolveManualKind({ call_name: "design-analysis-opus", title: "設計分析" })).toBe("設計相談");
     expect(resolveManualKind({ call_name: "opus-plan", title: "設計相談" })).toBe("設計相談");
   });

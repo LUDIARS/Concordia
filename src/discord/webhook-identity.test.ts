@@ -49,6 +49,14 @@ describe("Discord webhook identity", () => {
     expect(friendlyModelName("gpt-5.6-luna")).toBe("GPT-5.6 Luna");
     expect(friendlyModelName("claude-custom-7")).toBe("Custom 7");
   });
+
+  it("derives names from the ID shape without a per-model table", () => {
+    expect(friendlyModelName("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+    expect(friendlyModelName("claude-sonnet-9-1")).toBe("Sonnet 9.1");
+    expect(friendlyModelName("gpt-7.3-sol")).toBe("GPT-7.3 Sol");
+    expect(friendlyModelName("gpt-5.5")).toBe("GPT-5.5");
+    expect(friendlyModelName("sonnet")).toBe("Sonnet");
+  });
 });
 
 describe("delegation emoji avatar URL", () => {

@@ -6,8 +6,11 @@
   "membership": [
     { "pathPattern": "(^|/)src/model-catalog/[^/]+$" },
     { "pathPattern": "(^|/)src/db/model-role-repo(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)tests/model-role-api\\.test\\.ts$" }
+    { "pathPattern": "(^|/)tests/model-role-api\\.test\\.ts$" },
+    { "pathPattern": "(^|/)src/db/template-model-roles-migration(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/template-call-name-roles-migration(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/delegation/service-model-role\\.test\\.ts$" }
   ],
   "cardTemplate": "Describe role snapshot ownership, capability validation, refresh CAS and recovery.",
-  "specRefs": ["spec/feature/sidecar-lifecycle-model-refresh.md", "spec/interface/model-catalog-port.md", "spec/architecture/ddd.md"]
+  "specRefs": ["spec/feature/sidecar-lifecycle-model-refresh.md", "spec/feature/model-role-map.md", "spec/interface/model-catalog-port.md", "spec/architecture/ddd.md"]
 }

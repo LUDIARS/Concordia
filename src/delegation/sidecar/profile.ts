@@ -4,11 +4,11 @@
  * 親は Astra (判断・設計・採否)、子は Sol medium (境界の定まった実務)。
  * 値はテンプレート seed (seed.ts) と起動側 (invoke-guard.ts) の両方がここを読む。
  * 指定外のモデルへ黙って切り替えないため、不一致は「停止理由」として返す。
+ * model は役割名で持ち、spawn 直前に role map で ID へ解決する (spec/feature/model-role-map.md)。
  *
  * @implements spec/feature/astra-with-sidecar.md §モデル選択と委任契約
  */
 
-import { initialRoleModel } from "../../model-catalog/role-policy.js";
 export const ASTRA_WITH_SIDECAR_CALL_NAME = "astra-with-sidecar";
 export const ASTRA_WITH_SIDECAR_TITLE = "Astra With Sidecar";
 
@@ -22,8 +22,8 @@ export interface SidecarModelSpec {
 // 親子ともターミナルの codex (Lictor)。 Satelles 起動は会話が届かずコンソールごと落ちることがあった
 // (2026-10-15)。 node_repl 退避は spawner の LICTOR_CODEX_SANDBOX と Lictor の node_repl 無効化で塞ぐ。
 export const ASTRA_WITH_SIDECAR_PROFILE = {
-  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: initialRoleModel("astra"), effort: "medium" },
-  child: { call_name: "sol-6-1", provider: "codex", model: initialRoleModel("sol"), effort: "medium" },
+  parent: { call_name: ASTRA_WITH_SIDECAR_CALL_NAME, provider: "codex", model: "astra", effort: "medium" },
+  child: { call_name: "sol", provider: "codex", model: "sol", effort: "medium" },
   /** 初期同時実行数。親子の同じファイルへの同時編集を避けるため 1 から始める。 */
   maxConcurrentChildren: 1,
   /** 同じ依頼 (task_reference + request_version) を子へ出し直せる回数の上限。 */

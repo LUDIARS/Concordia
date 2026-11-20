@@ -78,6 +78,7 @@ import { seedModelCatalog } from "../model-catalog/seed.js";
 import { ModelRoleRepo } from "../db/model-role-repo.js";
 import { seedInitialRoles } from "../model-catalog/initial-roles.js";
 import { buildRoleMap } from "../model-catalog/role-map.js";
+import { createRoleMapSource } from "../model-catalog/role-map-source.js";
 import { defaultRoleMapPath, writeRoleMapFile } from "../model-catalog/role-map-file.js";
 import { startDailyModelRefresh } from "../model-catalog/daily-refresh.js";
 import { codexOfficialModelProvider } from "../model-catalog/codex-provider.js";
@@ -1087,6 +1088,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const delegationService = new DelegationService({
     modelQuota: collectDelegationModelQuota,
+    roleMap: createRoleMapSource(db),
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
     siteId: () => federation.apiDeps.siteStatus().config.siteId,

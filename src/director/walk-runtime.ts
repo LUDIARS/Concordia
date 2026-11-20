@@ -15,7 +15,7 @@ import { sampleWalkPair, type WalkMaterial } from "./walk-materials.js";
 import type { WalkRow } from "../db/walks-repo.js";
 
 const log = createChildLogger("curiosity-walk");
-const DEFAULT_CALL_NAME = "claude-sonnet-5-walk";
+const DEFAULT_CALL_NAME = "sonnet-walk";
 const RECENT_COMBO_WINDOW_MS = 7 * 24 * 3600_000;
 
 export interface WalkTeamView {
@@ -47,7 +47,7 @@ export interface CuriosityWalkDeps {
   };
   /** 散歩セッションを起動する既存の workspace directory。 */
   cwd: string;
-  /** 既定 claude-sonnet-5-walk (env CONCORDIA_CURIOSITY_CALL_NAME で上書き)。 */
+  /** 既定 sonnet-walk (env CONCORDIA_CURIOSITY_CALL_NAME で上書き)。 */
   callName?: string;
   scheduleOpts?: WalkScheduleOpts;
   rand?: () => number;

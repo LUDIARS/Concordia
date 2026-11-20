@@ -85,6 +85,8 @@ export { renderTemplate, substituteVars, validateArgs } from "./prompt.js";
 
 const log = createChildLogger("delegation/service");
 import { selectDelegationModel, modelTier, type ModelQuota, type ModelCandidate } from "./model-tier-policy.js";
+import { buildRoleMap, type RoleMap } from "../model-catalog/role-map.js";
+import { resolveTemplateModel } from "../model-catalog/template-model-role.js";
 
 /// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
 /// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
@@ -133,6 +135,8 @@ export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
   modelQuota?: () => Promise<ModelQuota>;
+  /** テンプレートの役割名を解決する role map (model-catalog/role-map.ts)。 */
+  roleMap?: () => RoleMap["roles"];
   allowDomainPreamble?: (parentSessionId: string | null | undefined, targetRepo: string | null) => Promise<{ projectId: string; baseUrl: string; isCurrent: () => boolean } | null>;
   /** Resolves editable major Inject prose from a composition-root owned store. */
   majorInject?: import("../control/major-inject-resolver.js").MajorInjectResolver;
@@ -204,6 +208,11 @@ export class DelegationService {
     this.queue = queue;
   }
 
+  /** 役割 → モデル ID。 未注入なら role-policy の初期値 (カタログ・自動更新なし)。 */
+  private roleMap(): RoleMap["roles"] {
+    return this.deps.roleMap?.() ?? buildRoleMap({ roles: [], catalog: [], nowMs: Date.now() }).roles;
+  }
+
   private get promptsDir(): string {
     return this.deps.promptsDir ?? join(process.cwd(), "delegation-prompts");
   }
@@ -234,7 +243,8 @@ export class DelegationService {
     };
     const resolved = resolveTemplateForScope(tpl, this.deps.repo.listTemplateOverrides(tpl.id), scope, this.deps.repo.listCategoryDefaults());
     if (!resolved.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
-    return this.runDefinition(templateToDefinition(resolved), input);
+    // 旧 call_name (別名) で呼ばれても、起動先・prompt・env には改名後の名前を使う (spec/feature/model-role-map.md MRM-TPL-06)。
+    return this.runDefinition(templateToDefinition(resolved), { ...input, call_name: tpl.call_name });
   }
 
   /**
@@ -582,6 +592,10 @@ export class DelegationService {
       modelInput = GEMMA4_12_DEFAULT_MODEL;
       log.info({ call_name: def.call_name, resolved_model: modelInput }, "Cc local auto-model resolved");
     }
+    // テンプレートの役割名 (sonnet / sol 等) を role map でモデル ID へ。 明示 ID はそのまま。
+    const roleResolution = resolveTemplateModel({ provider, model: modelInput, roles: this.roleMap() });
+    if (!roleResolution.ok) return { ok: false, error: roleResolution.error };
+    modelInput = roleResolution.model;
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
     const templateOptions = parseRuntimeOptions(def.runtime_options_json);

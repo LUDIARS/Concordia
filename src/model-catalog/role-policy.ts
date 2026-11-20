@@ -32,7 +32,7 @@ export const INITIAL_ROLE_MODELS = { sol: "gpt-6.2-sol", astra: "gpt-6.2-astra",
  * LUDIARS でモデル ID を直書きしてよいのは、 この表と INITIAL_ROLE_MODELS だけ。
  */
 export const INITIAL_CLAUDE_ROLE_MODELS = {
-  opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001", fable: "claude-fable-5-1",
+  opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-2",
 } as const;
 export function initialRoleModel(role: string): string {
   const model = INITIAL_ROLE_MODELS[role as keyof typeof INITIAL_ROLE_MODELS]

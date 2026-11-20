@@ -29,7 +29,7 @@ function ports(): SidecarInvokeGuardPorts {
   return {
     findSession: (id) => id === PARENT ? { metadata: parentMetadata, branch: "feat/parent" } : null,
     findTemplateByCallName: (name) => name === "sol-mid" ? {
-      call_name: "sol-mid", is_active: 1, target_provider: "codex", model: "gpt-6.2-sol",
+      call_name: "sol-mid", is_active: 1, target_provider: "codex", model: "sol",
       runtime_options_json: JSON.stringify({ model_reasoning_effort: "medium" }),
     } as DelegationTemplateRow : null,
     listRunsByParentSession: () => runs,
@@ -61,13 +61,13 @@ describe("guardSidecarInvoke", () => {
     expect(result.kind).toBe("allow");
     if (result.kind !== "allow") return;
     expect(result.input).toMatchObject({
-      call_name: "sol-6-1",
+      call_name: "sol",
       cwd: packet.repo_path,
       branch: "sidecar/a",
       worktree: true,
       base_ref: "108b43bd",
       parent_session_id: PARENT,
-      overrides: { provider: "codex", model: "gpt-6.2-sol", reasoning_effort: "medium" },
+      overrides: { provider: "codex", model: "sol", reasoning_effort: "medium" },
       memory_links: ["spec/feature/a.md"],
     });
     expect(result.input.args.context_extra).toContain("## Sidecar 委任契約");

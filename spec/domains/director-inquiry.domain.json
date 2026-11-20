@@ -22,6 +22,6 @@
   "specRefs": [
     "spec/feature/director-inquiry-session.md"
   ],
-  "rationale": "巡回 (director-patrol) と持ち場を分ける。patrol は「step を進める / 実装を起こす」、問診は「人間へ問いを起こす」。両者は同じ tick と同じ workflow binding key `director` に乗るが、判断材料もガードも別物なので、混ぜると patrol の計画が問診の枠管理に汚染される。決定は純関数 (inquiry-patrol)、永続カウンタ・invoke・フォールバックは inquiry-runtime に閉じる。`claude-sonnet-5-ask` は共有 delegation seed の統合点だが、実装テンプレートの共通手順を混ぜず問診 task だけを渡す。読み取り専用契約は harness 側の決定的述語として置き、configured ask template と起動時の triggered_by を正本に対象を決める。ファイル読み取りは run の target_repo、自 case の API 読み書きは owning case と紐づく run に閉じる。",
+  "rationale": "巡回 (director-patrol) と持ち場を分ける。patrol は「step を進める / 実装を起こす」、問診は「人間へ問いを起こす」。両者は同じ tick と同じ workflow binding key `director` に乗るが、判断材料もガードも別物なので、混ぜると patrol の計画が問診の枠管理に汚染される。決定は純関数 (inquiry-patrol)、永続カウンタ・invoke・フォールバックは inquiry-runtime に閉じる。`sonnet-ask` は共有 delegation seed の統合点だが、実装テンプレートの共通手順を混ぜず問診 task だけを渡す。読み取り専用契約は harness 側の決定的述語として置き、configured ask template と起動時の triggered_by を正本に対象を決める。ファイル読み取りは run の target_repo、自 case の API 読み書きは owning case と紐づく run に閉じる。",
   "updatedAt": "2026-08-20T00:00:00.000Z"
 }

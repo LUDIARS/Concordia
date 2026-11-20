@@ -20,6 +20,7 @@ export {
 } from "../delegation/forum-model-selection.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { isProjectNameInScope } from "../subsidiary/project-scope.js";
+import { canonicalTemplateCallName } from "../delegation/template-call-names.js";
 import { budgetRefusalText } from "./usage-budget-notice.js";
 import { sessionCapRefusalText } from "../cost/company-session-cap.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
@@ -462,8 +463,10 @@ export async function executeForumSpawn(
     };
   } else if (suppliedContent?.template) {
     // 旧テンプレ選択カードの回答互換。
+    // 旧 call_name (opus-5-5 等) の回答は改名後のテンプレートへ解決する。
+    const suppliedName = canonicalTemplateCallName(suppliedContent.template);
     const chosen = templates.find(
-      (candidate) => candidate.call_name === suppliedContent.template
+      (candidate) => candidate.call_name === suppliedName
         && candidate.is_active && candidate.forum_tag === true,
     );
     if (!chosen) {

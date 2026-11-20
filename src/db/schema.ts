@@ -8,8 +8,10 @@ import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./taskflow-v2-instruct
 import { PROJECT_NOTIFICATION_SEEDS, applyProjectNotificationSeeds } from "./project-notification-seed.js";
 import { migrateTaskflowV3Instructions } from "./taskflow-v3-instructions.js";
 import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.js";
+import { migrateTemplateModelsToRoles } from "./template-model-roles-migration.js";
+import { migrateTemplateCallNamesToRoles } from "./template-call-name-roles-migration.js";
 
-export const SCHEMA_VERSION = 147;
+export const SCHEMA_VERSION = 149;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3845,6 +3847,22 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       ALTER TABLE control_progress_board ADD COLUMN unresponsive_reported_at INTEGER;
       ALTER TABLE control_progress_board ADD COLUMN last_skip_reason TEXT;
     `);
+  },
+},{
+  version: 148,
+  name: "delegation-template-model-roles",
+  source: "delegation_templates.model をモデル ID から役割名へ (spec/feature/model-role-map.md §委託テンプレート) v1",
+  up(db) {
+    // 値の更新だけで列・表は変えない。 spawn 直前に role map で ID へ解決する。
+    migrateTemplateModelsToRoles(db);
+  },
+},{
+  version: 149,
+  name: "delegation-template-call-name-roles",
+  source: "delegation_templates.call_name をバージョン・廃止役割の無い名前へ改名 (旧名は解決表の別名、spec/feature/model-role-map.md §委託テンプレートの名前) v1",
+  up(db) {
+    // id は変えず call_name だけ書き換える。 delegation_runs.call_name は起動時の記録なので触らない。
+    migrateTemplateCallNamesToRoles(db);
   },
 },
 ];

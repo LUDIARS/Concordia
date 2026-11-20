@@ -1,34 +1,53 @@
 import { describe, expect, it } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
-import { seedModelCatalog } from "./seed.js";
+import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_ROLE_MODELS } from "./role-policy.js";
+import { buildRoleMap } from "./role-map.js";
+import { currentRoleSeedModels, seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
-  it("keeps GPT-6 choices active and retires existing Sol/Luna 5.6 across reseeding", () => {
+  it("keeps the active Claude/Codex seed rows equal to the role-policy values", () => {
+    const seeded = currentRoleSeedModels().map((row) => row.model_id).sort();
+    const policy = [...Object.values(INITIAL_CLAUDE_ROLE_MODELS), ...Object.values(INITIAL_ROLE_MODELS)].sort();
+    expect(seeded).toEqual(policy);
+  });
+
+  it("builds a role map equal to role-policy from a freshly seeded catalog", () => {
+    const repo = new ModelCatalogRepo(makeTestDb());
+    seedModelCatalog(repo);
+    const map = buildRoleMap({ roles: [], catalog: repo.list(), nowMs: 0 });
+    expect(map.roles.claude).toEqual(INITIAL_CLAUDE_ROLE_MODELS);
+  });
+
+  it("retires existing older-generation rows across reseeding", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     for (const name of ["sol", "terra", "luna"]) {
       repo.create({ provider: "codex", model_id: `gpt-5.6-${name}` });
     }
+    repo.create({ provider: "codex", model_id: "gpt-6.1-sol" });
+    repo.create({ provider: "claude", model_id: "claude-fable-5-1", sort_order: 24 });
+    repo.create({ provider: "claude", model_id: "claude-haiku-4-5-20251001", sort_order: 30 });
     seedModelCatalog(repo);
     seedModelCatalog(repo);
     const active = repo.list().map((row) => row.model_id);
-    expect(active).toEqual(expect.arrayContaining(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"]));
-    expect(active).not.toContain("gpt-5.6-sol");
-    expect(active).not.toContain("gpt-5.6-luna");
-    expect(active).not.toContain("gpt-5.6-terra");
+    expect(active).toEqual(expect.arrayContaining(["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-luna", "claude-fable-5-2", "claude-haiku-5-5"]));
+    for (const retired of ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6.1-sol", "claude-fable-5-1", "claude-haiku-4-5-20251001"]) {
+      expect(active).not.toContain(retired);
+    }
     expect(repo.list({ includeInactive: true }).filter((row) => row.model_id === "gpt-6.1-sol")).toHaveLength(1);
   });
 
-  it("seeds current Claude models on a fresh catalog", () => {
+  it("does not seed older-generation rows on a fresh catalog", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     seedModelCatalog(repo);
-    const ids = repo.list().map((m) => m.model_id);
-    expect(ids).toContain("claude-opus-5-5");
-    expect(ids).toContain("claude-sonnet-5-5");
-    expect(ids).toContain("claude-fable-5-1");
+    const ids = repo.list({ includeInactive: true }).map((m) => m.model_id);
+    expect(ids).toEqual(expect.arrayContaining(["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2", "claude-haiku-5-5"]));
+    for (const old of ["claude-fable-5-1", "claude-fable-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "gpt-6-astra", "gpt-6.1-sol"]) {
+      expect(ids).not.toContain(old);
+    }
   });
 
-  it("adds rolling new models to an existing catalog without restoring ordinary seeds", () => {
+  it("adds current models to an existing catalog without restoring ordinary seeds", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     repo.create({ provider: "codex", model_id: "custom-model" });
 
@@ -37,45 +56,23 @@ describe("seedModelCatalog", () => {
     const ids = repo.list({ includeInactive: true }).map((m) => m.model_id);
     expect(ids).toContain("custom-model");
     expect(ids).toContain("claude-opus-5-5");
-    expect(ids).toContain("claude-sonnet-5-5");
-    expect(ids).toContain("claude-fable-5-1");
-    // 新規公開モデルは既存 catalog (= 稼働中の DB) にも届く必要がある。
-    expect(ids).toContain("gpt-6-astra");
+    expect(ids).toContain("gpt-6.2-sol");
     expect(ids).not.toContain("claude-opus-4-8");
+    expect(ids).not.toContain("gemini-2.5-pro");
   });
 
-  it("deactivates existing Opus 5 / 4.8 rows when adding Opus 5.5", () => {
+  it("deactivates existing Opus 5 / 4.8 and Sonnet 4.6 rows", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     repo.create({ provider: "claude", model_id: "claude-opus-5", label: "Opus 5", sort_order: 10 });
     repo.create({ provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 90 });
-
-    seedModelCatalog(repo);
-
-    const rows = repo.list({ includeInactive: true });
-    expect(rows.find((m) => m.model_id === "claude-opus-5-5")).toMatchObject({
-      label: "Opus 5.5",
-      sort_order: 10,
-      is_active: 1,
-    });
-    expect(rows.find((m) => m.model_id === "claude-opus-5")).toMatchObject({
-      sort_order: 90,
-      is_active: 0,
-    });
-    expect(rows.find((m) => m.model_id === "claude-opus-4-8")).toMatchObject({
-      sort_order: 91,
-      is_active: 0,
-    });
-  });
-
-  it("demotes an existing Sonnet 4.6 row behind Sonnet 5 without recreating deleted rows", () => {
-    const repo = new ModelCatalogRepo(makeTestDb());
     repo.create({ provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 20 });
 
     seedModelCatalog(repo);
 
     const rows = repo.list({ includeInactive: true });
-    expect(rows.find((m) => m.model_id === "claude-sonnet-5-5")?.sort_order).toBe(20);
-    expect(rows.find((m) => m.model_id === "claude-sonnet-4-6")?.sort_order).toBe(22);
-    expect(rows.map((m) => m.model_id)).not.toContain("claude-opus-4-8");
+    expect(rows.find((m) => m.model_id === "claude-opus-5-5")).toMatchObject({ label: "Opus 5.5", sort_order: 10, is_active: 1 });
+    expect(rows.find((m) => m.model_id === "claude-opus-5")).toMatchObject({ sort_order: 90, is_active: 0 });
+    expect(rows.find((m) => m.model_id === "claude-opus-4-8")).toMatchObject({ sort_order: 91, is_active: 0 });
+    expect(rows.find((m) => m.model_id === "claude-sonnet-4-6")).toMatchObject({ is_active: 0 });
   });
 });

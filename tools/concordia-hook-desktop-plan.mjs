@@ -6,7 +6,7 @@
  * ので、 ここでは入力をそのまま渡す。
  */
 
-/** Concordia の src/desktop-plan/plan-state.ts の DESKTOP_PLAN_EVENT_KIND と同じ値。 */
+/** Concordia の src/session-plan/plan-state.ts の SESSION_PLAN_EVENT_KIND と同じ値。 */
 export const DESKTOP_PLAN_EVENT_KIND = "desktop_plan";
 /** hook が観測専用で登録したデスクトップアプリのセッションの印 (metadata)。 */
 export const DESKTOP_APP_METADATA_KEY = "desktop_app";

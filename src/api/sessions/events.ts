@@ -9,8 +9,8 @@ import {
   readExplicitWorkingBranch,
 } from "../../control/session-work-policy.js";
 import { applyPromptTitle } from "./prompt-title-summarizer.js";
-import { applyDesktopPlanEvent } from "./desktop-plan-event.js";
-import { DESKTOP_PLAN_EVENT_KIND } from "../../desktop-plan/plan-state.js";
+import { applySessionPlanEvent } from "./session-plan-event.js";
+import { SESSION_PLAN_EVENT_KIND } from "../../session-plan/plan-state.js";
 
 export function registerEventsRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.get("/:id/tasks", (c) => {
@@ -105,10 +105,11 @@ app.post("/:id/event", async (c) => {
         });
       }
     }
-    // デスクトップの Claude アプリのプラン更新 (hook が届ける)。 状態を保存し、 変わったらスレッドへ投稿する
-    // (SPEC-DESKTOP-PLAN-DISCORD)。
-    if (parsed.data.kind === DESKTOP_PLAN_EVENT_KIND) {
-      applyDesktopPlanEvent({
+    // セッションのプラン更新 (デスクトップの Claude アプリの hook・agy の CLI が届ける)。 状態を保存し、
+    // 変わったらスレッドへ投稿する (SPEC-SESSION-PLAN-DISCORD)。 結果は送り手が成否を判断できるよう返す。
+    let plan: ReturnType<typeof applySessionPlanEvent> | undefined;
+    if (parsed.data.kind === SESSION_PLAN_EVENT_KIND) {
+      plan = applySessionPlanEvent({
         repo: deps.repo,
         sessionTaskRecords: deps.sessionTaskRecords,
         chat: deps.chat,
@@ -119,6 +120,6 @@ app.post("/:id/event", async (c) => {
       }, session, parsed.data.payload ?? {}, ts);
     }
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
-    return c.json({ ok: true });
+    return c.json(plan === undefined ? { ok: true } : { ok: true, plan });
   });
 }

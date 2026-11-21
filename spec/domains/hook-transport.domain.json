@@ -6,7 +6,7 @@
       "pathPattern": "(^|/)tools/concordia-hook(?:-mcp|-migration|-runtime|-desktop-plan)?(?:\\.test)?\\.mjs$"
     },
     {
-      "pathPattern": "(^|/)tools/agy-hook(?:-mapping)?(?:\\.test)?\\.mjs$"
+      "pathPattern": "(^|/)tools/(?:agy-hook(?:-mapping)?|session-plan)(?:\\.test)?\\.mjs$"
     },
     {
       "pathPattern": "(^|/)spec/feature/codex-hook-console-free\\.(?:hooks\\.json|config\\.toml)$"
@@ -17,6 +17,7 @@
   "specRefs": [
     "spec/feature/codex-hook-console-free.md",
     "spec/feature/agy-harness-hook.md",
+    "spec/feature/session-plan-discord.md",
     "spec/feature/windows-console-focus-investigation.md"
   ]
 }

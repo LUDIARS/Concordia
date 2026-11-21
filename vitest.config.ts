@@ -22,6 +22,7 @@ export default defineConfig({
       "tools/concordia-hook-runtime.test.mjs",
       "tools/agy-hook.test.mjs",
       "tools/concordia-hook-desktop-plan.test.mjs",
+      "tools/session-plan.test.mjs",
       "tools/concordia-hook-mcp.test.mjs",
     ],
     setupFiles: ["./tests/helpers/setup.ts"],

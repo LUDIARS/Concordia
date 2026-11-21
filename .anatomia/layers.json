@@ -143,6 +143,7 @@
     { "glob": "src/config/settings/*", "layer": "domain-logic" },
     { "glob": "src/config/settings/definitions/*", "layer": "domain-logic" },
     { "glob": "src/contract/*", "layer": "domain-logic" },
+    { "glob": "src/session-plan/*", "layer": "domain-logic" },
     { "glob": "src/cost/*", "layer": "domain-logic" },
     { "glob": "src/domain-review/*", "layer": "domain-logic" },
     { "glob": "src/federation/*", "layer": "domain-logic" },

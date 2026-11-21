@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { buildSessionWorkPolicy, type SessionWorkPolicyInput } from "./session-work-policy.js";
 import { buildSharedStartupContext } from "./shared-startup-context.js";
 import { buildProcessGuidance } from "./process-guidance.js";
+import { sessionPlanGuidance } from "../session-plan/plan-guidance.js";
 import type { StartupRequirements } from "./startup-policy-requirements.js";
 export type { StartupRequirements } from "./startup-policy-requirements.js";
 
@@ -27,7 +28,8 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
 }): Promise<{ policy: StartupPolicySnapshot; registeredBranch: string | null; branchMismatch: boolean }> {
   const work = buildSessionWorkPolicy(input);
   const required = input.requirements;
-  const fields = {
+  const sessionPlan = sessionPlanGuidance(input.provider);
+  const fields: Record<string, string> = {
     rules: "startup-policy-v3-workflow-at-push",
     repo: input.repoPath, branch: input.observedBranch ?? "unknown", provider: input.provider,
     origin: input.repoOrigin ?? "unknown",
@@ -42,10 +44,12 @@ export async function buildStartupPolicy(input: SessionWorkPolicyInput & {
     searchCapabilities: input.searchCapabilitiesText ?? "",
     praeformaContext: input.contextPresence ? input.praeformaContext ?? "" : "",
     anatomiaContext: input.contextPresence ? input.anatomiaContext ?? "" : "",
+    // 対象の provider だけに足す (他の provider の版を変えない)。
+    ...(sessionPlan ? { sessionPlan } : {}),
   };
   const revision = createHash("sha256").update(JSON.stringify(fields)).digest("hex");
   const process = fields.process ? `\n${fields.process}\n` : "";
-  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n${fields.searchCapabilities}\n${fields.praeformaContext}\n${fields.anatomiaContext}\n[Cc policy revision: ${revision}]`;
+  const text = `${work.text}\n- Cc 構成: ${fields.requirements}\n- 必須設定は実装の受入条件です。テスト・起動・デプロイの実行許可を追加しません。\n${process}\n${fields.resources}\n${fields.searchCapabilities}\n${fields.praeformaContext}\n${fields.anatomiaContext}\n${sessionPlan ? `${sessionPlan}\n` : ""}[Cc policy revision: ${revision}]`;
   return { ...work, policy: { revision, fields, text, delivery: "queued" } };
 }
 

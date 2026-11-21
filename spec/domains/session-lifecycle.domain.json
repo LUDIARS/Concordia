@@ -12,10 +12,13 @@
       "pathPattern": "(^|/)tests/sessions-repo\\.test\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa|work-phase|prompt-title|prompt-title-summarizer|desktop-plan-event)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/api/sessions/(lifecycle|startup-policy-check|shared|events|end|runtime|skills|title-goal|qa|work-phase|prompt-title|prompt-title-summarizer|session-plan-event)(\\.test)?\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/desktop-plan/[^/]+\\.ts$"
+      "pathPattern": "(^|/)src/session-plan/[^/]+\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/session-plan-event-api\\.test\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/contract/[^/]+$"
@@ -50,6 +53,7 @@
     "spec/feature/workplace-chat.md",
     "spec/feature/session-prompt-title.md",
     "spec/feature/desktop-plan-discord.md",
+    "spec/feature/session-plan-discord.md",
     "spec/feature/phase-compaction.md",
     "spec/feature/session-end-request.md"
   ],

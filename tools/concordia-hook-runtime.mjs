@@ -41,6 +41,23 @@ export async function runConcordiaHook(options) {
   return new HookInvocation(options).main();
 }
 
+/**
+ * 明示の送信 (CLI など) 用に、 active なセッションへイベントを 1 件送り、 成否と理由を返す。 hook と同じ
+ * 接続先・タイムアウト・不達判定を使う。 hook と違い、 失敗を黙って成功扱いにしない。
+ *   { ok: true, body } | { ok: false, reason: "disabled" | "no_session" | "concordia_unreachable" | "session_not_active" | "rejected" }
+ */
+export async function postSessionEvent({ sessionId, kind, payload, env = process.env, fetchImpl = fetch }) {
+  if (env.CONCORDIA_DISABLE === "1") return { ok: false, reason: "disabled" };
+  if (!sessionId) return { ok: false, reason: "no_session" };
+  const hook = new HookInvocation({ event: "event", env, fetchImpl, output: () => { /* 呼び出し側が出す */ } });
+  const active = await hook.isSessionActive(sessionId);
+  if (hook.serverUnreachable) return { ok: false, reason: "concordia_unreachable" };
+  if (!active) return { ok: false, reason: "session_not_active" };
+  const body = await hook.postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, { kind, payload });
+  if (hook.serverUnreachable) return { ok: false, reason: "concordia_unreachable" };
+  return body?.ok === true ? { ok: true, body } : { ok: false, reason: "rejected" };
+}
+
 class HookInvocation {
   constructor({ event, ctx = null, flags = {}, provider, env = process.env,
     output = text => process.stdout.write(text), fetchImpl = fetch }) {

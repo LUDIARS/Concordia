@@ -1,24 +1,35 @@
 /**
- * デスクトップの Claude アプリのプランから、 セッションの状態の 1 行と Discord へ出す本文を作る
- * (spec/feature/desktop-plan-discord.md)。 純関数のみ。
+ * セッションのプランから、 セッションの状態の 1 行と Discord へ出す本文と作者ラベルを作る
+ * (spec/feature/session-plan-discord.md)。 純関数のみ。
  *
- * @implements SPEC-DESKTOP-PLAN-DISCORD
+ * @implements SPEC-SESSION-PLAN-DISCORD
  */
 
-import type { DesktopPlanState, DesktopPlanStep } from "./plan-state.js";
+import type { SessionPlanState, SessionPlanStep } from "./plan-state.js";
 
-const STEP_MARK: Record<DesktopPlanStep["status"], string> = {
+const STEP_MARK: Record<SessionPlanStep["status"], string> = {
   completed: "✅",
   in_progress: "▶",
   pending: "⏳",
 };
 
-function progress(steps: readonly DesktopPlanStep[]): string {
+/** 送り手の provider ごとの投稿の作者ラベル。 表に無い provider は Claude 系として扱う (従来どおり)。 */
+const AUTHOR_LABELS: Readonly<Record<string, string>> = {
+  "antigravity-cli": "agy プラン",
+};
+export const DEFAULT_SESSION_PLAN_AUTHOR_LABEL = "Claude プラン";
+
+/** プラン投稿の作者ラベル。 */
+export function sessionPlanAuthorLabel(provider: string | null | undefined): string {
+  return (provider ? AUTHOR_LABELS[provider] : undefined) ?? DEFAULT_SESSION_PLAN_AUTHOR_LABEL;
+}
+
+function progress(steps: readonly SessionPlanStep[]): string {
   return `${steps.filter((step) => step.status === "completed").length}/${steps.length}`;
 }
 
 /** プランに合わせたセッションの状態 (1 行)。 プランもサマリも無ければ null。 */
-export function desktopPlanStatus(state: DesktopPlanState): string | null {
+export function sessionPlanStatus(state: SessionPlanState): string | null {
   if (state.phase === "waiting") return "回答待ち";
   if (state.phase === "summary") return "完了";
   if (state.steps.length === 0) return null;
@@ -29,15 +40,15 @@ export function desktopPlanStatus(state: DesktopPlanState): string | null {
     : `待機中 (${progress(state.steps)})`;
 }
 
-function planLines(steps: readonly DesktopPlanStep[]): string[] {
+function planLines(steps: readonly SessionPlanStep[]): string[] {
   return steps.map((step) => `${STEP_MARK[step.status]} ${step.content}`);
 }
 
-function workingPost(state: DesktopPlanState, status: string): string {
+function workingPost(state: SessionPlanState, status: string): string {
   return [`📋 **プラン** — ${status}`, ...planLines(state.steps)].join("\n");
 }
 
-function summaryPost(state: DesktopPlanState, status: string): string {
+function summaryPost(state: SessionPlanState, status: string): string {
   const summary = state.summary;
   const lines = [`📝 **サマリ** — ${status}`];
   if (summary) lines.push(summary.recap);
@@ -53,13 +64,13 @@ function summaryPost(state: DesktopPlanState, status: string): string {
  * 状態が変わったときに Discord へ出す本文。 変わっていなければ null (同じ内容を重ねて出さない)。
  * サマリ (wrap_up) は内容が同じでも毎回出す — ターンの区切りなので。
  */
-export function desktopPlanPost(previous: DesktopPlanState | null, next: DesktopPlanState): string | null {
-  const status = desktopPlanStatus(next);
+export function sessionPlanPost(previous: SessionPlanState | null, next: SessionPlanState): string | null {
+  const status = sessionPlanStatus(next);
   if (status === null) return null;
   if (next.phase !== "working") return summaryPost(next, status);
   const unchanged = previous !== null
     && previous.phase === "working"
-    && desktopPlanStatus(previous) === status
+    && sessionPlanStatus(previous) === status
     && JSON.stringify(previous.steps) === JSON.stringify(next.steps);
   return unchanged ? null : workingPost(next, status);
 }

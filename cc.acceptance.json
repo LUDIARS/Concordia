@@ -370,7 +370,7 @@
     { "source": "src/api/federation.ts", "tests": ["tests/federation-api.test.ts"], "contracts": ["SPEC-FED-SPAWN-SITE"] },
     { "source": "src/api/sessions/prompt-title.ts", "tests": ["src/api/sessions/prompt-title.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
     { "source": "src/api/sessions/prompt-title-summarizer.ts", "tests": ["src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
-    { "source": "src/api/sessions/events.ts", "tests": ["tests/sessions-api.test.ts", "src/api/sessions/prompt-title-summarizer.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
+    { "source": "src/api/sessions/events.ts", "tests": ["tests/sessions-api.test.ts", "src/api/sessions/prompt-title-summarizer.test.ts", "tests/session-plan-event-api.test.ts"], "contracts": ["SPEC-SESSION-PROMPT-TITLE"] },
     { "source": "src/service-status/policy.ts", "tests": ["src/service-status/policy.test.ts"], "contracts": ["CC-SS-02", "CC-SS-03", "CC-SS-04"] },
     { "source": "src/service-status/visibility.ts", "tests": ["src/service-status/policy.test.ts", "src/api/service-status.test.ts"], "contracts": ["CC-SS-03"] },
     { "source": "src/service-status/client.ts", "tests": ["src/service-status/client.test.ts"], "contracts": ["CC-SS-01", "CC-SS-04", "CC-SS-07"] },
@@ -1335,7 +1335,8 @@
       "source": "tools/concordia-hook-runtime.mjs",
       "tests": [
         "tools/concordia-hook-runtime.test.mjs",
-        "tests/concordia-hook-session-id.test.mjs"
+        "tests/concordia-hook-session-id.test.mjs",
+        "tools/session-plan.test.mjs"
       ],
       "contracts": [
         "CC-HOOK-01",
@@ -5833,9 +5834,11 @@
     {"source":"src/cost/ended-session-charge-memo.ts","tests":["src/cost/usage-budget-tracker.test.ts"],"contracts":[]},
     {"source":"tools/agy-hook.mjs","tests":["tools/agy-hook.test.mjs"],"contracts":[]},
     {"source":"tools/agy-hook-mapping.mjs","tests":["tools/agy-hook.test.mjs"],"contracts":[]},
-    {"source":"src/desktop-plan/plan-state.ts","tests":["src/desktop-plan/plan-state.test.ts"],"contracts":[]},
-    {"source":"src/desktop-plan/plan-posts.ts","tests":["src/desktop-plan/plan-state.test.ts"],"contracts":[]},
-    {"source":"src/api/sessions/desktop-plan-event.ts","tests":["src/api/sessions/desktop-plan-event.test.ts"],"contracts":[]},
+    {"source":"src/session-plan/plan-state.ts","tests":["src/session-plan/plan-state.test.ts"],"contracts":[]},
+    {"source":"src/session-plan/plan-posts.ts","tests":["src/session-plan/plan-state.test.ts","src/api/sessions/session-plan-event.test.ts"],"contracts":[]},
+    {"source":"src/session-plan/plan-guidance.ts","tests":["src/session-plan/plan-guidance.test.ts","src/control/startup-policy.test.ts"],"contracts":[]},
+    {"source":"src/api/sessions/session-plan-event.ts","tests":["src/api/sessions/session-plan-event.test.ts","tests/session-plan-event-api.test.ts"],"contracts":[]},
+    {"source":"tools/session-plan.mjs","tests":["tools/session-plan.test.mjs"],"contracts":[]},
     {"source":"tools/concordia-hook-desktop-plan.mjs","tests":["tools/concordia-hook-desktop-plan.test.mjs"],"contracts":[]},
     {"source":"src/config/settings/store-of.ts","tests":["src/config/settings/registry.test.ts"],"contracts":[]},
     {"source":"src/config/settings/resolve.ts","tests":["src/config/settings/registry.test.ts", "src/config/settings/db-bindings.test.ts"],"contracts":[]},

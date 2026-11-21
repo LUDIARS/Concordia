@@ -44,6 +44,16 @@ agy 自身の hook 機構に薄い変換を挟み、 Claude Code と同じハー
 - セッションの対応付けは環境変数 (`LICTOR_SESSION_ID` / `CONCORDIA_SESSION_ID`) による。 Lictor を通さない agy は
   Concordia のセッションが無いので、 ゲートはセッションなしで判定され、 観測は送られない。
 
+## プランを送る口
+
+agy はプラン (手順のリスト) を自分のツールとして持たない (実会話の tool は read_file / run_command / write_file /
+edit_file / manage_task のみで、 manage_task は裏のコマンドの status/kill)。 そこで agy 自身にコマンド実行ツールから
+`tools/session-plan.mjs` を呼ばせ、 デスクトップ版と同じ口でプランを届ける。
+
+- 呼び方は起動案内の `[Cc session plan]` で agy へ伝える (provider `antigravity-cli` のセッションだけ)。
+- セッションは hook と同じく env (`CONCORDIA_SESSION_ID` / `LICTOR_SESSION_ID`) で決める。
+- 状態・投稿 (作者 `agy プラン`)・CLI の終了コードは [`session-plan-discord.md`](session-plan-discord.md) (SPEC-SESSION-PLAN-DISCORD)。
+
 ## 配置
 
 `tools/agy-hooks.example.json` をワークスペースの `.agents/hooks.json` に置く。 置いた時点からその

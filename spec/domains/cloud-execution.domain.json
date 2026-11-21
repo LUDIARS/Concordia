@@ -20,7 +20,10 @@
       "pathPattern": "(^|/)src/api/cloud-colab-routes(\\.test)?\\.ts$"
     },
     {
-      "pathPattern": "(^|/)web/src/pages/delegation/Cloud(Colab|Batch)Panel(\\.test)?\\.tsx$"
+      "pathPattern": "(^|/)web/src/pages/delegation/Cloud(Colab|Batch|Aws)Panel(\\.test)?\\.tsx$"
+    },
+    {
+      "pathPattern": "(^|/)src/(api/cloud-aws-routes|mcp/cloud-aws-tools)(\\.test)?\\.ts$"
     }
   ],
   "specRefs": [
@@ -32,7 +35,8 @@
     "spec/feature/cloud-work-batch-kicker.md",
     "spec/feature/cloud-work-drive-return.md",
     "spec/plan/2026-10-16-cloud-work-delegation.md",
-    "spec/feature/cloud-work-colab.md"
+    "spec/feature/cloud-work-colab.md",
+    "spec/feature/cloud-work-aws.md"
   ],
   "rationale": "クラウド利用の業務条件をCLI・HTTP・設定読取から独立させ、どちらのproviderにも同じ判定を適用する。"
 }

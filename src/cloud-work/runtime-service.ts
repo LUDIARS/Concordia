@@ -216,7 +216,8 @@ export class CloudWorkRuntime {
     const target = await this.checkedTarget(scope, run), adapter = this.ports.adapter(target, attemptId);
     const receipt = await this.receipt(store, attemptId);
     const reconciliation = await store.readRecord(attemptId, "reconciliation") as { remoteId: string } | null;
-    const identity = this.identity(run, receipt.remoteId || !reconciliation ? receipt : { ...receipt, remoteId: reconciliation.remoteId });
+    const identity = this.identity(run, receipt.state !== "submission_unknown" || receipt.remoteId || !reconciliation
+      ? receipt : { ...receipt, remoteId: reconciliation.remoteId });
     const providerTerminal = await adapter.observe?.(identity) ?? "unknown";
     if (providerTerminal !== "unknown") {
       try {

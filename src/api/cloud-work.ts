@@ -11,6 +11,8 @@ import type { CloudBatchKicker } from "../cloud-work/batch-kicker.js";
 import { publicCloudError } from "../cloud-work/public-error.js";
 import { cloudColabRoutes } from "./cloud-colab-routes.js";
 import type { ColabService } from "../cloud-work/colab-service.js";
+import { cloudAwsRoutes } from "./cloud-aws-routes.js";
+import type { AwsService } from "../cloud-work/aws-service.js";
 
 const BatchCreate = CloudBatchDefinitionSchema.extend({ session_id: z.string().min(1).max(200) }).strict();
 const SessionOnly = z.object({ session_id: z.string().min(1).max(200) }).strict();
@@ -33,12 +35,18 @@ export function cloudWorkRouter(deps: {
   runtime: CloudWorkRuntime;
   batches?: CloudBatchKicker;
   colab?: ColabService;
+  aws?: AwsService;
   authorizeSubmit?: (sessionId: string, scope: CloudScope) => Promise<void>;
   repositoryKey?: (path: string) => Promise<string>;
 }): Hono {
   const app = new Hono();
   const smallBody = bodyLimit({ maxSize: 32_000 }), batchBody = bodyLimit({ maxSize: 256_000 });
-  app.use("*", (c, next) => (c.req.path.endsWith("/batches") ? batchBody : smallBody)(c, next));
+  const awsBody = bodyLimit({ maxSize: 64_000 });
+  app.use("*", (c, next) => {
+    const path = c.req.path;
+    const limit = path.includes("/aws/") ? awsBody : path.endsWith("/batches") ? batchBody : smallBody;
+    return limit(c, next);
+  });
   app.use("*", async (c, next) => { c.header("Cache-Control", "no-store"); await next(); });
   app.onError((error, c) => {
     // Only our closed error vocabulary may leave the boundary; SDK/HTTP errors can contain tokens.
@@ -51,6 +59,7 @@ export function cloudWorkRouter(deps: {
     return { repositoryKey: await (deps.repositoryKey ?? mainRepositoryKey)(session.repo_path), subsidiaryId: readSubsidiaryId(session.metadata) };
   }
   if (deps.colab) app.route("/colab", cloudColabRoutes({ colab: deps.colab, scope, authorizeSubmit: deps.authorizeSubmit }));
+  if (deps.aws) app.route("/aws", cloudAwsRoutes({ aws: deps.aws, scope, authorizeSubmit: deps.authorizeSubmit }));
   app.get("/targets", async c => {
     const owner = await scope(c.req.query("session_id"));
     if (!owner) return c.json({ error: "cloud_active_session_required" }, 403);

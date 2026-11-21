@@ -2,15 +2,13 @@ import { createHash } from "node:crypto";
 
 export interface VerifiedCloudArtifact { name: string; bytes: number; sha256: string }
 
-/** @implements CC-CLOUD-05 — byte integrity is not model quality or human acceptance. */
-export function verifyCloudArtifacts(input: {
+export function cloudArtifactManifest(input: {
   manifest: unknown;
   attemptId: string;
   sourceRevision: string;
   expectedNames: readonly string[];
   maxTotalBytes: number;
-  received: ReadonlyMap<string, Uint8Array>;
-}): { state: "artifacts_verified"; artifacts: VerifiedCloudArtifact[] } {
+}): VerifiedCloudArtifact[] {
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
   const manifest = input.manifest;
@@ -30,13 +28,25 @@ export function verifyCloudArtifacts(input: {
       || typeof item.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(item.sha256)) {
       throw new Error("invalid_cloud_artifact_entry");
     }
-    const content = input.received.get(item.name);
     total += item.bytes;
-    if (!content || content.byteLength !== item.bytes || total > input.maxTotalBytes
-      || createHash("sha256").update(content).digest("hex") !== item.sha256) {
+    if (total > input.maxTotalBytes) {
       throw new Error("cloud_artifact_integrity_failed");
     }
     artifacts.push({ name: item.name, bytes: item.bytes, sha256: item.sha256 });
+  }
+  return artifacts;
+}
+
+/** @implements CC-CLOUD-05 */
+export function verifyCloudArtifacts(input: Parameters<typeof cloudArtifactManifest>[0] & {
+  received: ReadonlyMap<string, Uint8Array>;
+}): { state: "artifacts_verified"; artifacts: VerifiedCloudArtifact[] } {
+  const artifacts = cloudArtifactManifest(input);
+  for (const { name, bytes, sha256 } of artifacts) {
+    const content = input.received.get(name);
+    if (!content || content.byteLength !== bytes || createHash("sha256").update(content).digest("hex") !== sha256) {
+      throw new Error("cloud_artifact_integrity_failed");
+    }
   }
   return { state: "artifacts_verified", artifacts };
 }

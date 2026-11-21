@@ -12,6 +12,24 @@ function driveTarget(): CloudTarget {
 }
 
 describe("Drive artifact transfer", () => {
+  it("collects AWS artifact references by verifying metadata and downloading only the manifest", async () => {
+    const attemptId = "cc-attempt";
+    const target = { ...driveTarget(), maxArtifactBytes: 3_000_000_000 };
+    const output = { name: "model.bin", bytes: 2_500_000_000, sha256: "a".repeat(64) };
+    const manifest = { version: 1, attemptId, sourceRevision: target.sourceRevision, status: "completed", artifacts: [output] };
+    const files = [
+      { id: "drive_manifest", appProperties: { ccName: "result.json" } },
+      { id: "drive_model", appProperties: { ccName: output.name }, size: String(output.bytes), sha256Checksum: output.sha256 },
+    ];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ files })).mockResolvedValueOnce(Response.json(manifest));
+    const drive = new DriveCloudArtifacts(target, [output.name], tokens, fetcher);
+    await expect(drive.collectReferences(attemptId)).resolves.toEqual([{ ...output, uri: "https://drive.google.com/open?id=drive_model" }]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("/drive_manifest?alt=media");
+    fetcher.mockResolvedValueOnce(Response.json({ files })).mockResolvedValueOnce(Response.json({ ...manifest, attemptId: "other" }));
+    await expect(drive.collectReferences(attemptId)).rejects.toThrow("invalid_cloud_artifact_manifest");
+  });
+
   it("verifies checkpoints through Drive metadata without downloading the bytes", async () => {
     const name = "model.bin", bytes = 2_500_000_000, sha256 = "a".repeat(64), id = "testdrivefileid";
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({

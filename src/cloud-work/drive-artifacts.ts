@@ -1,4 +1,5 @@
 import { readCloudResponse } from "./artifact-transfer.js";
+import { cloudArtifactManifest } from "./artifact-verification.js";
 import type { AccessTokenSource } from "./google-oauth.js";
 import type { CloudTarget } from "./runtime-config.js";
 
@@ -94,6 +95,10 @@ export class DriveCloudArtifacts {
   async verifyCheckpoints(attempt: string, reported: readonly Omit<ColabCheckpoint, "uri">[], signal?: AbortSignal): Promise<ColabCheckpoint[]> {
     const files = await this.listOwned(await this.tokens.accessToken(), attempt,
       "nextPageToken,files(id,appProperties,size,sha256Checksum)", signal);
+    return this.verifyMetadata(files, reported);
+  }
+
+  private verifyMetadata(files: DriveFile[], reported: readonly Omit<ColabCheckpoint, "uri">[]): ColabCheckpoint[] {
     const matches = new Map<string, DriveFile>();
     for (const file of files) {
       const name = file.appProperties?.ccName;
@@ -108,6 +113,21 @@ export class DriveCloudArtifacts {
       }
       return { ...entry, uri: `https://drive.google.com/open?id=${file.id}` };
     });
+  }
+
+  /** Fetch only the bounded manifest, then compare the exclusive folder's output metadata. */
+  async collectReferences(attempt: string): Promise<ColabCheckpoint[]> {
+    const token = await this.tokens.accessToken();
+    const files = await this.listOwned(token, attempt, "nextPageToken,files(id,appProperties,size,sha256Checksum)");
+    const manifests = files.filter(file => file.appProperties?.ccName === "result.json");
+    const id = manifests[0]?.id;
+    if (manifests.length !== 1 || typeof id !== "string" || !/^[A-Za-z0-9_-]{10,200}$/.test(id)) {
+      throw new Error("cloud_artifact_unavailable");
+    }
+    const manifest = JSON.parse((await this.download(token, id, 32_000)).toString("utf8")) as unknown;
+    const artifacts = cloudArtifactManifest({ manifest, attemptId: attempt, sourceRevision: this.target.sourceRevision,
+      expectedNames: this.names, maxTotalBytes: this.target.maxArtifactBytes });
+    return this.verifyMetadata(files.filter(file => file !== manifests[0]), artifacts);
   }
 
   /** Maps each expected name to exactly one Drive file id; duplicates or strays are ambiguous, never guessed. */
@@ -130,11 +150,7 @@ export class DriveCloudArtifacts {
     const get = async (name: string, limit: number): Promise<Buffer> => {
       const id = ids.get(name);
       if (!id) throw new Error("cloud_artifact_unavailable");
-      try {
-        return await readCloudResponse(await this.fetcher(`${API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`, {
-          headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(60_000),
-        }), limit);
-      } catch { throw new Error("cloud_artifact_collection_failed"); }
+      return this.download(token, id, limit);
     };
     const manifest: unknown = JSON.parse((await get("result.json", 32_000)).toString("utf8"));
     const received = new Map<string, Buffer>();
@@ -145,5 +161,13 @@ export class DriveCloudArtifacts {
       received.set(name, bytes);
     }
     return { manifest, received };
+  }
+
+  private async download(token: string, id: string, limit: number): Promise<Buffer> {
+    try {
+      return await readCloudResponse(await this.fetcher(`${API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`, {
+        headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(60_000),
+      }), limit);
+    } catch { throw new Error("cloud_artifact_collection_failed"); }
   }
 }

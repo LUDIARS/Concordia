@@ -8,7 +8,7 @@ let fetcher: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetcher = vi.fn(async (path: string, init?: RequestInit) => {
     if (init?.method === "POST") throw new Error("response lost");
-    if (path.includes("/colab/")) return new Response(null, { status: 403 });
+    if (path.includes("/colab/") || path.includes("/aws/")) return new Response(null, { status: 403 });
     if (path.includes("/targets")) return Response.json({ targets: [{ id: "target-1", label: "Codex test", provider: "codex-cloud", ready: true }] });
     return Response.json({ runs: [] });
   });
@@ -24,7 +24,7 @@ async function chooseSession() {
 
 describe("cloud delegation controls", () => {
   it("shows Git review as pending reflection without artifact download links", async () => {
-    fetcher.mockImplementation(async (path: string) => path.includes("/colab/") ? new Response(null, { status: 403 }) : path.includes("/targets")
+    fetcher.mockImplementation(async (path: string) => /\/(colab|aws)\//.test(path) ? new Response(null, { status: 403 }) : path.includes("/targets")
       ? Response.json({ targets: [{ id: "target-1", label: "Codex test", provider: "codex-cloud", transferMode: "git", ready: true }] })
       : Response.json({ runs: [{ attemptId: "git-1", targetId: "target-1", state: "review_submitted", receipt: { state: "submitted" }, reconciliation: null, verified: { state: "review_submitted" } }] }));
     render(<CloudWorkPanel />); await chooseSession();
@@ -45,7 +45,7 @@ describe("cloud delegation controls", () => {
     await waitFor(() => expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1));
   });
   it("keeps ambiguous persisted work distinct from completion after reloading", async () => {
-    fetcher.mockImplementation(async (path: string) => path.includes("/colab/") ? new Response(null, { status: 403 }) : path.includes("/targets")
+    fetcher.mockImplementation(async (path: string) => /\/(colab|aws)\//.test(path) ? new Response(null, { status: 403 }) : path.includes("/targets")
       ? Response.json({ targets: [{ id: "target-1", label: "Codex test", provider: "codex-cloud", ready: true }] })
       : Response.json({ runs: [{ attemptId: "prior-1", targetId: "target-1", state: "submission_unknown", receipt: { state: "submission_unknown" }, reconciliation: null, verified: null }] }));
     render(<CloudWorkPanel />); await chooseSession();

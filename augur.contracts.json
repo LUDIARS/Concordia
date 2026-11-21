@@ -192,6 +192,9 @@
     {"id":"cloud-work-C-1","criterion":"C-1 colabAdmission(input): 本人承認・公開コード・非機密データ・本人の許可先が揃う場合だけ受け付ける","symbol":"colabAdmission","file":"src/cloud-work/colab-policy.ts","module":"src/cloud-work/colab-admission.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-work-C-2","criterion":"C-2 intermediateReceipt(state, remoteId): 追送が不明でも取得済み Claude セッション ID を保持する","symbol":"intermediateReceipt","file":"src/cloud-work/claude-adapter.ts","module":"src/cloud-work/claude-receipt.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-work-C-3","criterion":"C-3 releaseEvidence(allocationResolved, absent): 割当確定かつ再読取で不在の場合だけ解放済みとする","symbol":"releaseEvidence","file":"src/cloud-work/colab-policy.ts","module":"src/cloud-work/colab-release.contract.ts","mode":"observe","sample":1},
-    {"id":"cloud-work-C-4","criterion":"C-4 executionEvidence(receipt, observation, verified, quality, release): 受付・観測・成果検証・品質検収・解放の事実を独立して返す","symbol":"executionEvidence","file":"src/cloud-work/execution-adapter.ts","module":"src/cloud-work/execution-evidence.contract.ts","mode":"observe","sample":1}
+    {"id":"cloud-work-C-4","criterion":"C-4 executionEvidence(receipt, observation, verified, quality, release): 受付・観測・成果検証・品質検収・解放の事実を独立して返す","symbol":"executionEvidence","file":"src/cloud-work/execution-adapter.ts","module":"src/cloud-work/execution-evidence.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-aws-C-35","criterion":"C-35 awsAdmission(input): 本人承認・区分・登録先・期限・使用量上限を満たす場合だけ受理する","symbol":"awsAdmission","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-admission.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-aws-C-36","criterion":"C-36 matchAwsJob(jobs, identity): 同じ冪等キー・実行先・runner の一意な受付だけを照合する","symbol":"matchAwsJob","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-reconcile.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-aws-C-37","criterion":"C-37 awsJobEvidence(job, container): 停止要求・解放・登録コンテナの終了コードを独立に記録する","symbol":"awsJobEvidence","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-evidence.contract.ts","mode":"observe","sample":1}
   ]
 }

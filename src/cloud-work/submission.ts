@@ -1,6 +1,6 @@
 import { assessCloudEligibility, type CloudEligibilityEvidence } from "./eligibility.js";
 
-export type CloudProvider = "codex-cloud" | "claude-cloud" | "colab";
+export type CloudProvider = "codex-cloud" | "claude-cloud" | "colab" | "aws";
 
 /** No access URLs, tokens, or mutable local paths belong in this persisted record. */
 export interface CloudSubmission {
@@ -22,6 +22,7 @@ export interface CloudSubmission {
 export type CloudReceipt = (
   | { state: "submitted"; remoteId: string }
   | { state: "submission_unknown"; remoteId?: string }
+  | { state: "submission_refused"; remoteId?: never }
 ) & { operationId?: string; requestId?: string };
 
 export interface CloudSubmissionStore {

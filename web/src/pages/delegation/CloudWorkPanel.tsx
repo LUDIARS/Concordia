@@ -3,6 +3,7 @@ import { api, type SessionRow } from "../../api.js";
 import { mutate } from "./model.js";
 import { CloudBatchPanel } from "./CloudBatchPanel.js";
 import { CloudColabPanel } from "./CloudColabPanel.js";
+import { CloudAwsPanel } from "./CloudAwsPanel.js";
 
 type Target = { id: string; label: string; provider: string; transferMode: "git" | "s3" | "drive"; ready: boolean };
 type Run = { attemptId: string; targetId: string; state: string; receipt: { state: string; remoteId?: string };
@@ -105,5 +106,6 @@ export function CloudWorkPanel() {
     </article>)}
     {sessionId && <CloudBatchPanel key={sessionId} sessionId={sessionId} />}
     {sessionId && <CloudColabPanel key={sessionId} sessionId={sessionId} taskReference={taskReference} />}
+    {sessionId && <CloudAwsPanel key={`aws-${sessionId}`} sessionId={sessionId} taskReference={taskReference} />}
   </section>;
 }

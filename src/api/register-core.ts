@@ -12,6 +12,8 @@ import { serviceStatusRouter } from "./service-status.js";
 import { serviceStatusClient } from "../service-status/client.js";
 import { choresRouter } from "./chores.js";
 import { managementAdminRouter, managementRouter } from "./management.js";
+import { autonomousLoopRouter } from "./autonomous-loop.js";
+import type { CircuitBreakerService } from "../management/circuit-breaker-service.js";
 import { sprintDialoguesRouter } from "./sprint-dialogues.js";
 import { dailyGoalRunRouter } from "./daily-goal-run.js";
 import { controlSessionRouter, type ControlSessionApiDeps } from "./control-session.js";
@@ -469,6 +471,7 @@ export interface CoreRuntimeDeps {
   chores?: ChoresService;
   /** CDGD マネジメント層 (spec/feature/cdgd-management.md)。 */
   management?: ManagementService;
+  autonomousLoopBreaker?: CircuitBreakerService;
   adminState: AdminState;
   /** LINE の共用チャネルのトークごとの紐付け (spec/feature/line-webhook-relay.md)。 未注入ならメモリ。 */
   lineTalkLinks?: LineTalkLinkStore;
@@ -549,6 +552,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/management", managementRouter(deps.management));
     app.route("/v1/admin/management", managementAdminRouter(deps.management));
   }
+  if (deps.autonomousLoopBreaker) app.route("/v1/autonomous-loop", autonomousLoopRouter(deps.autonomousLoopBreaker));
   if (deps.aiNotePublication) app.route("/v1/ai-notes", aiNotesRouter(deps.aiNotePublication));
   if (deps.serviceDeployed) app.route("/v1/events/service-deployed", serviceDeployedRouter(deps.serviceDeployed));
   if (deps.releasePublished) app.route("/v1/events/release-published", releasePublishedRouter(deps.releasePublished));

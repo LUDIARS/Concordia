@@ -7,5 +7,5 @@ export interface ControlChannelSurface {
   /** 管制チャンネルを用意する (ON の間だけ呼ばれる・冪等)。 */
   ensure(): Promise<void>;
   /** 管制チャンネルへの通知 (本文は件数と対象だけ)。 */
-  post(text: string): Promise<void>;
+  post(text: string): Promise<boolean | void>;
 }

@@ -9,7 +9,7 @@ import type { ManagementService } from "./service.js";
 
 /**
  * dots 専用の入口 (CC-MGMT-07)。 Cc 本体の HTTP とは別の node:http サーバと別ポートで立て、
- * dots の 6 操作だけを載せる。 TLS は前段 (Tailscale 等) で終端する。
+ * CC-MGMT-03 の dots 操作だけを載せる。 TLS は前段 (Tailscale 等) で終端する。
  */
 
 export interface ManagementRemoteHandle {

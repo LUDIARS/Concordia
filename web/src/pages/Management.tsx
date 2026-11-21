@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 interface Mission {
   id: string; name: string; project_codes: string[]; goal: string; allowed_kinds: string[];
   human_gate_kinds: string[]; requires_effect_check: boolean; max_open_requests: number;
+  allow_ai_only_evidence: boolean; autonomous_evaluation: boolean;
   daily_request_limit: number; status: "active" | "stopped";
 }
 type Action = "approve" | "reject" | "accept" | "effect_confirmed" | "effect_not_met";
@@ -23,8 +24,13 @@ const STATE_LABELS: Record<string, string> = {
 const ACTION_LABELS: Record<Action, string> = {
   approve: "承認", reject: "却下", accept: "受入", effect_confirmed: "効果あり", effect_not_met: "効果なし",
 };
+const AUTONOMY_SETTINGS = {
+  allow_ai_only_evidence: "AI 由来の根拠のみで依頼を受け付ける",
+  autonomous_evaluation: "dots に受入と効果確認を任せる",
+} as const;
+const autonomyFields = Object.keys(AUTONOMY_SETTINGS) as Array<keyof typeof AUTONOMY_SETTINGS>;
 
-async function call<T>(path: string, method: "GET" | "POST" = "GET", body?: unknown): Promise<T> {
+async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/v1/admin/management${path}`, {
     method, headers: { "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
@@ -42,7 +48,10 @@ export function Management() {
   const [token, setToken] = useState<{ mission: string; value: string } | null>(null);
   const [actor, setActor] = useState("");
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "CDGD", project_codes: "", goal: "", allowed_kinds: "discussion, investigation", human_gate_kinds: "spec_change", requires_effect_check: true });
+  const [form, setForm] = useState({
+    name: "CDGD", project_codes: "", goal: "", allowed_kinds: "discussion, investigation", human_gate_kinds: "spec_change",
+    requires_effect_check: true, allow_ai_only_evidence: false, autonomous_evaluation: false,
+  });
 
   const refresh = useCallback(async () => {
     try {
@@ -81,6 +90,12 @@ export function Management() {
         <div className="flex justify-between gap-2"><strong>{m.name}</strong><span className="text-sm">{m.status === "active" ? "稼働中" : "停止中"}</span></div>
         <p className="text-sm whitespace-pre-wrap">{m.goal}</p>
         <p className="text-xs text-subtle">対象: {m.project_codes.join(", ")} / 依頼可: {m.allowed_kinds.join(", ") || "なし"} / 人間判断: {m.human_gate_kinds.join(", ") || "なし"} / 同時 {m.max_open_requests}・日次 {m.daily_request_limit}{m.requires_effect_check ? " / 効果確認あり" : ""}</p>
+        {autonomyFields.map((field) => <label key={field} className="flex gap-2 items-center text-sm">
+          <input type="checkbox" checked={m[field]} disabled={busy} onChange={(e) => {
+            const checked = e.target.checked;
+            void run(async () => { await call(`/missions/${m.id}`, "PATCH", { [field]: checked }); });
+          }} />{AUTONOMY_SETTINGS[field]}
+        </label>)}
         <div className="flex gap-2">
           <button disabled={busy} className="border border-border rounded px-3 py-1 text-sm" onClick={() => void run(async () => {
             await call(`/missions/${m.id}/${m.status === "active" ? "stop" : "resume"}`, "POST");
@@ -94,6 +109,7 @@ export function Management() {
         const r = await call<{ mission: Mission; token: string }>("/missions", "POST", {
           name: form.name, project_codes: list(form.project_codes), goal: form.goal,
           allowed_kinds: list(form.allowed_kinds), human_gate_kinds: list(form.human_gate_kinds), requires_effect_check: form.requires_effect_check,
+          allow_ai_only_evidence: form.allow_ai_only_evidence, autonomous_evaluation: form.autonomous_evaluation,
         });
         showToken(r.mission, r.token);
       }); }}>
@@ -104,6 +120,9 @@ export function Management() {
         <label className="block text-sm">dots が直接依頼できる種別<input aria-label="依頼できる種別" value={form.allowed_kinds} onChange={(e) => setForm({ ...form, allowed_kinds: e.target.value })} className="block w-full mt-1 rounded border border-border bg-surface p-2" /></label>
         <label className="block text-sm">人間の承認が要る種別<input aria-label="人間判断の種別" value={form.human_gate_kinds} onChange={(e) => setForm({ ...form, human_gate_kinds: e.target.value })} className="block w-full mt-1 rounded border border-border bg-surface p-2" /></label>
         <label className="flex gap-2 items-center text-sm"><input type="checkbox" checked={form.requires_effect_check} onChange={(e) => setForm({ ...form, requires_effect_check: e.target.checked })} />受入後に効果確認をする</label>
+        {autonomyFields.map((field) => <label key={field} className="flex gap-2 items-center text-sm">
+          <input type="checkbox" checked={form[field]} onChange={(e) => setForm({ ...form, [field]: e.target.checked })} />{AUTONOMY_SETTINGS[field]}
+        </label>)}
         <button disabled={busy || !form.goal.trim() || !form.project_codes.trim()} className="px-4 py-2 rounded bg-accent text-white disabled:opacity-50">作成</button>
       </form>
     </section>

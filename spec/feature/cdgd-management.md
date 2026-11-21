@@ -21,7 +21,7 @@ Cc と Cc が起動したセッションが行う。dots は各サービスへ�
 
 ## 価値・所属
 
-UX-CC-W2/W4/W5、UX-CC-S2/S3/S5。失うと困る状態は任務の範囲と停止、dots の判断理由、
+UX-CC-W2/W4/W5、UX-CC-S2/S3/S5/S6。失うと困る状態は任務の範囲と停止、dots の判断理由、
 依頼の同一性と起動の結果、成果と受入・効果確認の区別、処理済み位置。
 `management` は agent-delegation の下位責務 (依頼範囲・担当する実行・成果への到達) で、
 コアそのものではない。HTTP・MCP・spawn・保存は adapter。既存の spawner と部署・inject を使い、
@@ -37,9 +37,9 @@ session / delegation run の状態を直接書き換えない。
 | R3 | 「元イベント・対象・作業種別から重複候補を照合」が曖昧 | Cc は決定的な一致 (同じ project + target_key + kind の未完了依頼) だけを扱う。意味的な重複判断は dots の判断記録に残す |
 | R4 | 起動確認の手段が無い (admin spawn は session id を返さない) | 依頼ごとに固定 spawn ID を保存してから起動し、session metadata の `concordia_spawn_id` で照合して起動確認する。例外時は launch_unknown として照合し、期限切れだけを起動失敗にする |
 | R5 | 「判断を保存した変更まで処理済み位置を進める」の強制手段が無い | `record_management_decision` を追加。acknowledge は対象範囲の全イベントが判断か依頼の根拠に含まれる場合だけ受理する |
-| R6 | AI 返信の再取り込み防止が文面だけ | イベントに origin (human/ai/system) と親依頼 ID を必須で持たせ、根拠が AI 由来だけの依頼を拒否する |
+| R6 | AI 返信の再取り込み防止が文面だけ | イベントに origin (human/ai/system) と親依頼 ID を持たせる。AI のみの根拠は任務が明示的に許可した場合に限る |
 | R7 | 上限 (同時数・回数・費用) の強制が無い | 任務の同時依頼数・日次依頼数で拒否、Cc のコスト上限中は起動を保留 |
-| R8 | 受入・効果確認を誰が付けるかが無い | 成果記録は担当セッション本人だけ、受入・効果確認は人間の管理面だけ。dots のトークンでは呼べない |
+| R8 | 受入・効果確認を誰が付けるかが無い | 成果記録は担当セッション本人だけ。任務が自律評価を許可した範囲で dots が受入・効果確認でき、判断者を記録する |
 | R9 | dots からの即時起動 API・イベント push は検証前 | 初期版はポーリングのみ。dots の継続任務から `changes` を読む |
 
 ## 契約 CC-MGMT-01 任務 (Cc が管理する)
@@ -50,12 +50,13 @@ session / delegation run の状態を直接書き換えない。
   管理面は他の `/v1/admin/*` と同じ loopback 信頼境界で、同じ PC の AI セッションも到達できる (既存と同じ制約)。
   トークン平文は作成と回転の応答でだけ返す。
 - 停止中の任務は新しい依頼・判断を受け付けない。読取りと実行中依頼の状態は保持する (CC-MGMT-INV-05)。
+- `allow_ai_only_evidence` と `autonomous_evaluation` は独立した任務設定で、既存任務・新規任務とも既定は `false`。
 
 ## 契約 CC-MGMT-02 変更の受付と配信
 
 - `POST /v1/management/events` (loopback): `{event_key, source, kind, project_code, origin, summary,
   target_key?, parent_request_id?, ref_url?, observed_at?}`。event_key で冪等、同じキーで内容が違えば 409。
-- 依頼の状態遷移は Cc が source=`cc`、origin=`system`、parent_request_id 付きで同じ列へ積む。
+- 依頼の状態遷移は Cc が source=`cc`、parent_request_id 付きで同じ列へ積む。自律評価の origin は `ai`、その他は `system`。
 - `changes` は任務の対象プロジェクトのイベントを seq 昇順で返す。応答に出所ごとの最終受信時刻を含める。
 
 ## 契約 CC-MGMT-03 dots 向け API (Bearer トークン)
@@ -67,6 +68,7 @@ session / delegation run の状態を直接書き換えない。
 | 判断記録 | `POST /v1/management/decisions` | `record_management_decision` |
 | 依頼 | `POST /v1/management/requests` | `submit_management_request` |
 | 依頼照会 | `GET /v1/management/requests/:key` | `get_management_request` |
+| 自律評価 | `POST /v1/management/requests/:key/evaluate` | `evaluate_management_request` |
 | 処理済み | `POST /v1/management/acknowledge` | `acknowledge_management_changes` |
 
 - 文脈は任務・未完了依頼・直近の判断・処理済み位置・未処理件数・対象プロジェクトの稼働セッション
@@ -80,7 +82,7 @@ session / delegation run の状態を直接書き換えない。
 
 受付順序 (すべて 1 トランザクション):
 1. 任務が active、種別が許可内、project が任務の対象内、根拠 seq が任務から見えるイベントであること。
-2. 根拠が全て origin=ai なら拒否 (`evidence_ai_only`)。
+2. 根拠が全て origin=ai で任務の `allow_ai_only_evidence` が `false` なら拒否 (`evidence_ai_only`)。
 3. 同じ request_key → 既存を返す。
 4. 同じ project + target_key + kind の未完了依頼があれば `attached` (親を記録)。親が稼働セッションを持てば
    そのセッションへ追加情報を inject する (送信試行。配達は未確認として扱う)。
@@ -94,6 +96,7 @@ session / delegation run の状態を直接書き換えない。
   期限 (5 分、spawn 照合の寿命) を過ぎても現れなければ `launch_failed`。同じ依頼を別 ID で再起動しない。
 - `dispatched` の session が ended → `execution_finished`。
 - コスト上限中は `queued` のまま起動しない。
+- 遮断状態が OPEN の間は新規受付と払い出しを止める。受付済みの同一キーによる照会と起動・終了の照合は継続する。
 
 ## 契約 CC-MGMT-05 成果・受入・効果確認
 
@@ -101,21 +104,25 @@ session / delegation run の状態を直接書き換えない。
 |---|---|---|
 | execution_finished | セッションが終わった | Cc (session 観測) |
 | outcome_recorded | 成果の要約と参照が保存された (= 受入待ち) | 担当セッション本人 `POST /v1/management/requests/:id/outcome` |
-| accepted | 受入済み。効果確認が要る任務では効果確認待ち | 人間 (管理面) |
-| effect_confirmed / effect_not_met | 狙った改善の確認結果 | 人間 (管理面) |
+| accepted | 受入済み。効果確認が要る任務では効果確認待ち | 人間 (管理面) または自律評価を許可された dots |
+| effect_confirmed / effect_not_met | 狙った改善の確認結果 | 人間 (管理面) または自律評価を許可された dots |
 | rejected | 人間判断で却下 (waiting_human から) | 人間 (管理面) |
 
-dots はセッション終了・成果記録を完了扱いしない。受入・効果確認は代行できない。
+dots の自律評価は active かつ `autonomous_evaluation` を有効にした任務の依頼に限る。`waiting_human` と
+`human_gate_kinds` は人間が評価する。`{action, evidence_seqs?, note?}` の `accept` は `outcome_recorded` からのみ、
+`effect_confirmed` / `effect_not_met` は `accepted` かつ `requires_effect_check` が true の場合のみ受け付ける。
+効果判定には任務から可視な `evidence_seqs` が必須。自律評価は `[ai:dots]` と根拠を履歴に記録する。
 
 ## 契約 CC-MGMT-06 人間の管理面 (Web / Discord)
 
 2026-10-01 neco 指示「上から順に対応」の 2 件目。
 - Web `/management`: 任務の一覧・作成・停止・再開・トークン回転 (平文は応答時だけ画面に出し、保存しない)、
-  依頼の一覧と人間操作 (承認・却下・受入・効果あり・効果なし)。操作者名を入力して記録する。
+  自律受付・評価の設定、依頼の一覧と人間操作 (承認・却下・受入・効果あり・効果なし)。操作者名を入力して記録する。
 - Discord 本社 guild の `CDGD管理` チャンネル: 人間が見るべき状態 (waiting_human / launch_failed /
   execution_finished / outcome_recorded / 効果確認待ちの accepted) になった依頼をカードで出す。
   以後の状態変化は同じカードを編集する。ボタンは状態で許される操作だけを有効にし、操作者は
   `discord:<user id>` で記録する。押せるのは社員名簿の `session_control` (管理職以上) を持つ人だけ (雑務と同じ判定)。
+- 自律評価対象の依頼に新しいカードを出すのは `waiting_human` と `launch_failed` のみ。既存カードは引き続き更新する。
 - 配達は依頼の revision ごとに記録する (`delivered_revision` / `discord_message_id`)。保存してから配達し、
   配達失敗は依頼の状態を変えず次の周期で再送する (CC-INV-06)。
 - これらの経路は `/v1/admin/management/*` を使い、dots のトークンでは呼べない (CC-MGMT-INV-01)。
@@ -124,12 +131,12 @@ dots はセッション終了・成果記録を完了扱いしない。受入・
 
 2026-10-01 neco 判断「専用入口を作る」。dots の接続先がリモート PC のとき、Cc 本体の
 `127.0.0.1:11111` には届かない。トンネルで 11111 を晒すと loopback 信頼の管理 API まで届くので、
-dots 用の 6 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
+dots 用の 7 操作 (CC-MGMT-03) だけを通す別 listener を立てる。
 
 - 既定 OFF。`CONCORDIA_MANAGEMENT_LISTEN=1` で有効、`CONCORDIA_MANAGEMENT_LISTEN_HOST` (既定 127.0.0.1) と
   `CONCORDIA_MANAGEMENT_LISTEN_PORT` (有効時は必須、暗黙の既定ポートを作らない) で待ち受ける。
   ポートの正本は Concordia の Excubitor catalog。変更は再起動で反映する。
-- 通すのは `/v1/management/{context,changes,decisions,requests,requests/:key,acknowledge}` だけ。
+- 通すのは `/v1/management/{context,changes,decisions,requests,requests/:key,requests/:key/evaluate,acknowledge}` だけ。
   変更の受付口 (`/events`)・成果記録 (`/requests/:id/outcome`)・`/v1/admin/*` ほか全経路は 404。
 - 全操作で Bearer トークン必須 (CC-MGMT-INV-01)。認証失敗は送信元ごとに 1 分 5 回までで、超えたら
   その窓の間は 429 を返す。本文は 64KiB まで。
@@ -153,17 +160,37 @@ dots の専用クラウドは Tailscale に入れないため、CC-MGMT-07 の�
 - dots 側の MCP クライアントは `CONCORDIA_MANAGEMENT_CF_CLIENT_ID` / `_SECRET` があればサービストークンのヘッダを付ける。
 - Access アプリ・サービストークン・許可ポリシー・Tunnel route・DNS は Cloudflare 側の設定 (人間が作る、または cf:* を人間が実行)。
 
+## 契約 CC-MGMT-09 自走ループのサーキットブレーカー
+
+Actio `6206f9a5-6842-41df-ad2c-7f6ecbbb7504`、`3ec254ec-f6f9-45fb-b83d-34d4f60897fe`。
+Cc が共有の遮断状態・設定・開始と結果の履歴を SQLite に保存する。管理依頼は払い出し時に確認し、外部ループは
+開始前に loopback の `POST /v1/autonomous-loop/circuit-breaker/check` を呼び、`run_id`、`project_code`、
+`target_key`、任意の `session_id` を渡す。受付された実行は同じ `run_id` を `/failure` または `/success` に報告する。
+同時数は、管理依頼の起動・照合中/実行中と、開始確認済みで結果未報告の外部実行を合算する。
+
+- 自動遮断はコスト上限、連続失敗 3 回、同一 project と target の 30 分内の 3 回目の開始試行、
+  同時 5 件を超える開始試行、5 分内の 10 回目の開始試行。`launch_failed` と `effect_not_met` を失敗、
+  効果確認が不要な `accepted` と `effect_confirmed` を成功として扱う。
+- `GET /circuit-breaker` で状態を参照できる。`/trip` は手動遮断、`/reset` は明示解除、`PATCH /config` は
+  `consecutive_failures`、`target_oscillation`、`concurrency_limit`、`trigger_rate_limit`、`cooldown_ms` の変更に使う。
+  OPEN 時の check は 409 `circuit_breaker_open`。完了済みの実行結果は保持し、同じ `run_id` の再送で集計し直さない。
+- 既定の `cooldown_ms=null` は明示解除まで停止。クールダウンは次の状態確認時に適用する。解除で連続失敗・短期の
+  開始集計をリセットし、実行中の枠や未配達の遮断通知は保持する。コスト上限や同時数は次の開始判定でも確認する。
+- CLOSED から OPEN への遷移を管制チャンネルに通知する。理由・既知の対象・セッション直リンクをメンションなしで送り、
+  配達できなければ記録を残して次の周期で再試行する。
+
 ## 不変条件
 
-- CC-MGMT-INV-01: dots のトークンで呼べるのは CC-MGMT-03 だけ。サービスへの書込み・受入・承認経路を持たない。
+- CC-MGMT-INV-01: dots のトークンで呼べるのは CC-MGMT-03 だけ。人間の管理面と遮断操作は別の信頼境界にある。
 - CC-MGMT-INV-02: 同じ request_key / event_key / decision_key は 1 件。再送は同じ結果を返す。
 - CC-MGMT-INV-03: 起動は依頼 1 件につき spawn ID 1 つ。結果不明は照合し、別 ID で起動し直さない。
 - CC-MGMT-INV-04: 処理済み位置は、判断または依頼の根拠に含まれたイベントまでしか進まない。
 - CC-MGMT-INV-05: 停止した任務は新しい依頼・判断を受けず、実行中依頼の状態を保持する。
-- CC-MGMT-INV-06: 根拠が AI 由来だけの依頼は受け付けない。
-- CC-MGMT-INV-07: waiting_human は人間の管理面の操作でしか解除しない (CC-INV-08)。
-- CC-MGMT-INV-08: dots 専用の入口からは CC-MGMT-03 の 6 操作以外に到達できない。
+- CC-MGMT-INV-06: AI 由来だけの根拠は `allow_ai_only_evidence` を有効にした任務に限る。
+- CC-MGMT-INV-07: `waiting_human` の解除と `human_gate_kinds` の依頼の評価は人間専用 (CC-INV-08)。
+- CC-MGMT-INV-08: dots 専用の入口からは CC-MGMT-03 の 7 操作以外に到達できない。
 - CC-MGMT-INV-09: 公開ホスト宛ての要求は Access の JWT を検証できない限り任務トークンの照合まで進まない。
+- CC-MGMT-INV-10: OPEN は再起動で解除せず、解除までは新規受付・起動を防ぐ。実行済みの結果の記録は継続する。
 
 ## 実装
 
@@ -180,7 +207,9 @@ dots の専用クラウドは Tailscale に入れないため、CC-MGMT-07 の�
 `web/src/pages/Management.tsx`: 任務と依頼の管理画面。
 `src/management/remote-config.ts` / `src/management/remote-listener.ts`: dots 専用の入口の設定と寿命。
 `src/management/cf-access.ts`: Cloudflare Access の JWT 検証。
-保存は migration 120 `management-sidecar`、配達記録は migration 121 `management-delivery`。
+遮断は `src/management/circuit-breaker.ts` (判定)、`circuit-breaker-repo.ts` (永続化)、
+`circuit-breaker-service.ts` (ユースケース)、`src/api/autonomous-loop.ts` (HTTP) に分ける。
+保存は migration 120 `management-sidecar`、配達記録は 121 `management-delivery`、自律設定と遮断は 151 `management-autonomy`。
 
 ## 未接続 (後続)
 

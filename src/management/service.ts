@@ -1,14 +1,17 @@
 import {
   availableHumanActions,
+  autonomousEvaluationTransition,
   boundedInt,
   canRecordOutcome,
   decideIntake,
   humanTransition,
+  isAutonomousEvaluationTarget,
   needsHumanAttention,
   ManagementInputError,
   optionalKey,
   optionalText,
   requireKey,
+  requireEvaluationAction,
   requireKind,
   requireKindList,
   requireOrigin,
@@ -27,7 +30,9 @@ import {
   type ManagementEvent,
   type ManagementRequest,
   type Mission,
+  type RequestState,
 } from "./domain.js";
+import type { CircuitBreakerService } from "./circuit-breaker-service.js";
 import type { ManagementRepository, MissionWrite } from "./repository.js";
 
 /**
@@ -69,7 +74,11 @@ export interface SubmitResult {
 const CC_SOURCE = "cc";
 
 export class ManagementService {
-  constructor(readonly repo: ManagementRepository, private readonly ports: ManagementPorts) {}
+  constructor(
+    readonly repo: ManagementRepository,
+    private readonly ports: ManagementPorts,
+    private readonly breaker?: CircuitBreakerService,
+  ) {}
 
   // ── 任務 (CC-MGMT-01) ───────────────────────────────────────
 
@@ -231,6 +240,9 @@ export class ManagementService {
         if (!same) throw new ManagementError("request_key_conflict", "request_key が別の依頼で使われています", 409);
         return { request: existing, created: false };
       }
+      if (this.breaker?.snapshot().status === "OPEN") {
+        throw new ManagementError("circuit_breaker_open", "自走ループが遮断中です", 409);
+      }
       const evidence = this.repo.eventsBySeq(mission.project_codes, input.evidence_seqs);
       const verdict = decideIntake({
         mission,
@@ -295,22 +307,62 @@ export class ManagementService {
     return next;
   }
 
+  evaluateRequest(authenticated: Mission, key: string, body: Record<string, unknown>): ManagementRequest {
+    const action = requireEvaluationAction(body.action);
+    const note = optionalText(body.note, "note", 1000);
+    const evidence = action === "accept" && body.evidence_seqs === undefined ? [] : requireSeqs(body.evidence_seqs);
+    return this.repo.transaction(() => {
+      const mission = this.mustMission(authenticated.id);
+      if (mission.token_hash !== authenticated.token_hash) throw new ManagementError("unauthorized", "トークンが無効です", 401);
+      this.requireActive(mission);
+      const request = this.getRequest(mission, key);
+      if (!isAutonomousEvaluationTarget(mission, request) || request.state === "waiting_human") {
+        throw new ManagementError("autonomous_evaluation_forbidden", "この依頼は dots から評価できません", 403);
+      }
+      const nextState = autonomousEvaluationTransition(mission, request, action, evidence);
+      if (!nextState) throw new ManagementError("invalid_state", `状態 ${request.state} では ${action} できません`, 409);
+      if (evidence.length) this.requireVisible(mission, evidence);
+      const entry = `[ai:dots] ${action}${evidence.length ? ` (evidence_seqs=${evidence.join(",")})` : ""}${note ? `: ${note}` : ""}`;
+      return this.persistAction(request, mission, nextState, entry, `依頼 ${request.request_key} を [ai:dots] が ${action} しました`, "ai");
+    });
+  }
+
   /** 人間の管理面からの操作 (CC-MGMT-INV-07)。 */
   humanAction(requestId: string, action: HumanAction, body: Record<string, unknown>): ManagementRequest {
     const actor = requireText(body.actor, "actor", 200);
     const note = optionalText(body.note, "note");
-    const request = this.repo.findRequest(requestId);
-    if (!request) throw new ManagementError("not_found", "依頼が見つかりません", 404);
-    const mission = this.mustMission(request.mission_id);
-    const nextState = humanTransition(request.state, action, mission.requires_effect_check);
-    if (!nextState) throw new ManagementError("invalid_state", `状態 ${request.state} では ${action} できません`, 409);
+    return this.repo.transaction(() => {
+      const request = this.repo.findRequest(requestId);
+      if (!request) throw new ManagementError("not_found", "依頼が見つかりません", 404);
+      const mission = this.mustMission(request.mission_id);
+      const nextState = humanTransition(request.state, action, mission.requires_effect_check);
+      if (!nextState) throw new ManagementError("invalid_state", `状態 ${request.state} では ${action} できません`, 409);
+      const entry = `${action} by ${actor}${note ? `: ${note}` : ""}`;
+      return this.persistAction(request, mission, nextState, entry, `依頼 ${request.request_key} を人間が ${action} しました`, "system");
+    });
+  }
+
+  private persistAction(
+    request: ManagementRequest, mission: Mission, nextState: RequestState, entry: string, summary: string, origin: "ai" | "system",
+  ): ManagementRequest {
     const next = this.repo.transition(request, {
       state: nextState,
-      human_note: [request.human_note, `${action} by ${actor}${note ? `: ${note}` : ""}`].filter(Boolean).join("\n"),
+      human_note: [request.human_note, entry].filter(Boolean).join("\n"),
     }, this.ports.now());
     if (!next) throw new ManagementError("conflict", "依頼が同時に更新されました。読み直してください", 409);
-    this.appendLifecycle(next, `request_${nextState}`, `依頼 ${next.request_key} を人間が ${action} しました`);
+    this.appendLifecycle(next, `request_${nextState}`, summary, origin);
+    if (nextState === "effect_not_met") this.breaker?.recordFailure(next);
+    if (nextState === "effect_confirmed" || (nextState === "accepted" && !mission.requires_effect_check)) this.breaker?.recordSuccess(next);
     return next;
+  }
+
+  recordLaunchFailure(request: ManagementRequest, error: string, summary: string): void {
+    this.repo.transaction(() => {
+      const failed = this.repo.transition(request, { state: "launch_failed", error }, this.ports.now());
+      if (!failed) return;
+      this.appendLifecycle(failed, "request_launch_failed", summary);
+      this.breaker?.recordFailure(failed);
+    });
   }
 
   /**
@@ -322,7 +374,7 @@ export class ManagementService {
     for (const request of this.repo.undeliveredRequests(limit * 2)) {
       const mission = this.repo.findMission(request.mission_id);
       const effect = mission?.requires_effect_check ?? false;
-      if (!request.discord_message_id && !needsHumanAttention(request.state, effect)) {
+      if (!request.discord_message_id && !needsHumanAttention(request.state, effect, mission !== null && isAutonomousEvaluationTarget(mission, request))) {
         this.repo.markDelivered(request.id, request.revision, null);
         continue;
       }
@@ -350,13 +402,13 @@ export class ManagementService {
     });
   }
 
-  /** Cc 自身の状態変化を変更列へ積む (source=cc, origin=system)。 */
-  appendLifecycle(request: ManagementRequest, kind: string, summary: string): void {
+  /** Cc 自身の状態変化を変更列へ積む (source=cc)。 */
+  appendLifecycle(request: ManagementRequest, kind: string, summary: string, origin: "ai" | "system" = "system"): void {
     const key = `cc:${request.id}:${request.revision}:${kind}`;
     if (this.repo.findEventByKey(key)) return;
     this.repo.insertEvent({
       event_key: key, source: CC_SOURCE, kind: kind.slice(0, 41), project_code: request.project_code,
-      target_key: request.target_key, origin: "system", parent_request_id: request.id,
+      target_key: request.target_key, origin, parent_request_id: request.id,
       summary, ref_url: null, observed_at: this.ports.now(), created_at: this.ports.now(),
     });
   }
@@ -398,6 +450,8 @@ export class ManagementService {
       allowed_kinds: allowed.filter((k) => !gated.includes(k)),
       human_gate_kinds: gated,
       requires_effect_check: body.requires_effect_check === true,
+      allow_ai_only_evidence: body.allow_ai_only_evidence === true,
+      autonomous_evaluation: body.autonomous_evaluation === true,
       max_open_requests: boundedInt(body.max_open_requests, "max_open_requests", 3, 1, 20),
       daily_request_limit: boundedInt(body.daily_request_limit, "daily_request_limit", 10, 1, 200),
       review_interval_minutes: boundedInt(body.review_interval_minutes, "review_interval_minutes", 60, 5, 1_440),

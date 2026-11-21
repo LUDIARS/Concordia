@@ -1,11 +1,13 @@
 {
   "name": "management",
-  "description": "CDGD マネジメント層 (dots サイドカー)。任務・資格情報・変更の受付と配信・判断記録・依頼の受付と払い出し・成果と受入の区別を Cc が所有する。agent-delegation の下位責務。",
+  "description": "CDGD マネジメント層 (dots サイドカー)。任務・資格情報・変更の受付と配信・判断記録・依頼の受付と払い出し・成果と受入の区別・自走ループの遮断状態と履歴を Cc が所有する。agent-delegation の下位責務。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/management/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/management(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/autonomous-loop(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/management-autonomy-migration\\.ts$" },
     { "pathPattern": "(^|/)src/mcp/management-server(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/discord/management(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Management(\\.test)?\\.tsx$" },

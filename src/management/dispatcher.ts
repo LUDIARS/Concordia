@@ -1,5 +1,6 @@
 import { LAUNCH_CONFIRM_WINDOW_MS, type ManagementRequest, type Mission } from "./domain.js";
 import type { ManagementService } from "./service.js";
+import type { CircuitBreakerService } from "./circuit-breaker-service.js";
 
 /**
  * 依頼の払い出し・起動照合・終了観測 (CC-MGMT-04)。
@@ -24,13 +25,17 @@ export class ManagementDispatcher {
   private stopping = false;
   private active: Promise<void> | null = null;
 
-  constructor(private readonly service: ManagementService, private readonly ports: DispatchPorts) {}
+  constructor(
+    private readonly service: ManagementService,
+    private readonly ports: DispatchPorts,
+    private readonly breaker?: CircuitBreakerService,
+  ) {}
 
   tick(): void {
     if (this.stopping) return;
     this.reconcileLaunches();
     this.observeFinished();
-    if (this.active || this.ports.isBlocked()) return;
+    if (this.active || (!this.breaker && this.ports.isBlocked())) return;
     const next = this.nextQueued();
     if (!next) return;
     this.active = this.launchOne(next.request, next.mission).catch(this.ports.logError).finally(() => {
@@ -55,11 +60,8 @@ export class ManagementDispatcher {
         continue;
       }
       if (row.launch_deadline_at !== null && this.ports.now() > row.launch_deadline_at) {
-        const next = repo.transition(row, {
-          state: "launch_failed",
-          error: row.error ?? "起動期限内にセッション登録を確認できませんでした",
-        }, this.ports.now());
-        if (next) this.service.appendLifecycle(next, "request_launch_failed", `依頼 ${next.request_key} の起動を確認できませんでした`);
+        this.service.recordLaunchFailure(row, row.error ?? "起動期限内にセッション登録を確認できませんでした",
+          `依頼 ${row.request_key} の起動を確認できませんでした`);
       }
     }
   }
@@ -89,9 +91,15 @@ export class ManagementDispatcher {
     const spawnId = this.ports.id();
     const now = this.ports.now();
     // 起動前に spawn ID を保存する。 CAS に負けたら他者が先に動かしたので何もしない。
-    const launching = repo.transition(request, {
-      state: "launching", spawn_id: spawnId, launch_deadline_at: now + LAUNCH_CONFIRM_WINDOW_MS, error: null,
-    }, now);
+    const launching = repo.transaction(() => {
+      const current = repo.findRequest(request.id);
+      if (current?.state !== "queued" || current.revision !== request.revision) return null;
+      if (repo.findMission(mission.id)?.status !== "active") return null;
+      const claim = () => repo.transition(current, {
+        state: "launching", spawn_id: spawnId, launch_deadline_at: now + LAUNCH_CONFIRM_WINDOW_MS, error: null,
+      }, now);
+      return this.breaker ? this.breaker.admitManaged(current, claim) : claim();
+    });
     if (!launching) return;
     let result: LaunchResult;
     try {
@@ -104,8 +112,7 @@ export class ManagementDispatcher {
       return;
     }
     if (!result.ok) {
-      const failed = repo.transition(launching, { state: "launch_failed", error: result.error }, this.ports.now());
-      if (failed) this.service.appendLifecycle(failed, "request_launch_failed", `依頼 ${failed.request_key} の起動に失敗しました`);
+      this.service.recordLaunchFailure(launching, result.error, `依頼 ${launching.request_key} の起動に失敗しました`);
       return;
     }
     this.service.appendLifecycle(launching, "request_launching", `依頼 ${launching.request_key} のセッションを起動しました (登録待ち)`);

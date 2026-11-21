@@ -13,6 +13,8 @@ function setup() {
     db,
     concordiaUrl: "http://127.0.0.1:11111",
     isBlocked: () => false,
+    postAlert: async () => true,
+    sessionLink: () => null,
     projectByCode: (code) => (code === "Cf" ? { project: "Conflux", repo_path: "E:/Document/Ars/Conflux" } : null),
     departmentExists: () => true,
     writePrompt: vi.fn(async () => "/tmp/prompt.md"),

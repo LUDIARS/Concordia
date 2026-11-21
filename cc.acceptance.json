@@ -3444,6 +3444,14 @@
       ],
       "contracts": []
     },
+    { "source": "src/api/autonomous-loop.ts", "tests": ["src/api/autonomous-loop.test.ts"], "contracts": [] },
+    { "source": "src/db/management-autonomy-migration.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": [] },
+    { "source": "src/management/circuit-breaker-repo.ts", "tests": ["src/management/circuit-breaker.test.ts", "src/db/migration-ledger.test.ts"], "contracts": [] },
+    { "source": "src/management/circuit-breaker-service.ts", "tests": ["src/management/circuit-breaker.test.ts", "src/management/dispatcher.test.ts", "src/api/autonomous-loop.test.ts"], "contracts": [] },
+    { "source": "src/management/circuit-breaker-types.ts", "tests": ["src/management/circuit-breaker.test.ts"], "contracts": [] },
+    { "source": "src/management/circuit-breaker.ts", "tests": ["src/management/circuit-breaker.test.ts"], "contracts": ["C-43", "C-44"] },
+    { "source": "src/management/domain-types.ts", "tests": ["src/management/domain.test.ts"], "contracts": [] },
+    { "source": "src/management/ontime-runtime.ts", "tests": ["src/management/domain.test.ts", "src/management/circuit-breaker.test.ts"], "contracts": [] },
     {
       "source": "src/management/domain.ts",
       "tests": [
@@ -3451,7 +3459,9 @@
       ],
       "contracts": [
         "CC-MGMT-04",
-        "CC-MGMT-05"
+        "CC-MGMT-05",
+        "C-41",
+        "C-42"
       ]
     },
     {

@@ -3,6 +3,10 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "C-41", "criterion": "C-41 decideIntake(input): AI のみの根拠は任務で明示許可された場合だけ受け付ける", "symbol": "decideIntake", "file": "src/management/domain.ts", "module": "src/management/ai-evidence.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-42", "criterion": "C-42 autonomousEvaluationTransition(mission,request,action,evidence): 人間ゲートを保持し、成果記録と効果根拠が揃う場合だけ dots の評価を許可する", "symbol": "autonomousEvaluationTransition", "file": "src/management/domain.ts", "module": "src/management/autonomous-evaluation.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-43", "criterion": "C-43 breakerReason(config,signals): コスト・失敗・同一対象・同時実行・頻度の条件を満たす時だけ自動遮断理由を返す", "symbol": "breakerReason", "file": "src/management/circuit-breaker.ts", "module": "src/management/breaker-reason.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-44", "criterion": "C-44 canCooldown(openedAt,cooldownMs,now): 明示設定したクールダウンが満了した場合だけ自動解除を許す", "symbol": "canCooldown", "file": "src/management/circuit-breaker.ts", "module": "src/management/breaker-cooldown.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "agy-cost-C-1", "criterion": "C-1 decodeAgyGeneration(data): 入力とキャッシュ読み取りと出力を一度ずつ集計し、出力に含まれる思考トークンを足し直さない", "symbol": "decodeAgyGeneration", "file": "src/cost/agy-usage-metadata.ts", "module": "src/cost/agy-usage-metadata.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "agy-cost-C-2", "criterion": "C-2 agySessionGenerations(generations,start,end): 確認できたセッション時間帯の生成だけを予算・集計に帰属させる", "symbol": "agySessionGenerations", "file": "src/cost/agy-usage-policy.ts", "module": "src/cost/agy-usage-policy.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "agy-cost-C-3", "criterion": "C-3 accumulateAgyUsageWindows(generations,windows): 時刻のある生成を半開区間ごとに一度ずつ集計する", "symbol": "accumulateAgyUsageWindows", "file": "src/cost/agy-usage-policy.ts", "module": "src/cost/agy-window.contract.ts", "mode": "observe", "sample": 1 },

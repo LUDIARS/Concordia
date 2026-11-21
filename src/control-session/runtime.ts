@@ -124,16 +124,17 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
   const linkOf = safeLinkResolver(deps.sessionLink, deps.log);
   const linkedBoardRows = (): ControlBoardRowWithLink[] => withSessionLinks(board.list(), linkOf);
 
-  async function postIfReady(text: string): Promise<boolean> {
-    if (!surface || !surfaceReady) return false;
+  async function postAlert(text: string): Promise<boolean> {
+    if (!surface) return false;
     try {
-      await surface.post(text);
-      return true;
+      return (await surface.post(text)) !== false;
     } catch (error) {
       deps.log.warn(`control channel post failed: ${String(error)}`);
       return false;
     }
   }
+
+  const postIfReady = (text: string): Promise<boolean> => surfaceReady ? postAlert(text) : Promise.resolve(false);
 
   const patrol = deps.patrol ? createControlPatrol({
     board,
@@ -211,6 +212,8 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
 
   return {
     tick,
+    postAlert,
+    sessionLink: linkOf,
     start(intervalMs = CONTROL_TICK_MS): { stop(): void } {
       loop?.stop();
       loop = startSupervisedInterval("control-session", async () => { await tick(); }, {

@@ -60,8 +60,9 @@ export function createControlChannelDiscord(input: {
     },
     async post(text) {
       const channel = savedChannel();
-      if (!channel || stopped) return;
+      if (!channel || stopped) return false;
       await channel.send({ content: clip(text), allowedMentions: noMentions });
+      return true;
     },
     handlesMessage(message) {
       if (stopped || message.author.bot || message.webhookId) return false;

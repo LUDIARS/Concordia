@@ -6,6 +6,7 @@ function mission(id: string, patch: Partial<Mission> = {}): Mission {
   return {
     id, name: `任務 ${id}`, department_id: null, project_codes: ["Cc"], goal: "g", allowed_kinds: ["fix"],
     human_gate_kinds: [], requires_effect_check: false, max_open_requests: 3, daily_request_limit: 10,
+    allow_ai_only_evidence: false, autonomous_evaluation: false,
     review_interval_minutes: 30, status: "active", token_hash: `h-${id}`, created_at: 0, updated_at: 0, revision: 1, ...patch,
   };
 }

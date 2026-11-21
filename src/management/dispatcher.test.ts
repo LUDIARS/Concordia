@@ -1,18 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
+import { CircuitBreakerRepository } from "./circuit-breaker-repo.js";
+import { CircuitBreakerService } from "./circuit-breaker-service.js";
 import { ManagementDispatcher, type DispatchPorts } from "./dispatcher.js";
 import { LAUNCH_CONFIRM_WINDOW_MS } from "./domain.js";
 import { ManagementRepository } from "./repository.js";
 import { ManagementService } from "./service.js";
 
 function setup(overrides: Partial<DispatchPorts> = {}) {
-  const repo = new ManagementRepository(makeTestDb());
+  const db = makeTestDb();
+  const repo = new ManagementRepository(db);
   let sequence = 0;
   let now = 1_000_000;
+  const breaker = new CircuitBreakerService(new CircuitBreakerRepository(db), {
+    now: () => now, isCostBlocked: overrides.isBlocked ?? (() => false), countManagedRuns: () => repo.countRunning(),
+    postAlert: async () => false, sessionLink: () => null,
+  });
   const service = new ManagementService(repo, {
     now: () => now, id: () => `id-${++sequence}`, newToken: () => `t-${++sequence}`, hashToken: (t) => `h:${t}`,
     inject: vi.fn(), liveSessions: () => [], departmentExists: () => true,
-  });
+  }, breaker);
   const { token } = service.createMission({
     name: "CDGD", project_codes: ["Cf"], goal: "g", allowed_kinds: ["discussion"], max_open_requests: 5,
   });
@@ -33,8 +40,8 @@ function setup(overrides: Partial<DispatchPorts> = {}) {
     logError: vi.fn(),
     ...overrides,
   };
-  const dispatcher = new ManagementDispatcher(service, ports);
-  return { repo, service, mission, request, ports, dispatcher, sessions, advance: (ms: number) => { now += ms; } };
+  const dispatcher = new ManagementDispatcher(service, ports, breaker);
+  return { repo, service, mission, request, ports, dispatcher, sessions, breaker, advance: (ms: number) => { now += ms; } };
 }
 
 describe("ManagementDispatcher (CC-MGMT-04)", () => {
@@ -76,13 +83,14 @@ describe("ManagementDispatcher (CC-MGMT-04)", () => {
 
   it("records a known launch failure without retrying", async () => {
     const launch = vi.fn(async () => ({ ok: false as const, error: "no checkout" }));
-    const { dispatcher, repo, request } = setup({ launch });
+    const { dispatcher, repo, request, breaker } = setup({ launch });
     dispatcher.tick();
     await new Promise((resolve) => setTimeout(resolve, 0));
     dispatcher.tick();
     await dispatcher.stop();
     expect(launch).toHaveBeenCalledTimes(1);
     expect(repo.findRequest(request.id)).toMatchObject({ state: "launch_failed", error: "no checkout" });
+    expect(breaker.snapshot().consecutive_failures).toBe(1);
   });
 
   it("holds queued requests while cost is blocked or the mission is stopped", async () => {
@@ -90,6 +98,7 @@ describe("ManagementDispatcher (CC-MGMT-04)", () => {
     blocked.dispatcher.tick();
     await blocked.dispatcher.stop();
     expect(blocked.ports.launch).not.toHaveBeenCalled();
+    expect(blocked.breaker.snapshot()).toMatchObject({ status: "OPEN", reason: "daily_cost_limit" });
 
     const stopped = setup();
     stopped.service.setMissionStatus(stopped.mission.id, "stopped");
@@ -97,6 +106,18 @@ describe("ManagementDispatcher (CC-MGMT-04)", () => {
     await stopped.dispatcher.stop();
     expect(stopped.ports.launch).not.toHaveBeenCalled();
     expect(stopped.repo.findRequest(stopped.request.id)!.state).toBe("queued");
+  });
+
+  it("holds both new intake and queued launches while manually OPEN", async () => {
+    const { breaker, dispatcher, mission, ports, repo, request, service } = setup();
+    breaker.trip(null);
+    dispatcher.tick();
+    await dispatcher.stop();
+    expect(ports.launch).not.toHaveBeenCalled();
+    expect(repo.findRequest(request.id)?.state).toBe("queued");
+    expect(() => service.submitRequest(mission, { ...request, request_key: "new" }))
+      .toThrow(expect.objectContaining({ code: "circuit_breaker_open" }));
+    expect(service.submitRequest(mission, request as unknown as Record<string, unknown>).created).toBe(false);
   });
 
   it("marks execution_finished when the assignee ends, without calling it accepted", () => {

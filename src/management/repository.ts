@@ -35,6 +35,8 @@ function toMission(row: Row): Mission {
     allowed_kinds: json<string[]>(row.allowed_kinds, []),
     human_gate_kinds: json<string[]>(row.human_gate_kinds, []),
     requires_effect_check: row.requires_effect_check === 1,
+    allow_ai_only_evidence: row.allow_ai_only_evidence === 1,
+    autonomous_evaluation: row.autonomous_evaluation === 1,
     max_open_requests: row.max_open_requests as number,
     daily_request_limit: row.daily_request_limit as number,
     review_interval_minutes: row.review_interval_minutes as number,
@@ -98,6 +100,8 @@ export interface MissionWrite {
   allowed_kinds: string[];
   human_gate_kinds: string[];
   requires_effect_check: boolean;
+  allow_ai_only_evidence: boolean;
+  autonomous_evaluation: boolean;
   max_open_requests: number;
   daily_request_limit: number;
   review_interval_minutes: number;
@@ -118,7 +122,7 @@ export class ManagementRepository {
   constructor(private readonly db: Database) {}
 
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    return this.db.transaction(fn).immediate();
   }
 
   // ── missions ───────────────────────────────────────────────
@@ -126,11 +130,13 @@ export class ManagementRepository {
   insertMission(id: string, input: MissionWrite, tokenHash: string, now: number): Mission {
     this.db.prepare(`INSERT INTO management_missions (
       id, name, department_id, project_codes, goal, allowed_kinds, human_gate_kinds, requires_effect_check,
+      allow_ai_only_evidence, autonomous_evaluation,
       max_open_requests, daily_request_limit, review_interval_minutes, status, token_hash,
       acknowledged_seq, created_at, updated_at, revision
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, 1)`).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, 1)`).run(
       id, input.name, input.department_id, JSON.stringify(input.project_codes), input.goal,
       JSON.stringify(input.allowed_kinds), JSON.stringify(input.human_gate_kinds), input.requires_effect_check ? 1 : 0,
+      input.allow_ai_only_evidence ? 1 : 0, input.autonomous_evaluation ? 1 : 0,
       input.max_open_requests, input.daily_request_limit, input.review_interval_minutes, tokenHash, now, now,
     );
     return this.findMission(id)!;
@@ -139,10 +145,11 @@ export class ManagementRepository {
   updateMission(id: string, input: MissionWrite, now: number): Mission | null {
     this.db.prepare(`UPDATE management_missions SET name=?, department_id=?, project_codes=?, goal=?,
       allowed_kinds=?, human_gate_kinds=?, requires_effect_check=?, max_open_requests=?, daily_request_limit=?,
-      review_interval_minutes=?, updated_at=?, revision=revision+1 WHERE id=?`).run(
+      allow_ai_only_evidence=?, autonomous_evaluation=?, review_interval_minutes=?, updated_at=?, revision=revision+1 WHERE id=?`).run(
       input.name, input.department_id, JSON.stringify(input.project_codes), input.goal,
       JSON.stringify(input.allowed_kinds), JSON.stringify(input.human_gate_kinds), input.requires_effect_check ? 1 : 0,
-      input.max_open_requests, input.daily_request_limit, input.review_interval_minutes, now, id,
+      input.max_open_requests, input.daily_request_limit, input.allow_ai_only_evidence ? 1 : 0,
+      input.autonomous_evaluation ? 1 : 0, input.review_interval_minutes, now, id,
     );
     return this.findMission(id);
   }
@@ -302,6 +309,15 @@ export class ManagementRepository {
     const row = this.db.prepare(`SELECT COUNT(*) AS n FROM management_requests WHERE mission_id = ? AND created_at >= ?
       AND state NOT IN ('attached', 'rejected')`).get(missionId, since) as { n: number };
     return row.n;
+  }
+
+  countRunning(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS count FROM management_requests AS request
+      LEFT JOIN sessions AS session ON session.id = request.session_id
+      WHERE request.state IN ('launching', 'launch_unknown')
+        OR (request.state != 'attached' AND session.status IN ('active', 'blocked'))
+        OR (request.state = 'dispatched' AND session.id IS NULL)`).get() as { count: number };
+    return row.count;
   }
 
   insertRequest(request: ManagementRequest): ManagementRequest {

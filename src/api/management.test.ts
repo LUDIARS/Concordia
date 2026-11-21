@@ -1,16 +1,24 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
+import { CircuitBreakerRepository } from "../management/circuit-breaker-repo.js";
+import { CircuitBreakerService } from "../management/circuit-breaker-service.js";
 import { ManagementRepository } from "../management/repository.js";
 import { ManagementService } from "../management/service.js";
 import { managementAdminRouter, managementRemoteApp, managementRouter } from "./management.js";
 
 function setup() {
   let sequence = 0;
-  const service = new ManagementService(new ManagementRepository(makeTestDb()), {
+  const db = makeTestDb();
+  const repo = new ManagementRepository(db);
+  const breaker = new CircuitBreakerService(new CircuitBreakerRepository(db), {
+    now: () => 1_000, isCostBlocked: () => false, countManagedRuns: () => repo.countRunning(),
+    postAlert: async () => false, sessionLink: () => null,
+  });
+  const service = new ManagementService(repo, {
     now: () => 1_000, id: () => `id-${++sequence}`, newToken: () => `tok-${++sequence}`, hashToken: (t) => `h:${t}`,
     inject: vi.fn(), liveSessions: () => [], departmentExists: () => true,
-  });
+  }, breaker);
   const app = new Hono();
   app.route("/v1/management", managementRouter(service));
   app.route("/v1/admin/management", managementAdminRouter(service));
@@ -19,12 +27,12 @@ function setup() {
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  return { app, call, service };
+  return { app, call, service, breaker };
 }
 
-async function createMission(call: ReturnType<typeof setup>["call"]) {
+async function createMission(call: ReturnType<typeof setup>["call"], overrides: Record<string, unknown> = {}) {
   const res = await call("POST", "/v1/admin/management/missions", {
-    name: "CDGD", project_codes: ["Cf"], goal: "g", allowed_kinds: ["discussion"],
+    name: "CDGD", project_codes: ["Cf"], goal: "g", allowed_kinds: ["discussion"], ...overrides,
   });
   expect(res.status).toBe(201);
   return await res.json() as { mission: Record<string, unknown>; token: string };
@@ -81,6 +89,61 @@ describe("management HTTP", () => {
     expect((await call("POST", "/v1/admin/management/requests/x/accept", { actor: "neco" })).status).toBe(404);
   });
 
+  it("scopes Bearer evaluation to enabled missions and records the actor and visible evidence", async () => {
+    const { call, service, breaker } = setup();
+    const { token, mission } = await createMission(call, { requires_effect_check: true, human_gate_kinds: ["spec_change"] });
+    const other = await createMission(call, { autonomous_evaluation: true });
+    const seq = service.ingestEvent({ event_key: "ai", source: "cf", kind: "comment", project_code: "Cf", origin: "ai", summary: "s" }).event.seq;
+    const foreign = service.ingestEvent({ event_key: "other", source: "cf", kind: "comment", project_code: "Di", origin: "human", summary: "s" }).event.seq;
+    const submit = (body: Record<string, unknown>) => call("POST", "/v1/management/requests", {
+      request_key: "r1", kind: "discussion", project_code: "Cf", target_key: "variant/1",
+      purpose: "p", completion_criteria: "c", evidence_seqs: [seq], rationale: "r", ...body,
+    }, token);
+    expect(mission).toMatchObject({ allow_ai_only_evidence: false, autonomous_evaluation: false });
+    expect(await (await submit({})).json()).toMatchObject({ error: "evidence_ai_only" });
+    await call("PATCH", `/v1/admin/management/missions/${mission.id as string}`, { allow_ai_only_evidence: true });
+    const submitted = await submit({});
+    expect(submitted.status).toBe(201);
+    const { request: { id } } = await submitted.json() as { request: { id: string } };
+    const evaluation = (key: string, action: string, auth?: string, evidence?: number[]) => call("POST",
+      `/v1/management/requests/${key}/evaluate`, { action, evidence_seqs: evidence }, auth);
+    expect((await evaluation("r1", "accept")).status).toBe(401);
+    expect((await evaluation(id, "accept", other.token)).status).toBe(404);
+    expect((await evaluation("r1", "accept", token)).status).toBe(403);
+
+    await call("PATCH", `/v1/admin/management/missions/${mission.id as string}`, { autonomous_evaluation: true });
+    expect((await evaluation("r1", "accept", token)).status).toBe(409);
+    const gated = await submit({ request_key: "gated", kind: "spec_change" });
+    expect(await gated.json()).toMatchObject({ request: { state: "waiting_human" } });
+    expect((await evaluation("gated", "accept", token)).status).toBe(403);
+    expect((await evaluation("gated", "approve", token)).status).toBe(400);
+
+    service.repo.transition(service.repo.findRequest(id)!, { state: "dispatched", session_id: "sess-1" }, 2);
+    await call("POST", `/v1/management/requests/${id}/outcome`, { session_id: "sess-1", summary: "done" });
+    expect(service.deliveries().map((item) => item.request.state)).toEqual(["waiting_human"]);
+    breaker.recordFailure({ project_code: "Cf", target_key: "variant/1", session_id: "sess-1" });
+    const accepted = await evaluation("r1", "accept", token);
+    expect(await accepted.json()).toMatchObject({ request: { state: "accepted", human_note: "[ai:dots] accept" } });
+    expect(breaker.snapshot().consecutive_failures).toBe(1);
+    expect((await evaluation("r1", "effect_confirmed", token)).status).toBe(400);
+    expect((await evaluation("r1", "effect_confirmed", token, [foreign])).status).toBe(409);
+    const effect = await evaluation("r1", "effect_confirmed", token, [seq]);
+    expect(await effect.json()).toMatchObject({ request: { state: "effect_confirmed", human_note: expect.stringContaining("[ai:dots] effect_confirmed (evidence_seqs=1)") } });
+    expect(service.changes(service.authenticate(token), 0, 100).events).toContainEqual(expect.objectContaining({
+      kind: "request_effect_confirmed", origin: "ai", parent_request_id: id,
+    }));
+    expect(breaker.snapshot().consecutive_failures).toBe(0);
+
+    const second = await submit({ request_key: "r2", target_key: "variant/2" });
+    const secondId = ((await second.json()) as { request: { id: string } }).request.id;
+    service.repo.transition(service.repo.findRequest(secondId)!, { state: "dispatched", session_id: "sess-2" }, 2);
+    await call("POST", `/v1/management/requests/${secondId}/outcome`, { session_id: "sess-2", summary: "done" });
+    await evaluation("r2", "accept", token);
+    breaker.configure({ consecutive_failures: 1 });
+    expect((await evaluation("r2", "effect_not_met", token, [seq])).status).toBe(200);
+    expect(breaker.snapshot()).toMatchObject({ status: "OPEN", reason: "consecutive_failures", target: { session_id: "sess-2" } });
+  });
+
   it("serves card deliveries and request actions to the human surfaces", async () => {
     const { call } = setup();
     await createMission(call);
@@ -119,13 +182,17 @@ describe("dots remote app (CC-MGMT-07 / CC-MGMT-INV-08)", () => {
     return { service, call, send };
   }
 
-  it("exposes the six dots operations and nothing else", async () => {
+  it("exposes only the dots operations, including Bearer evaluation", async () => {
     const { call, send } = remote();
     const { token } = await createMission(call);
     expect((await send("GET", "/v1/management/context", undefined, token)).status).toBe(200);
     expect((await send("GET", "/v1/management/changes", undefined, token)).status).toBe(200);
     expect((await send("POST", "/v1/management/events", "{}", token)).status).toBe(404);
     expect((await send("POST", "/v1/management/requests/x/outcome", "{}", token)).status).toBe(404);
+    const evaluation = "/v1/management/requests/x/evaluate";
+    expect((await send("POST", evaluation, '{"action":"accept"}')).status).toBe(401);
+    expect(await (await send("POST", evaluation, '{"action":"accept"}', token)).json()).toMatchObject({ error: "not_found" });
+    expect((await send("GET", "/v1/autonomous-loop/circuit-breaker", undefined, token)).status).toBe(404);
     expect((await send("GET", "/v1/admin/management/missions", undefined, token)).status).toBe(404);
   });
 

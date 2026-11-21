@@ -106,6 +106,28 @@ describe("migration ledger", () => {
     }
   });
 
+  it("opts old missions out of autonomy and installs a closed breaker without rewriting the old ledger", () => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter((entry) => entry.version <= 150), 150);
+      db.prepare(`INSERT INTO management_missions
+        (id,name,project_codes,goal,allowed_kinds,human_gate_kinds,token_hash,created_at,updated_at,
+         max_open_requests,daily_request_limit,review_interval_minutes,status)
+        VALUES ('historic','CDGD','["Cf"]','goal','["discussion"]','[]','hash',1,1,3,10,60,'active')`).run();
+      const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT * FROM schema_migrations WHERE version <= 150 ORDER BY version").all()).toEqual(ledger);
+      expect(db.prepare("SELECT allow_ai_only_evidence, autonomous_evaluation FROM management_missions WHERE id='historic'").get())
+        .toEqual({ allow_ai_only_evidence: 0, autonomous_evaluation: 0 });
+      expect(db.prepare("SELECT opened_at,cooldown_ms,failures FROM autonomous_loop_breaker WHERE id=1").get())
+        .toEqual({ opened_at: null, cooldown_ms: null, failures: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM autonomous_loop_breaker_events").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("adds personal budget at 129 without changing an applied 128 ledger or usage budget", () => {
     const db = new Database(":memory:");
     try {

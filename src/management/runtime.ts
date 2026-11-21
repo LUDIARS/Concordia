@@ -5,6 +5,8 @@ import { forgetPendingDelegationSpawnBySpawnId, recordPendingDelegationSpawn } f
 import { interactiveSpawnEnvironment } from "../control/interactive-spawn-env.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { CircuitBreakerRepository } from "./circuit-breaker-repo.js";
+import { CircuitBreakerService } from "./circuit-breaker-service.js";
 import { ManagementDispatcher, type LaunchResult } from "./dispatcher.js";
 import type { ManagementRequest, Mission } from "./domain.js";
 import { buildLaunchPrompt } from "./prompt.js";
@@ -20,6 +22,8 @@ export interface ManagementRuntimeDeps {
   db: Database;
   concordiaUrl: string;
   isBlocked: () => boolean;
+  postAlert: (text: string) => Promise<boolean>;
+  sessionLink: (sessionId: string) => string | null;
   /** project code → 登録済みの本体 checkout。 未登録は null。 */
   projectByCode: (code: string) => { project: string; repo_path: string | null } | null;
   departmentExists: (id: string) => boolean;
@@ -29,6 +33,7 @@ export interface ManagementRuntimeDeps {
 export interface ManagementRuntime {
   service: ManagementService;
   dispatcher: ManagementDispatcher;
+  breaker: CircuitBreakerService;
   stop: () => Promise<void>;
 }
 
@@ -41,6 +46,13 @@ export function hashManagementToken(token: string): string {
 export function createManagementRuntime(deps: ManagementRuntimeDeps): ManagementRuntime {
   const log = createChildLogger("management");
   const repo = new ManagementRepository(deps.db);
+  const breaker = new CircuitBreakerService(new CircuitBreakerRepository(deps.db), {
+    now: Date.now,
+    isCostBlocked: deps.isBlocked,
+    countManagedRuns: () => repo.countRunning(),
+    postAlert: deps.postAlert,
+    sessionLink: deps.sessionLink,
+  });
   const findSessionBySpawnId = deps.db.prepare(
     "SELECT id FROM sessions WHERE json_extract(metadata, '$.concordia_spawn_id') = ? LIMIT 1",
   );
@@ -72,7 +84,7 @@ export function createManagementRuntime(deps: ManagementRuntimeDeps): Management
         .map((row) => ({ ...row, project: row.project ?? code, current_task: row.current_task?.slice(0, 300) ?? null }));
     }),
     departmentExists: deps.departmentExists,
-  });
+  }, breaker);
 
   const launch = async (request: ManagementRequest, mission: Mission, spawnId: string): Promise<LaunchResult> => {
     const project = deps.projectByCode(request.project_code);
@@ -114,19 +126,25 @@ export function createManagementRuntime(deps: ManagementRuntimeDeps): Management
       return row ? ENDED_STATUSES.has(row.status) : null;
     },
     logError: (error) => log.error({ err: error }, "management dispatch failed"),
-  });
+  }, breaker);
 
+  let alertDelivery: Promise<void> | null = null;
   const timer = setInterval(() => {
     try { dispatcher.tick(); } catch (error) { log.error({ err: error }, "management tick failed"); }
+    alertDelivery ??= breaker.flushAlerts().catch((error) => {
+      log.error({ err: error }, "management breaker alert failed");
+    }).finally(() => { alertDelivery = null; });
   }, 2_000);
   timer.unref();
 
   return {
     service,
     dispatcher,
+    breaker,
     stop: async () => {
       clearInterval(timer);
       await dispatcher.stop();
+      await alertDelivery;
     },
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   availableHumanActions,
+  autonomousEvaluationTransition,
   decideIntake,
   humanTransition,
   isAiOnlyEvidence,
@@ -17,6 +18,7 @@ import {
 const mission: Mission = {
   id: "m1", name: "CDGD", department_id: null, project_codes: ["Cf"], goal: "試遊の意見を改善へつなぐ",
   allowed_kinds: ["discussion", "investigation"], human_gate_kinds: ["spec_change"], requires_effect_check: true,
+  allow_ai_only_evidence: false, autonomous_evaluation: false,
   max_open_requests: 2, daily_request_limit: 3, review_interval_minutes: 60, status: "active",
   token_hash: "h", created_at: 0, updated_at: 0, revision: 1,
 };
@@ -49,6 +51,8 @@ describe("decideIntake (CC-MGMT-04)", () => {
     expect(decideIntake({ ...base, evidence: [event(1, "ai")] })).toMatchObject({ code: "evidence_ai_only" });
     expect(decideIntake({ ...base, evidence: [event(1, "ai"), event(2, "human")], evidenceSeqs: [1, 2] }).kind).toBe("accept");
     expect(isAiOnlyEvidence([event(1, "system")])).toBe(false);
+    expect(decideIntake({ ...base, mission: { ...mission, allow_ai_only_evidence: true }, evidence: [event(1, "ai")] }))
+      .toEqual({ kind: "accept", state: "queued" });
   });
 
   it("attaches to an open request on the same target before applying limits", () => {
@@ -77,6 +81,27 @@ describe("humanTransition (CC-MGMT-05 / INV-07)", () => {
   });
 });
 
+describe("autonomous evaluation (CC-MGMT-05 / INV-07)", () => {
+  const enabled = { ...mission, autonomous_evaluation: true };
+  const request = { mission_id: mission.id, project_code: "Cf", kind: "discussion", state: "outcome_recorded" } as ManagementRequest;
+
+  it("requires recorded output and opt-in for acceptance", () => {
+    expect(autonomousEvaluationTransition(enabled, request, "accept", [])).toBe("accepted");
+    expect(autonomousEvaluationTransition(mission, request, "accept", [])).toBeNull();
+    expect(autonomousEvaluationTransition(enabled, { ...request, state: "execution_finished" }, "accept", [])).toBeNull();
+    expect(autonomousEvaluationTransition(enabled, { ...request, state: "waiting_human" }, "accept", [])).toBeNull();
+    expect(autonomousEvaluationTransition({ ...enabled, human_gate_kinds: [request.kind] }, request, "accept", [])).toBeNull();
+  });
+
+  it("requires acceptance and an enabled effect check with evidence", () => {
+    const accepted = { ...request, state: "accepted" as const };
+    expect(autonomousEvaluationTransition(enabled, accepted, "effect_confirmed", [1])).toBe("effect_confirmed");
+    expect(autonomousEvaluationTransition(enabled, accepted, "effect_not_met", [1])).toBe("effect_not_met");
+    expect(autonomousEvaluationTransition(enabled, accepted, "effect_not_met", [])).toBeNull();
+    expect(autonomousEvaluationTransition({ ...enabled, requires_effect_check: false }, accepted, "effect_not_met", [1])).toBeNull();
+  });
+});
+
 describe("human cards (CC-MGMT-06)", () => {
   it("offers only the actions the state allows", () => {
     expect(availableHumanActions("waiting_human", true)).toEqual(["approve", "reject"]);
@@ -91,6 +116,10 @@ describe("human cards (CC-MGMT-06)", () => {
     expect(needsHumanAttention("waiting_human", false)).toBe(true);
     expect(needsHumanAttention("queued", true)).toBe(false);
     expect(needsHumanAttention("accepted", false)).toBe(false);
+    expect(needsHumanAttention("outcome_recorded", true, true)).toBe(false);
+    expect(needsHumanAttention("accepted", true, true)).toBe(false);
+    expect(needsHumanAttention("waiting_human", true, true)).toBe(true);
+    expect(needsHumanAttention("launch_failed", true, true)).toBe(true);
   });
 });
 

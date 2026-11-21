@@ -1,100 +1,18 @@
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:2c3d7411 */
+import augurContract_4ffb371a from './autonomous-evaluation.contract.js'; /* augur-inject:contract-predicate:28633932 */
+import augurContract_d1e34ef2 from './ai-evidence.contract.js'; /* augur-inject:contract-predicate:18c581b4 */
+import type {
+  DecisionVerdict, EvaluationAction, EventOrigin, HumanAction, IntakeInput, IntakeVerdict,
+  ManagementEvent, ManagementRequest, Mission, RequestState,
+} from "./domain-types.js";
+
+export type * from "./domain-types.js";
 /**
  * CDGD マネジメント層 (dots サイドカー) の業務用語・入力規則・遷移。
  * I/O を持たない純関数だけを置く。
  *
  * @implements spec/feature/cdgd-management.md
  */
-
-export type MissionStatus = "active" | "stopped";
-export type EventOrigin = "human" | "ai" | "system";
-export type DecisionVerdict = "request" | "wait" | "skip" | "investigate" | "attach";
-export type RequestState =
-  | "waiting_human"
-  | "rejected"
-  | "queued"
-  | "launching"
-  | "launch_unknown"
-  | "launch_failed"
-  | "attached"
-  | "dispatched"
-  | "execution_finished"
-  | "outcome_recorded"
-  | "accepted"
-  | "effect_confirmed"
-  | "effect_not_met";
-
-export interface Mission {
-  id: string;
-  name: string;
-  department_id: string | null;
-  project_codes: string[];
-  goal: string;
-  allowed_kinds: string[];
-  human_gate_kinds: string[];
-  requires_effect_check: boolean;
-  max_open_requests: number;
-  daily_request_limit: number;
-  review_interval_minutes: number;
-  status: MissionStatus;
-  token_hash: string;
-  created_at: number;
-  updated_at: number;
-  revision: number;
-}
-
-export interface ManagementEvent {
-  seq: number;
-  event_key: string;
-  source: string;
-  kind: string;
-  project_code: string;
-  target_key: string | null;
-  origin: EventOrigin;
-  parent_request_id: string | null;
-  summary: string;
-  ref_url: string | null;
-  observed_at: number;
-  created_at: number;
-}
-
-export interface Decision {
-  id: string;
-  mission_id: string;
-  decision_key: string;
-  verdict: DecisionVerdict;
-  evidence_seqs: number[];
-  rationale: string;
-  request_id: string | null;
-  created_at: number;
-}
-
-export interface ManagementRequest {
-  id: string;
-  mission_id: string;
-  request_key: string;
-  kind: string;
-  project_code: string;
-  target_key: string;
-  purpose: string;
-  completion_criteria: string;
-  evidence_seqs: number[];
-  rationale: string;
-  state: RequestState;
-  attached_to: string | null;
-  session_id: string | null;
-  spawn_id: string | null;
-  launch_deadline_at: number | null;
-  outcome_summary: string | null;
-  outcome_refs: string[];
-  human_note: string | null;
-  error: string | null;
-  created_at: number;
-  updated_at: number;
-  revision: number;
-  /** 人間向けカードを配達した revision (CC-MGMT-06)。 */
-  delivered_revision: number;
-  discord_message_id: string | null;
-}
 
 /** spawn 照合の寿命 (pending-delegation-spawns の TTL と同じ)。 */
 export const LAUNCH_CONFIRM_WINDOW_MS = 5 * 60 * 1000;
@@ -221,22 +139,6 @@ export function isAiOnlyEvidence(events: readonly Pick<ManagementEvent, "origin"
   return events.length > 0 && events.every((e) => e.origin === "ai");
 }
 
-export type IntakeVerdict =
-  | { kind: "reject"; code: string; message: string }
-  | { kind: "attach"; parent: ManagementRequest }
-  | { kind: "accept"; state: "queued" | "waiting_human" };
-
-export interface IntakeInput {
-  mission: Mission;
-  kind: string;
-  project_code: string;
-  evidence: readonly ManagementEvent[];
-  evidenceSeqs: readonly number[];
-  sameTargetOpen: ManagementRequest | null;
-  activeCount: number;
-  todayCount: number;
-}
-
 /** 受付判断 (CC-MGMT-04 の 1, 2, 4, 5, 6)。冪等照合は呼び出し側で先に行う。 */
 export function decideIntake(input: IntakeInput): IntakeVerdict {
   const { mission } = input;
@@ -250,7 +152,7 @@ export function decideIntake(input: IntakeInput): IntakeVerdict {
   if (input.evidence.length !== input.evidenceSeqs.length) {
     return reject("evidence_not_visible", "根拠に任務から見えないイベントが含まれています");
   }
-  if (isAiOnlyEvidence(input.evidence)) {
+  if (!mission.allow_ai_only_evidence && isAiOnlyEvidence(input.evidence)) {
     return reject("evidence_ai_only", "根拠が AI 由来のイベントだけです");
   }
   if (input.sameTargetOpen) return { kind: "attach", parent: input.sameTargetOpen };
@@ -262,6 +164,8 @@ export function decideIntake(input: IntakeInput): IntakeVerdict {
   }
   return { kind: "accept", state: mission.human_gate_kinds.includes(input.kind) ? "waiting_human" : "queued" };
 }
+// @ts-expect-error augur-inject
+decideIntake = contract(decideIntake, { ...augurContract_d1e34ef2, contractId: 'C-41', mode: 'observe', sample: 1, where: 'src/management/domain.ts:143', rule: 'contract-wrap', id: 'd1e34ef2' }); /* augur-inject:contract-wrap:d1e34ef2 */
 
 function reject(code: string, message: string): IntakeVerdict {
   return { kind: "reject", code, message };
@@ -272,7 +176,26 @@ export function uncoveredSeqs(pending: readonly number[], covered: ReadonlySet<n
   return pending.filter((seq) => !covered.has(seq));
 }
 
-export type HumanAction = "approve" | "reject" | "accept" | "effect_confirmed" | "effect_not_met";
+export function requireEvaluationAction(value: unknown): EvaluationAction {
+  if (value === "accept" || value === "effect_confirmed" || value === "effect_not_met") return value;
+  return fail("invalid_action", "action は accept、effect_confirmed、effect_not_met のいずれかです");
+}
+
+export function isAutonomousEvaluationTarget(mission: Mission, request: ManagementRequest): boolean {
+  return mission.status === "active" && mission.autonomous_evaluation && request.mission_id === mission.id
+    && mission.project_codes.includes(request.project_code) && mission.allowed_kinds.includes(request.kind)
+    && !mission.human_gate_kinds.includes(request.kind);
+}
+
+export function autonomousEvaluationTransition(
+  mission: Mission, request: ManagementRequest, action: EvaluationAction, evidence: readonly number[],
+): RequestState | null {
+  if (!isAutonomousEvaluationTarget(mission, request)) return null;
+  if (action === "accept" ? request.state !== "outcome_recorded" : evidence.length === 0) return null;
+  return humanTransition(request.state, action, mission.requires_effect_check);
+}
+// @ts-expect-error augur-inject
+autonomousEvaluationTransition = contract(autonomousEvaluationTransition, { ...augurContract_4ffb371a, contractId: 'C-42', mode: 'observe', sample: 1, where: 'src/management/domain.ts:190', rule: 'contract-wrap', id: '4ffb371a' }); /* augur-inject:contract-wrap:4ffb371a */
 
 export function isHumanAction(value: unknown): value is HumanAction {
   return value === "approve" || value === "reject" || value === "accept"
@@ -305,7 +228,8 @@ export function availableHumanActions(state: RequestState, requiresEffectCheck: 
 }
 
 /** 新しいカードを出す状態。 それ以外はカードがある場合だけ編集する。 */
-export function needsHumanAttention(state: RequestState, requiresEffectCheck: boolean): boolean {
+export function needsHumanAttention(state: RequestState, requiresEffectCheck: boolean, autonomous = false): boolean {
+  if (autonomous) return state === "waiting_human" || state === "launch_failed";
   return state === "launch_failed" || availableHumanActions(state, requiresEffectCheck).length > 0;
 }
 

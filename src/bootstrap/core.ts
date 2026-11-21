@@ -2578,6 +2578,8 @@ export async function startBackend(): Promise<BackendHandle> {
     db,
     concordiaUrl: publicUrl,
     isBlocked: isCostBlocked,
+    postAlert: controlRuntime.postAlert,
+    sessionLink: controlRuntime.sessionLink,
     projectByCode: (code) => {
       const row = projectCodesRepo.findByCode(code);
       return row ? { project: row.project, repo_path: row.repo_path } : null;
@@ -2680,6 +2682,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     chores: choresRuntime.service,
     management: managementRuntime.service,
+    autonomousLoopBreaker: managementRuntime.breaker,
     repo,
     controlJobs,
     metrics: metricsStore,

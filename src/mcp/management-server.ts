@@ -108,7 +108,7 @@ export function buildManagementServer(call: ManagementCaller): McpServer {
   }, async (input) => toToolResult(await call("POST", "/v1/management/decisions", input)));
 
   server.registerTool("submit_management_request", {
-    description: "Cc へ作業を依頼する。Cc が既存担当との照合・上限・人間判断の要否を判定し、受付状態を返す。結果が不明なら同じ request_key で再送するか get_management_request で照会し、別のキーで出し直さない。根拠が AI 由来の変更だけの依頼は拒否される。",
+    description: "Cc へ作業を依頼する。Cc が既存担当との照合・上限・人間判断の要否を判定し、受付状態を返す。結果が不明なら同じ request_key で照会または再送する。AI 由来だけの根拠は任務で許可された場合に限る。",
     inputSchema: {
       request_key: z.string().min(1).max(200),
       kind: z.string().min(2).max(41).describe("任務で許可された依頼種別"),
@@ -125,6 +125,16 @@ export function buildManagementServer(call: ManagementCaller): McpServer {
     description: "request_key または依頼 ID から受付・実行・成果・受入の状態を返す。",
     inputSchema: { key: z.string().min(1).max(200) },
   }, async ({ key }) => toToolResult(await call("GET", `/v1/management/requests/${encodeURIComponent(key)}`)));
+
+  server.registerTool("evaluate_management_request", {
+    description: "任務で自律評価を許可された依頼の成果を受け入れるか、効果を確認する。人間判断対象の依頼は評価できない。効果確認には任務から可視な根拠の seq が必要。結果が不明なら同じ key で状態を照会する。",
+    inputSchema: {
+      key: z.string().min(1).max(200),
+      action: z.enum(["accept", "effect_confirmed", "effect_not_met"]),
+      evidence_seqs: z.array(z.number().int().positive()).min(1).max(200).optional(),
+      note: z.string().max(1000).optional(),
+    },
+  }, async ({ key, ...input }) => toToolResult(await call("POST", `/v1/management/requests/${encodeURIComponent(key)}/evaluate`, input)));
 
   server.registerTool("acknowledge_management_changes", {
     description: "seq までの変更を処理済みにする。範囲内に判断も依頼も記録されていない変更があれば拒否される。",

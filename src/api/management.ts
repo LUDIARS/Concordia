@@ -74,7 +74,7 @@ export interface DotsAuthGuard {
 }
 
 /**
- * dots 向けの 6 操作 (CC-MGMT-03)。 Bearer トークン必須。 本体の /v1/management と
+ * dots 向けの操作 (CC-MGMT-03)。 Bearer トークン必須。 本体の /v1/management と
  * dots 専用の入口の両方がこれだけを共有する。
  */
 export function registerDotsRoutes(app: Hono, service: ManagementService, guard?: DotsAuthGuard): void {
@@ -126,6 +126,13 @@ export function registerDotsRoutes(app: Hono, service: ManagementService, guard?
     } catch (error) { return handle(c, error); }
   });
 
+  app.post("/requests/:key/evaluate", async (c) => {
+    try {
+      const mission = authenticate(c);
+      return c.json({ request: service.evaluateRequest(mission, c.req.param("key"), await readBody(c)) });
+    } catch (error) { return handle(c, error); }
+  });
+
   app.post("/acknowledge", async (c) => {
     try {
       const mission = authenticate(c);
@@ -134,7 +141,6 @@ export function registerDotsRoutes(app: Hono, service: ManagementService, guard?
   });
 }
 
-/** dots 専用の入口用: 6 操作だけを /v1/management に載せ、 他は全部 404。 */
 /**
  * Cloudflare Tunnel 経由の公開 (CC-MGMT-08)。 `host` 宛ての要求は Access の JWT
  * (Cf-Access-Jwt-Assertion) を検証できたものだけ通す。

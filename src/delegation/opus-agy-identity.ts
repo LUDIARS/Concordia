@@ -3,7 +3,8 @@
  *
  * 2026-11-21 neco 指示「Gemini の起動とわかるように Delegation Template は別で用意して絵文字も変えよう」。
  * Opus テンプレートの中で provider を黙って差し替えず、 別テンプレートとして見せる。
- * call_name / title / emoji は neco 確定 (2026-11-21)。 変えるときはこの 1 か所だけを直す
+ * call_name / title / emoji は neco 確定 (2026-11-21。 emoji は Gemini Argon の 🔷 と
+ * 見分けがつかないため 2026-11-22 neco 決定で 🔹 へ変更)。 変えるときはこの 1 か所だけを直す
  * (seed・振替・表示はすべてここを参照する)。
  *
  * @implements spec/feature/delegation-model-tiers.md DMT-07
@@ -16,7 +17,7 @@ export const OPUS_CALL_NAME = "opus";
 export const OPUS_AGY_TEMPLATE_IDENTITY = {
   callName: "opus-gemini",
   title: "Opus (Gemini 枠)",
-  emoji: "🔷",
+  emoji: "🔹",
 } as const;
 
 /**

@@ -259,16 +259,24 @@ describe("seedDelegationTemplates", () => {
     const opus = repo.findTemplateByCallName("opus")!;
     const agyOpus = repo.findTemplateByCallName("opus-gemini");
     expect(agyOpus).toMatchObject({
-      title: "Opus (Gemini 枠)", emoji: "🔷", target_provider: "agy", model: "claude-opus-5-5-medium",
+      title: "Opus (Gemini 枠)", emoji: "🔹", target_provider: "agy", model: "claude-opus-5-5-medium",
       category: "employee", is_active: 1,
     });
     // Opus テンプレート自体は Claude のまま (provider を黙って差し替えない)。
     expect(opus).toMatchObject({ target_provider: "claude", model: "opus" });
     expect(agyOpus!.emoji).not.toBe(opus.emoji);
+    // 2026-11-22 neco 決定: Gemini Argon (🔷) と見分けがつくよう 🔹。 call_only を含む全テンプレートで照合する。
+    const argon = repo.listTemplates({ includeInactive: true }).find((t) => t.call_name === "argon");
+    expect(argon?.emoji).toBe("🔷");
+    expect(agyOpus!.emoji).not.toBe(argon?.emoji);
     const after = repo.listTemplates({ includeInactive: false })
       .filter((t) => t.sort_order > opus.sort_order)
       .sort((a, b) => a.sort_order - b.sort_order)[0];
     expect(after?.call_name).toBe("opus-gemini");
+    // 旧 seed の 🔷 が残った既存 DB 行も、 起動時の seed 再適用で 🔹 へ上書きされる。
+    repo.updateTemplate(agyOpus!.id, { emoji: "🔷" });
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplateByCallName("opus-gemini")?.emoji).toBe("🔹");
   });
 
   // 2026-11-21 neco 指示「Neon を Astra の下に」。 新規委託の選択肢 (call_only を除いた一覧) で Astra の直後。

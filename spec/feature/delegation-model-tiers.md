@@ -52,7 +52,8 @@ usage again, rather than trusting the observation at enqueue time.
   絵文字も変えよう」), never a silent provider swap inside the Opus template. Seed
   provider `agy`, model `claude-opus-5-5-<effort>` (agy encodes effort in the model ID;
   `agy models` lists low / medium / high), call_name `opus-gemini`, title
-  「Opus (Gemini 枠)」, emoji 🔷, sorted right after Opus. The identity lives in one
+  「Opus (Gemini 枠)」, emoji 🔹 (neco 2026-11-22: changed from 🔷 so it is distinct
+  from Gemini Argon's 🔷), sorted right after Opus. The identity lives in one
   constant (`src/delegation/opus-agy-identity.ts`). A rerouted run records the agy
   template's call_name / template_id, so Discord and Web launch displays show its
   emoji and title. Files: `opus-agy-identity.ts`, `opus-agy-reroute.ts`, `seed.ts`,

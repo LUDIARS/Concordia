@@ -2,11 +2,12 @@
  * 管制チャンネルへ 1 時間に 1 回投げる進捗ボードのまとめ (純関数)。
  * 投稿の要否と本文だけを決め、投稿と最終投稿時刻の保存は runtime が行う。
  *
- * @implements spec/feature/control-session.md §7
+ * @implements spec/feature/control-session.md §7 §10
  */
 import type { ControlBoardRow } from "./board-repo.js";
 import type { EndedSessionRecord } from "./ended-log.js";
 import { formatJstClock } from "./jst-clock.js";
+import type { SessionLinkResolver } from "./session-link.js";
 import { SESSION_STATUS_LABEL, SESSION_STATUS_ORDER, type SessionActivityStatus } from "../control/session-classify.js";
 
 export const CONTROL_SUMMARY_INTERVAL_MS = 60 * 60 * 1000;
@@ -65,13 +66,16 @@ function countByStatus(rows: readonly ControlBoardRow[]): string {
   return parts.join(" / ");
 }
 
-function rowLine(row: ControlBoardRow, nowMs: number): string {
+function rowLine(row: ControlBoardRow, nowMs: number, linkOf: SessionLinkResolver): string {
   const parts = [`- ${row.project} ${row.session_id}`];
   if (row.last_activity_at !== null) parts.push(`無活動 ${Math.max(0, Math.floor((nowMs / 1000 - row.last_activity_at) / 60))} 分`);
   parts.push(row.status_reason ?? "理由不明");
   if (row.nudge_last_at) parts.push(`直近の追加指示 ${formatJstClock(row.nudge_last_at)} JST`);
   const task = taskHead(row.current_task);
   if (task) parts.push(`タスク: ${task}`);
+  // 判断が要るセッションへ飛べるリンク (§10)。山括弧で Discord の埋め込みを抑止する。
+  const link = linkOf(row.session_id);
+  if (link) parts.push(`<${link}>`);
   return parts.join(" / ");
 }
 
@@ -90,6 +94,7 @@ function taskHead(task: string | null): string | null {
 
 export function renderHourlySummary(
   rows: readonly ControlBoardRow[], nowMs: number, ended: readonly EndedSessionRecord[] = [],
+  linkOf: SessionLinkResolver = () => null,
 ): string {
   const header = `🗂️ [管制まとめ] ${formatJst(nowMs)} — 動いているセッション ${rows.length} 件`;
   const endedLines = ended.map((record) => `- ${record.project} ${record.session_id} / ${record.reason} / ${formatJstClock(record.ended_at)} JST`);
@@ -103,7 +108,7 @@ export function renderHourlySummary(
   ];
   for (const status of LISTED_STATUSES) {
     const matched = rows.filter((row) => row.status === status);
-    lines.push(...section(`${SESSION_STATUS_LABEL[status]}: ${matched.length} 件`, matched.map((row) => rowLine(row, nowMs))));
+    lines.push(...section(`${SESSION_STATUS_LABEL[status]}: ${matched.length} 件`, matched.map((row) => rowLine(row, nowMs, linkOf))));
   }
   lines.push(...section(`終了したもの: ${ended.length} 件`, endedLines));
   return noMention(lines.join("\n"));

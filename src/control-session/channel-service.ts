@@ -5,7 +5,7 @@
  * @implements spec/feature/control-session.md — 3. 管制チャンネルと側セッション / CC-CTL-INV-03 / CC-CTL-INV-05
  */
 import type { SessionRow } from "../shared/types.js";
-import type { ControlBoardRow } from "./board-repo.js";
+import type { ControlBoardRowWithLink } from "./session-link.js";
 import { parseBulkCommand } from "./bulk-command.js";
 import { INELIGIBLE_REASON_LABEL } from "./instruction-eligibility.js";
 import type { DispatchResult, InstructionOrigin } from "./instruction-dispatch.js";
@@ -23,9 +23,9 @@ export interface ControlChannelDeps {
   activeSessions(): SessionRow[];
   projectOf(session: SessionRow): string;
   isControlSession(session: SessionRow): boolean;
-  boardRows(): ControlBoardRow[];
+  boardRows(): ControlBoardRowWithLink[];
   dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult>;
-  answer(input: { rows: ControlBoardRow[]; question: string; nowSec: number }): Promise<SideDialogueResult>;
+  answer(input: { rows: ControlBoardRowWithLink[]; question: string; nowSec: number }): Promise<SideDialogueResult>;
   nowSec(): number;
 }
 

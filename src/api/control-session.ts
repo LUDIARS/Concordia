@@ -9,7 +9,7 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
-import type { ControlBoardRow } from "../control-session/board-repo.js";
+import type { ControlBoardRowWithLink } from "../control-session/session-link.js";
 import type { ControlHolder } from "../control-session/holder-store.js";
 import type { DispatchResult, InstructionOrigin } from "../control-session/instruction-dispatch.js";
 
@@ -23,7 +23,7 @@ export interface ControlSessionApiDeps {
   isEnabled(): boolean;
   holder(): ControlHolder | null;
   currentControlSessionId(): string | null;
-  boardRows(): ControlBoardRow[];
+  boardRows(): ControlBoardRowWithLink[];
   dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult>;
 }
 

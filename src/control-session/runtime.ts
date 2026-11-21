@@ -2,14 +2,14 @@
  * 管制の組み立て: 巡回・指示の届け方・管制チャンネル・API の口を 1 か所でつなぐ。
  * Discord 面は attachChannel で後から差し込む (Bot が無い構成でも巡回と API は動く)。
  *
- * @implements spec/feature/control-session.md §4 §6 §7
+ * @implements spec/feature/control-session.md §4 §6 §7 §10
  */
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { SettingsStore } from "../admin/settings-store.js";
 import type { SessionRow } from "../shared/types.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
-import { ControlBoardRepo, type ControlBoardRow } from "./board-repo.js";
+import { ControlBoardRepo } from "./board-repo.js";
 import type { ControlChannelSurface } from "./channel-surface.js";
 import { handleControlChannelPost, renderDispatchSummary, type ControlChannelPost } from "./channel-service.js";
 import { CONTROL_START_PROMPT, prepareControlWorkspace } from "./charter.js";
@@ -27,6 +27,7 @@ import {
 } from "./instruction-dispatch.js";
 import { createControlPatrol } from "./patrol.js";
 import { createChildReaper, type ChildReaperDeps } from "./reaper.js";
+import { safeLinkResolver, withSessionLinks, type ControlBoardRowWithLink, type SessionLinkResolver } from "./session-link.js";
 import { createSideDialogue, type OneShotRunner } from "./side-dialogue.js";
 import { createControlSupervisor, type ControlTickReport } from "./supervisor.js";
 
@@ -60,6 +61,11 @@ export interface ControlRuntimeDeps {
   reaper?: Omit<ChildReaperDeps, "isControlSession" | "postToChannel" | "now" | "log">;
   /** 分類と停止への追加指示 (§2 §4) に使う照会。無ければ分類しない。 */
   patrol?: Omit<ClassifyFactPorts, "probes">;
+  /**
+   * 判断が要るセッションへ飛ぶリンク (§10)。質問カードのメッセージ URL かセッションのチャンネル/スレッドの URL。
+   * 無ければリンク無し (従来どおり)。例外はリンク無しにして警告ログに残す。
+   */
+  sessionLink?: SessionLinkResolver;
   now?: () => number;
   log: { info(message: string): void; warn(message: string): void };
 }
@@ -112,6 +118,8 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
 
   const side = createSideDialogue(deps.runOneShot);
   const endedLog = createEndedLog(deps.settings);
+  const linkOf = safeLinkResolver(deps.sessionLink, deps.log);
+  const linkedBoardRows = (): ControlBoardRowWithLink[] => withSessionLinks(board.list(), linkOf);
 
   async function postIfReady(text: string): Promise<boolean> {
     if (!surface || !surfaceReady) return false;
@@ -189,7 +197,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
     const nowMs = now();
     if (!isSummaryDue(parseSummaryPostedAt(deps.settings.get(CONTROL_SUMMARY_POSTED_KEY)), nowMs)) return;
     try {
-      await target.post(renderHourlySummary(board.list(), nowMs, endedLog.list()));
+      await target.post(renderHourlySummary(board.list(), nowMs, endedLog.list(), linkOf));
       deps.settings.set(CONTROL_SUMMARY_POSTED_KEY, String(nowMs));
       endedLog.clear();
     } catch (error) {
@@ -217,7 +225,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
       activeSessions: () => deps.sessions.findAllActive(),
       projectOf: deps.projectOf,
       isControlSession: (session) => supervisor.isControlSession(session),
-      boardRows: (): ControlBoardRow[] => board.list(),
+      boardRows: linkedBoardRows,
       dispatch,
       answer: (input) => side.answer(input),
       nowSec: () => Math.floor(now() / 1000),
@@ -226,7 +234,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
       isEnabled: deps.isEnabled,
       holder: () => holders.read(),
       currentControlSessionId: () => supervisor.currentControlSessionId(),
-      boardRows: () => board.list(),
+      boardRows: linkedBoardRows,
       dispatch,
     },
     injectSource: CONTROL_INJECT_SOURCE,

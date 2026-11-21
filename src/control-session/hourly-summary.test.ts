@@ -79,4 +79,18 @@ describe("hourly summary render", () => {
     expect(renderHourlySummary([], NOW, [{ session_id: "gone", project: "Vu", reason: "担当 PR がマージ済み", ended_at: NOW / 1000 }]))
       .toContain("終了したもの: 1 件\n- Vu gone / 担当 PR がマージ済み / 12:05 JST");
   });
+
+  it("appends a link (in angle brackets) to listed sessions that have one (§10)", () => {
+    const url = "https://discord.com/channels/100000000000000001/200000000000000001/300000000000000001";
+    const text = renderHourlySummary([
+      row("d", { status: "human_wait", status_reason: "質問カードの回答待ち" }),
+      row("b", { status: "stalled", status_reason: "待つ理由なし" }),
+      row("w"),
+    ], NOW, [], (id) => (id === "d" || id === "w" ? url : null));
+    expect(text).toContain(`人間の判断待ち: 1 件\n- Cc d / 質問カードの回答待ち / <${url}>`);
+    expect(text).toContain("停止: 1 件\n- Cc b / 待つ理由なし\n");
+    // 作業中の行は一覧に出さないのでリンクも出ない。メンションは含めない (CC-CTL-INV-07)。
+    expect(text.split(url)).toHaveLength(2);
+    expect(text).not.toContain("@");
+  });
 });

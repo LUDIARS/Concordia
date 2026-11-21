@@ -18,6 +18,14 @@ describe("side dialogue (CC-CTL-INV-03)", () => {
     expect(buildSideDialoguePrompt({ rows: [], question: "q", nowSec: 0 })).toContain("動いているセッションはありません");
   });
 
+  it("shows board links and asks to attach them when naming sessions that need a decision (§10)", () => {
+    const url = "https://discord.com/channels/100000000000000001/200000000000000001";
+    const prompt = buildSideDialoguePrompt({ rows: [{ ...rows[0], link: url }], question: "判断待ちは？", nowSec: 600 });
+    expect(prompt).toContain(`現況=審査待ち / リンク=<${url}>`);
+    expect(prompt).toContain("判断が必要なセッション");
+    expect(buildSideDialoguePrompt({ rows, question: "q", nowSec: 600 })).not.toContain("リンク=");
+  });
+
   it("limits concurrent side sessions and releases the slot afterwards", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => { release = resolve; });

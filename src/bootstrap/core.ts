@@ -185,6 +185,7 @@ import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { isAwaitingHumanInput, readSessionTranscriptTail, startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { createControlRuntime } from "../control-session/runtime.js";
+import { controlSessionLink } from "../control-session/session-link.js";
 import type { SessionRow } from "../shared/types.js";
 import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
 import { CONTROL_REAPER_SOURCE } from "../control-session/reaper.js";
@@ -2244,6 +2245,13 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoot: () => cfg.workspaceRoot || cfg.spawnDefaultCwd,
     concordiaUrl: publicUrl,
     runOneShot: (prompt) => runClaude(prompt, { model: "sonnet", conversationOnly: true, timeoutMs: 90_000 }),
+    // 判断が要るセッションへ飛ぶリンク (spec/feature/control-session.md §10)。人間のやることの報告と同じ組み立て。
+    sessionLink: (sessionId) => controlSessionLink({
+      latestUnansweredQuestion: (id) => pendingQuestions.findLatestUnanswered(id),
+      sessionChannel: (id) => discordChannels.findBySessionId(id),
+      hqGuildId: () => resolveDiscordConfig(discordConfig, secretBox).guildId ?? null,
+      subsidiaryGuildId: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.guild_id ?? null,
+    }, sessionId),
     // 作業指示で起動した子セッションの片付け (spec/feature/control-session.md §9)。
     reaper: {
       isEnabled: () => adminState.getControlSessionReaperEnabled(),

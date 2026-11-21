@@ -16,7 +16,7 @@ related:
   - feature/daily-goal-run.md
   - ux/session-coordination.md
   - architecture/ddd.md
-updated: 2026-11-17
+updated: 2026-11-21
 ---
 
 # 管制セッション
@@ -140,7 +140,7 @@ updated: 2026-11-17
 | メソッド | パス | 用途 |
 |---|---|---|
 | GET | `/v1/control/status` | 設定・保持者・管制セッションの生死 |
-| GET | `/v1/control/board` | 進捗ボード全件 |
+| GET | `/v1/control/board` | 進捗ボード全件。各行に `link` (判断が要るセッションへ飛ぶ URL、引けなければ `null`、§10) を添える |
 | POST | `/v1/control/instructions` | `{from_session_id, targets: [session_id], text}`。管制セッションからの追加指示。結果は届けた / 送らなかった理由ごと |
 
 すべて既存の loopback 認可の内側。OFF のときは 409 `control_disabled`。
@@ -205,9 +205,23 @@ Cc の記録では終了済みのセッションのチャンネル/スレッド�
 - 既に閉じたスレッドを終了表示にするときは編集しない (閉じていること自体が終了の表示)。
 - 状態カードの定期照合を OFF にしていても、終了したセッションのチャンネル/スレッドを閉じる照合を `CONCORDIA_DISCORD_SESSION_FORUM_RECONCILE_SEC` (既定 600 秒、0 で停止) ごとに回す。会話記録は消さない (アーカイブへ移す・スレッドを閉じるだけ)。
 
+### 10. 判断待ちのセッションへのリンク (2026-11-21 neco 指示)
+
+指示 (原文): 「判断が必要なものについて管制から各セッションへリンクを貼って飛べるようにする」。
+まとめで判断待ちや停止を知っても、そのセッションへ自分で探しに行かないと答えられなかったので、管制が出す一覧からそのまま飛べるようにする (UX-CC-SC-W2)。
+
+- リンクの組み立ては `session-link.ts` の純関数 (`controlSessionLink`)。未回答の質問カードがあれば、そのカードの Discord メッセージ URL (`humanTodoQuestionLink`、人間のやることの報告と同じ) を優先する。無ければセッションの Discord チャンネル/スレッドの URL `https://discord.com/channels/<guild>/<channel>`。
+- guild はセッションのチャンネル対応表の scope で決める ('' = 本社の guild、`sub:<id>` = その子会社の guild)。対応表に行が無い・id が Discord の snowflake でない (Slack 等) ときはリンク無し。
+- 1 時間ごとのまとめ (§7) は、停止・応答なし・人間の判断待ちの各行の末尾に ` / <URL>` を付ける。山括弧は Discord の埋め込みを抑止するため。作業中など一覧に出さない行には付けない。メンションは今どおり含めない (CC-CTL-INV-07)。
+- 側セッション (§3) の進捗ボードには `リンク=<URL>` を載せ、判断が必要なセッションを挙げるときはボードのリンクをそのまま添えるよう指示する (リンクを作らせない)。
+- `GET /v1/control/board` の各行に `link` を添える。
+- 境界: リンクは読むだけで、質問カード・チャンネル対応表・guild 設定の所有者は変えない。照会が例外を投げたらリンク無しにして警告ログに残し、まとめの投稿・側セッションの回答・API を止めない (`safeLinkResolver`)。
+- 戻し方: 組み立て (`bootstrap/core.ts`) で `sessionLink` を渡さなければ、リンク無しの従来どおりの本文・応答になる。
+- 管制から Muse 等の外部 push 系への連携の状況報告は、対象と状態の読み口が決まっていないので未着手 (人間の判断待ち)。
+
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`review-status-source.ts` — 審査状況の読み口 (open 一覧の短時間キャッシュ・セッションへの絞り込み・読み取り失敗の連続数)。`confirmation-activity.ts` — 応答待ちの確認を解く判定の入力 (HEAD・審査中 PR)。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。

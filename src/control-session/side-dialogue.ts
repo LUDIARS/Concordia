@@ -5,7 +5,7 @@
  * @implements spec/feature/control-session.md — 3. 管制チャンネルと側セッション / CC-CTL-INV-03
  */
 import { SESSION_STATUS_LABEL } from "../control/session-classify.js";
-import type { ControlBoardRow } from "./board-repo.js";
+import type { ControlBoardRowWithLink } from "./session-link.js";
 
 export const SIDE_DIALOGUE_MAX_CONCURRENT = 2;
 const BOARD_ROW_LIMIT = 60;
@@ -18,7 +18,7 @@ export type SideDialogueResult =
   | { ok: true; reply: string }
   | { ok: false; reason: "busy" | "failed" };
 
-function boardTable(rows: readonly ControlBoardRow[], nowSec: number): string {
+function boardTable(rows: readonly ControlBoardRowWithLink[], nowSec: number): string {
   if (!rows.length) return "(動いているセッションはありません)";
   return rows.slice(0, BOARD_ROW_LIMIT).map((row) => {
     const idleMin = row.last_activity_at == null ? "不明" : `${Math.max(0, Math.round((nowSec - row.last_activity_at) / 60))} 分前`;
@@ -30,14 +30,16 @@ function boardTable(rows: readonly ControlBoardRow[], nowSec: number): string {
       `最後の会話=${idleMin}`,
       row.current_task ? `タスク=${row.current_task}` : null,
       row.side_summary ? `現況=${row.side_summary}` : null,
+      row.link ? `リンク=<${row.link}>` : null,
     ].filter(Boolean).join(" / ");
   }).join("\n");
 }
 
-export function buildSideDialoguePrompt(input: { rows: readonly ControlBoardRow[]; question: string; nowSec: number }): string {
+export function buildSideDialoguePrompt(input: { rows: readonly ControlBoardRowWithLink[]; question: string; nowSec: number }): string {
   return [
     "あなたは Concordia の管制の窓口です。下の進捗ボード (各セッションの最新 1 行) だけを根拠に、人間の質問へ日本語で短く答えてください。",
     "ボードに無いことは「ボードに無い」と答え、推測で完了・成功・許可を述べないでください。指示を送ることはできません (一括指示は「一括: 本文」で投稿するよう案内してください)。",
+    "判断が必要なセッション (人間の判断待ち・停止・応答なし) を挙げるときは、ボードにリンクがあれば山括弧ごとそのまま添えてください。リンクを作らないでください。",
     `## 進捗ボード (${input.rows.length} 件)`,
     boardTable(input.rows, input.nowSec),
     "## 人間の質問",
@@ -49,7 +51,7 @@ export function buildSideDialoguePrompt(input: { rows: readonly ControlBoardRow[
 export function createSideDialogue(run: OneShotRunner, maxConcurrent = SIDE_DIALOGUE_MAX_CONCURRENT) {
   let running = 0;
   return {
-    async answer(input: { rows: readonly ControlBoardRow[]; question: string; nowSec: number }): Promise<SideDialogueResult> {
+    async answer(input: { rows: readonly ControlBoardRowWithLink[]; question: string; nowSec: number }): Promise<SideDialogueResult> {
       if (running >= maxConcurrent) return { ok: false, reason: "busy" };
       running += 1;
       try {

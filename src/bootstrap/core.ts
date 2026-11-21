@@ -167,6 +167,7 @@ import { createRecentRunLedger } from "../playtest-review/recent-run-ledger.js";
 import { createPlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
 import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "../playtest-review/playtest-review-targets.js";
 import { createPlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
+import { decidePlaytestReviewAuth, PLAYTEST_INTAKE_TOKEN_SETTING, readPlaytestIntakeToken } from "../playtest-review/playtest-review-auth.js";
 import { SqlitePackageUpdateLedger } from "../deploy/package-updates-runtime.js";
 import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
 import { handleProjectPushed } from "../deploy/project-created.js";
@@ -1487,10 +1488,14 @@ export async function startBackend(): Promise<BackendHandle> {
         return channelId && token ? { channelId, token } : null;
       },
     }),
-    authorize: (header: string | undefined) => {
-      const expected = discordConfig.get("excubitor_dispatch_token");
-      return expected ? header === expected : cfg.host === "127.0.0.1" || cfg.host === "localhost";
-    },
+    // 受け口専用の鍵 (spec/feature/playtest-review-notify.md — 認証)。 設定 > AI プレイテスト通知で人間が入れ、 schema_meta に
+    // secret-box で暗号化して置く (API は値を返さない)。 未設定なら従来どおりデプロイ通知と共有の判定に任せる。
+    // 読めない (復号できない) ときは readMetaSetting を通さず「読めない」として全て断る (CC-PLAYTEST-INV-07)。
+    authorize: (header: string | undefined) => decidePlaytestReviewAuth({
+      presented: header,
+      intakeToken: readPlaytestIntakeToken(() => adminState.store.get(PLAYTEST_INTAKE_TOKEN_SETTING)),
+      legacy: serviceDeployed.authorize,
+    }),
     log: createChildLogger("playtest-review"),
   };
   /**

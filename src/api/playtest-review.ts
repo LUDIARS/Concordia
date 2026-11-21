@@ -1,7 +1,8 @@
 /**
  * POST /v1/events/playtest-review — Ingenium (`ingenium playtest`) が AI プレイテスト感想を Cc に渡す口。
  * 本文は決めた項目だけ (strict)。 良い点・悪い点はどちらも 1 件以上必須で、 欠けたら 400 (投稿しない)。
- * 宛先は Cc の設定が決める (設定で有効なら Tabula にも載せ、 応答の tabula に結果を返す)。 認証はデプロイ・リリース通知と同じ共有トークン (loopback 運用では省略可)。
+ * 宛先は Cc の設定が決める (設定で有効なら Tabula にも載せ、 応答の tabula に結果を返す)。 認証は `x-excubitor-token` を本文より先に確かめる: 受け口専用の鍵 (設定 `playtest_notify.intake_token`) があればそれだけ、
+ * 無ければデプロイ・リリース通知と同じ共有トークン (loopback 運用では省略可)。 鍵が合わなければ本文を読まずに 401 (`src/playtest-review/playtest-review-auth.ts`)。
  * run の動画を付けるときは multipart/form-data で、 `review` に同じ本文の JSON、 `video` に mp4 を入れる
  * (上限 PLAYTEST_VIDEO_MAX_BYTES、 超えたら 413)。 応答の video に宛先ごとの添付の成否を返す。
  *
@@ -13,6 +14,7 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { DeploymentDelivery } from "../deploy/service-deployed.js";
 import { handlePlaytestReview, type PlaytestReviewTargets } from "../playtest-review/handle-playtest-review.js";
+import type { PlaytestReviewAuthDecision } from "../playtest-review/playtest-review-auth.js";
 import { PLAYTEST_ASPECTS } from "../playtest-review/playtest-review-notice.js";
 import type { PlaytestReviewLedger } from "../playtest-review/recent-run-ledger.js";
 import type { PlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
@@ -65,12 +67,18 @@ export function playtestReviewRouter(deps: {
   delivery: DeploymentDelivery;
   tabula?: PlaytestReviewTabula;
   videoDelivery?: PlaytestVideoDelivery;
-  authorize: (header: string | undefined) => boolean;
+  /** 鍵の判定。 本文 (スキーマ検証) より先に呼ぶ。 */
+  authorize: (header: string | undefined) => PlaytestReviewAuthDecision;
   log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
 }): Hono {
   const app = new Hono();
   app.post("/", bodyLimit({ maxSize: REQUEST_MAX_BYTES, onError: (c) => c.json({ error: "too_large" }, 413) }), async (c) => {
-    if (!deps.authorize(c.req.header("x-excubitor-token"))) return c.json({ error: "unauthorized" }, 401);
+    const auth = deps.authorize(c.req.header("x-excubitor-token"));
+    if (!auth.allowed) {
+      // 鍵の値・提示値は残さない。 本文を読む前なので runId 等も出さない (CC-PLAYTEST-INV-07)。
+      deps.log?.warn({ reason: auth.reason }, "playtest-review rejected an unauthorized request");
+      return c.json({ error: "unauthorized" }, 401);
+    }
     const body = await readBody(c);
     if ("error" in body) return c.json({ error: body.error }, 400);
     const parsed = EventSchema.safeParse(body.event);

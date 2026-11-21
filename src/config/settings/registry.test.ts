@@ -335,6 +335,17 @@ describe("更新の検証", () => {
     ]);
   });
 
+  it("AI プレイテスト受け口の鍵は 32 文字以上だけを schema_meta に書き、 短い値は値を応答に載せずに断る (CC-PLAYTEST-INV-07)", () => {
+    const writer = recordingWriter();
+    const key = "a".repeat(32);
+    expect(applySettingUpdate("playtest_notify.intake_token", key, writer).ok).toBe(true);
+    const short = applySettingUpdate("playtest_notify.intake_token", "short-secret", writer);
+    expect(short).toMatchObject({ ok: false, error: { code: "invalid_value", key: "playtest_notify.intake_token" } });
+    expect(JSON.stringify(short)).not.toContain("short-secret");
+    expect(applySettingUpdate("playtest_notify.intake_token", `${"a".repeat(31)} b`, writer).ok).toBe(false);
+    expect(writer.calls).toEqual([["writeMeta", "playtest_notify.intake_token", key]]);
+  });
+
   it("LINE webhook の転送先は 1 行 1 件の JSON を検証して schema_meta に書き、壊れた行があれば保存しない", () => {
     const writer = recordingWriter();
     const entry = JSON.stringify({ name: "mf", url: "http://192.0.2.10:8080/integrations/line/webhook", host: "mf-hook.example.test", enabled: true });

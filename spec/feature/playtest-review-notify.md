@@ -5,7 +5,7 @@ description: "Ingenium の ingenium playtest が渡す AI プレイテスト感�
 service: concordia
 domain: playtest-review-notify
 status: implemented
-updated: 2026-10-25
+updated: 2026-11-21
 tags:
   - notification
   - ingenium
@@ -25,8 +25,33 @@ Voluptas を通して匿名性の情報として扱う。プレイ時の感想�
 
 ## 口
 
-`POST /v1/events/playtest-review` (`src/api/playtest-review.ts`)。認証はデプロイ・リリース通知と同じ:
-`x-excubitor-token` が Discord 設定の `excubitor_dispatch_token` と一致すること。未設定なら loopback 運用 (`host` が 127.0.0.1 / localhost) のときだけ通す。
+`POST /v1/events/playtest-review` (`src/api/playtest-review.ts`)。認証は次節。
+
+## 認証 (`src/playtest-review/playtest-review-auth.ts`)
+
+2026-11-21 neco 指示 (本社作業依頼「cc-playtest の認証を x-excubitor-token (単一鍵) 方式へ」)。公開入口 `cc-playtest` から届く外部の送り手 (Muse) は
+1 リクエストに秘密を 1 つしか載せられず、Cloudflare Access のサービストークン (ID と Secret の 2 ヘッダ) を送れない。そこでこのパスだけ Access を外し、
+守りを Cc の受け口の鍵に一本化する。公開入口 (Excubitor intrusion gateway) 経由の要求も loopback の Cc に届くので、送信元では区別できない。
+
+| 受け口専用の鍵 (設定 > AI プレイテスト通知「AI プレイテスト受け口の鍵」`playtest_notify.intake_token`) | 判定 |
+|---|---|
+| 設定あり | `x-excubitor-token` がこの鍵と一致するときだけ通す。無い・違う・長さ違いは 401。デプロイ通知と共有の鍵では通らない |
+| 未設定 | 従来どおり: Discord 設定の `excubitor_dispatch_token` と一致すること。それも未設定なら loopback 運用 (`host` が 127.0.0.1 / localhost) のときだけ通す |
+| 保存されているが読めない (secret-box の鍵の入れ替え等) | 全て 401 (未設定とみなして開けない) |
+
+- 鍵は Muse 専用で、デプロイ・リリース通知が使う `excubitor_dispatch_token` とも他用途のトークンとも分ける (他の受け口の挙動は変えない)。
+- 保管は Cc の DB (schema_meta、secret-box で暗号化) と設定画面の 1 系統。環境変数や Excubitor Vault には置かない
+  (秘密は env から読まず DB + 設定画面に置く方針。Tabula 取り込みトークン等と同じ)。設定 API は実値を返さない。
+  保存時に「空白を含まない 32 文字以上」を検証する。
+- 比較は定数時間 (両辺を SHA-256 にして `timingSafeEqual`)。長さの違いも比較時間から漏らさない。
+- 判定は bodyLimit の後、本文の読み取りとスキーマ検証 (400) の前。鍵が違う要求には本文の正否を返さない。
+- 401 は `{error: "unauthorized"}`。Cloudflare Access の 302 / 403 と区別できる。401 のたびに warn ログ
+  `playtest-review rejected an unauthorized request` を `{reason: missing | mismatch | unreadable | legacy_rejected}` だけで残す
+  (鍵の値・提示値は残さない。本文を読む前なので runId 等も出さない)。
+- 鍵を設定すると、同じ Cc へ送る他の送り手 (loopback の Ingenium) にも同じ鍵が要る。
+
+ローテーション: 新しい値を設定画面で上書き保存すると、次の要求から新しい鍵だけが通る (古い鍵は即無効。再起動は不要)。
+送り手 (Muse の Secure Vault 等) の値を同時に差し替える。消すと未設定 (従来の判定) に戻る。
 
 本文 (strict。決めていない項目があれば 400):
 
@@ -68,8 +93,12 @@ Tabula は [技術相談](tech-consultation.md) §5 と同じ取り込みクラ�
   Ingenium は 1 run で 1 回だけ送り、送り直すのは応答を受け取れなかったときだけなので、再起動を跨ぐ重複までは防がない
   (DB の migration を足さない判断。重複が問題になったら番号付き migration で台帳を DB に移す)。
 - **CC-PLAYTEST-INV-03** 良い点と悪い点のどちらかが欠けた感想は受け付けない (400、配送しない)。
-- **CC-PLAYTEST-INV-05** Tabula への投稿は設定で有効なときだけ行い、チャットの成否に関係なく同じ投稿文を 1 run 1 ページ (冪等キー) で載せる。\n  有効なのに接続先かトークンが無い・取り込みが失敗したときは `tabula: {error}` を返し、チャットの配送は止めない。チャットの宛先が無くても Tabula が有効なら `unconfigured` にしない。\n- **CC-PLAYTEST-INV-04** 宛先が 1 つも設定されていなければ配送せず `unconfigured: true` を返す。1 つの宛先の失敗は他を止めず、宛先ごとの `failed` を返す。
+- **CC-PLAYTEST-INV-05** Tabula への投稿は設定で有効なときだけ行い、チャットの成否に関係なく同じ投稿文を 1 run 1 ページ (冪等キー) で載せる。
+  有効なのに接続先かトークンが無い・取り込みが失敗したときは `tabula: {error}` を返し、チャットの配送は止めない。チャットの宛先が無くても Tabula が有効なら `unconfigured` にしない。
+- **CC-PLAYTEST-INV-04** 宛先が 1 つも設定されていなければ配送せず `unconfigured: true` を返す。1 つの宛先の失敗は他を止めず、宛先ごとの `failed` を返す。
   本文 (LLM が書いた文) の mention は配送側で無効化する。
+- **CC-PLAYTEST-INV-07** 受け口専用の鍵が設定されているときは、その鍵と定数時間で一致する `x-excubitor-token` だけを通し、本文の検証より先に 401 を返す。
+  鍵が読めないときは開けずに断る。未設定のときは従来の判定を変えない。401 のログに鍵・提示値・本文の内容を残さない。
 
 ## 動画 (`src/playtest-review/playtest-review-video.ts`)
 

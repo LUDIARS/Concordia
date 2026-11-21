@@ -261,6 +261,25 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: null,
     editable: true,
   },
+  // 受け口 (POST /v1/events/playtest-review) 専用の鍵 (spec/feature/playtest-review-notify.md — 認証)。
+  // 公開入口 (cc-playtest) から届く外部の送り手 (Muse) 用。 デプロイ通知と共有の excubitor_dispatch_token とは分ける。
+  {
+    key: "playtest_notify.intake_token",
+    section: "playtest-notify",
+    label: "AI プレイテスト受け口の鍵",
+    description:
+      "POST /v1/events/playtest-review の x-excubitor-token に求める受け口専用の鍵 (32 文字以上の乱数)。 設定するとこの鍵と一致しない要求は"
+      + " 本文を読まずに 401。 未設定ならデプロイ通知と共有の鍵 (無ければ loopback 運用だけ通す) の従来どおり。"
+      + " schema_meta に secret-box で暗号化して保存され、 API には実値を返さない。 漏れたらここで差し替えると古い鍵は即無効になる。",
+    kind: "secret",
+    envName: null,
+    dbKey: "playtest_notify.intake_token",
+    dbStore: "meta",
+    defaultValue: null,
+    editable: true,
+    stringPattern: "^\\S{32,}$",
+    stringPatternDescription: "空白を含まない 32 文字以上",
+  },
   {
     key: "playtest_notify.slack_channel_id",
     section: "playtest-notify",
@@ -565,6 +584,8 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
   // 配備時に env で渡す。 起動時に読むので変更には再起動が要る。
   envString("runtime.cloud_config_file", "runtime", "クラウド実行の設定ファイル", "CONCORDIA_CLOUD_CONFIG_FILE", null,
     "クラウド実行の対象 (送り先) を定義する設定ファイルのパス。 未設定ならクラウド実行の対象は無い。"),
+  envString("runtime.cloud_aws_config_file", "runtime", "AWS 実行の設定ファイル", "CONCORDIA_CLOUD_AWS_CONFIG_FILE", null,
+    "AWS 実行 (Excubitor の拠点) の割り当て (子会社・リポジトリ・実行先) を定義する設定ファイルのパス。 未設定なら AWS 実行の割り当ては無い。"),
   envString("runtime.cloud_git_root", "runtime", "クラウド Git 返却の置き場所", "CONCORDIA_CLOUD_GIT_ROOT", null,
     "クラウド実行の成果を Git で受け取る置き場所 (絶対パス)。 未設定ならクラウド作業ルート配下の git-return を使う。 受け口の listener を立てるときは必須。"),
   envString("runtime.cloud_git_public_host", "runtime", "クラウド Git 受け口の公開ホスト", "CONCORDIA_CLOUD_GIT_PUBLIC_HOST", null,

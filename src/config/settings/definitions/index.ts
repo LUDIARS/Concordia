@@ -74,8 +74,9 @@ function validate(definitions: readonly SettingDefinition[]): readonly SettingDe
     if ((definition.minValue !== undefined || definition.maxValue !== undefined) && definition.kind !== "integer") {
       throw new Error(`setting ${definition.key} has numeric bounds but is not an integer`);
     }
-    if (definition.stringPattern !== undefined && definition.kind !== "string") {
-      throw new Error(`setting ${definition.key} has a string pattern but is not a string`);
+    // secret も形の検証 (例: 受け口の鍵の最小長) に stringPattern を使う (apply.ts の secret 分岐)。
+    if (definition.stringPattern !== undefined && definition.kind !== "string" && definition.kind !== "secret") {
+      throw new Error(`setting ${definition.key} has a string pattern but is not a string or secret`);
     }
     if (definition.stringPattern !== undefined && !definition.stringPatternDescription) {
       throw new Error(`setting ${definition.key} has a string pattern without a description`);

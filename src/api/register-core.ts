@@ -122,6 +122,7 @@ import type { PlaytestVideoDelivery } from "../playtest-review/playtest-review-v
 import type { PlaytestReviewTargets } from "../playtest-review/handle-playtest-review.js";
 import type { PlaytestReviewLedger } from "../playtest-review/recent-run-ledger.js";
 import type { PlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
+import type { PlaytestReviewAuthDecision } from "../playtest-review/playtest-review-auth.js";
 import { packageUpdatesRouter } from "./package-updates.js";
 import type { PackageUpdateLedger } from "../deploy/package-updates.js";
 import { aiNotesRouter } from "./ai-notes.js";
@@ -498,7 +499,7 @@ export interface CoreRuntimeDeps {
   /** Revisor の release-published を受理する adapter 群。 */
   releasePublished?: { ledger: ReleaseNoticeLedger; lookup: ReleaseNoticeLookup; delivery: ReleaseNoticeDelivery; authorize: (header: string | undefined) => boolean };
   /** Ingenium の AI プレイテスト感想を本社の Discord / Slack へ投稿する (spec/feature/playtest-review-notify.md)。 */
-  playtestReview?: { ledger: PlaytestReviewLedger; targets: PlaytestReviewTargets; delivery: DeploymentDelivery; tabula?: PlaytestReviewTabula; videoDelivery?: PlaytestVideoDelivery; authorize: (header: string | undefined) => boolean };
+  playtestReview?: { ledger: PlaytestReviewLedger; targets: PlaytestReviewTargets; delivery: DeploymentDelivery; tabula?: PlaytestReviewTabula; videoDelivery?: PlaytestVideoDelivery; authorize: (header: string | undefined) => PlaytestReviewAuthDecision };
   /** Excubitor (ergo-watch) のパッケージ更新お知らせを受理する adapter 群。 */
   packageUpdates?: { ledger: PackageUpdateLedger; configured: () => boolean; post: (content: string) => Promise<void>; authorize: (header: string | undefined) => boolean };
   /** 新規プロジェクトの本社通知 (登録で控え、初回 push で 1 回だけ送る)。 */

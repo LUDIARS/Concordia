@@ -7,6 +7,8 @@
     { "glob": "src/sprint-dialogues/actio-origin.ts", "layer": "infrastructure" },
     { "glob": "src/sprint-dialogues/conversation.ts", "layer": "application" },
     { "glob": "src/sprint-dialogues/*.test.ts", "layer": "shared" },
+    { "glob": "src/playtest-review/playtest-review-auth.ts", "layer": "domain-logic" },
+    { "glob": "src/playtest-review/playtest-review-auth.test.ts", "layer": "shared" },
     { "glob": "src/chores/domain.ts", "layer": "domain-logic" },
     { "glob": "src/chores/discord-intake.ts", "layer": "domain-logic" },
     { "glob": "src/chores/service.ts", "layer": "application" },

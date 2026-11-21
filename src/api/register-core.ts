@@ -194,6 +194,8 @@ import { testForumAdminRouter } from "./test-forum-admin.js";
 import type { UseCaseService } from "../dialogue/use-case-service.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import type { ModelRoleRepo } from "../db/model-role-repo.js";
+import { buildRoleMap } from "../model-catalog/role-map.js";
+import { resolveTemplateModel } from "../model-catalog/template-model-role.js";
 import type { ResidentSidecarPorts } from "../delegation/sidecar/resident-service.js";
 import { ASTRA_WITH_SIDECAR_PROFILE } from "../delegation/sidecar/profile.js";
 import { subsidiaryRouter } from "./subsidiary.js";
@@ -525,6 +527,14 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
+
+/**
+ * spawn のたびに引く役割表 (role-map-source.ts と同じ材料)。 カタログ・自動更新の変更は再起動なしで効く。
+ * modelRoles 未注入なら codex は初期値 (INITIAL_ROLE_MODELS) で解決する。
+ */
+function currentModelRoles(deps: Pick<CoreDeps, "modelRoles" | "modelCatalog">) {
+  return buildRoleMap({ roles: deps.modelRoles?.list() ?? [], catalog: deps.modelCatalog.list(), nowMs: Date.now() }).roles;
+}
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   app.route("/v1/orbis", orbisRouter(createOrbisRuntime(deps.repo)));
@@ -1644,8 +1654,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
       // Satelles には相談の閉じ込めが無いので、閉じ込めた相談はターミナルの codex で起動する。
       const launchProvider = forumLaunchProvider({ targetProvider: tpl.target_provider, consultConfined });
+      // テンプレの役割名 (astra / sol 等) を role map でモデル ID へ (委託経路と同じ、 MRM-TPL-01)。
+      // 役割名のまま `--model astra` で起動すると Codex が model_not_found で止まる。
+      const roleResolution = resolveTemplateModel({ provider: launchProvider, model: modelInput, roles: currentModelRoles(deps) });
+      if (!roleResolution.ok) return c.json({ error: roleResolution.error }, 400);
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
-      const spawn = resolveDelegationSpawn(launchProvider, modelInput);
+      const spawn = resolveDelegationSpawn(launchProvider, roleResolution.model);
       const effectiveRuntimeOptions = resolveEffectiveDelegationRuntimeOptions(
         launchProvider,
         runtimeOptions,
@@ -1742,7 +1756,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }
     // model 指定 → resolveDelegationSpawn で `--model` 引数 / LICTOR_LOCAL_MODEL env に解決。
     const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
-    const resolved = resolveDelegationSpawn(provider, modelInput);
+    // 役割名 (astra 等) の直接指定もモデル ID へ解決する (MRM-TPL-01)。 明示 ID はそのまま通る。
+    const directRole = resolveTemplateModel({ provider, model: modelInput, roles: currentModelRoles(deps) });
+    if (!directRole.ok) return c.json({ error: directRole.error }, 400);
+    const resolved = resolveDelegationSpawn(provider, directRole.model);
     const directOptions = isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {};
     const effectiveDirectOptions = resolveEffectiveDelegationRuntimeOptions(
       provider,

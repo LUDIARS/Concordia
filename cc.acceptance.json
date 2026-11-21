@@ -16,6 +16,7 @@
     { "source": "src/discord/forum-spawn.ts", "tests": ["src/discord/forum-spawn.test.ts"], "contracts": [] },
     { "source": "src/discord/commands/spawn.ts", "tests": ["src/discord/commands/spawn.test.ts"], "contracts": [] },
     { "source": "src/api/register-core.ts", "tests": ["tests/delegation-regression.test.ts"], "contracts": [] },
+    { "source": "src/api/register-core.ts", "tests": ["tests/spawn-session-model-role.test.ts"], "contracts": [] },
     { "source": "src/director/patrol-runtime.ts", "tests": ["src/director/patrol-runtime.test.ts"], "contracts": [] },
     { "source": "src/director/walk-runtime.ts", "tests": ["src/director/walk-runtime.test.ts"], "contracts": [] },
     { "source": "src/consultation/consult-model.ts", "tests": ["src/consultation/consult-model.test.ts"], "contracts": [] },

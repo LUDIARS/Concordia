@@ -64,6 +64,12 @@ Actio f0b8cfc3 (2026-11-19 neco 指示「今回こそハードコード根絶で
   Actio: `actio:8c09322f-3a33-4728-b052-11658eca73a0`。
 - MRM-TPL-06: テンプレートの call_name もモデルの版・廃止した役割を含めない (Actio eddd123d、2026-11-20 neco 指示「Delegation template も古いね」。
   MRM-TPL-05 の旧記述「call_name は改名しない」は撤回)。
+- MRM-TPL-07: 委託を通らないセッション起動 (`POST /v1/admin/spawn-session`) も MRM-TPL-01..03 と同じく解決する
+  (2026-11-21 neco 指示「Astra 起動で astra は知らないモデル」→「対応」)。
+  対象は (a) テンプレの provider と model だけを採る素のセッション (`template` 指定・`inject_prompt` なし。部署ユースケースの起動もここ) と、
+  (b) provider 直接指定の `model`。どちらも spawn 直前に role map で ID へ解決し、解決できなければ 400 `delegation_model_role_unresolved:<role>` で起動しない。
+  役割名のまま `--model astra` で起動すると、Codex が `The 'astra' model is not supported` (model_not_found) で最初のターンから止まっていた。
+  実装: `src/api/register-core.ts` (`currentModelRoles` + `resolveTemplateModel`)。テスト: `tests/spawn-session-model-role.test.ts`。
 
 ### 委託テンプレートの名前
 

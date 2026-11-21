@@ -9,7 +9,8 @@
     { "pathPattern": "(^|/)tests/model-role-api\\.test\\.ts$" },
     { "pathPattern": "(^|/)src/db/template-model-roles-migration(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/template-call-name-roles-migration(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/delegation/service-model-role\\.test\\.ts$" }
+    { "pathPattern": "(^|/)src/delegation/service-model-role\\.test\\.ts$" },
+    { "pathPattern": "(^|/)tests/spawn-session-model-role\\.test\\.ts$" }
   ],
   "cardTemplate": "Describe role snapshot ownership, capability validation, refresh CAS and recovery.",
   "specRefs": ["spec/feature/sidecar-lifecycle-model-refresh.md", "spec/feature/model-role-map.md", "spec/interface/model-catalog-port.md", "spec/architecture/ddd.md"]

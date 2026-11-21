@@ -5,11 +5,12 @@ import { createCodexCloudAdapter } from "./codex-adapter.js";
 import { cloudSubmissionFixture } from "../../tests/helpers/cloud-submission-fixture.js";
 
 describe("standard hosted provider adapters", () => {
+  const noSave = async () => undefined;
   it("awaits private Git preparation before launching the provider", async () => {
     const run = vi.fn(async () => "https://chatgpt.com/codex/tasks/task_git\n");
     const adapter = createCodexCloudAdapter({ executable: "codex.exe", cwd: "workspace", publishedBranch: "main",
       transientInstructions: async () => "Prepared private Git return" }, run);
-    await adapter.submit(cloudSubmissionFixture());
+    await adapter.submit(cloudSubmissionFixture(), noSave);
     const args = run.mock.calls[0] as unknown as [string, string[], string, string];
     expect(args[3]).toContain("Prepared private Git return");
     expect(args[3]).not.toContain("[object Promise]");
@@ -18,7 +19,7 @@ describe("standard hosted provider adapters", () => {
     const run = vi.fn(async () => "https://chatgpt.com/codex/tasks/task_123\n");
     const adapter = createCodexCloudAdapter({ executable: "codex.exe", cwd: "workspace", publishedBranch: "main" }, run);
     const request = { ...cloudSubmissionFixture(), instruction: "Model $() ; --help 日本語" };
-    await expect(adapter.submit(request)).resolves.toEqual({ state: "submitted", remoteId: "task_123" });
+    await expect(adapter.submit(request, noSave)).resolves.toEqual({ state: "submitted", remoteId: "task_123" });
     const args = run.mock.calls[0] as unknown as [string, string[], string, string];
     expect(args[1]).toEqual(["cloud", "exec", "--env", "test-env", "--branch", "main", "--attempts", "1", "-"]);
     expect(args[3]).toContain(request.instruction);
@@ -27,7 +28,7 @@ describe("standard hosted provider adapters", () => {
 
   it.each(["", "success", "https://evil.example/codex/tasks/task_123", "https://chatgpt.com/codex/tasks/task_123?token=secret"])("does not infer success from arbitrary CLI output", async (stdout) => {
     const adapter = createCodexCloudAdapter({ executable: "codex.exe", cwd: "workspace", publishedBranch: "main" }, async () => stdout);
-    await expect(adapter.submit(cloudSubmissionFixture())).resolves.toEqual({ state: "submission_unknown" });
+    await expect(adapter.submit(cloudSubmissionFixture(), noSave)).resolves.toEqual({ state: "submission_unknown" });
   });
 
   it("reconciles an exact Codex task name without rerunning cloud exec", async () => {
@@ -56,7 +57,7 @@ describe("standard hosted provider adapters", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(fired());
     const run = vi.fn<CloudCliExecute>().mockResolvedValue(JSON.stringify({ ok: true, session_id: "session_01AbCdEfGh" }));
     const adapter = createClaudeCloudAdapter({ ...claudeConfig, transientInstructions: async () => "Private upload URL test-only-secret" }, { fetcher, run });
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submitted", remoteId: "session_01AbCdEfGh" });
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"), noSave)).resolves.toEqual({ state: "submitted", remoteId: "session_01AbCdEfGh" });
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe("https://api.anthropic.com/v1/claude_code/routines/trig_123/fire");
     expect(init?.redirect).toBe("error");
@@ -71,7 +72,7 @@ describe("standard hosted provider adapters", () => {
   it("does not need the CLI when no transfer message is required", async () => {
     const run = vi.fn<CloudCliExecute>();
     const adapter = createClaudeCloudAdapter(claudeConfig, { fetcher: vi.fn<typeof fetch>().mockResolvedValue(fired()), run });
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submitted", remoteId: "session_01AbCdEfGh" });
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"), noSave)).resolves.toEqual({ state: "submitted", remoteId: "session_01AbCdEfGh" });
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -80,7 +81,7 @@ describe("standard hosted provider adapters", () => {
       const run = vi.fn<CloudCliExecute>();
       const adapter = createClaudeCloudAdapter({ ...claudeConfig, transientInstructions: () => "secret" },
         { fetcher: vi.fn<typeof fetch>().mockResolvedValue(response), run });
-      await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).resolves.toEqual({ state: "submission_unknown" });
+      await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"), noSave)).resolves.toEqual({ state: "submission_unknown" });
       expect(run).not.toHaveBeenCalled();
     });
 
@@ -102,7 +103,7 @@ describe("standard hosted provider adapters", () => {
     const fetcher = vi.fn<typeof fetch>();
     const adapter = createClaudeCloudAdapter({ ...claudeConfig,
       transientInstructions: async () => { throw new Error("cloud_git_access_binding_missing"); } }, { fetcher });
-    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"))).rejects.toThrow("cloud_git_access_binding_missing");
+    await expect(adapter.submit(cloudSubmissionFixture("claude-cloud"), noSave)).rejects.toThrow("cloud_git_access_binding_missing");
     expect(fetcher).not.toHaveBeenCalled();
     expect(() => createClaudeCloudAdapter({ ...claudeConfig, executable: "claude.cmd" })).toThrow("invalid_claude_cloud_configuration");
     expect(() => createClaudeCloudAdapter({ ...claudeConfig, triggerId: "bad" })).toThrow("invalid_claude_cloud_configuration");

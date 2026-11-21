@@ -122,7 +122,7 @@ describe("createGoalStopQuestionGuard (SPEC-GOAL-STOP-Q-04)", () => {
     const ctx = setup();
     expect(await ctx.guard.onQuestionPosted(posted())).toBe("answered");
     expect(ctx.judge).toHaveBeenCalledWith([CARD], [GOAL], BLOCKING);
-    const text = ctx.answer.mock.calls[0]?.[2] as unknown as string;
+    const text = (ctx.answer.mock.calls[0] as unknown[] | undefined)?.[2] as string;
     expect(text).toContain("[Genius 判断による Cc の自動回答]");
     expect(text).toContain("選択肢 1「Excubitor の信頼先に Amicii を足す」");
     expect(text).toContain("card-goal-1 (score 0.82)");

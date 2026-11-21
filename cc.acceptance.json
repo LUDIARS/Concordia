@@ -65,6 +65,7 @@
     { "source": "src/bootstrap/core.ts", "tests": ["src/control/periodic-progress-integration.test.ts", "src/delegation/run-watchdog.test.ts"], "contracts": [] },
     { "source": "tools/qs-lock.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
     { "source": "tools/qs-lock.contract.mjs", "tests": ["tests/qs-lock.test.ts"], "contracts": ["qs-lock-C-1"] },
+    { "source": "tools/qs-lock.d.mts", "tests": ["tests/qs-lock.test.ts"], "contracts": [] },
     {"source":"src/taskflow/actio-acting-for.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
     {"source":"src/taskflow/actio-transport.ts","tests":["src/taskflow/actio-transport.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},
     {"source":"src/developer-tools/service.ts","tests":["src/taskflow/actio-acting-for.test.ts"],"contracts":["SPEC-ACTIO-ACTING-FOR"]},

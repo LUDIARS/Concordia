@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)tools/qs-lock(?:\\.contract)?\\.mjs$"
+      "pathPattern": "(^|/)tools/qs-lock(?:(?:\\.contract)?\\.mjs|\\.d\\.mts)$"
     },
     {
       "pathPattern": "(^|/)tools/design-review/[^/]+\\.mjs$"

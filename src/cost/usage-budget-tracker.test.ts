@@ -137,6 +137,94 @@ describe("UsageBudgetTracker", () => {
     expect(readUsage).toHaveBeenCalledTimes(2);
   });
 
+  it("runs one count at a time and shares it with callers that arrive meanwhile", async () => {
+    let release: (value: { total: number }) => void = () => undefined;
+    const readUsage = vi.fn(() => new Promise<{ total: number }>((resolve) => { release = resolve; }));
+    const tracker = new UsageBudgetTracker({
+      budgets: new UsageBudgetsRepo(makeTestDb()),
+      sessionsInRange: () => [session("s1", { requester: "111111111" })],
+      readUsage,
+      now: () => NOW,
+    });
+    const first = tracker.monthlySnapshot();
+    const second = tracker.monthlySnapshot();
+    const third = tracker.cachedMonthlyConsumption();
+    await vi.waitFor(() => expect(readUsage).toHaveBeenCalledTimes(1));
+    release({ total: 40 });
+    expect((await first).subjects.get("user:111111111")).toBe(40);
+    expect(await second).toBe(await first);
+    expect((await third).get("user:111111111")).toBe(40);
+    expect(readUsage).toHaveBeenCalledTimes(1);
+    // 終わった後の呼び出しは数え直す (起動の可否は最新で判定する)。
+    const again = tracker.monthlySnapshot();
+    await vi.waitFor(() => expect(readUsage).toHaveBeenCalledTimes(2));
+    release({ total: 40 });
+    await again;
+  });
+
+  it("does not cache a count that was invalidated while it ran", async () => {
+    // invalidate の後の呼び出しは、 走っている古い集計を待たずにすぐ数え直す。
+    const releases: Array<(value: { total: number }) => void> = [];
+    const readUsage = vi.fn(() => new Promise<{ total: number }>((resolve) => { releases.push(resolve); }));
+    const tracker = new UsageBudgetTracker({
+      budgets: new UsageBudgetsRepo(makeTestDb()),
+      sessionsInRange: () => [session("s1", { requester: "111111111" })],
+      readUsage,
+      now: () => NOW,
+    });
+    const stale = tracker.cachedMonthlySnapshot();
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    tracker.invalidate();
+    const fresh = tracker.cachedMonthlySnapshot();
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[1]!({ total: 20 });
+    expect((await fresh).subjects.get("user:111111111")).toBe(20);
+    // 古い集計が後から終わっても、 キャッシュは新しい結果のまま。
+    releases[0]!({ total: 10 });
+    expect((await stale).subjects.get("user:111111111")).toBe(10);
+    expect((await tracker.cachedMonthlySnapshot()).subjects.get("user:111111111")).toBe(20);
+    expect(readUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a settled ended session once, and again after it is resumed", async () => {
+    const endedSec = Math.floor(NOW / 1000) - 3_600;
+    const ended = { ...session("s1", { requester: "111111111" }), ended_at: endedSec, last_seen_at: endedSec } as SessionRow;
+    const live = { ...session("s2", { requester: "111111111" }), ended_at: null, last_seen_at: Math.floor(NOW / 1000) } as SessionRow;
+    const sessions = [ended, live];
+    const readUsage = vi.fn(async (s: SessionRow) => ({ total: s.id === "s1" ? 100 : 5 }));
+    const roleMultiplier = vi.fn(() => 2);
+    const tracker = new UsageBudgetTracker({
+      budgets: new UsageBudgetsRepo(makeTestDb()),
+      sessionsInRange: () => sessions,
+      readUsage,
+      roleMultiplier,
+      now: () => NOW,
+    });
+    expect((await tracker.monthlyConsumption()).get("user:111111111")).toBe(210);
+    // 倍率は覚えないので、 変えた倍率は覚えた按分にも掛かる。
+    roleMultiplier.mockReturnValue(1);
+    expect((await tracker.monthlyConsumption()).get("user:111111111")).toBe(105);
+    expect(readUsage.mock.calls.map(([s]) => s.id)).toEqual(["s1", "s2", "s2"]);
+    sessions[0] = { ...ended, last_seen_at: Math.floor(NOW / 1000) } as SessionRow;
+    await tracker.monthlyConsumption();
+    expect(readUsage.mock.calls.filter(([s]) => s.id === "s1")).toHaveLength(2);
+  });
+
+  it("does not remember an ended session whose usage could not be read", async () => {
+    const endedSec = Math.floor(NOW / 1000) - 3_600;
+    const ended = { ...session("s1", { requester: "111111111" }), ended_at: endedSec, last_seen_at: endedSec } as SessionRow;
+    const readUsage = vi.fn<(s: SessionRow) => Promise<{ total: number } | null>>(async () => null);
+    const tracker = new UsageBudgetTracker({
+      budgets: new UsageBudgetsRepo(makeTestDb()),
+      sessionsInRange: () => [ended],
+      readUsage,
+      now: () => NOW,
+    });
+    expect((await tracker.monthlyConsumption()).get("user:111111111")).toBeUndefined();
+    readUsage.mockResolvedValue({ total: 30 });
+    expect((await tracker.monthlyConsumption()).get("user:111111111")).toBe(30);
+  });
+
   it("delivers each threshold notice once a month and retries a failed delivery", async () => {
     const { budgets, tracker } = setup([session("s1", { requester: "111111111" })], { s1: 850 });
     budgets.upsert({ scope: "user", target_id: "111111111", limit_tokens: 1_000, updated_by: null });

@@ -157,10 +157,19 @@ export function Staff() {
   }
 
   useEffect(() => {
-    void refresh();
-    // 自動記録で名簿が増えるので、 開いている間は緩めに追随する。
-    const timer = setInterval(() => void refresh(), 60_000);
-    return () => clearInterval(timer);
+    // 自動記録で名簿が増えるので、 開いている間は緩めに追随する。 前の読み込みが終わってから次を予約し、
+    // 応答が遅いときに要求を積み重ねない (今月の消費の集計は重い)。
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      await refresh();
+      if (!cancelled) timer = setTimeout(() => void tick(), 60_000);
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   /** 成否を返す — 手動登録フォームは失敗時に入力を消さないためこれを見る。 */

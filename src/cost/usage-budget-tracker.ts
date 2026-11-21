@@ -8,7 +8,10 @@
  *   (budget-multiplier.ts)。 時刻つきの消費が読めないセッションは合計を起動時の帰属先へ付ける。
  * - checkLaunch: 起動の入口で、 消費する予算に残りがあるかを返す (予算が無ければ常に許可)。
  * - sweepNotices: 予算ごとに 80% / 100% に達したら、 その月に 1 回だけ本人へ知らせる。 配送に失敗したら記録を戻して次回やり直す。
- * - cachedMonthlyConsumption: ツール実行ごとの判定 (ハーネスの gate) 用。 集計は重いので数分キャッシュする。
+ * - cachedMonthlyConsumption / cachedMonthlySnapshot: ツール実行ごとの判定 (ハーネスの gate) と管理画面の一覧用。
+ *   集計は重いので数分キャッシュする。
+ * - 集計は同時に 1 本だけ走らせ、 走っている間に来た呼び出しは同じ結果を待つ (重ねて走らせるとイベントループを塞ぐ)。
+ *   終わって落ち着いたセッションの按分は覚えて、 ログの読み直しを省く (ended-session-charge-memo.ts)。
  * - monthlySnapshot: 帰属先ごとの合計に加え、 消費した人ごとの今月の消費 (倍率込み、 うちチーム予算ぶん) を返す
  *   (各ユーザーの管理画面の表示。 予算の有無に関係なく数える)。
  *
@@ -25,7 +28,14 @@ import {
   type BudgetEvaluation,
   type BudgetSubject,
 } from "./usage-budget.js";
-import { attributeTotal, attributeUsage, sessionAttribution, type SessionAttribution } from "./usage-attribution.js";
+import {
+  attributeTotal,
+  attributeUsage,
+  sessionAttribution,
+  type SessionAttribution,
+  type UsageCharge,
+} from "./usage-attribution.js";
+import { EndedSessionChargeMemo } from "./ended-session-charge-memo.js";
 import { chargedTokens, DEFAULT_COST_MULTIPLIER } from "./budget-multiplier.js";
 import type { UsagePoint } from "./usage-timeline.js";
 import type { PersonUsage } from "./user-monthly-usage.js";
@@ -80,7 +90,11 @@ interface SessionCharge {
 
 export class UsageBudgetTracker {
   private readonly now: () => number;
-  private cache: { month: string; computedAt: number; totals: Map<string, number> } | null = null;
+  private cache: { computedAt: number; snapshot: MonthlyUsageSnapshot } | null = null;
+  /** 走っている集計。 generation は始めた時点の invalidate の回数 (古い前提の結果を使い回さないため)。 */
+  private inFlight: { month: string; generation: number; promise: Promise<MonthlyUsageSnapshot> } | null = null;
+  private generation = 0;
+  private readonly endedCharges = new EndedSessionChargeMemo();
 
   constructor(private readonly deps: UsageBudgetTrackerDeps) {
     this.now = deps.now ?? Date.now;
@@ -96,13 +110,56 @@ export class UsageBudgetTracker {
     return (await this.monthlySnapshot(nowMs)).subjects;
   }
 
-  /** 今月の消費を帰属先ごとと消費した人ごとに合算する。 帰属先ごとの合計はキャッシュにも入れる。 */
-  async monthlySnapshot(nowMs = this.now()): Promise<MonthlyUsageSnapshot> {
+  /**
+   * 今月の消費を帰属先ごとと消費した人ごとに合算する。 結果はキャッシュにも入れる。
+   * 同じ月の集計が走っていればそれを待つ (重ねて走らせない)。
+   */
+  monthlySnapshot(nowMs = this.now()): Promise<MonthlyUsageSnapshot> {
+    const month = localMonthKey(nowMs);
+    const running = this.inFlight;
+    if (running && running.month === month && running.generation === this.generation) return running.promise;
+    const generation = this.generation;
+    const promise = this.computeSnapshot(nowMs).then((snapshot) => {
+      // 走っている間に invalidate されたら、 古い前提の結果なのでキャッシュには入れない。
+      if (generation === this.generation) this.cache = { computedAt: nowMs, snapshot };
+      return snapshot;
+    });
+    const entry = { month, generation, promise };
+    this.inFlight = entry;
+    const release = () => {
+      if (this.inFlight === entry) this.inFlight = null;
+    };
+    // 失敗は promise を待つ呼び出し側へ伝わる。 ここでは走行中の印を外すだけ。
+    void promise.then(release, release);
+    return promise;
+  }
+
+  /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (管理画面の一覧用)。 */
+  async cachedMonthlySnapshot(nowMs = this.now()): Promise<MonthlyUsageSnapshot> {
+    const ttl = this.deps.cacheTtlMs ?? DEFAULT_CONSUMPTION_CACHE_MS;
+    const cache = this.cache;
+    if (cache && cache.snapshot.month === localMonthKey(nowMs) && nowMs - cache.computedAt < ttl) return cache.snapshot;
+    return this.monthlySnapshot(nowMs);
+  }
+
+  /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (ツール実行ごとの判定用)。 */
+  async cachedMonthlyConsumption(nowMs = this.now()): Promise<Map<string, number>> {
+    return (await this.cachedMonthlySnapshot(nowMs)).subjects;
+  }
+
+  /** 次の判定で数え直させる (予算や倍率を変えたとき)。 */
+  invalidate(): void {
+    this.cache = null;
+    this.generation += 1;
+  }
+
+  private async computeSnapshot(nowMs: number): Promise<MonthlyUsageSnapshot> {
     const [start, end] = localMonthRange(nowMs);
     const subjects = new Map<string, number>();
     const persons = new Map<string, PersonUsage>();
-    for (const session of this.deps.sessionsInRange(start, end)) {
-      for (const charge of await this.sessionCharges(session)) {
+    const sessions = this.deps.sessionsInRange(start, end);
+    for (const session of sessions) {
+      for (const charge of await this.sessionCharges(session, nowMs)) {
         const key = subjectKey(charge.subject);
         subjects.set(key, (subjects.get(key) ?? 0) + charge.amount);
         if (!charge.personUserId) continue;
@@ -112,36 +169,32 @@ export class UsageBudgetTracker {
         persons.set(charge.personUserId, person);
       }
     }
-    const month = localMonthKey(nowMs);
-    this.cache = { month, computedAt: nowMs, totals: subjects };
-    return { month, subjects, persons };
+    this.endedCharges.retain(new Set(sessions.map((session) => session.id)));
+    return { month: localMonthKey(nowMs), subjects, persons };
   }
 
-  /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (ツール実行ごとの判定用)。 */
-  async cachedMonthlyConsumption(nowMs = this.now()): Promise<Map<string, number>> {
-    const ttl = this.deps.cacheTtlMs ?? DEFAULT_CONSUMPTION_CACHE_MS;
-    const cache = this.cache;
-    if (cache && cache.month === localMonthKey(nowMs) && nowMs - cache.computedAt < ttl) return cache.totals;
-    return this.monthlyConsumption(nowMs);
+  /** セッションの消費の按分 (倍率を掛ける前)。 終わって落ち着いたセッションは覚えた按分を返す。 */
+  private async attributedCharges(session: SessionRow, attribution: SessionAttribution, nowMs: number): Promise<readonly UsageCharge[]> {
+    const remembered = this.endedCharges.get(session, nowMs);
+    if (remembered) return remembered;
+    const timeline = this.deps.readTimeline ? await this.deps.readTimeline(session).catch(() => null) : null;
+    if (timeline) {
+      const charges = attributeUsage(attribution, timeline);
+      this.endedCharges.set(session, nowMs, charges);
+      return charges;
+    }
+    const usage = await this.deps.readUsage(session).catch(() => null);
+    const charges = attributeTotal(attribution, usage?.total ?? 0);
+    // 読めなかった結果は覚えない (一時的な失敗を 0 のまま固定しない)。
+    if (usage) this.endedCharges.set(session, nowMs, charges);
+    return charges;
   }
 
-  /** 次の判定で数え直させる (予算や倍率を変えたとき)。 */
-  invalidate(): void {
-    this.cache = null;
-  }
-
-  private async sessionCharges(session: SessionRow): Promise<SessionCharge[]> {
+  private async sessionCharges(session: SessionRow, nowMs: number): Promise<SessionCharge[]> {
     const attribution = this.attributionFor(session);
     // 起動時の帰属先が無い = 起動者も分からないので、 助けに入った人も区別できない。 何も消費しない (読み出しを省く)。
     if (!attribution.defaultSubject) return [];
-    const timeline = this.deps.readTimeline ? await this.deps.readTimeline(session).catch(() => null) : null;
-    let charges;
-    if (timeline) {
-      charges = attributeUsage(attribution, timeline);
-    } else {
-      const usage = await this.deps.readUsage(session).catch(() => null);
-      charges = attributeTotal(attribution, usage?.total ?? 0);
-    }
+    const charges = await this.attributedCharges(session, attribution, nowMs);
     const departmentMultiplier = this.deps.departmentMultiplier?.(session.department_id ?? null) ?? DEFAULT_COST_MULTIPLIER;
     const out: SessionCharge[] = [];
     for (const charge of charges) {

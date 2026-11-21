@@ -64,7 +64,8 @@ export function usageBudgetsRouter(deps: UsageBudgetsApiDeps): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
-    const consumption = await deps.tracker.monthlyConsumption();
+    // 一覧は開いている画面が繰り返し引くので、 数分のキャッシュで足りる (起動の可否は /check が数え直す)。
+    const consumption = await deps.tracker.cachedMonthlyConsumption();
     return c.json({
       budgets: deps.budgets.list().map((budget) => {
         const consumed = consumption.get(subjectKey({ scope: budget.scope, targetId: budget.target_id })) ?? 0;
@@ -74,7 +75,7 @@ export function usageBudgetsRouter(deps: UsageBudgetsApiDeps): Hono {
   });
 
   app.get("/users", async (c) => {
-    const snapshot = await deps.tracker.monthlySnapshot();
+    const snapshot = await deps.tracker.cachedMonthlySnapshot();
     return c.json({
       month: snapshot.month,
       users: userMonthlyUsageRows(snapshot.persons, deps.budgets.list(), snapshot.subjects),

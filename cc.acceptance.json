@@ -5806,6 +5806,7 @@
     {"source":"src/delegation/service.ts","tests":["src/delegation/service-auto-branch.test.ts","src/delegation/service.test.ts"],"contracts":[]},
     {"source":"src/delegation/contracts.ts","tests":["src/delegation/service-auto-branch.test.ts"],"contracts":[]},
     {"source":"src/control/spawn-target.ts","tests":["src/control/spawn-target.test.ts","src/delegation/service-auto-branch.test.ts"],"contracts":[]},
-    {"source":"src/api/delegation.ts","tests":["src/contract/delegation-explicit-target.test.ts","src/delegation/auto-branch-name.test.ts"],"contracts":[]}
+    {"source":"src/api/delegation.ts","tests":["src/contract/delegation-explicit-target.test.ts","src/delegation/auto-branch-name.test.ts"],"contracts":[]},
+    {"source":"src/cost/ended-session-charge-memo.ts","tests":["src/cost/usage-budget-tracker.test.ts"],"contracts":[]}
   ]
 }

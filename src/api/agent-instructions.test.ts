@@ -1,44 +1,40 @@
-import { generateKeyPairSync, sign, type JsonWebKey } from "node:crypto";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { createInstructionAccessGate } from "../agent-instructions/public-access.js";
 import { InstructionService } from "../agent-instructions/instruction-service.js";
+import { readInstructionIntakeToken } from "../agent-instructions/instruction-token.js";
 import { SqliteAgentInstructionStore } from "../db/agent-instructions-repo.js";
-import { CfAccessVerifier } from "../management/cf-access.js";
 import { registerAgentInstructionsRoute } from "./agent-instructions.js";
 
-const TEAM = "https://example.cloudflareaccess.com";
-const AUD = "b".repeat(64);
 const HOST = "cc-home.ai-run-do.com";
-const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const jwk = { ...(publicKey.export({ format: "jwk" }) as JsonWebKey), kid: "k1" };
+const KEY = "k".repeat(40);
 
-function assertion(payload: Record<string, unknown> = {}): string {
-  const enc = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  const input = `${enc({ alg: "RS256", kid: "k1" })}.${enc({ iss: TEAM, aud: [AUD], exp: Math.floor(Date.now() / 1000) + 600, common_name: "svc", ...payload })}`;
-  return `${input}.${sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url")}`;
-}
-
-function setup(options: { access?: boolean } = {}) {
+function setup(options: { key?: string | null | "unreadable" } = {}) {
   const db = makeTestDb();
   const clock = { now: new Date("2026-11-21T00:00:00Z") };
   const service = new InstructionService({ store: new SqliteAgentInstructionStore(db), now: () => clock.now });
-  const verifier = options.access === false ? null : new CfAccessVerifier({ teamDomain: TEAM, audience: AUD }, async () => ({ keys: [jwk] }));
+  const stored = { value: options.key === undefined ? KEY : options.key };
+  const readToken = () => readInstructionIntakeToken(() => {
+    if (stored.value === "unreadable") throw new Error("secret-box: cannot decrypt");
+    return stored.value;
+  });
+  const warnings: Array<Record<string, unknown>> = [];
+  const log = { info: () => {}, warn: (detail: Record<string, unknown>) => { warnings.push(detail); } };
   const app = new Hono();
-  registerAgentInstructionsRoute(app, { service, access: createInstructionAccessGate({ publicHost: HOST, verifier }) });
+  registerAgentInstructionsRoute(app, { service, access: createInstructionAccessGate({ publicHost: HOST, readToken }), log });
   // buildApp では後ろに SSO ゲートが居る。 ブリッジの応答がそこへ落ちないことを確かめる番兵。
   app.use("*", async (c) => c.text("fell through", 599 as never));
   const local = { host: "127.0.0.1:11111" };
-  const tunnel = (withToken: boolean): Record<string, string> => ({
+  const tunnel = (token: string | null): Record<string, string> => ({
     host: HOST, "cf-ray": "8f0000000000-NRT", "cf-connecting-ip": "203.0.113.7",
-    ...(withToken ? { "cf-access-jwt-assertion": assertion() } : {}),
+    ...(token === null ? {} : { "x-excubitor-token": token }),
   });
   const json = (method: string, path: string, body: unknown, headers: Record<string, string> = local) =>
     app.request(path, { method, headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
   const get = (path: string, headers: Record<string, string> = local) => app.request(path, { headers });
   const advance = (ms: number) => { clock.now = new Date(clock.now.getTime() + ms); };
-  return { app, json, get, tunnel, advance };
+  return { app, json, get, tunnel, advance, stored, warnings };
 }
 
 const instruction = { agent: "muse", type: "run_task", title: "指令の件名", body: "Muse に実行させたい内容", params: {} };
@@ -125,44 +121,68 @@ describe("/v1/instructions (spec/feature/agent-instructions-bridge.md)", () => {
     expect(again.data.instructions.map((item) => item.id)).toEqual([data.instruction.id]);
   });
 
-  it("§6-6: public requests without a verified Access token are 403, with one polling is 200", async () => {
-    const { get, tunnel } = setup();
-    const denied = await get("/v1/instructions?agent=muse", tunnel(false));
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toEqual({ error: { code: "access_required", message: expect.any(String) } });
+  it("§6-6: public requests without the intake key are 401, with it polling is 200", async () => {
+    const { get, tunnel, warnings } = setup();
+    const denied = await get("/v1/instructions?agent=muse", tunnel(null));
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get("cache-control")).toBe("no-store");
+    expect(await denied.json()).toEqual({ error: { code: "token_required", message: expect.any(String) } });
+    expect((await get("/v1/instructions?agent=muse", tunnel("wrong"))).status).toBe(401);
     // Host を書き換えてもトンネル由来ヘッダーで公開経由として扱う。
-    expect((await get("/v1/instructions?agent=muse", { host: "127.0.0.1:11111", "cf-ray": "x" })).status).toBe(403);
-    expect((await get("/v1/instructions?agent=muse", { ...tunnel(false), "cf-access-jwt-assertion": assertion({ aud: ["c".repeat(64)] }) })).status).toBe(403);
-    const allowed = await get("/v1/instructions?agent=muse", tunnel(true));
+    expect((await get("/v1/instructions?agent=muse", { host: "127.0.0.1:11111", "cf-ray": "x" })).status).toBe(401);
+    // CF Access の JWT だけでは通らない (Muse 経路は鍵 1 本)。
+    expect((await get("/v1/instructions?agent=muse", { ...tunnel(null), "cf-access-jwt-assertion": "a.b.c" })).status).toBe(401);
+    const allowed = await get("/v1/instructions?agent=muse", tunnel(KEY));
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({ data: { instructions: [] } });
+    // warn には理由だけ残り、 提示された値も鍵も出ない。
+    expect(warnings.map((w) => w.reason)).toEqual(["missing", "mismatch", "missing", "missing"]);
+    expect(JSON.stringify(warnings)).not.toContain(KEY);
+    expect(JSON.stringify(warnings)).not.toContain("wrong");
   });
 
-  it("§6-6: ack and result work through the tunnel with a verified token", async () => {
+  it("§6-6: ack and result work through the tunnel with the key, and the key is checked before the body", async () => {
     const { json, tunnel } = setup();
     const { data } = await (await json("POST", "/v1/instructions", instruction)).json() as { data: { instruction: { id: string } } };
-    expect((await json("POST", `/v1/instructions/${data.instruction.id}/ack`, { agent: "muse" }, tunnel(false))).status).toBe(403);
-    expect((await json("POST", `/v1/instructions/${data.instruction.id}/ack`, { agent: "muse" }, tunnel(true))).status).toBe(202);
-    const result = await json("POST", `/v1/instructions/${data.instruction.id}/result`, { agent: "muse", status: "done", summary: "ok" }, tunnel(true));
+    expect((await json("POST", `/v1/instructions/${data.instruction.id}/ack`, { agent: "muse" }, tunnel(null))).status).toBe(401);
+    // 本文が壊れていても鍵が無ければ 400 ではなく 401。
+    expect((await json("POST", `/v1/instructions/${data.instruction.id}/ack`, { bogus: true }, tunnel(null))).status).toBe(401);
+    expect((await json("POST", `/v1/instructions/${data.instruction.id}/result`, { bogus: true }, tunnel("wrong"))).status).toBe(401);
+    expect((await json("POST", `/v1/instructions/${data.instruction.id}/ack`, { agent: "muse" }, tunnel(KEY))).status).toBe(202);
+    const result = await json("POST", `/v1/instructions/${data.instruction.id}/result`, { agent: "muse", status: "done", summary: "ok" }, tunnel(KEY));
     expect(result.status).toBe(202);
   });
 
-  it("§6-7: registration and state lookup are 403 through the tunnel even with a verified token", async () => {
+  it("§6-7: registration and state lookup are 403 through the tunnel even with the key", async () => {
     const { json, get, tunnel } = setup();
-    const register = await json("POST", "/v1/instructions", instruction, tunnel(true));
+    const register = await json("POST", "/v1/instructions", instruction, tunnel(KEY));
     expect(register.status).toBe(403);
     expect(await register.json()).toMatchObject({ error: { code: "local_only" } });
-    expect((await get("/v1/instructions/inst:muse:20261121T000000Z:ffffff", tunnel(true))).status).toBe(403);
+    expect((await json("POST", "/v1/instructions", instruction, tunnel(null))).status).toBe(403);
+    expect((await get("/v1/instructions/inst:muse:20261121T000000Z:ffffff", tunnel(KEY))).status).toBe(403);
   });
 
-  it("rejects every public request when Access is not configured", async () => {
-    const { get, tunnel } = setup({ access: false });
-    expect((await get("/v1/instructions?agent=muse", tunnel(true))).status).toBe(403);
-    expect((await get("/v1/instructions?agent=muse")).status).toBe(200);
+  it("rejects every public request while the key is unset or unreadable, loopback keeps working", async () => {
+    for (const key of [null, "", "unreadable"] as const) {
+      const { get, tunnel, warnings } = setup({ key });
+      expect((await get("/v1/instructions?agent=muse", tunnel(KEY))).status).toBe(401);
+      expect((await get("/v1/instructions?agent=muse", tunnel(""))).status).toBe(401);
+      expect((await get("/v1/instructions?agent=muse")).status).toBe(200);
+      expect(warnings[0]?.reason).toBe(key === "unreadable" ? "unreadable" : "unset");
+    }
+  });
+
+  it("reads the key per request, so replacing it revokes the old one without a restart", async () => {
+    const { get, tunnel, stored } = setup();
+    expect((await get("/v1/instructions?agent=muse", tunnel(KEY))).status).toBe(200);
+    stored.value = "n".repeat(40);
+    expect((await get("/v1/instructions?agent=muse", tunnel(KEY))).status).toBe(401);
+    expect((await get("/v1/instructions?agent=muse", tunnel("n".repeat(40)))).status).toBe(200);
   });
 
   it("does not answer outside /v1/instructions (the next middleware handles it)", async () => {
-    const { get } = setup();
+    const { get, tunnel } = setup();
     expect((await get("/v1/sessions")).status).toBe(599);
+    expect((await get("/v1/instructions/x/y/z", tunnel(null))).status).toBe(401);
   });
 });

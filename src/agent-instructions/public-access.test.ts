@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readInstructionAccessConfig } from "./access-config.js";
+import type { InstructionIntakeToken } from "./instruction-token.js";
 import { createInstructionAccessGate } from "./public-access.js";
 
 const headers = (values: Record<string, string>) => (name: string) => values[name.toLowerCase()];
+const KEY = "z".repeat(32);
+const withKey = (token: InstructionIntakeToken = { kind: "set", value: KEY }) => () => token;
 
 describe("instruction access gate (CC-INST-INV-06 / INV-07)", () => {
   it("treats the public host or any tunnel header as public", () => {
-    const gate = createInstructionAccessGate({ publicHost: "cc-home.ai-run-do.com", verifier: null });
+    const gate = createInstructionAccessGate({ publicHost: "cc-home.ai-run-do.com", readToken: withKey() });
     expect(gate.origin(headers({ host: "127.0.0.1:11111" }))).toBe("local");
     expect(gate.origin(headers({ host: "cc-home.ai-run-do.com" }))).toBe("public");
     expect(gate.origin(headers({ host: "127.0.0.1:11111", "cf-ray": "abc" }))).toBe("public");
@@ -15,42 +18,33 @@ describe("instruction access gate (CC-INST-INV-06 / INV-07)", () => {
   });
 
   it("still catches tunnel requests when no public host is configured", () => {
-    const gate = createInstructionAccessGate({ publicHost: null, verifier: null });
+    const gate = createInstructionAccessGate({ publicHost: null, readToken: withKey() });
     expect(gate.origin(headers({ host: "127.0.0.1:11111" }))).toBe("local");
     expect(gate.origin(headers({ host: "127.0.0.1:11111", "cf-ray": "abc" }))).toBe("public");
   });
 
-  it("rejects public requests when Access is not configured and verifies the assertion otherwise", async () => {
-    expect(await createInstructionAccessGate({ publicHost: null, verifier: null }).verifyPublic(headers({ "cf-access-jwt-assertion": "x" }))).toBe(false);
-    const verify = vi.fn(async (assertion: string | undefined) => (assertion === "good" ? { commonName: "svc" } : null));
-    const gate = createInstructionAccessGate({ publicHost: "cc-home.ai-run-do.com", verifier: { verify } });
-    expect(await gate.verifyPublic(headers({ "cf-access-jwt-assertion": "good" }))).toBe(true);
-    expect(await gate.verifyPublic(headers({ "cf-access-jwt-assertion": "bad" }))).toBe(false);
-    expect(await gate.verifyPublic(headers({}))).toBe(false);
-    expect(verify).toHaveBeenLastCalledWith(undefined);
+  it("authorizes public requests only with the x-excubitor-token intake key", () => {
+    const gate = createInstructionAccessGate({ publicHost: null, readToken: withKey() });
+    expect(gate.authorizePublic(headers({ "x-excubitor-token": KEY }))).toEqual({ allowed: true });
+    expect(gate.authorizePublic(headers({ "x-excubitor-token": ` ${KEY} ` }))).toEqual({ allowed: true });
+    expect(gate.authorizePublic(headers({ "x-excubitor-token": "other" }))).toEqual({ allowed: false, reason: "mismatch" });
+    expect(gate.authorizePublic(headers({ "cf-access-jwt-assertion": "a.b.c" }))).toEqual({ allowed: false, reason: "missing" });
+    expect(createInstructionAccessGate({ publicHost: null, readToken: withKey({ kind: "unset" }) })
+      .authorizePublic(headers({ "x-excubitor-token": KEY }))).toEqual({ allowed: false, reason: "unset" });
   });
 });
 
 describe("instruction access config", () => {
-  const TEAM = "https://example.cloudflareaccess.com";
-  const AUD = "a".repeat(64);
-
-  it("is disabled (public rejected) when nothing is set", () => {
-    expect(readInstructionAccessConfig({})).toEqual({ publicHost: null, access: null, problem: null });
+  it("has no public host when nothing is set", () => {
+    expect(readInstructionAccessConfig({})).toEqual({ publicHost: null, problem: null });
   });
 
-  it("reads host, team and audience", () => {
-    expect(readInstructionAccessConfig({
-      CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: "CC-Home.ai-run-do.com",
-      CONCORDIA_INSTRUCTIONS_CF_ACCESS_TEAM_DOMAIN: TEAM,
-      CONCORDIA_INSTRUCTIONS_CF_ACCESS_AUD: AUD,
-    })).toEqual({ publicHost: "cc-home.ai-run-do.com", access: { teamDomain: TEAM, audience: AUD }, problem: null });
+  it("reads and normalizes the host", () => {
+    expect(readInstructionAccessConfig({ CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: "CC-Home.ai-run-do.com" }))
+      .toEqual({ publicHost: "cc-home.ai-run-do.com", problem: null });
   });
 
-  it("reports misconfiguration without throwing and keeps Access off", () => {
-    const halfSet = readInstructionAccessConfig({ CONCORDIA_INSTRUCTIONS_CF_ACCESS_TEAM_DOMAIN: TEAM });
-    expect(halfSet.access).toBeNull();
-    expect(halfSet.problem).toEqual(expect.any(String));
+  it("reports a malformed host without throwing", () => {
     const badHost = readInstructionAccessConfig({ CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: "https://cc-home.ai-run-do.com/" });
     expect(badHost.publicHost).toBeNull();
     expect(badHost.problem).toContain("ホスト名");

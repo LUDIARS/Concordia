@@ -5851,6 +5851,7 @@
     { "source": "src/agent-instructions/instruction-requests.ts", "tests": ["src/agent-instructions/instruction-requests.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-service.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/public-access.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/instruction-token.ts", "tests": ["src/agent-instructions/instruction-token.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/access-config.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/agent-instructions/runtime.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/runtime.ts", "tests": ["src/agent-instructions/runtime.test.ts"], "contracts": [] },
     { "source": "src/db/agent-instructions-repo.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },

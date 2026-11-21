@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "外部エージェント向け HTTP ポーリング指令ブリッジ"
-description: "inbound を受けられない外部エージェント (Muse) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel + Access、登録は loopback のみ。"
+description: "inbound を受けられない外部エージェント (Muse) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel + 専用の鍵 1 本 (x-excubitor-token)、登録は loopback のみ。"
 service: concordia
 domain: agent-instructions
 status: implemented
@@ -9,7 +9,7 @@ updated: 2026-11-21
 tags:
   - muse
   - external-agent
-  - cloudflare-access
+  - cloudflare-tunnel
 ---
 
 # 外部エージェント向け HTTP ポーリング指令ブリッジ
@@ -21,7 +21,10 @@ tags:
 
 Muse (Meta のパーソナルエージェント) は信頼できないマシン扱いの VM で動き、待ち受けポートも WebSocket の常駐接続も持てない。
 そのため push ではなく Muse が外向きに約 5 分間隔でポーリングする。形は [AI プレイテスト感想の投稿](playtest-review-notify.md) (cc-playtest) に揃える:
-固定スキーマ、camelCase、新規 202 / 再送 200 `duplicate: true`、Cloudflare Access のサービストークン。
+固定スキーマ、camelCase、新規 202 / 再送 200 `duplicate: true`、ヘッダー `x-excubitor-token` の鍵 1 本。
+
+2026-11-21 neco 決定: 公開経由の認証は CF Access のサービストークン (`CF-Access-Client-Id` / `-Secret` の 2 ヘッダー) をやめ、専用の鍵 1 本にする。
+Muse のカスタムコネクタは 1 要求に秘密 1 つまでしか送れないと実測で確定したため (cc-playtest と同じ方式)。
 
 ## 業務用語と状態の所有者
 
@@ -47,8 +50,8 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | CC-INST-INV-03 | ack は `pending` を `acked` にして 202、`acked` への再送は 200 `duplicate: true`、終端は 409、無い ID は 404 | `instruction-policy.ts` `decideAck` |
 | CC-INST-INV-04 | result は `pending` / `acked` を終端にして 202 `{delivered:true, failed:false}`。同一結果 (status・要約・詳細。詳細はキー順を無視) の再送は 200 `duplicate: true`、違う結果は 409 | `instruction-policy.ts` `decideResult` |
 | CC-INST-INV-05 | `acked` のまま 30 分 result が無い指令は `pending` に戻り再配信される。終端は再配信しない。終端は 90 日で削除 | `instruction-service.ts` / `src/sweeper.ts` |
-| CC-INST-INV-06 | 公開経由 (公開ホスト宛て、または Cloudflare Tunnel 由来ヘッダー付き) の要求は Access の JWT を検証できたものだけ通す。設定が無ければ公開経由は全部 403 | `src/agent-instructions/public-access.ts` |
-| CC-INST-INV-07 | 登録 (`POST /v1/instructions`) と状態確認 (`GET /v1/instructions/:id`) は loopback のみ。公開経由は JWT の有無に関係なく 403 (Muse に指令の自己登録をさせない) | `src/api/agent-instructions.ts` |
+| CC-INST-INV-06 | 公開経由 (公開ホスト宛て、または Cloudflare Tunnel 由来ヘッダー付き) の poll / ack / result は、ヘッダー `x-excubitor-token` が専用の鍵 (設定 `agent_instructions.intake_token`) と定数時間比較で一致したものだけ通す。欠落・不一致は本文を読む前に 401 (warn ログに理由だけ、値は出さない)。鍵が未設定・復号できないときは公開経由を全部 401 | `src/agent-instructions/instruction-token.ts` / `public-access.ts` |
+| CC-INST-INV-07 | 登録 (`POST /v1/instructions`) と状態確認 (`GET /v1/instructions/:id`) は loopback のみ。公開経由は鍵の有無に関係なく 403 (Muse に指令の自己登録をさせない) | `src/api/agent-instructions.ts` |
 
 ## 口 (`src/api/agent-instructions.ts`)
 
@@ -57,9 +60,9 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | 口 | 呼ぶ側 | 公開経由 | 成功 |
 |---|---|---|---|
 | `POST /v1/instructions` | 自宅側 (Web monitor・自宅エージェント・curl) | 403 | 201 `{data:{instruction:{id,status:"pending",createdAt}}}` |
-| `GET /v1/instructions?agent=muse&status=pending&limit=10` | Muse | JWT 検証済みのみ | 200 `{data:{instructions:[{id,type,title,body,params,createdAt}]}}` (古い順、0 件は空配列) |
-| `POST /v1/instructions/:id/ack` | Muse | JWT 検証済みのみ | 202 / 再送 200 `{duplicate, data:{instruction:{id,status,ackedAt}}}` |
-| `POST /v1/instructions/:id/result` | Muse | JWT 検証済みのみ | 202 / 再送 200 `{delivered:true, failed:false, duplicate, data:{instruction:{id,status,finishedAt}}}` |
+| `GET /v1/instructions?agent=muse&status=pending&limit=10` | Muse | 鍵が一致したときのみ | 200 `{data:{instructions:[{id,type,title,body,params,createdAt}]}}` (古い順、0 件は空配列) |
+| `POST /v1/instructions/:id/ack` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{duplicate, data:{instruction:{id,status,ackedAt}}}` |
+| `POST /v1/instructions/:id/result` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{delivered:true, failed:false, duplicate, data:{instruction:{id,status,finishedAt}}}` |
 | `GET /v1/instructions/:id` | 自宅側 | 403 | 200 `{data:{instruction:{id,agent,type,title,status,createdAt,ackedAt,finishedAt,resultSummary}}}` |
 
 本文 (strict):
@@ -74,24 +77,34 @@ query: `agent` 必須、`status` は 4 状態のどれか (省略時 `pending`)�
 
 指令 ID: `inst:<agent>:<YYYYMMDDTHHMMSSZ>:<6 桁 hex>`。形が違う ID は 404。時刻は秒精度の ISO 8601 UTC。
 
-## 公開 (Cloudflare Tunnel + Access)
+## 公開 (Cloudflare Tunnel + 専用の鍵)
 
 Cc は `127.0.0.1` bind のまま。Tunnel の ingress を `https://<公開ホスト>/v1/instructions*` → `http://127.0.0.1:<Cc のポート>` に絞り、
 `/v1/sessions` 等は公開しない (ルーティング対象外は Tunnel 側で 404)。公開ホストの第一候補は `cc-home.ai-run-do.com`。
-Access アプリでこのホストを保護し、playtest 用サービストークンと同じペアが通るポリシーにする。
+Cloudflare Access はこのパスだけ Bypass にする (Muse はサービストークンの 2 ヘッダーを送れない)。認証はアプリ側の鍵が担う。
 
-アプリ側の判定 (CC-INST-INV-06): Host が `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST` に一致するか、`cf-ray` / `cf-connecting-ip` / `cf-access-jwt-assertion`
-のどれかがあれば公開経由 (web-sso の `isPublicRequest` と同じ判定)。公開経由は `Cf-Access-Jwt-Assertion` を
-`CfAccessVerifier` (CC-MGMT-08 と同じ実装、JWKS で RS256 署名と iss / aud / exp / nbf を検証) で確かめる。
-Tunnel を迂回して loopback に直接来た要求は local だが、Cc は loopback bind なのでそれはこの PC 上のプロセスに限られる。
+アプリ側の判定:
 
-| env | 内容 |
-|---|---|
-| `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST` | 公開ホスト名 (ホスト名だけ) |
-| `CONCORDIA_INSTRUCTIONS_CF_ACCESS_TEAM_DOMAIN` | `https://<team>.cloudflareaccess.com` |
-| `CONCORDIA_INSTRUCTIONS_CF_ACCESS_AUD` | ブリッジ用 Access アプリの AUD |
+- 公開経由か: Host が `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST` に一致するか、`cf-ray` / `cf-connecting-ip` / `cf-access-jwt-assertion`
+  のどれかがあれば公開経由 (web-sso の `isPublicRequest` と同じ判定)。公開ホストが未設定・形式不正でもトンネル由来ヘッダーで捕まえる。
+- 鍵 (CC-INST-INV-06): `x-excubitor-token` を設定 `agent_instructions.intake_token` と比べる。両辺を SHA-256 にしてから
+  `timingSafeEqual` で比べるので、長さの違いも比較時間から漏れない。CF Access の JWT は求めない (あっても鍵の代わりにならない)。
+- 鍵は要求ごとに設定から読む。設定画面で差し替えると再起動なしで古い鍵が無効になる。
+- Tunnel を迂回して loopback に直接来た要求は local だが、Cc は loopback bind なのでそれはこの PC 上のプロセスに限られる。
 
-team / aud がそろわない間・形式不正のときは Cc を止めず、警告を出して公開経由を全部 403 にする。起動時に読むので変更には再起動が要る。
+| 設定 | 置き場所 | 内容 |
+|---|---|---|
+| `runtime.instructions_public_host` | env `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST` | 公開ホスト名 (ホスト名だけ)。起動時に読む |
+| `agent_instructions.intake_token` | 設定 > 実行環境 (schema_meta、secret-box で暗号化、API は値を返さない) | 公開経由の鍵。空白なし 32 文字以上の乱数。AI プレイテスト受け口の鍵 (`playtest_notify.intake_token`) とは別 |
+
+### 人間がやる手順 (Cloudflare・鍵)
+
+1. 鍵を作る (32 文字以上の乱数)。Cc の設定 > 実行環境「指令ブリッジの公開経由の鍵」に保存し、Muse のコネクタに `x-excubitor-token` として渡す。値はチャット・ログ・リポジトリに書かない。
+2. Cloudflare Tunnel に ingress を足す: `cc-home.ai-run-do.com` の `/v1/instructions*` → `http://127.0.0.1:<Cc のポート>`。ほかのパスは 404。
+3. DNS: `cc-home.ai-run-do.com` をその Tunnel へ向ける (CNAME `<tunnel-id>.cfargotunnel.com`)。
+4. Access: このホストの `/v1/instructions*` だけ Bypass のポリシーにする (ほかのパスを公開しない前提)。
+5. Cc の env に `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST=cc-home.ai-run-do.com` を入れ、Excubitor 経由で反映・再起動する。
+6. 外から確かめる: 鍵なし 401、鍵ありの poll 200、`POST /v1/instructions` は 403。
 
 ## 復旧
 
@@ -100,6 +113,6 @@ team / aud がそろわない間・形式不正のときは Cc を止めず、�
 
 ## 検証
 
-- `src/api/agent-instructions.test.ts`: 指示書 §6-2〜7 を Hono の要求で再現 (実 DB、JWT は生成した RSA 鍵で署名)。
-- `src/agent-instructions/*.test.ts`: 判定・要求の形・use case・入口判定・結線。`tests/sweeper.test.ts`: sweeper からの掃除。
-- 未実施: 公開ホスト経由の実機確認 (§6-6〜8)。Tunnel route・Access アプリ / ポリシーの設定と稼働中 Cc への反映は人間の許可が要る。
+- `src/api/agent-instructions.test.ts`: 指示書 §6-2〜7 を Hono の要求で再現 (実 DB。公開経由はトンネル由来ヘッダーと鍵の有無で再現)。
+- `src/agent-instructions/*.test.ts`: 判定・要求の形・use case・鍵の判定・入口判定・結線。`tests/sweeper.test.ts`: sweeper からの掃除。
+- 未実施: 公開ホスト経由の実機確認 (§6-6〜8)。Tunnel route・DNS・Access の Bypass・鍵の生成と稼働中 Cc への反映は人間の許可が要る (上の手順)。

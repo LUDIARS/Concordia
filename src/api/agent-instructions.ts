@@ -3,13 +3,13 @@
  * (spec/feature/agent-instructions-bridge.md)。
  *
  *   POST /v1/instructions            登録 (loopback のみ。公開経由は 403)
- *   GET  /v1/instructions            ポーリング (公開経由は CF Access 検証済みのみ)
- *   POST /v1/instructions/:id/ack    受領確認
- *   POST /v1/instructions/:id/result 結果報告
+ *   GET  /v1/instructions            ポーリング (公開経由は専用の鍵 x-excubitor-token が要る)
+ *   POST /v1/instructions/:id/ack    受領確認 (同上)
+ *   POST /v1/instructions/:id/result 結果報告 (同上)
  *   GET  /v1/instructions/:id        状態確認 (loopback のみ)
  *
  * 公開ホストの SSO と応答キャッシュより前に登録する (buildApp)。 ここで返した応答は後続へ進まない。
- * エラーは `{ error: { code, message } }`。
+ * 公開経由の鍵は本文を読む前に確かめる (欠落・不一致・鍵の未設定は 401)。 エラーは `{ error: { code, message } }`。
  *
  * @implements spec/feature/agent-instructions-bridge.md — 受け口
  */
@@ -31,7 +31,7 @@ export interface AgentInstructionsDeps {
   log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
 }
 
-type Status = 400 | 403 | 404 | 409 | 413 | 500;
+type Status = 400 | 401 | 403 | 404 | 409 | 413 | 500;
 
 function fail(c: Context, status: Status, error: RequestError): Response {
   c.header("cache-control", "no-store");
@@ -46,23 +46,28 @@ async function readJson(c: Context): Promise<{ ok: true; body: unknown } | { ok:
 const NOT_JSON: RequestError = { code: "invalid_body", message: "本文は Content-Type: application/json の JSON オブジェクトで送ってください" };
 const NOT_FOUND: RequestError = { code: "not_found", message: "その指令はありません。 id と agent を確かめてください" };
 const LOCAL_ONLY: RequestError = { code: "local_only", message: "この操作は Concordia の自宅側 (loopback) からだけ使えます" };
-const ACCESS_REQUIRED: RequestError = { code: "access_required", message: "Cloudflare Access のサービストークン (CF-Access-Client-Id / CF-Access-Client-Secret) を付けて公開ホスト経由で呼んでください" };
+const TOKEN_REQUIRED: RequestError = { code: "token_required", message: "公開経由はヘッダー x-excubitor-token に指令ブリッジ専用の鍵を付けて呼んでください。 鍵が違うときは Concordia の設定で入れ直した値を使ってください" };
 
 export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
   const app = new Hono();
   const header = (c: Context) => (name: string) => c.req.header(name);
 
-  /** 公開経由なら CF Access の検証を要求する。 loopback はそのまま通す。 */
+  /** 公開経由なら専用の鍵を要求する (本文より前)。 loopback はそのまま通す。 */
   const guard: MiddlewareHandler = async (c, next) => {
     c.header("cache-control", "no-store");
-    if (deps.access.origin(header(c)) === "public" && !await deps.access.verifyPublic(header(c))) {
-      deps.log?.warn({ method: c.req.method, path: c.req.path }, "agent-instructions public request without verified Access token");
-      return fail(c, 403, ACCESS_REQUIRED);
+    if (deps.access.origin(header(c)) === "public") {
+      const decision = deps.access.authorizePublic(header(c));
+      if (!decision.allowed) {
+        // 鍵の値は出さない。 理由 (unset / unreadable / missing / mismatch) だけ残す。
+        deps.log?.warn({ method: c.req.method, path: c.req.path, reason: decision.reason }, "agent-instructions public request rejected by intake key");
+        return fail(c, 401, TOKEN_REQUIRED);
+      }
     }
     await next();
   };
-  /** 公開経由を検証に関係なく拒否する (登録・状態確認)。 */
+  /** 公開経由を鍵に関係なく拒否する (登録・状態確認)。 */
   const localOnly: MiddlewareHandler = async (c, next) => {
+    c.header("cache-control", "no-store");
     if (deps.access.origin(header(c)) === "public") return fail(c, 403, LOCAL_ONLY);
     await next();
   };
@@ -75,8 +80,6 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
     return INSTRUCTION_ID_PATTERN.test(id) ? id : null;
   };
 
-  app.use("*", guard);
-
   app.post("/", localOnly, limit, async (c) => {
     const read = await readJson(c);
     if (!read.ok) return fail(c, 400, NOT_JSON);
@@ -87,14 +90,14 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
     return c.json({ data: { instruction } }, 201);
   });
 
-  app.get("/", (c) => {
+  app.get("/", guard, (c) => {
     const parsed = parsePollQuery((name) => c.req.query(name));
     if (!parsed.ok) return fail(c, 400, parsed.error);
     const instructions = deps.service.poll(parsed.value.agent, parsed.value.status, parsed.value.limit);
     return c.json({ data: { instructions } }, 200);
   });
 
-  app.post("/:id/ack", limit, async (c) => {
+  app.post("/:id/ack", guard, limit, async (c) => {
     const id = validId(c);
     if (!id) return fail(c, 404, NOT_FOUND);
     const read = await readJson(c);
@@ -111,7 +114,7 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
     return c.json({ duplicate, data: { instruction: { id, status: outcome.status, ackedAt: outcome.ackedAt } } }, duplicate ? 200 : 202);
   });
 
-  app.post("/:id/result", limit, async (c) => {
+  app.post("/:id/result", guard, limit, async (c) => {
     const id = validId(c);
     if (!id) return fail(c, 404, NOT_FOUND);
     const read = await readJson(c);
@@ -140,7 +143,7 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
     return c.json({ data: { instruction } }, 200);
   });
 
-  app.all("*", (c) => fail(c, 404, { code: "not_found", message: "このパスはありません。 /v1/instructions の決められた口だけが使えます" }));
+  app.all("*", guard, (c) => fail(c, 404, { code: "not_found", message: "このパスはありません。 /v1/instructions の決められた口だけが使えます" }));
   app.onError((error, c) => {
     deps.log?.warn({ path: c.req.path, error: error instanceof Error ? error.message : String(error) }, "agent-instructions request failed");
     return fail(c, 500, { code: "internal_error", message: "処理できませんでした。 ack / result は同じ内容で再送できます (冪等)。 登録は GET で積まれていないか確かめてから送り直してください" });

@@ -329,6 +329,7 @@ import { readLineChannelSecrets, readServiceRelayToken } from "../line-webhook/c
 import { readPushEnabled, readPushTokenHash } from "../line-webhook/push-token.js";
 import { SqliteLineTalkLinkStore } from "../line-webhook/talk-links.js";
 import { createAgentInstructionsRuntime } from "../agent-instructions/runtime.js";
+import { INSTRUCTION_INTAKE_TOKEN_SETTING } from "../agent-instructions/instruction-token.js";
 import { createDiscordChatRelayFromStore } from "../discord-chat-relay/runtime.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
@@ -1947,7 +1948,9 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const questionLifecycle = startQuestionLifecycleWatch(db);
   // 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。
-  const agentInstructions = createAgentInstructionsRuntime(db, process.env);
+  // 公開経由の鍵は設定 > 実行環境で人間が入れ、 schema_meta に secret-box で暗号化して置く (API は値を返さない)。
+  // 要求ごとに読むので差し替えは再起動なしで効く。 復号できなければ throw → 全部断る。
+  const agentInstructions = createAgentInstructionsRuntime(db, process.env, () => adminState.store.get(INSTRUCTION_INTAKE_TOKEN_SETTING));
   const sweeper = startSweeper({
     repo,
     sweepAgentInstructions: agentInstructions.sweep,

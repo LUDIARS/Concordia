@@ -610,11 +610,27 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     "クラウド実行のバッチを定期的に進める間隔。 60 秒未満は 60 秒に切り上げる。 クラウド実行の設定ファイルが無いときは動かない。"),
   // 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。 起動時に読む。
   envString("runtime.instructions_public_host", "runtime", "指令ブリッジの公開ホスト", "CONCORDIA_INSTRUCTIONS_PUBLIC_HOST", null,
-    "/v1/instructions を Cloudflare Tunnel で公開するホスト名。 この Host 宛てとトンネル経由の要求は Access の JWT を必須にし、 登録と状態確認は拒否する。"),
-  envString("runtime.instructions_cf_access_team_domain", "runtime", "指令ブリッジの Access team domain", "CONCORDIA_INSTRUCTIONS_CF_ACCESS_TEAM_DOMAIN", null,
-    "https://<team>.cloudflareaccess.com。 audience と両方そろうまで公開経由の要求は全部 403。"),
-  envString("runtime.instructions_cf_access_aud", "runtime", "指令ブリッジの Access audience", "CONCORDIA_INSTRUCTIONS_CF_ACCESS_AUD", null,
-    "指令ブリッジ用 Access アプリの AUD。 team domain と両方そろうまで公開経由の要求は全部 403。"),
+    "/v1/instructions を Cloudflare Tunnel で公開するホスト名。 この Host 宛てとトンネル経由の要求は専用の鍵 (下の項目) を必須にし、 登録と状態確認は拒否する。"),
+  // 公開経由の Muse 用の口 (poll / ack / result) 専用の鍵 (spec/feature/agent-instructions-bridge.md — 公開経由の鍵)。
+  // Muse のコネクタは 1 要求に秘密 1 つまでなので、 CF Access のサービストークン (2 ヘッダー) ではなくこれ 1 本で受ける。
+  // AI プレイテスト受け口の鍵 (playtest_notify.intake_token) とは分ける。
+  {
+    key: "agent_instructions.intake_token",
+    section: "runtime",
+    label: "指令ブリッジの公開経由の鍵",
+    description:
+      "公開経由の GET /v1/instructions・POST /v1/instructions/:id/ack・/result の x-excubitor-token に求める鍵 (32 文字以上の乱数)。"
+      + " 一致しない・無い要求は本文を読まずに 401。 未設定のあいだは公開経由を全部 401 で断る (loopback は鍵なしで使える)。"
+      + " schema_meta に secret-box で暗号化して保存され、 API には実値を返さない。 漏れたらここで差し替えると古い鍵は即無効になる。",
+    kind: "secret",
+    envName: null,
+    dbKey: "agent_instructions.intake_token",
+    dbStore: "meta",
+    defaultValue: null,
+    editable: true,
+    stringPattern: "^\\S{32,}$",
+    stringPatternDescription: "空白を含まない 32 文字以上",
+  },
   {
     key: "runtime.orbis_vinculum_token",
     section: "runtime",

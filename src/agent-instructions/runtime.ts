@@ -1,6 +1,6 @@
 /**
  * 指令ブリッジの組み立て (spec/feature/agent-instructions-bridge.md)。 bootstrap から 1 回だけ呼ぶ。
- * DB・env・CF Access の公開鍵取得をここで結線し、 ルートと sweeper へ渡す口を返す。
+ * DB・env・公開経由の鍵の読み出しをここで結線し、 ルートと sweeper へ渡す口を返す。
  *
  * @implements spec/feature/agent-instructions-bridge.md — 結線
  */
@@ -8,10 +8,10 @@
 import type Database from "better-sqlite3";
 import type { AgentInstructionsDeps } from "../api/agent-instructions.js";
 import { SqliteAgentInstructionStore } from "../db/agent-instructions-repo.js";
-import { CfAccessVerifier, type JwksFetcher } from "../management/cf-access.js";
 import { createChildLogger } from "../shared/logger.js";
 import { readInstructionAccessConfig } from "./access-config.js";
 import { InstructionService } from "./instruction-service.js";
+import { readInstructionIntakeToken } from "./instruction-token.js";
 import { createInstructionAccessGate } from "./public-access.js";
 
 export interface AgentInstructionsRuntime {
@@ -22,19 +22,18 @@ export interface AgentInstructionsRuntime {
 export function createAgentInstructionsRuntime(
   db: Database.Database,
   env: Readonly<Record<string, string | undefined>>,
-  options: { fetchJwks?: JwksFetcher } = {},
+  /** 設定 `agent_instructions.intake_token` の復号済みの値を返す。 復号できなければ throw してよい (全部断る)。 */
+  readIntakeToken: () => string | null,
 ): AgentInstructionsRuntime {
   const log = createChildLogger("agent-instructions");
   const config = readInstructionAccessConfig(env);
-  if (config.problem) log.warn({ problem: config.problem }, "agent-instructions public access is disabled; public requests are rejected");
-  else if (!config.access) log.info("agent-instructions public access is not configured; public requests are rejected");
-  else log.info({ publicHost: config.publicHost }, "agent-instructions public requests require a Cloudflare Access token");
-  const verifier = config.access ? new CfAccessVerifier(config.access, options.fetchJwks) : null;
+  if (config.problem) log.warn({ problem: config.problem }, "agent-instructions public host is ignored; tunnel headers still mark public requests");
+  log.info({ publicHost: config.publicHost }, "agent-instructions public requests require the x-excubitor-token intake key");
   const service = new InstructionService({ store: new SqliteAgentInstructionStore(db) });
   return {
     routes: {
       service,
-      access: createInstructionAccessGate({ publicHost: config.publicHost, verifier }),
+      access: createInstructionAccessGate({ publicHost: config.publicHost, readToken: () => readInstructionIntakeToken(readIntakeToken) }),
       log: { info: (detail, message) => log.info(detail, message), warn: (detail, message) => log.warn(detail, message) },
     },
     sweep: () => {

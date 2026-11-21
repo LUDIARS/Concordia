@@ -5,6 +5,7 @@
     { "glob": "src/agent-instructions/instruction-policy.ts", "layer": "domain-logic" },
     { "glob": "src/agent-instructions/instruction-requests.ts", "layer": "domain-logic" },
     { "glob": "src/agent-instructions/public-access.ts", "layer": "domain-logic" },
+    { "glob": "src/agent-instructions/instruction-token.ts", "layer": "domain-logic" },
     { "glob": "src/agent-instructions/instruction-service.ts", "layer": "application" },
     { "glob": "src/agent-instructions/runtime.ts", "layer": "application" },
     { "glob": "src/agent-instructions/access-config.ts", "layer": "infrastructure" },

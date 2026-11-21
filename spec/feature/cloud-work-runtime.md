@@ -58,7 +58,7 @@ cloud-execution は依頼意図・提供元の受付・観測・回収を所有�
 - CC-CLOUD-EXEC-01: `submit / reconcile / observe / cancel / collect / release` は同じ依頼指紋と受付情報を使用する。前段の意図を保存し、応答喪失は同じ依頼の ID、専用名、指紋で照合する。投入と追送の再送を行わない。
 - CC-CLOUD-EXEC-02: Claude routine の受付 ID は CLI 追送前に保存する。追送が未確認なら保存済み ID を表示し、受付結果は unknown のままとする。Codex は保存済み ID を使い、ID が失われた場合は範囲を限定した一覧に同一指紋の正確な名前が一意に見つかったときに照合する。対応する名前が検索結果に無ければ提供元画面で確認した ID を記録する。
 - CC-CLOUD-EXEC-03: 提供元の終端、worker 申告、成果の整合性、品質検収、資源解放を別々に扱う。Codex は既存の read-only CLI 一覧を利用し、Claude で証拠が得られない終端は unknown とする。標準ホストの両経路では個別資源の解放は対象外で、停止操作は提供元 UI に委ねる。
-- [一般版 Colab](cloud-work-colab.md) は別の本人開始入口を持つ。Codex/Claude の単発と Codex バッチは従来の適格性・返送先を維持する。
+- [一般版 Colab](cloud-work-colab.md) は本人開始入口から Excubitor の Colab 拠点へ投入する。明示設定で HQ REST + Jupyter を選べる。Codex/Claude の単発と Codex バッチは従来の適格性・返送先を維持する。
 - [AWS](cloud-work-aws.md) は Excubitor の登録済み EC2 / Fargate を本人承認で実行する。標準ホストの自動選択と Codex バッチには参加しない。
 
 `POST /runs/:id/observe` は提供元の観測を明示要求する。 `POST /runs/:id/reconcile` に ID が無い場合は保存済み証拠を使用する。

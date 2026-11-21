@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ColabArtifacts } from "./colab-result.js";
+import type { ColabArtifacts, ColabReport } from "./colab-result.js";
 import type { ColabRun } from "./colab-run.js";
 
 export const COLAB_LEASE_MS = 60_000;
@@ -57,11 +57,12 @@ export class ColabJournal {
     }).immediate();
   }
 
-  claimRecovery(owner: string, now: number): ColabRun | undefined {
+  claimRecovery(owner: string, now: number, key?: string): ColabRun | undefined {
     if (!this.db && !existsSync(join(this.root, "colab-runs.sqlite"))) return undefined;
     const db = this.database();
     return db.transaction(() => {
-      const row = db.prepare("SELECT payload, lease_owner, lease_until FROM runs WHERE active = 1").get() as Stored | undefined;
+      const row = db.prepare("SELECT payload, lease_owner, lease_until FROM runs WHERE active = 1 AND (? IS NULL OR id = ?)")
+        .get(key ?? null, key ?? null) as Stored | undefined;
       if (!row || row.lease_owner !== owner && row.lease_until > now) return undefined;
       const run = JSON.parse(row.payload) as ColabRun;
       db.prepare("UPDATE runs SET lease_owner = ?, lease_until = ? WHERE id = ?").run(owner, now + COLAB_LEASE_MS, run.key);
@@ -75,10 +76,39 @@ export class ColabJournal {
   }
 
   save(run: ColabRun, owner: string, now: number): void {
-    const changed = this.database().prepare(
-      "UPDATE runs SET payload = ?, active = ? WHERE id = ? AND active = 1 AND lease_owner = ? AND lease_until > ?",
-    ).run(JSON.stringify(run), run.resourceRelease === "released" ? 0 : 1, run.key, owner, now).changes;
-    if (!changed) throw new Error("cloud_colab_ownership_lost");
+    const db = this.database();
+    db.transaction(() => {
+      if (run.site && this.get(run.key)?.site?.stopRequested) run.site.stopRequested = true;
+      const changed = db.prepare(
+        "UPDATE runs SET payload = ?, active = ? WHERE id = ? AND active = 1 AND lease_owner = ? AND lease_until > ?",
+      ).run(JSON.stringify(run), run.resourceRelease === "released" ? 0 : 1, run.key, owner, now).changes;
+      if (!changed) throw new Error("cloud_colab_ownership_lost");
+    }).immediate();
+  }
+
+  requestSiteStop(key: string): ColabRun {
+    const db = this.database();
+    return db.transaction(() => {
+      const run = this.get(key);
+      if (!run?.site) throw new Error("cloud_attempt_not_found");
+      if (run.resourceRelease !== "released") {
+        run.site.stopRequested = true;
+        db.prepare("UPDATE runs SET payload = ? WHERE id = ?").run(JSON.stringify(run), key);
+      }
+      return run;
+    }).immediate();
+  }
+
+  recordSiteReport(key: string, report: ColabReport): void {
+    const db = this.database();
+    db.transaction(() => {
+      const run = this.get(key);
+      if (!run?.site || run.resourceRelease !== "released") throw new Error("cloud_colab_collection_unready");
+      if (!run.workerReport) {
+        run.workerReport = report;
+        db.prepare("UPDATE runs SET payload = ? WHERE id = ?").run(JSON.stringify(run), key);
+      }
+    }).immediate();
   }
 
   verify(key: string, verified: ColabArtifacts): ColabRun {

@@ -195,6 +195,9 @@
     {"id":"cloud-work-C-4","criterion":"C-4 executionEvidence(receipt, observation, verified, quality, release): 受付・観測・成果検証・品質検収・解放の事実を独立して返す","symbol":"executionEvidence","file":"src/cloud-work/execution-adapter.ts","module":"src/cloud-work/execution-evidence.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-aws-C-35","criterion":"C-35 awsAdmission(input): 本人承認・区分・登録先・期限・使用量上限を満たす場合だけ受理する","symbol":"awsAdmission","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-admission.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-aws-C-36","criterion":"C-36 matchAwsJob(jobs, identity): 同じ冪等キー・実行先・runner の一意な受付だけを照合する","symbol":"matchAwsJob","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-reconcile.contract.ts","mode":"observe","sample":1},
-    {"id":"cloud-aws-C-37","criterion":"C-37 awsJobEvidence(job, container): 停止要求・解放・登録コンテナの終了コードを独立に記録する","symbol":"awsJobEvidence","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-evidence.contract.ts","mode":"observe","sample":1}
+    {"id":"cloud-aws-C-37","criterion":"C-37 awsJobEvidence(job, container): 停止要求・解放・登録コンテナの終了コードを独立に記録する","symbol":"awsJobEvidence","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-evidence.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-colab-site-C-38","criterion":"C-38 siteJobEvidence(receipt, stopRequested): 拠点が解放を確認するまで枠を保持し、停止要求と停止確認を区別する","symbol":"siteJobEvidence","file":"src/cloud-work/colab-site-policy.ts","module":"src/cloud-work/colab-site-evidence.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-colab-site-C-39","criterion":"C-39 verifySiteArtifact(bytes, expected): 上限内でサイズと SHA-256 が一致する成果物だけを受け入れる","symbol":"verifySiteArtifact","file":"src/cloud-work/colab-site-artifacts.ts","module":"src/cloud-work/colab-site-artifact.contract.ts","mode":"observe","sample":1},
+    {"id":"cloud-colab-site-C-40","criterion":"C-40 siteJobAction(state, initial): 受付不明を再送せず、保存済みの受付 ID だけを観測や停止に使う","symbol":"siteJobAction","file":"src/cloud-work/colab-site-policy.ts","module":"src/cloud-work/colab-site-action.contract.ts","mode":"observe","sample":1}
   ]
 }

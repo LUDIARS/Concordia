@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { ColabBinding } from "./colab-config.js";
+import type { LegacyColabBinding } from "./colab-config.js";
 
 const exec = promisify(execFile);
 const MAX_PROGRAM_BYTES = 512_000;
@@ -19,7 +19,7 @@ const readGitBlob: ReadGitBlob = async (repoPath, revision, path) => {
 };
 
 export async function readRegisteredColabProgram(repoPath: string, revision: string,
-  binding: Pick<ColabBinding, "program" | "programSha256">, read: ReadGitBlob = readGitBlob): Promise<string> {
+  binding: Pick<LegacyColabBinding, "program" | "programSha256">, read: ReadGitBlob = readGitBlob): Promise<string> {
   let bytes: Buffer;
   try { bytes = await read(repoPath, revision, binding.program); }
   catch { throw new Error("cloud_colab_program_unverified"); }

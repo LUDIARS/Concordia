@@ -13,6 +13,7 @@ import { ColabAdapter } from "./colab-adapter.js";
 import { GoogleColabRest } from "./colab-rest.js";
 import { HttpColabJupyter } from "./colab-jupyter.js";
 import { requestFingerprint } from "./execution-adapter.js";
+import { colabSiteTransport, type ColabSiteTransport } from "./colab-site-excubitor.js";
 
 const Credential = z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1), refreshToken: z.string().min(1) }).strict();
 
@@ -40,7 +41,7 @@ export function settingsColabCredentials(store: Pick<SettingsStore, "get">): Col
 
 export function createColabRuntime(input: {
   root: string; tasks: TaskStore; runtime: CloudWorkRuntime; credentials: ColabCredentials;
-  fetcher?: typeof fetch;
+  fetcher?: typeof fetch; env?: NodeJS.ProcessEnv; site?: ColabSiteTransport;
 }): ColabService {
   const credentials = (binding: ColabCredentialKey) => {
     const value = input.credentials.get(binding);
@@ -52,9 +53,11 @@ export function createColabRuntime(input: {
     targets: scope => input.runtime.targets(scope),
     authorizeTask: cloudTaskAuthorizer(input.tasks),
     readProgram: readRegisteredColabProgram,
-    bindingReady: binding => !!input.credentials.get({ ...binding, ref: binding.credentialRef, purpose: "colab" })
+    site: input.site ?? colabSiteTransport(input.env ?? process.env, input.fetcher),
+    bindingReady: binding => (binding.site || !!input.credentials.get({ ...binding, ref: binding.credentialRef, purpose: "colab" }))
       && (!binding.drive || !!input.credentials.get({ ...binding, ref: binding.drive.credentialRef, purpose: "drive" })),
     adapter(run, allocation, signal) {
+      if (run.binding.site) throw new Error("cloud_colab_unavailable");
       const token = new GoogleOAuthTokens(credentials({ ...run.binding, ref: run.binding.credentialRef, purpose: "colab" }),
         {}, input.fetcher, Date.now, GOOGLE_COLAB_SCOPE);
       return new ColabAdapter(new GoogleColabRest(token, input.fetcher), jupyter, { allocation,
@@ -65,7 +68,8 @@ export function createColabRuntime(input: {
       if (!drive) return undefined;
       const token = new GoogleOAuthTokens(credentials({ ...run.binding, ref: drive.credentialRef, purpose: "drive" }),
         {}, input.fetcher, Date.now, "https://www.googleapis.com/auth/drive.file");
-      return new DriveCloudArtifacts({ id: run.targetId, sourceRevision: run.sourceRevision, maxArtifactBytes: 32_000, drive },
+      return new DriveCloudArtifacts({ id: run.targetId, sourceRevision: run.sourceRevision,
+        maxArtifactBytes: run.binding.site ? 512_000_000 : 32_000, drive },
         drive.checkpointNames, token, input.fetcher);
     },
     now: Date.now,

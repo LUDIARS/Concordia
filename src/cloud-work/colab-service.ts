@@ -3,11 +3,14 @@ import { setTimeout as wait } from "node:timers/promises";
 import { ColabAdapter, ColabAllocationRefused, type ColabAllocation } from "./colab-adapter.js";
 import { ColabJournal } from "./colab-journal.js";
 import { colabAdmission } from "./colab-policy.js";
-import { colabRunStatus, type ColabOwner, type ColabRun, type ColabStart } from "./colab-run.js";
+import { colabRunStatus, isSiteColabRun, type ColabOwner, type ColabRun, type ColabStart } from "./colab-run.js";
 import { requestFingerprint } from "./execution-adapter.js";
 import type { DriveCloudArtifacts } from "./drive-artifacts.js";
 import type { ColabReport } from "./colab-result.js";
-import type { ColabBinding } from "./colab-config.js";
+import type { ColabBinding, LegacyColabBinding } from "./colab-config.js";
+import { ColabSiteRunner } from "./colab-site-runner.js";
+import { collectColabSiteArtifacts } from "./colab-site-artifacts.js";
+import type { ColabSiteTransport } from "./colab-site-excubitor.js";
 import type { CloudEnvironment } from "./runtime-config.js";
 import type { CloudScope } from "./runtime-service.js";
 
@@ -15,8 +18,9 @@ interface Ports {
   targets(scope: CloudScope): Promise<CloudEnvironment[]>;
   authorizeTask(reference: string, scope: CloudScope, active?: boolean): Promise<void>;
   bindingReady(binding: ColabBinding): boolean;
-  readProgram(repoPath: string, revision: string, binding: ColabBinding): Promise<string>;
+  readProgram(repoPath: string, revision: string, binding: LegacyColabBinding): Promise<string>;
   adapter(run: ColabRun, allocation: ColabAllocation, signal: AbortSignal): ColabAdapter;
+  site?: ColabSiteTransport;
   drive(run: ColabRun): DriveCloudArtifacts | undefined;
   now(): number;
   delay?(ms: number, signal: AbortSignal): Promise<void>;
@@ -39,8 +43,11 @@ export class ColabService {
   private work: Work | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
   private closing = false;
+  private readonly site: ColabSiteRunner | undefined;
 
-  constructor(private readonly journal: ColabJournal, private readonly ports: Ports) {}
+  constructor(private readonly journal: ColabJournal, private readonly ports: Ports) {
+    if (ports.site) this.site = new ColabSiteRunner(journal, ports.site, this.owner, ports.now);
+  }
 
   startRecovery(): void {
     if (this.timer || this.closing) return;
@@ -57,10 +64,24 @@ export class ColabService {
   }
 
   async targets(scope: CloudScope, owner: ColabOwner) {
-    return (await this.ports.targets(scope)).flatMap(target => target.provider === "colab" && target.colab
-      && owns(target.colab, owner) ? [{ id: target.id, label: target.label, destination: target.colab.destination,
-        maxSeconds: target.colab.maxSeconds, gpu: target.colab.runtimeSpec.accelerator,
-        ready: this.ports.bindingReady(target.colab) }] : []);
+    const readiness = new Map<string, ReturnType<ColabSiteTransport["readiness"]>>();
+    return Promise.all((await this.ports.targets(scope)).flatMap(target => {
+      const binding = target.colab;
+      if (target.provider !== "colab" || !binding || !owns(binding, owner)) return [];
+      return [this.targetStatus(target, binding, readiness)];
+    }));
+  }
+
+  private async targetStatus(target: CloudEnvironment, binding: ColabBinding,
+    readiness: Map<string, ReturnType<ColabSiteTransport["readiness"]>>) {
+    const common = { id: target.id, label: target.label, destination: binding.destination, maxSeconds: binding.maxSeconds };
+    if (!binding.site) return { ...common, gpu: binding.runtimeSpec.accelerator, ready: this.ports.bindingReady(binding) };
+    const peer = binding.site.peerId;
+    if (!readiness.has(peer) && this.site) readiness.set(peer, this.site.transport.readiness(peer));
+    const probe = readiness.get(peer);
+    const connection = probe ? await probe : "cloud_colab_site_unreachable";
+    const reason = connection ?? (this.ports.bindingReady(binding) ? null : "cloud_colab_credentials_unavailable");
+    return { ...common, gpu: binding.site.gpu, ready: reason === null, transport: "excubitor-site" as const, reason };
   }
 
   async start(scope: CloudScope, owner: ColabOwner, input: ColabStart) {
@@ -80,7 +101,12 @@ export class ColabService {
       throw new Error("cloud_colab_usage_limit");
     }
     if (!this.ports.bindingReady(binding)) throw new Error("cloud_colab_credentials_unavailable");
-    const program = await this.ports.readProgram(target.repoPath, target.sourceRevision, binding);
+    if (binding.site) {
+      if (!this.site) throw new Error("cloud_colab_site_unreachable");
+      const unavailable = await this.site.transport.readiness(binding.site.peerId);
+      if (unavailable) throw new Error(unavailable);
+    }
+    const program = binding.site ? undefined : await this.ports.readProgram(target.repoPath, target.sourceRevision, binding);
     if (this.closing) throw new Error("cloud_colab_unavailable");
     const now = this.ports.now(), requestId = (this.ports.uuid ?? randomUUID)();
     const run: ColabRun = { key, scope, requestFingerprint: requestFingerprint([ownerScope, input.taskReference, input.targetId,
@@ -89,7 +115,7 @@ export class ColabService {
       requestId, runtimeName: `runtimes/cc-${requestId}`, createdAt: now, deadlineAt: now + input.seconds * 1000,
       estimatedUnits: units, receipt: { state: "submission_unknown", requestId }, allocation: "unattempted",
       providerTerminal: "unknown", workerReport: null, verified: null, quality: "pending", resourceRelease: "unknown",
-      stopReason: null, error: null };
+      stopReason: null, error: null, ...(binding.site ? { site: { stopRequested: false, cancelSent: false } } : {}) };
     if (this.work) throw new Error("cloud_colab_busy");
     const reserve = this.journal.reserve(run, ownerScope, this.owner, now);
     if (reserve === "busy") throw new Error("cloud_colab_busy");
@@ -99,16 +125,19 @@ export class ColabService {
       return this.checkRepeated(prior, input);
     }
     const accepted = colabRunStatus(run);
-    void this.launch(run, program);
+    void this.launch(run, { initial: true, program });
     return accepted;
   }
 
-  async list(scope: CloudScope, owner: ColabOwner) {
+  async list(scope: CloudScope, owner: ColabOwner, refreshSite = false) {
     const result = [];
     for (const run of this.journal.list(scopeKey(scope, owner))) {
       try {
         await this.ports.authorizeTask(run.taskReference, scope);
-        result.push(colabRunStatus(run));
+        if (refreshSite && run.site?.receipt && run.resourceRelease !== "released") {
+          await this.recover({ key: run.key, refresh: true });
+        }
+        result.push(colabRunStatus(this.journal.get(run.key) ?? run));
       } catch { /* Match the task scope check used when listing cloud batches. */ }
     }
     return result;
@@ -116,6 +145,13 @@ export class ColabService {
 
   async stop(scope: CloudScope, owner: ColabOwner, attemptId: string) {
     const run = await this.ownedRun(scope, owner, attemptId);
+    if (run.site) {
+      const requested = this.journal.requestSiteStop(run.key);
+      if (requested.resourceRelease !== "released" && !this.work) {
+        void this.recover({ key: run.key }).catch(() => { /* The stop intent remains in the journal. */ });
+      }
+      return colabRunStatus(requested);
+    }
     if (this.work?.key === run.key) this.work.stop("cancelled");
     else if (run.resourceRelease !== "released") await this.recover();
     return colabRunStatus(this.journal.get(run.key) ?? run);
@@ -124,6 +160,11 @@ export class ColabService {
   async collect(scope: CloudScope, owner: ColabOwner, attemptId: string) {
     const run = await this.ownedRun(scope, owner, attemptId);
     if (run.verified) return colabRunStatus(run);
+    if (isSiteColabRun(run) && this.site) {
+      const verified = await collectColabSiteArtifacts(run, this.site.transport,
+        report => this.journal.recordSiteReport(run.key, report), () => this.ports.drive(run));
+      return colabRunStatus(this.journal.verify(run.key, verified));
+    }
     if (!run.workerReport || run.resourceRelease !== "released") throw new Error("cloud_colab_collection_unready");
     const verified = await this.verifyReport(run, run.workerReport, AbortSignal.timeout(30_000));
     return colabRunStatus(this.journal.verify(run.key, verified));
@@ -134,11 +175,11 @@ export class ColabService {
     return colabRunStatus(this.journal.quality(run.key, quality));
   }
 
-  async recover(): Promise<void> {
+  async recover(options: { key?: string; refresh?: boolean } = {}): Promise<void> {
     if (this.closing || this.work) return;
-    const run = this.journal.claimRecovery(this.owner, this.ports.now());
+    const run = this.journal.claimRecovery(this.owner, this.ports.now(), options.key);
     if (!run) return;
-    await this.launch(run);
+    await this.launch(run, { refresh: options.refresh });
   }
 
   private async ownedRun(scope: CloudScope, owner: ColabOwner, attemptId: string): Promise<ColabRun> {
@@ -157,7 +198,16 @@ export class ColabService {
     return colabRunStatus(run);
   }
 
-  private launch(run: ColabRun, program?: string): Promise<void> {
+  private launch(run: ColabRun, options: { program?: string; initial?: boolean; refresh?: boolean }): Promise<void> {
+    const { program } = options;
+    if (isSiteColabRun(run)) {
+      const task = Promise.resolve().then(() => this.site?.advance(run, !!options.initial, !!options.refresh))
+        .catch(() => { /* The durable intent stays reserved for a subsequent read. */ })
+        .finally(() => { this.work = undefined; });
+      // The site owns deadline and cleanup. Wait for the current receipt write before closing the journal.
+      this.work = { key: run.key, task, stop() {} };
+      return task;
+    }
     const controller = new AbortController();
     const heartbeat = setInterval(() => {
       try {
@@ -190,6 +240,7 @@ export class ColabService {
   private save(run: ColabRun): void { this.journal.save(run, this.owner, this.ports.now()); }
 
   private adapter(run: ColabRun, signal: AbortSignal): [ColabAdapter, ColabAllocation] {
+    if (run.binding.site) throw new Error("cloud_colab_unavailable");
     const allocation = { name: run.runtimeName, requestId: run.requestId, runtimeSpec: run.binding.runtimeSpec };
     return [this.ports.adapter(run, allocation, signal), allocation];
   }

@@ -26,3 +26,17 @@ it("requires an explicit owner confirmation for the displayed destination and ke
   expect(JSON.parse(String(sent?.body))).toMatchObject({ ownerApproved: true,
     evidence: { code: "public", data: "non_confidential", destination: "owner-drive" } });
 });
+
+it("shows the site readiness reason and directs the owner to Colab when release is unknown", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => path.includes("/targets")
+    ? Response.json({ targets: [{ id: "gromac", label: "GROMAC", destination: "owner", gpu: "T4", maxSeconds: 300,
+      transport: "excubitor-site", ready: false, reason: "cloud_colab_site_mesh_not_ready" }] })
+    : Response.json({ runs: [{ attemptId: "attempt", targetId: "gromac", providerTerminal: "unknown",
+      resourceRelease: "unknown", sitePhase: "release_unknown", stopProgress: "requested", qualityAcceptance: "pending",
+      deadlineAt: 1800000000000, stopReason: null, error: null, workerReport: null, artifactVerification: null }] })));
+  render(<CloudColabPanel sessionId="session-1" taskReference="actio:task-1" />);
+  expect(await screen.findByText(/拠点間の認証設定/)).toBeInTheDocument();
+  expect(await screen.findByRole("alert")).toHaveTextContent(/実行枠を保持.*ランタイム管理画面/);
+  expect(screen.getByRole("button", { name: "Colab の停止を依頼" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Colab を開始" })).toBeDisabled();
+});

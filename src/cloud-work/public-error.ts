@@ -9,6 +9,7 @@ const PUBLIC_CLOUD_ERRORS: ReadonlySet<string> = new Set([
   "cloud_batch_provider_unsupported", "cloud_batch_schedule_owner_required", "cloud_batch_variables_mismatch",
   "cloud_colab_owner_required", "cloud_colab_owner_or_classification_required", "cloud_colab_usage_limit",
   "cloud_colab_credentials_unavailable", "cloud_colab_program_unverified", "cloud_colab_busy",
+  "cloud_colab_site_unreachable", "cloud_colab_site_not_registered", "cloud_colab_site_mesh_not_ready",
   "cloud_colab_collection_unready", "cloud_colab_unavailable", "cloud_colab_quality_unready", "cloud_colab_duplicate_request", "cloud_budget_exhausted", "cloud_company_capacity_exhausted", "cloud_configuration_invalid",
   "cloud_drive_artifact_ambiguous", "cloud_drive_auth_failed", "cloud_drive_credentials_missing",
   "cloud_drive_transfer_not_selected", "cloud_drive_upload_unavailable",

@@ -28,13 +28,14 @@ const target = CloudEnvironmentSchema.parse({ id: "colab-1", label: "Colab test"
   } });
 const input: ColabStart = { attemptId: "attempt-1", taskReference: "actio:task-1", targetId: target.id,
   seconds: 30, ownerApproved: true, evidence: { code: "public", data: "non_confidential", destination: "owner-space" } };
+const legacyBinding = !target.colab?.site ? target.colab : undefined;
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "cc-colab-test-"));
   const journal = new ColabJournal(dir);
-  const runtime = { name, runtimeSpec: target.colab?.runtimeSpec, connectionInfo: { url: "https://runtime.prod.colab.dev", token: "test-only",
+  const runtime = { name, runtimeSpec: legacyBinding?.runtimeSpec, connectionInfo: { url: "https://runtime.prod.colab.dev", token: "test-only",
     expireTime: "2099-01-01T00:00:00Z" } };
   let exists = true;
   const rest = {
@@ -85,7 +86,7 @@ describe("attended Colab execution", () => {
       expect(run.resourceRelease).toBe("released");
       return run;
     }, { timeout: 4000 });
-    expect(rest.create).toHaveBeenCalledExactlyOnceWith(name, requestId, target.colab?.runtimeSpec, expect.any(AbortSignal));
+    expect(rest.create).toHaveBeenCalledExactlyOnceWith(name, requestId, legacyBinding?.runtimeSpec, expect.any(AbortSignal));
     expect(jupyter.execute.mock.calls[0][1]).toContain("registered_code()");
     expect(rest.delete).toHaveBeenCalledTimes(1);
     expect(rest.get).toHaveBeenLastCalledWith(name, expect.any(AbortSignal));

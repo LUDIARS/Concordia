@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { readCloudResponse } from "./artifact-transfer.js";
 import type { AccessTokenSource } from "./google-oauth.js";
-import type { ColabBinding } from "./colab-config.js";
+import type { LegacyColabBinding } from "./colab-config.js";
 
 const API = "https://colaboratory.googleapis.com";
 const RuntimeName = z.string().regex(/^runtimes\/[a-z][a-z0-9-]{0,62}$/);
@@ -15,7 +15,7 @@ export type ColabConnection = z.infer<typeof Connection>;
 export type ColabRuntime = z.infer<typeof Runtime>;
 export type ColabOperation = z.infer<typeof Operation>;
 export interface ColabRest {
-  create(name: string, requestId: string, spec: ColabBinding["runtimeSpec"], signal: AbortSignal): Promise<ColabOperation>;
+  create(name: string, requestId: string, spec: LegacyColabBinding["runtimeSpec"], signal: AbortSignal): Promise<ColabOperation>;
   get(name: string, signal: AbortSignal): Promise<ColabRuntime | null>;
   list(signal: AbortSignal): Promise<string[]>;
   operation(name: string, signal: AbortSignal): Promise<ColabOperation | null>;
@@ -48,7 +48,7 @@ export class GoogleColabRest implements ColabRest {
     return JSON.parse((await readCloudResponse(response, 512_000)).toString("utf8"));
   }
 
-  async create(name: string, requestId: string, spec: ColabBinding["runtimeSpec"], signal: AbortSignal): Promise<ColabOperation> {
+  async create(name: string, requestId: string, spec: LegacyColabBinding["runtimeSpec"], signal: AbortSignal): Promise<ColabOperation> {
     const runtimeId = RuntimeName.parse(name).slice("runtimes/".length);
     const query = new URLSearchParams({ runtimeId, requestId });
     return Operation.parse(await this.request(`/v1beta/runtimes?${query}`, "POST", signal, { runtimeSpec: spec }));

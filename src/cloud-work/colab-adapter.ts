@@ -2,14 +2,14 @@ import type { CloudReceipt } from "./submission.js";
 import { releaseEvidence } from "./colab-policy.js";
 import type { CloudExecutionAdapter, ExecutionIdentity, ResourceRelease } from "./execution-adapter.js";
 import { ColabRestStatus, type ColabConnection, type ColabRest } from "./colab-rest.js";
-import type { ColabBinding } from "./colab-config.js";
+import type { LegacyColabBinding } from "./colab-config.js";
 import type { ColabJupyter } from "./colab-jupyter.js";
 import { parseColabResult, type ColabReport } from "./colab-result.js";
 
 export interface ColabAllocation {
   name: string;
   requestId: string;
-  runtimeSpec: ColabBinding["runtimeSpec"];
+  runtimeSpec: LegacyColabBinding["runtimeSpec"];
 }
 
 export class ColabAllocationRefused extends Error {
@@ -90,7 +90,7 @@ export class ColabAdapter implements CloudExecutionAdapter<ColabAllocation, Cola
     for (let read = 0; read < 2; read++) {
       const runtime = await this.rest.get(this.run.allocation.name, this.signal);
       if (runtime) {
-        const spec = runtime.runtimeSpec as Partial<ColabBinding["runtimeSpec"]> | undefined;
+        const spec = runtime.runtimeSpec as Partial<LegacyColabBinding["runtimeSpec"]> | undefined;
         const expected = this.run.allocation.runtimeSpec;
         if (spec?.variant !== expected.variant || spec.accelerator !== expected.accelerator || spec.shape !== expected.shape) {
           throw new Error("cloud_colab_runtime_mismatch");

@@ -38,7 +38,7 @@ export function cloudColabRoutes(deps: {
     const scope = await deps.scope(c.req.query("session_id"));
     const owner = c.get("concordiaWebIdentity");
     if (!scope || !owner) return c.json({ error: "cloud_colab_owner_required" }, 403);
-    return c.json({ runs: await deps.colab.list(scope, owner) });
+    return c.json({ runs: await deps.colab.list(scope, owner, c.req.query("refresh_site") === "1") });
   });
   app.post("/runs", async c => {
     const input = Start.safeParse(await c.req.json().catch(() => null));

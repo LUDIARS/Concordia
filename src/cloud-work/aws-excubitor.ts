@@ -1,5 +1,4 @@
-import { resolveServicePort } from "../excubitor/service-port.js";
-import { excubitorBaseUrl } from "../config/service-urls.js";
+import { resolveExcubitorManagement } from "./excubitor-management.js";
 import { readCloudResponse } from "./artifact-transfer.js";
 import { AwsJobPage, AwsJobSchema, AwsRefusal, AwsTargetList, type AwsJob } from "./aws-excubitor-schema.js";
 import { matchAwsJob, type AwsJobIdentity } from "./aws-policy.js";
@@ -21,13 +20,6 @@ const PAGE_SIZE = 100;
 const MAX_JOB_PAGES = 20;
 const MAX_RESPONSE_BYTES = 2_000_000;
 
-function loopbackOrigin(value: string): URL {
-  const url = new URL(value);
-  if (url.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password
-    || url.pathname !== "/" || url.search || url.hash) throw new Error("cloud_aws_unavailable");
-  return url;
-}
-
 async function readJson(response: Response): Promise<unknown> {
   // Preserve explicitly structured refusals while bounding the body exactly as for a success response.
   return JSON.parse((await readCloudResponse(new Response(response.body), MAX_RESPONSE_BYTES)).toString("utf8"));
@@ -35,23 +27,8 @@ async function readJson(response: Response): Promise<unknown> {
 
 /** Discover the exact supervisor service entry and confirm the resolved listener before calling it. */
 export async function resolveAwsExcubitor(env: NodeJS.ProcessEnv, fetcher: typeof fetch): Promise<URL> {
-  const discovery = loopbackOrigin(excubitorBaseUrl(env));
-  const get = async (url: URL) => {
-    const response = await fetcher(url, { redirect: "error", signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error("cloud_aws_unavailable");
-    }
-    return readJson(response);
-  };
-  const service = await get(new URL("/api/v1/services/excubitor", discovery)) as Parameters<typeof resolveServicePort>[0] & { code?: string };
-  const port = service?.code === "excubitor" ? resolveServicePort(service) : null;
-  if (!port) throw new Error("cloud_aws_unavailable");
-  const endpoint = new URL(discovery);
-  endpoint.port = String(port);
-  const health = await get(new URL("/health", endpoint)) as { service?: string } | null;
-  if (health?.service !== "excubitor") throw new Error("cloud_aws_unavailable");
-  return endpoint;
+  try { return await resolveExcubitorManagement(env, fetcher, readJson); }
+  catch { throw new Error("cloud_aws_unavailable"); }
 }
 
 export function awsExcubitorTransport(env: NodeJS.ProcessEnv, fetcher: typeof fetch = fetch): AwsExcubitor {

@@ -5,7 +5,7 @@ import { ColabBindingSchema } from "./colab-config.js";
 const Name = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 const EnvName = z.string().regex(/^[A-Z][A-Z0-9_]+$/);
 const ArtifactName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$/).refine(x => x !== "result.json");
-export const CloudTargetSchema = z.object({
+const CloudTargetInput = z.object({
   id: Name, label: z.string().min(1).max(120), repoPath: z.string().min(1),
   subsidiaryId: z.string().nullable(),
   provider: z.enum(["codex-cloud", "claude-cloud", "colab"]), environmentId: Name,
@@ -21,7 +21,7 @@ export const CloudTargetSchema = z.object({
   /** Non-code outputs returned through Drive while code travels by Git. */
   driveExpectedNames: z.array(ArtifactName).min(1).max(20).optional(),
   maxArtifactBytes: z.number().int().positive().max(512_000_000),
-  transferMode: z.enum(["git", "s3", "drive", "jupyter"]).default("git"),
+  transferMode: z.enum(["git", "s3", "drive", "jupyter", "excubitor-site"]).optional(),
   colab: ColabBindingSchema.optional(),
   git: z.object({
     publicHost: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/i),
@@ -39,7 +39,13 @@ export const CloudTargetSchema = z.object({
     folderId: z.string().regex(/^[A-Za-z0-9_-]{10,200}$/),
     clientIdEnv: EnvName, clientSecretEnv: EnvName, refreshTokenEnv: EnvName,
   }).strict().optional(),
-}).strict().superRefine((value, ctx) => {
+}).strict();
+
+function withTransferDefault<T extends Pick<z.infer<typeof CloudTargetInput>, "provider" | "transferMode">>(value: T) {
+  return { ...value, transferMode: value.transferMode ?? (value.provider === "colab" ? "excubitor-site" : "git") };
+}
+
+export const CloudTargetSchema = CloudTargetInput.transform(withTransferDefault).superRefine((value, ctx) => {
   transferBindingIssues(value).forEach(message => ctx.addIssue({ code: "custom", message }));
   if (new Set(value.expectedNames).size !== value.expectedNames.length) ctx.addIssue({ code: "custom", message: "duplicate artifact name" });
 });
@@ -51,12 +57,17 @@ type TransferBindings = Pick<Partial<CloudTarget>, "transferMode" | "git" | "sto
 function transferBindingIssues(value: TransferBindings): string[] {
   const issues: string[] = [];
   if (value.provider === "colab") {
-    if (!value.colab || value.transferMode !== "jupyter" || !value.sourceRevision || value.git || value.storage || value.drive) {
-      issues.push("Colab requires a fixed source revision and Jupyter binding");
+    const site = value.colab?.site;
+    const valid = site ? value.transferMode === "excubitor-site" && /^[0-9a-f]{40}$/.test(value.sourceRevision ?? "")
+      : value.transferMode === "jupyter" && !!value.sourceRevision;
+    if (!value.colab || !valid || value.git || value.storage || value.drive) {
+      issues.push("Colab requires a fixed source revision and a binding for the selected transport");
     }
     return issues;
   }
-  if (value.colab || value.transferMode === "jupyter") issues.push("Colab binding requires the Colab provider");
+  if (value.colab || value.transferMode === "jupyter" || value.transferMode === "excubitor-site") {
+    issues.push("Colab binding requires the Colab provider");
+  }
   if (value.transferMode === "git" && !value.git) issues.push("Git return binding required");
   if (value.transferMode === "s3" && !value.storage) issues.push("S3 return binding required");
   if (value.transferMode === "drive" && !value.drive) issues.push("Drive return binding required");
@@ -85,11 +96,12 @@ export function driveArtifactNames(target: CloudTarget): string[] {
 }
 
 /** Work varies per request. It is not mandatory operator environment configuration. */
-export const CloudWorkPlanSchema = CloudTargetSchema.innerType().pick({ sourceRevision: true, repositoryBytes: true,
+export const CloudWorkPlanSchema = CloudTargetInput.pick({ sourceRevision: true, repositoryBytes: true,
   preparationEvidence: true, verifiedAt: true, expectedNames: true, driveExpectedNames: true, maxArtifactBytes: true }).strict();
 export type CloudWorkPlan = z.infer<typeof CloudWorkPlanSchema>;
-export const CloudEnvironmentSchema = CloudTargetSchema.innerType().partial({ sourceRevision: true, repositoryBytes: true,
-  preparationEvidence: true, verifiedAt: true, expectedNames: true, maxArtifactBytes: true }).superRefine((value, ctx) => {
+export const CloudEnvironmentSchema = CloudTargetInput.partial({ sourceRevision: true, repositoryBytes: true,
+  preparationEvidence: true, verifiedAt: true, expectedNames: true, maxArtifactBytes: true })
+  .transform(withTransferDefault).superRefine((value, ctx) => {
   transferBindingIssues(value).forEach(message => ctx.addIssue({ code: "custom", message }));
 });
 export type CloudEnvironment = z.infer<typeof CloudEnvironmentSchema>;

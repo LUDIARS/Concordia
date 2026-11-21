@@ -631,6 +631,14 @@ UX シナリオ ID (`UX-CC-*`) は各 UX 文書が定義する。
 
 ### ddd.md 未分類の domain (分類の採否は責任者が判断する)
 
+#### `agent-instructions`
+
+[domain.json](domains/agent-instructions.domain.json) — inbound を受けられない外部エージェント (Muse) 宛ての指令を Cc に積み、HTTP ポーリングで渡して ack と結果を受ける。
+
+- feature:
+  - [agent-instructions-bridge.md](feature/agent-instructions-bridge.md) — 外部エージェント向け HTTP ポーリング指令ブリッジ (implemented)
+- 不変条件 ID: `CC-INST-INV-01〜07`
+
 #### `ai-note-publication`
 
 [domain.json](domains/ai-note-publication.domain.json) — セッションで完成した AIノートの記事を、明示設定された Discord/Slack の投稿先へ届ける。

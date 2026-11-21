@@ -328,6 +328,7 @@ import { readLineWebhookTargets } from "../line-webhook/targets.js";
 import { readLineChannelSecrets, readServiceRelayToken } from "../line-webhook/channel-secrets.js";
 import { readPushEnabled, readPushTokenHash } from "../line-webhook/push-token.js";
 import { SqliteLineTalkLinkStore } from "../line-webhook/talk-links.js";
+import { createAgentInstructionsRuntime } from "../agent-instructions/runtime.js";
 import { createDiscordChatRelayFromStore } from "../discord-chat-relay/runtime.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
@@ -1945,8 +1946,11 @@ export async function startBackend(): Promise<BackendHandle> {
   });
 
   const questionLifecycle = startQuestionLifecycleWatch(db);
+  // 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。
+  const agentInstructions = createAgentInstructionsRuntime(db, process.env);
   const sweeper = startSweeper({
     repo,
+    sweepAgentInstructions: agentInstructions.sweep,
     tasks,
     // Cc 停止中に transcript へ残された宣言を、 復帰後の周期で監査記録へ取り込む
     // (spec/feature/escalation-mode.md §1)。
@@ -2612,6 +2616,7 @@ export async function startBackend(): Promise<BackendHandle> {
     succession: successionRuntime.succession,
     repoAgents: successionRuntime.repoAgents,
     webSso,
+    agentInstructions: agentInstructions.routes,
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
       secrets: (channel) => readLineChannelSecrets(adminState.store, channel),

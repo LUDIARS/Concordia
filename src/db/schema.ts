@@ -11,7 +11,7 @@ import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.
 import { migrateTemplateModelsToRoles } from "./template-model-roles-migration.js";
 import { migrateTemplateCallNamesToRoles } from "./template-call-name-roles-migration.js";
 
-export const SCHEMA_VERSION = 149;
+export const SCHEMA_VERSION = 150;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3863,6 +3863,31 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   up(db) {
     // id は変えず call_name だけ書き換える。 delegation_runs.call_name は起動時の記録なので触らない。
     migrateTemplateCallNamesToRoles(db);
+  },
+}, {
+  version: 150,
+  name: "agent-instructions",
+  source: "agent_instructions (spec/feature/agent-instructions-bridge.md 外部エージェント宛ての指令キュー) v1",
+  up(db) {
+    // Muse など inbound を受けられない外部エージェントがポーリングで受け取る指令。 時刻は ISO 8601 UTC。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_instructions (
+        id             TEXT PRIMARY KEY,
+        agent          TEXT NOT NULL,
+        type           TEXT NOT NULL,
+        title          TEXT NOT NULL,
+        body           TEXT NOT NULL,
+        params         TEXT NOT NULL DEFAULT '{}',
+        status         TEXT NOT NULL CHECK (status IN ('pending', 'acked', 'done', 'failed')),
+        created_at     TEXT NOT NULL,
+        acked_at       TEXT,
+        finished_at    TEXT,
+        result_summary TEXT,
+        result_detail  TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_instructions_agent_status
+        ON agent_instructions(agent, status, created_at);
+    `);
   },
 },
 ];

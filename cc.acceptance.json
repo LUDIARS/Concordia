@@ -5846,6 +5846,20 @@
     {"source":"web/src/api.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
     {"source":"web/src/pages/settings/sections/AllSettingsSection.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
     {"source":"web/src/pages/settings/sections/SettingValueField.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
-    {"source":"web/src/pages/settings/sections/settingDraftCheck.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]}
+    {"source":"web/src/pages/settings/sections/settingDraftCheck.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
+    { "source": "src/agent-instructions/instruction-policy.ts", "tests": ["src/agent-instructions/instruction-policy.test.ts", "src/agent-instructions/instruction-service.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/instruction-requests.ts", "tests": ["src/agent-instructions/instruction-requests.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/instruction-service.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/public-access.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/access-config.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/agent-instructions/runtime.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/runtime.ts", "tests": ["src/agent-instructions/runtime.test.ts"], "contracts": [] },
+    { "source": "src/db/agent-instructions-repo.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/api/agent-instructions.ts", "tests": ["src/api/agent-instructions.test.ts", "src/agent-instructions/runtime.test.ts"], "contracts": [] },
+    { "source": "src/app.ts", "tests": ["src/api/agent-instructions.test.ts"], "contracts": [] },
+    { "source": "src/sweeper.ts", "tests": ["tests/sweeper.test.ts"], "contracts": [] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/agent-instructions/runtime.test.ts"], "contracts": [] },
+    { "source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts", "src/agent-instructions/instruction-service.test.ts"], "contracts": [] },
+    { "source": "src/db/migration-ledger.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": [] },
+    { "source": "src/config/settings/definitions/operations.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] }
   ]
 }

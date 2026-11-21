@@ -608,6 +608,13 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     "クラウド実行から受け取った成果物を置くディレクトリ。 観測を有効にするときは必須。"),
   envInteger("runtime.cloud_kick_interval_sec", "runtime", "クラウド実行の自動キック間隔 (秒)", "CONCORDIA_CLOUD_KICK_INTERVAL_SEC", 180,
     "クラウド実行のバッチを定期的に進める間隔。 60 秒未満は 60 秒に切り上げる。 クラウド実行の設定ファイルが無いときは動かない。"),
+  // 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。 起動時に読む。
+  envString("runtime.instructions_public_host", "runtime", "指令ブリッジの公開ホスト", "CONCORDIA_INSTRUCTIONS_PUBLIC_HOST", null,
+    "/v1/instructions を Cloudflare Tunnel で公開するホスト名。 この Host 宛てとトンネル経由の要求は Access の JWT を必須にし、 登録と状態確認は拒否する。"),
+  envString("runtime.instructions_cf_access_team_domain", "runtime", "指令ブリッジの Access team domain", "CONCORDIA_INSTRUCTIONS_CF_ACCESS_TEAM_DOMAIN", null,
+    "https://<team>.cloudflareaccess.com。 audience と両方そろうまで公開経由の要求は全部 403。"),
+  envString("runtime.instructions_cf_access_aud", "runtime", "指令ブリッジの Access audience", "CONCORDIA_INSTRUCTIONS_CF_ACCESS_AUD", null,
+    "指令ブリッジ用 Access アプリの AUD。 team domain と両方そろうまで公開経由の要求は全部 403。"),
   {
     key: "runtime.orbis_vinculum_token",
     section: "runtime",

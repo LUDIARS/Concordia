@@ -49,6 +49,11 @@ export interface SweeperOptions {
    * sweeper は「復帰後に必ず回る周期」 なので、 取り込みの契機をここに借りる。
    */
   ingestEscalationRecords?: () => void;
+  /**
+   * 外部エージェント宛て指令の掃除 (spec/feature/agent-instructions-bridge.md)。 30 分 result の無い acked を
+   * pending に戻し、 90 日を過ぎた done / failed を消す。 未注入なら何もしない。
+   */
+  sweepAgentInstructions?: () => void;
   /** 現在時刻の注入口。夜間窓判定のテスト用。既定 `() => new Date()`。 */
   nowDate?: () => Date;
 }
@@ -181,6 +186,15 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
       } catch (error) {
         // 取り込みの失敗で sweeper 本体 (lost 判定・刈り込み) を止めない。
         log.warn({ err: (error as Error).message }, "escalation transcript intake failed");
+      }
+    }
+
+    // 0.5 外部エージェント宛て指令: acked のまま 30 分 → pending へ戻す / 終端 90 日 → 削除。
+    if (opts.sweepAgentInstructions) {
+      try {
+        opts.sweepAgentInstructions();
+      } catch (error) {
+        log.warn({ err: (error as Error).message }, "agent instruction sweep failed");
       }
     }
 

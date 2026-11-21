@@ -1,0 +1,16 @@
+{
+  "name": "agent-instructions",
+  "description": "inbound を受けられない外部エージェント (Muse) 宛ての指令を Cc の SQLite に積み、HTTP ポーリングで渡して ack と結果を受ける。公開は Cloudflare Tunnel + Access (アプリ側でも JWT を検証)、登録と状態確認は loopback のみ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/agent-instructions/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/agent-instructions(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/agent-instructions-repo\\.ts$" },
+    { "pathPattern": "(^|/)spec/feature/agent-instructions-bridge\\.md$" }
+  ],
+  "cardTemplate": "Describe the strict intake, the allowlisted agents and types, the pending/acked/done/failed transitions with idempotent ack/result, the 30 minute redelivery sweep and the public-access gate (Access JWT required through the tunnel, registration loopback only).",
+  "mechanics": [],
+  "specRefs": ["spec/feature/agent-instructions-bridge.md"],
+  "rationale": "Muse は待ち受けも常駐接続も持てないのでポーリングにする。形は cc-playtest に揃え、状態は Cc の SQLite が持つ (再起動を跨いで再配信できるよう migration を足す)。公開の境界は Cloudflare Access に任せきらず、アプリ側でも JWT を検証して Tunnel 迂回を拒み、登録は loopback に閉じて外部エージェントの自己登録を防ぐ。"
+}

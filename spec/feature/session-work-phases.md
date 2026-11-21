@@ -51,8 +51,17 @@ Revisor の審査状態とは独立。`sessions.metadata.cc_work_phase` に記�
 - Web UI は session-message-webui、Discord 状態カードと読み取り型は chat-platforms、
   `src/api/chat-read-models.ts` は http-interface。初期案内は session-coordination、巡回は autonomous-continuation。
 - revision の一致を原子的更新内で確認する。競合は 409、再取得して判断し直す。
-- repo/branch/task の変更で以前の設計・開始確認を現対象へ流用しない。古い記録は残し、
+- repo/branch の変更で以前の設計・開始確認を現対象へ流用しない。古い記録は残し、
   表示・巡回では未確認とする。元の対象へ戻った場合は同じ記録を参照できる。
+  (CC-SESSION-WORK-PHASES-SCOPE-01、2026-11-21 neco 指示「状態がだいたい unknown なの修正して」)
+  - 比べる対象は repo と branch。repo は区切り文字 (`\` と `/`)・ドライブ文字の大小・末尾区切りの差を同じとみなす。
+  - `current_task` は比べない。依頼文の要約や自動確認の本文で書き換わる表示用の作業名で、
+    作業の紐付けの正本 (Actio task) ではない。比べると自動確認のたびに未確認へ落ちる
+    (2026-11-21 時点で active 21 件中 16 件が未確認)。作業範囲が変われば AI が設計へ戻して記録する。
+  - 起動直後の初期記録 (設計) は branch 未登録 (null) のまま保存される。承認を持たない段階
+    (設計・確認) の記録に限り、未登録の branch は後から登録された branch と同じ対象とみなす。
+    次の記録で実際の branch が保存され、以後の変更は未確認になる。
+  - 実装・調整 (承認を持つ段階) の記録は branch を厳密に比べ、未登録時の承認を登録後の branch へ引き継がない。
 - 設計を変えると以前の開始指示を引き継がない。実装/調整には設計概要と開始指示参照が必要。
   調整へ進むには同じ設計・対象で実装開始の記録が必要。
 - これは会話で確認した作業状態の申告であり、Git/サービス操作の権限を発行する API ではない。
@@ -78,7 +87,7 @@ UX-CC-S1/S5、不変条件は CC-INV-01/04/06/08。
 
 - 正本は session-coordination の `readSessionWorkPhase`。chat-platforms は表示と
   配達のみを所有し、phase・承認・task 状態を書き換えない。
-- 設計/確認/実装/調整/未確認を表示し、repo/branch/task 変更で失効した段階は未確認とする。
+- 設計/確認/実装/調整/未確認を表示し、repo/branch 変更で失効した段階は未確認とする。
 - 作成時、段階・対象変更時、再接続時に最新状態を反映する。手動固定した作業名と
   project/emoji を保持し、phase prefix を残して全体を100文字以内にする。
 - 同名への変更は送らず、セッションごとの更新を直列化・集約する。失敗を成功として

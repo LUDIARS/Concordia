@@ -11,13 +11,14 @@ const EXPECTED_SEED_CALLS = [
   "opus",
   // GPT-6 Astra (2026-09 追加)
   "astra-mid",
-  // Astra With Sidecar (2026-09-29、spec/feature/astra-with-sidecar.md)
+  // Astra With Sidecar (2026-09-29、spec/feature/astra-with-sidecar.md)。 2026-11-21 から call_only (選択肢に出さない)。
   "astra-with-sidecar",
+  // Gemini 4 Neon (2026-11-20 neco 指示、 Antigravity CLI で起動)。 2026-11-21 neco 指示「Neon を Astra の下に」。
+  "neon",
   // astra-xhigh は 2026-10-03 に廃止 (neco 指示「Astra の xhigh を消して」)。
   "sol",
   "fable",
-  // Gemini 4 Neon / Argon (2026-11-20 neco 指示、 Antigravity CLI で起動。 既定は Neon なので先)。
-  "neon",
+  // Gemini 4 Argon。 既定は Neon なので Neon より後。
   "argon",
   "sonnet-ask",
   "sonnet-walk",
@@ -90,7 +91,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 20, 25, 28, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 14, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");

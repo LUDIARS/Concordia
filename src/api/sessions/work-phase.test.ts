@@ -42,9 +42,11 @@ describe("work phase reporting API", () => {
     expect((await put({ ...confirmation, phase: "implementation", approval_reference: "人間の開始指示" })).status).toBe(200);
   });
 
-  it("requires reassessment when the registered task changes", async () => {
+  it("requires reassessment when the registered branch changes", async () => {
     await put({ ...confirmation, phase: "implementation", approval_reference: "元の範囲の開始指示" });
     repo.patchSession(session.id, { current_task: "別の作業" });
+    expect((await (await app.request("/phase-test/work-phase")).json()).work_phase.phase).toBe("implementation");
+    repo.patchSession(session.id, { branch: "feat/other" });
     const read = await (await app.request("/phase-test/work-phase")).json();
     expect(read.work_phase).toMatchObject({ phase: "unknown", revision: 1, approval_reference: null });
     expect((await put({ ...confirmation, expected_revision: 1, phase: "implementation" })).status).toBe(400);

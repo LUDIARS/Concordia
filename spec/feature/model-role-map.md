@@ -105,7 +105,8 @@ Antigravity CLI (`agy`) での起動を足した。Gemini CLI は Gemini 4 向�
   `gemini-2.5-*` の行はそのまま残す。カタログ (ModelProvider) に `agy` は足さない。agy はカタログの `gemini` 行を共有する (Web の候補表示も同じ)。
 - MRM-GEM-02: 委託テンプレートの役割名に `neon` / `argon` を足す (`src/model-catalog/template-model-role.ts`)。provider `gemini` / `agy` のときだけ解決する。
   `[1m]` 接尾辞は Claude 専用なので `neon[1m]` / `argon[1m]` は止める。Claude / Codex で `neon` / `argon`、Gemini 系で `opus` / `sol` などは従来どおり `delegation_model_role_unresolved`。
-- MRM-GEM-03: 実装委託テンプレート `neon` (Gemini Neon、provider `agy`、model `neon`、💎、sort_order 28) と
+- MRM-GEM-03: 実装委託テンプレート `neon` (Gemini Neon、provider `agy`、model `neon`、💎、sort_order 14 = Astra の直後。
+  2026-11-21 neco 指示「Neon を Astra の下に」で 28 から変更) と
   `argon` (Gemini Argon、provider `agy`、model `argon`、🔷、sort_order 29) を seed に足す (`src/delegation/seed.ts`)。
   call_name に版を含めない (MRM-TPL-06)。seed は起動時 upsert で内容を上書きするので、既存 DB で provider `gemini` だった `neon` 行も次の起動で `agy` になる。
 - MRM-GEM-04: provider `agy` (Antigravity CLI) を委託・spawn の provider に足す。実 spawn は `lictor agy` + `--model <ID>`

@@ -39,9 +39,10 @@ describe("persisted phase title synchronization", () => {
     await sync.reconcile();
     expect(thread.setName).toHaveBeenCalledTimes(1);
   });
-  it("uses unknown after a task binding changes through an event", async () => {
+  it("uses unknown after the bound branch changes", async () => {
     const { sync, session, thread } = setup();
     await sync.reconcile();
+    session.branch = "other";
     session.current_task = "new scope";
     eventBus.emit({ type: "session.task_changed", session_id: "session", previous_task: "task", current_task: "new scope", ts: 1 });
     await sync.refresh("session");

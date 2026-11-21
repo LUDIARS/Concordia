@@ -56,9 +56,27 @@ export function readWorkPhaseRecord(metadata: string | null): WorkPhaseRecord | 
   } catch { return null; /* Corrupt legacy metadata is displayed as unconfirmed, never approved. */ }
 }
 
+/** Windows の区切り文字・ドライブ文字の大小・末尾区切りだけを揃える。別パスは別のまま。 */
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "").replace(/^([a-z]):/, (_m, drive: string) => `${drive.toUpperCase()}:`);
+}
+
+/** 開始確認を必要とする段階。承認はこの段階の記録にしか付かない。 */
+function carriesApproval(record: WorkPhaseRecord): boolean {
+  return record.phase === "implementation" || record.phase === "adjustment";
+}
+
+/**
+ * 記録した対象と今の対象が同じか (CC-SESSION-WORK-PHASES §境界と不変条件)。
+ * - 対象は repo と branch。current_task は依頼文や自動確認から書き換わる表示用の作業名で、
+ *   作業の紐付けの正本 (Actio task) ではないので比べない。
+ * - 起動直後の記録は branch が未登録 (null) のことがある。承認を持たない段階 (設計・確認) に限り、
+ *   未登録の branch は後から登録された branch と同じ対象として扱う。承認を持つ段階は厳密に比べる。
+ */
 function sameScope(record: WorkPhaseRecord, session: WorkPhaseSession): boolean {
-  return record.scope.repo_path === session.repo_path && record.scope.branch === session.branch
-    && record.scope.current_task === session.current_task;
+  if (normalizeRepoPath(record.scope.repo_path) !== normalizeRepoPath(session.repo_path)) return false;
+  if (record.scope.branch === session.branch) return true;
+  return record.scope.branch === null && !carriesApproval(record);
 }
 
 export function readSessionWorkPhase(session: WorkPhaseSession): WorkPhaseView {

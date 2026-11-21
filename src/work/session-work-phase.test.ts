@@ -23,12 +23,40 @@ describe("work phase evidence", () => {
   });
 
   it.each([
-    { repo_path: "/different" }, { branch: "other" }, { current_task: "different work" },
+    { repo_path: "/different" }, { branch: "other" }, { branch: null },
   ])("does not reuse approval after a binding change: %j", (binding) => {
     const started = save(session, { ...change, phase: "implementation", approval_reference: "元の範囲の指示" });
     const rebound = { ...started, ...binding };
     expect(readSessionWorkPhase(rebound)).toMatchObject({ phase: "unknown", revision: 1, approval_reference: null });
     expect(() => save(rebound, { ...change, expected_revision: 1, phase: "implementation" })).toThrow("human_start_confirmation_required");
+  });
+
+  it("keeps the initial design record after the branch and task are registered", () => {
+    const booted = save({ ...session, branch: null, current_task: null }, { ...change, phase: "design", design_summary: "" });
+    const registered = { ...booted, branch: "feature", current_task: "登録された作業名" };
+    expect(readSessionWorkPhase(registered)).toMatchObject({ phase: "design", revision: 1 });
+    const settled = save(registered, { ...change, expected_revision: 1 });
+    expect(readSessionWorkPhase(settled)).toMatchObject({ phase: "confirmation", revision: 2 });
+    expect(readSessionWorkPhase({ ...settled, branch: "other" }).phase).toBe("unknown");
+    expect(readSessionWorkPhase({ ...booted, repo_path: "/different", branch: "feature" }).phase).toBe("unknown");
+  });
+
+  it("does not carry approval recorded before the branch was registered", () => {
+    const started = save({ ...session, branch: null }, { ...change, phase: "implementation", approval_reference: "開始指示" });
+    expect(readSessionWorkPhase({ ...started, branch: "feature" })).toMatchObject({ phase: "unknown", approval_reference: null });
+  });
+
+  it("keeps the phase when only the display task name changes", () => {
+    const started = save(session, { ...change, phase: "implementation", approval_reference: "開始指示" });
+    expect(readSessionWorkPhase({ ...started, current_task: "[自動確認] Cc の作業状態に応じた確認です。" }))
+      .toMatchObject({ phase: "implementation", approval_reference: "開始指示" });
+  });
+
+  it("treats the same Windows path with different separators as the same repo", () => {
+    const win = { ...session, repo_path: "E:\\Document\\Ars\\Concordia\\.wt-x" };
+    const started = save(win, { ...change, phase: "implementation", approval_reference: "開始指示" });
+    expect(readSessionWorkPhase({ ...started, repo_path: "e:/Document/Ars/Concordia/.wt-x/" }).phase).toBe("implementation");
+    expect(readSessionWorkPhase({ ...started, repo_path: "E:/Document/Ars/Concordia/.wt-y" }).phase).toBe("unknown");
   });
 
   it("clears start evidence when returning to design or confirmation", () => {

@@ -243,7 +243,7 @@ describe("seedDelegationTemplates", () => {
     const neon = repo.findTemplateByCallName("neon");
     const argon = repo.findTemplateByCallName("argon");
     expect(neon).toMatchObject({
-      target_provider: "agy", model: "neon", emoji: "💎", sort_order: 28, category: "employee", is_active: 1,
+      target_provider: "agy", model: "neon", emoji: "💎", sort_order: 14, category: "employee", is_active: 1,
     });
     expect(argon).toMatchObject({
       target_provider: "agy", model: "argon", sort_order: 29, category: "employee", is_active: 1,
@@ -251,6 +251,26 @@ describe("seedDelegationTemplates", () => {
     expect(argon?.emoji).not.toBe(neon?.emoji);
     // 既定は Neon なので並びも Neon が先。
     expect(neon!.sort_order).toBeLessThan(argon!.sort_order);
+  });
+
+  // 2026-11-21 neco 指示「Neon を Astra の下に」。 新規委託の選択肢 (call_only を除いた一覧) で Astra の直後。
+  it("lists Neon right after Astra among the spawnable templates", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const spawnable = repo.listTemplates().filter((t) => !t.call_only).map((t) => t.call_name);
+    expect(spawnable.indexOf("neon")).toBe(spawnable.indexOf("astra-mid") + 1);
+    expect(spawnable.indexOf("neon")).toBeLessThan(spawnable.indexOf("sol"));
+  });
+
+  // 2026-11-21 neco 指示「Delegation から Astra With Sidecar を非表示に」。 選択肢からは外し、定義は残す。
+  it("keeps Astra With Sidecar defined but out of the spawn choices", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const sidecar = repo.findTemplateByCallName("astra-with-sidecar");
+    expect(sidecar).toMatchObject({ is_active: 1, call_only: 1, category: "employee" });
+    expect(repo.listTemplates().filter((t) => !t.call_only).map((t) => t.call_name)).not.toContain("astra-with-sidecar");
+    seedDelegationTemplates(repo);
+    expect(repo.findTemplateByCallName("astra-with-sidecar")?.call_only).toBe(1);
   });
 
   it("moves an existing gemini-provider neon row onto agy at reseed", () => {

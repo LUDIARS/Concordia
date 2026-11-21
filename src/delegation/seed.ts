@@ -260,6 +260,9 @@ const ASTRA_WITH_SIDECAR_TEMPLATE: CreateTemplateInput = {
   runtime_options: { model_reasoning_effort: ASTRA_WITH_SIDECAR_PROFILE.parent.effort },
   emoji: "🌟",
   category: "employee",
+  // 2026-11-21 neco 指示「Delegation から Astra With Sidecar を非表示に」。 Web / Discord の新規委託の
+  // 選択肢から外す (call_only)。 定義・既存 run・API 直接の起動・会話の交代はそのまま残す。
+  call_only: true,
   sort_order: 13,
   prompt_template: [
     "あなたは Astra With Sidecar の親 (Astra) です。対象: ${target_repo:}",
@@ -584,6 +587,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   // Gemini 4 Neon (2026-11-20 neco 指示「Gemini Neon を組み込みたい」、 MRM-GEM-03)。 call_name に版を含めない (MRM-TPL-06)。
   // Gemini CLI は Gemini 4 向けに調整されていないため、 Antigravity CLI (`lictor agy`) で起動する (MRM-GEM-04)。
   // Gemini 系の既定は Neon なので、 並びも Argon より先 (MRM-GEM-05)。
+  // 2026-11-21 neco 指示「Neon を Astra の下に」: Astra (astra-mid 12 / astra-with-sidecar 13) の直後、 Sol (20) より前。
   implementationTemplate({
     callName: "neon",
     label: "Gemini Neon",
@@ -591,7 +595,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     model: "neon",
     provider: "agy",
     emoji: "💎",
-    sortOrder: 28,
+    sortOrder: 14,
   }),
   // Gemini 4 Argon (2026-11-20 neco 指示「Delegation で Argon と Neon を指定できるようにして」)。 明示指定でだけ使う。
   implementationTemplate({

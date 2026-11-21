@@ -142,5 +142,9 @@ CC-INV-01〜08を適用する。特に対象・権限維持、依頼同一性、
 - 費用: provider の消費記録 (response ID 単位の重複排除、cached / 非 cached / compact の区別) は未接続。観測 API は費用を `not_measured` と返す。
 - 分類器: 口 (`SidecarRouteClassifier`) のみ。未設定のため、決定的条件で決まらない依頼は親保持になる。
 - テンプレートは `forum_tag` を立てていない。Session forum からの起動を有効にするのは人間の判断 (限定利用の開始)。
+- 2026-11-21 neco 指示「Delegation から Astra With Sidecar を非表示に」: seed で `call_only` を立て、Web の新規委託フォーム
+  (`DelegationSpawnForm`) と Discord `/spawn` の選択肢から外す (`src/delegation/seed.ts`)。テンプレート定義・既存 run と履歴・
+  `/v1/delegation/invoke` の直接呼び出し・会話の交代 (後継起動) はそのまま。管理画面のテンプレート一覧には `call only` 付きで残る。
+  seed が起動時に上書きするため、再表示するには seed の `call_only` を外す。
 - 旧担当の終了は発話による終了要求と同じ印で行う。遅延した審査通知の後継への付け替えは、MVP では PR が残る間は交代しないことで回避している。
 - Discord 通しの確認、テスト実行、配備は未実施。

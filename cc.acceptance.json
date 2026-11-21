@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/work/session-work-phase.ts", "tests": ["src/work/session-work-phase.test.ts", "src/api/sessions/work-phase.test.ts", "src/discord/forum-phase-sync.test.ts"], "contracts": [] },
     { "source": "src/delegation/service.ts", "tests": ["tests/delegation-regression.test.ts", "src/delegation/service-model-role.test.ts"], "contracts": [] },
     { "source": "src/delegation/template-call-names.ts", "tests": ["src/delegation/template-call-names.test.ts", "src/db/template-call-name-roles-migration.test.ts", "src/delegation/seed.test.ts", "tests/delegation-regression.test.ts"], "contracts": [] },
     { "source": "src/db/template-call-name-roles-migration.ts", "tests": ["src/db/template-call-name-roles-migration.test.ts", "src/db/migration-ledger.test.ts"], "contracts": [] },

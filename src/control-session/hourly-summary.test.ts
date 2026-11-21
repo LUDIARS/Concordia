@@ -93,4 +93,11 @@ describe("hourly summary render", () => {
     expect(text.split(url)).toHaveLength(2);
     expect(text).not.toContain("@");
   });
+
+  it("appends the dots status lines at the end, with or without running sessions (§11)", () => {
+    const dots = ["dots 連携: 任務 1 件 (動作中 1)", "- 品質任務: 未処理の変更 0 件 / 判断の記録なし / 実行中 0"];
+    expect(renderHourlySummary([], NOW, [], () => null, dots).split("\n").slice(-2)).toEqual(dots);
+    expect(renderHourlySummary([row("a")], NOW, [], () => null, dots).split("\n").slice(-2)).toEqual(dots);
+    expect(renderHourlySummary([row("a")], NOW)).not.toContain("dots 連携");
+  });
 });

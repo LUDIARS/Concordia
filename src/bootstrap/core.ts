@@ -3,6 +3,8 @@ import { createChoresRuntime } from "../chores/runtime.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { createManagementRuntime } from "../management/runtime.js";
 import { startManagementRemote } from "../management/remote-startup.js";
+import { ManagementRepository } from "../management/repository.js";
+import { readMissionStatusSnapshots } from "../management/status-snapshot.js";
 import { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import { inspectCodeAcceptance } from "../harness/reliability/code-acceptance.js";
 import { TaskBranchService } from "../harness/reliability/task-branch-service.js";
@@ -2258,6 +2260,8 @@ export async function startBackend(): Promise<BackendHandle> {
       hqGuildId: () => resolveDiscordConfig(discordConfig, secretBox).guildId ?? null,
       subsidiaryGuildId: (subsidiaryId) => subsidiaryRepo.find(subsidiaryId)?.guild_id ?? null,
     }, sessionId),
+    // 管制まとめに載せる dots の連携状況 (spec/feature/control-session.md §11)。読むだけ。
+    dotsStatus: () => readMissionStatusSnapshots(new ManagementRepository(db)),
     // 作業指示で起動した子セッションの片付け (spec/feature/control-session.md §9)。
     reaper: {
       isEnabled: () => adminState.getControlSessionReaperEnabled(),

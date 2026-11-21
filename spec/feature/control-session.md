@@ -233,9 +233,18 @@ Cc の記録では終了済みのセッションのチャンネル/スレッド�
 - 戻し方: 組み立て (`bootstrap/core.ts`) で `sessionLink` を渡さなければ、リンク無しの従来どおりの本文・応答になる。
 - 管制から Muse 等の外部 push 系への連携の状況報告は、対象と状態の読み口が決まっていないので未着手 (人間の判断待ち)。
 
+### 11. dots の連携状況 (2026-11-21 neco 指示)
+
+Actio 106c0bf7-5d2a-4bc9-bfb0-3c02e9f89b60「管制から Muse 等の外部 push 系連携の状況を報告する」。対象は neco 指示 (原文)「3はdotsが対象」で dots (CDGD マネジメント層、spec/feature/cdgd-management.md) に決まった。
+
+- 1 時間ごとのまとめ (§7) の末尾に「dots 連携」を載せる。任務ごとに、dots がまだ処理していない変更の数 (処理済み位置 `acknowledged_seq` より後で、Cc 自身の記録を除く)・最後に判断を記録した時刻・実行中の依頼数・人間の判断待ち・起動失敗を出す。停止中の任務は「停止中」だけ。
+- 未処理の変更があるのに、任務の確認間隔の 2 倍を過ぎても判断が記録されていなければ「⚠ dots の判断が止まっています」と付ける (`isDotsStalled`)。dots が呼びに来ているかの記録は持たないので、判断の記録を代わりに使う。
+- 任務が 1 件も無ければ何も載せない。読み取りに失敗したら「状況を読めませんでした」とだけ載せ、まとめ本体は止めない。
+- 状況は Cc が持つ任務・変更・判断・依頼の記録から読むだけで、書き換えない。読み取りは `src/management/status-snapshot.ts`、表示は `src/control-session/dots-status.ts`。
+
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`review-status-source.ts` — 審査状況の読み口 (open 一覧の短時間キャッシュ・セッションへの絞り込み・読み取り失敗の連続数)。`confirmation-activity.ts` — 応答待ちの確認を解く判定の入力 (HEAD・審査中 PR)。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。

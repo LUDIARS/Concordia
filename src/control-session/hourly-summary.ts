@@ -2,7 +2,7 @@
  * 管制チャンネルへ 1 時間に 1 回投げる進捗ボードのまとめ (純関数)。
  * 投稿の要否と本文だけを決め、投稿と最終投稿時刻の保存は runtime が行う。
  *
- * @implements spec/feature/control-session.md §7 §10
+ * @implements spec/feature/control-session.md §7 §10 §11
  */
 import type { ControlBoardRow } from "./board-repo.js";
 import type { EndedSessionRecord } from "./ended-log.js";
@@ -95,11 +95,13 @@ function taskHead(task: string | null): string | null {
 export function renderHourlySummary(
   rows: readonly ControlBoardRow[], nowMs: number, ended: readonly EndedSessionRecord[] = [],
   linkOf: SessionLinkResolver = () => null,
+  /** 末尾に載せる外部連携の状況 (§11 dots)。 */
+  externalLines: readonly string[] = [],
 ): string {
   const header = `🗂️ [管制まとめ] ${formatJst(nowMs)} — 動いているセッション ${rows.length} 件`;
   const endedLines = ended.map((record) => `- ${record.project} ${record.session_id} / ${record.reason} / ${formatJstClock(record.ended_at)} JST`);
   if (rows.length === 0) {
-    return noMention([header, "動いているセッションはありません。", ...section(`終了したもの: ${ended.length} 件`, endedLines)].join("\n"));
+    return noMention([header, "動いているセッションはありません。", ...section(`終了したもの: ${ended.length} 件`, endedLines), ...externalLines].join("\n"));
   }
   const lines = [
     header,
@@ -111,5 +113,6 @@ export function renderHourlySummary(
     lines.push(...section(`${SESSION_STATUS_LABEL[status]}: ${matched.length} 件`, matched.map((row) => rowLine(row, nowMs, linkOf))));
   }
   lines.push(...section(`終了したもの: ${ended.length} 件`, endedLines));
+  lines.push(...externalLines);
   return noMention(lines.join("\n"));
 }

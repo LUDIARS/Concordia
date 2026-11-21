@@ -17,6 +17,7 @@ import type { ClassifyFactPorts } from "./classify-facts.js";
 import { createEndedLog } from "./ended-log.js";
 import { ControlHolderStore } from "./holder-store.js";
 import { CONTROL_SUMMARY_POSTED_KEY, isSummaryDue, parseSummaryPostedAt, renderHourlySummary } from "./hourly-summary.js";
+import { readDotsStatusSafely, renderDotsStatusLines, type DotsStatusReader } from "./dots-status.js";
 import type { EligibilityProbes } from "./instruction-eligibility.js";
 import {
   CONTROL_INJECT_SOURCE,
@@ -66,6 +67,8 @@ export interface ControlRuntimeDeps {
    * 無ければリンク無し (従来どおり)。例外はリンク無しにして警告ログに残す。
    */
   sessionLink?: SessionLinkResolver;
+  /** 管制まとめに載せる dots の連携状況 (§11)。無ければ載せない。 */
+  dotsStatus?: DotsStatusReader;
   now?: () => number;
   log: { info(message: string): void; warn(message: string): void };
 }
@@ -197,7 +200,8 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
     const nowMs = now();
     if (!isSummaryDue(parseSummaryPostedAt(deps.settings.get(CONTROL_SUMMARY_POSTED_KEY)), nowMs)) return;
     try {
-      await target.post(renderHourlySummary(board.list(), nowMs, endedLog.list(), linkOf));
+      const dotsLines = renderDotsStatusLines(readDotsStatusSafely(deps.dotsStatus, deps.log), nowMs);
+      await target.post(renderHourlySummary(board.list(), nowMs, endedLog.list(), linkOf, dotsLines));
       deps.settings.set(CONTROL_SUMMARY_POSTED_KEY, String(nowMs));
       endedLog.clear();
     } catch (error) {

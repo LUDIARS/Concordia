@@ -1,12 +1,14 @@
 /**
  * セッションの片付け。作業指示で起動した子に加え、親の記録が無いセッションも担当作業 (担当 PR) が
- * マージ済みなら終了候補にする (2026-11-17 neco 指示「作業が終わったパートはセッション終了」)。巡回ごとに対象を判定し、
+ * マージ済み、または紐付く Actio タスクが完了なら終了候補にする (2026-11-17 neco 指示「作業が終わったパートはセッション終了」、
+ * 2026-11-21 タスク完了と 2 時間無活動の条件を追加)。巡回ごとに対象を判定し、
  * 先に案内を 1 回送り、猶予後も閉じてよければ既存のセッション終了経路で閉じる。
  * 終了の結果が分からないときは再送しない (試みた記録を残し、状態で照合する)。
  *
  * @implements spec/feature/control-session.md §9
  */
 import type { SessionRow } from "../shared/types.js";
+import { readSessionTaskLinks } from "../work/session-task-links.js";
 import { gatherReapInput, type ReaperFactPorts, type ReapTarget } from "./reaper-facts.js";
 import {
   classifyChild,
@@ -31,10 +33,12 @@ const REASON_LABEL: Record<ReapReason, string> = {
   done_repo_agent: "担当 PR がマージ済み",
   done_run_settled: "委託 run が終了し担当 PR も決着済み",
   done_merged: "担当 PR がマージ済み",
+  done_task: "紐付く Actio タスクが完了",
   unresponsive: "長く会話が無く自動確認にも反応が無い",
 };
 
 const STALE_QUESTION_NOTE = "未回答の質問カードは出した後も作業が続いた古いものとして扱いました";
+const LONG_IDLE_WAITS_NOTE = "作業が終わってから 2 時間動きが無いので、質問カード・人間の応答待ちは待ちに数えませんでした";
 
 export interface ChildReaperDeps extends ReaperFactPorts {
   isEnabled(): boolean;
@@ -94,6 +98,7 @@ export function createChildReaper(deps: ChildReaperDeps) {
   }
 
   function reasonText(verdict: Extract<ReapVerdict, { eligible: true }>): string {
+    if (verdict.longIdleWaits) return `${REASON_LABEL[verdict.reason]}。${LONG_IDLE_WAITS_NOTE}`;
     return verdict.staleQuestion ? `${REASON_LABEL[verdict.reason]}。${STALE_QUESTION_NOTE}` : REASON_LABEL[verdict.reason];
   }
 
@@ -125,7 +130,8 @@ export function createChildReaper(deps: ChildReaperDeps) {
       const metadata = metadataOf(session);
       const child = classifyChild({ sessionId: session.id, metadata, findRun: deps.findRun });
       const link: ReapTarget | null = child
-        ?? (isStandaloneReapTarget(session) ? { kind: "standalone", parentSessionId: null, runId: null } : null);
+        ?? (isStandaloneReapTarget(session, readSessionTaskLinks(session.metadata).length > 0)
+          ? { kind: "standalone", parentSessionId: null, runId: null } : null);
       if (!link) continue;
       const state = parseReapState(metadata[REAP_STATE_METADATA_KEY]);
       if (state?.end_attempted_at) continue;

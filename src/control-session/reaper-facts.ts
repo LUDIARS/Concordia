@@ -51,7 +51,22 @@ export interface ReaperFactPorts {
   findRun?(runId: string): ReapRun | null;
   /** 最新の未回答の質問カードを出した時刻 (秒)。無ければ null。 */
   latestUnansweredQuestionTs?(sessionId: string): number | null;
+  /** 紐付く Actio タスクがすべて完了 (done / cancelled) か。紐付けが無い・照会できなければ null。 */
+  linkedTasksDone?(sessionId: string): Promise<boolean | null>;
   git: ReaperGitRunner;
+}
+
+/**
+ * 紐付く Actio タスクの読み取り結果から「すべて完了 (done / cancelled)」かを決める。
+ * 紐付けが無い・セッションの紐付けが読み取り中に変わった・状態が分からないタスクがあれば null (閉じる根拠にしない)。
+ */
+export function linkedTasksAllDone(result: {
+  kind: "current" | "stale_binding" | "not_found";
+  links: ReadonlyArray<{ status: string; state: "current" | "unknown" }>;
+}): boolean | null {
+  if (result.kind !== "current" || result.links.length === 0) return null;
+  if (result.links.some((link) => link.state !== "current")) return null;
+  return result.links.every((link) => link.status === "done" || link.status === "cancelled");
 }
 
 function sync<T>(read: () => T): T | null {
@@ -170,6 +185,7 @@ export async function gatherReapInput(
       : null,
     repoAgentPrMerged: link.kind === "delegation" ? null : prMerged,
     runSettled: terminal === null || prSettled === null ? null : terminal && prSettled,
+    linkedTasksDone: ports.linkedTasksDone ? await settle(() => ports.linkedTasksDone!(session.id)) : null,
     staleQuestionOnly: blockers.pendingQuestion === true && staleQuestionOnly(ports, session.id, last),
     blockers,
   };

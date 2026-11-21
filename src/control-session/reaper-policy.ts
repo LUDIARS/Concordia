@@ -17,6 +17,13 @@ export const REAP_NOTICE_GRACE_SEC = 10 * 60;
 export const REAP_NOTICE_RESPONSE_SEC = 60;
 /** 未回答の質問カードを出した後、これ以上作業を続けていれば古いカードとみなす。 */
 export const REAP_STALE_QUESTION_ACTIVITY_SEC = 10 * 60;
+/**
+ * 作業が終わった根拠があり、これだけ動きが無ければ、質問カード・人間の応答待ち・ask マーカーが
+ * 残っていても閉じる (2026-11-21 neco 指示「タスク完了かつ無活動 … 質問カード待ち・人間の応答待ちでも閉じる」)。
+ */
+export const REAP_DONE_LONG_IDLE_SEC = 2 * 60 * 60;
+/** 終わった後に長く動きが無ければ待ちに数えない待ち。human-wait (人間の判断の明示記録)・審査中 PR・testing claim・未保存の変更は数える。 */
+export const REAP_LONG_IDLE_IGNORED_WAITS: ReadonlySet<keyof ReapBlockers> = new Set(["pendingQuestion", "waitingHumanResponse", "askMarker"]);
 
 /** 委託 run の終端。 */
 export const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "partial", "failed"]);
@@ -99,17 +106,24 @@ export type ReapReason =
   | "done_run_settled"
   | "done_repo_agent"
   | "done_merged"
+  | "done_task"
   | "unresponsive";
 
-const REAP_REASONS: readonly ReapReason[] = ["done_delegation", "done_run_settled", "done_repo_agent", "done_merged", "unresponsive"];
+const REAP_REASONS: readonly ReapReason[] = ["done_delegation", "done_run_settled", "done_repo_agent", "done_merged", "done_task", "unresponsive"];
 
 /** 作業が終わった根拠で閉じる理由 (古い質問カードを待ちに数えないのはこれだけ)。 */
 export function isDoneReason(reason: ReapReason): boolean {
   return reason !== "unresponsive";
 }
 
-/** 親の記録が無いセッションを終了候補の対象にしてよいか (担当ブランチがあり、基点ブランチでない)。 */
-export function isStandaloneReapTarget(session: { repo_origin: string | null; branch: string | null }): boolean {
+/**
+ * 親の記録が無いセッションを終了候補の対象にしてよいか。担当ブランチがあり基点ブランチでないもの、
+ * または Actio タスクが紐付いているもの (基点ブランチの会話セッションもタスクの完了で閉じられる)。
+ */
+export function isStandaloneReapTarget(
+  session: { repo_origin: string | null; branch: string | null }, hasTaskLinks = false,
+): boolean {
+  if (hasTaskLinks) return true;
   return !!session.repo_origin && !!session.branch && !["main", "master", "develop"].includes(session.branch);
 }
 
@@ -124,13 +138,15 @@ export interface ReapInput {
   repoAgentPrMerged: boolean | null;
   /** 委託 run が終端 (completed / partial / failed) で、担当 PR がマージ済みかクローズ済み。照会できなければ null。 */
   runSettled?: boolean | null;
+  /** 紐付く Actio タスクがすべて完了 (done / cancelled)。紐付けが無い・照会できなければ null。 */
+  linkedTasksDone?: boolean | null;
   /** 未回答の質問カードはあるが、出した後もセッションが作業を続けた (古いカード)。 */
   staleQuestionOnly?: boolean;
   blockers: ReapBlockers;
 }
 
 export type ReapVerdict =
-  | { eligible: true; reason: ReapReason; staleQuestion?: boolean }
+  | { eligible: true; reason: ReapReason; staleQuestion?: boolean; longIdleWaits?: boolean }
   | { eligible: false; reason: "not_due" | ReapBlockReason };
 
 export function firstBlocker(
@@ -151,6 +167,8 @@ function dueReason(input: ReapInput): ReapReason | null {
   if (input.kind === "delegation" && input.runSettled === true && doneIdle) return "done_run_settled";
   if (input.kind === "repo-agent" && input.repoAgentPrMerged === true && doneIdle) return "done_repo_agent";
   if (input.kind === "spawn" && input.repoAgentPrMerged === true && doneIdle) return "done_merged";
+  // 紐付く Actio タスクの完了は、親子の記録の有無にかかわらず終わった根拠にする (2026-11-21)。
+  if (input.linkedTasksDone === true && doneIdle && !(input.kind === "standalone" && input.repoAgentPrMerged === true)) return "done_task";
   if (input.kind === "standalone") {
     // 人間が起動したものは「反応しない」では閉じない (担当作業の完了だけを根拠にする)。
     return input.repoAgentPrMerged === true && input.idleSec >= REAP_DONE_IDLE_SEC ? "done_merged" : null;
@@ -168,6 +186,20 @@ export function decideReap(input: ReapInput): ReapVerdict {
   const reason = dueReason(input);
   if (!reason) return { eligible: false, reason: "not_due" };
   const staleQuestion = input.staleQuestionOnly === true && input.blockers.pendingQuestion === true && isDoneReason(reason);
+  // 終わった根拠があって 2 時間動きが無ければ、質問カード・応答待ち・ask マーカーは待ちに数えない。
+  const longIdle = isDoneReason(reason) && input.idleSec !== null && input.idleSec >= REAP_DONE_LONG_IDLE_SEC;
+  if (longIdle) {
+    const blocked = firstBlocker(input.blockers, REAP_LONG_IDLE_IGNORED_WAITS);
+    if (blocked) return { eligible: false, reason: blocked };
+    // 古い質問カードで説明がつく待ちはその説明を優先し、それ以外に残った待ちがあるときだけ長い無活動を理由にする。
+    const longIdleWaits = [...REAP_LONG_IDLE_IGNORED_WAITS]
+      .some((key) => input.blockers[key] !== false && !(key === "pendingQuestion" && staleQuestion));
+    return {
+      eligible: true, reason,
+      ...(staleQuestion ? { staleQuestion: true } : {}),
+      ...(longIdleWaits ? { longIdleWaits: true } : {}),
+    };
+  }
   const blocked = firstBlocker(input.blockers, staleQuestion ? new Set(["pendingQuestion"]) : new Set());
   if (blocked) return { eligible: false, reason: blocked };
   return staleQuestion ? { eligible: true, reason, staleQuestion: true } : { eligible: true, reason };

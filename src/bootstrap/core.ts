@@ -99,6 +99,7 @@ import { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { MajorInjectRepo } from "../db/major-inject-repo.js";
 import { MajorInjectEditor } from "../control/major-inject-editor.js";
 import { readLinkedTaskViews } from "../work/session-task-links.js";
+import { linkedTasksAllDone } from "../control-session/reaper-facts.js";
 import { seedInjectManuals } from "../control/inject-manual-seed.js";
 import { answerPendingQuestion, questionStoreFromRepo } from "../control/answer-question.js";
 import { registerPushWarningChannel } from "../control/push-warning-dispatch.js";
@@ -2278,6 +2279,8 @@ export async function startBackend(): Promise<BackendHandle> {
       findLocalPrByBranch: (repository, branch) => revisorClient.findLocalPrByBranch(repository, branch),
       findLocalPrBySession: (repository, sessionId) => revisorClient.findLocalPrBySession(repository, sessionId),
       latestUnansweredQuestionTs: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId)?.ts ?? null,
+      // 紐付く Actio タスクの完了も終わった根拠にする (spec/feature/control-session.md §9、2026-11-21)。
+      linkedTasksDone: async (sessionId) => linkedTasksAllDone(await readLinkedTaskViews({ sessions: repo, tasks: taskStore, sessionId })),
       git: async (cwd, args) => {
         const result = await defaultGitRunner(cwd, args);
         return { ok: result.ok, stdout: result.stdout };

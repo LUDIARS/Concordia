@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RevisorLocalPr } from "../pr/revisor-local-pr-types.js";
 import type { SessionRow } from "../shared/types.js";
-import { gatherReapInput, type ReaperFactPorts, type ReaperGitRunner } from "./reaper-facts.js";
+import { gatherReapInput, linkedTasksAllDone, type ReaperFactPorts, type ReaperGitRunner } from "./reaper-facts.js";
 
 const NOW = 100_000;
 
@@ -127,5 +127,25 @@ describe("gatherReapInput", () => {
     expect((await gatherReapInput(ports({ hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => NOW - 4000 }), session(), delegation, NOW))
       .staleQuestionOnly).toBe(false);
     expect((await gatherReapInput(ports({ latestUnansweredQuestionTs: () => asked }), session(), delegation, NOW)).staleQuestionOnly).toBe(false);
+  });
+});
+
+describe("linked Actio tasks (2026-11-21)", () => {
+  const view = (status: string, state: "current" | "unknown" = "current") => ({ status, state });
+
+  it("is done only when every linked task is done or cancelled and all were read", () => {
+    expect(linkedTasksAllDone({ kind: "current", links: [view("done"), view("cancelled")] })).toBe(true);
+    expect(linkedTasksAllDone({ kind: "current", links: [view("done"), view("in_progress")] })).toBe(false);
+    expect(linkedTasksAllDone({ kind: "current", links: [view("done"), view("unknown", "unknown")] })).toBeNull();
+    expect(linkedTasksAllDone({ kind: "current", links: [] })).toBeNull();
+    expect(linkedTasksAllDone({ kind: "stale_binding", links: [] })).toBeNull();
+    expect(linkedTasksAllDone({ kind: "not_found", links: [] })).toBeNull();
+  });
+
+  it("passes the linked task state into the reap input and treats a failed read as unknown", async () => {
+    const standalone = { kind: "standalone" as const, parentSessionId: null, runId: null };
+    expect((await gatherReapInput(ports({ linkedTasksDone: async () => true }), session(), standalone, NOW)).linkedTasksDone).toBe(true);
+    expect((await gatherReapInput(ports({ linkedTasksDone: async () => { throw new Error("actio down"); } }), session(), standalone, NOW)).linkedTasksDone).toBeNull();
+    expect((await gatherReapInput(ports(), session(), standalone, NOW)).linkedTasksDone).toBeNull();
   });
 });

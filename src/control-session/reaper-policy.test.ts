@@ -5,6 +5,8 @@ import {
   nextReapStep,
   parseReapState,
   REAP_DONE_IDLE_SEC,
+  REAP_DONE_LONG_IDLE_SEC,
+  isStandaloneReapTarget,
   REAP_NOTICE_GRACE_SEC,
   REAP_NOTICE_RESPONSE_SEC,
   REAP_UNRESPONSIVE_IDLE_SEC,
@@ -133,5 +135,54 @@ describe("nextReapStep (2 段)", () => {
     expect(parseReapState({ noticed_at: 1, reason: "done_delegation" })).toEqual({ noticed_at: 1, reason: "done_delegation", end_attempted_at: null });
     expect(parseReapState({ noticed_at: 1, reason: "other" })).toBeNull();
     expect(parseReapState(null)).toBeNull();
+  });
+});
+
+describe("done task and long idle (2026-11-21 neco 指示: タスク完了かつ無活動)", () => {
+  const standalone = (patch: Partial<ReapInput> = {}) => input({ kind: "standalone", delegationDone: null, repoAgentPrMerged: false, ...patch });
+
+  it("treats all linked Actio tasks done as a reason to close, for standalone sessions too", () => {
+    expect(decideReap(standalone({ linkedTasksDone: true }))).toEqual({ eligible: true, reason: "done_task" });
+    expect(decideReap(standalone({ linkedTasksDone: false }))).toEqual({ eligible: false, reason: "not_due" });
+    expect(decideReap(standalone({ linkedTasksDone: null }))).toEqual({ eligible: false, reason: "not_due" });
+    expect(decideReap(standalone({ linkedTasksDone: true, idleSec: REAP_DONE_IDLE_SEC - 1 }))).toEqual({ eligible: false, reason: "not_due" });
+    expect(parseReapState({ noticed_at: 1, reason: "done_task" })?.reason).toBe("done_task");
+  });
+
+  it("keeps question cards, human responses and ask markers as waits before 2 hours", () => {
+    const blockers = { ...clear, pendingQuestion: true };
+    expect(decideReap(standalone({ linkedTasksDone: true, blockers, idleSec: REAP_DONE_LONG_IDLE_SEC - 1 })))
+      .toEqual({ eligible: false, reason: "pendingQuestion" });
+  });
+
+  it("closes after 2 hours of no activity even with question cards, human responses or ask markers", () => {
+    const blockers = { ...clear, pendingQuestion: true, waitingHumanResponse: true, askMarker: null };
+    expect(decideReap(standalone({ linkedTasksDone: true, blockers, idleSec: REAP_DONE_LONG_IDLE_SEC })))
+      .toEqual({ eligible: true, reason: "done_task", longIdleWaits: true });
+    expect(decideReap(standalone({ repoAgentPrMerged: true, blockers, idleSec: REAP_DONE_LONG_IDLE_SEC })))
+      .toEqual({ eligible: true, reason: "done_merged", longIdleWaits: true });
+    expect(decideReap(input({ blockers, idleSec: REAP_DONE_LONG_IDLE_SEC })))
+      .toEqual({ eligible: true, reason: "done_delegation", longIdleWaits: true });
+  });
+
+  it("still keeps human-wait, review PRs, testing claims and unsaved work after 2 hours", () => {
+    for (const key of ["humanWait", "openReviewPr", "testingClaim", "unsavedWork"] as const) {
+      expect(decideReap(standalone({ linkedTasksDone: true, idleSec: REAP_DONE_LONG_IDLE_SEC, blockers: { ...clear, [key]: true } })))
+        .toEqual({ eligible: false, reason: key });
+    }
+    expect(decideReap(standalone({ linkedTasksDone: true, idleSec: REAP_DONE_LONG_IDLE_SEC, blockers: { ...clear, humanWait: null } })))
+      .toEqual({ eligible: false, reason: "humanWait_unknown" });
+  });
+
+  it("does not let an unresponsive verdict skip the waits", () => {
+    const blockers = { ...clear, pendingQuestion: true };
+    expect(decideReap(input({ kind: "spawn", delegationDone: null, repoAgentPrMerged: false, unchangedCount: 5, blockers, idleSec: REAP_DONE_LONG_IDLE_SEC })))
+      .toEqual({ eligible: false, reason: "pendingQuestion" });
+  });
+
+  it("makes sessions with linked tasks reap targets even on a base branch", () => {
+    expect(isStandaloneReapTarget({ repo_origin: "o", branch: "main" })).toBe(false);
+    expect(isStandaloneReapTarget({ repo_origin: "o", branch: "main" }, true)).toBe(true);
+    expect(isStandaloneReapTarget({ repo_origin: "o", branch: "feat/x" })).toBe(true);
   });
 });

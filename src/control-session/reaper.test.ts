@@ -198,12 +198,24 @@ describe("child reaper (CC-CTL-INV-08)", () => {
     expect((await stale.tick()).noticed).toEqual(["child"]);
     expect(stale.injected[1].text).toContain("古いもの");
 
+    // 終わってから 2 時間未満なら、新しい質問カードは待ちとして閉じない (2 時間以上は §9.3 で閉じる)。
     const fresh = harness({
-      hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => Math.floor(10_000_000_000 / 1000) - 7200,
+      hasPendingQuestion: () => true,
+      lastActivitySec: () => Math.floor(10_000_000_000 / 1000) - 3600,
+      latestUnansweredQuestionTs: () => Math.floor(10_000_000_000 / 1000) - 3600,
     });
     fresh.put(child());
     expect((await fresh.tick()).noticed).toEqual([]);
     expect(JSON.parse(fresh.rows.get("child")!.metadata!)[REAP_STATE_METADATA_KEY].last_skip_reason).toBe("pendingQuestion");
+
+    // 終わってから 2 時間以上動きが無ければ、新しい質問カード・人間の応答待ちがあっても閉じる候補にし、理由を書く (§9.3)。
+    const longIdle = harness({
+      hasPendingQuestion: () => true, isWaitingForHumanResponse: () => true,
+      latestUnansweredQuestionTs: () => Math.floor(10_000_000_000 / 1000) - 7200,
+    });
+    longIdle.put(child());
+    expect((await longIdle.tick()).noticed).toEqual(["child"]);
+    expect(longIdle.injected[1].text).toContain("2 時間動きが無い");
 
     const unresponsive = harness({
       hasPendingQuestion: () => true, latestUnansweredQuestionTs: () => asked, unchangedCount: () => 5,

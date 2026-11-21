@@ -87,6 +87,8 @@ const log = createChildLogger("delegation/service");
 import { selectDelegationModel, modelTier, type ModelQuota, type ModelCandidate } from "./model-tier-policy.js";
 import { buildRoleMap, type RoleMap } from "../model-catalog/role-map.js";
 import { resolveTemplateModel } from "../model-catalog/template-model-role.js";
+import { rerouteOpusToAgy } from "./opus-agy-reroute.js";
+import { OPUS_AGY_TEMPLATE_IDENTITY } from "./opus-agy-identity.js";
 
 /// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
 /// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
@@ -135,6 +137,11 @@ export type InvokeResult = InvokeResultOk | InvokeResultErr;
 
 export interface DelegationServiceDeps {
   modelQuota?: () => Promise<ModelQuota>;
+  /**
+   * agy (Antigravity CLI) の Claude 枠の残り % (取得失敗は null)。 注入されたときだけ、 Opus の起動要求を
+   * 枠が残っていれば agy の Opus テンプレートへ振り替える (opus-agy-reroute.ts)。
+   */
+  agyClaudeRemainingPct?: () => Promise<number | null>;
   /** テンプレートの役割名を解決する role map (model-catalog/role-map.ts)。 */
   roleMap?: () => RoleMap["roles"];
   allowDomainPreamble?: (parentSessionId: string | null | undefined, targetRepo: string | null) => Promise<{ projectId: string; baseUrl: string; isCurrent: () => boolean } | null>;
@@ -241,10 +248,38 @@ export class DelegationService {
         ? this.deps.siteId()
         : readFederationEnv(process.env, { deferListenerPortValidation: true }).siteId,
     };
-    const resolved = resolveTemplateForScope(tpl, this.deps.repo.listTemplateOverrides(tpl.id), scope, this.deps.repo.listCategoryDefaults());
-    if (!resolved.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
+    const resolveActive = (row: NonNullable<typeof tpl>) => {
+      const scoped = resolveTemplateForScope(row, this.deps.repo.listTemplateOverrides(row.id), scope, this.deps.repo.listCategoryDefaults());
+      return scoped.is_active ? templateToDefinition(scoped) : null;
+    };
+    const def = resolveActive(tpl);
+    if (!def) return { ok: false, error: `template is inactive: ${input.call_name}` };
     // 旧 call_name (別名) で呼ばれても、起動先・prompt・env には改名後の名前を使う (spec/feature/model-role-map.md MRM-TPL-06)。
-    return this.runDefinition(templateToDefinition(resolved), { ...input, call_name: tpl.call_name });
+    const launchDef = await this.rerouteOpus(def, input, () => {
+      const target = this.deps.repo.findTemplateByCallName(OPUS_AGY_TEMPLATE_IDENTITY.callName);
+      return target ? resolveActive(target) : null;
+    });
+    return this.runDefinition(launchDef, { ...input, call_name: launchDef.call_name });
+  }
+
+  /** Opus の起動要求を、 agy の Claude 枠が残っていれば agy の Opus テンプレートへ入れ替える。 */
+  private async rerouteOpus(
+    def: DelegationDefinition,
+    input: InvokeInput,
+    findAgyDefinition: () => DelegationDefinition | null,
+  ): Promise<DelegationDefinition> {
+    const remainingPct = this.deps.agyClaudeRemainingPct;
+    if (!remainingPct) return def;
+    const result = await rerouteOpusToAgy({ def, input, findAgyDefinition, remainingPct });
+    if (!result.rerouted) {
+      if (result.reason !== "not_opus") log.info({ call_name: def.call_name, reason: result.reason }, "opus kept (agy reroute skipped)");
+      return def;
+    }
+    log.info({
+      requested_call_name: def.call_name, call_name: result.def.call_name, model: result.route.model,
+      effort: result.route.effort, agy_claude_remaining_pct: result.route.remainingPct,
+    }, "opus rerouted to agy Claude quota");
+    return result.def;
   }
 
   /**

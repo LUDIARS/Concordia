@@ -23,6 +23,7 @@ import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { createRoleMapSource } from "./model-catalog/role-map-source.js";
 import { collectDelegationModelQuota } from "./delegation/model-tier-usage.js";
+import { collectAgyClaudeRemainingPct } from "./delegation/opus-agy-usage.js";
 import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
 import { MajorInjectRepo } from "./db/major-inject-repo.js";
 import { MajorInjectEditor } from "./control/major-inject-editor.js";
@@ -243,6 +244,7 @@ async function main(): Promise<void> {
   const teamsRepo = new TeamsRepo(db);
   const delegationService = new DelegationService({
     modelQuota: collectDelegationModelQuota,
+    agyClaudeRemainingPct: () => collectAgyClaudeRemainingPct(),
     roleMap: createRoleMapSource(db),
     repo: delegationRepo,
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,

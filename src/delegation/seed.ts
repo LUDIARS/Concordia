@@ -8,6 +8,7 @@ import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "..
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
 import { BOUNTY_TRIAGE_TEMPLATE } from "../bounty/triage-template.js";
+import { AGY_OPUS_DEFAULT_EFFORT, AGY_OPUS_MODEL_BY_EFFORT, OPUS_AGY_TEMPLATE_IDENTITY } from "./opus-agy-identity.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -186,6 +187,8 @@ const CODEX_TEMPLATES: CreateTemplateInput[] = [
 function implementationTemplate(opts: {
   callName: string;
   label: string;
+  /** 省略時は `実装委託 (<label>)`。 */
+  title?: string;
   note: string;
   model: string;
   emoji: string;
@@ -196,7 +199,7 @@ function implementationTemplate(opts: {
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
-    title: `実装委託 (${opts.label})`,
+    title: opts.title ?? `実装委託 (${opts.label})`,
     description: `${opts.label} に実装を委託する。${opts.note} LUDIARS 規約 (feat branch + PR) を守らせる。${CROSS_REPO_DOC_NOTE}`,
     target_provider: opts.provider ?? "claude",
     model: opts.model,
@@ -631,6 +634,20 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     emoji: "🧙‍♂️",
     sortOrder: 5,
     runtimeOptions: { effort: "medium", thinking: false },
+  }),
+  // agy (Antigravity CLI) の Claude 枠で起動する Opus (2026-11-21 neco 指示「Gemini の起動とわかるように
+  // Delegation Template は別で用意して絵文字も変えよう」)。 Opus の起動要求は Claude 枠が残っているとき
+  // ここへ振り替わる (opus-agy-route.ts)。 agy の Opus はモデル ID が effort を持つので model を段付きで固定する。
+  // 呼び名・表示は opus-agy-identity.ts の 1 か所が正本。 並びは Opus の直後。
+  implementationTemplate({
+    callName: OPUS_AGY_TEMPLATE_IDENTITY.callName,
+    label: "Opus (Antigravity / Gemini 枠)",
+    title: OPUS_AGY_TEMPLATE_IDENTITY.title,
+    note: "Antigravity CLI の Claude 枠で起動する Opus。effort は low / medium / high の 3 段 (モデル ID で指定)。",
+    model: AGY_OPUS_MODEL_BY_EFFORT[AGY_OPUS_DEFAULT_EFFORT],
+    provider: "agy",
+    emoji: OPUS_AGY_TEMPLATE_IDENTITY.emoji,
+    sortOrder: 6,
   }),
   implementationTemplate({
     callName: "sonnet",

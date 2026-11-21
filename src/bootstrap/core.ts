@@ -71,6 +71,7 @@ import { isDelegationRunOver, listTaskRunsOnBranch } from "../db/delegation-task
 import { selectHandoffReference } from "../delegation/handoff-task.js";
 import { DelegationService } from "../delegation/service.js";
 import { collectDelegationModelQuota } from "../delegation/model-tier-usage.js";
+import { collectAgyClaudeRemainingPct } from "../delegation/opus-agy-usage.js";
 import { DelegationEffortBlackbox } from "../delegation/effort-blackbox.js";
 import { DelegationQueue } from "../delegation/queue.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "../discord/config.js";
@@ -1095,6 +1096,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const delegationService = new DelegationService({
     modelQuota: collectDelegationModelQuota,
+    agyClaudeRemainingPct: () => collectAgyClaudeRemainingPct(),
     roleMap: createRoleMapSource(db),
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,

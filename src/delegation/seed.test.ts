@@ -253,6 +253,24 @@ describe("seedDelegationTemplates", () => {
     expect(neon!.sort_order).toBeLessThan(argon!.sort_order);
   });
 
+  it("seeds the Opus-on-agy template as its own template right after Opus (DMT-07)", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+    const opus = repo.findTemplateByCallName("opus")!;
+    const agyOpus = repo.findTemplateByCallName("opus-gemini");
+    expect(agyOpus).toMatchObject({
+      title: "Opus (Gemini 枠)", emoji: "🔷", target_provider: "agy", model: "claude-opus-5-5-medium",
+      category: "employee", is_active: 1,
+    });
+    // Opus テンプレート自体は Claude のまま (provider を黙って差し替えない)。
+    expect(opus).toMatchObject({ target_provider: "claude", model: "opus" });
+    expect(agyOpus!.emoji).not.toBe(opus.emoji);
+    const after = repo.listTemplates({ includeInactive: false })
+      .filter((t) => t.sort_order > opus.sort_order)
+      .sort((a, b) => a.sort_order - b.sort_order)[0];
+    expect(after?.call_name).toBe("opus-gemini");
+  });
+
   // 2026-11-21 neco 指示「Neon を Astra の下に」。 新規委託の選択肢 (call_only を除いた一覧) で Astra の直後。
   it("lists Neon right after Astra among the spawnable templates", () => {
     const repo = new DelegationRepo(makeTestDb());

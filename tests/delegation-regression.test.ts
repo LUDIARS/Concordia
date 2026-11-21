@@ -9,6 +9,7 @@ import type { SpawnRequest } from "../src/control/spawner.js";
 const EXPECTED_SEED_CALLS = [
   // 2026-10-14 neco 指示: Opus を先頭、Fable を 5 番目。
   "opus",
+  "opus-gemini",
   // GPT-6 Astra (2026-09 追加)
   "astra-mid",
   // Astra With Sidecar (2026-09-29、spec/feature/astra-with-sidecar.md)。 2026-11-21 から call_only (選択肢に出さない)。
@@ -91,11 +92,11 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 12, 13, 14, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
-    expect(json.templates.filter((t) => t.target_provider === "agy").map((t) => t.call_name)).toEqual(["neon", "argon"]);
+    expect(json.templates.filter((t) => t.target_provider === "agy").map((t) => t.call_name)).toEqual(["opus-gemini", "neon", "argon"]);
     expect(json.templates.filter((t) => t.forum_tag).map((t) => t.call_name)).toEqual([
       "forum-claude-session",
       "forum-codex-session",

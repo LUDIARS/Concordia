@@ -5,6 +5,7 @@
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/delegation/(model-tier-policy|model-tier-usage)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/delegation/opus-agy-(identity|route|usage|reroute)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/delegation/ModelTierSelect(\\.test)?\\.tsx$" },
     { "pathPattern": "(^|/)web/src/pages/delegation/useDelegationState\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Delegation\\.tsx$" },

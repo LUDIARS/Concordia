@@ -5,19 +5,33 @@
 // ものは編集不可であることが分かる形にする (触れるのに効かない、を作らない)。
 
 import { useEffect, useMemo, useState } from "react";
-import { api, type SettingItem, type SettingsSectionPayload } from "../../../api.js";
+import { api, type SettingItem, type SettingsRejection, type SettingsSectionPayload, type SettingsUpdateOutcome } from "../../../api.js";
 import { SourceBadge } from "./SettingSourceBadge.js";
 import { SettingValueField } from "./SettingValueField.js";
 
-export function AllSettingsSection() {
+/** 画面が使う API の口 (テストで差し替える)。 */
+export interface AllSettingsClient {
+  allSettings(): Promise<{ sections: SettingsSectionPayload[] }>;
+  updateSettings(updates: Record<string, unknown>): Promise<SettingsUpdateOutcome>;
+}
+
+function describeRejection(r: SettingsRejection): string {
+  return `${r.code}${r.detail ? ` (${r.detail})` : ""}${r.managedBy ? ` — ${r.managedBy} で変更` : ""}`;
+}
+
+export function AllSettingsSection(props: { client?: AllSettingsClient } = {}) {
+  const client = props.client ?? api;
   const [sections, setSections] = useState<SettingsSectionPayload[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 拒否された項目ごとの理由。 一覧の上だけに出すと、 下の方の項目を触った人には見えない。
+  const [rejectedByKey, setRejectedByKey] = useState<Record<string, string>>({});
+  const [savedCount, setSavedCount] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
-    api.allSettings()
+    client.allSettings()
       .then((res) => setSections(res.sections))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -44,21 +58,25 @@ export function AllSettingsSection() {
   async function save() {
     setBusy(true);
     setError(null);
-    const outcome = await api.updateSettings(drafts).catch((e: unknown) => {
+    setSavedCount(null);
+    const outcome = await client.updateSettings(drafts).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));
       return null;
     });
     setBusy(false);
     if (!outcome) return;
     if (!outcome.ok) {
-      setError(
-        outcome.rejected
-          .map((r) => `${r.key}: ${r.code}${r.detail ? ` (${r.detail})` : ""}${r.managedBy ? ` — ${r.managedBy} で変更` : ""}`)
-          .join(" / "),
-      );
+      setError(`保存できませんでした (何も保存していません): ${outcome.rejected
+        .map((r) => `${r.key || "(全体)"}: ${describeRejection(r)}`)
+        .join(" / ")}`);
+      setRejectedByKey(Object.fromEntries(
+        outcome.rejected.filter((r) => r.key).map((r) => [r.key, describeRejection(r)]),
+      ));
       return;
     }
     setSections(outcome.sections);
+    setSavedCount(dirtyKeys.length);
+    setRejectedByKey({});
     setDrafts({});
   }
 
@@ -75,7 +93,8 @@ export function AllSettingsSection() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
+      {/* 保存ボタンは一覧を下へたどっても見えるよう上に貼り付ける (下の項目を入れて保存せず離れる、を防ぐ)。 */}
+      <div className="sticky top-0 z-10 bg-surface py-2 flex items-center gap-2">
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -91,7 +110,10 @@ export function AllSettingsSection() {
         </button>
       </div>
 
-      {error ? <div className="text-xs text-warn border border-warn/50 rounded p-2">{error}</div> : null}
+      {error ? <div role="alert" className="text-xs text-warn border border-warn/50 rounded p-2">{error}</div> : null}
+      {savedCount !== null ? (
+        <div role="status" className="text-xs text-ok border border-ok/50 rounded p-2">{savedCount} 件を保存しました</div>
+      ) : null}
 
       {visible.map((section) => (
         <section key={section.id} className="border border-border rounded p-3 space-y-2">
@@ -106,6 +128,7 @@ export function AllSettingsSection() {
                 setting={setting}
                 draft={drafts[setting.key]}
                 hasDraft={setting.key in drafts}
+                rejection={rejectedByKey[setting.key]}
                 onChange={(next) => setDrafts((prev) => {
                   const updated = { ...prev };
                   if (next === undefined) delete updated[setting.key];
@@ -125,6 +148,7 @@ function SettingRow(props: {
   setting: SettingItem;
   draft: unknown;
   hasDraft: boolean;
+  rejection?: string;
   onChange: (next: unknown | undefined) => void;
 }) {
   const { setting } = props;
@@ -135,7 +159,10 @@ function SettingRow(props: {
           <div className="text-sm font-medium">{setting.label}</div>
           <div className="text-xs text-subtle mt-0.5">{setting.description}</div>
         </div>
-        <SourceBadge source={setting.source} className="ml-auto shrink-0" />
+        {props.hasDraft ? (
+          <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[11px] border border-accent text-accent">未保存</span>
+        ) : null}
+        <SourceBadge source={setting.source} className={`${props.hasDraft ? "" : "ml-auto "}shrink-0`} />
       </div>
 
       <SettingValueField
@@ -144,6 +171,7 @@ function SettingRow(props: {
         hasDraft={props.hasDraft}
         onChange={props.onChange}
       />
+      {props.rejection ? <div className="text-xs text-warn">保存できませんでした: {props.rejection}</div> : null}
 
       <div className="text-[11px] text-subtle flex flex-wrap gap-x-3 gap-y-0.5">
         <span className="font-mono">{setting.key}</span>

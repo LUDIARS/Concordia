@@ -4,6 +4,7 @@
 // secret は値を出さず「設定済み / 未設定」だけを示し、入力は書き込み専用。
 
 import type { SettingItem } from "../../../api.js";
+import { draftProblem } from "./settingDraftCheck.js";
 
 const INPUT = "foundation-form text-sm w-full min-w-0";
 
@@ -68,7 +69,8 @@ export function SettingValueField(props: {
         />
       );
 
-    case "secret":
+    case "secret": {
+      const problem = draftProblem(setting, props.draft);
       return (
         <div className="space-y-1">
           <div className="text-xs text-subtle">
@@ -81,7 +83,12 @@ export function SettingValueField(props: {
             onChange={(e) => props.onChange(e.target.value.trim() ? e.target.value : undefined)}
             placeholder="新しい値を入力"
             autoComplete="new-password"
+            aria-invalid={problem ? true : undefined}
           />
+          {setting.stringPatternDescription ? (
+            <div className="text-[11px] text-subtle">入力条件: {setting.stringPatternDescription}</div>
+          ) : null}
+          {problem ? <div role="alert" className="text-xs text-warn">{problem}</div> : null}
           {props.draft === null ? (
             <div className="flex items-center gap-2 text-xs text-warn">
               <span>保存すると削除します</span>
@@ -96,6 +103,7 @@ export function SettingValueField(props: {
           ) : null}
         </div>
       );
+    }
 
     case "json":
       // definitions 側で editable=false を強制しているのでここには来ない。

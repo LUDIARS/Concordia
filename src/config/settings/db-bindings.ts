@@ -109,7 +109,9 @@ export function createSettingsDbWriter(bindings: SettingsStoreBindings): Setting
     checkWritable: (target, requiresEncryption) => {
       if (target === "discord" && !bindings.discord) return "discord_config is not configured";
       if (target === "slack" && !bindings.slack) return "slack_config is not configured";
-      if (target !== "meta" && requiresEncryption && !bindings.secretBox) {
+      // schema_meta は AdminState が secret-box 付きの EncryptedSettingsStore で包むので、 box があれば
+      // meta も暗号化して置かれる。 box が無いときは secret を平文で置かせない (apply.ts requiresEncryption)。
+      if (requiresEncryption && !bindings.secretBox) {
         return "secret box (CONCORDIA_SECRET_KEY) is not configured";
       }
       return null;

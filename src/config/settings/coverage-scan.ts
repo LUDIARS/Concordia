@@ -89,6 +89,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   GEMINI_SESSION_ID: "エージェント側が持つ識別子 (書き出し専用)",
   CLAUDE_CODE_DISABLE_THINKING: "spawn する子へ渡す実行時オプション (書き出し専用)",
   LICTOR_SESSION_ID: "Lictor が hook プロセスへ与えるセッション識別子。 Concordia の設定ではない",
+  LICTOR_AGY_BIN: "Lictor の agy (Antigravity CLI) の場所。 使用量表示 (src/cost/agy-usage-fetch.ts) が Lictor と同じ順で agy を探すために読む。 Concordia の設定ではない",
   CONCORDIA_SESSION_HOOK_RUNNER: "git hook スクリプトへ注入する runner パス (書き出し専用)",
   CONCORDIA_SESSION_HOOK_CONFIG_INDEX: "git hook 登録時の config index (書き出し専用)",
   GIT_CONFIG_COUNT: "git が読む標準変数。 spawn する子の git config 注入数を書き出すために使う (Concordia の設定ではない)",

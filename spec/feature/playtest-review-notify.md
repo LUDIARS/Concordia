@@ -53,6 +53,18 @@ Voluptas を通して匿名性の情報として扱う。プレイ時の感想�
 ローテーション: 新しい値を設定画面で上書き保存すると、次の要求から新しい鍵だけが通る (古い鍵は即無効。再起動は不要)。
 送り手 (Muse の Secure Vault 等) の値を同時に差し替える。消すと未設定 (従来の判定) に戻る。
 
+### 設定画面からの保存 (2026-11-21 「設定ができない」の修正)
+
+- 暗号化: schema_meta は `AdminState` が secret-box 付きの `EncryptedSettingsStore` で包むので、汎用 PUT (`src/config/settings/apply.ts`) が
+  `writeMeta` で書いた鍵も `enc:v1` で置かれ、受け口 (`src/bootstrap/core.ts` → `readPlaytestIntakeToken`) は同じ store から復号して読む。
+  secret-box が無い構成では schema_meta の secret を平文で置かず `backend_unavailable` で断る (`requiresEncryption` / `src/config/settings/db-bindings.ts` の `checkWritable`)。
+- 保存先: 読み出しと書き込みは同じ規則 (`src/config/settings/store-of.ts` の `settingStoreOf`) で引き先を決める。セクション名だけで書き込み先を決めていたため、
+  この画面の `playtest_notify.webhook_slack` (と デプロイ通知の `deploy_notify.webhook_slack` / `webhook_discord`) は schema_meta に書かれ、
+  読む側 (slack_config / discord_config) からは見えない「保存したのに未設定」になっていた。
+- 画面 (`web/src/pages/settings/sections/AllSettingsSection.tsx` / `SettingValueField.tsx` / `settingDraftCheck.ts`): 保存ボタンは一覧の上に貼り付けて
+  下の項目からも見えるようにし、入力した項目に「未保存」、secret 欄に入力条件 (「空白を含まない 32 文字以上」) と、条件に合わない間の警告を出す。
+  拒否 (400) はその項目の下にも理由を出し、保存できたら「N 件を保存しました」と「設定済み」を出す (値は読み返さない)。
+
 本文 (strict。決めていない項目があれば 400):
 
 | 項目 | 内容 |

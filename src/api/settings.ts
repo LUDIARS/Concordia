@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   persistSettingUpdate,
   prepareSettingUpdate,
+  requiresEncryption,
   type PreparedSettingUpdate,
   type SettingUpdateError,
   type SettingsDbWriter,
@@ -55,7 +56,7 @@ export function settingsRouter(deps: SettingsApiDeps): Hono {
         rejected.push(result.error);
         continue;
       }
-      const unavailable = deps.writer.checkWritable(result.update.target, result.update.stored !== null);
+      const unavailable = deps.writer.checkWritable(result.update.target, requiresEncryption(result.update));
       if (unavailable) {
         rejected.push({ code: "backend_unavailable", key, detail: unavailable });
         continue;

@@ -101,6 +101,10 @@ function validate(definitions: readonly SettingDefinition[]): readonly SettingDe
     ) {
       throw new Error(`setting ${definition.key} has minValue greater than maxValue`);
     }
+    // revisor_config / github_config は専用 UI が書く。 汎用 PUT の書き込み先 (apply.ts) には無い。
+    if (definition.editable && (definition.dbStore === "revisor" || definition.dbStore === "github")) {
+      throw new Error(`setting ${definition.key} is editable but stored in read-only ${definition.dbStore}_config`);
+    }
     if (definition.kind === "json" && definition.editable) {
       throw new Error(`setting ${definition.key} is json and must not be editable via the generic PUT`);
     }

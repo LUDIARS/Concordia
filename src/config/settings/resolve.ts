@@ -9,6 +9,7 @@
  */
 
 import { splitSemicolonList, trimmedEnv } from "../env-parse.js";
+import { settingStoreOf } from "./store-of.js";
 import type {
   ResolvedSetting,
   SettingDefinition,
@@ -37,11 +38,8 @@ export interface SettingsDbReader {
 function readDbRaw(definition: SettingDefinition, db: SettingsDbReader): string | null {
   if (definition.dbKey === null) return null;
   // 明示された store が最優先。 セクションとストアが一致しない項目 (pr-queue の
-  // Revisor token) は section 由来の推測では引けない。
-  const store = definition.dbStore
-    ?? (definition.section === "discord" || definition.section === "slack"
-      ? definition.section
-      : "meta");
+  // Revisor token) は section 由来の推測では引けない。 書き込み (apply.ts) と同じ規則。
+  const store = settingStoreOf(definition);
   if (store === "discord") return db.readDiscord(definition.dbKey);
   if (store === "slack") return db.readSlack(definition.dbKey);
   if (store === "revisor") return db.readRevisor(definition.dbKey);

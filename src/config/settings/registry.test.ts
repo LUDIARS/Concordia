@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applySettingUpdate, type SettingsDbWriter } from "./apply.js";
+import { applySettingUpdate, prepareSettingUpdate, requiresEncryption, type SettingsDbWriter } from "./apply.js";
 import { getSetting, listSettings, listSettingsBySection } from "./registry.js";
 import type { SettingsDbReader } from "./resolve.js";
 
@@ -344,6 +344,35 @@ describe("更新の検証", () => {
     expect(JSON.stringify(short)).not.toContain("short-secret");
     expect(applySettingUpdate("playtest_notify.intake_token", `${"a".repeat(31)} b`, writer).ok).toBe(false);
     expect(writer.calls).toEqual([["writeMeta", "playtest_notify.intake_token", key]]);
+  });
+
+  it("セクションと保存先が違う webhook は、 読む側と同じ dbStore (slack_config / discord_config) に暗号化して書く", () => {
+    const writer = recordingWriter();
+    expect(applySettingUpdate("playtest_notify.webhook_slack", "https://hooks.slack.example/T/B/x", writer).ok).toBe(true);
+    expect(applySettingUpdate("deploy_notify.webhook_slack", "https://hooks.slack.example/T/B/y", writer).ok).toBe(true);
+    expect(applySettingUpdate("deploy_notify.webhook_discord", "https://discord.example/api/webhooks/1/z", writer).ok).toBe(true);
+    expect(applySettingUpdate("playtest_notify.webhook_slack", null, writer).ok).toBe(true);
+    expect(writer.calls).toEqual([
+      ["writeSlackSecret", "playtest_webhook_url_enc", "https://hooks.slack.example/T/B/x"],
+      ["writeSlackSecret", "deploy_webhook_url_enc", "https://hooks.slack.example/T/B/y"],
+      ["writeDiscordSecret", "deploy_webhook_url_enc", "https://discord.example/api/webhooks/1/z"],
+      ["clearSlack", "playtest_webhook_url_enc"],
+    ]);
+    // 書いた先から読めること (読み出しも同じ規則で slack_config を引く)。
+    expect(getSetting("playtest_notify.webhook_slack", reader({ slack: { playtest_webhook_url_enc: "https://hooks.slack.example/T/B/x" } }), NO_ENV))
+      .toMatchObject({ set: true, source: "db", value: null });
+  });
+
+  it("schema_meta の secret は secret-box を要求し、 消去や secret でない値は要求しない", () => {
+    const prepared = (key: string, value: unknown) => {
+      const result = prepareSettingUpdate(key, value);
+      if (!result.ok) throw new Error(`fixture rejected: ${key}`);
+      return result.update;
+    };
+    expect(requiresEncryption(prepared("playtest_notify.intake_token", "a".repeat(32)))).toBe(true);
+    expect(requiresEncryption(prepared("playtest_notify.intake_token", null))).toBe(false);
+    expect(requiresEncryption(prepared("services.tabula_url", "http://127.0.0.1:5196"))).toBe(false);
+    expect(requiresEncryption(prepared("playtest_notify.webhook_slack", "https://hooks.slack.example/T/B/x"))).toBe(true);
   });
 
   it("LINE webhook の転送先は 1 行 1 件の JSON を検証して schema_meta に書き、壊れた行があれば保存しない", () => {

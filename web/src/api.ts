@@ -741,6 +741,9 @@ export interface SettingItem {
   enumValues?: string[];
   minValue?: number;
   maxValue?: number;
+  /** `kind: "string"` / `"secret"` の入力条件 (値全体に一致する正規表現) と、その人間向けの説明。 */
+  stringPattern?: string;
+  stringPatternDescription?: string;
   managedBy?: string;
   value: unknown;
   set?: boolean;

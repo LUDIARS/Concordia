@@ -5830,6 +5830,17 @@
     {"source":"src/desktop-plan/plan-state.ts","tests":["src/desktop-plan/plan-state.test.ts"],"contracts":[]},
     {"source":"src/desktop-plan/plan-posts.ts","tests":["src/desktop-plan/plan-state.test.ts"],"contracts":[]},
     {"source":"src/api/sessions/desktop-plan-event.ts","tests":["src/api/sessions/desktop-plan-event.test.ts"],"contracts":[]},
-    {"source":"tools/concordia-hook-desktop-plan.mjs","tests":["tools/concordia-hook-desktop-plan.test.mjs"],"contracts":[]}
+    {"source":"tools/concordia-hook-desktop-plan.mjs","tests":["tools/concordia-hook-desktop-plan.test.mjs"],"contracts":[]},
+    {"source":"src/config/settings/store-of.ts","tests":["src/config/settings/registry.test.ts"],"contracts":[]},
+    {"source":"src/config/settings/resolve.ts","tests":["src/config/settings/registry.test.ts", "src/config/settings/db-bindings.test.ts"],"contracts":[]},
+    {"source":"src/config/settings/apply.ts","tests":["src/config/settings/registry.test.ts", "src/config/settings/db-bindings.test.ts", "tests/settings-api.test.ts"],"contracts":[]},
+    {"source":"src/config/settings/db-bindings.ts","tests":["src/config/settings/db-bindings.test.ts"],"contracts":[]},
+    {"source":"src/config/settings/types.ts","tests":["src/config/settings/registry.test.ts"],"contracts":[]},
+    {"source":"src/config/settings/definitions/index.ts","tests":["src/config/settings/registry.test.ts"],"contracts":[]},
+    {"source":"src/api/settings.ts","tests":["tests/settings-api.test.ts"],"contracts":[]},
+    {"source":"web/src/api.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
+    {"source":"web/src/pages/settings/sections/AllSettingsSection.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
+    {"source":"web/src/pages/settings/sections/SettingValueField.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
+    {"source":"web/src/pages/settings/sections/settingDraftCheck.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]}
   ]
 }

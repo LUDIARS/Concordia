@@ -78,4 +78,15 @@ describe("collectLimitSamples", () => {
       reset_weekly_at: 5000,
     });
   });
+
+  it("records Gemini (agy /usage) so the weekly limit chart shows it (2026-11-21)", () => {
+    const r = report();
+    r.geminiUsage = { fiveHour: { usedPct: 8, resetsAtSec: 5000 }, weekly: { usedPct: 2, resetsAtSec: 6000 }, others: [], fetchedAt: 0 };
+    expect(collectLimitSamples(r, 1600)).toEqual([{
+      ts: 1600, provider: "antigravity-cli", plan: null,
+      used_5h_pct: 8, used_weekly_pct: 2, reset_5h_at: 5000, reset_weekly_at: 6000,
+    }]);
+    r.geminiUsage = { fiveHour: null, weekly: null, others: [], fetchedAt: 0 };
+    expect(collectLimitSamples(r, 1600)).toEqual([]);
+  });
 });

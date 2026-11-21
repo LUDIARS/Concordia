@@ -43,6 +43,18 @@ export function collectLimitSamples(
       reset_weekly_at: report.claudeUsage?.sevenDay?.resetsAtSec ?? null,
     });
   if (claudeSample) samples.push(claudeSample);
+
+  // Gemini (Antigravity CLI /usage) の全体枠。Web の「Provider 利用制限」グラフに Gemini として出る。
+  const geminiSample = observedOnly({
+      ts: nowSec,
+      provider: "antigravity-cli",
+      plan: null,
+      used_5h_pct: report.geminiUsage?.fiveHour?.usedPct ?? null,
+      used_weekly_pct: report.geminiUsage?.weekly?.usedPct ?? null,
+      reset_5h_at: report.geminiUsage?.fiveHour?.resetsAtSec ?? null,
+      reset_weekly_at: report.geminiUsage?.weekly?.resetsAtSec ?? null,
+    });
+  if (geminiSample) samples.push(geminiSample);
   return samples;
 }
 

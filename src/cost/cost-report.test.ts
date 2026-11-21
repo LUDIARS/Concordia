@@ -61,6 +61,23 @@ describe("renderCostReportMarkdown", () => {
     expect(md).toContain("週間 Fable 残: 10.0% (リセット t=7000)");
   });
 
+  it("Gemini 節に agy /usage の 5H / 週間リミット残を出す (2026-11-21)", () => {
+    const r = baseReport();
+    r.geminiUsage = {
+      fiveHour: { usedPct: 8, resetsAtSec: 5000 },
+      weekly: { usedPct: 2, resetsAtSec: 6000 },
+      others: [],
+      fetchedAt: 0,
+    };
+    const md = renderCostReportMarkdown(r, PLAIN_FMT, 1);
+    expect(md).toContain("### Gemini\n- Tokens: 390 (in=300, cached=50, out=40)\n- 5H リミット残: 92.0%\n- 週間リミット残: 98.0%\n- 5H リセット: t=5000\n- 週間リセット: t=6000");
+  });
+
+  it("Gemini の利用枠が取れなければ取得失敗と分かる表示にする", () => {
+    const md = renderCostReportMarkdown({ ...baseReport(), geminiUsage: null }, PLAIN_FMT, 1);
+    expect(md).toContain("### Gemini\n- Tokens: 390 (in=300, cached=50, out=40)\n- 5H リミット残: - (agy /usage 取得失敗)");
+  });
+
   it("OAuth usage が null なら Claude 残量はフォールバック表示", () => {
     const r = baseReport();
     r.claudeUsage = null;

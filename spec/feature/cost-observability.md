@@ -12,7 +12,7 @@ tags:
   - budget
   - api
 status: implemented
-updated: 2026-09-07
+updated: 2026-11-21
 ---
 
 # Session cost observability
@@ -57,7 +57,13 @@ SQLite は worker thread で読み取り専用の WAL スナップショット�
 
 全体の日次予算は会話 DB ごとの `gen_metadata.idx` を前回位置として保ち、初回は位置だけを保存する。2 回目以降は位置より新しい行の消費を当日の観測として一度だけ加える。再試行時は保存済みの位置から続ける。
 
-Neon と Argon のセッション USD は [Google Gemini Developer API の Standard 料金](https://aistudio.google.com/docs/pricing#gemini-4-neon)による換算値。Antigravity の実請求額はこの集計の対象外。価格表にないモデルはトークンを計上して単価不明として表示する。レート枠の取得は既存 provider のみ。
+Neon と Argon のセッション USD は [Google Gemini Developer API の Standard 料金](https://aistudio.google.com/docs/pricing#gemini-4-neon)による換算値。Antigravity の実請求額はこの集計の対象外。価格表にないモデルはトークンを計上して単価不明として表示する。
+
+利用枠 (2026-11-21 neco 指示「Neon の週間使用量みたいなやつがコストに出ない」): Codex・Claude Code と同じく、Gemini の 5H / 週間の残量とリセット時刻をコスト面に出す。
+
+- **C-4 `parseAgyUsageOutput(stdout,fetchedAt)`** (`agy-usage.ts`)。`agy -p /usage` のタブ区切り出力 (グループ・枠名・残り %・リセット ISO 時刻) を読む。`Gemini Models` の `Weekly` / `Five Hour` を全体枠、それ以外 (`Claude and GPT models`、`Gemini 4 Argon` のモデル別週間枠など) を別枠として持つ。使用率は 100 − 残り。読めない行は捨て、1 行も読めなければ null。コスト本文の Gemini 節は `agy-usage-lines.ts` が Codex / Claude Code と同じ書式 (5H・週間リミット残とリセット、別枠は併記) で描き、取れなければ「取得失敗」と出す。
+- **C-5 `fetchAgyUsage()`** (`agy-usage-fetch.ts`)。agy を shell を通さず一時ディレクトリで起動する (Git Bash は `/usage` をパスに書き換えるため)。実行ファイルは Lictor と同じく `LICTOR_AGY_BIN` > `%LOCALAPPDATA%/agy/bin/agy.exe` > PATH の `agy`。`codex-rate-limits` と同じく 4 分のキャッシュ・同時取得の束ね・一時的な失敗では 30 分以内の直近の成功値を返す。API キー接続 (exit 2、アカウントの枠が無い) と出力形式の変化は直近値で隠さず null。
+- 全体枠は limit sampler が provider `antigravity-cli` として記録し、Web の「Provider 利用制限」グラフに Gemini として出る。
 
 [`src/cost/log-usage.ts`](../../src/cost/log-usage.ts) が provider ごとに一次ソースを選ぶ。
 
@@ -88,6 +94,7 @@ context 推定 (`context-estimate`) と cost 系 cache (`session-cost` / `sessio
 
 ### rate-limit の表示と通知
 
+- Gemini (Antigravity CLI) は `agy -p /usage` の 5H / 週間枠を出す (上の C-4 / C-5)。
 - Codex のコストチャンネル表示は週間枠の残量とリセット時刻だけを出す。互換用の 5H
   フィールドは取得データに残すが表示しない。
 - Claude OAuth usage の `limits[]` にある `kind: weekly_scoped` は、モデルまたは surface

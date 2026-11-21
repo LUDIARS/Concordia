@@ -11,6 +11,9 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import { fetchCodexRateLimits } from "./codex-rate-limits.js";
+import type { AgyUsage } from "./agy-usage.js";
+import { fetchAgyUsage } from "./agy-usage-fetch.js";
+import { renderGeminiUsageLines } from "./agy-usage-lines.js";
 import { mapRolloutRateLimitsToCostRate } from "./codex-rollout-rate.js";
 import type { Totals } from "../cost/log-usage.js";
 import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
@@ -33,6 +36,8 @@ export interface CostReport {
   geminiTotals: Totals;
   codexRate: CostRate;
   claudeUsage: OAuthUsage | null;
+  /** Gemini (Antigravity CLI `/usage`) の 5H / 週間枠。取得できなければ null、旧データは未設定。 */
+  geminiUsage?: AgyUsage | null;
   /** 本社: 拠点から届いた週間使用量 (SPEC-FED-SITE-USAGE)。 拠点ロールや拠点なしでは空。 */
   siteUsage?: readonly SiteUsageEntry[];
 }
@@ -57,6 +62,8 @@ export async function collectCostReport(
     allowFullScan?: boolean;
     /** テスト用: codex rate-limit fetcher の差し替え (既定 fetchCodexRateLimits)。 */
     codexRateFetcher?: () => Promise<CostRate | null>;
+    /** テスト用: Gemini (agy /usage) の利用枠 fetcher の差し替え (既定 fetchAgyUsage)。 */
+    agyUsageFetcher?: () => Promise<AgyUsage | null>;
     /** 本社: 拠点から届いた週間使用量の一覧 (federation が持つ)。 */
     listSiteUsage?: () => readonly SiteUsageEntry[];
   },
@@ -104,9 +111,15 @@ export async function collectCostReport(
   // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.
   const claudeUsage = await fetchClaudeOAuthUsage(opts?.oauthLog ? { log: opts.oauthLog } : {});
   logStep("fetch-claude-oauth-usage", startedAt, ` available=${claudeUsage ? 1 : 0}`);
+  await yieldToEventLoop();
+  startedAt = Date.now();
+  // Gemini (Antigravity) の 5H / 週間枠は `agy -p /usage` で取る (2026-11-21)。失敗は null。
+  const geminiUsage = await (opts?.agyUsageFetcher ?? (() => fetchAgyUsage({ log: opts?.oauthLog })))()
+    .catch(() => null);
+  logStep("fetch-agy-usage", startedAt, ` available=${geminiUsage ? 1 : 0}`);
   const siteUsage = opts?.listSiteUsage?.() ?? [];
   opts?.perfLog?.info?.(`cost-report total duration_ms=${Date.now() - totalStartedAt}`);
-  return { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage, siteUsage };
+  return { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage, geminiUsage, siteUsage };
 }
 
 /**
@@ -159,6 +172,7 @@ export function renderCostReportMarkdown(
   lines.push("");
   lines.push("### Gemini");
   lines.push(`- Tokens: ${fmtNum(geminiTotals.total)} (in=${fmtNum(geminiTotals.input)}, cached=${fmtNum(geminiTotals.cached)}, out=${fmtNum(geminiTotals.output)})`);
+  lines.push(...renderGeminiUsageLines(report.geminiUsage ?? null, fmt));
   const siteLines = renderSiteUsageLines(report.siteUsage ?? [], fmt, nowSec);
   if (siteLines.length > 0) {
     lines.push("");

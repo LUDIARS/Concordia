@@ -83,6 +83,11 @@ export class ConfluxRepository {
     return this.db.prepare("SELECT 1 FROM conflux_hook_outbox WHERE key = ?").get(key) !== undefined;
   }
 
+  buildStatus(key: string): string | null {
+    const row = this.db.prepare("SELECT state FROM conflux_build_jobs WHERE key = ?").get(key) as { state: string } | undefined;
+    return row?.state ?? null;
+  }
+
   pendingHooks(now: number): { key: string; path: string; payload: string; attempts: number }[] {
     return this.db.prepare(`
       SELECT key, path, payload, attempts FROM conflux_hook_outbox
@@ -90,15 +95,31 @@ export class ConfluxRepository {
     `).all(now) as { key: string; path: string; payload: string; attempts: number }[];
   }
 
-  finishHook(key: string, now: number, retry?: number): void {
+  finishHook(key: string, now: number, retry?: number, reason = "transport_error"): void {
     if (retry === undefined) {
       this.db.prepare("UPDATE conflux_hook_outbox SET delivered_at = ? WHERE key = ?").run(now, key);
     } else {
-      this.db.prepare("UPDATE conflux_hook_outbox SET attempts = attempts + 1, next_attempt = ? WHERE key = ?").run(now + retry, key);
+      this.db.prepare(`UPDATE conflux_hook_outbox
+        SET attempts = attempts + 1, next_attempt = ?, last_failure_at = ?, last_failure_reason = ? WHERE key = ?`)
+        .run(now + retry, now, reason, key);
     }
   }
 
+  hookEvidence(): { last_success_at: string | null; last_failure_at: string | null; last_failure_reason: string | null } {
+    const latest = this.db.prepare("SELECT MAX(delivered_at) AS at FROM conflux_hook_outbox").get() as { at: number | null };
+    const failure = this.db.prepare(`SELECT last_failure_at AS at, last_failure_reason AS reason
+      FROM conflux_hook_outbox WHERE last_failure_at IS NOT NULL ORDER BY last_failure_at DESC LIMIT 1`)
+      .get() as { at: number; reason: string } | undefined;
+    return {
+      last_success_at: latest.at === null ? null : new Date(latest.at).toISOString(),
+      last_failure_at: failure ? new Date(failure.at).toISOString() : null,
+      last_failure_reason: failure?.reason ?? null,
+    };
+  }
+
   private recordBuildEvent(job: BuildJob, state: "running" | "succeeded" | "failed", seq: number, failureSummary?: string): void {
+    // Internal returns have no corresponding Conflux build row to notify.
+    if (job.merge_return) return;
     this.enqueue({
       key: `build:${seq}:${job.dedupe_key}`,
       path: "/api/hooks/build-events",

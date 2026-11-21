@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { INSTRUCTION_AGENTS } from "../agent-instructions/instruction-policy.js";
 
 const text = z.string().min(1).max(256);
 const snowflake = z.string().regex(/^\d{5,32}$/);
@@ -23,6 +24,10 @@ const integrations = z.array(z.object({
   commit: z.string().regex(/^[a-f0-9]{7,40}$/),
 })).max(100);
 const builds = z.record(z.string().refine(isAbsolute));
+const mergeReturns = z.record(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/), z.object({
+  platforms: z.array(z.string().min(1).max(100)).min(1).max(32),
+  agent: z.enum(INSTRUCTION_AGENTS).default("muse"),
+}).strict());
 
 export function readConfluxConfig(env: NodeJS.ProcessEnv) {
   const parsed = <T>(schema: z.ZodType<T>, key: string, fallback: T): T => {
@@ -43,6 +48,7 @@ export function readConfluxConfig(env: NodeJS.ProcessEnv) {
     actors: parsed(actors, "CONCORDIA_CONFLUX_ACTORS", []),
     integrations: parsed(integrations, "CONCORDIA_CONFLUX_INTEGRATIONS", []),
     builds: parsed(builds, "CONCORDIA_CONFLUX_BUILD_RUNNERS", {}),
+    mergeReturns: parsed(mergeReturns, "CONCORDIA_MERGE_PLAYTEST_RETURN", {}),
     hook: url && hookToken ? { base: url.href.replace(/\/+$/, ""), token: hookToken } : null,
   };
 }

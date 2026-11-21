@@ -242,6 +242,20 @@ Actio 106c0bf7-5d2a-4bc9-bfb0-3c02e9f89b60「管制から Muse 等の外部 push
 - 任務が 1 件も無ければ何も載せない。読み取りに失敗したら「状況を読めませんでした」とだけ載せ、まとめ本体は止めない。
 - 状況は Cc が持つ任務・変更・判断・依頼の記録から読むだけで、書き換えない。読み取りは `src/management/status-snapshot.ts`、表示は `src/control-session/dots-status.ts`。
 
+### 12. 外部連携の状況
+
+Actio `106c0bf7-5d2a-4bc9-bfb0-3c02e9f89b60`、Gen5 統合実装 `f69c01a2-02e0-4969-83c3-88e8d7d296f1`。
+管制ボード `GET /v1/control/board` の `external_bridges` と、1 時間ごとの Markdown まとめに以下を表示する。
+
+- Muse 指令ブリッジは `agent_instructions` の最新完了と最新失敗、失敗時の結果要約、保留と実行中の件数を表示する。完了・失敗の参照期間は既存の指令保持期間に従う。
+- Conflux 外部通知フックは `build-events` と `integration` の送信台帳を読み、最新成功と最新失敗、失敗時の HTTP コードまたは通信エラーを表示する。
+- Playtest Review 受け口は Discord・Slack・Tabula いずれかの最新配送成功と配送先別の失敗種別を示す。動画とテキストで成否が分かれたときは同じ時刻に成功と失敗を記録する。
+
+設定が無ければ「未接続」、設定済みで結果が無ければ「未使用」。最新の失敗が最新成功以降なら「失敗あり」、
+最新成功が新しければ「正常」とする。読み出しに失敗した連携は個別に「状況取得失敗」と表示する。
+状態は保存済みの結果と現在の設定に基づく。帰還の受付とビルドの進行状況は
+[`GET /v1/control/merge-playtest-returns`](merge-playtest-return.md) で確認できる。
+
 ## 実装の対応
 
 - `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。

@@ -16,6 +16,8 @@ import type { DeploymentDelivery } from "../deploy/service-deployed.js";
 import { handlePlaytestReview, type PlaytestReviewTargets } from "../playtest-review/handle-playtest-review.js";
 import type { PlaytestReviewAuthDecision } from "../playtest-review/playtest-review-auth.js";
 import { PLAYTEST_ASPECTS } from "../playtest-review/playtest-review-notice.js";
+import { toPlaytestManagementEvent } from "../playtest-review/management-event.js";
+import type { PlaytestDeliveryEvidence } from "../playtest-review/delivery-evidence.js";
 import type { PlaytestReviewLedger } from "../playtest-review/recent-run-ledger.js";
 import type { PlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
 import { PLAYTEST_VIDEO_MAX_BYTES, type PlaytestReviewVideo, type PlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
@@ -67,6 +69,8 @@ export function playtestReviewRouter(deps: {
   delivery: DeploymentDelivery;
   tabula?: PlaytestReviewTabula;
   videoDelivery?: PlaytestVideoDelivery;
+  recordManagementEvent?: (event: ReturnType<typeof toPlaytestManagementEvent>) => void;
+  deliveryEvidence?: Pick<PlaytestDeliveryEvidence, "record">;
   /** 鍵の判定。 本文 (スキーマ検証) より先に呼ぶ。 */
   authorize: (header: string | undefined) => PlaytestReviewAuthDecision;
   log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
@@ -83,6 +87,12 @@ export function playtestReviewRouter(deps: {
     if ("error" in body) return c.json({ error: body.error }, 400);
     const parsed = EventSchema.safeParse(body.event);
     if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    // A repeat can repair a missing management record without repeating delivery.
+    try {
+      deps.recordManagementEvent?.(toPlaytestManagementEvent(parsed.data));
+    } catch {
+      deps.log?.warn({ runId: parsed.data.runId }, "playtest-review management event could not be recorded");
+    }
     const outcome = await handlePlaytestReview({
       event: parsed.data,
       ledger: deps.ledger,
@@ -92,6 +102,11 @@ export function playtestReviewRouter(deps: {
       ...(body.video ? { video: body.video } : {}),
       ...(deps.videoDelivery ? { videoDelivery: deps.videoDelivery } : {}),
     });
+    try {
+      deps.deliveryEvidence?.record(outcome);
+    } catch {
+      deps.log?.warn({ runId: parsed.data.runId }, "playtest-review delivery evidence could not be recorded");
+    }
     const detail = {
       runId: parsed.data.runId,
       gameId: parsed.data.gameId,

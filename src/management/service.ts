@@ -116,6 +116,18 @@ export class ManagementService {
 
   // ── 変更の受付と配信 (CC-MGMT-02) ──────────────────────────
 
+  /** The authenticated Ingenium intake already validates run and game identifiers. */
+  recordPlaytestReview(input: {
+    event_key: string; source: "ig"; kind: "playtest-review"; project_code: string;
+    target_key: string; origin: "ai"; summary: string;
+  }): void {
+    this.repo.transaction(() => {
+      if (this.repo.findEventByKey(input.event_key)) return;
+      const now = this.ports.now();
+      this.repo.insertEvent({ ...input, parent_request_id: null, ref_url: null, observed_at: now, created_at: now });
+    });
+  }
+
   ingestEvent(body: Record<string, unknown>): { event: ManagementEvent; created: boolean } {
     const now = this.ports.now();
     const input = {

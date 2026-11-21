@@ -175,6 +175,13 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
     });
   }
 
+  /** Lightweight merge facts. The base ref is available in the separate PR detail response. */
+  async listMergedLocalPrFactsSince(sinceMs: number): Promise<RevisorLocalPr[]> {
+    const port = await this.resolvePort();
+    const rows = (await this.fetchListing(port, "?view=summary&state=merged", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr);
+    return rows.filter((pr) => pr.status === "merged" && Date.parse(pr.updatedAt) >= sinceMs);
+  }
+
   /**
    * open の詳細一覧 → 同じリポジトリの直近の決着済み (単一取得) の順で探す
    * (`revisor-branch-lookup.ts`)。 全件の詳細一覧は読まない。
@@ -466,6 +473,7 @@ function toLocalPr(item: unknown): RevisorLocalPr[] {
     headRef: text("headRef"),
     baseRef: text("baseRef"),
     headSha: text("headSha"),
+    ...(typeof pr.mergeCommitSha === "string" ? { mergeCommitSha: pr.mergeCommitSha } : {}),
     reviewedHeadSha: optionalText("reviewedHeadSha"),
     reviewer: optionalText("reviewer"),
     labels: stringList("labels"),

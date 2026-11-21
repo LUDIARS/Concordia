@@ -3,6 +3,9 @@ import { playtestReviewRouter } from "./playtest-review.js";
 import { createPlaytestReviewTargets } from "../playtest-review/playtest-review-targets.js";
 import { createRecentRunLedger } from "../playtest-review/recent-run-ledger.js";
 import { decidePlaytestReviewAuth, type PlaytestReviewAuthDecision } from "../playtest-review/playtest-review-auth.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
+import { ManagementRepository } from "../management/repository.js";
+import { ManagementService } from "../management/service.js";
 
 const BODY = {
   runId: "playtest:sample-novice-s1-20261015T000000Z",
@@ -24,7 +27,7 @@ const BODY = {
 const ALLOW: PlaytestReviewAuthDecision = { allowed: true };
 const byToken = (header: string | undefined): PlaytestReviewAuthDecision => (header === "token" ? ALLOW : { allowed: false, reason: "mismatch" });
 
-function app(authorize = byToken) {
+function app(authorize = byToken, recordManagementEvent?: Parameters<typeof playtestReviewRouter>[0]["recordManagementEvent"]) {
   const ccChannel = vi.fn();
   const log = { info: vi.fn(), warn: vi.fn() };
   const router = playtestReviewRouter({
@@ -32,6 +35,7 @@ function app(authorize = byToken) {
     targets: createPlaytestReviewTargets({ discordChannelConfigured: () => true, slackWebhookConfigured: () => false }),
     delivery: { ccChannel, subsidiaryChannel: vi.fn(), discord: vi.fn(), slack: vi.fn() } as never,
     authorize,
+    recordManagementEvent,
     log,
   });
   const post = (body: unknown, token: string | null = "token") => router.request("/", {
@@ -43,6 +47,36 @@ function app(authorize = byToken) {
 }
 
 describe("POST /v1/events/playtest-review", () => {
+  it("records the accepted review in the management feed once across intake restarts", async () => {
+    const repo = new ManagementRepository(makeTestDb());
+    const management = new ManagementService(repo, {
+      now: () => 1, id: () => "", newToken: () => "", hashToken: () => "",
+      departmentExists: () => false, liveSessions: () => [], inject: () => false,
+    });
+    const record: Parameters<typeof app>[1] = (event) => management.recordPlaytestReview(event);
+    const first = app(byToken, record);
+    expect((await first.post(BODY, "wrong")).status).toBe(401);
+    expect(repo.eventsForProjects(["sample"], 0, 100)).toEqual([]);
+    expect((await first.post(BODY)).status).toBe(202);
+    expect((await first.post({ ...BODY, summary: "書き換え" })).status).toBe(200);
+    expect((await app(byToken, record).post(BODY)).status).toBe(202);
+    expect(repo.eventsForProjects(["sample"], 0, 100)).toEqual([expect.objectContaining({
+      event_key: `ig:playtest-review:${BODY.runId}`, project_code: "sample", target_key: "game/sample",
+      source: "ig", kind: "playtest-review", origin: "ai",
+      summary: "Sample / success\n総評\n良い点 良い\n悪い点 悪い\n迷った点 なし",
+    })]);
+  });
+
+  it("isolates management write failures from the response and retries the record on a resend", async () => {
+    const record = vi.fn().mockImplementationOnce(() => { throw new Error("offline"); });
+    const { post, ccChannel, log } = app(byToken, record);
+    expect((await post(BODY)).status).toBe(202);
+    expect((await post(BODY)).status).toBe(200);
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(ccChannel).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({ runId: BODY.runId }, expect.stringContaining("management event"));
+  });
+
   it("accepts a review with good and bad points (202) and answers a resend as a duplicate (200)", async () => {
     const { ccChannel, post } = app();
     const first = await post(BODY);

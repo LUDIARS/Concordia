@@ -27,6 +27,14 @@ Voluptas を通して匿名性の情報として扱う。プレイ時の感想�
 
 `POST /v1/events/playtest-review` (`src/api/playtest-review.ts`)。認証は次節。
 
+## CDGD 管理変更列と配送状況
+
+Actio `78e07513`、Gen5 統合実装 `f69c01a2-02e0-4969-83c3-88e8d7d296f1`。
+認証と本文検証を通過した感想は [CDGD の変更列](cdgd-management.md) に `ig:playtest-review:<runId>` で 1 件記録する。
+同じ runId の再送で最初の記録を保持する。記録失敗はログに残し、配送の実行と HTTP 応答を維持する。
+再送は管理列の記録を補える。Discord・Slack・Tabula の配送結果を記録し、[管制](control-session.md) が状態を読む。
+管理列への保存とチャット・Tabula への配送の成否はそれぞれの所有者が記録する。
+
 ## 認証 (`src/playtest-review/playtest-review-auth.ts`)
 
 2026-11-21 neco 指示 (本社作業依頼「cc-playtest の認証を x-excubitor-token (単一鍵) 方式へ」)。公開入口 `cc-playtest` から届く外部の送り手 (Muse) は

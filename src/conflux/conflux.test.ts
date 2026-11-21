@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { confluxRouter, isConfluxLocalPeer } from "../api/conflux.js";
 import { confluxIntegrationMigration } from "../db/conflux-integration-migration.js";
+import { gen5MergeReturnMigration } from "../db/gen5-merge-return-migration.js";
 import { confluxIdentity } from "./identity.js";
 import { readConfluxConfig } from "./config.js";
 import { ConfluxRepository } from "./repository.js";
@@ -17,6 +18,7 @@ function fixture() {
   databases.push(db);
   db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, status TEXT, metadata TEXT)");
   confluxIntegrationMigration.up(db);
+  gen5MergeReturnMigration.up(db);
   const repo = new ConfluxRepository(db);
   const launch = vi.fn<(input: unknown, enrollment: string) => Promise<boolean>>().mockResolvedValue(true);
   const requests = new ConfluxRequests(repo, {

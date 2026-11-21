@@ -168,6 +168,8 @@ import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { SqliteDeploymentLedger, createDeploymentDelivery, createDeploymentLookup } from "../deploy/service-deployed-runtime.js";
 import { SqliteReleaseNoticeLedger, createReleaseNoticeLookup } from "../deploy/release-published-runtime.js";
 import { createRecentRunLedger } from "../playtest-review/recent-run-ledger.js";
+import { PlaytestDeliveryEvidence } from "../playtest-review/delivery-evidence.js";
+import { readExternalBridges } from "../control-session/external-bridge-status.js";
 import { createPlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
 import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "../playtest-review/playtest-review-targets.js";
 import { createPlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
@@ -1448,8 +1450,10 @@ export async function startBackend(): Promise<BackendHandle> {
    * 送り手は宛先も秘密も持たない (CC-PLAYTEST-INV-01)。 transport はデプロイ通知と共有する。
    * 設定「Tabula にも投稿する」が有効なら、 技術相談と同じ Tabula の接続先へ共有ページとして載せる (CC-PLAYTEST-INV-05)。
    */
+  const playtestEvidence = new PlaytestDeliveryEvidence(db);
   const playtestReview = {
     ledger: createRecentRunLedger(),
+    deliveryEvidence: playtestEvidence,
     targets: createPlaytestReviewTargets({
       discordChannelConfigured: () => Boolean(readDiscordSetting(discordConfig, secretBox, "playtest_notify_channel_id")),
       slackWebhookConfigured: () => Boolean(slackConfig.get("playtest_webhook_url_enc")),
@@ -2221,6 +2225,14 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   // 管制セッション (spec/feature/control-session.md)。既定 OFF、session.control_session_enabled で ON。
   const controlLog = createChildLogger("control-session");
+  const externalBridges = () => readExternalBridges({
+    muse: agentInstructions.museEvidence,
+    conflux: conflux.hookEvidence,
+    playtest_review: () => ({
+      configured: playtestReview.targets.targets().length > 0 || playtestReview.tabula.enabled(),
+      ...playtestEvidence.read(),
+    }),
+  }, (message) => controlLog.warn(message));
   const controlRuntime = createControlRuntime({
     db,
     settings: adminState.store,
@@ -2273,6 +2285,7 @@ export async function startBackend(): Promise<BackendHandle> {
     }, sessionId),
     // 管制まとめに載せる dots の連携状況 (spec/feature/control-session.md §11)。読むだけ。
     dotsStatus: () => readMissionStatusSnapshots(new ManagementRepository(db)),
+    externalBridges,
     // 作業指示で起動した子セッションの片付け (spec/feature/control-session.md §9)。
     reaper: {
       isEnabled: () => adminState.getControlSessionReaperEnabled(),
@@ -2602,6 +2615,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const conflux = createConfluxRuntime({
     db, env: process.env, projects: projectCodesRepo, subsidiaries: subsidiaryRepo, staff: staffRepo,
     revisor: revisorClient, publicHost: webSsoConfig?.publicHost,
+    breaker: () => managementRuntime.breaker.snapshot(),
+    instructions: agentInstructions.routes.service,
     canLaunch: (id) => !isCostBlocked() && confluxCaps.check(id).allowed,
     writePrompt: (prompt) => delegationService.writeAdHocPrompt(prompt),
   });
@@ -2651,7 +2666,7 @@ export async function startBackend(): Promise<BackendHandle> {
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
-    controlSession: controlRuntime.api,
+    controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: conflux.recentMergeReturns },
     actioChat: {
       secret: () => actioChatSharedSecret,
       scopeCache: createChatScopeCache(),
@@ -2791,7 +2806,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
     releasePublished,
-    playtestReview,
+    playtestReview: { ...playtestReview, recordManagementEvent: (event) => managementRuntime.service.recordPlaytestReview(event) },
     packageUpdates,
     projectNotice: {
       arm: (event) => { projectNoticeLedger.arm(event, Date.now()); },

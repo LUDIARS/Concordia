@@ -36,6 +36,9 @@ interface IntegrationPr {
   status: string;
   repository: string;
   headSha: string;
+  mergeCommitSha?: string | null;
+  baseRef?: string;
+  updatedAt?: string;
 }
 
 export function integrationEvent(binding: IntegrationBinding, pr: IntegrationPr) {

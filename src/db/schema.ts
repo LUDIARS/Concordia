@@ -12,8 +12,9 @@ import { migrateTemplateModelsToRoles } from "./template-model-roles-migration.j
 import { migrateTemplateCallNamesToRoles } from "./template-call-name-roles-migration.js";
 import { managementAutonomyMigration } from "./management-autonomy-migration.js";
 import { confluxIntegrationMigration } from "./conflux-integration-migration.js";
+import { gen5MergeReturnMigration } from "./gen5-merge-return-migration.js";
 
-export const SCHEMA_VERSION = 152;
+export const SCHEMA_VERSION = 153;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3894,6 +3895,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
 },
   managementAutonomyMigration,
   confluxIntegrationMigration,
+  gen5MergeReturnMigration,
 ];
 
 /**

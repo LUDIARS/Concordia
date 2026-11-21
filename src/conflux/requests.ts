@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import type { BuildInput, SpawnInput } from "./models.js";
+import type { BuildInput, BuildJob, MergeReturnBuildInput, SpawnInput } from "./models.js";
+import { isMergeCommit, mergeReturnKey } from "./merge-return-policy.js";
 import { buildIdentity, receiptMatch } from "./policy.js";
 import type { ConfluxRepository } from "./repository.js";
 import type { SessionReceipt } from "./models.js";
@@ -73,9 +74,19 @@ export class ConfluxRequests {
     if (!identity || (input.branch && input.branch !== branch && input.branch !== `${branch}/main`)) {
       return { status: 400, error: "invalid_build_target" };
     }
-    if (!this.deps.canBuild(input.project_code)) return { status: 403, error: "build_not_enabled" };
+    return this.queueBuild({ ...input, ...identity }, input);
+  }
+
+  buildForMerge(input: MergeReturnBuildInput): { accepted: true } | ConfluxError {
+    if (!isMergeCommit(input.merge_commit_sha) || input.dedupe_key !== mergeReturnKey(input)
+      || !input.branch || input.branch.length > 200) return { status: 400, error: "invalid_build_target" };
+    return this.queueBuild({ ...input, commit: input.merge_commit_sha, merge_return: true }, input);
+  }
+
+  private queueBuild(job: BuildJob, input: BuildInput | MergeReturnBuildInput): { accepted: true } | ConfluxError {
+    if (!this.deps.canBuild(job.project_code)) return { status: 403, error: "build_not_enabled" };
     const digest = fingerprint({ ...input, platforms: [...new Set(input.platforms)].sort() });
-    const stored = this.repo.queueBuild({ ...input, ...identity }, digest, (this.deps.now ?? Date.now)());
+    const stored = this.repo.queueBuild(job, digest, (this.deps.now ?? Date.now)());
     return receiptMatch(stored, digest) === "same" ? { accepted: true } : { status: 409, error: "dedupe_conflict" };
   }
 }

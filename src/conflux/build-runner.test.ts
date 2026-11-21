@@ -34,6 +34,11 @@ it("builds the verified flow commit in an isolated checkout and removes it", asy
     expect(git("worktree", "list").split(/\r?\n/)).toHaveLength(1);
     await expect(runConfluxBuild(repo, runner, { ...job, branch: "evolution/tide/variant/main" }, new AbortController().signal))
       .rejects.toThrow("Conflux mainline is missing");
+    const returned = { project_code: "Cc", dedupe_key: "merge-return", branch: "evolution/tide/variant",
+      commit: sha, merge_commit_sha: sha, platforms: ["web"], merge_return: true as const };
+    await runConfluxBuild(repo, runner, returned, new AbortController().signal);
+    await expect(runConfluxBuild(repo, runner, { ...returned, branch: "main" }, new AbortController().signal))
+      .rejects.toThrow("merge-base");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

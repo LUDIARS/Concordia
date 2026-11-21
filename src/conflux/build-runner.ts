@@ -22,9 +22,11 @@ export async function runConfluxBuild(repo: string, runner: string, job: BuildJo
   try {
     await mkdir(hooks);
     const sha = await git("rev-parse", "--verify", `${job.commit}^{commit}`);
-    const base = `evolution/${job.tide}/${job.variant}`;
-    const refs = (await git("for-each-ref", "--format=%(refname)", `refs/heads/${base}`)).split(/\r?\n/);
-    const eligible = job.branch ? [`refs/heads/${job.branch}`] : [`refs/heads/${base}`, `refs/heads/${base}/main`];
+    const base = job.merge_return ? job.branch : `evolution/${job.tide}/${job.variant}`;
+    const baseRef = `refs/heads/${base}`;
+    await git("check-ref-format", baseRef);
+    const refs = (await git("for-each-ref", "--format=%(refname)", baseRef)).split(/\r?\n/);
+    const eligible = job.branch ? [`refs/heads/${job.branch}`] : [baseRef, `${baseRef}/main`];
     const ref = eligible.find((item) => refs.includes(item));
     if (!ref) throw new Error("Conflux mainline is missing");
     await git("merge-base", "--is-ancestor", sha, ref);

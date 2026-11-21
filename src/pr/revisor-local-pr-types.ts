@@ -45,6 +45,7 @@ export interface RevisorLocalPr {
   headRef: string;
   baseRef: string;
   headSha: string;
+  mergeCommitSha?: string | null;
   reviewedHeadSha?: string | null;
   reviewer?: string | null;
   labels?: string[];

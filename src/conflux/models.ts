@@ -1,5 +1,6 @@
 import type { ConfluxSelection } from "../harness/reliability/conflux-policy.js";
 import type { BuildIdentity } from "./policy.js";
+import type { MergeReturnTarget } from "./merge-return-policy.js";
 
 export interface Destination {
   kind: "subsidiary" | "discord" | "slack";
@@ -27,7 +28,16 @@ export interface BuildInput {
   platforms: string[];
 }
 
-export interface BuildJob extends BuildInput, BuildIdentity {}
+interface ConfluxBuildJob extends BuildInput, BuildIdentity {
+  merge_return?: never;
+}
+
+export interface MergeReturnBuildInput extends MergeReturnTarget {
+  dedupe_key: string;
+  platforms: string[];
+}
+
+export type BuildJob = ConfluxBuildJob | (MergeReturnBuildInput & { commit: string; merge_return: true });
 
 export interface SessionReceipt {
   accepted: true;

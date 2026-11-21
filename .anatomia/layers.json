@@ -3,6 +3,11 @@
 
   "layers": [
     { "glob": "src/conflux/policy.ts", "layer": "domain-logic" },
+    { "glob": "src/conflux/merge-return-policy.ts", "layer": "domain-logic" },
+    { "glob": "src/conflux/merge-return-service.ts", "layer": "application" },
+    { "glob": "src/conflux/merge-observer.ts", "layer": "application" },
+    { "glob": "src/conflux/merge-poller.ts", "layer": "application" },
+    { "glob": "src/conflux/merge-return-repository.ts", "layer": "infrastructure" },
     { "glob": "src/conflux/models.ts", "layer": "domain-logic" },
     { "glob": "src/conflux/*.contract.ts", "layer": "domain-logic" },
     { "glob": "src/conflux/*.test.ts", "layer": "shared" },
@@ -29,6 +34,9 @@
     { "glob": "src/sprint-dialogues/conversation.ts", "layer": "application" },
     { "glob": "src/sprint-dialogues/*.test.ts", "layer": "shared" },
     { "glob": "src/playtest-review/playtest-review-auth.ts", "layer": "domain-logic" },
+    { "glob": "src/playtest-review/management-event.ts", "layer": "domain-logic" },
+    { "glob": "src/playtest-review/management-event.contract.ts", "layer": "domain-logic" },
+    { "glob": "src/playtest-review/delivery-evidence.ts", "layer": "infrastructure" },
     { "glob": "src/playtest-review/playtest-review-auth.test.ts", "layer": "shared" },
     { "glob": "src/chores/domain.ts", "layer": "domain-logic" },
     { "glob": "src/chores/discord-intake.ts", "layer": "domain-logic" },

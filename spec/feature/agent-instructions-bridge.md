@@ -30,7 +30,7 @@ Muse のカスタムコネクタは 1 要求に秘密 1 つまでしか送れな
 
 - **指令 (instruction)**: 宛先エージェント 1 つに渡すタスク。所有者は Cc の `agent_instructions` (migration 150)。
 - **宛先 (agent)**: 許可リスト `muse` のみ。
-- **type**: 許可リスト `notify_only` (通知だけ) / `run_task` (タスク依頼) / `status_query` (状態の問い合わせ)。増やすときは指示書の改訂として扱う。
+- **type**: 許可リスト `notify_only` (通知だけ) / `run_task` (タスク依頼) / `status_query` (状態の問い合わせ) / `playtest` ([マージ後の再試遊](merge-playtest-return.md))。増やすときは指示書の改訂として扱う。
 - **状態**: `pending` → `acked` → `done` / `failed`。`done` / `failed` は終端。
 
 ```
@@ -46,7 +46,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | ID | 内容 | 実装 |
 |---|---|---|
 | CC-INST-INV-01 | 全 POST は固定スキーマ。未知の項目・型違い・文字数 / バイト数超過は 400。エラーは `{error:{code,message}}` で message に直し方を書く | `src/agent-instructions/instruction-requests.ts` |
-| CC-INST-INV-02 | 宛先と type は許可リストのみ (`muse` / `notify_only`・`run_task`・`status_query`)。外れたら登録時に 400 | `src/agent-instructions/instruction-policy.ts` |
+| CC-INST-INV-02 | 宛先と type は許可リストのみ (`muse` / `notify_only`・`run_task`・`status_query`・`playtest`)。外れたら登録時に 400 | `src/agent-instructions/instruction-policy.ts` |
 | CC-INST-INV-03 | ack は `pending` を `acked` にして 202、`acked` への再送は 200 `duplicate: true`、終端は 409、無い ID は 404 | `instruction-policy.ts` `decideAck` |
 | CC-INST-INV-04 | result は `pending` / `acked` を終端にして 202 `{delivered:true, failed:false}`。同一結果 (status・要約・詳細。詳細はキー順を無視) の再送は 200 `duplicate: true`、違う結果は 409 | `instruction-policy.ts` `decideResult` |
 | CC-INST-INV-05 | `acked` のまま 30 分 result が無い指令は `pending` に戻り再配信される。終端は再配信しない。終端は 90 日で削除 | `instruction-service.ts` / `src/sweeper.ts` |

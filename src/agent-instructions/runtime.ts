@@ -17,6 +17,7 @@ import { createInstructionAccessGate } from "./public-access.js";
 export interface AgentInstructionsRuntime {
   routes: AgentInstructionsDeps;
   sweep: () => void;
+  museEvidence: () => ReturnType<SqliteAgentInstructionStore["evidence"]> & { configured: boolean };
 }
 
 export function createAgentInstructionsRuntime(
@@ -29,13 +30,16 @@ export function createAgentInstructionsRuntime(
   const config = readInstructionAccessConfig(env);
   if (config.problem) log.warn({ problem: config.problem }, "agent-instructions public host is ignored; tunnel headers still mark public requests");
   log.info({ publicHost: config.publicHost }, "agent-instructions public requests require the x-excubitor-token intake key");
-  const service = new InstructionService({ store: new SqliteAgentInstructionStore(db) });
+  const store = new SqliteAgentInstructionStore(db);
+  const service = new InstructionService({ store });
+  const token = () => readInstructionIntakeToken(readIntakeToken);
   return {
     routes: {
       service,
-      access: createInstructionAccessGate({ publicHost: config.publicHost, readToken: () => readInstructionIntakeToken(readIntakeToken) }),
+      access: createInstructionAccessGate({ publicHost: config.publicHost, readToken: token }),
       log: { info: (detail, message) => log.info(detail, message), warn: (detail, message) => log.warn(detail, message) },
     },
+    museEvidence: () => ({ configured: token().kind === "set", ...store.evidence("muse") }),
     sweep: () => {
       const { requeued, purged } = service.sweep();
       if (requeued > 0 || purged > 0) log.info({ requeued, purged }, "agent instructions swept");

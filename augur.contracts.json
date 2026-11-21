@@ -3,6 +3,9 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    {"id":"gen5-return-C-1","criterion":"C-1 toPlaytestManagementEvent(event): 試遊感想を runId・gameId に対応する AI 由来の管理変更に変換し、要約を2000文字以内に収める","symbol":"toPlaytestManagementEvent","file":"src/playtest-review/management-event.ts","module":"src/playtest-review/management-event.contract.ts","mode":"observe","sample":1},
+    {"id":"gen5-return-C-2","criterion":"C-2 externalBridgeStatus(input): 設定と最終成功・失敗の記録を使い稼働状態を判定する","symbol":"externalBridgeStatus","file":"src/control-session/external-bridge-status.ts","module":"src/control-session/external-bridge-status.contract.ts","mode":"observe","sample":1},
+    {"id":"gen5-return-C-3","criterion":"C-3 decideMergeReturn(duplicate, enabled, breaker): 重複・未有効化・遮断中の帰還依頼は払い出さない","symbol":"decideMergeReturn","file":"src/conflux/merge-return-policy.ts","module":"src/conflux/merge-return.contract.ts","mode":"observe","sample":1},
     { "id": "C-45", "criterion": "C-45 receiptMatch(stored,incoming): 同一内容だけを再利用する", "symbol": "receiptMatch", "file": "src/conflux/policy.ts", "module": "src/conflux/receipt.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-46", "criterion": "C-46 buildIdentity(key,commit): ビルドキーから Cf の projectCode と variantId を照合する", "symbol": "buildIdentity", "file": "src/conflux/policy.ts", "module": "src/conflux/build.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-47", "criterion": "C-47 integrationEvent(binding,pr): Revisor のマージ済み PR と一致する採用判断だけを通知する", "symbol": "integrationEvent", "file": "src/conflux/policy.ts", "module": "src/conflux/integration.contract.ts", "mode": "observe", "sample": 1 },

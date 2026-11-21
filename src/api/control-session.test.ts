@@ -21,7 +21,7 @@ describe("/v1/control", () => {
   it("reports status and the board", async () => {
     const { router } = app();
     expect(await (await router.request("/status")).json()).toEqual({ enabled: true, generation: 4, spawned_at: 10, control_session_id: "ctl" });
-    expect(await (await router.request("/board")).json()).toEqual({ items: [] });
+    expect(await (await router.request("/board")).json()).toEqual({ items: [], external_bridges: [] });
   });
 
   it("accepts instructions only from the current control session (CC-CTL-INV-06)", async () => {

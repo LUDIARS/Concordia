@@ -12,7 +12,7 @@ export const INSTRUCTION_AGENTS = ["muse"] as const;
 export type InstructionAgent = (typeof INSTRUCTION_AGENTS)[number];
 
 /** 指令 type の許可リスト (指示書 §3.3)。 */
-export const INSTRUCTION_TYPES = ["notify_only", "run_task", "status_query"] as const;
+export const INSTRUCTION_TYPES = ["notify_only", "run_task", "status_query", "playtest"] as const;
 export type InstructionType = (typeof INSTRUCTION_TYPES)[number];
 
 export const INSTRUCTION_STATUSES = ["pending", "acked", "done", "failed"] as const;

@@ -106,6 +106,21 @@ describe("migration ledger", () => {
     }
   });
 
+  it("retains previous Conflux hook results when migration 153 adds delivery evidence", () => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 152), 152);
+      expect(schemaFingerprint(db)).toBe("33a17131bcfb30ca52bbb9caaf9fc50169b165942b4a86a70a584ea4dae1b6ff");
+      db.prepare(`INSERT INTO conflux_hook_outbox (key, path, payload, attempts, next_attempt, delivered_at)
+        VALUES ('old', '/api/hooks/integration', '{}', 2, 121000, 122000)`).run();
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT delivered_at, last_failure_at, last_failure_reason FROM conflux_hook_outbox WHERE key = 'old'").get())
+        .toEqual({ delivered_at: 122000, last_failure_at: 1000, last_failure_reason: "prior_delivery_failure" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("opts old missions out of autonomy and installs a closed breaker without rewriting the old ledger", () => {
     const db = new Database(":memory:");
     try {

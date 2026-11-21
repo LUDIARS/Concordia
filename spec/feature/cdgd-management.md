@@ -28,6 +28,12 @@ UX-CC-W2/W4/W5、UX-CC-S2/S3/S5/S6。失うと困る状態は任務の範囲と�
 session / delegation run の状態を直接書き換えない。
 不変条件: CC-INV-02/03/04/06/07/08 と下記 CC-MGMT-INV-*。
 
+Gen5 の Actio `78e07513` (`f69c01a2-02e0-4969-83c3-88e8d7d296f1`) で、Cc が受理した
+[Ingenium の試遊感想](playtest-review-notify.md) を CC-MGMT-02 の変更列に載せる。
+`event_key=ig:playtest-review:<runId>`、`source=ig`、`kind=playtest-review`、`project_code=<gameId>`、
+`target_key=game/<gameId>`、`origin=ai`。要約にはタイトル、結果、総評、良い点、悪い点、迷った点を含め、2000 文字以内とする。
+最初に保存したイベントを保持し、任務に登録されたプロジェクトの変更として読む。
+
 ## 元設計へのレビュー所見と反映
 
 | # | 所見 | 反映 |

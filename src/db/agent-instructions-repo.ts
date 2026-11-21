@@ -45,6 +45,19 @@ export interface AgentInstructionStore {
 export class SqliteAgentInstructionStore implements AgentInstructionStore {
   constructor(private readonly db: Database.Database) {}
 
+  evidence(agent: string): { last_success_at: string | null; last_failure_at: string | null;
+    last_failure_reason: string | null; pending: number; running: number } {
+    const counts = this.db.prepare(`SELECT
+      COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending,
+      COUNT(CASE WHEN status = 'acked' THEN 1 END) AS running,
+      MAX(CASE WHEN status = 'done' THEN finished_at END) AS last_success_at
+      FROM agent_instructions WHERE agent = ?`).get(agent) as { pending: number; running: number; last_success_at: string | null };
+    const failed = this.db.prepare(`SELECT finished_at, result_summary FROM agent_instructions
+      WHERE agent = ? AND status = 'failed' ORDER BY finished_at DESC, id DESC LIMIT 1`)
+      .get(agent) as { finished_at: string; result_summary: string | null } | undefined;
+    return { ...counts, last_failure_at: failed?.finished_at ?? null, last_failure_reason: failed?.result_summary ?? null };
+  }
+
   insert(row: NewAgentInstruction): void {
     this.db.prepare(`
       INSERT INTO agent_instructions (id, agent, type, title, body, params, status, created_at)

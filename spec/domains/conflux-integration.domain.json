@@ -5,10 +5,13 @@
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/conflux/.*\\.ts$" },
-    { "pathPattern": "(^|/)src/api/conflux\\.ts$" }
+    { "pathPattern": "(^|/)src/api/conflux\\.ts$" },
+    { "pathPattern": "(^|/)src/db/gen5-merge-return-migration\\.ts$" },
+    { "pathPattern": "(^|/)spec/feature/merge-playtest-return\\.md$" }
   ],
   "specRefs": [
     "spec/feature/conflux-integration.md",
+    "spec/feature/merge-playtest-return.md",
     "spec/ux/product.md"
   ],
   "cardTemplate": "Describe receipt identity, the origin of session and PR facts, and retry and recovery behavior."

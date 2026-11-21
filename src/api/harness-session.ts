@@ -489,7 +489,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     return c.json({
       rules,
       gates,
-      ...(deps.blackbox ? { blackbox: deps.blackbox.snapshot(HARNESS_BLACKBOX_DOMAINS.gate, 25).stats } : {}),
+      // stats だけを引く (snapshot は使わない listPending / listRules まで走らせる。 FS-11 P0-b)。
+      ...(deps.blackbox ? { blackbox: deps.blackbox.stats(HARNESS_BLACKBOX_DOMAINS.gate, 25) } : {}),
     });
   });
 

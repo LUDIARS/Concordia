@@ -150,6 +150,13 @@ export interface DiscordSessionChannelsRepo {
   tryClaimRename(sessionId: string, cooldownSec: number, now?: number): boolean;
   listActive(): DiscordSessionChannelRow[];
   listAll(): DiscordSessionChannelRow[];
+  /**
+   * scope 内で、 束縛行の status は X でないのに sessions 側は既に X になっている session_id を返す。
+   * lost / ended の照合が行ごとに sessions.metadata を読み直していた (本社で 1 回 1.9 秒の停止) のを、
+   * 1 回の JOIN で済ませるため (spec/plan/2026-11-21-cc-full-scan-elimination.md FS-16)。
+   * sessions 行が無い束縛は返さない (行ごとの判定でも偽だった。 それは findOrphanedSessionChannels の担当)。
+   */
+  listSessionStatusDrift(status: "lost" | "ended"): string[];
   /** sessions 行を失った active channel を scope 内で返す。 */
   findOrphanedSessionChannels(): DiscordSessionChannelRow[];
   deleteBySessionId(sessionId: string): void;
@@ -276,6 +283,17 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
       return db
         .prepare("SELECT * FROM discord_session_channels WHERE scope = ?")
         .all(scope) as DiscordSessionChannelRow[];
+    },
+    listSessionStatusDrift(status) {
+      const rows = db
+        .prepare(
+          `SELECT c.session_id AS session_id
+             FROM discord_session_channels c
+             JOIN sessions s ON s.id = c.session_id
+            WHERE c.scope = ? AND c.status <> ? AND s.status = ?`,
+        )
+        .all(scope, status, status) as Array<{ session_id: string }>;
+      return rows.map((row) => row.session_id);
     },
     findOrphanedSessionChannels() {
       return db

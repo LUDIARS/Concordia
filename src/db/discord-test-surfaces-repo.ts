@@ -33,8 +33,12 @@ export interface DiscordTestSurfaceRow {
 }
 
 export interface DiscordTestSurfacesRepo {
-  /** Includes archived surfaces so fast terminal reviews are backfilled only once. */
-  hasRecordedPr?(repoOrigin: string, prNumber: number): boolean;
+  /**
+   * scope 内で投稿を作ったことのある PR (閉じた投稿も含む)。 短い審査で終局した PR の backfill を 1 回に限るため。
+   * 照合は終局 PR ごとに 1 件ずつ SQL を引いていた (本社で 1 回 1.4〜1.7 秒の停止、 FS-17) ので、
+   * 1 回で全件を返し呼び出し側で Set にする。 正規化 (大小文字) は呼び出し側の prKey に揃えるため生の値を返す。
+   */
+  listRecordedPrKeys?(): Array<{ repoOrigin: string; prNumber: number }>;
   listOpen(): DiscordTestSurfaceRow[];
   /** 閉じたスレッド (一括削除の対象、 test-forum-purge.ts)。 */
   listClosed(): DiscordTestSurfaceRow[];
@@ -84,10 +88,10 @@ export function makeDiscordTestSurfacesRepo(
   nowSec: () => number = () => Math.floor(Date.now() / 1000),
 ): DiscordTestSurfacesRepo {
   return {
-    hasRecordedPr(repoOrigin, prNumber) {
-      return !!db.prepare(`SELECT 1 FROM discord_test_surfaces
-        WHERE scope = ? AND lower(repo_origin) = lower(?) AND pr_number = ? LIMIT 1`)
-        .get(scope, repoOrigin, prNumber);
+    listRecordedPrKeys() {
+      return db.prepare(`SELECT DISTINCT repo_origin AS repoOrigin, pr_number AS prNumber
+        FROM discord_test_surfaces WHERE scope = ?`)
+        .all(scope) as Array<{ repoOrigin: string; prNumber: number }>;
     },
     listOpen() {
       return db.prepare(

@@ -60,8 +60,8 @@ export interface SweeperOptions {
 
 /**
  * ログ退避 (zip + DELETE) を許す夜間窓 (JST)。01:00–02:59。
- * 03:00 の nightly VACUUM (src/db/nightly-vacuum.ts) の直前に刈り終え、その日の
- * VACUUM で空きページまで回収する並びにする。日中は刈らない — zip の同期 deflate と
+ * 03:00 の nightly 点検 (src/db/nightly-vacuum.ts) の直前に刈り終える。空きページは
+ * 以後の書き込みで再利用される (2026-11-22 から本体では VACUUM しない、FS-36)。日中は刈らない — zip の同期 deflate と
  * DELETE がイベントループを止め、Discord の応答期限 (3 秒) を壊すため
  * (2026-08-25 実害、neco 指示「DELETE は夜のバキュームまで遅延」)。
  */
@@ -266,8 +266,8 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     // 同期 deflate と chunked DELETE がイベントループを 10〜21 秒止め、Discord の
     // interaction ack (3 秒期限) が全滅した (2026-08-25 実害。停止は毎分の
     // log-archive/*.zip 生成と runtime.event_loop.stall で観測)。夜間 03:00 の
-    // nightly VACUUM (src/db/nightly-vacuum.ts) の直前窓で刈り、その日の VACUUM
-    // で空きページまで回収する。
+    // nightly 点検 (src/db/nightly-vacuum.ts) の直前窓で刈る。空きページは再利用され、
+    // 本体では VACUUM しない (2026-11-22、FS-36)。
     if (isWithinLogPurgeWindow(nowDate())) {
       await purgeLogTables(now);
     }

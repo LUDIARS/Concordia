@@ -211,12 +211,21 @@ export async function reconcileTestForum(input: {
 }): Promise<TestForumReconcileResult> {
   const candidates = [...input.candidates];
   let backfillFailed = 0;
+  const terminals = input.terminalPullRequests ?? [];
+  // 記録済みの PR は照合の頭で 1 回だけ読んで Set にする。 終局 PR ごとに SQL を引くと
+  // (終局 PR 数) × (scope 内の投稿数) で増え、 本社で 1 回 1.4〜1.7 秒止まっていた (FS-17)。
+  // キーは candidatesByPr と同じ prKey で作る (SQL の lower() は ASCII しか畳まないので混ぜない)。
+  // 照合中にこの Set が古くなることはない: 終局ループでは行を作らず、 同じ scope の照合は直列に走る。
+  const recordedKeys = terminals.length > 0 && input.getTerminalDetail && input.surfaces.listRecordedPrKeys
+    ? new Set(input.surfaces.listRecordedPrKeys().map((row) => prKey(row.repoOrigin, row.prNumber)))
+    : null;
+  const candidateKeys = new Set(candidates.map((candidate) => prKey(candidate.repoOrigin, candidate.prNumber)));
   // A quick review can merge between open-list polls. Only fetch new report-capable
   // terminal PRs, never all historic detailed PRs (the summary list stays small).
-  for (const terminal of input.terminalPullRequests ?? []) {
+  for (const terminal of terminals) {
+    const key = prKey(terminal.repoOrigin, terminal.prNumber);
     if (terminal.reviewReportVersion !== 1 || !terminal.pullRequestId || !input.getTerminalDetail
-      || !input.surfaces.hasRecordedPr || input.surfaces.hasRecordedPr(terminal.repoOrigin, terminal.prNumber)
-      || candidates.some((candidate) => prKey(candidate.repoOrigin, candidate.prNumber) === prKey(terminal.repoOrigin, terminal.prNumber))) continue;
+      || !recordedKeys || recordedKeys.has(key) || candidateKeys.has(key)) continue;
     try {
       const detail = await input.getTerminalDetail(terminal.pullRequestId);
       if (!detail.reviewReport) throw new Error("Terminal review history is unavailable");
@@ -228,6 +237,8 @@ export async function reconcileTestForum(input: {
         sessionId: null, mentionUserIds: [], detail,
         contentHash: createHash("sha256").update(JSON.stringify(detail)).digest("hex"),
       });
+      // 同じ PR が終局一覧に重複していても 2 度 backfill しない (旧 candidates.some と同じ)。
+      candidateKeys.add(key);
     } catch (error) {
       backfillFailed++;
       input.log?.warn(`test-forum terminal report unavailable #${terminal.prNumber}: ${(error as Error).message}`);

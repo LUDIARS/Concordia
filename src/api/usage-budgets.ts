@@ -64,10 +64,14 @@ export function usageBudgetsRouter(deps: UsageBudgetsApiDeps): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
+    // 予算が 1 件も無ければ一覧は空なので、 今月の全セッションの集計を走らせない。
+    // (/users は予算の有無に関係なく人ごとの消費を返すので、 ここだけで抜ける。)
+    const budgets = deps.budgets.list();
+    if (budgets.length === 0) return c.json({ budgets: [] });
     // 一覧は開いている画面が繰り返し引くので、 数分のキャッシュで足りる (起動の可否は /check が数え直す)。
     const consumption = await deps.tracker.cachedMonthlyConsumption();
     return c.json({
-      budgets: deps.budgets.list().map((budget) => {
+      budgets: budgets.map((budget) => {
         const consumed = consumption.get(subjectKey({ scope: budget.scope, targetId: budget.target_id })) ?? 0;
         return { ...budget, ...toEvaluationJson(evaluateBudget(consumed, budget.limit_tokens)) };
       }),

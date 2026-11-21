@@ -5915,6 +5915,27 @@
     { "source": "src/bootstrap/core.ts", "tests": ["src/agent-instructions/runtime.test.ts"], "contracts": [] },
     { "source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts", "src/agent-instructions/instruction-service.test.ts"], "contracts": [] },
     { "source": "src/db/migration-ledger.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": [] },
-    { "source": "src/config/settings/definitions/operations.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] }
+    { "source": "src/config/settings/definitions/operations.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] },
+    { "source": "src/db/session-events-kind-index-migration.ts", "tests": ["src/db/migration-ledger.test.ts","src/db/full-scan-query-plans.test.ts"], "contracts": [] },
+    { "source": "src/db/delegation-session-link-index-migration.ts", "tests": ["src/db/migration-ledger.test.ts","src/db/full-scan-query-plans.test.ts"], "contracts": [] },
+    { "source": "src/db/delegation-session-links-query.ts", "tests": ["src/db/sessions-repo-delegation.test.ts","src/db/full-scan-query-plans.test.ts"], "contracts": [] },
+    { "source": "src/db/sessions-repo.ts", "tests": ["src/db/sessions-repo-delegation.test.ts","src/db/full-scan-query-plans.test.ts"], "contracts": [] },
+    { "source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts","src/db/full-scan-query-plans.test.ts"], "contracts": [] },
+    { "source": "src/db/migration-ledger.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": [] },
+    { "source": "src/api/delegation.ts", "tests": ["src/db/sessions-repo-delegation.test.ts","src/api/delegation-partial.test.ts"], "contracts": [] },
+    { "source": "src/delegation/run-session-read-model.ts", "tests": ["src/delegation/run-session-read-model.test.ts","src/db/sessions-repo-delegation.test.ts"], "contracts": [] },
+    { "source": "src/harness/blackbox-decision-index.ts", "tests": ["src/harness/blackbox-decision-index.test.ts"], "contracts": [] },
+    { "source": "src/harness/blackbox-engine.ts", "tests": ["src/harness/blackbox-decision-index.test.ts"], "contracts": [] },
+    { "source": "src/api/harness-session.ts", "tests": ["src/api/harness-session.context-stats.test.ts"], "contracts": [] },
+    { "source": "src/api/usage-budgets.ts", "tests": ["src/api/usage-budgets.test.ts"], "contracts": [] },
+    { "source": "src/cost/usage-budget-gate.ts", "tests": ["src/cost/usage-budget-gate.test.ts"], "contracts": [] },
+    { "source": "src/cost/usage-budget-tracker.ts", "tests": ["src/cost/usage-budget-tracker.test.ts"], "contracts": [] },
+    { "source": "src/db/discord-repo.ts", "tests": ["src/discord/session-channel-status-drift.test.ts"], "contracts": [] },
+    { "source": "src/db/discord-test-surfaces-repo.ts", "tests": ["src/discord/test-forum-recorded-keys.test.ts"], "contracts": [] },
+    { "source": "src/db/nightly-vacuum.ts", "tests": ["src/db/nightly-vacuum.test.ts"], "contracts": [] },
+    { "source": "src/discord/bot.ts", "tests": ["src/discord/session-channel-status-drift.test.ts","src/discord/test-forum-recorded-keys.test.ts"], "contracts": [] },
+    { "source": "src/discord/session-channel.ts", "tests": ["src/discord/session-channel.test.ts","src/discord/session-channel-private.test.ts","src/discord/session-channel-status-drift.test.ts"], "contracts": [] },
+    { "source": "src/discord/test-forum-reconcile.ts", "tests": ["src/discord/test-forum-reconcile.test.ts","src/discord/test-forum-recorded-keys.test.ts"], "contracts": [] },
+    { "source": "src/sweeper.ts", "tests": ["src/db/nightly-vacuum.test.ts"], "contracts": [] }
   ]
 }

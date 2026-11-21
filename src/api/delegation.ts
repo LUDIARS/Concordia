@@ -62,7 +62,7 @@ import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
 import { findGarbledReportFields, GARBLED_REPORT_HINT } from "../delegation/report-encoding.js";
-import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
+import { DelegationRunSessionReadModel, legacyLinkTargetRepo } from "../delegation/run-session-read-model.js";
 import {
   MERGED_PR_SUBSTITUTABLE_REASONS,
   verifyBranchExemptCompletion,
@@ -468,13 +468,22 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const rows = parentSession
       ? deps.repo.listRunsByParentSession(parentSession, limit, status)
       : deps.repo.recentRuns(limit, status);
-    const sessions = deps.sessions?.listDelegationSessions() ?? [];
+    const runsWithArgs = rows.map((row) => ({
+      row,
+      args: safeJsonParse<Record<string, unknown>>(row.args_json, {}),
+    }));
+    // 表示する run の分の session だけを索引で引く (全 session の走査をしない、 FS-13)。
+    const sessions = deps.sessions?.listDelegationSessionsForRuns(runsWithArgs.map(({ row, args }) => ({
+      id: row.id,
+      child_session_id: row.child_session_id,
+      call_name: row.call_name,
+      created_at: row.created_at,
+      usesLegacyLink: legacyLinkTargetRepo(args) !== null,
+    }))) ?? [];
     const sessionReadModel = new DelegationRunSessionReadModel(sessions);
     return c.json({
-      runs: rows.map((row) => {
-        const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
-        return serializeRunForList(row, sessionReadModel.linkedSessions(row, args));
-      }),
+      runs: runsWithArgs.map(({ row, args }) =>
+        serializeRunForList(row, sessionReadModel.linkedSessions(row, args))),
       limit,
       status: status ?? null,
     });

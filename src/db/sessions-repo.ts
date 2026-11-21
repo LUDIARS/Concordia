@@ -6,6 +6,7 @@
 import type Database from "better-sqlite3";
 import { endDiscordSessionChannels } from "./discord-repo.js";
 import { clampListLimit, clampListOffset } from "./list-limit.js";
+import { listDelegationSessionsForRuns, type DelegationRunLinkTarget } from "./delegation-session-links-query.js";
 import type {
   ProviderName,
   SessionEventRow,
@@ -170,13 +171,9 @@ export class SessionsRepo {
     return this.db.prepare(sql).all(...args, limit, offset) as SessionRow[];
   }
 
-  listDelegationSessions(limit = 1000): SessionRow[] {
-    return this.db.prepare(
-      `SELECT * FROM sessions
-       WHERE metadata LIKE '%"delegation_call_name"%'
-          OR metadata LIKE '%"delegation_run_id"%'
-       ORDER BY started_at DESC LIMIT ?`,
-    ).all(limit) as SessionRow[];
+  /** 表示する run に結び付きうる session だけを索引で引く (全行の LIKE 走査をしない、 FS-13)。 */
+  listDelegationSessionsForRuns(runs: readonly DelegationRunLinkTarget[]): SessionRow[] {
+    return listDelegationSessionsForRuns(this.db, runs);
   }
 
   /** 1 run の明示リンクと旧形式の時刻窓候補だけを返す。 */
@@ -538,7 +535,7 @@ export class SessionsRepo {
   eventsByKind(sessionId: string, kind: string): SessionEventRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM session_events WHERE session_id = ? AND kind = ? ORDER BY ts DESC`,
+        `SELECT * FROM session_events WHERE session_id = ? AND kind = ? ORDER BY ts DESC, id DESC`,
       )
       .all(sessionId, kind) as SessionEventRow[];
   }

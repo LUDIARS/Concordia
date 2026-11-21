@@ -12,6 +12,7 @@ import {
 } from "@ludiars/blackbox";
 import type Database from "better-sqlite3";
 import { upsertSeedRules, type KeyedSeed } from "../shared/blackbox-seed-upsert.js";
+import { ensureBlackboxDecisionDomainIdIndex } from "./blackbox-decision-index.js";
 import type { PromptAnalyzerSource, PromptAnalysis } from "./local-prompt-analyzer.js";
 import { isMainPushAllowlisted, MAIN_PUSH_ALLOWLIST_ENV } from "./main-push-allowlist.js";
 import {
@@ -349,7 +350,10 @@ export class HarnessBlackboxService {
   }
 
   static sqlite(db: Database.Database): HarnessBlackboxService {
-    return new HarnessBlackboxService(makeSqliteBlackBox(db, { reviewLlmDecisions: false }));
+    const box = makeSqliteBlackBox(db, { reviewLlmDecisions: false });
+    // 表はパッケージの ensure が作るので、 索引はその直後に張る (理由は blackbox-decision-index.ts)。
+    ensureBlackboxDecisionDomainIdIndex(db);
+    return new HarnessBlackboxService(box);
   }
 
   async decideGate(input: HarnessBlackboxGateInput): Promise<{ verdict: GateVerdict; meta: HarnessBlackboxMeta }> {
@@ -411,7 +415,7 @@ export class HarnessBlackboxService {
   }
 
   snapshot(domain: HarnessBlackboxDomain = this.domains.gate, limit = 50): HarnessBlackboxSnapshot {
-    const safeLimit = Math.max(1, Math.min(200, limit));
+    const safeLimit = clampWindow(limit);
     return {
       enabled: true,
       domains: this.domains,
@@ -420,6 +424,15 @@ export class HarnessBlackboxService {
       pending: this.box.ledger.listPending(domain, safeLimit),
       rules: this.box.engine.listRules(domain),
     };
+  }
+
+  /**
+   * stats だけを返す (FS-11 P0-b)。 /context は stats しか返さないのに snapshot() を組むと、
+   * 使わない listPending (一致行が無いと domain 全行をたどる) と listRules まで走る。
+   * 値は snapshot(domain, limit).stats と同じ。
+   */
+  stats(domain: HarnessBlackboxDomain = this.domains.gate, limit = 50): DomainStats {
+    return this.box.stats(domain, clampWindow(limit));
   }
 
   recordVerdict(decisionId: number, verdict: "ok" | "ng"): ReturnType<BlackBox["engine"]["recordVerdict"]> {
@@ -443,6 +456,11 @@ export class HarnessBlackboxService {
     upsertSeedRules({ box: this.box, keyOf: seedRuleKey }, SEEDED_GATE_RULES);
   }
 
+}
+
+/** snapshot / stats の窓幅を 1〜200 に収める (両経路で同じ値になるよう 1 か所で決める)。 */
+function clampWindow(limit: number): number {
+  return Math.max(1, Math.min(200, limit));
 }
 
 export function createHarnessBlackbox(db: Database.Database): HarnessBlackboxService {

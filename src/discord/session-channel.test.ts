@@ -220,6 +220,9 @@ describe("onSessionStatusChanged ended archive", () => {
       findBySessionId: vi.fn((id: string) => (id === row.session_id ? row : null)),
       findOrphanedSessionChannels: vi.fn((): any[] => []),
       listAll: vi.fn(() => [row]),
+      // sessions 側が ended で束縛が遅れている session_id (照合の頭で 1 回だけ読む)。
+      // 束縛行が既に ended なので実 DB でも返らない。
+      listSessionStatusDrift: vi.fn((_status: string): string[] => []),
       setStatus: vi.fn((id: string, status: string) => {
         if (id === row.session_id) row.status = status;
       }),
@@ -228,10 +231,9 @@ describe("onSessionStatusChanged ended archive", () => {
       }),
       clearWebhook: vi.fn(),
     };
-    const isSessionEnded = vi.fn((id: string) => id === row.session_id);
     const log = { info: vi.fn(), warn: vi.fn() };
     const layout = { archiveCategoryId: "archive-cat", sessionsCategoryId: "sessions-cat" } as any;
-    return { row, channelObj, guild, repo, isSessionEnded, log, layout };
+    return { row, channelObj, guild, repo, log, layout };
   }
 
   it("retries archive even when the channel row is already ended", async () => {
@@ -265,30 +267,35 @@ describe("onSessionStatusChanged ended archive", () => {
       },
     };
     const openRow = { ...m.row, session_id: "sess-open", channel_id: "thread-open" };
-    const repo: any = { ...m.repo, listAll: vi.fn(() => [m.row, openRow]), findBySessionId: vi.fn(() => null) };
+    const repo: any = {
+      ...m.repo,
+      listAll: vi.fn(() => [m.row, openRow]),
+      listSessionStatusDrift: vi.fn(() => []),
+      findBySessionId: vi.fn(() => null),
+    };
 
     const result = await reconcileEndedSessionChannels({
-      guild, layout: m.layout, repo, isSessionEnded: () => true, log: m.log,
+      guild, layout: m.layout, repo, log: m.log,
     });
 
     expect(guild.channels.fetchActiveThreads).toHaveBeenCalledOnce();
     // 閉じたスレッドは取り直さず、まだ開いている終了済みスレッドだけ閉じ直す。
-    expect(result).toEqual({ scanned: 2, reconciled: 1 });
+    expect(result).toEqual({ scanned: 2, drifted: 0, reconciled: 1 });
   });
 
   it("reconciles ended sessions whose channels are still outside archive", async () => {
     const m = makeEndedArchiveMocks();
-    m.isSessionEnded.mockReturnValue(false);
+    m.repo.listSessionStatusDrift.mockReturnValue([]);
 
     const result = await reconcileEndedSessionChannels({
       guild: m.guild as any,
       layout: m.layout,
       repo: m.repo as any,
-      isSessionEnded: m.isSessionEnded,
       log: m.log,
     });
 
-    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(m.repo.listSessionStatusDrift).toHaveBeenCalledWith("ended");
+    expect(result).toEqual({ scanned: 1, drifted: 0, reconciled: 1 });
     expect(m.channelObj.parentId).toBe("archive-cat");
   });
 
@@ -296,7 +303,7 @@ describe("onSessionStatusChanged ended archive", () => {
     const m = makeEndedArchiveMocks();
     m.row.status = "active";
     m.row.display_state = "active";
-    m.isSessionEnded.mockReturnValue(false);
+    m.repo.listSessionStatusDrift.mockReturnValue([]);
     m.repo.findOrphanedSessionChannels = vi.fn(() => [m.row]);
 
     const result = await reconcileOrphanedSessionChannels({
@@ -376,6 +383,7 @@ describe("onSessionStatusChanged lost archive", () => {
     const repo = {
       findBySessionId: vi.fn((id: string) => (id === row.session_id ? row : null)),
       listAll: vi.fn(() => [row]),
+      listSessionStatusDrift: vi.fn((_status: string): string[] => []),
       setStatus: vi.fn((id: string, nextStatus: string) => {
         if (id === row.session_id) row.status = nextStatus;
       }),
@@ -409,16 +417,17 @@ describe("onSessionStatusChanged lost archive", () => {
 
   it("reconciles active channel rows whose session is already lost", async () => {
     const m = makeLostArchiveMocks("active");
+    m.repo.listSessionStatusDrift.mockReturnValue([m.row.session_id]);
 
     const result = await reconcileLostSessionChannels({
       guild: m.guild as any,
       layout: m.layout,
       repo: m.repo as any,
-      isSessionLost: (sessionId) => sessionId === m.row.session_id,
       log: m.log,
     });
 
-    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(m.repo.listSessionStatusDrift).toHaveBeenCalledWith("lost");
+    expect(result).toEqual({ scanned: 1, drifted: 1, reconciled: 1 });
     expect(m.row.status).toBe("lost");
     expect(m.channelObj.parentId).toBe("archive-cat");
   });
@@ -430,11 +439,10 @@ describe("onSessionStatusChanged lost archive", () => {
       guild: m.guild as any,
       layout: m.layout,
       repo: m.repo as any,
-      isSessionLost: () => false,
       log: m.log,
     });
 
-    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(result).toEqual({ scanned: 1, drifted: 0, reconciled: 1 });
     expect(m.channelObj.parentId).toBe("archive-cat");
   });
 

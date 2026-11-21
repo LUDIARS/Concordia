@@ -13,8 +13,10 @@ import { migrateTemplateCallNamesToRoles } from "./template-call-name-roles-migr
 import { managementAutonomyMigration } from "./management-autonomy-migration.js";
 import { confluxIntegrationMigration } from "./conflux-integration-migration.js";
 import { gen5MergeReturnMigration } from "./gen5-merge-return-migration.js";
+import { sessionEventsKindIndexMigration } from "./session-events-kind-index-migration.js";
+import { delegationSessionLinkIndexMigration } from "./delegation-session-link-index-migration.js";
 
-export const SCHEMA_VERSION = 153;
+export const SCHEMA_VERSION = 155;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3896,6 +3898,8 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   managementAutonomyMigration,
   confluxIntegrationMigration,
   gen5MergeReturnMigration,
+  sessionEventsKindIndexMigration,
+  delegationSessionLinkIndexMigration,
 ];
 
 /**

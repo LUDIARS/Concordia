@@ -193,20 +193,43 @@ async function prefetchActiveThreads(deps: SessionChannelDeps): Promise<boolean>
   }
 }
 
-export async function reconcileEndedSessionChannels(
-  deps: SessionChannelDeps & { isSessionEnded: (sessionId: string) => boolean },
-): Promise<{ scanned: number; reconciled: number }> {
+/** lost / ended 照合 1 回分の結果。 drifted = 束縛行より sessions 側が先に X になっていた件数。 */
+export interface SessionStatusReconcileResult {
+  scanned: number;
+  drifted: number;
+  reconciled: number;
+}
+
+/**
+ * 束縛行か sessions のどちらかが X の行を、 Discord 側の archive が済んでいなければ X へ寄せる。
+ * sessions の状態は照合の頭で 1 回だけ JOIN して Set にする。 以前は行ごとに sessions.metadata を
+ * parse しており、 ended の履歴に比例して本社で 1 回 1.9 秒イベントループを止めていた (FS-16)。
+ * 束縛行が既に X の行 (endDiscordSessionChannels が DB だけ閉じた行) も、 archive の修復のため
+ * 今までどおり needsArchive に通す。
+ */
+async function reconcileSessionStatusChannels(
+  deps: SessionChannelDeps,
+  status: "lost" | "ended",
+  needsArchive: (row: DiscordSessionChannelRow, activeThreadsKnown: boolean) => boolean,
+): Promise<SessionStatusReconcileResult> {
   await deps.guild.channels.fetch().catch(() => null);
   const activeThreadsKnown = await prefetchActiveThreads(deps);
   const rows = deps.repo.listAll();
+  const drifted = new Set(deps.repo.listSessionStatusDrift(status));
   let reconciled = 0;
   for (const row of rows) {
-    if (row.status !== "ended" && !deps.isSessionEnded(row.session_id)) continue;
-    if (!needsEndedArchiveReconcile(deps, row, activeThreadsKnown)) continue;
-    await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
+    if (row.status !== status && !drifted.has(row.session_id)) continue;
+    if (!needsArchive(row, activeThreadsKnown)) continue;
+    await onSessionStatusChanged(deps, { sessionId: row.session_id, status });
     reconciled += 1;
   }
-  return { scanned: rows.length, reconciled };
+  return { scanned: rows.length, drifted: drifted.size, reconciled };
+}
+
+export async function reconcileEndedSessionChannels(
+  deps: SessionChannelDeps,
+): Promise<SessionStatusReconcileResult> {
+  return reconcileSessionStatusChannels(deps, "ended", (row, known) => needsEndedArchiveReconcile(deps, row, known));
 }
 
 /** sessions 行が retention 等で消えた active channel を archive して終了扱いにする。 */
@@ -226,19 +249,9 @@ export async function reconcileOrphanedSessionChannels(
 }
 
 export async function reconcileLostSessionChannels(
-  deps: SessionChannelDeps & { isSessionLost: (sessionId: string) => boolean },
-): Promise<{ scanned: number; reconciled: number }> {
-  await deps.guild.channels.fetch().catch(() => null);
-  const activeThreadsKnown = await prefetchActiveThreads(deps);
-  const rows = deps.repo.listAll();
-  let reconciled = 0;
-  for (const row of rows) {
-    if (row.status !== "lost" && !deps.isSessionLost(row.session_id)) continue;
-    if (!needsLostArchiveReconcile(deps, row, activeThreadsKnown)) continue;
-    await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "lost" });
-    reconciled += 1;
-  }
-  return { scanned: rows.length, reconciled };
+  deps: SessionChannelDeps,
+): Promise<SessionStatusReconcileResult> {
+  return reconcileSessionStatusChannels(deps, "lost", (row, known) => needsLostArchiveReconcile(deps, row, known));
 }
 
 export async function reconcileActiveSessionForumThreads(

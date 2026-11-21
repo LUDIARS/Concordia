@@ -22,6 +22,7 @@ function setup(parentId: string) {
   const repo = {
     findBySessionId: vi.fn((id: string) => rows.get(id) ?? null),
     listAll: vi.fn(() => [...rows.values()]),
+    listSessionStatusDrift: vi.fn((_status: string): string[] => []),
     setStatus: vi.fn((id: string, status: string) => { rows.get(id)!.status = status; }),
     setDisplayState: vi.fn((id: string, state: string) => { rows.get(id)!.display_state = state; }),
     clearWebhook: vi.fn((id: string) => { rows.get(id)!.webhook_id = null; rows.get(id)!.webhook_token = null; }),
@@ -71,7 +72,7 @@ describe("private consultation channels on session end", () => {
   it("does not keep reconciling a closed private channel", async () => {
     const { deps, channel } = setup("consult-cat");
     await onSessionStatusChanged(deps, { sessionId: "sess-1", status: "ended" });
-    const result = await reconcileEndedSessionChannels({ ...deps, isSessionEnded: () => true });
+    const result = await reconcileEndedSessionChannels(deps);
     expect(result.reconciled).toBe(0);
     expect(channel.edit).not.toHaveBeenCalled();
   });

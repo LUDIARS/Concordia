@@ -57,7 +57,7 @@ export class DelegationRunSessionReadModel {
       linked.set(indexed.row.id, indexed.row);
     }
 
-    const targetRepo = firstString(args, ["target_repo", "repo_path", "cwd"]);
+    const targetRepo = legacyLinkTargetRepo(args);
     if (targetRepo) {
       const normalizedTarget = normalizePath(targetRepo);
       const candidates = this.legacyByCallName.get(row.call_name) ?? [];
@@ -74,6 +74,11 @@ export class DelegationRunSessionReadModel {
 
     return [...linked.values()].sort((a, b) => b.started_at - a.started_at);
   }
+}
+
+/** 旧形式 (call_name + repo + 時刻) の結び付けに使う対象 repo。 無ければ旧形式では結び付けない。 */
+export function legacyLinkTargetRepo(args: Record<string, unknown>): string | null {
+  return firstString(args, ["target_repo", "repo_path", "cwd"]);
 }
 
 function append(map: Map<string, IndexedSession[]>, key: string, value: IndexedSession): void {

@@ -24,7 +24,7 @@ import type { BudgetSubject } from "./usage-budget.js";
 import type { ConversationLaunch } from "./conversation-launch.js";
 
 export interface UsageBudgetGateDeps {
-  tracker: Pick<UsageBudgetTracker, "attributionFor" | "cachedStatus">;
+  tracker: Pick<UsageBudgetTracker, "attributionFor" | "cachedStatus" | "hasAnyBudget">;
   findSession(id: string): SessionRow | null;
   mergeMetadata(id: string, partial: Record<string, unknown>): void;
   readConversation(session: SessionRow): Promise<ConversationLaunch>;
@@ -53,6 +53,9 @@ export class UsageBudgetGate {
     if (isSuspended(existing)) {
       return { deny: true, reason: BUDGET_EXHAUSTED_REASON, subject: { scope: existing.scope, targetId: existing.target_id } };
     }
+    // 予算が 1 件も無ければ、 どの帰属先でも cachedStatus は null になり判定は常に deny:false。
+    // 帰属の読み出し (inject イベントの全件) を省く。 中断済みのセッションは予算を外しても止め続けるので、 上の確認より後に置く。
+    if (!this.deps.tracker.hasAnyBudget()) return { deny: false };
     const nowMs = this.now();
     const attribution = this.deps.tracker.attributionFor(session);
     const { subject } = responsibleAt(attribution, nowMs);

@@ -1645,15 +1645,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log, dryRun: () => process.env.CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN === "1",
       });
       const runSessionForumReconcile = instrumentDiscord("sessionForumReconcile", async (reason: string): Promise<void> => {
+        // 所要時間を残す。 行ごとの状態読みが1回1.9秒の停止を起こしていたのを、ログの時刻
+        // 突き合わせでしか見つけられなかった (FS-16)。
+        const startedAt = Date.now();
+        // sessions の状態は各照合の頭で 1 回だけ JOIN して読む (行ごとに metadata を読まない)。
         const lostChannels = await reconcileLostSessionChannels({
-          guild, layout: lay, repo: sessionChannelsRepo,
-          isSessionLost: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "lost",
-          log, webhooks: webhooks ?? undefined,
+          guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
         });
         const ended = await reconcileEndedSessionChannels({
-          guild, layout: lay, repo: sessionChannelsRepo,
-          isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
-          log, webhooks: webhooks ?? undefined,
+          guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
         });
         const orphaned = await reconcileOrphanedSessionChannels({
           guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
@@ -1706,7 +1706,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info(
           `session-forum ${reason} reconcile: scanned=${Math.max(lostChannels.scanned, ended.scanned)}`
           + ` active=${active.reconciled} lost=${lostChannels.reconciled} ended=${ended.reconciled}`
-          + ` orphaned=${orphaned.reconciled}/${orphaned.scanned}`,
+          + ` lostDrift=${lostChannels.drifted} endedDrift=${ended.drifted}`
+          + ` orphaned=${orphaned.reconciled}/${orphaned.scanned}`
+          + ` changed=${active.reconciled + lostChannels.reconciled + ended.reconciled + orphaned.reconciled}`
+          + ` durationMs=${Date.now() - startedAt}`,
         );
       });
       const runTestForumReconcile = instrumentDiscord("testForumReconcile", async (reason: string): Promise<void> => {
@@ -1753,17 +1756,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             (id, limit) => deps.sessionsRepo.recentEvents(id, limit),
             [sessionId],
           ).get(sessionId) ?? [];
+        const scopedTerminalPullRequests = inScope(terminalPullRequests.map((pullRequest) => ({
+          pullRequestId: pullRequest.pullRequestId,
+          reviewReportVersion: pullRequest.reviewReportVersion,
+          repoOrigin: pullRequest.repository,
+          prNumber: pullRequest.number,
+          status: pullRequest.status,
+          mergeCommitSha: pullRequest.mergeCommitSha,
+        })));
         const result = await reconcileTestForum({
           candidates: buildTestForumCandidates(openPullRequests),
           resolveMentions,
-          terminalPullRequests: inScope(terminalPullRequests.map((pullRequest) => ({
-            pullRequestId: pullRequest.pullRequestId,
-            reviewReportVersion: pullRequest.reviewReportVersion,
-            repoOrigin: pullRequest.repository,
-            prNumber: pullRequest.number,
-            status: pullRequest.status,
-            mergeCommitSha: pullRequest.mergeCommitSha,
-          }))),
+          terminalPullRequests: scopedTerminalPullRequests,
           surfaces: testSurfacesRepo,
           // 子会社は関連プロジェクトから外した PR の投稿を閉じる (本社は全件が範囲なので渡さない)。
           ...(projectScope ? { isInScope: (repoOrigin: string) => filterByProjectScope([{ repoOrigin }], projectScope).length > 0 } : {}),
@@ -1775,7 +1779,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info(
           `test-forum ${reason} reconcile: scanned=${result.scanned} kept=${result.kept}`
           + ` updated=${result.updated} created=${result.created} closed=${result.closed}`
-          + ` failed=${result.failed} durationMs=${Date.now() - startedAt}`
+          + ` failed=${result.failed} open=${openPullRequests.length} terminal=${scopedTerminalPullRequests.length}`
+          + ` changed=${result.updated + result.created + result.closed} durationMs=${Date.now() - startedAt}`
           // project names are operator-controlled configuration. Keep them out of logs to avoid
           // leaking subsidiary relationships or allowing control characters to forge log lines.
           + (projectScope ? ` projectScopeCount=${projectScope.length}` : ""),

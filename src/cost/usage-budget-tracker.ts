@@ -9,7 +9,10 @@
  * - checkLaunch: 起動の入口で、 消費する予算に残りがあるかを返す (予算が無ければ常に許可)。
  * - sweepNotices: 予算ごとに 80% / 100% に達したら、 その月に 1 回だけ本人へ知らせる。 配送に失敗したら記録を戻して次回やり直す。
  * - cachedMonthlyConsumption / cachedMonthlySnapshot: ツール実行ごとの判定 (ハーネスの gate) と管理画面の一覧用。
- *   集計は重いので数分キャッシュする。
+ *   集計は重いので数分キャッシュする。 期限が切れても当月の値があればそれをすぐ返し、 裏で 1 本だけ数え直す
+ *   (stale-while-revalidate)。 期限は集計が終わった時刻から数える (始めた時刻から数えると、 集計が期限より長いときに
+ *   数え直しが途切れずに続く)。
+ * - hasAnyBudget: 予算が 1 件でもあるか。 0 件なら gate は帰属の読み出し (inject イベント) を省ける。
  * - 集計は同時に 1 本だけ走らせ、 走っている間に来た呼び出しは同じ結果を待つ (重ねて走らせるとイベントループを塞ぐ)。
  *   終わって落ち着いたセッションの按分は覚えて、 ログの読み直しを省く (ended-session-charge-memo.ts)。
  * - monthlySnapshot: 帰属先ごとの合計に加え、 消費した人ごとの今月の消費 (倍率込み、 うちチーム予算ぶん) を返す
@@ -25,6 +28,7 @@ import {
   localMonthKey,
   localMonthRange,
   subjectForLaunch,
+  subjectForSession,
   type BudgetEvaluation,
   type BudgetSubject,
 } from "./usage-budget.js";
@@ -82,6 +86,12 @@ export interface MonthlyUsageSnapshot {
   persons: Map<string, PersonUsage>;
 }
 
+/** キャッシュした集計。 computedAt は集計が終わった時刻 (期限の起点)。 */
+interface SnapshotCache {
+  computedAt: number;
+  snapshot: MonthlyUsageSnapshot;
+}
+
 interface SessionCharge {
   subject: BudgetSubject;
   personUserId: string | null;
@@ -90,10 +100,12 @@ interface SessionCharge {
 
 export class UsageBudgetTracker {
   private readonly now: () => number;
-  private cache: { computedAt: number; snapshot: MonthlyUsageSnapshot } | null = null;
+  private cache: SnapshotCache | null = null;
   /** 走っている集計。 generation は始めた時点の invalidate の回数 (古い前提の結果を使い回さないため)。 */
   private inFlight: { month: string; generation: number; promise: Promise<MonthlyUsageSnapshot> } | null = null;
   private generation = 0;
+  /** 予算が 1 件でもあるか (null = まだ見ていない)。 invalidate() で捨てる。 */
+  private anyBudget: boolean | null = null;
   private readonly endedCharges = new EndedSessionChargeMemo();
 
   constructor(private readonly deps: UsageBudgetTrackerDeps) {
@@ -119,9 +131,11 @@ export class UsageBudgetTracker {
     const running = this.inFlight;
     if (running && running.month === month && running.generation === this.generation) return running.promise;
     const generation = this.generation;
+    const startedAt = this.now();
     const promise = this.computeSnapshot(nowMs).then((snapshot) => {
       // 走っている間に invalidate されたら、 古い前提の結果なのでキャッシュには入れない。
-      if (generation === this.generation) this.cache = { computedAt: nowMs, snapshot };
+      // 期限は終わった時刻から数える。 nowMs は呼び出し側が渡す基準時刻なので、 そこへ注入した時計で測った所要時間を足す。
+      if (generation === this.generation) this.cache = { computedAt: nowMs + (this.now() - startedAt), snapshot };
       return snapshot;
     });
     const entry = { month, generation, promise };
@@ -134,12 +148,27 @@ export class UsageBudgetTracker {
     return promise;
   }
 
-  /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (管理画面の一覧用)。 */
+  /**
+   * 当月のキャッシュがあればすぐ返す (管理画面の一覧と gate 用)。 期限が切れていれば裏で 1 本だけ数え直し、
+   * 呼び出し側は数分かかる集計を待たない。 当月のキャッシュが無いとき (起動直後・月替わり・invalidate の後) だけ待つ。
+   */
   async cachedMonthlySnapshot(nowMs = this.now()): Promise<MonthlyUsageSnapshot> {
-    const ttl = this.deps.cacheTtlMs ?? DEFAULT_CONSUMPTION_CACHE_MS;
     const cache = this.cache;
-    if (cache && cache.snapshot.month === localMonthKey(nowMs) && nowMs - cache.computedAt < ttl) return cache.snapshot;
-    return this.monthlySnapshot(nowMs);
+    if (!cache || cache.snapshot.month !== localMonthKey(nowMs)) return this.monthlySnapshot(nowMs);
+    const ttl = this.deps.cacheTtlMs ?? DEFAULT_CONSUMPTION_CACHE_MS;
+    if (nowMs - cache.computedAt >= ttl) this.revalidate(nowMs, cache);
+    return cache.snapshot;
+  }
+
+  /**
+   * 期限切れのキャッシュを裏で数え直す。 monthlySnapshot が走っている集計を共有するので、 何度呼んでも 1 本しか走らない。
+   * 失敗したら古いキャッシュを捨てる。 次の呼び出しは数え直しを待ち、 失敗はその呼び出し側へ伝わる
+   * (古い値を黙って返し続けない)。
+   */
+  private revalidate(nowMs: number, stale: SnapshotCache): void {
+    this.monthlySnapshot(nowMs).catch(() => {
+      if (this.cache === stale) this.cache = null;
+    });
   }
 
   /** キャッシュ期間内ならキャッシュを返し、 切れていれば数え直す (ツール実行ごとの判定用)。 */
@@ -147,10 +176,20 @@ export class UsageBudgetTracker {
     return (await this.cachedMonthlySnapshot(nowMs)).subjects;
   }
 
-  /** 次の判定で数え直させる (予算や倍率を変えたとき)。 */
+  /** 次の判定で数え直させる (予算や倍率を変えたとき)。 予算の有無も読み直させる。 */
   invalidate(): void {
     this.cache = null;
+    this.anyBudget = null;
     this.generation += 1;
+  }
+
+  /**
+   * 予算が 1 件でもあるか。 gate はツール実行ごとに呼ぶので覚えておく。
+   * usage_budgets を書くのは管理 API (src/api/usage-budgets.ts) だけで、 書いたら invalidate() を呼ぶので古くならない。
+   */
+  hasAnyBudget(): boolean {
+    if (this.anyBudget === null) this.anyBudget = this.deps.budgets.list().length > 0;
+    return this.anyBudget;
   }
 
   private async computeSnapshot(nowMs: number): Promise<MonthlyUsageSnapshot> {
@@ -173,10 +212,14 @@ export class UsageBudgetTracker {
     return { month: localMonthKey(nowMs), subjects, persons };
   }
 
-  /** セッションの消費の按分 (倍率を掛ける前)。 終わって落ち着いたセッションは覚えた按分を返す。 */
-  private async attributedCharges(session: SessionRow, attribution: SessionAttribution, nowMs: number): Promise<readonly UsageCharge[]> {
+  /**
+   * セッションの消費の按分 (倍率を掛ける前)。 終わって落ち着いたセッションは覚えた按分を返す。
+   * 帰属の前提 (inject イベント) は覚えた按分が無いときだけ読む (覚えた按分は前提を使わないので、 読んでも捨てるだけ)。
+   */
+  private async attributedCharges(session: SessionRow, nowMs: number): Promise<readonly UsageCharge[]> {
     const remembered = this.endedCharges.get(session, nowMs);
     if (remembered) return remembered;
+    const attribution = this.attributionFor(session);
     const timeline = this.deps.readTimeline ? await this.deps.readTimeline(session).catch(() => null) : null;
     if (timeline) {
       const charges = attributeUsage(attribution, timeline);
@@ -191,10 +234,10 @@ export class UsageBudgetTracker {
   }
 
   private async sessionCharges(session: SessionRow, nowMs: number): Promise<SessionCharge[]> {
-    const attribution = this.attributionFor(session);
     // 起動時の帰属先が無い = 起動者も分からないので、 助けに入った人も区別できない。 何も消費しない (読み出しを省く)。
-    if (!attribution.defaultSubject) return [];
-    const charges = await this.attributedCharges(session, attribution, nowMs);
+    // sessionAttribution の defaultSubject は subjectForSession そのものなので、 inject イベントを読む前にここで見る。
+    if (!subjectForSession(session)) return [];
+    const charges = await this.attributedCharges(session, nowMs);
     const departmentMultiplier = this.deps.departmentMultiplier?.(session.department_id ?? null) ?? DEFAULT_COST_MULTIPLIER;
     const out: SessionCharge[] = [];
     for (const charge of charges) {

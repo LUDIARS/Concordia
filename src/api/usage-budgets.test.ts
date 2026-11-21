@@ -20,6 +20,18 @@ function setup() {
 }
 
 describe("usage budgets API", () => {
+  it("lists no budgets without counting this month's sessions when none is set", async () => {
+    // 予算が 0 件なら一覧は空 (集計しても結果は同じ) なので、 全セッションの集計を走らせない。
+    const budgets = new UsageBudgetsRepo(makeTestDb());
+    const sessionsInRange = vi.fn((): SessionRow[] => []);
+    const readUsage = vi.fn(async () => ({ total: 1_000 }));
+    const tracker = new UsageBudgetTracker({ budgets, sessionsInRange, readUsage, now: () => Date.now() });
+    const app = usageBudgetsRouter({ budgets, tracker });
+    expect(await (await app.request("/")).json()).toEqual({ budgets: [] });
+    expect(sessionsInRange).not.toHaveBeenCalled();
+    expect(readUsage).not.toHaveBeenCalled();
+  });
+
   it("sets a budget, lists it with this month's consumption and removes it", async () => {
     const { app } = setup();
     const put = await app.request("/user/123456789", {

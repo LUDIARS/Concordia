@@ -21,6 +21,7 @@
  *   CONCORDIA_TIMEOUT_MS   — default 1500
  */
 
+import { DESKTOP_APP_METADATA_KEY, DESKTOP_PLAN_EVENT_KIND, desktopPlanCall } from "./concordia-hook-desktop-plan.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname, homedir } from "node:os";
@@ -86,7 +87,14 @@ class HookInvocation {
     if (!this.optIn) {
       if (this.event === "session-start") return;
       if (!sessionId) return;
-      if (!sessionActive) return; // どの候補も active な Concordia session ではない
+      if (!sessionActive) {
+        // どの候補も active な Concordia session ではない。 デスクトップの Claude アプリのプラン更新だけは、
+        // 観測専用のセッションとして登録してから届ける (Lictor を通せないので。 desktop-plan-discord.md)。
+        const ownId = this.ctx?.session_id;
+        if (this.event !== "tool-result" || !desktopPlanCall(this.ctx) || !ownId) return;
+        if (!(await this.registerObservedSession({ sessionId: ownId, cwd, transcriptPath }))) return;
+        sessionId = ownId;
+      }
     }
 
     return this.dispatch(sessionId, cwd, transcriptPath);
@@ -141,6 +149,11 @@ class HookInvocation {
             hookEventName: this.event === "tool-failure" ? "PostToolUseFailure" : "PostToolUse", additionalContext: result.context,
           } }) + "\n");
         }
+        if (this.event === "tool-result" && sessionId) {
+          // stdout は上の JSON 専用なので、 appendEvent (pending-tasks を stdout へ出す) は使わない。
+          const planCall = desktopPlanCall(this.ctx);
+          if (planCall) await this.postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, { kind: DESKTOP_PLAN_EVENT_KIND, payload: planCall });
+        }
         return;
       case "session-end":
         await this.sessionEnd({ sessionId });
@@ -158,21 +171,8 @@ class HookInvocation {
     // Lictor registration is authoritative; observing a native hook must not
     // replace an explicit worktree binding with the client's original cwd.
     if (await this.isSessionActive(sessionId)) return;
-    const repoOrigin = this.tryGitRemote(cwd);
-    const branch = this.tryGitBranch(cwd);
-    const isWorktree = resolveIsWorktree(cwd, (command, gitCwd) => execFileSync("git", command.split(" ").slice(1), {
-      cwd: gitCwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: this.gitTimeoutMs, windowsHide: true,
-    }));
-    const body = {
-      id: sessionId,
-      provider: this.provider,
-      repo_path: cwd,
-      repo_origin: repoOrigin,
-      branch,
-      host: hostname(),
-      transcript_path: transcriptPath,
-      metadata: { cc_hook_observation: true, ...(isWorktree === undefined ? {} : { is_worktree: isWorktree }) },
-    };
+    const body = this.registrationBody({ sessionId, cwd, transcriptPath });
+    const branch = body.branch;
     const res = await this.postJson("/v1/sessions", body);
     if (res?.session) await this.checkStartupPolicy(sessionId, cwd);
     // hook stdout は Claude Code が `additionalContext` として AI に流す.
@@ -223,6 +223,30 @@ class HookInvocation {
       }
       this.output(lines.join("\n") + "\n");
     }
+  }
+
+  registrationBody({ sessionId, cwd, transcriptPath, metadata = {} }) {
+    const isWorktree = resolveIsWorktree(cwd, (command, gitCwd) => execFileSync("git", command.split(" ").slice(1), {
+      cwd: gitCwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: this.gitTimeoutMs, windowsHide: true,
+    }));
+    return {
+      id: sessionId,
+      provider: this.provider,
+      repo_path: cwd,
+      repo_origin: this.tryGitRemote(cwd),
+      branch: this.tryGitBranch(cwd),
+      host: hostname(),
+      transcript_path: transcriptPath,
+      metadata: { cc_hook_observation: true, ...(isWorktree === undefined ? {} : { is_worktree: isWorktree }), ...metadata },
+    };
+  }
+
+  /** 観測専用のセッションとして登録する (案内は出さない)。 登録できたら true。 */
+  async registerObservedSession({ sessionId, cwd, transcriptPath }) {
+    const res = await this.postJson("/v1/sessions", this.registrationBody({
+      sessionId, cwd, transcriptPath, metadata: { [DESKTOP_APP_METADATA_KEY]: true },
+    }));
+    return Boolean(res?.session);
   }
 
   async checkStartupPolicy(sessionId, cwd) {

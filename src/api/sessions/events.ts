@@ -9,6 +9,8 @@ import {
   readExplicitWorkingBranch,
 } from "../../control/session-work-policy.js";
 import { applyPromptTitle } from "./prompt-title-summarizer.js";
+import { applyDesktopPlanEvent } from "./desktop-plan-event.js";
+import { DESKTOP_PLAN_EVENT_KIND } from "../../desktop-plan/plan-state.js";
 
 export function registerEventsRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.get("/:id/tasks", (c) => {
@@ -102,6 +104,19 @@ app.post("/:id/event", async (c) => {
           nowSec: ts,
         });
       }
+    }
+    // デスクトップの Claude アプリのプラン更新 (hook が届ける)。 状態を保存し、 変わったらスレッドへ投稿する
+    // (SPEC-DESKTOP-PLAN-DISCORD)。
+    if (parsed.data.kind === DESKTOP_PLAN_EVENT_KIND) {
+      applyDesktopPlanEvent({
+        repo: deps.repo,
+        sessionTaskRecords: deps.sessionTaskRecords,
+        chat: deps.chat,
+        announce: (message) => eventBus.emit({
+          type: "chat.posted", message_id: message.id, channel: message.channel, session_id: message.session_id,
+          author_label: message.author_label, ts: message.ts, is_actionable: false,
+        }),
+      }, session, parsed.data.payload ?? {}, ts);
     }
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
     return c.json({ ok: true });

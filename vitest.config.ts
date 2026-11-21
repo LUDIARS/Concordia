@@ -20,6 +20,7 @@ export default defineConfig({
       "tools/concordia-hook-migration.test.mjs",
       "tools/consultation-harness.test.mjs",
       "tools/concordia-hook-runtime.test.mjs",
+      "tools/agy-hook.test.mjs",
       "tools/concordia-hook-mcp.test.mjs",
     ],
     setupFiles: ["./tests/helpers/setup.ts"],

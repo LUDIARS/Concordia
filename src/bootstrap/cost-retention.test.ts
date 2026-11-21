@@ -7,6 +7,7 @@ import { createCostRuntime } from "./cost.js";
 // 集計は依存として渡す。
 const collectReport = vi.fn(async () => ({
   codexTotals: { input: 0, cached: 0, output: 0, total: 0 },
+  geminiTotals: { input: 0, cached: 0, output: 0, total: 0 },
   claudeTotals: { input: 0, cached: 0, output: 0, total: 0 },
   codexRate: { used5h: null, usedWeekly: 10, reset5hAt: null, resetWeeklyAt: null, plan: "pro" },
   claudeUsage: null,

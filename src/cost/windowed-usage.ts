@@ -16,6 +16,8 @@
  */
 
 import type { SessionRow } from "../shared/types.js";
+import { readAgySessionGenerations } from "./agy-session-usage.js";
+import { accumulateAgyUsageWindows } from "./agy-usage-policy.js";
 import {
   nn,
   readLines,
@@ -57,6 +59,7 @@ function emptyResult(windows: UsageWindow[]): Record<string, number> {
 /** セッション 1 本のログを読み、 各ウィンドウ内の消費トークンを返す。 */
 export async function readSessionWindowedTotals(s: SessionRow, windows: UsageWindow[]): Promise<Record<string, number>> {
   if (windows.length === 0) return emptyResult(windows);
+  if (s.provider === "antigravity-cli") return accumulateAgyUsageWindows(await readAgySessionGenerations(s), windows);
   const accumulate =
     s.provider === "claude-code" ? accumulateClaudeUsageWindows
     : s.provider === "codex-cli" ? accumulateCodexUsageWindows

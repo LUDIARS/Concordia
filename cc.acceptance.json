@@ -4250,6 +4250,45 @@
       "contracts": []
     },
     {
+      "source": "src/cost/agy-usage-metadata.ts",
+      "tests": ["src/cost/agy-session-usage.test.ts"],
+      "contracts": ["agy-cost-C-1"]
+    },
+    {
+      "source": "src/cost/agy-usage-policy.ts",
+      "tests": ["src/cost/agy-session-usage.test.ts"],
+      "contracts": ["agy-cost-C-2", "agy-cost-C-3"]
+    },
+    {
+      "source": "src/cost/agy-usage-sqlite-worker.ts",
+      "tests": ["src/cost/agy-session-usage.test.ts"],
+      "contracts": ["agy-cost-C-1", "agy-cost-C-2"]
+    },
+    {
+      "source": "src/api/sessions/agy-usage-binding.ts",
+      "tests": ["src/api/sessions/agy-usage-binding.test.ts"],
+      "contracts": ["agy-cost-C-2"]
+    },
+    {"source":"src/cost/agy-recent-usage.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/agy-session-cost.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/agy-session-usage.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/agy-usage-binding.ts","tests":["src/cost/agy-session-usage.test.ts","src/api/sessions/agy-usage-binding.test.ts"],"contracts":[]},
+    {"source":"src/cost/agy-usage-database.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/agy-usage-wire.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/channel-cost-cache.ts","tests":["src/cost/channel-cost-cache.test.ts","src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/context-observation-reader.ts","tests":["src/cost/context-observation-reader.test.ts","src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/cost-budget-repo.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/cost-report.ts","tests":["src/cost/cost-report.test.ts"],"contracts":[]},
+    {"source":"src/cost/provider-weekly-tokens.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/session-cost.ts","tests":["src/cost/session-cost.test.ts","src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/session-usage-cache.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/site-usage-lines.ts","tests":["src/cost/cost-report.test.ts"],"contracts":[]},
+    {"source":"src/cost/usage-tracker.ts","tests":["src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/windowed-usage-cache.ts","tests":["src/cost/windowed-usage-cache.test.ts","src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cost/windowed-usage.ts","tests":["src/cost/windowed-usage.test.ts","src/cost/agy-session-usage.test.ts"],"contracts":[]},
+    {"source":"src/cloud-work/drive-artifacts.ts","tests":["src/cloud-work/drive-artifacts.test.ts"],"contracts":[]},
+    {"source":"src/cloud-work/google-oauth.ts","tests":["src/cloud-work/google-oauth.test.ts"],"contracts":[]},
+    {
       "source": "src/cost/log-totals-cache.ts",
       "tests": [
         "src/cost/log-totals-cache.test.ts"

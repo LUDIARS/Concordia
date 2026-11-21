@@ -7,9 +7,23 @@
  */
 
 import type Database from "better-sqlite3";
+import type { AgyBudgetObservation } from "./agy-recent-usage.js";
 
 export class CostBudgetRepo {
   constructor(private readonly db: Database.Database) {}
+
+  /** Commit the agy row position and its charges together, even on concurrent ticks. */
+  recordAgyUsage(observation: AgyBudgetObservation, dateIso: string, now: number): void {
+    const key = "agy:" + observation.path;
+    this.db.transaction(() => {
+      const last = this.getLogLastTotal(key);
+      if (last !== null && last < observation.lastIndex) {
+        const delta = observation.rows.reduce((sum, row) => row.index > last ? sum + row.total : sum, 0);
+        this.addDayTokens(dateIso, delta, now);
+      }
+      this.setLogLastTotal(key, Math.max(last ?? 0, observation.lastIndex), now);
+    }).immediate();
+  }
 
   /** 指定日 (local "YYYY-MM-DD") の累積消費トークン。 無ければ 0。 */
   getDayTokens(dateIso: string): number {

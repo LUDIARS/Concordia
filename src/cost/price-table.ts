@@ -67,3 +67,14 @@ export function priceForModel(model: string | null | undefined): ModelPrice | nu
   }
   return null;
 }
+
+/** Google Gemini Developer API Standard prices, USD per million tokens. */
+export function geminiStandardPrice(model: string | null, atMs: number | null): (ModelPrice & { cachedInputPerMtok: number }) | null {
+  // https://ai.google.dev/gemini-api/docs/pricing/#gemini-4-neon
+  if (model === "gemini-4-neon") return { inputPerMtok: 3, cachedInputPerMtok: 0.15, outputPerMtok: 15 };
+  // https://ai.google.dev/gemini-api/docs/pricing/#gemini-4-argon
+  if (model !== "gemini-4-argon" || atMs === null) return null;
+  return atMs < Date.UTC(2026, 11, 1)
+    ? { inputPerMtok: 2, cachedInputPerMtok: 0.10, outputPerMtok: 10 }
+    : { inputPerMtok: 4, cachedInputPerMtok: 0.20, outputPerMtok: 20 };
+}

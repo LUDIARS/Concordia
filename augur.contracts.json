@@ -3,6 +3,9 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "agy-cost-C-1", "criterion": "C-1 decodeAgyGeneration(data): 入力とキャッシュ読み取りと出力を一度ずつ集計し、出力に含まれる思考トークンを足し直さない", "symbol": "decodeAgyGeneration", "file": "src/cost/agy-usage-metadata.ts", "module": "src/cost/agy-usage-metadata.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "agy-cost-C-2", "criterion": "C-2 agySessionGenerations(generations,start,end): 確認できたセッション時間帯の生成だけを予算・集計に帰属させる", "symbol": "agySessionGenerations", "file": "src/cost/agy-usage-policy.ts", "module": "src/cost/agy-usage-policy.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "agy-cost-C-3", "criterion": "C-3 accumulateAgyUsageWindows(generations,windows): 時刻のある生成を半開区間ごとに一度ずつ集計する", "symbol": "accumulateAgyUsageWindows", "file": "src/cost/agy-usage-policy.ts", "module": "src/cost/agy-window.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "seed-model-roles-C-1", "criterion": "C-1 seedDelegationTemplates(repo, identifiers): 仕分けの seed 適用後は保存されたモデルが sonnet になる", "symbol": "seedDelegationTemplates", "file": "src/delegation/seed.ts", "module": "src/delegation/seed-triage-model.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "seed-model-roles-C-2", "criterion": "C-2 plannedSeedTemplates(identifiers): 日次レビューと review-duo の指示文が Opus の役割名と Sol 委託を使う", "symbol": "plannedSeedTemplates", "file": "src/delegation/seed.ts", "module": "src/delegation/seed-review-model.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "stall-discord-C-1", "criterion": "C-1 isDiscordSilentEvent(type): session.stall_nudged は Discord に投稿せず、他のイベントは従来どおり投稿対象に残す", "symbol": "isDiscordSilentEvent", "file": "src/discord/session-event-discord-policy.ts", "module": "src/discord/session-event-discord-policy.contract.ts", "mode": "observe", "sample": 1 },

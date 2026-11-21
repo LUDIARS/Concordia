@@ -21,6 +21,7 @@ function baseReport(): CostReport {
   return {
     codexTotals: { input: 100, cached: 20, output: 30, total: 150 },
     claudeTotals: { input: 200, cached: 40, output: 60, total: 300 },
+    geminiTotals: { input: 300, cached: 50, output: 40, total: 390 },
     codexRate: { used5h: 40, usedWeekly: 10, reset5hAt: 1000, resetWeeklyAt: 2000, plan: "pro" },
     claudeUsage: {
       plan: "max",
@@ -45,6 +46,7 @@ describe("renderCostReportMarkdown", () => {
     expect(md).toContain("Tokens: 150 (in=100, cached=20, out=30)");
     expect(md).toContain("### Claude Code");
     expect(md).toContain("Tokens: 300 (in=200, cached=40, out=60)");
+    expect(md).toContain("### Gemini\n- Tokens: 390 (in=300, cached=50, out=40)");
     // remain = 100 - used。 Codex は週間枠のみ (5H 枠は仕様上なくなった、2026-09-03)。 used=10 → 残 90.0%
     expect(md).toContain("週間リミット残: 90.0%");
     expect(md).not.toContain("5H リミット残: 60.0%");

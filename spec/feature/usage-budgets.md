@@ -94,6 +94,7 @@
     ツールを呼ぶ途中の応答は `tool_use`。1 つの message は content ごとに同じ `message.id` の複数行に分かれ、どの行に
     `stop_reason` があっても印にする。`stop_reason` が無い (null) 行は印にしない。
   - Codex: rollout の `event_msg` で `payload.type` が `task_complete` の行 (消費 0 の印。直前の `token_count` までが区間)。
+  - Gemini: [Cost observability の C-1〜C-3](cost-observability.md#geminiantigravity-cli) に従い、Lictor が対応付けた会話の時刻付き生成を使う。次の確定したユーザー入力に移る直前の生成を区間の終わりとし、最後の区間は開いたまま扱う。単価の有無にかかわらずトークンに同じ配分と倍率を適用する。
   - 印が 1 つも無いログ (古い transcript 等) はセッション全体が 1 つの区間になる。
 - **区間の指示** = その区間の時刻に入る人の指示 (inject の時刻 ≦ 区間の最終回答。最初の区間は最初の最終回答までのすべて)。
 - **配分**: 区間の消費を、その区間に各人が出した指示の回数で按分する。A が 2 回・B が 1 回なら A に 2/3、B に 1/3。

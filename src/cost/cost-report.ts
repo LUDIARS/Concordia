@@ -30,6 +30,7 @@ import type { CostRate } from "./cost-rate.js";
 export interface CostReport {
   codexTotals: Totals;
   claudeTotals: Totals;
+  geminiTotals: Totals;
   codexRate: CostRate;
   claudeUsage: OAuthUsage | null;
   /** 本社: 拠点から届いた週間使用量 (SPEC-FED-SITE-USAGE)。 拠点ロールや拠点なしでは空。 */
@@ -74,6 +75,7 @@ export async function collectCostReport(
   startedAt = Date.now();
   const codex = active.filter((s) => s.provider === "codex-cli");
   const claude = active.filter((s) => s.provider === "claude-code");
+  const gemini = active.filter((s) => s.provider === "antigravity-cli");
   logStep("split-sessions", startedAt, ` codex=${codex.length} claude=${claude.length}`);
   await yieldToEventLoop();
   startedAt = Date.now();
@@ -84,6 +86,9 @@ export async function collectCostReport(
   startedAt = Date.now();
   const claudeTotals = await aggregate(claude, allowFullScan);
   logStep("aggregate-claude", startedAt, ` sessions=${claude.length}`);
+  await yieldToEventLoop();
+  // Gemini snapshots are bounded even in worker mode, where JSONL full scans are disabled.
+  const geminiTotals = await aggregate(gemini, true);
   await yieldToEventLoop();
   startedAt = Date.now();
   // rate 枠は `codex app-server` の account/rateLimits/read でセッション非依存に取る
@@ -101,7 +106,7 @@ export async function collectCostReport(
   logStep("fetch-claude-oauth-usage", startedAt, ` available=${claudeUsage ? 1 : 0}`);
   const siteUsage = opts?.listSiteUsage?.() ?? [];
   opts?.perfLog?.info?.(`cost-report total duration_ms=${Date.now() - totalStartedAt}`);
-  return { codexTotals, claudeTotals, codexRate, claudeUsage, siteUsage };
+  return { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage, siteUsage };
 }
 
 /**
@@ -113,7 +118,7 @@ export function renderCostReportMarkdown(
   fmt: CostTimestampFormat,
   nowSec: number,
 ): string {
-  const { codexTotals, claudeTotals, codexRate, claudeUsage } = report;
+  const { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage } = report;
   const lines: string[] = [];
   lines.push("## コスト / 使用量");
   lines.push(`- Updated: ${fmt.updated(nowSec)}`);
@@ -151,6 +156,9 @@ export function renderCostReportMarkdown(
     lines.push("- 5H リセット: -");
     lines.push("- 週間リセット: -");
   }
+  lines.push("");
+  lines.push("### Gemini");
+  lines.push(`- Tokens: ${fmtNum(geminiTotals.total)} (in=${fmtNum(geminiTotals.input)}, cached=${fmtNum(geminiTotals.cached)}, out=${fmtNum(geminiTotals.output)})`);
   const siteLines = renderSiteUsageLines(report.siteUsage ?? [], fmt, nowSec);
   if (siteLines.length > 0) {
     lines.push("");

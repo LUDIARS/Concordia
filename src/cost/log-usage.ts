@@ -16,6 +16,8 @@ import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { SessionRow } from "../shared/types.js";
+import { readAgySessionGenerations } from "./agy-session-usage.js";
+import { totalAgyUsage } from "./agy-usage-policy.js";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -146,6 +148,7 @@ export async function readSessionUsage(
   s: SessionRow,
   frames?: UsageFrameSource,
 ): Promise<Totals | null> {
+  if (s.provider === "antigravity-cli") return totalAgyUsage(await readAgySessionGenerations(s));
   if (s.provider === "codex-cli") {
     const p = await resolveSessionTranscript(s);
     return p ? readCodexUsage(p) : null;

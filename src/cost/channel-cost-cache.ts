@@ -28,9 +28,11 @@ import {
   nn,
   readCodexUsage,
   readLines,
+  readSessionUsage,
   resolveSessionTranscript,
 } from "./log-usage.js";
 import { contextObservationFromLines } from "./context-observation.js";
+import { readSessionContextObservation } from "./context-observation-reader.js";
 
 const NEGATIVE_TTL_MS = 60_000;
 const MAX_ENTRIES = 1024;
@@ -250,6 +252,7 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
 
   return {
     context: async (s) => {
+      if (s.provider === "antigravity-cli") return (await readSessionContextObservation(s))?.tokens ?? null;
       if (s.provider !== "claude-code" && s.provider !== "codex-cli") return null;
       return memoized(contextMemo, s, async (path) => {
         // Missing usage in the bounded tail stays unknown; never retry the entire log.
@@ -258,6 +261,7 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
       });
     },
     cost: async (s) => {
+      if (s.provider === "antigravity-cli") return (await readSessionUsage(s))?.total ?? 0;
       if (s.provider === "codex-cli") {
         // codex の累積は token_count スナップショット (単調増加) の最新値 = tail で決まる。
         const v = await memoized(codexCostMemo, s, async (path) => {

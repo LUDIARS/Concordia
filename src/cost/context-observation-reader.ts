@@ -2,6 +2,7 @@ import { open } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import { resolveSessionTranscript } from "./log-usage.js";
 import { contextObservationFromLines, type ContextObservation } from "./context-observation.js";
+import { readAgySessionGenerations } from "./agy-session-usage.js";
 
 const TAIL_BYTES = 1024 * 1024;
 const CACHE_ENTRIES = 128;
@@ -45,6 +46,10 @@ export async function readSessionContextObservation(
   session: SessionRow,
   resolveTranscript: (session: SessionRow) => Promise<string | null> = resolveSessionTranscript,
 ): Promise<ContextObservation | null> {
+  if (session.provider === "antigravity-cli") {
+    const latest = (await readAgySessionGenerations(session)).at(-1);
+    return latest ? { tokens: latest.input + latest.cached, windowTokens: null } : null;
+  }
   const path = await resolveTranscript(session);
   if (!path) return null;
   const key = `${session.provider}:${path}`;

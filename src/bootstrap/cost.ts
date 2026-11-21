@@ -4,6 +4,7 @@ import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { CostBudgetRepo } from "../cost/cost-budget-repo.js";
 import { CostUsageTracker } from "../cost/usage-tracker.js";
 import { cachedRecentLogTotals } from "../cost/log-totals-cache.js";
+import { readRecentAgyBudgetUsage } from "../cost/agy-recent-usage.js";
 import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { collectUsageSamples } from "../cost/usage-sampler.js";
 import { collectCostReport } from "../cost/cost-report.js";
@@ -161,6 +162,7 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
     repo: budgetRepo,
     getBudget: deps.getDailyTokenBudget,
     enumerate: cachedRecentLogTotals,
+    enumerateAgy: readRecentAgyBudgetUsage,
   });
   const usageSamplesRepo = new CostUsageSamplesRepo(deps.db);
   const limitSamplesRepo = new CostLimitSamplesRepo(deps.db);

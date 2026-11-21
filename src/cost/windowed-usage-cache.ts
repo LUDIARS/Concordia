@@ -30,6 +30,7 @@ import {
 import {
   accumulateClaudeUsageWindows,
   accumulateCodexUsageWindows,
+  readSessionWindowedTotals,
   type SessionWindowReader,
   type UsageWindow,
 } from "./windowed-usage.js";
@@ -113,6 +114,7 @@ export function makeCachedSessionWindowReader(deps?: {
 
   return async (s: SessionRow, windows: UsageWindow[]): Promise<Record<string, number>> => {
     if (windows.length === 0) return emptyResult(windows);
+    if (s.provider === "antigravity-cli") return readSessionWindowedTotals(s, windows);
     if (s.provider !== "claude-code" && s.provider !== "codex-cli") return emptyResult(windows);
 
     // 1. ログパス解決 (cache 付き)。 解決済みでもファイルが消えていたら解決し直す。

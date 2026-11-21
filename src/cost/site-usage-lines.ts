@@ -15,6 +15,7 @@ export const SITE_USAGE_STALE_SEC = 60 * 60;
 const PROVIDER_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   "codex-cli": "Codex",
+  "antigravity-cli": "Gemini",
 };
 
 export function renderSiteUsageLines(entries: readonly SiteUsageEntry[], fmt: CostTimestampFormat, nowSec: number): string[] {

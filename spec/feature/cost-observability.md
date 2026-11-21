@@ -45,6 +45,20 @@ reader で読む。`samples` は `cost_usage_samples` の累積値の正の差�
 
 ## provider 別の usage source
 
+### Gemini（Antigravity CLI）
+
+Actio: `actio:e586d21d-5b1b-465b-b936-bbec404b10a5`。価値は `UX-CC-W4`（利用量と上限の判断）と `UX-CC-W8`（AI 予算の残量）。`src/cost` の観測層が集計を、セッション登録側が Lictor の会話対応を、各予算が計上済みの状態を所有する。
+
+- **C-1 `decodeAgyGeneration(data)`**。`gen_metadata` の `ChatModelMetadata.usage` は未キャッシュ入力 `.1.4.2`、キャッシュ読み取り `.1.4.5`、思考込み出力 `.1.4.3` を別々に持つ。思考 `.1.4.9` と回答 `.1.4.10` は出力の内訳。モデルは `.1.19`、キャッシュ書き込み `.1.4.4` は別指標として集計対象外。対応は `agy.exe` の Protobuf 定義と既存の隔離検証 DB の数値（出力 19 = 思考 17 + 回答 2）で確認した。
+- **C-2 `agySessionGenerations(generations,start,end)`**。Cc の provider `antigravity-cli` に対し、Lictor が起動固有ログ・cwd・presence で確定した会話 ID をセッションに保存する。対応する起動区間の生成だけを帰属させる。会話 ID を検証して正規の `conversations` 直下から読み、古いセッションで対応を取得できない場合は未計測とする。
+- **C-3 `accumulateAgyUsageWindows(generations,windows)`**。生成開始時刻（無ければ関連 step の作成時刻）で半開区間に配分する。時刻を取れない行はセッション・期間別計上から省く。トークン値は Discord コストチャンネル、コストレポート、セッションのコスト、Web の使用量時系列、拠点の週間集計、月次・日次予算に使う。
+
+SQLite は worker thread で読み取り専用の WAL スナップショットを取得する。生成メタデータと step メタデータだけを読み、直近 2,048 行、1 行 2 MiB、全体 64 MiB を上限とする。主 DB と WAL の更新時刻・サイズで再読を判定し、失敗した取得は次回に再試行する。上限を超える間隔で増えた場合は過少計上になり得る。
+
+全体の日次予算は会話 DB ごとの `gen_metadata.idx` を前回位置として保ち、初回は位置だけを保存する。2 回目以降は位置より新しい行の消費を当日の観測として一度だけ加える。再試行時は保存済みの位置から続ける。
+
+Neon と Argon のセッション USD は [Google Gemini Developer API の Standard 料金](https://aistudio.google.com/docs/pricing#gemini-4-neon)による換算値。Antigravity の実請求額はこの集計の対象外。価格表にないモデルはトークンを計上して単価不明として表示する。レート枠の取得は既存 provider のみ。
+
 [`src/cost/log-usage.ts`](../../src/cost/log-usage.ts) が provider ごとに一次ソースを選ぶ。
 
 - `claude-code` / `codex-cli`: ローカルの JSONL (`~/.claude/projects` / `~/.codex/sessions`)。

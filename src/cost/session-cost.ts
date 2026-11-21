@@ -16,6 +16,8 @@
  */
 
 import type { SessionRow } from "../shared/types.js";
+import { readAgySessionGenerations } from "./agy-session-usage.js";
+import { estimateAgyCost } from "./agy-session-cost.js";
 import {
   nn,
   readLines,
@@ -124,6 +126,7 @@ export async function estimateSessionCostUsd(
   s: SessionRow,
   frames?: UsageFrameSource,
 ): Promise<SessionCostEstimate | null> {
+  if (s.provider === "antigravity-cli") return estimateAgyCost(await readAgySessionGenerations(s));
   if (s.provider === "claude-code") {
     const p = await resolveSessionTranscript(s);
     if (!p) return null;

@@ -11,6 +11,7 @@
 
 import type { SessionRow } from "../shared/types.js";
 import { nn, readLines, resolveSessionTranscript } from "./log-usage.js";
+import { agyUsagePoints, readAgySessionGenerations } from "./agy-session-usage.js";
 
 /** 消費の 1 点 (atMs = epoch ms)。 turnEnd = AI の最終回答 (応答 1 回の終わり。 §3.2 の区間の切れ目)。 */
 export interface UsagePoint {
@@ -102,6 +103,10 @@ export function codexUsagePoints(lines: readonly string[]): UsagePoint[] {
 
 /** セッションの消費を時刻つきで読む。 読めなければ null (呼び出し側はセッション全体の合計に倒す)。 */
 export async function readSessionUsageTimeline(session: SessionRow): Promise<UsagePoint[] | null> {
+  if (session.provider === "antigravity-cli") {
+    const points = agyUsagePoints(await readAgySessionGenerations(session));
+    return points.length ? points : null;
+  }
   if (session.provider !== "claude-code" && session.provider !== "codex-cli") return null;
   const path = await resolveSessionTranscript(session);
   if (!path) return null;

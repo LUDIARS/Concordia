@@ -35,6 +35,7 @@ const tok = (v: number | null): string => {
   return (x / 1_000_000).toFixed(2) + "M";
 };
 const providerColors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
+const providerLabel = (provider: string) => provider === "antigravity-cli" ? "Gemini" : provider;
 const pct = (v: number | null): string => v === null || !Number.isFinite(v) ? "—" : `${v.toFixed(1)}%`;
 
 function OrgBlock({ report, heading }: { report: OrgCostReport; heading: string }) {
@@ -146,7 +147,7 @@ export function CostFeed() {
   const providerSpentSeries = Object.entries(series?.providers ?? {}).map(([provider, rows], i) => {
     const byTs = new Map(rows.map((p) => [p.ts, p.spentTokens]));
     return {
-      label: provider,
+      label: providerLabel(provider),
       color: providerColors[i % providerColors.length],
       values: points.map((p) => byTs.get(p.ts) ?? 0),
       fmt: tok,
@@ -158,7 +159,8 @@ export function CostFeed() {
   );
   const limitLabel = (provider: string, rows: Array<{ plan: string | null }>): string => {
     const plan = [...rows].reverse().find((p) => p.plan)?.plan;
-    return plan ? `${provider} (${plan})` : provider;
+    const label = providerLabel(provider);
+    return plan ? `${label} (${plan})` : label;
   };
   const weeklyLimitSeries = Object.entries(limits?.providers ?? {}).map(([provider, rows], i) => {
     const byTs = new Map(rows.map((p) => [p.ts, p.usedWeeklyPct]));
@@ -271,7 +273,7 @@ export function CostFeed() {
                   <tr key={c.sessionId} className="border-t border-border/50">
                     <td className="py-1 text-text font-mono text-xs">
                       {c.channelId ? `#${c.channelId.slice(-6)}` : c.sessionId.slice(0, 8)}
-                      <span className="text-subtle ml-1">{c.provider}</span>
+                      <span className="text-subtle ml-1">{providerLabel(c.provider)}</span>
                     </td>
                     <td className="py-1 text-right">🧠 {tok(c.contextTokens)}</td>
                     <td className="py-1 text-right text-text">💰 {tok(c.costTokens)}</td>

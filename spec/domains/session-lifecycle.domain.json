@@ -22,6 +22,9 @@
     },
     {
       "pathPattern": "(^|/)src/api/sessions/category(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/sessions/agy-usage-binding(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"session-lifecycle\" domain: sessions 行の登録・patch・heartbeat・終了と、その API スキーマ / repo の所有。",
@@ -39,6 +42,7 @@
     "spec/feature/session-shutdown.md",
     "spec/feature/session-process-reaper.md",
     "spec/feature/session-compaction.md",
+    "spec/feature/cost-observability.md",
     "spec/feature/inject-context-gating.md",
     "spec/feature/workplace-chat.md",
     "spec/feature/session-prompt-title.md",

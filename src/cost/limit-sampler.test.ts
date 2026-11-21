@@ -5,6 +5,7 @@ import type { CostReport } from "./cost-report.js";
 function report(): CostReport {
   return {
     codexTotals: { input: 0, cached: 0, output: 0, total: 0 },
+    geminiTotals: { input: 0, cached: 0, output: 0, total: 0 },
     claudeTotals: { input: 0, cached: 0, output: 0, total: 0 },
     codexRate: { used5h: null, usedWeekly: null, reset5hAt: null, resetWeeklyAt: null, plan: null },
     claudeUsage: null,

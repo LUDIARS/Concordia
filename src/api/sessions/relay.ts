@@ -9,6 +9,7 @@ import type { ConcordiaEvent } from "../../events.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, LICTOR_SLOW_FETCH_TIMEOUT_MS, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { withinTeardownGrace } from "../../platform/session-teardown-grace.js";
 import { recordHumanInjectFragments } from "./inject-fragments.js";
+import { captureAgyUsageBinding } from "./agy-usage-binding.js";
 
 function assistantTextOf(kind: string, payload: unknown): string | null {
   if (kind !== "text" || !payload || typeof payload !== "object") return null;
@@ -17,6 +18,7 @@ function assistantTextOf(kind: string, payload: unknown): string | null {
 }
 
 export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
+  const agyBindingRequests = new Set<string>();
   app.post("/:id/transcript-frame", async (c) => {
     const id = c.req.param("id");
     const session = deps.repo.findSession(id);
@@ -25,6 +27,13 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const content = parsed.data.payload as { role?: unknown; text?: unknown } | null;
+    if (session.provider === "antigravity-cli" && session.status === "active" && !agyBindingRequests.has(id)
+        && parsed.data.kind === "text" && (content?.role === "user" || content?.role === "assistant")) {
+      agyBindingRequests.add(id);
+      void captureAgyUsageBinding(deps.repo, session)
+        .catch(() => log.debug({ session_id: id }, "agy usage binding unavailable; retry on next text frame"))
+        .finally(() => agyBindingRequests.delete(id));
+    }
     if (!(parsed.data.kind === "text" && content?.role === "user") && deps.consultationSafety) {
       const safety = await deps.consultationSafety.check({ sessionId: id, phase: "output", text: JSON.stringify(parsed.data.payload) });
       if (safety.blocked) {

@@ -17,6 +17,7 @@ import {
   nn,
   readCodexUsage,
   readLines,
+  readSessionUsage,
   resolveSessionTranscript,
   type Totals,
 } from "./log-usage.js";
@@ -143,6 +144,7 @@ function codexTotalsFromLines(lines: string[]): Totals | null {
 
 /** readSessionUsage 互換の memo 版 (cost-report の aggregate 用)。 */
 export async function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadOptions = {}): Promise<Totals | null> {
+  if (s.provider === "antigravity-cli") return options.allowFullScan === false ? null : readSessionUsage(s);
   const r = await resolveSessionLogPath(s);
   if (!r) return null;
   if (s.provider === "codex-cli") {

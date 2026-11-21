@@ -1,8 +1,8 @@
 /**
- * このホストのローカル Claude Code / Codex が直近 7 暦日 (今日含む) に消費したトークンを provider 別に出す。
+ * このホストの provider が直近 7 暦日 (今日含む) に消費したトークンを provider 別に出す。
  *
  * 拠点が本社へ送る週間使用量 (SPEC-FED-SITE-USAGE) の集計点。 窓の切り方は org-cost の「週間」と同じで、
- * 各 JSONL エントリのタイムスタンプで数える (セッション開始日で按分しない)。
+ * 各 provider の生成時刻で数える (セッション開始日で按分しない)。
  *
  * @implements spec/feature/federation-link.md SPEC-FED-SITE-USAGE
  */

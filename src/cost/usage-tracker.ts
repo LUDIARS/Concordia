@@ -11,6 +11,7 @@
 
 import type { CostBudgetRepo } from "./cost-budget-repo.js";
 import { enumerateRecentLogTotals } from "./log-usage.js";
+import type { AgyBudgetObservation } from "./agy-recent-usage.js";
 
 /** mtime がこの窓内のログのみ走査する (これより古いファイルは増えない前提)。 */
 const LOG_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
@@ -34,6 +35,7 @@ export interface CostUsageTrackerDeps {
   now?: () => number;
   /** ログ列挙関数 (テスト差し替え用)。 既定 enumerateRecentLogTotals。 */
   enumerate?: (maxAgeMs: number, now: number) => Promise<Array<{ path: string; total: number }>>;
+  enumerateAgy?: (maxAgeMs: number, now: number) => AsyncIterable<AgyBudgetObservation>;
 }
 
 export class CostUsageTracker {
@@ -62,6 +64,9 @@ export class CostUsageTracker {
         this.deps.repo.addDayTokens(dateIso, delta, now);
         this.deps.repo.setLogLastTotal(f.path, f.total, now);
       }
+    }
+    for await (const observation of this.deps.enumerateAgy?.(LOG_WINDOW_MS, now) ?? []) {
+      this.deps.repo.recordAgyUsage(observation, dateIso, now);
     }
     // 監視窓を超えた baseline は掃除 (ファイルはもう増えない)。
     this.deps.repo.pruneLogSeen(now - LOG_WINDOW_MS);

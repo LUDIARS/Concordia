@@ -188,6 +188,10 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
     return lookupLocalPrBySession(await this.lookupSource(), repository, sessionId);
   }
 
+  async getLocalPrDetail(id: string): Promise<RevisorLocalPr | null> {
+    return (await this.lookupSource()).getLocalPrDetail(id);
+  }
+
   private async lookupSource(): Promise<RevisorBranchLookupSource> {
     const port = await this.resolvePort();
     return {

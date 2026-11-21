@@ -3,6 +3,9 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "C-45", "criterion": "C-45 receiptMatch(stored,incoming): 同一内容だけを再利用する", "symbol": "receiptMatch", "file": "src/conflux/policy.ts", "module": "src/conflux/receipt.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-46", "criterion": "C-46 buildIdentity(key,commit): ビルドキーから Cf の projectCode と variantId を照合する", "symbol": "buildIdentity", "file": "src/conflux/policy.ts", "module": "src/conflux/build.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "C-47", "criterion": "C-47 integrationEvent(binding,pr): Revisor のマージ済み PR と一致する採用判断だけを通知する", "symbol": "integrationEvent", "file": "src/conflux/policy.ts", "module": "src/conflux/integration.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-41", "criterion": "C-41 decideIntake(input): AI のみの根拠は任務で明示許可された場合だけ受け付ける", "symbol": "decideIntake", "file": "src/management/domain.ts", "module": "src/management/ai-evidence.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-42", "criterion": "C-42 autonomousEvaluationTransition(mission,request,action,evidence): 人間ゲートを保持し、成果記録と効果根拠が揃う場合だけ dots の評価を許可する", "symbol": "autonomousEvaluationTransition", "file": "src/management/domain.ts", "module": "src/management/autonomous-evaluation.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "C-43", "criterion": "C-43 breakerReason(config,signals): コスト・失敗・同一対象・同時実行・頻度の条件を満たす時だけ自動遮断理由を返す", "symbol": "breakerReason", "file": "src/management/circuit-breaker.ts", "module": "src/management/breaker-reason.contract.ts", "mode": "observe", "sample": 1 },

@@ -200,6 +200,8 @@ import { readFollowupProgress } from "../control/followup-progress.js";
 import { defaultGitRunner } from "../control/ws-cleanup.js";
 import { observeGitActivity } from "../control/session-activity-observe.js";
 import { spawnSession } from "../control/spawner.js";
+import { createCompanySessionCaps } from "../cost/company-session-cap-service.js";
+import { createConfluxRuntime } from "../conflux/runtime.js";
 import { forgetPendingDelegationSpawnBySpawnId, recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { canRequestProgress } from "../control/periodic-progress-request.js";
 import { resolveSessionFollowupSnapshot } from "../control/session-followup-snapshot.js";
@@ -2594,6 +2596,15 @@ export async function startBackend(): Promise<BackendHandle> {
   // 公開ホスト (spec/feature/web-sso.md)。設定が欠けていれば readWebSsoConfig が投げて起動を止める。
   const webSsoConfig = readWebSsoConfig(process.env);
   const webSso = webSsoConfig ? createWebSsoGate(webSsoConfig) : null;
+  const confluxCaps = createCompanySessionCaps({
+    sessions: repo, headOfficeMax: () => adminState.getHeadOfficeMaxSessions(), subsidiaries: subsidiaryRepo,
+  });
+  const conflux = createConfluxRuntime({
+    db, env: process.env, projects: projectCodesRepo, subsidiaries: subsidiaryRepo, staff: staffRepo,
+    revisor: revisorClient, publicHost: webSsoConfig?.publicHost,
+    canLaunch: (id) => !isCostBlocked() && confluxCaps.check(id).allowed,
+    writePrompt: (prompt) => delegationService.writeAdHocPrompt(prompt),
+  });
   if (webSsoConfig) log.info({ publicHost: webSsoConfig.publicHost }, "public host requires a Cernere enterprise session");
   // LINE の共用チャネルのトークごとの紐付け。 受け口と管理 API で同じものを使う。
   const lineTalkLinks = new SqliteLineTalkLinkStore(db);
@@ -2623,6 +2634,7 @@ export async function startBackend(): Promise<BackendHandle> {
     succession: successionRuntime.succession,
     repoAgents: successionRuntime.repoAgents,
     webSso,
+    conflux: conflux.routes,
     agentInstructions: agentInstructions.routes,
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
@@ -3740,6 +3752,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("chores", () => choresRuntime.stop());
   resources.own("management remote", () => managementRemote.stop());
   resources.own("management", () => managementRuntime.stop());
+  resources.own("conflux integration", conflux.stop);
   resources.own("post-listen handles", () => {
     for (const handle of postListenHandles.splice(0).reverse()) {
       try { handle.stop(); }

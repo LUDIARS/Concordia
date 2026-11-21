@@ -20,6 +20,7 @@ import { beginRequest, endRequest } from "./shared/inflight-requests.js";
 import { webSsoMiddleware, type WebSsoGate } from "./web-sso/http-gate.js";
 import { registerLineWebhookRoute, type LineWebhookDeps } from "./line-webhook/route.js";
 import { registerAgentInstructionsRoute, type AgentInstructionsDeps } from "./api/agent-instructions.js";
+import { confluxRouter } from "./api/conflux.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -48,6 +49,7 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
   lineWebhook?: LineWebhookDeps | null;
   /** 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。 無ければ /v1/instructions は無い。 */
   agentInstructions?: AgentInstructionsDeps | null;
+  conflux?: Parameters<typeof confluxRouter>[0];
 };
 
 export function buildApp(deps: AppDeps): Hono {
@@ -121,6 +123,7 @@ export function buildApp(deps: AppDeps): Hono {
   if (deps.agentInstructions) registerAgentInstructionsRoute(app, deps.agentInstructions);
   // 応答キャッシュより前に置く。公開ホストの要求がキャッシュから返らないように。
   if (deps.webSso) app.use("*", webSsoMiddleware(deps.webSso));
+  if (deps.conflux) app.route("/v1/conflux", confluxRouter(deps.conflux));
   app.use("*", httpCacheMiddleware());
 
   app.get("/health", (c) =>

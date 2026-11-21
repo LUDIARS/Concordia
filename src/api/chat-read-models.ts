@@ -90,6 +90,11 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     getSessionRelayState(sessionId) {
       return readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
     },
+    getConfluxSlackChannel(sessionId) {
+      const meta = readSessionMeta(deps.sessionsRepo.findSession(sessionId)?.metadata ?? null);
+      const channel = meta.conflux_slack_channel_id;
+      return typeof channel === "string" && /^[CG][A-Z0-9]{5,31}$/.test(channel) ? channel : null;
+    },
     getSessionCardState(sessionId, status, poem) {
       const state = readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
       if (!state) return null;

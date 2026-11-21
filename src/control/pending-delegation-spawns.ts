@@ -9,6 +9,8 @@
 // マッチは数秒以内に起きる
 // 想定なので in-memory で十分（再起動で失っても既定アイコンに戻るだけ）。
 
+import type { ConfluxSelection } from "../harness/reliability/conflux-policy.js";
+
 const TTL_MS = 5 * 60 * 1000; // 5 分でexpire（取り違え防止）
 
 export interface PendingDelegationSpawn {
@@ -34,6 +36,8 @@ export interface PendingDelegationSpawn {
   startupInjectText: string | null;
   sourceDiscordGuildId: string | null;
   sourceDiscordChannelId: string | null;
+  confluxSelection?: ConfluxSelection;
+  confluxSlackChannelId?: string;
   /** Parent session that requested the delegation, when known. */
   parentSessionId: string | null;
   /** Whether goal-and-go remains enabled for the spawned session. */
@@ -71,6 +75,8 @@ export function recordPendingDelegationSpawn(
     startupInjectText?: string | null;
     sourceDiscordGuildId?: string | null;
     sourceDiscordChannelId?: string | null;
+    confluxSelection?: ConfluxSelection;
+    confluxSlackChannelId?: string;
     parentSessionId?: string | null;
     goalAndGo?: boolean;
     teamId?: string | null;
@@ -99,6 +105,8 @@ export function recordPendingDelegationSpawn(
     startupInjectText: (input.startupInjectText ?? "").trim() || null,
     sourceDiscordGuildId: (input.sourceDiscordGuildId ?? "").trim() || null,
     sourceDiscordChannelId: (input.sourceDiscordChannelId ?? "").trim() || null,
+    ...(input.confluxSelection ? { confluxSelection: input.confluxSelection } : {}),
+    ...(input.confluxSlackChannelId ? { confluxSlackChannelId: input.confluxSlackChannelId } : {}),
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
     goalAndGo: input.goalAndGo !== false,
     teamId: (input.teamId ?? "").trim() || null,

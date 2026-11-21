@@ -222,4 +222,5 @@ export interface ChatReadModel {
   isCodexSession(sessionId: string): boolean;
   /** session を起動した人間 (最も古い人間 inject の入力者)。 古い test adapter は未実装でもよい。 */
   getSessionStarter?(sessionId: string): Requester | null;
+  getConfluxSlackChannel?(sessionId: string): string | null;
 }

@@ -620,7 +620,15 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     // archive 予約をここで取り消す。 取り消さないと、 再開後もアクティブな
     // チャンネルが次の sweep で誤って archive されてしまう (継続レビュー指摘)。
     archiveLifecycle.cancel(sessionId);
-    await provisioner.ensure(sessionId);
+    const destination = !channels.findBySessionId(sessionId) && deps.readModel.getConfluxSlackChannel?.(sessionId);
+    const sessionChannel = await provisioner.ensure(sessionId);
+    if (destination && destination !== sessionChannel.channel_id) {
+      try {
+        await web.chat.postMessage({ channel: destination, text: `Conflux の作業を開始しました。 <#${sessionChannel.channel_id}>` });
+      } catch {
+        log.warn("Conflux Slack destination notice failed");
+      }
+    }
     await inviteSessionStarter(sessionId);
     sessionsCanvas.schedule();
   }

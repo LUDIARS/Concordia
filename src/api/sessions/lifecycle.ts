@@ -124,6 +124,11 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }
       const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
       const successor = claimPendingRelictor(input.repo_path, Date.now(), spawnId);
+      delete meta.conflux_slack_channel_id;
+      if (claimed?.confluxSelection) {
+        meta.conflux_selection = claimed.confluxSelection;
+        if (claimed.confluxSlackChannelId) meta.conflux_slack_channel_id = claimed.confluxSlackChannelId;
+      }
       // concordia_spawn_id is a one-time enrollment secret placed only in the
       // spawned Lictor environment. Supplying an unknown or already-consumed
       // value is never allowed to degrade into an unowned registration. A

@@ -11,8 +11,9 @@ import { migrateTaskflowActioInstructions } from "./taskflow-actio-instructions.
 import { migrateTemplateModelsToRoles } from "./template-model-roles-migration.js";
 import { migrateTemplateCallNamesToRoles } from "./template-call-name-roles-migration.js";
 import { managementAutonomyMigration } from "./management-autonomy-migration.js";
+import { confluxIntegrationMigration } from "./conflux-integration-migration.js";
 
-export const SCHEMA_VERSION = 151;
+export const SCHEMA_VERSION = 152;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3892,6 +3893,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   },
 },
   managementAutonomyMigration,
+  confluxIntegrationMigration,
 ];
 
 /**

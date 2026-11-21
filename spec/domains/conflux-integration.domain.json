@@ -1,0 +1,15 @@
+{
+  "name": "conflux-integration",
+  "description": "Conflux request receipts, build queue and outbound delivery state. Session, staff and PR facts remain with their existing owners.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/conflux/.*\\.ts$" },
+    { "pathPattern": "(^|/)src/api/conflux\\.ts$" }
+  ],
+  "specRefs": [
+    "spec/feature/conflux-integration.md",
+    "spec/ux/product.md"
+  ],
+  "cardTemplate": "Describe receipt identity, the origin of session and PR facts, and retry and recovery behavior."
+}

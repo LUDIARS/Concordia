@@ -85,6 +85,10 @@ services:
       # Cloudflare Tunnel で公開するホスト名 (CC-MGMT-08)。 この Host 宛ては Access JWT 必須。
       # team / aud は cf:ex-access で Excubitor runtime-config (cloudflareAccess) に入れる。
       CONCORDIA_MANAGEMENT_PUBLIC_HOST: cdgd-mgmt.ai-run-do.com
+      # Muse 向け指令ブリッジ (/v1/instructions) を Cloudflare Tunnel で公開するホスト名 (CC-INST-INV-06)。
+      # この Host 宛てとトンネル経由の poll / ack / result は専用の鍵 (設定 agent_instructions.intake_token) が要る。
+      # 鍵は Authorization か x-excubitor-token で受ける。Access はサービストークンを Authorization から読む (neco 2026-11-22)。
+      CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: cc-playtest.ai-run-do.com
       CONCORDIA_REDIS_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_READ_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_WRITE_TIMEOUT_MS: "500"

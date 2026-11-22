@@ -108,7 +108,7 @@ LOCAL トンネル → Excubitor 入口 → Cc へ)。Cloudflare Access は必�
    同じ文字列を Cc の設定 > 実行環境「指令ブリッジの公開経由の鍵」に保存し、Muse のコネクタに `Authorization` として渡す。値はチャット・ログ・リポジトリに書かない。
 2. 公開ルート: `cc-playtest.ai-run-do.com` の `^/v1/instructions(/|$)` → LOCAL トンネル → Excubitor 入口 → Cc。ほかのパスは公開しない。
 3. Access: このアプリは Bypass にせず、そのサービストークンを許可するポリシーと `read_service_tokens_from_header=Authorization` を設定する。
-4. Cc の env に `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST=cc-playtest.ai-run-do.com` を入れ、Excubitor 経由で反映・再起動する。
+4. `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: cc-playtest.ai-run-do.com` は `excubitor.catalog.yaml` の concordia の env に入っている。Excubitor 経由で反映・再起動して読ませる (起動時に読む)。
 5. 外から確かめる: 鍵なし 401 (Access で止まれば 403)、鍵ありの poll 200、`POST /v1/instructions` は 403。
 6. ローテーション: サービストークンを入れ替えたら、Cc の鍵・Muse のコネクタ・Ingenium の設定を同時に直す (どれか 1 つでも古いと 401)。
 

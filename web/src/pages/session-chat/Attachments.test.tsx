@@ -21,8 +21,10 @@ it("loads text only after expansion and renders markup literally", async () => {
 
 it("aborts a pending preview when it leaves the chat", async () => {
   let signal: AbortSignal | undefined;
-  vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) => {
-    signal = options.signal as AbortSignal;
+  // root 実行は isolate:false なので、前の file の画面やタイマーが残って同じ fetch を別の URL で呼ぶことがある
+  // (signal: null のような呼び出しで toBeDefined が通り、aborted が undefined になる)。この添付の取得だけを見る。
+  vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => {
+    if (url === "/v1/sessions/one/chat-attachments/1/0" && options?.signal) signal = options.signal;
     return new Promise(() => { /* Kept pending until component cleanup. */ });
   }));
   const { container, unmount } = render(<AttachmentMessageItem sessionId="one" message={{ id: 1, ts: 1, author_label: "AI", content: "", files: [{ index: 0, name: "memo.md" }] }} />);

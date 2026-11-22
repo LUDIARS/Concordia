@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "外部エージェント向け HTTP ポーリング指令ブリッジ"
-description: "inbound を受けられない外部エージェント (Muse / dots) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel + Access のサービストークン単一ヘッダー (Authorization) + 同じ値の鍵 1 本 (x-excubitor-token も可)、登録は loopback のみ。"
+description: "inbound を受けられない外部エージェント (Muse / dots) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel (このパスは Access を Bypass) + Cc の鍵 1 本 (x-excubitor-token、無ければ Authorization)、登録は loopback のみ。"
 service: concordia
 domain: agent-instructions
 status: implemented
@@ -26,9 +26,8 @@ Muse (Meta のパーソナルエージェント) は信頼できないマシン�
 2026-11-21 neco 決定: 公開経由の認証は CF Access のサービストークン (`CF-Access-Client-Id` / `-Secret` の 2 ヘッダー) をやめ、専用の鍵 1 本にする。
 Muse のカスタムコネクタは 1 要求に秘密 1 つまでしか送れないと実測で確定したため (cc-playtest と同じ方式)。
 
-2026-11-22 neco 指示「Authorization で進める」: 公開口は `cc-playtest.ai-run-do.com` に置き、Access は必須のまま、サービストークンを単一ヘッダー
-(`read_service_tokens_from_header=Authorization`。Cloudflare はヘッダー名に Authorization しか許さない) で通す。Muse は
-`Authorization: {"cf-access-client-id":"…","cf-access-client-secret":"…"}` を 1 つだけ送り、Cc は同じ JSON 文字列を鍵として確かめる。
+経緯: Access 必須のままサービストークンで通す案 → 2026-11-22 neco 指示「Authorization で進める」でサービストークンを単一ヘッダー
+(`read_service_tokens_from_header=Authorization`) で通す案 → 2026-11-23 neco が Cloudflare でこのパスを Bypass にし、認証は Cc の鍵だけに決定。
 
 ## 業務用語と状態の所有者
 
@@ -92,8 +91,10 @@ poll の query: `agent` 必須、`status` は 4 状態のどれか (省略時 `p
 
 Cc は `127.0.0.1` bind のまま。Tunnel の ingress を `https://<公開ホスト>/v1/instructions*` → `http://127.0.0.1:<Cc のポート>` に絞り、
 `/v1/sessions` 等は公開しない (ルーティング対象外は Tunnel 側で 404)。公開ホストは `cc-playtest.ai-run-do.com` (`^/v1/instructions(/|$)` を
-LOCAL トンネル → Excubitor 入口 → Cc へ)。Cloudflare Access は必須のまま、サービストークンを単一ヘッダー (`Authorization`) で通す
-(Muse はサービストークンの 2 ヘッダーを送れない)。Cc は同じ `Authorization` の値を鍵として確かめる (Access とアプリ側の鍵の二重確認)。
+LOCAL トンネル → Excubitor 入口 `127.0.0.1:17336` → Cc へ。経路は Access 必須にしない: `access_required=false`)。Cloudflare Access は
+このパスを Bypass にしてある (cc-playtest のホスト全体の Access アプリは無い)。認証は Cc の鍵だけで行う。Excubitor には Access アプリの
+`read_service_tokens_from_header` を設定する口 (Ex PR #4053、ヘッダー名は Authorization のみ) があるが、今の構成では使っていない。
+AI プレイテスト受け口 `/v1/events/playtest-review` の公開経路は今は無い (neco 判断で戻さない)。
 
 アプリ側の判定:
 
@@ -107,17 +108,17 @@ LOCAL トンネル → Excubitor 入口 → Cc へ)。Cloudflare Access は必�
 | 設定 | 置き場所 | 内容 |
 |---|---|---|
 | `runtime.instructions_public_host` | env `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST` | 公開ホスト名 (ホスト名だけ)。起動時に読む |
-| `agent_instructions.intake_token` | 設定 > 実行環境 (schema_meta、secret-box で暗号化、API は値を返さない) | 公開経由の鍵。CF Access のサービストークンの JSON 1 行 (`{"cf-access-client-id":"…","cf-access-client-secret":"…"}`、空白なし。`^\S{32,}$` を満たす)。AI プレイテスト受け口の鍵 (`playtest_notify.intake_token`) とは別 |
+| `agent_instructions.intake_token` | 設定 > 実行環境 (schema_meta、secret-box で暗号化、API は値を返さない) | 公開経由の鍵。Muse と dots で共用の 1 本。値の形は任意 (空白なし 32 文字以上、`^\S{32,}$`)。サービストークンの JSON 1 行である必要はない (今の値がそれでもよい)。AI プレイテスト受け口の鍵 (`playtest_notify.intake_token`) とは別 |
 
 ### 人間がやる手順 (Cloudflare・鍵)
 
-1. Access のサービストークンを発行し、値を JSON 1 行 `{"cf-access-client-id":"…","cf-access-client-secret":"…"}` (空白なし) にする。
-   同じ文字列を Cc の設定 > 実行環境「指令ブリッジの公開経由の鍵」に保存し、Muse のコネクタに `Authorization` として渡す。値はチャット・ログ・リポジトリに書かない。
-2. 公開ルート: `cc-playtest.ai-run-do.com` の `^/v1/instructions(/|$)` → LOCAL トンネル → Excubitor 入口 → Cc。ほかのパスは公開しない。
-3. Access: このアプリは Bypass にせず、そのサービストークンを許可するポリシーと `read_service_tokens_from_header=Authorization` を設定する。
+1. 鍵の登録: 空白なし 32 文字以上の値を 1 つ用意し、Cc の設定 > 実行環境「指令ブリッジの公開経由の鍵」に保存する。同じ値を Muse と dots のコネクタに
+   `x-excubitor-token` (送れなければ `Authorization`) として渡す。値はチャット・ログ・リポジトリに書かない。
+2. Access: `cc-playtest.ai-run-do.com` の `/v1/instructions` を Bypass にする (2026-11-23 neco 設定済み)。
+3. 公開ルート: `cc-playtest.ai-run-do.com` の `^/v1/instructions(/|$)` → LOCAL トンネル → Excubitor 入口 `127.0.0.1:17336` → Cc (`access_required=false`)。ほかのパスは公開しない。
 4. `CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: cc-playtest.ai-run-do.com` は `excubitor.catalog.yaml` の concordia の env に入っている。Excubitor 経由で反映・再起動して読ませる (起動時に読む)。
-5. 外から確かめる: 鍵なし 401 (Access で止まれば 403)、鍵ありの poll 200、`POST /v1/instructions` は 403。
-6. ローテーション: サービストークンを入れ替えたら、Cc の鍵・Muse のコネクタ・Ingenium の設定を同時に直す (どれか 1 つでも古いと 401)。
+5. 外から確かめる: 鍵なし 401、鍵ありの poll 200、`POST /v1/instructions` は 403。
+6. ローテーション: 鍵を入れ替えたら、Cc の鍵・Muse と dots のコネクタ・Ingenium の設定を同時に直す (どれか 1 つでも古いと 401)。
 
 ## 指令チャンネルと Web の画面
 

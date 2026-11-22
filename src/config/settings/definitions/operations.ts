@@ -637,7 +637,7 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
   envString("runtime.instructions_public_host", "runtime", "指令ブリッジの公開ホスト", "CONCORDIA_INSTRUCTIONS_PUBLIC_HOST", null,
     "/v1/instructions を Cloudflare Tunnel で公開するホスト名。 この Host 宛てとトンネル経由の要求は専用の鍵 (下の項目) を必須にし、 登録と状態確認は拒否する。"),
   // 公開経由の Muse 用の口 (poll / ack / result) 専用の鍵 (spec/feature/agent-instructions-bridge.md — 公開経由の鍵)。
-  // Muse のコネクタは 1 要求に秘密 1 つまでなので、 CF Access のサービストークンを単一ヘッダー (Authorization) で通し、 同じ値をこれ 1 本で確かめる。
+  // このパスは Cloudflare Access を Bypass にしてあり、 認証はこの鍵 1 本だけ (Muse と dots で共用)。
   // AI プレイテスト受け口の鍵 (playtest_notify.intake_token) とは分ける。
   {
     key: "agent_instructions.intake_token",
@@ -645,10 +645,10 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     label: "指令ブリッジの公開経由の鍵",
     description:
       "公開経由 (cc-playtest.ai-run-do.com) の GET /v1/instructions・POST /v1/instructions/:id/ack・/result に求める鍵。"
-      + " x-excubitor-token があればそれと、 無ければ Authorization の値と比べる。 Cloudflare Access はサービストークンを"
-      + " 単一ヘッダー (Authorization) で通すので、 Muse が送るのと同じ JSON 1 行"
-      + ' ({"cf-access-client-id":"…","cf-access-client-secret":"…"}、 空白なし) をそのまま入れる。'
-      + " ローテーション時は Cc・Muse・Ingenium を同時に直す。"
+      + " x-excubitor-token があればそれと、 無ければ Authorization の値と比べる。 このパスは Cloudflare Access を Bypass にしてあり、"
+      + " 認証はこの鍵だけ。 Muse と dots で共用の 1 本で、 値は空白なし 32 文字以上なら形は問わない"
+      + " (サービストークンの JSON 1 行である必要はない)。"
+      + " ローテーション時は Cc・Muse・dots・Ingenium を同時に直す。"
       + " 一致しない・無い要求は本文を読まずに 401。 未設定のあいだは公開経由を全部 401 で断る (loopback は鍵なしで使える)。"
       + " schema_meta に secret-box で暗号化して保存され、 API には実値を返さない。 漏れたらここで差し替えると古い鍵は即無効になる。",
     kind: "secret",

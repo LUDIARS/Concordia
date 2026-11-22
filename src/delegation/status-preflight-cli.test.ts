@@ -57,4 +57,4 @@ it("the standalone CLI preserves its directory and inherited service log path", 
     expect(readFileSync(serviceLog, "utf8")).toBe("unchanged");
     expect(JSON.parse(readFileSync(report, "utf8")).detail).toBe("PRIVATE_TOKEN");
   } finally { rmSync(directory, { recursive: true, force: true }); }
-});
+}, 40_000); // tsx 付きの子プロセス (上限 30 秒) を起動する。全体実行の負荷では既定の 5 秒を超える。

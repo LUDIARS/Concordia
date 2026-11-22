@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { SecretBox } from "../shared/secret-box.js";
 import { VillaClient } from "../villa/client.js";
-import { createFederationRuntime, type FederationRuntime } from "./runtime.js";
-import { startFederationListener } from "./hq-listener.js";
+import type { FederationRuntime } from "./runtime.js";
 import { parseFederationFrame, type FederationEgressDelivery } from "./protocol.js";
 import { createRemoteThreadRegistry } from "./remote-thread-registry.js";
 import { SqliteSettingsStore } from "../admin/settings-store.js";
@@ -62,6 +61,16 @@ describe("CC-FED-EGRESS-MENTION-01: HQ owns executor mention IDs", () => {
   const forgedId = "444444444444444444";
   let runtime: FederationRuntime | undefined;
   let db: ReturnType<typeof makeTestDb> | undefined;
+  // vitest.config.ts は isolate:false。先に別ファイルが本物の hq-listener で runtime.js を読んでいると、
+  // 上の vi.mock が効かず handleEgressRequest を受け取れない (全体実行でだけ落ちる)。
+  // 各テストで resetModules して読み直し、この file の mock を通った runtime を使う。
+  let createFederationRuntime: typeof import("./runtime.js")["createFederationRuntime"];
+  let startFederationListener: typeof import("./hq-listener.js")["startFederationListener"];
+  beforeEach(async () => {
+    vi.resetModules();
+    ({ startFederationListener } = await import("./hq-listener.js"));
+    ({ createFederationRuntime } = await import("./runtime.js"));
+  });
 
   afterEach(() => {
     runtime?.stop();

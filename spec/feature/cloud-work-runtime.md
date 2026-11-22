@@ -61,6 +61,8 @@ cloud-execution は依頼意図・提供元の受付・観測・回収を所有�
 - [一般版 Colab](cloud-work-colab.md) は本人開始入口から Excubitor の Colab 拠点へ投入する。明示設定で HQ REST + Jupyter を選べる。Codex/Claude の単発と Codex バッチは従来の適格性・返送先を維持する。
 - [AWS](cloud-work-aws.md) は Excubitor の登録済み EC2 / Fargate を本人承認で実行する。標準ホストの自動選択と Codex バッチには参加しない。
 
+- 投入の前に、参照先の Actio タスクがその範囲 (リポジトリ・子会社) に実在し、必要なら未完了であることを確かめる (`src/cloud-work/task-authorizer.ts` の `cloudTaskAuthorizer`)。標準ホスト・Colab・AWS の runtime が共有し、読めないタスクストアでは閉じる。
+
 `POST /runs/:id/observe` は提供元の観測を明示要求する。 `POST /runs/:id/reconcile` に ID が無い場合は保存済み証拠を使用する。
 復旧では旧 intent と receipt を保ち、同じ ID で状況を確認する。回収には受領時と同じ構成を使用する。
 実機での受付と回収の検証は運用段階で行う。

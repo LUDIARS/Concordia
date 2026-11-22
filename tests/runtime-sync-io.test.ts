@@ -33,12 +33,16 @@ const ALLOWED: Record<string, { max: number; reason: string }> = {
   "federation/config-cache.ts": { max: 1, reason: "the offline config cache is read once when the site client starts" },
   "processes/manager.ts": { max: 1, reason: "logs dir is created once when the manager is constructed at startup" },
   "shared/log-file-rotation.ts": { max: 6, reason: "logger rotates its file once at module init, before pino opens it" },
+  // B': once per store, right before the synchronous better-sqlite3 open (same as db/index.ts)
+  "cloud-work/aws-journal.ts": { max: 1, reason: "creates the journal directory once when the SQLite journal is first opened" },
+  "cloud-work/colab-journal.ts": { max: 2, reason: "creates the journal directory on first open; recovery checks the file exists before opening it" },
+  "cloud-observation/store.ts": { max: 2, reason: "lstat rejects a symlinked root / DB file once in the constructor, before the SQLite open" },
   // C: CLI / separate worker entry points
   "chat-worker.ts": { max: 2, reason: "worker process loadDotEnv at its own startup" },
   "cost-worker.ts": { max: 2, reason: "worker process loadDotEnv at its own startup" },
   "workflow-worker.ts": { max: 2, reason: "worker process loadDotEnv at its own startup" },
   "drop-obsolete-excubitor.ts": { max: 4, reason: "DB migration CLI script" },
-  "harness/supervisor-cli.ts": { max: 17, reason: "hook supervisor CLI, a short-lived process per hook" },
+  "harness/supervisor-cli.ts": { max: 22, reason: "hook supervisor CLI, a short-lived process per hook" },
   "harness/ddd-evidence.ts": { max: 4, reason: "sync hasDddEvidence is for supervisor-cli; the service uses hasDddEvidenceAsync" },
   "control/inject-source-apply.ts": { max: 2, reason: "inject-source-apply CLI entry point" },
   "developer-tools/migration-preflight/git.ts": { max: 1, reason: "migration-preflight CLI" },

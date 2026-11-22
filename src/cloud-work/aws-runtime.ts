@@ -7,7 +7,7 @@ import { AwsJournal } from "./aws-journal.js";
 import { AwsService } from "./aws-service.js";
 import { DriveCloudArtifacts } from "./drive-artifacts.js";
 import { GoogleOAuthTokens } from "./google-oauth.js";
-import { cloudTaskAuthorizer } from "./runtime.js";
+import { cloudTaskAuthorizer } from "./task-authorizer.js";
 
 export function createAwsRuntime(input: { root: string; tasks: TaskStore; env?: NodeJS.ProcessEnv }): AwsService {
   const env = input.env ?? process.env;

@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mainRepositoryKey } from "../taskflow/repository-identity.js";
 import type { TaskStore } from "../taskflow/store.js";
-import { CloudWorkRuntime, type CloudScope } from "./runtime-service.js";
+import { CloudWorkRuntime } from "./runtime-service.js";
+import { cloudTaskAuthorizer } from "./task-authorizer.js";
 import { CloudBatchKicker } from "./batch-kicker.js";
 import { FileCloudBatchStore, type StoredCloudBatch } from "./batch-store.js";
 import { observeCodexCloudTasks } from "./codex-observer.js";
@@ -36,14 +37,6 @@ export async function preflightCloudTarget(target: CloudTarget, run: PreflightCo
       await run(target.codexExecutable!, ["cloud", "list", "--env", target.environmentId, "--json", "--limit", "1"], target.repoPath);
     } catch { throw new Error("codex_cloud_access_unverified"); }
   }
-}
-
-export function cloudTaskAuthorizer(tasks: TaskStore) {
-  return async (reference: string, scope: CloudScope, requireActive?: boolean): Promise<void> => {
-    if (!tasks.read) throw new Error("cloud_task_store_unavailable");
-    const task = await tasks.read(scope.repositoryKey, reference, scope.subsidiaryId);
-    if (requireActive && ["done", "cancelled"].includes(task.runtime?.status ?? "")) throw new Error("cloud_task_not_active");
-  };
 }
 
 /** Batch fan-out over the same runtime; only Codex Cloud has a supported read-only task listing. */

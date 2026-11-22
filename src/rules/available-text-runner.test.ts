@@ -1,15 +1,25 @@
+// vitest.config.ts は isolate:false なので module registry がファイル間で共有される。
+// 先に別ファイルが本物の依存で読んだ実装が残っていると、この file の vi.mock が効かず
+// 本物の使用量取得や CLI 起動が走る (全体実行でだけ落ちる)。各テストで resetModules して
+// import し直し、この file の mock 実体だけを見るようにする (context-report.test.ts と同じ形)。
 import { beforeEach, expect, it, vi } from "vitest";
-import { collectModelQuotaSnapshot } from "../delegation/model-tier-usage.js";
-import { runClaude } from "./claude-runner.js";
-import { runTextCodex } from "./patrol-codex-runner.js";
-import { oneShotAvailability, runAvailableText } from "./available-text-runner.js";
 
 vi.mock("../delegation/model-tier-usage.js", () => ({ collectModelQuotaSnapshot: vi.fn() }));
 vi.mock("./claude-runner.js", () => ({ runClaude: vi.fn() }));
 vi.mock("./patrol-codex-runner.js", () => ({ runTextCodex: vi.fn() }));
 const snapshot = (quota: import("../delegation/model-tier-policy.js").ModelQuota) => ({ quota, observedAt: { claude: Date.now(), codex: Date.now() } });
 const window = (used: number | null) => ({ used, reset: Math.floor(Date.now() / 1000) + 600 });
-beforeEach(() => {
+let collectModelQuotaSnapshot: typeof import("../delegation/model-tier-usage.js")["collectModelQuotaSnapshot"];
+let runClaude: typeof import("./claude-runner.js")["runClaude"];
+let runTextCodex: typeof import("./patrol-codex-runner.js")["runTextCodex"];
+let oneShotAvailability: typeof import("./available-text-runner.js")["oneShotAvailability"];
+let runAvailableText: typeof import("./available-text-runner.js")["runAvailableText"];
+beforeEach(async () => {
+  vi.resetModules();
+  ({ collectModelQuotaSnapshot } = await import("../delegation/model-tier-usage.js"));
+  ({ runClaude } = await import("./claude-runner.js"));
+  ({ runTextCodex } = await import("./patrol-codex-runner.js"));
+  ({ oneShotAvailability, runAvailableText } = await import("./available-text-runner.js"));
   vi.clearAllMocks();
   vi.mocked(collectModelQuotaSnapshot).mockResolvedValue(snapshot({ claude: [window(100)], codex: [window(20)] }));
   vi.mocked(runTextCodex).mockResolvedValue({ ok: true, stdout: "summary", stderr: "" });

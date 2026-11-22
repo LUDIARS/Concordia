@@ -1189,11 +1189,13 @@ export async function startBackend(): Promise<BackendHandle> {
   const sidecarRecords = new SidecarRecordsRepo(db);
   const modelRoles = new ModelRoleRepo(db,(before,next) => delegationRepo.followRoleModels(before,next));
   seedInitialRoles(modelRoles);
-  // 各サービスが読む role map (Lapilli one-shot)。 失敗しても Cc の起動は止めない。
+  // 各サービスが読む role map (Lapilli one-shot)。 失敗しても Cc の起動・API 応答は止めない。
+  // 書き出しは非同期で、呼び出し側 (役割の変更 API・日次更新) を待たせない。
   const exportRoleMap = (): void => {
+    const failed = (error: unknown): void => { log.warn(`role map export failed: ${error instanceof Error ? error.message : "unknown"}`); };
     try {
-      writeRoleMapFile(defaultRoleMapPath(), buildRoleMap({ roles: modelRoles.list(), catalog: modelCatalog.list(), nowMs: Date.now() }));
-    } catch (error) { log.warn(`role map export failed: ${error instanceof Error ? error.message : "unknown"}`); }
+      void writeRoleMapFile(defaultRoleMapPath(), buildRoleMap({ roles: modelRoles.list(), catalog: modelCatalog.list(), nowMs: Date.now() })).catch(failed);
+    } catch (error) { failed(error); }
   };
   const residentSidecars = {
     residents:new ResidentSidecarRepo(db),runs:delegationRepo,sessions:repo,now:Date.now,

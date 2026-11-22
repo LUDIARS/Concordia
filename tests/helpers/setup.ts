@@ -44,12 +44,16 @@ process.env.CONCORDIA_DISABLE_CLAUDE = "1";
 process.env.CONCORDIA_DELEGATION_DOMAIN_PREAMBLE = "0";
 // Lapilli one-shot は役割名を role map ファイルから解決する (spec/feature/model-role-map.md)。
 // 実機のファイル (%LOCALAPPDATA%\LUDIARS\model-roles.json) に依存させず、 Cc の初期値で作った表を読ませる。
-if (!process.env.CONCORDIA_TEST_ROLE_MAP_FILE) {
+// `@vitest-environment jsdom` の file (web/src の画面テスト) では、この setup の中の node:os / node:fs が
+// ブラウザ向けの空の代用品になり tmpdir() が関数でない。role map を読むのは node 側のコードだけなので、
+// DOM のある環境では作らない (作ろうとすると web の画面テストが setup で全部落ちる)。
+const nodeFileSystem = typeof tmpdir === "function" && typeof mkdtempSync === "function";
+if (!process.env.CONCORDIA_TEST_ROLE_MAP_FILE && nodeFileSystem) {
   const file = join(mkdtempSync(join(tmpdir(), "cc-test-role-map-")), "model-roles.json");
-  writeRoleMapFile(file, buildRoleMap({ roles: [], catalog: [], nowMs: 0 }));
+  await writeRoleMapFile(file, buildRoleMap({ roles: [], catalog: [], nowMs: 0 }));
   process.env.CONCORDIA_TEST_ROLE_MAP_FILE = file;
 }
-process.env.LUDIARS_MODEL_ROLES_FILE = process.env.CONCORDIA_TEST_ROLE_MAP_FILE;
+if (process.env.CONCORDIA_TEST_ROLE_MAP_FILE) process.env.LUDIARS_MODEL_ROLES_FILE = process.env.CONCORDIA_TEST_ROLE_MAP_FILE;
 
 afterEach(() => {
   flushCleanups();

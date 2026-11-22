@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
+// vitest.config.ts は isolate:false なので module registry がファイル間で共有される。
+// 先に別ファイルが本物の依存で読んだ実装が残っていると、この file の vi.mock が効かず
+// 本物の使用量取得や CLI 起動が走る (全体実行でだけ落ちる)。各テストで resetModules して
+// import し直し、この file の mock 実体だけを見るようにする (context-report.test.ts と同じ形)。
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { execFileOneShot } from "@ludiars/one-shot";
-import { readFile, rm, stat } from "node:fs/promises";
-import { patrolCodexArgs, runPatrolCodex, runTextCodex } from "./patrol-codex-runner.js";
-import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
 
 vi.mock("node:fs/promises", () => ({
   mkdtemp: vi.fn(async () => "C:/temp/patrol-owned"),
@@ -18,7 +18,20 @@ vi.mock("../cost/one-shot-recorder.js", () => ({ recordLocalOneShot: vi.fn() }))
 vi.mock("@ludiars/one-shot", () => ({
   resolveModel: vi.fn(() => "gpt-6-luna"), execFileOneShot: vi.fn(),
 }));
-beforeEach(() => {
+let execFileOneShot: typeof import("@ludiars/one-shot")["execFileOneShot"];
+let readFile: typeof import("node:fs/promises")["readFile"];
+let rm: typeof import("node:fs/promises")["rm"];
+let stat: typeof import("node:fs/promises")["stat"];
+let patrolCodexArgs: typeof import("./patrol-codex-runner.js")["patrolCodexArgs"];
+let runPatrolCodex: typeof import("./patrol-codex-runner.js")["runPatrolCodex"];
+let runTextCodex: typeof import("./patrol-codex-runner.js")["runTextCodex"];
+let recordLocalOneShot: typeof import("../cost/one-shot-recorder.js")["recordLocalOneShot"];
+beforeEach(async () => {
+  vi.resetModules();
+  ({ execFileOneShot } = await import("@ludiars/one-shot"));
+  ({ readFile, rm, stat } = await import("node:fs/promises"));
+  ({ patrolCodexArgs, runPatrolCodex, runTextCodex } = await import("./patrol-codex-runner.js"));
+  ({ recordLocalOneShot } = await import("../cost/one-shot-recorder.js"));
   vi.clearAllMocks();
   vi.mocked(stat).mockResolvedValue({ size: 30 } as Awaited<ReturnType<typeof stat>>);
   vi.mocked(execFileOneShot).mockImplementation(((_file: unknown, _args: unknown, _opts: unknown,

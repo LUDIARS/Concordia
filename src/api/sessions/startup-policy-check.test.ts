@@ -176,7 +176,7 @@ it("adds bounded search guidance only after selecting a registered repository", 
     expect(selected.policy.fields.searchCapabilities).toContain("typescript");
     expect(selected.policy.fields.searchCapabilities).toContain("作業先端末の実行可否は未確認");
   } finally { await rm(root, { recursive: true, force: true }); }
-});
+}, 20_000); // 確定したリポジトリでは Cc ホストの検索手段を実際に調べる。全体実行の負荷では既定の 5 秒を超える。
 
 it("discards a resolution when only the work target changed while lookup was pending", async () => {
   const { deps, repo } = fixture();

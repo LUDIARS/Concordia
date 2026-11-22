@@ -72,12 +72,12 @@ describe("role map file", () => {
     expect(defaultRoleMapPath({ XDG_STATE_HOME: "S" }, "darwin", "H")).toBe(join("S", "ludiars", "model-roles.json"));
   });
 
-  it("JSON を書き出し、 読み直せる", () => {
+  it("JSON を書き出し、 読み直せる", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cc-role-map-"));
     try {
       const path = join(dir, "nested", "model-roles.json");
       const map = buildRoleMap({ roles: [], catalog: [], nowMs: 0 });
-      writeRoleMapFile(path, map);
+      await writeRoleMapFile(path, map);
       expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(map);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

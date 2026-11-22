@@ -1,12 +1,25 @@
-import { expect, it, vi } from "vitest";
+// vitest.config.ts は isolate:false なので module registry がファイル間で共有される。
+// 先に別ファイルが本物の依存で読んだ実装が残っていると、この file の vi.mock が効かず
+// 本物の使用量取得や CLI 起動が走る (全体実行でだけ落ちる)。各テストで resetModules して
+// import し直し、この file の mock 実体だけを見るようにする (context-report.test.ts と同じ形)。
+import { beforeEach, expect, it, vi } from "vitest";
 vi.mock("../auth/anthropic-oauth-usage.js", () => ({ fetchClaudeOAuthUsage: vi.fn() }));
 vi.mock("../cost/codex-rate-limits.js", async importOriginal => ({
   ...await importOriginal<typeof import("../cost/codex-rate-limits.js")>(), fetchCodexRateLimits: vi.fn(), codexRateObservationTime: vi.fn(() => 1000),
 }));
-import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
-import { fetchCodexRateLimits, mapRateLimitsToCostRate } from "../cost/codex-rate-limits.js";
-import { collectDelegationModelQuota, collectModelQuotaSnapshot } from "./model-tier-usage.js";
-import { selectDelegationModel } from "./model-tier-policy.js";
+let fetchClaudeOAuthUsage: typeof import("../auth/anthropic-oauth-usage.js")["fetchClaudeOAuthUsage"];
+let fetchCodexRateLimits: typeof import("../cost/codex-rate-limits.js")["fetchCodexRateLimits"];
+let mapRateLimitsToCostRate: typeof import("../cost/codex-rate-limits.js")["mapRateLimitsToCostRate"];
+let collectDelegationModelQuota: typeof import("./model-tier-usage.js")["collectDelegationModelQuota"];
+let collectModelQuotaSnapshot: typeof import("./model-tier-usage.js")["collectModelQuotaSnapshot"];
+let selectDelegationModel: typeof import("./model-tier-policy.js")["selectDelegationModel"];
+beforeEach(async () => {
+  vi.resetModules();
+  ({ fetchClaudeOAuthUsage } = await import("../auth/anthropic-oauth-usage.js"));
+  ({ fetchCodexRateLimits, mapRateLimitsToCostRate } = await import("../cost/codex-rate-limits.js"));
+  ({ collectDelegationModelQuota, collectModelQuotaSnapshot } = await import("./model-tier-usage.js"));
+  ({ selectDelegationModel } = await import("./model-tier-policy.js"));
+});
 it("retains unknown usage rather than inventing availability", async () => {
   vi.mocked(fetchClaudeOAuthUsage).mockResolvedValue(null);
   vi.mocked(fetchCodexRateLimits).mockResolvedValue({ used5h: 100, usedWeekly: 5,

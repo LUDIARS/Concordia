@@ -4,7 +4,7 @@
  * - Windows: %LOCALAPPDATA%\LUDIARS\model-roles.json
  * - それ以外: $XDG_STATE_HOME/ludiars/model-roles.json (既定 ~/.local/state)
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RoleMap } from "./role-map.js";
@@ -20,10 +20,13 @@ export function defaultRoleMapPath(
   return join(env.XDG_STATE_HOME?.trim() || join(home, ".local", "state"), "ludiars", "model-roles.json");
 }
 
-/** 読み手が書きかけを読まないよう、 一時ファイルに書いてから置き換える。 */
-export function writeRoleMapFile(path: string, map: RoleMap): void {
-  mkdirSync(dirname(path), { recursive: true });
+/**
+ * 読み手が書きかけを読まないよう、 一時ファイルに書いてから置き換える。
+ * 役割の変更 API から呼ばれる実行時の経路なので、 ブロックしない I/O で書く (spec/tasks/full-async-io.md)。
+ */
+export async function writeRoleMapFile(path: string, map: RoleMap): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(map, null, 2)}\n`, "utf8");
-  renameSync(temp, path);
+  await writeFile(temp, `${JSON.stringify(map, null, 2)}\n`, "utf8");
+  await rename(temp, path);
 }

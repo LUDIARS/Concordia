@@ -66,6 +66,9 @@
     },
     {
       "pathPattern": "(^|/)vitest\\.config\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)\\.dependency-cruiser\\.cjs$"
     }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",

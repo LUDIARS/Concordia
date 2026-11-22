@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { SettingsStore } from "../admin/settings-store.js";
 import type { TaskStore } from "../taskflow/store.js";
-import { cloudTaskAuthorizer } from "./runtime.js";
+import { cloudTaskAuthorizer } from "./task-authorizer.js";
 import type { CloudWorkRuntime } from "./runtime-service.js";
 import { ColabService } from "./colab-service.js";
 import { ColabJournal } from "./colab-journal.js";

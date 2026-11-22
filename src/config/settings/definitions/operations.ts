@@ -631,6 +631,20 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
     stringPattern: "^\\S{32,}$",
     stringPatternDescription: "空白を含まない 32 文字以上",
   },
+  // Conflux (Cf) へのビルド・統合の通知 (spec/feature/conflux-integration.md)。 起動時に読む。
+  envString("runtime.conflux_url", "runtime", "Conflux のベース URL", "CONFLUX_URL", null,
+    "ビルド・統合の通知を送る Conflux のベース URL。 loopback の HTTP か HTTPS だけ。 URL か鍵 (下の項目) が未設定なら配送は止まる。"),
+  {
+    key: "runtime.conflux_hook_token",
+    section: "runtime",
+    label: "Conflux への通知の鍵",
+    description: "Conflux の /api/hooks/build-events・/api/hooks/integration に Authorization: Bearer で付ける共有鍵 (Conflux 側と同じ値)。 API には実値を返さない。",
+    kind: "secret",
+    envName: "CONFLUX_HOOK_TOKEN",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
   {
     key: "runtime.orbis_vinculum_token",
     section: "runtime",

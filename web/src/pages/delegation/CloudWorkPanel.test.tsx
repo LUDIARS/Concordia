@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Register jest-dom on this file's expect (same as Inbox.test.tsx). The "@testing-library/jest-dom/vitest" entry
+// imports vitest from web/node_modules, which differs from the root runner's vitest.
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import { CloudWorkPanel } from "./CloudWorkPanel.js";
+expect.extend(jestDomMatchers);
 
 vi.mock("../../api.js", () => ({ api: { sessions: vi.fn(async () => ({ sessions: [{ id: "parent", repo_path: "Tokyo2070", status: "active" }] })) } }));
 let fetcher: ReturnType<typeof vi.fn>;

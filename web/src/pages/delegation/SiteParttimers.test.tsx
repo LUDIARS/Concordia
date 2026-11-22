@@ -1,6 +1,11 @@
+// @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Register jest-dom on this file's expect (same as Inbox.test.tsx). The "@testing-library/jest-dom/vitest" entry
+// imports vitest from web/node_modules, which differs from the root runner's vitest.
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import { SiteParttimers } from "./SiteParttimers.js";
+expect.extend(jestDomMatchers);
 
 const state = (exception: boolean | null) => ({
   site: "melpot", default_active: false, default_configured: false,
@@ -28,7 +33,8 @@ describe("拠点のパートタイマー (SPEC-DELEGATION-SITE-CATEGORY-DEFAULTS
     render(<SiteParttimers />);
     expect(await screen.findByText("メール監視")).toBeInTheDocument();
     expect(screen.getByLabelText("拠点 ID")).toHaveValue("melpot");
-    expect(screen.getByText("オフ")).toBeInTheDocument();
+    // 「この拠点の既定」の表示。個別設定の選択肢 (<option>オフ</option>) とは分けて見る。
+    expect(screen.getByText("オフ", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("動かない")).toBeInTheDocument();
   });
 

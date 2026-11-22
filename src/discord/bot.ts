@@ -10,6 +10,8 @@ import type { DiscordChatRelayService } from "../discord-chat-relay/relay-servic
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
 import { startManagementDiscord, type ManagementDiscord } from "./management.js";
 import { ensureBountyReportChannel } from "./bounty-report-channel.js";
+import { createMuseInstructionsPoster, ensureMuseInstructionsChannel } from "./muse-instructions-channel.js";
+import type { InstructionEventListener } from "../agent-instructions/instruction-events.js";
 import { startSprintDialogues, type SprintDialoguesDiscord } from "./sprint-dialogues.js";
 import { startDailyGoalDiscord, type DailyGoalDiscord } from "./daily-goal-discord.js";
 import type { DailyGoalSurfacePort } from "../daily-goal-run/surface-port.js";
@@ -409,6 +411,8 @@ export interface DiscordBotDeps {
   dailyGoals?: DailyGoalSurfacePort;
   /** 管制チャンネルの受付と、管制の巡回へ Discord 面を差し込む口 (本社 Bot だけ。spec/feature/control-session.md)。 */
   controlSession?: ControlChannelPort & { attachChannel(surface: ControlChannelSurface | null): void };
+  /** 指令ブリッジの出来事を「muse-指令」チャンネルへ流す口 (本社 Bot だけ。spec/feature/agent-instructions-bridge.md CC-INST-INV-08)。 */
+  agentInstructionEvents?: { attach(listener: InstructionEventListener | null): void };
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -1275,6 +1279,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     controlChannelDiscord?.stop();
     controlChannelDiscord = null;
     deps.controlSession?.attachChannel(null);
+    deps.agentInstructionEvents?.attach(null);
     phaseTitleSync?.stop();
     phaseTitleSync = null;
     for (const timer of backgroundTimers) clearTimeout(timer);
@@ -1373,6 +1378,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // バグ報告はカテゴリを持たないチャンネル (2026-10-14 neco 指示「バグ報告はトップレベルで良い」)。
         await ensureBountyReportChannel({ guild, config: configRepo, log })
           .catch((error) => log.warn(`bounty report channel unavailable: ${String(error)}`));
+        // 指令ブリッジの指令と回答を見る場所 (2026-11-23 neco 指示)。 カテゴリを持たないチャンネル。
+        if (deps.agentInstructionEvents) {
+          await ensureMuseInstructionsChannel({ guild, config: configRepo, log })
+            .then((channel) => deps.agentInstructionEvents?.attach(createMuseInstructionsPoster(channel)))
+            .catch((error) => log.warn(`muse instructions channel unavailable: ${String(error)}`));
+        }
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
       const teams = teamsRepo.listForSubsidiary(subsidiaryId);

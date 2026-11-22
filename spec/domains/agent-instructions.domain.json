@@ -1,12 +1,15 @@
 {
   "name": "agent-instructions",
-  "description": "inbound を受けられない外部エージェント (Muse) 宛ての指令を Cc の SQLite に積み、HTTP ポーリングで渡して ack と結果を受ける。公開は Cloudflare Tunnel 経由で、Muse 用の口はヘッダー x-excubitor-token の専用の鍵 1 本で受ける (定数時間比較、未設定なら公開経由は全部 401)。登録と状態確認は loopback のみ。",
+  "description": "inbound を受けられない外部エージェント (Muse / dots) 宛ての指令を Cc の SQLite に積み、HTTP ポーリングで渡して ack と結果を受ける。公開は Cloudflare Tunnel 経由で、Muse 用の口はヘッダー x-excubitor-token の専用の鍵 1 本で受ける (定数時間比較、未設定なら公開経由は全部 401)。登録と状態確認は loopback のみ。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/agent-instructions/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/agent-instructions(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/agent-instructions-repo\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/muse-instructions-channel(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/MuseInstructions(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/pages/muse-instructions/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)spec/feature/agent-instructions-bridge\\.md$" }
   ],
   "cardTemplate": "Describe the strict intake, the allowlisted agents and types, the pending/acked/done/failed transitions with idempotent ack/result, the 30 minute redelivery sweep and the public-access gate (a single x-excubitor-token intake key compared in constant time through the tunnel, closed while unset, registration loopback only).",

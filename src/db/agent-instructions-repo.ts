@@ -28,6 +28,8 @@ export interface AgentInstructionRow {
 
 export type NewAgentInstruction = Pick<AgentInstructionRow, "id" | "agent" | "type" | "title" | "body" | "params" | "created_at">;
 
+export type RequeuedInstruction = Pick<AgentInstructionRow, "id" | "agent" | "title">;
+
 export interface AgentInstructionStore {
   insert(row: NewAgentInstruction): void;
   find(id: string): AgentInstructionRow | null;
@@ -36,8 +38,10 @@ export interface AgentInstructionStore {
   markAcked(id: string, ackedAt: string): boolean;
   /** pending / acked → done / failed。 pending からなら acked_at も同時に入れる。 遷移できたら true。 */
   markFinished(id: string, update: { status: FinalStatus; finishedAt: string; summary: string; detail: string | null }): boolean;
-  /** acked_at が cutoff より前の acked を pending に戻す。 戻した件数。 */
-  requeueAckedBefore(cutoff: string): number;
+  /** 新しい順の一覧 (人が見る用)。 agent / status は省略で全部。 */
+  listRecent(filter: { agent?: string | undefined; status?: InstructionStatus | undefined; limit: number }): AgentInstructionRow[];
+  /** acked_at が cutoff より前の acked を pending に戻す。 戻した指令。 */
+  requeueAckedBefore(cutoff: string): RequeuedInstruction[];
   /** finished_at が cutoff より前の done / failed を消す。 消した件数。 */
   purgeFinishedBefore(cutoff: string): number;
 }
@@ -79,6 +83,15 @@ export class SqliteAgentInstructionStore implements AgentInstructionStore {
     `).all(agent, status, limit) as AgentInstructionRow[];
   }
 
+  listRecent(filter: { agent?: string | undefined; status?: InstructionStatus | undefined; limit: number }): AgentInstructionRow[] {
+    return this.db.prepare(`
+      SELECT * FROM agent_instructions
+       WHERE (@agent IS NULL OR agent = @agent) AND (@status IS NULL OR status = @status)
+       ORDER BY created_at DESC, id DESC
+       LIMIT @limit
+    `).all({ agent: filter.agent ?? null, status: filter.status ?? null, limit: filter.limit }) as AgentInstructionRow[];
+  }
+
   markAcked(id: string, ackedAt: string): boolean {
     const result = this.db.prepare(`
       UPDATE agent_instructions SET status = 'acked', acked_at = ?
@@ -97,12 +110,12 @@ export class SqliteAgentInstructionStore implements AgentInstructionStore {
     return result.changes === 1;
   }
 
-  requeueAckedBefore(cutoff: string): number {
-    const result = this.db.prepare(`
+  requeueAckedBefore(cutoff: string): RequeuedInstruction[] {
+    return this.db.prepare(`
       UPDATE agent_instructions SET status = 'pending', acked_at = NULL
        WHERE status = 'acked' AND acked_at < ?
-    `).run(cutoff);
-    return Number(result.changes ?? 0);
+       RETURNING id, agent, title
+    `).all(cutoff) as RequeuedInstruction[];
   }
 
   purgeFinishedBefore(cutoff: string): number {

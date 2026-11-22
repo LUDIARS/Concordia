@@ -1,11 +1,11 @@
 ---
 type: feature
 title: "外部エージェント向け HTTP ポーリング指令ブリッジ"
-description: "inbound を受けられない外部エージェント (Muse) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel + Access のサービストークン単一ヘッダー (Authorization) + 同じ値の鍵 1 本 (x-excubitor-token も可)、登録は loopback のみ。"
+description: "inbound を受けられない外部エージェント (Muse / dots) が Cc に積まれた指令をポーリングで受け取り、ack と結果を返す。公開は Cloudflare Tunnel + Access のサービストークン単一ヘッダー (Authorization) + 同じ値の鍵 1 本 (x-excubitor-token も可)、登録は loopback のみ。"
 service: concordia
 domain: agent-instructions
 status: implemented
-updated: 2026-11-22
+updated: 2026-11-23
 tags:
   - muse
   - external-agent
@@ -33,7 +33,10 @@ Muse のカスタムコネクタは 1 要求に秘密 1 つまでしか送れな
 ## 業務用語と状態の所有者
 
 - **指令 (instruction)**: 宛先エージェント 1 つに渡すタスク。所有者は Cc の `agent_instructions` (migration 150)。
-- **宛先 (agent)**: 許可リスト `muse` のみ。
+- **宛先 (agent)**: 許可リスト `muse` / `dots`。宛先は AI の種類の識別子を兼ね、poll / ack / result は `agent` で名乗る。
+  2026-11-23 neco 指示「dotsも同じ路線でやる。AIのタイプ認識用にtypeか何かのパラメータを用意する」で `dots` を追加。
+  公開経由の鍵は全宛先で 1 つ (`agent_instructions.intake_token`) を共用する (同日 neco 指示「鍵は1つでいい」)。宛先の取り違えは、
+  名乗った `agent` と指令の宛先が違う ack / result を 404 にすることで防ぐ (他の宛先の指令は見えない)。
 - **type**: 許可リスト `notify_only` (通知だけ) / `run_task` (タスク依頼) / `status_query` (状態の問い合わせ) / `playtest` ([マージ後の再試遊](merge-playtest-return.md))。増やすときは指示書の改訂として扱う。
 - **状態**: `pending` → `acked` → `done` / `failed`。`done` / `failed` は終端。
 
@@ -50,12 +53,15 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | ID | 内容 | 実装 |
 |---|---|---|
 | CC-INST-INV-01 | 全 POST は固定スキーマ。未知の項目・型違い・文字数 / バイト数超過は 400。エラーは `{error:{code,message}}` で message に直し方を書く | `src/agent-instructions/instruction-requests.ts` |
-| CC-INST-INV-02 | 宛先と type は許可リストのみ (`muse` / `notify_only`・`run_task`・`status_query`・`playtest`)。外れたら登録時に 400 | `src/agent-instructions/instruction-policy.ts` |
+| CC-INST-INV-02 | 宛先と type は許可リストのみ (`muse`・`dots` / `notify_only`・`run_task`・`status_query`・`playtest`)。外れたら登録時に 400 | `src/agent-instructions/instruction-policy.ts` |
 | CC-INST-INV-03 | ack は `pending` を `acked` にして 202、`acked` への再送は 200 `duplicate: true`、終端は 409、無い ID は 404 | `instruction-policy.ts` `decideAck` |
 | CC-INST-INV-04 | result は `pending` / `acked` を終端にして 202 `{delivered:true, failed:false}`。同一結果 (status・要約・詳細。詳細はキー順を無視) の再送は 200 `duplicate: true`、違う結果は 409 | `instruction-policy.ts` `decideResult` |
 | CC-INST-INV-05 | `acked` のまま 30 分 result が無い指令は `pending` に戻り再配信される。終端は再配信しない。終端は 90 日で削除 | `instruction-service.ts` / `src/sweeper.ts` |
 | CC-INST-INV-06 | 公開経由 (公開ホスト宛て、または Cloudflare Tunnel 由来ヘッダー付き) の poll / ack / result は、鍵の候補 (ヘッダー `x-excubitor-token`、無ければ `Authorization`。`x-excubitor-token` があればそれだけで判定し、値は前後の空白以外加工しない) が専用の鍵 (設定 `agent_instructions.intake_token`) と定数時間比較で一致したものだけ通す。欠落・不一致は本文を読む前に 401 (warn ログに理由だけ、値は出さない)。鍵が未設定・復号できないときは公開経由を全部 401 | `src/agent-instructions/instruction-token.ts` / `public-access.ts` |
-| CC-INST-INV-07 | 登録 (`POST /v1/instructions`) と状態確認 (`GET /v1/instructions/:id`) は loopback のみ。公開経由は鍵の有無に関係なく 403 (Muse に指令の自己登録をさせない) | `src/api/agent-instructions.ts` |
+| CC-INST-INV-07 | 登録 (`POST /v1/instructions`)・状態確認 (`GET /v1/instructions/:id`)・一覧 (`GET /v1/instructions/history`) は loopback のみ。公開経由は鍵の有無に関係なく 403 (Muse に指令の自己登録をさせない・他の指令を覗かせない) | `src/api/agent-instructions.ts` |
+| CC-INST-INV-08 | 指令の出来事 (登録・受領・回答・30 分での再配信) は「muse-指令」チャンネルへ後追い・best-effort で流す。投稿の失敗 (同期の throw も非同期の reject も) は warn ログだけで、登録・ack・result・再配信は失敗させない。受け手が未接続の間の出来事は溜めずに捨てる | `src/agent-instructions/instruction-events.ts` / `instruction-service.ts` |
+| CC-INST-INV-09 | チャンネルへ出す題・本文・回答は信頼できない入力として扱い、mention (`@everyone` / `@here` / `<@…>`) とリンクの自動展開を無効化し、送信側でも `allowedMentions` を空にする。回答の詳細のコードブロックは閉じさせない。鍵・秘密は載せない | `src/agent-instructions/instruction-posts.ts` / `src/discord/muse-instructions-channel.ts` |
+| CC-INST-INV-10 | 一覧は Muse 向けの poll と別の口にし、poll の意味 (agent 必須・status 省略時 `pending`・古い順・limit 1〜20) は変えない | `src/agent-instructions/instruction-requests.ts` `parseHistoryQuery` |
 
 ## 口 (`src/api/agent-instructions.ts`)
 
@@ -67,6 +73,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | `GET /v1/instructions?agent=muse&status=pending&limit=10` | Muse | 鍵が一致したときのみ | 200 `{data:{instructions:[{id,type,title,body,params,createdAt}]}}` (古い順、0 件は空配列) |
 | `POST /v1/instructions/:id/ack` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{duplicate, data:{instruction:{id,status,ackedAt}}}` |
 | `POST /v1/instructions/:id/result` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{delivered:true, failed:false, duplicate, data:{instruction:{id,status,finishedAt}}}` |
+| `GET /v1/instructions/history?agent=&status=&limit=50` | 自宅側 (Web の「Muse 指令」) | 403 | 200 `{data:{instructions:[{id,agent,type,title,status,createdAt,ackedAt,finishedAt,resultSummary,body,params,resultDetail}]}}` (新しい順。`agent` / `status` は省略で全部、`limit` 1〜100・省略時 50。範囲外は 400) |
 | `GET /v1/instructions/:id` | 自宅側 | 403 | 200 `{data:{instruction:{id,agent,type,title,status,createdAt,ackedAt,finishedAt,resultSummary}}}` |
 
 本文 (strict):
@@ -77,7 +84,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | ack | `agent` のみ |
 | result | `agent`、`status` (`done` / `failed`)、`summary` 1〜400 文字 (保存は 2000 文字で切り詰め)、`detail` 省略可 (JSON オブジェクト、16000 バイト以内) |
 
-query: `agent` 必須、`status` は 4 状態のどれか (省略時 `pending`)、`limit` は 1〜20 の整数 (省略時 10)。範囲外は 400。
+poll の query: `agent` 必須、`status` は 4 状態のどれか (省略時 `pending`)、`limit` は 1〜20 の整数 (省略時 10)。範囲外は 400。
 
 指令 ID: `inst:<agent>:<YYYYMMDDTHHMMSSZ>:<6 桁 hex>`。形が違う ID は 404。時刻は秒精度の ISO 8601 UTC。
 
@@ -112,6 +119,34 @@ LOCAL トンネル → Excubitor 入口 → Cc へ)。Cloudflare Access は必�
 5. 外から確かめる: 鍵なし 401 (Access で止まれば 403)、鍵ありの poll 200、`POST /v1/instructions` は 403。
 6. ローテーション: サービストークンを入れ替えたら、Cc の鍵・Muse のコネクタ・Ingenium の設定を同時に直す (どれか 1 つでも古いと 401)。
 
+## 指令チャンネルと Web の画面
+
+2026-11-23 neco 指示「Museへの指令を見れる場所と、回答を記録するチャンネルを用意する」。人が「出した指令」と「回答」を見る場所。どちらも表示だけで、ここから指令は出せない (登録は `POST /v1/instructions`)。
+
+### Discord「muse-指令」チャンネル (`src/discord/muse-instructions-channel.ts`)
+
+- 本社 Bot だけが、本社 guild のトップレベル (カテゴリ外) に用意する。保存済み id (discord config `muse_instructions_channel_id`) → 同名のテキストチャンネル → 無ければ作成、の順で探し、カテゴリに入っていれば外へ出す (バグ報告チャンネルと同じ作り)。子会社 Bot には口を渡さない (子会社の停止で本社の投稿先を外させない)。
+- 投稿 (`src/agent-instructions/instruction-posts.ts` の純関数で組み立てる):
+
+| 出来事 | 投稿 |
+|---|---|
+| 登録 (`POST /v1/instructions` 成功、マージ後の再試遊の自動登録も含む) | 「指令を出しました」id・宛先・type・作成時刻・題・本文の要約 (先頭 300 文字、引用) |
+| ack | 登録の投稿への返信で「<宛先> が受け取りました」 |
+| result | 登録の投稿への返信で「<宛先> の回答」status (`done` ✅ / `failed` ❌)・題・要約・詳細 (JSON を整形し 1500 文字までのコードブロック) |
+| 30 分で `pending` へ戻った | 登録の投稿への返信で 1 行 |
+
+- 返信先は登録の投稿 (直近 500 件をメモリで覚える)。覚えていない (Cc の再起動を跨いだ等) ときは同じチャンネルへ id 付きで投稿する。元の投稿が消えていても失敗にしない (`failIfNotExists: false`)。
+- 投稿は 1 件 1900 文字以内。失敗は CC-INST-INV-08 のとおり warn だけ。
+
+### Web の「Muse 指令」(`web/src/pages/MuseInstructions.tsx`)
+
+- ナビ「運用」の「Muse 指令」(`/muse-instructions`)。`GET /v1/instructions/history` を 15 秒ごとに読み、表 (宛先・id・種類・題・状態・作成/受領/完了時刻・回答の要約) で出す。宛先 (muse / dots) と状態で絞れる。
+- 行を開くと本文・params・回答の要約と詳細。
+- 一覧は loopback のみなので、公開ホスト経由で開くと「自宅側からだけ開けます」と出る。
+
+`web/src/pages/MuseInstructions.tsx` / `web/src/pages/muse-instructions/history-api.ts` / `web/src/App.tsx`: 画面・一覧の読み出し・導線。
+`src/discord/muse-instructions-channel.ts` / `src/agent-instructions/instruction-posts.ts` / `src/agent-instructions/instruction-events.ts`: チャンネル・投稿文・出来事の中継。
+
 ## 復旧
 
 - 結果が分からない ack / result は同じ内容で再送してよい (冪等)。登録は冪等キーを持たないので、`GET` で積まれていないか確かめてから送り直す。
@@ -121,4 +156,8 @@ LOCAL トンネル → Excubitor 入口 → Cc へ)。Cloudflare Access は必�
 
 - `src/api/agent-instructions.test.ts`: 指示書 §6-2〜7 を Hono の要求で再現 (実 DB。公開経由はトンネル由来ヘッダーと鍵の有無で再現)。
 - `src/agent-instructions/*.test.ts`: 判定・要求の形・use case・鍵の判定・入口判定・結線。`tests/sweeper.test.ts`: sweeper からの掃除。
+- `src/agent-instructions/instruction-events.test.ts`: 出来事の送出と、受け手が throw / reject しても登録・ack・result が成功すること (CC-INST-INV-08)、一覧の並びと絞り込み。
+- `src/agent-instructions/instruction-posts.test.ts`: 投稿文の組み立てと無害化・上限 (CC-INST-INV-09)。`src/discord/muse-instructions-channel.test.ts`: チャンネルの用意と返信先。
+- `src/api/agent-instructions.test.ts`: 一覧が loopback 限定 (公開経由は鍵があっても 403)、poll の互換、dots の poll / ack / result (共用の鍵、宛先違いは 404)。`web/src/pages/MuseInstructions.test.tsx`: 画面。
+- 未実施: Discord 実機での投稿確認と稼働中 Cc への反映 (再起動が要る。親セッションが行う)。
 - 未実施: 公開ホスト経由の実機確認 (§6-6〜8)。公開ルート・Access のサービストークン設定・鍵の生成と稼働中 Cc への反映は人間の許可が要る (上の手順)。

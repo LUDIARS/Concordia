@@ -125,6 +125,7 @@
     { "glob": "web/src/pages/delegation/*", "layer": "presentation" },
     { "glob": "web/src/pages/manuals/*", "layer": "presentation" },
     { "glob": "web/src/pages/monitor/*", "layer": "presentation" },
+    { "glob": "web/src/pages/muse-instructions/*", "layer": "presentation" },
     { "glob": "web/src/pages/prs/*", "layer": "presentation" },
     { "glob": "web/src/pages/session-chat/*", "layer": "presentation" },
     { "glob": "web/src/pages/session-detail/*", "layer": "presentation" },

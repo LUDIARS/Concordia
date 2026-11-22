@@ -7,8 +7,12 @@
 
 import { randomBytes } from "node:crypto";
 
-/** 宛先エージェントの許可リスト。 増やすときは指示書の改訂として扱う (CC-INST-INV-02)。 */
-export const INSTRUCTION_AGENTS = ["muse"] as const;
+/**
+ * 宛先エージェントの許可リスト。 宛先は AI の種類の識別子を兼ね、 poll / ack / result は `agent` で名乗る。
+ * 公開経由の鍵は全宛先で 1 つを共用する (CC-INST-INV-06)。 増やすときは指示書の改訂として扱う (CC-INST-INV-02)。
+ * 2026-11-23 neco 指示「dotsも同じ路線でやる。AIのタイプ認識用にtypeか何かのパラメータを用意する」で dots を追加。
+ */
+export const INSTRUCTION_AGENTS = ["muse", "dots"] as const;
 export type InstructionAgent = (typeof INSTRUCTION_AGENTS)[number];
 
 /** 指令 type の許可リスト (指示書 §3.3)。 */
@@ -29,6 +33,9 @@ export const INSTRUCTION_LIMITS = {
   pollDefault: 10,
   pollMin: 1,
   pollMax: 20,
+  historyDefault: 50,
+  historyMin: 1,
+  historyMax: 100,
 } as const;
 
 /** acked のまま result が来ないとき、 pending に戻すまでの時間 (指示書 §3.4)。 */

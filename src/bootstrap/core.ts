@@ -1960,6 +1960,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // 外部エージェント (Muse) 向けの指令ブリッジ (spec/feature/agent-instructions-bridge.md)。
   // 公開経由の鍵は設定 > 実行環境で人間が入れ、 schema_meta に secret-box で暗号化して置く (API は値を返さない)。
   // 要求ごとに読むので差し替えは再起動なしで効く。 復号できなければ throw → 全部断る。
+  // 鍵は全宛先 (muse / dots) で共用する (2026-11-23 neco 指示「鍵は1つでいい」)。
   const agentInstructions = createAgentInstructionsRuntime(db, process.env, () => adminState.store.get(INSTRUCTION_INTAKE_TOKEN_SETTING));
   const sweeper = startSweeper({
     repo,
@@ -2366,6 +2367,7 @@ export async function startBackend(): Promise<BackendHandle> {
       handleChannelPost: (post) => controlRuntime.handleChannelPost(post),
       attachChannel: (surface) => controlRuntime.attachChannel(surface),
     },
+    agentInstructionEvents: { attach: agentInstructions.attachEvents },
     backlogAdmission: createBacklogAdmission(excubitorClient, () => readActioChatSecret(process.env)),
     db,
     onHumanReturn: notifyHumanReturn,
@@ -2553,6 +2555,8 @@ export async function startBackend(): Promise<BackendHandle> {
         subsidiary: _sub,
         onRuntimeState: _state,
         onHumanReturn: _humanReturn,
+        // 指令チャンネルは本社 Bot だけが持つ。 子会社の停止で本社の投稿先を外させない。
+        agentInstructionEvents: _instructionEvents,
         ...base
       } = discordBotDeps!;
       return base;

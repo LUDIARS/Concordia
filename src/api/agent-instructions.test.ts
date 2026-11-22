@@ -209,3 +209,65 @@ describe("/v1/instructions (spec/feature/agent-instructions-bridge.md)", () => {
     expect((await get("/v1/instructions/x/y/z", tunnel(null))).status).toBe(401);
   });
 });
+
+const register = async (json: ReturnType<typeof setup>["json"], body: Record<string, unknown>) => {
+  const { data } = await (await json("POST", "/v1/instructions", body)).json() as { data: { instruction: { id: string } } };
+  return data.instruction.id;
+};
+
+describe("/v1/instructions/history (一覧の口、 loopback のみ)", () => {
+  it("lists newest first with body and result, filters by agent / status, and keeps poll unchanged", async () => {
+    const { json, get, advance } = setup();
+    const first = await register(json, instruction);
+    advance(1000);
+    const second = await register(json, { ...instruction, agent: "dots", title: "dots の件" });
+    await json("POST", `/v1/instructions/${first}/result`, { agent: "muse", status: "done", summary: "済み", detail: { b: 1 } });
+
+    const listed = await get("/v1/instructions/history?limit=50");
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    const { data } = await listed.json() as { data: { instructions: Array<Record<string, unknown>> } };
+    expect(data.instructions.map((item) => item.id)).toEqual([second, first]);
+    expect(data.instructions[1]).toMatchObject({
+      agent: "muse", status: "done", body: "Muse に実行させたい内容", resultSummary: "済み", resultDetail: { b: 1 }, params: {},
+    });
+    const onlyDots = await (await get("/v1/instructions/history?agent=dots")).json() as { data: { instructions: Array<{ id: string }> } };
+    expect(onlyDots.data.instructions.map((item) => item.id)).toEqual([second]);
+    const onlyDone = await (await get("/v1/instructions/history?status=done")).json() as { data: { instructions: Array<{ id: string }> } };
+    expect(onlyDone.data.instructions.map((item) => item.id)).toEqual([first]);
+    expect((await get("/v1/instructions/history?agent=nobody")).status).toBe(400);
+    expect((await get("/v1/instructions/history?limit=101")).status).toBe(400);
+
+    // 既存の poll は意味を変えない (agent 必須、 status 省略時 pending、 古い順)。
+    expect((await get("/v1/instructions")).status).toBe(400);
+    const polled = await (await get("/v1/instructions?agent=muse")).json() as { data: { instructions: unknown[] } };
+    expect(polled.data.instructions).toEqual([]);
+    const dotsPoll = await (await get("/v1/instructions?agent=dots")).json() as { data: { instructions: Array<{ id: string }> } };
+    expect(dotsPoll.data.instructions.map((item) => item.id)).toEqual([second]);
+  });
+
+  it("is 403 through the tunnel even with a valid key", async () => {
+    const { get, tunnel } = setup();
+    const denied = await get("/v1/instructions/history", tunnel(KEY));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ error: { code: "local_only" } });
+    expect((await get("/v1/instructions/history?agent=muse", tunnel(null))).status).toBe(403);
+  });
+});
+
+describe("宛先 dots (鍵は muse と共用、 宛先は agent で名乗る)", () => {
+  it("serves dots through the tunnel with the same single key, and keeps each agent's instructions apart", async () => {
+    const { json, get, tunnel } = setup();
+    const dots = await register(json, { ...instruction, agent: "dots" });
+    const muse = await register(json, instruction);
+    const dotsPoll = await (await get("/v1/instructions?agent=dots", tunnel(KEY))).json() as { data: { instructions: Array<{ id: string }> } };
+    expect(dotsPoll.data.instructions.map((item) => item.id)).toEqual([dots]);
+    const musePoll = await (await get("/v1/instructions?agent=muse", tunnel(KEY))).json() as { data: { instructions: Array<{ id: string }> } };
+    expect(musePoll.data.instructions.map((item) => item.id)).toEqual([muse]);
+    expect((await get("/v1/instructions?agent=dots", tunnel("wrong"))).status).toBe(401);
+    // 名乗った agent が指令の宛先と違えば 404 (他の宛先の指令は ack / result できない)。
+    expect((await json("POST", `/v1/instructions/${dots}/ack`, { agent: "muse" }, tunnel(KEY))).status).toBe(404);
+    expect((await json("POST", `/v1/instructions/${dots}/ack`, { agent: "dots" }, tunnel(KEY))).status).toBe(202);
+    expect((await json("POST", `/v1/instructions/${dots}/result`, { agent: "dots", status: "done", summary: "x" }, tunnel(KEY))).status).toBe(202);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAck, parsePollQuery, parseRegister, parseResult } from "./instruction-requests.js";
+import { parseAck, parseHistoryQuery, parsePollQuery, parseRegister, parseResult } from "./instruction-requests.js";
 
 const register = { agent: "muse", type: "run_task", title: "件名", body: "本文", params: { k: 1 } };
 
@@ -59,5 +59,21 @@ describe("instruction requests (CC-INST-INV-01)", () => {
     expect(parsePollQuery(q({ agent: "other" })).ok).toBe(false);
     expect(parsePollQuery(q({ agent: "muse", status: "lost" })).ok).toBe(false);
     for (const limit of ["0", "21", "-1", "1.5", "abc", ""]) expect(parsePollQuery(q({ agent: "muse", limit })).ok).toBe(false);
+  });
+
+  it("parses history queries: agent / status optional (dots も可), limit 1..100 (default 50)", () => {
+    const q = (values: Record<string, string>) => (name: string) => values[name];
+    expect(parseHistoryQuery(q({}))).toEqual({ ok: true, value: { agent: undefined, status: undefined, limit: 50 } });
+    expect(parseHistoryQuery(q({ agent: "dots", status: "done", limit: "100" }))).toEqual({ ok: true, value: { agent: "dots", status: "done", limit: 100 } });
+    expect(parseHistoryQuery(q({ agent: "", status: "" }))).toEqual({ ok: true, value: { agent: undefined, status: undefined, limit: 50 } });
+    expect(parseHistoryQuery(q({ agent: "other" })).ok).toBe(false);
+    expect(parseHistoryQuery(q({ status: "lost" })).ok).toBe(false);
+    for (const limit of ["0", "101", "-1", "abc"]) expect(parseHistoryQuery(q({ limit })).ok).toBe(false);
+  });
+
+  it("accepts dots as an agent everywhere muse is accepted", () => {
+    expect(parseRegister({ agent: "dots", type: "notify_only", title: "t", body: "b" }).ok).toBe(true);
+    expect(parseAck({ agent: "dots" })).toEqual({ ok: true, value: { agent: "dots" } });
+    expect(parsePollQuery((name) => (name === "agent" ? "dots" : undefined))).toEqual({ ok: true, value: { agent: "dots", status: "pending", limit: 10 } });
   });
 });

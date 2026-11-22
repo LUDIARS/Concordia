@@ -6,10 +6,11 @@
  *   GET  /v1/instructions            ポーリング (公開経由は専用の鍵 x-excubitor-token か Authorization が要る)
  *   POST /v1/instructions/:id/ack    受領確認 (同上)
  *   POST /v1/instructions/:id/result 結果報告 (同上)
+ *   GET  /v1/instructions/history    一覧 (loopback のみ。新しい順、 agent / status で絞る。 Web の「Muse 指令」)
  *   GET  /v1/instructions/:id        状態確認 (loopback のみ)
  *
  * 公開ホストの SSO と応答キャッシュより前に登録する (buildApp)。 ここで返した応答は後続へ進まない。
- * 公開経由の鍵は本文を読む前に確かめる (欠落・不一致・鍵の未設定は 401)。 エラーは `{ error: { code, message } }`。
+ * 公開経由の鍵は本文を読む前に確かめる (欠落・不一致・鍵の未設定は 401)。 鍵は全宛先 (muse / dots) で共用し、 宛先は `agent` で名乗る。 エラーは `{ error: { code, message } }`。
  *
  * @implements spec/feature/agent-instructions-bridge.md — 受け口
  */
@@ -18,7 +19,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { InstructionAccessGate } from "../agent-instructions/public-access.js";
 import { INSTRUCTION_ID_PATTERN } from "../agent-instructions/instruction-policy.js";
-import { parseAck, parsePollQuery, parseRegister, parseResult, type RequestError } from "../agent-instructions/instruction-requests.js";
+import { parseAck, parseHistoryQuery, parsePollQuery, parseRegister, parseResult, type RequestError } from "../agent-instructions/instruction-requests.js";
 import type { InstructionService } from "../agent-instructions/instruction-service.js";
 
 export const AGENT_INSTRUCTIONS_PATH = "/v1/instructions";
@@ -134,6 +135,14 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
       duplicate,
       data: { instruction: { id, status: outcome.status, finishedAt: outcome.finishedAt } },
     }, duplicate ? 200 : 202);
+  });
+
+  // `/:id` より前に置く ("history" は指令 ID の形ではないが、 順序で取り違えを防ぐ)。
+  app.get("/history", localOnly, (c) => {
+    const parsed = parseHistoryQuery((name) => c.req.query(name));
+    if (!parsed.ok) return fail(c, 400, parsed.error);
+    const instructions = deps.service.history(parsed.value);
+    return c.json({ data: { instructions } }, 200);
   });
 
   app.get("/:id", localOnly, (c) => {

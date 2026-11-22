@@ -10,6 +10,7 @@ import type { AgentInstructionsDeps } from "../api/agent-instructions.js";
 import { SqliteAgentInstructionStore } from "../db/agent-instructions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { readInstructionAccessConfig } from "./access-config.js";
+import { createInstructionEventRelay, type InstructionEventListener } from "./instruction-events.js";
 import { InstructionService } from "./instruction-service.js";
 import { readInstructionIntakeToken } from "./instruction-token.js";
 import { createInstructionAccessGate } from "./public-access.js";
@@ -17,6 +18,8 @@ import { createInstructionAccessGate } from "./public-access.js";
 export interface AgentInstructionsRuntime {
   routes: AgentInstructionsDeps;
   sweep: () => void;
+  /** 出来事の受け手 (Discord の「muse-指令」チャンネル) を差し込む。 null で外す (CC-INST-INV-08)。 */
+  attachEvents: (listener: InstructionEventListener | null) => void;
   museEvidence: () => ReturnType<SqliteAgentInstructionStore["evidence"]> & { configured: boolean };
 }
 
@@ -31,7 +34,8 @@ export function createAgentInstructionsRuntime(
   if (config.problem) log.warn({ problem: config.problem }, "agent-instructions public host is ignored; tunnel headers still mark public requests");
   log.info({ publicHost: config.publicHost }, "agent-instructions public requests require the x-excubitor-token intake key");
   const store = new SqliteAgentInstructionStore(db);
-  const service = new InstructionService({ store });
+  const events = createInstructionEventRelay({ warn: (detail, message) => log.warn(detail, message) });
+  const service = new InstructionService({ store, events: (event) => events.emit(event) });
   const token = () => readInstructionIntakeToken(readIntakeToken);
   return {
     routes: {
@@ -39,6 +43,7 @@ export function createAgentInstructionsRuntime(
       access: createInstructionAccessGate({ publicHost: config.publicHost, readToken: token }),
       log: { info: (detail, message) => log.info(detail, message), warn: (detail, message) => log.warn(detail, message) },
     },
+    attachEvents: (listener) => events.attach(listener),
     museEvidence: () => ({ configured: token().kind === "set", ...store.evidence("muse") }),
     sweep: () => {
       const { requeued, purged } = service.sweep();

@@ -7,6 +7,7 @@
  */
 
 import type { AgentInstructionRow, AgentInstructionStore } from "../db/agent-instructions-repo.js";
+import type { InstructionEvent } from "./instruction-events.js";
 import {
   canonicalJson,
   decideAck,
@@ -58,6 +59,19 @@ export interface InstructionState {
   resultSummary: string | null;
 }
 
+/** 人が見る一覧の 1 行 (Web の「Muse 指令」)。 本文と回答の詳細も含む。 */
+export interface InstructionRecord extends InstructionState {
+  body: string;
+  params: unknown;
+  resultDetail: unknown;
+}
+
+export interface HistoryFilter {
+  agent?: InstructionAgent | undefined;
+  status?: InstructionStatus | undefined;
+  limit: number;
+}
+
 export type AckOutcome =
   | { kind: "accepted" | "duplicate"; id: string; status: "acked"; ackedAt: string }
   | { kind: "conflict"; status: InstructionStatus }
@@ -72,6 +86,8 @@ export interface InstructionServiceDeps {
   store: AgentInstructionStore;
   now?: () => Date;
   randomSuffix?: () => string;
+  /** 出来事の受け手 (「muse-指令」チャンネル)。 後追い・best-effort で、 失敗しても遷移は失敗させない (CC-INST-INV-08)。 */
+  events?: (event: InstructionEvent) => void;
 }
 
 function parseJson(raw: string | null): unknown {
@@ -107,6 +123,7 @@ export class InstructionService {
         id, agent: input.agent, type: input.type, title: input.title, body: input.body,
         params: JSON.stringify(input.params), created_at: createdAt,
       });
+      this.emit({ kind: "registered", id, agent: input.agent, type: input.type, title: input.title, body: input.body, createdAt });
       return { id, status: "pending", createdAt };
     }
   }
@@ -127,6 +144,7 @@ export class InstructionService {
     if (decision === "duplicate") return { kind: "duplicate", id, status: "acked", ackedAt: row.acked_at ?? "" };
     const ackedAt = isoSeconds(this.now());
     if (!this.deps.store.markAcked(id, ackedAt)) return this.ackAfterRace(id, agent);
+    this.emit({ kind: "acked", id, agent, title: row.title, ackedAt });
     return { kind: "accepted", id, status: "acked", ackedAt };
   }
 
@@ -145,12 +163,24 @@ export class InstructionService {
     if (!this.deps.store.markFinished(id, { status: input.status, finishedAt, summary: incoming.summary, detail: incoming.detail })) {
       return this.reportAfterRace(id, input);
     }
+    this.emit({
+      kind: "finished", id, agent: input.agent, title: row.title, status: input.status,
+      summary: incoming.summary, detail: incoming.detail, finishedAt,
+    });
     return { kind: "accepted", id, status: input.status, finishedAt };
   }
 
   get(id: string): InstructionState | null {
     const row = this.deps.store.find(id);
     return row ? toState(row) : null;
+  }
+
+  /** 新しい順の一覧 (loopback の Web 画面用)。 再配信への戻しを先に済ませ、 見えている状態を poll と揃える。 */
+  history(filter: HistoryFilter): InstructionRecord[] {
+    this.requeueStale();
+    return this.deps.store.listRecent(filter).map((row) => ({
+      ...toState(row), body: row.body, params: parseJson(row.params) ?? {}, resultDetail: parseJson(row.result_detail),
+    }));
   }
 
   /** sweeper の周期で呼ぶ。 再配信への戻しと、 90 日を過ぎた終端の削除。 */
@@ -161,7 +191,14 @@ export class InstructionService {
   }
 
   private requeueStale(): number {
-    return this.deps.store.requeueAckedBefore(redeliveryCutoff(this.now()));
+    const requeued = this.deps.store.requeueAckedBefore(redeliveryCutoff(this.now()));
+    for (const row of requeued) this.emit({ kind: "requeued", id: row.id, agent: row.agent, title: row.title });
+    return requeued.length;
+  }
+
+  /** 受け手の失敗は遷移へ持ち込まない。 */
+  private emit(event: InstructionEvent): void {
+    try { this.deps.events?.(event); } catch { /* 受け手側で warn する。 ここでは握りつぶして遷移を守る */ }
   }
 
   /** 条件付き UPDATE が外れた = 判定の後に別の要求が遷移させた。 今の状態で判定し直す (1 回だけ)。 */

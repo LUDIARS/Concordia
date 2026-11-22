@@ -130,3 +130,38 @@ export function parsePollQuery(query: (name: string) => string | undefined): Par
   }
   return { ok: true, value: { agent: rawAgent as InstructionAgent, status: rawStatus as InstructionStatus, limit } };
 }
+
+export interface HistoryQuery {
+  agent?: InstructionAgent | undefined;
+  status?: InstructionStatus | undefined;
+  limit: number;
+}
+
+/**
+ * 一覧 (GET /v1/instructions/history) の query。 agent / status は省略で全部、 limit は 1〜100 (省略時 50)。
+ * Muse 向けの poll (agent 必須・status 省略時 pending) とは別の口なので、 poll の意味は変えない。
+ */
+export function parseHistoryQuery(query: (name: string) => string | undefined): Parsed<HistoryQuery> {
+  const rawAgent = query("agent");
+  if (rawAgent !== undefined && rawAgent !== "" && !(INSTRUCTION_AGENTS as readonly string[]).includes(rawAgent)) {
+    return { ok: false, error: { code: "invalid_field", message: `agent は ${INSTRUCTION_AGENTS.join(" / ")} のどれかにしてください (省略時は全部)` } };
+  }
+  const rawStatus = query("status");
+  if (rawStatus !== undefined && rawStatus !== "" && !(INSTRUCTION_STATUSES as readonly string[]).includes(rawStatus)) {
+    return { ok: false, error: { code: "invalid_field", message: `status は ${INSTRUCTION_STATUSES.join(" / ")} のどれかにしてください (省略時は全部)` } };
+  }
+  const rawLimit = query("limit");
+  const { historyMin, historyMax, historyDefault } = INSTRUCTION_LIMITS;
+  const limit = rawLimit === undefined || rawLimit === "" ? historyDefault : /^\d{1,3}$/.test(rawLimit) ? Number(rawLimit) : Number.NaN;
+  if (!Number.isInteger(limit) || limit < historyMin || limit > historyMax) {
+    return { ok: false, error: { code: "invalid_field", message: `limit は ${historyMin}〜${historyMax} の整数にしてください (省略時は ${historyDefault})` } };
+  }
+  return {
+    ok: true,
+    value: {
+      agent: rawAgent ? rawAgent as InstructionAgent : undefined,
+      status: rawStatus ? rawStatus as InstructionStatus : undefined,
+      limit,
+    },
+  };
+}

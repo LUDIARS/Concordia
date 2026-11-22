@@ -11,6 +11,7 @@ import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
 import { SessionLogs } from "./pages/SessionLogs.js";
 import { WsCleanup } from "./pages/WsCleanup.js";
+import { MuseInstructions } from "./pages/MuseInstructions.js";
 import { Library } from "./pages/Library.js";
 import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
@@ -60,6 +61,7 @@ const NAV: NavItem[] = [
   { to: "/ws-cleanup", label: "整理", section: "運用" },
   { to: "/library", label: "記憶整理", section: "運用" },
   { to: "/federation", label: "拠点", section: "運用" },
+  { to: "/muse-instructions", label: "Muse 指令", section: "運用" },
   { to: "/rules", label: "ルール", section: "運用" },
   { to: "/projects", label: "プロジェクト", section: "設定" },
   { to: "/skills", label: "Skills", section: "設定" },
@@ -119,6 +121,7 @@ export function App() {
           <Route path="/staff" element={<Staff />} />
           <Route path="/subsidiaries" element={<Subsidiaries />} />
           <Route path="/federation" element={<Federation />} />
+          <Route path="/muse-instructions" element={<MuseInstructions />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/projects" element={<ProjectCodes />} />
           <Route path="/setup" element={<Setup />} />

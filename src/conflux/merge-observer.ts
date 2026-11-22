@@ -32,7 +32,7 @@ export function createMergeObserver(deps: {
     const key = mergeObservationKey(project.code, pr.id, pr.mergeCommitSha);
     const status = deps.service.observe(key, {
       project_code: project.code, merge_commit_sha: pr.mergeCommitSha, branch: pr.baseRef,
-    });
+    }, pr.repository);
     if (status) {
       const reason = status === "breaker_open" ? deps.repository.find(key)?.reason : null;
       deps.report(`Revisor merge return observed: ${project.code} ${status}${reason ? ` (${reason})` : ""}`);

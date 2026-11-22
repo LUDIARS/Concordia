@@ -11,10 +11,12 @@ import type { RevisorLocalPr } from "../pr/revisor-local-pr-types.js";
 import { ConfluxRepository } from "./repository.js";
 import { ConfluxRequests } from "./requests.js";
 import { startConfluxWorker } from "./worker.js";
+import { readConfluxConfig } from "./config.js";
+import { mergeReturnBuildMode } from "./merge-return-repository.js";
 
 const target = { project_code: "Cc", merge_commit_sha: "a".repeat(40), branch: "main" };
 
-function makeFixture() {
+function makeFixture(options: { canBuild?: boolean } = {}) {
   const db = makeTestDb();
   const buildRepo = new ConfluxRepository(db);
   const returnRepo = new MergeReturnRepository(db);
@@ -24,9 +26,10 @@ function makeFixture() {
     postAlert: async () => true, sessionLink: () => null,
   });
   const service = (register: InstructionService["register"] = (input) => instructions.register(input)) => new MergeReturnService(returnRepo, {
-    settings: (project) => project === "Cc" ? { platforms: ["windows"], agent: "muse" } : undefined,
+    settings: (project) => project === "Cc" ? { platforms: ["windows"], agent: "muse", build: true }
+      : project === "Ai" ? { platforms: ["mac"], agent: "muse", build: false } : undefined,
     breaker: () => breaker.snapshot(),
-    requests: new ConfluxRequests(buildRepo, { canSpawn: () => null, launch: async () => false, canBuild: () => true }),
+    requests: new ConfluxRequests(buildRepo, { canSpawn: () => null, launch: async () => false, canBuild: () => options.canBuild ?? true }),
     instructions: { register },
   });
   return { buildRepo, returnRepo, instructions, breaker, service };
@@ -107,4 +110,46 @@ it("discovers new registered project merges and does not replay older PRs after 
   expect(listMerges.mock.calls).toEqual([[since], [since]]);
   expect(pullRequest.mock.calls).toEqual([["new"]]);
   expect(returnRepo.recent()).toEqual([expect.objectContaining({ ...target, status: "queued" })]);
+});
+
+const agentTarget = { project_code: "Ai", merge_commit_sha: "c".repeat(40), branch: "main" };
+
+it("queues only the Muse instruction for build:false projects without requiring a Conflux build runner", () => {
+  const { buildRepo, returnRepo, instructions, service } = makeFixture({ canBuild: false });
+  expect(service().observe("one", agentTarget, "LUDIARS/Amicii")).toBe("queued");
+  expect(service().observe("two", agentTarget, "LUDIARS/Amicii")).toBe("duplicate");
+  expect(buildRepo.claimBuild()).toBeUndefined();
+  const pending = instructions.poll("muse", "pending", 10);
+  expect(pending).toEqual([expect.objectContaining({
+    type: "playtest",
+    params: { ...agentTarget, repository: "LUDIARS/Amicii", dedupe_key: `merge-return:Ai:${agentTarget.merge_commit_sha}`, build: "agent" },
+  })]);
+  expect(pending[0].body).toContain("自分の環境で取得・ビルドしてから遊び");
+  const [duplicate, queued] = returnRepo.recent();
+  expect(queued).toMatchObject({ status: "queued", build_key: null, instruction_id: pending[0].id });
+  expect([mergeReturnBuildMode(queued), mergeReturnBuildMode(duplicate)]).toEqual(["agent", null]);
+});
+
+it("skips both the build and the instruction for build:false projects while the breaker is open", () => {
+  const { buildRepo, returnRepo, instructions, breaker, service } = makeFixture({ canBuild: false });
+  breaker.trip(null);
+  expect(service().observe("one", agentTarget, "LUDIARS/Amicii")).toBe("breaker_open");
+  expect(returnRepo.recent()).toEqual([expect.objectContaining({ status: "breaker_open", reason: "manual" })]);
+  expect(buildRepo.claimBuild()).toBeUndefined();
+  expect(instructions.poll("muse", "pending", 10)).toEqual([]);
+});
+
+it("keeps requiring a build runner when build is left at its default", () => {
+  const { returnRepo, instructions, service } = makeFixture({ canBuild: false });
+  expect(service().observe("one", target, "LUDIARS/Concordia")).toBe("build_rejected");
+  expect(returnRepo.recent()).toEqual([expect.objectContaining({ status: "build_rejected", reason: "build_not_enabled" })]);
+  expect(instructions.poll("muse", "pending", 10)).toEqual([]);
+  expect(mergeReturnBuildMode({ status: "queued", build_key: "merge-return:Cc:x" })).toBe("conflux");
+});
+
+it("validates the build flag of CONCORDIA_MERGE_PLAYTEST_RETURN and defaults it to true", () => {
+  const env = (value: unknown) => ({ CONCORDIA_MERGE_PLAYTEST_RETURN: JSON.stringify(value) });
+  expect(readConfluxConfig(env({ Cc: { platforms: ["windows"] }, Ai: { platforms: ["mac"], agent: "muse", build: false } })).mergeReturns)
+    .toEqual({ Cc: { platforms: ["windows"], agent: "muse", build: true }, Ai: { platforms: ["mac"], agent: "muse", build: false } });
+  expect(() => readConfluxConfig(env({ Ai: { platforms: ["mac"], build: "no" } }))).toThrow("Invalid CONCORDIA_MERGE_PLAYTEST_RETURN");
 });

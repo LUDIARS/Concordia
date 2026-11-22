@@ -89,6 +89,8 @@ services:
       # この Host 宛てとトンネル経由の poll / ack / result は専用の鍵 (設定 agent_instructions.intake_token) が要る。
       # 鍵は Authorization か x-excubitor-token で受ける。Access はサービストークンを Authorization から読む (neco 2026-11-22)。
       CONCORDIA_INSTRUCTIONS_PUBLIC_HOST: cc-playtest.ai-run-do.com
+      # マージ後の再試遊 (CC-RET-INV-05)。Amicii は Muse が iMac で GitHub から取得してビルドするので Conflux ビルドを依頼しない (neco 2026-11-23)。
+      CONCORDIA_MERGE_PLAYTEST_RETURN: '{"Ai":{"platforms":["mac"],"agent":"muse","build":false}}'
       CONCORDIA_REDIS_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_READ_TIMEOUT_MS: "8"
       CONCORDIA_REDIS_WRITE_TIMEOUT_MS: "500"

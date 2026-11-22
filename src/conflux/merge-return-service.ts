@@ -1,5 +1,6 @@
 import type { InstructionAgent } from "../agent-instructions/instruction-policy.js";
 import type { InstructionService } from "../agent-instructions/instruction-service.js";
+import { mergeReturnInstruction } from "./merge-return-instruction.js";
 import { decideMergeReturn, mergeReturnKey, type MergeReturnTarget } from "./merge-return-policy.js";
 import type { MergeReturnRepository, MergeReturnStatus } from "./merge-return-repository.js";
 import type { ConfluxRequests } from "./requests.js";
@@ -7,6 +8,8 @@ import type { ConfluxRequests } from "./requests.js";
 export interface MergeReturnConfig {
   platforms: string[];
   agent: InstructionAgent;
+  /** false: the agent builds the commit itself and no Conflux build is queued. */
+  build: boolean;
 }
 
 export class MergeReturnService {
@@ -18,7 +21,7 @@ export class MergeReturnService {
     now?: () => number;
   }) {}
 
-  observe(observationKey: string, target: MergeReturnTarget): MergeReturnStatus | null {
+  observe(observationKey: string, target: MergeReturnTarget, repository?: string): MergeReturnStatus | null {
     return this.repo.transaction(() => {
       if (this.repo.find(observationKey)) return null;
       const settings = this.deps.settings(target.project_code);
@@ -35,19 +38,22 @@ export class MergeReturnService {
       }
 
       const dedupeKey = mergeReturnKey(target);
-      const build = this.deps.requests.buildForMerge({ ...target, dedupe_key: dedupeKey, platforms: settings.platforms });
-      if ("error" in build) {
-        this.repo.insert({ ...base, status: "build_rejected", reason: build.error });
-        return "build_rejected";
+      if (settings.build) {
+        const build = this.deps.requests.buildForMerge({ ...target, dedupe_key: dedupeKey, platforms: settings.platforms });
+        if ("error" in build) {
+          this.repo.insert({ ...base, status: "build_rejected", reason: build.error });
+          return "build_rejected";
+        }
       }
       const instruction = this.deps.instructions.register({
         agent: settings.agent,
         type: "playtest",
-        title: `${target.project_code} マージ後の再試遊`,
-        body: `マージされたコミット ${target.merge_commit_sha} を再試遊し、結果を報告してください。試遊に新しいビルドが必要な場合は、ビルド結果を確認してから実行してください。`,
-        params: { ...target, dedupe_key: dedupeKey },
+        ...mergeReturnInstruction(target, dedupeKey, settings.build, repository ?? null),
       });
-      this.repo.insert({ ...base, status: "queued", reason: null, build_key: dedupeKey, instruction_id: instruction.id });
+      // build_key stays null for agent builds; the control API reads that as build_mode "agent".
+      this.repo.insert({
+        ...base, status: "queued", reason: null, build_key: settings.build ? dedupeKey : null, instruction_id: instruction.id,
+      });
       return "queued";
     });
   }

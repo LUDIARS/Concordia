@@ -6,6 +6,7 @@
     { "source": "src/conflux/merge-return-policy.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": ["gen5-return-C-3"] },
     { "source": "src/conflux/merge-return-repository.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": [] },
     { "source": "src/conflux/merge-return-service.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": [] },
+    { "source": "src/conflux/merge-return-instruction.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": ["gen5-return-C-4"] },
     { "source": "src/control-session/external-bridge-status.ts", "tests": ["src/control-session/external-bridge-status.test.ts"], "contracts": ["gen5-return-C-2"] },
     { "source": "src/db/gen5-merge-return-migration.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": [] },
     { "source": "src/playtest-review/delivery-evidence.ts", "tests": ["src/control-session/external-bridge-status.test.ts"], "contracts": [] },

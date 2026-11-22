@@ -27,6 +27,8 @@ const builds = z.record(z.string().refine(isAbsolute));
 const mergeReturns = z.record(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/), z.object({
   platforms: z.array(z.string().min(1).max(100)).min(1).max(32),
   agent: z.enum(INSTRUCTION_AGENTS).default("muse"),
+  // false: the agent fetches and builds the merge commit itself; Concordia queues no Conflux build.
+  build: z.boolean().default(true),
 }).strict());
 
 export function readConfluxConfig(env: NodeJS.ProcessEnv) {

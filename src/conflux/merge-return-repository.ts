@@ -11,6 +11,12 @@ export interface MergeReturnRecord extends MergeReturnTarget {
   observed_at: number;
 }
 
+/** "conflux": a Conflux build was queued; "agent": the agent builds it; null: nothing was dispatched. */
+export function mergeReturnBuildMode(record: Pick<MergeReturnRecord, "status" | "build_key">): "conflux" | "agent" | null {
+  if (record.status !== "queued") return null;
+  return record.build_key ? "conflux" : "agent";
+}
+
 export class MergeReturnRepository {
   constructor(private readonly db: Database) {}
 

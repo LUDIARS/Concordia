@@ -10,7 +10,7 @@ import { readConfluxConfig } from "./config.js";
 import { confluxIdentity } from "./identity.js";
 import { confluxProject, createConfluxLaunch } from "./launch.js";
 import { createMergeObserver } from "./merge-observer.js";
-import { MergeReturnRepository } from "./merge-return-repository.js";
+import { MergeReturnRepository, mergeReturnBuildMode } from "./merge-return-repository.js";
 import { MergeReturnService } from "./merge-return-service.js";
 import { ConfluxRepository } from "./repository.js";
 import { ConfluxRequests } from "./requests.js";
@@ -40,8 +40,8 @@ export function createConfluxRuntime(deps: Omit<LaunchDeps, "destinations"> & {
   const mergeReturns = new MergeReturnService(mergeReturnRepo, {
     settings: (code) => {
       if (!Object.hasOwn(config.mergeReturns, code)) return undefined;
-      const { platforms, agent = "muse" } = config.mergeReturns[code];
-      return { platforms, agent };
+      const { platforms, agent = "muse", build = true } = config.mergeReturns[code];
+      return { platforms, agent, build };
     },
     breaker: deps.breaker,
     requests: requestService,
@@ -80,7 +80,9 @@ export function createConfluxRuntime(deps: Omit<LaunchDeps, "destinations"> & {
     },
     hookEvidence: () => ({ configured: config.hook !== null, ...repo.hookEvidence() }),
     recentMergeReturns: () => mergeReturnRepo.recent().map((record) => ({
-      ...record, build_status: record.build_key ? repo.buildStatus(record.build_key) : null,
+      ...record,
+      build_mode: mergeReturnBuildMode(record),
+      build_status: record.build_key ? repo.buildStatus(record.build_key) : null,
     })),
     stop: worker.stop,
   };

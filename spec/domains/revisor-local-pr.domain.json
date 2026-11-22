@@ -41,6 +41,9 @@
       "pathPattern": "(^|/)src/pr/revisor-(http|repository-open-prs|listing-overlay|branch-lookup)(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/pr/settled-local-pr-cache(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/revisor-(endpoint|catalog-port)(\\.test)?\\.ts$"
     },
     {

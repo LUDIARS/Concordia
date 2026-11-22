@@ -10,6 +10,7 @@ import {
   type RevisorBranchLookupSource,
 } from "./revisor-branch-lookup.js";
 import type { RevisorLocalPr } from "./revisor-local-pr-types.js";
+import { SettledLocalPrCache } from "./settled-local-pr-cache.js";
 
 export type { RevisorLocalPr } from "./revisor-local-pr-types.js";
 
@@ -96,6 +97,8 @@ interface RevisorClientOptions {
   timeoutMs?: number;
   /** マージだけの上限。 未指定なら `DEFAULT_MERGE_TIMEOUT_MS`。 */
   mergeTimeoutMs?: number;
+  /** 決着済み PR の単一取得の覚え (CC-RV-SETTLED-CACHE-01)。未指定なら既定の TTL・件数で作る。 */
+  settledPrCache?: SettledLocalPrCache;
 }
 
 export class RevisorClient
@@ -106,6 +109,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly mergeTimeoutMs: number;
+  private readonly settledPrCache: SettledLocalPrCache;
 
   constructor(options: RevisorClientOptions) {
     // 読み取り (local PR 一覧) に token は要らない — Revisor は loopback からの GET に
@@ -115,6 +119,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.mergeTimeoutMs = options.mergeTimeoutMs ?? DEFAULT_MERGE_TIMEOUT_MS;
+    this.settledPrCache = options.settledPrCache ?? new SettledLocalPrCache();
   }
 
   /**
@@ -205,7 +210,8 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
       listOpenLocalPrs: async () => (await this.fetchListing(port, "?state=open", this.timeoutMs)).flatMap(toLocalPr),
       listLocalPrSummaries: async () =>
         (await this.fetchListing(port, "?view=summary&state=all", SUMMARY_LIST_TIMEOUT_MS)).flatMap(toLocalPr),
-      getLocalPrDetail: async (id) => {
+      // 単一取得は 1 件で約 25 MB ある。決着済みは変わらないので覚えた写しを返す (CC-RV-SETTLED-CACHE-01)。
+      getLocalPrDetail: (id) => this.settledPrCache.get(id, async () => {
         const body = await requestRevisorJson({
           fetchImpl: this.fetchImpl,
           url: `http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}`,
@@ -218,7 +224,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
         const row = toLocalPr((body as { pullRequest?: unknown }).pullRequest)[0];
         if (!row) throw new RevisorRequestError("Revisor returned an invalid local PR", "invalid_response");
         return row;
-      },
+      }),
     };
   }
 

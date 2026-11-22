@@ -242,6 +242,7 @@ none の 2 値しか取らない。
 - `src/pr/revisor-catalog-port.ts` — Revisor catalog fragment の宣言ポート読み取り
 - `src/pr/revisor-listing-overlay.ts` — 一覧の組み立て (要約一覧に open の詳細を重ねる、#2263 の方式)
 - `src/pr/revisor-branch-lookup.ts` — (リポジトリ, ブランチ) からの PR 照合 (決着済みを含む)
+- `src/pr/settled-local-pr-cache.ts` — 決着済み PR の単一取得結果の覚え (CC-RV-SETTLED-CACHE-01)
 - `src/pr/local-pr-submission.ts` — 判定 (純関数) と提出の実行
 - `src/pr/session-task-pr-content.ts` — worktree の task md 読み取りと PR 用セクション生成
 - `src/pr/branch-commits.ts` — `base..branch` のコミット件名読み取り (読み取り専用 git、
@@ -315,6 +316,23 @@ Callers without a repository (session PR operations, GitHub tracker) keep the de
 - 一覧表示 (`GET /v1/prs/revisor`、`/rv-prs` ダイジェスト、test forum のマージ操作) は #2263 の方式のまま (`overlayOpenDetails`)。決着済みの行は要約なので headRef / sessionId が空になる。test forum のマージ操作は id・repository・number・status だけで対象を決めるので影響しない。マージ確認 (`isAlreadyMerged`) は単一取得 (CC-RV-TARGET-01) のまま。
 - ブランチで PR を引く goal-machine の照合 (`findSessionLocalPr`) は `RevisorLocalPrReader.findLocalPrByBranch` を使う。open の詳細一覧で一致を探し、無ければ要約一覧から同じリポジトリの決着済み PR を新しい順に最大 10 件選び、単一取得で headRef を照合する。上限より古い決着済み PR は照合しない (照合したいのは直近に終わった作業の PR)。読めなかったときは「PR 無し」ではなく `RevisorLookupUnavailable`。
 - 取得失敗は `RevisorRequestError.reason` で `timeout` / `unreachable` / `http_error` / `invalid_response` に分ける (`src/pr/revisor-http.ts`)。打ち切りは自前の期限フラグで判定し、AbortError の種類だけで timeout と断定しない。`GET /v1/prs/revisor` は `error` に加えて `error_reason` を返す (分類できない失敗は null)。エラー応答のメッセージは従来の `<label> failed (<status>)` 形を保ち、応答喪失の照合判定 (`isInconclusiveSubmissionError`) は従来どおり働く。
+
+復旧: この変更の revert。Revisor 側の API は変更しない。
+
+## CC-RV-SETTLED-CACHE-01: 決着済み PR の単一取得を取り直さない
+
+価値 UX-CC-W1: 巡回と照合が Revisor の審査レポートの大きさで Concordia を重くしない。
+
+背景 (2026-11-22 実測): `GET /v1/local-prs/:id` は審査レポートを含み 1 件約 25 MB。管制の分類・子セッションの片付け・追従確認が巡回のたびにセッションごとに `findLocalPrByBranch` / `findLocalPrBySession` を呼び、同じ決着済み PR を最大 10 件ずつ取り直していた。60 秒で 86 回・約 2.2 GB を受け取り、JSON 解析が主スレッドの CPU の約 4 割を占めていた。
+
+規則 (`src/pr/settled-local-pr-cache.ts`、`RevisorClient` が 1 個持つ):
+
+- 単一取得 (`getLocalPrDetail`、照合の 2 段目を含む) の結果のうち、要求した id と一致し status が `merged` / `closed` のものだけを、応答から写し取った `RevisorLocalPr` として id ごとに覚える。次からはその写しを返し、Revisor へ取りに行かない。
+- open など決着していない PR、見つからなかった結果 (null)、読み取りの失敗は覚えない。失敗はそのまま投げる (CC-RV-LIST-SCOPE-01 の「読めないことを PR 無しにしない」を保つ)。
+- 決着後の取り直しに備えて、覚えた値は 30 分で捨てる。件数は 500 件までで、古いものから捨てる。同じ id を同時に読む呼び出しは 1 本の読み取りを共有する。
+- 返す値は写しで、呼び出し側が書き換えても覚えた値は変わらない。
+- 一覧 (`state=open` の詳細、`view=summary&state=all` の要約) は覚えない。直前に決着した PR を見落とさないため。
+- マージ確認の単一取得 (`getLocalPr`、CC-RV-TARGET-01) は覚えない。
 
 復旧: この変更の revert。Revisor 側の API は変更しない。
 

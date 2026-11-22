@@ -382,6 +382,54 @@ describe("RevisorClient", () => {
     expect(fetchImpl).not.toHaveBeenCalledWith("http://127.0.0.1:4240/v1/local-prs", expect.anything());
   });
 
+  // CC-RV-SETTLED-CACHE-01: 決着済み PR の単一取得 (1 件約 25 MB) は巡回ごとに取り直さない。
+  it("reads each settled PR detail once across repeated branch and session lookups", async () => {
+    const details: Record<string, Record<string, unknown>> = {
+      "lpr-merged": { id: "lpr-merged", number: 8, repository: "LUDIARS/Concordia", status: "merged", headRef: "feat/x", sessionId: "s-x" },
+      "lpr-closed": { id: "lpr-closed", number: 7, repository: "LUDIARS/Concordia", status: "closed", headRef: "feat/y", sessionId: "s-y" },
+    };
+    const fetchImpl = vi.fn(async (url: unknown) => {
+      const path = String(url).replace("http://127.0.0.1:4240", "");
+      if (path === "/v1/local-prs?state=open") return new Response(JSON.stringify({ pullRequests: [] }), { status: 200 });
+      if (path === "/v1/local-prs?view=summary&state=all") {
+        return new Response(JSON.stringify({ pullRequests: [
+          { id: "lpr-merged", number: 8, repository: "LUDIARS/Concordia", status: "merged", updatedAt: "2026-10-02T00:00:00Z" },
+          { id: "lpr-closed", number: 7, repository: "LUDIARS/Concordia", status: "closed", updatedAt: "2026-10-01T00:00:00Z" },
+        ] }), { status: 200 });
+      }
+      const id = path.replace("/v1/local-prs/", "");
+      if (details[id]) return new Response(JSON.stringify({ pullRequest: details[id] }), { status: 200 });
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+    });
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+    for (let round = 0; round < 3; round++) {
+      expect(await client.findLocalPrByBranch("LUDIARS/Concordia", "feat/y")).toMatchObject({ id: "lpr-closed" });
+      expect(await client.findLocalPrBySession("LUDIARS/Concordia", "s-x")).toMatchObject({ id: "lpr-merged" });
+      expect(await client.findLocalPrByBranch("LUDIARS/Concordia", "feat/none")).toBeNull();
+    }
+    const detailReads = fetchImpl.mock.calls.map(([url]) => String(url)).filter((url) => /\/v1\/local-prs\/lpr-/.test(url));
+    expect(detailReads.sort()).toEqual([
+      "http://127.0.0.1:4240/v1/local-prs/lpr-closed",
+      "http://127.0.0.1:4240/v1/local-prs/lpr-merged",
+    ]);
+  });
+
+  it("keeps re-reading a PR detail that is not settled", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ pullRequest: {
+      id: "lpr-open", number: 9, repository: "LUDIARS/Concordia", status: "open", headRef: "feat/z",
+    } }), { status: 200 }));
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+    await client.getLocalPrDetail("lpr-open");
+    await client.getLocalPrDetail("lpr-open");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("classifies a timed-out listing as timeout", async () => {
     const client = new RevisorClient({
       excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },

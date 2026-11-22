@@ -4248,6 +4248,8 @@
         "CC-RV-LIST-SCOPE-01"
       ]
     },
+    {"source":"src/pr/settled-local-pr-cache.ts","tests":["src/pr/settled-local-pr-cache.test.ts","src/pr/revisor-client.test.ts"],"contracts":["CC-RV-SETTLED-CACHE-01"]},
+    {"source":"src/pr/revisor-client.ts","tests":["src/pr/revisor-client.test.ts"],"contracts":["CC-RV-SETTLED-CACHE-01"]},
     {
       "source": "src/pr/ontime-runtime.ts",
       "tests": [

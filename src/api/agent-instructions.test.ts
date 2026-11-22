@@ -141,6 +141,29 @@ describe("/v1/instructions (spec/feature/agent-instructions-bridge.md)", () => {
     expect(JSON.stringify(warnings)).not.toContain("wrong");
   });
 
+  it("§6-6: the key also works through Authorization (CF Access single-header service token)", async () => {
+    const { get, tunnel, warnings } = setup();
+    const viaAuth = (value: string, extra: Record<string, string> = {}) =>
+      get("/v1/instructions?agent=muse", { ...tunnel(null), authorization: value, ...extra });
+    expect((await viaAuth(KEY)).status).toBe(200);
+    expect((await viaAuth(` ${KEY} `)).status).toBe(200);
+    expect((await viaAuth("wrong-auth")).status).toBe(401);
+    expect((await viaAuth(`Bearer ${KEY}`)).status).toBe(401);
+    // x-excubitor-token があればそれだけで判定する。
+    expect((await viaAuth(KEY, { "x-excubitor-token": "wrong-primary" })).status).toBe(401);
+    expect((await viaAuth("wrong-auth", { "x-excubitor-token": KEY })).status).toBe(200);
+    expect((await get("/v1/instructions?agent=muse", tunnel(null))).status).toBe(401);
+    // warn に Authorization の中身も鍵も出ない。
+    expect(JSON.stringify(warnings)).not.toContain(KEY);
+    expect(JSON.stringify(warnings)).not.toContain("wrong-auth");
+    expect(JSON.stringify(warnings)).not.toContain("wrong-primary");
+  });
+
+  it("§6-6: Authorization alone is rejected while the key is unset", async () => {
+    const { get, tunnel } = setup({ key: null });
+    expect((await get("/v1/instructions?agent=muse", { ...tunnel(null), authorization: KEY })).status).toBe(401);
+  });
+
   it("§6-6: ack and result work through the tunnel with the key, and the key is checked before the body", async () => {
     const { json, tunnel } = setup();
     const { data } = await (await json("POST", "/v1/instructions", instruction)).json() as { data: { instruction: { id: string } } };

@@ -188,6 +188,31 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: null,
     editable: false,
   },
+  // Conflux (Cf) への合流通知の hook (src/conflux/config.ts)。 URL とトークンの両方があるときだけ通知する。
+  {
+    key: "workflow.conflux_url",
+    section: "workflow",
+    label: "Conflux の接続先",
+    description:
+      "合流・ビルド通知を送る Conflux の base URL。 https、 または loopback の http だけ受ける (それ以外は起動時に拒否)。"
+      + " Conflux のトークンと両方あるときだけ通知する。 変更には再起動が要る。",
+    kind: "string",
+    envName: "CONFLUX_URL",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
+  {
+    key: "workflow.conflux_hook_token",
+    section: "workflow",
+    label: "Conflux の hook トークン",
+    description: "Conflux の hook を呼ぶときのトークン。 Conflux の接続先と両方あるときだけ通知する。 API には実値を返さない。 変更には再起動が要る。",
+    kind: "secret",
+    envName: "CONFLUX_HOOK_TOKEN",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
 ] as const;
 
 export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
@@ -612,14 +637,18 @@ export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
   envString("runtime.instructions_public_host", "runtime", "指令ブリッジの公開ホスト", "CONCORDIA_INSTRUCTIONS_PUBLIC_HOST", null,
     "/v1/instructions を Cloudflare Tunnel で公開するホスト名。 この Host 宛てとトンネル経由の要求は専用の鍵 (下の項目) を必須にし、 登録と状態確認は拒否する。"),
   // 公開経由の Muse 用の口 (poll / ack / result) 専用の鍵 (spec/feature/agent-instructions-bridge.md — 公開経由の鍵)。
-  // Muse のコネクタは 1 要求に秘密 1 つまでなので、 CF Access のサービストークン (2 ヘッダー) ではなくこれ 1 本で受ける。
+  // Muse のコネクタは 1 要求に秘密 1 つまでなので、 CF Access のサービストークンを単一ヘッダー (Authorization) で通し、 同じ値をこれ 1 本で確かめる。
   // AI プレイテスト受け口の鍵 (playtest_notify.intake_token) とは分ける。
   {
     key: "agent_instructions.intake_token",
     section: "runtime",
     label: "指令ブリッジの公開経由の鍵",
     description:
-      "公開経由の GET /v1/instructions・POST /v1/instructions/:id/ack・/result の x-excubitor-token に求める鍵 (32 文字以上の乱数)。"
+      "公開経由 (cc-playtest.ai-run-do.com) の GET /v1/instructions・POST /v1/instructions/:id/ack・/result に求める鍵。"
+      + " x-excubitor-token があればそれと、 無ければ Authorization の値と比べる。 Cloudflare Access はサービストークンを"
+      + " 単一ヘッダー (Authorization) で通すので、 Muse が送るのと同じ JSON 1 行"
+      + ' ({"cf-access-client-id":"…","cf-access-client-secret":"…"}、 空白なし) をそのまま入れる。'
+      + " ローテーション時は Cc・Muse・Ingenium を同時に直す。"
       + " 一致しない・無い要求は本文を読まずに 401。 未設定のあいだは公開経由を全部 401 で断る (loopback は鍵なしで使える)。"
       + " schema_meta に secret-box で暗号化して保存され、 API には実値を返さない。 漏れたらここで差し替えると古い鍵は即無効になる。",
     kind: "secret",

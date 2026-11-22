@@ -32,6 +32,20 @@ describe("instruction access gate (CC-INST-INV-06 / INV-07)", () => {
     expect(createInstructionAccessGate({ publicHost: null, readToken: withKey({ kind: "unset" }) })
       .authorizePublic(headers({ "x-excubitor-token": KEY }))).toEqual({ allowed: false, reason: "unset" });
   });
+
+  it("accepts the same key through Authorization when x-excubitor-token is absent", () => {
+    const json = '{"cf-access-client-id":"id.access","cf-access-client-secret":"0123456789abcdef0123456789abcdef"}';
+    const gate = createInstructionAccessGate({ publicHost: null, readToken: withKey({ kind: "set", value: json }) });
+    expect(gate.authorizePublic(headers({ authorization: json }))).toEqual({ allowed: true });
+    expect(gate.authorizePublic(headers({ authorization: `Bearer ${json}` }))).toEqual({ allowed: false, reason: "mismatch" });
+    expect(gate.authorizePublic(headers({ authorization: "other" }))).toEqual({ allowed: false, reason: "mismatch" });
+    // x-excubitor-token があればそれだけで判定する (Authorization が一致していても通さない)。
+    expect(gate.authorizePublic(headers({ "x-excubitor-token": "other", authorization: json }))).toEqual({ allowed: false, reason: "mismatch" });
+    expect(gate.authorizePublic(headers({ "x-excubitor-token": json, authorization: "other" }))).toEqual({ allowed: true });
+    expect(gate.authorizePublic(headers({}))).toEqual({ allowed: false, reason: "missing" });
+    expect(createInstructionAccessGate({ publicHost: null, readToken: withKey({ kind: "unset" }) })
+      .authorizePublic(headers({ authorization: json }))).toEqual({ allowed: false, reason: "unset" });
+  });
 });
 
 describe("instruction access config", () => {

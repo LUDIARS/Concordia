@@ -3,7 +3,7 @@
  * (spec/feature/agent-instructions-bridge.md)。
  *
  *   POST /v1/instructions            登録 (loopback のみ。公開経由は 403)
- *   GET  /v1/instructions            ポーリング (公開経由は専用の鍵 x-excubitor-token が要る)
+ *   GET  /v1/instructions            ポーリング (公開経由は専用の鍵 x-excubitor-token か Authorization が要る)
  *   POST /v1/instructions/:id/ack    受領確認 (同上)
  *   POST /v1/instructions/:id/result 結果報告 (同上)
  *   GET  /v1/instructions/:id        状態確認 (loopback のみ)
@@ -46,7 +46,7 @@ async function readJson(c: Context): Promise<{ ok: true; body: unknown } | { ok:
 const NOT_JSON: RequestError = { code: "invalid_body", message: "本文は Content-Type: application/json の JSON オブジェクトで送ってください" };
 const NOT_FOUND: RequestError = { code: "not_found", message: "その指令はありません。 id と agent を確かめてください" };
 const LOCAL_ONLY: RequestError = { code: "local_only", message: "この操作は Concordia の自宅側 (loopback) からだけ使えます" };
-const TOKEN_REQUIRED: RequestError = { code: "token_required", message: "公開経由はヘッダー x-excubitor-token に指令ブリッジ専用の鍵を付けて呼んでください。 鍵が違うときは Concordia の設定で入れ直した値を使ってください" };
+const TOKEN_REQUIRED: RequestError = { code: "token_required", message: "公開経由はヘッダー x-excubitor-token (または Authorization) に指令ブリッジ専用の鍵を付けて呼んでください。 鍵が違うときは Concordia の設定で入れ直した値を使ってください" };
 
 export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
   const app = new Hono();

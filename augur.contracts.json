@@ -208,6 +208,7 @@
     {"id":"cloud-aws-C-37","criterion":"C-37 awsJobEvidence(job, container): 停止要求・解放・登録コンテナの終了コードを独立に記録する","symbol":"awsJobEvidence","file":"src/cloud-work/aws-policy.ts","module":"src/cloud-work/aws-evidence.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-colab-site-C-38","criterion":"C-38 siteJobEvidence(receipt, stopRequested): 拠点が解放を確認するまで枠を保持し、停止要求と停止確認を区別する","symbol":"siteJobEvidence","file":"src/cloud-work/colab-site-policy.ts","module":"src/cloud-work/colab-site-evidence.contract.ts","mode":"observe","sample":1},
     {"id":"cloud-colab-site-C-39","criterion":"C-39 verifySiteArtifact(bytes, expected): 上限内でサイズと SHA-256 が一致する成果物だけを受け入れる","symbol":"verifySiteArtifact","file":"src/cloud-work/colab-site-artifacts.ts","module":"src/cloud-work/colab-site-artifact.contract.ts","mode":"observe","sample":1},
-    {"id":"cloud-colab-site-C-40","criterion":"C-40 siteJobAction(state, initial): 受付不明を再送せず、保存済みの受付 ID だけを観測や停止に使う","symbol":"siteJobAction","file":"src/cloud-work/colab-site-policy.ts","module":"src/cloud-work/colab-site-action.contract.ts","mode":"observe","sample":1}
+    {"id":"cloud-colab-site-C-40","criterion":"C-40 siteJobAction(state, initial): 受付不明を再送せず、保存済みの受付 ID だけを観測や停止に使う","symbol":"siteJobAction","file":"src/cloud-work/colab-site-policy.ts","module":"src/cloud-work/colab-site-action.contract.ts","mode":"observe","sample":1},
+    {"id":"inst-auth-C-1","criterion":"C-1 pickPresentedInstructionToken(header): 公開経由の鍵の候補は x-excubitor-token があればそれだけを、無ければ Authorization を前後の空白だけ落として返し (Bearer 接頭辞は剥がさない)、どちらも無ければ undefined","symbol":"pickPresentedInstructionToken","file":"src/agent-instructions/instruction-token.ts","module":"src/agent-instructions/instruction-token.contract.ts","mode":"observe","sample":1}
   ]
 }

@@ -2,7 +2,7 @@
  * /v1/control/cards と /v1/control/sprints — 管制カードとスプリント状況の API
  * (loopback / 既存の Web SSO の範囲、CC-V5-INV-06。dots は指令ブリッジだけを使う)。
  *
- * - GET   /v1/control/cards?state=open|closed|all  カード一覧
+ * - GET   /v1/control/cards?state=open|closed|all|discarded  カード一覧 (破棄は discarded でだけ。応答に discarded_count)
  * - PATCH /v1/control/cards/:id                    人間の捌き (優先度・担当者・催促・催促文・まとめ先) と人間依頼の「済み」
  * - GET   /v1/control/sprints                      スプリントの投影 (読み取り専用、Actio が正本)
  *
@@ -40,8 +40,9 @@ export function controlCardsRouter(deps: ControlCardsApiDeps): Hono {
 
   app.get("/cards", (c) => {
     const raw = c.req.query("state") ?? "open";
-    const state = raw === "all" ? null : raw === "closed" ? "closed" : "open";
-    return c.json({ cards: deps.service.list(state) });
+    // 破棄したカードは ?state=discarded でだけ返す (all は開閉だけ、CC-V5-INV-08)。
+    const state = raw === "all" ? null : raw === "closed" ? "closed" : raw === "discarded" ? "discarded" : "open";
+    return c.json({ cards: deps.service.list(state), discarded_count: deps.service.discardedCount() });
   });
 
   app.patch("/cards/:id", async (c) => {

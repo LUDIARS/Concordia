@@ -22,7 +22,10 @@ export type CardSourceKind = (typeof CARD_SOURCE_KINDS)[number];
 export type CardKind = "human_action" | "human_judgment";
 export const CARD_PRIORITIES = ["high", "normal", "low"] as const;
 export type CardPriority = (typeof CARD_PRIORITIES)[number];
-export type CardState = "open" | "closed";
+/** discarded: 持ち主のセッションが active でない判断カード (実装メモ 14、CC-V5-INV-08)。再び開かない。 */
+export type CardState = "open" | "closed" | "discarded";
+export const CARD_DISCARD_REASONS = ["session_inactive", "session_unresolved"] as const;
+export type CardDiscardReason = (typeof CARD_DISCARD_REASONS)[number];
 
 /** 出所ごとの種別。アクション (人間が手を動かす) か判断 (人間が決める) か。 */
 export const CARD_KIND_OF: Record<CardSourceKind, CardKind> = {
@@ -57,6 +60,8 @@ export interface ControlCard {
   raised_at: number;
   closed_at: number | null;
   close_reason: string | null;
+  discarded_at: number | null;
+  discard_reason: CardDiscardReason | null;
   priority: CardPriority;
   assignee: string | null;
   remind_at: number | null;

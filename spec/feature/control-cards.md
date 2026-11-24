@@ -45,6 +45,17 @@ updated: 2026-11-24
 | CC-V5-INV-05 | 催促は Cc が出す。同じカードは最短 30 分あけ、深夜帯 (`src/shared/quiet-hours.ts`) は出さない。メンションは構造化した担当者 1 人だけ、本文の mention は無効化 | `reminder-policy.ts` / `reminder-runner.ts` / `src/discord/desk.ts` |
 | CC-V5-INV-06 | API と画面は loopback / 既存の Web SSO の範囲。dots には開けない | `src/api/control-cards.ts` |
 | CC-V5-INV-07 | Web と Discord は同じ use case (`ControlCardsService`) を呼ぶ | `service.ts` |
+| CC-V5-INV-08 | 破棄 (`discarded`) したカードは再び開かず、捌き・催促・既定の一覧に載せず、学習・判断カードの材料へ渡さない | `card-discard-policy.ts` / `card-sync.ts` / `repository.ts` |
+
+## 破棄 (実装メモ 14)
+
+2026-11-24 neco 指示 (原文)「すでに終了したセッション(現状管制が持つアクティブでないセッション)の判断カードは捨ててよい」「状態にdiscardを用意して学習にも使わないようにする。」。
+
+- カードの状態は `open` / `closed` / `discarded`。破棄は `discarded_at` / `discard_reason` を残す。
+- 判断カード (`human_judgment`) は持ち主のセッションが active (`sessions.status = 'active'`) のときだけ開いたまま置く。`session_id` があればそのセッション、無い `confirm-pending` は PR を出した Cc セッション (`confirm_runs` → `pr_records.author_session_id`) で判定する。理由は `session_inactive` (持ち主が active でない) / `session_unresolved` (持ち主を引けない)。
+- 破棄しない: セッションに属さない判断 (`management-waiting-human` / `director-blocked` / `github-issue-approval`)、`session_id` の無いその他の判断カード、`human_action` (`human-command` / `session-unresponsive`)。持ち主の判定に要る読み取りが失敗した巡回も破棄しない。
+- 破棄は出所を書き換えない (CC-V5-INV-02)。同期で作るときに持ち主が active でなければ最初から `discarded` で作り、出所が開いたままでも開き直さない。依頼窓口のスレッドへ知らせない。
+- 学習: Cc には `control_cards` の内容を Genius など学習・判断カードの材料へ渡す経路が無い (2026-11-24 時点)。作るときは `discarded` を除く (CC-V5-INV-08)。
 
 ## 構成
 
@@ -52,7 +63,7 @@ updated: 2026-11-24
 - 既定の捌き: 作成時に優先度 normal・催促は 24 時間後。催促した後も 24 時間後に次の予定。
 - dots への指令 ([指令ブリッジ](agent-instructions-bridge.md)): 開いているカードの集合か捌きが変わったら、最短 10 分あけて 1 件だけ積む。前の指令が終わっていなければ積まない。params は優先度・古い順に最大 20 件、要旨 200 字、8000 バイト以内。回答 `detail.cards[]` = `{card_id, priority, assignee?, remind_at?, reminder_text?, group?}`。設定 `control_cards.dots_triage_enabled` (既定 ON)。
 - 催促の届け先: 依頼窓口のスレッド (依頼から起動したセッションのカード)、無ければ管制チャンネル (メンションなし)。
-- API: `GET /v1/control/cards?state=open|closed|all`、`PATCH /v1/control/cards/:id` (捌き 5 列と人間依頼の `done`)、`GET /v1/control/sprints` (スプリントの投影、読み取り専用で Actio へ書かない)。
+- API: `GET /v1/control/cards?state=open|closed|all|discarded` (既定 open。`all` は開閉だけで、破棄は `discarded` でだけ読める。応答に `discarded_count`)、`PATCH /v1/control/cards/:id` (捌き 5 列と人間依頼の `done`)、`GET /v1/control/sprints` (スプリントの投影、読み取り専用で Actio へ書かない)。
 - Web `/control`: カード (捌きの編集)・Actio タスク (既存 taskflow 一覧)・動いているセッション ([プランと進捗](control-session.md))・スプリント状況の 4 欄。カードの管理面は Discord に作らない。
 
 ## 復旧
@@ -63,12 +74,12 @@ updated: 2026-11-24
 
 ## 実装の対応
 
-`src/control-cards/` — `card-domain.ts` (用語)、`card-sync-policy.ts` / `card-triage-policy.ts` / `reminder-policy.ts` (業務判断)、`card-sync.ts` / `human-command-cards.ts` / `card-triage-dispatch.ts` / `reminder-runner.ts` / `service.ts` (use case)、`repository.ts` / `sources.ts` (adapter)、`runtime.ts` (組み立て)。`src/api/control-cards.ts`、結線 `src/bootstrap/v5-desk-cards.ts`。
+`src/control-cards/` — `card-domain.ts` (用語)、`card-sync-policy.ts` / `card-discard-policy.ts` / `card-triage-policy.ts` / `reminder-policy.ts` (業務判断)、`card-sync.ts` / `human-command-cards.ts` / `card-triage-dispatch.ts` / `reminder-runner.ts` / `service.ts` (use case)、`repository.ts` / `sources.ts` / `card-owner-sessions.ts` (adapter)、`runtime.ts` (組み立て)。`src/api/control-cards.ts`、結線 `src/bootstrap/v5-desk-cards.ts`。
 
 Web (`/control`):
 
 - `web/src/pages/Control.tsx` — 4 欄の配置。
-- `web/src/pages/control/CardsPanel.tsx` — カード欄と捌きの編集 (`CardEditor`、経過時間 `elapsed`・催促時刻の入力 `toLocalInput`)。人間依頼だけ「済み」を出す。
+- `web/src/pages/control/CardsPanel.tsx` — カード欄と捌きの編集 (`CardEditor`、「破棄済み n 件」の切替、経過時間 `elapsed`・催促時刻の入力 `toLocalInput`)。人間依頼だけ「済み」を出す。
 - `web/src/pages/control/SessionsPanel.tsx` と `SessionProgress.tsx` — 動いているセッションとプラン・進捗 ([control-session.md §13](control-session.md))。未計測・取得できないを出し分ける。
 - `web/src/pages/control/TasksPanel.tsx` — Actio タスク (既存 taskflow 一覧を読むだけ)。
 - `web/src/pages/control/SprintsPanel.tsx` — スプリント状況 (投影を読むだけ)。
@@ -77,4 +88,4 @@ Web (`/control`):
 
 ## テスト
 
-`src/control-cards/policies.test.ts` (同期の開閉・読めない出所・dots 回答の範囲外・催促の間隔と深夜帯)、`use-cases.test.ts`、`src/api/control-cards.test.ts`、`web/src/pages/Control.test.tsx`。
+`src/control-cards/policies.test.ts` (同期の開閉・読めない出所・dots 回答の範囲外・催促の間隔と深夜帯・破棄の判定)、`use-cases.test.ts`、`src/api/control-cards.test.ts`、`web/src/pages/Control.test.tsx`。

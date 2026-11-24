@@ -1,6 +1,6 @@
 {
   "name": "control-cards",
-  "description": "Cc v5 の管制カード (2026-11-24 neco 指示)。session-coordination の下位。人間のアクション / 判断が要る出所 (質問カード・inquiry・confirm・Director・plan 承認・GitHub Issue 承認・human-wait・人間依頼・CDGD の waiting_human・応答なし) をカードとして同期し、捌き (優先度・担当者・催促時刻・催促文・まとめ先) と催促を所有する。解決の正本は出所で、カードは出所を書き換えない (人間依頼だけはカードが正本)。dots の捌きは指令ブリッジの card_triage で受け、5 列だけを適用する。催促は Cc が出し 30 分間隔と深夜帯を守る。Web の /control (カード・Actio タスク・動いているセッション・スプリント状況) と /v1/control/cards・/v1/control/sprints を持つ。UX-CC-W2/W4; CC-V5-INV-02〜07。",
+  "description": "Cc v5 の管制カード (2026-11-24 neco 指示)。session-coordination の下位。人間のアクション / 判断が要る出所 (質問カード・inquiry・confirm・Director・plan 承認・GitHub Issue 承認・human-wait・人間依頼・CDGD の waiting_human・応答なし) をカードとして同期し、捌き (優先度・担当者・催促時刻・催促文・まとめ先) と催促を所有する。解決の正本は出所で、カードは出所を書き換えない (人間依頼だけはカードが正本)。dots の捌きは指令ブリッジの card_triage で受け、5 列だけを適用する。催促は Cc が出し 30 分間隔と深夜帯を守る。Web の /control (カード・Actio タスク・動いているセッション・スプリント状況) と /v1/control/cards・/v1/control/sprints を持つ。UX-CC-W2/W4; CC-V5-INV-02〜08。持ち主のセッションが active でない判断カードは破棄 (discarded) し、再び開かず捌き・催促・既定の一覧・学習に載せない (実装メモ 14)。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
@@ -9,6 +9,7 @@
     { "pathPattern": "(^|/)src/api/control-cards(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/v5-desk-cards\\.ts$" },
     { "pathPattern": "(^|/)src/db/v5-desk-cards-migration\\.ts$" },
+    { "pathPattern": "(^|/)src/db/control-cards-discard-migration\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Control(\\.test)?\\.tsx$" },
     { "pathPattern": "(^|/)web/src/pages/control/[^/]+\\.tsx?$" }
   ],

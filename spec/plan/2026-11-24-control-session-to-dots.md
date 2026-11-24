@@ -71,6 +71,7 @@ Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。Cc のメジャーバージョン
 | CC-V5-INV-05 | 催促は Cc が出す。同じカードへの催促は最短 30 分あけ、深夜帯 (既存の quiet-hours) は出さない。メンションは担当者 1 人だけ (構造化フィールド)、本文の mention は無効化 |
 | CC-V5-INV-06 | 依頼窓口・カード・一覧の Web 画面は loopback / 既存の Web SSO の範囲内。dots には開けない (dots は指令ブリッジのみ) |
 | CC-V5-INV-07 | Discord と WebUI は同じ use case を呼ぶ。片方でしかできない操作を作らない |
+| CC-V5-INV-08 | 破棄 (`discarded`) したカードは再び開かず、捌き・催促・既定の一覧に載せず、学習・判断カードの材料へ渡さない (実装メモ 14) |
 
 ## 構成
 
@@ -150,6 +151,18 @@ Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。Cc のメジャーバージョン
     - 進捗: ステップの完了数 / 総数、自動確認の進捗率 (metadata `cc_followup_progress` の指紋に残る値、`src/control/followup-progress.ts` / `followup-progress-rate.ts`。未計測は「未計測」と出し 0% にしない)、紐付いた Actio タスクの状態 (`GET /v1/sessions/:id/task-links` と同じ読み口)。
     - 読み口は新設の `GET /v1/control/sessions` (ボードの行 + 上の値をまとめて返す、loopback / Web SSO の範囲)。1 秒以内で返す (ステップは全セッション分を 1 回の照会で引く。Actio は既存の読み口をセッションごとに並行で引き、短い期限と短期のキャッシュを付け、読めなければその欄だけ「取得できません」)。
     - テスト: プラン・進捗の組み立て (純関数) と API、画面の表示 (未計測・取得失敗の出し分け)。
+14. **カードの破棄 (discard)** (2026-11-24 neco 指示 (原文)「カードが多すぎる…すでに終了したセッション(現状管制が持つアクティブでないセッション)の判断カードは捨ててよい」「これはGeniusのingestでも問題になってたな。そっちのケースでも捨てる。状態にdiscardを用意して学習にも使わないようにする。」):
+    - 実測 (反映後の本番): 開いているカード 889 件 = confirm-pending 888 (すべて session_id なし、最古は 2026-09 の confirm_runs) + human-wait 1。
+    - `control_cards.state` に `discarded` を足す (CHECK を変えるので表の作り直し、migration 158)。列 `discarded_at` / `discard_reason`。
+    - 判断カード (`card_kind = human_judgment`) は、持ち主のセッションが active (`sessions.status = 'active'`。管制が進捗ボードに載せるのと同じ集合) のときだけ open のまま置く。持ち主が active でなければ `discarded`。
+      - `session_id` のあるカードはそのセッションで判定 (無い・active でない → `session_inactive`)。
+      - `session_id` の無い `confirm-pending` は、PR (`confirm_runs.repo_origin` + `pr_number`) を出した Cc セッションを既存の PR 記録 (`pr_records.author_session_id`) から引いて判定。引けない → `session_unresolved`、active でない → `session_inactive`。
+      - セッションに属さない判断 (`management-waiting-human` / `director-blocked` / `github-issue-approval`) は破棄しない (セッションと無関係な人間の判断)。上記以外で `session_id` の無い判断カードも判定できないので残す。
+      - `human_action` (`human-command` / `session-unresponsive`) はこの規則の対象外。
+    - 破棄は出所を書き換えない (`confirm_runs` 等はそのまま、CC-V5-INV-02)。破棄したカードは出所がまだ開いていても再び open にしない。同期で作るときに持ち主が active でなければ最初から `discarded` で作る (同じ出所を毎巡回作り直さないため)。持ち主の判定に要る読み取りが失敗した巡回では破棄しない。
+    - 破棄したカードは dots の捌き (`card_triage` の params) に入れず、催促もしない (どちらも開いているカードだけを見る)。依頼窓口のスレッドへの開閉の知らせも出さない (一度に数百件の破棄が流れないように)。既定の一覧 `GET /v1/control/cards` (`state=open|closed|all`) と画面からは外し、`?state=discarded` でだけ読める。一覧の応答に `discarded_count` を添え、画面に「破棄済み n 件」の切替を出す。依頼詳細のカード要旨 (セッション別) にも出さない。
+    - 学習に使わない (CC-V5-INV-08): 2026-11-24 時点で Cc には `control_cards` の内容を Genius など学習・判断カードの材料へ渡す経路は無い。今後渡す口を作るときは `discarded` を除く。
+    - テスト: 終了したセッションの判断カードが discarded になる、active なら open、session の無い confirm-pending の判定 (引けない / active でない / active)、セッションに属さない判断は残る、human_action は対象外、破棄は再 open しない、triage と催促に入らない、一覧の既定から外れる。
 
 ## 復旧
 

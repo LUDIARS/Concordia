@@ -26,6 +26,11 @@ export class ControlCardsService {
     return this.repo.list(state, Math.max(1, Math.min(limit, 500)));
   }
 
+  /** 破棄したカードの件数 (画面の「破棄済み n 件」)。 */
+  discardedCount(): number {
+    return this.repo.countDiscarded();
+  }
+
   find(id: string): ControlCard | null {
     return this.repo.find(id);
   }

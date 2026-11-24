@@ -14,6 +14,7 @@ import { startSupervisedInterval, type SupervisedIntervalHandle } from "../share
 import { isQuietHours } from "../shared/quiet-hours.js";
 import { syncControlCards, type CardChange } from "./card-sync.js";
 import { createTriageDispatch } from "./card-triage-dispatch.js";
+import { readCardOwnership } from "./card-owner-sessions.js";
 import { createHumanCommandCards, type HumanCommandParser } from "./human-command-cards.js";
 import { runReminders, type ReminderDelivery } from "./reminder-runner.js";
 import { ControlCardsRepository } from "./repository.js";
@@ -75,7 +76,7 @@ export function createControlCardsRuntime(deps: ControlCardsRuntimeDeps) {
 
   async function tick(): Promise<void> {
     if (!deps.isEnabled()) return;
-    syncControlCards({ repo, sources, sessionEnded, now: Date.now, id: randomUUID, onChange, log: deps.log });
+    syncControlCards({ repo, sources, sessionEnded, ownership: () => readCardOwnership(deps.db), now: Date.now, id: randomUUID, onChange, log: deps.log });
     try { triage.tick(); } catch (error) { deps.log.warn(`card_triage dispatch failed: ${String(error)}`); }
     await runReminders({ repo, delivery, now: Date.now, isQuietHours: (ms) => isQuietHours(new Date(ms)), log: deps.log });
   }

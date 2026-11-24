@@ -27,9 +27,11 @@ export interface ControlCardView {
   session_id: string | null;
   project: string | null;
   link: string | null;
-  state: "open" | "closed";
+  state: "open" | "closed" | "discarded";
   raised_at: number;
   closed_at: number | null;
+  discarded_at?: number | null;
+  discard_reason?: "session_inactive" | "session_unresolved" | null;
   priority: "high" | "normal" | "low";
   assignee: string | null;
   remind_at: number | null;
@@ -104,7 +106,7 @@ export const controlApi = {
   deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
   submitDesk: (input: { client_request_id: string; body: string; provider: "claude" | "codex" }) =>
     call<{ request: DeskRequestView; existing: boolean }>("/v1/desk/requests", { method: "POST", body: input }),
-  cards: (state: "open" | "closed" | "all", signal?: AbortSignal) => call<{ cards: ControlCardView[] }>(`/v1/control/cards?state=${state}`, { signal }),
+  cards: (state: "open" | "closed" | "all" | "discarded", signal?: AbortSignal) => call<{ cards: ControlCardView[]; discarded_count?: number }>(`/v1/control/cards?state=${state}`, { signal }),
   updateCard: (id: string, patch: Record<string, unknown>) => call<{ card: ControlCardView }>(`/v1/control/cards/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
   sessions: (signal?: AbortSignal) => call<{ items: SessionProgressRow[] }>("/v1/control/sessions", { signal }),
   sprints: (signal?: AbortSignal) => call<{ sprints: SprintView[] }>("/v1/control/sprints", { signal }),

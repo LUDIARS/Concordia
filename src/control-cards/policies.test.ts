@@ -21,7 +21,7 @@ function item(key: string, kind: CardSourceItem["source_kind"] = "ask-card"): Ca
 function card(id: string, patch: Partial<ControlCard> = {}): ControlCard {
   return {
     id, source_kind: "ask-card", source_key: id, card_kind: "human_judgment", summary: `要旨 ${id}`, session_id: "s1", project: "Cc",
-    link: null, state: "open", raised_at: NOW - 3_600_000, closed_at: null, close_reason: null, priority: "normal", assignee: null,
+    link: null, state: "open", raised_at: NOW - 3_600_000, closed_at: null, close_reason: null, discarded_at: null, discard_reason: null, priority: "normal", assignee: null,
     remind_at: NOW, reminder_text: null, card_group: null, triaged_by: null, triaged_at: null, created_at: NOW, updated_at: NOW, ...patch,
   };
 }

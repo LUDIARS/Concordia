@@ -16,6 +16,19 @@ import { DeskDispatcher, type DeskLaunchResult } from "./dispatcher.js";
 import { DeskRepository } from "./repository.js";
 import { DeskService } from "./service.js";
 
+it("reads only the latest explicit Gen5 report from the requested session", () => {
+  const db = makeTestDb();
+  const repo = new DeskRepository(db);
+  const write = db.prepare("INSERT INTO session_messages(session_id,ts,author_type,author_label,content) VALUES (?,1,?,'fixture',?)");
+  expect(repo.gen5Stage("a")).toBeNull();
+  write.run("a", "assistant", "Gen5工程: MVP・初回バックログ定義");
+  const result = write.run("a", "summary", "Gen5工程: 人間のプレイ確認\r\n対象ビルドの感想をお願いします。");
+  write.run("b", "summary", "Gen5工程: UX判断");
+  write.run("a", "user", "Gen5工程: 期間・コスト判断");
+  write.run("a", "assistant", "Gen5工程: 未定義");
+  expect(repo.gen5Stage("a")).toEqual({ label: "人間のプレイ確認", messageId: Number(result.lastInsertRowid) });
+});
+
 function setup(options: { enabled?: () => boolean; blocked?: () => boolean; launch?: (request: DeskRequest, spawnId: string) => Promise<DeskLaunchResult> } = {}) {
   const db = makeTestDb();
   const repo = new DeskRepository(db);

@@ -49,6 +49,12 @@ function renderChat(path: string) {
 }
 
 describe("workplace chat", () => {
+  it("opens the desk session inside a request URL without another session selector", async () => {
+    render(<MemoryRouter initialEntries={["/desk?request=r1"]}><SessionChat deskSessionId="s1" /></MemoryRouter>);
+    await screen.findByText("最終回答");
+    expect(screen.queryByRole("button", { name: "セッション一覧を開く" })).toBeNull();
+  });
+
   it("opens an authorized subsidiary chat from the workplace and applies its effective display settings", async () => {
     const user = userEvent.setup();
     renderChat("/workplace");

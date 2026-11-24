@@ -103,7 +103,7 @@ export const choresApi = {
 
 export const controlApi = {
   deskRequests: (signal?: AbortSignal) => call<{ requests: DeskRequestView[] }>("/v1/desk/requests", { signal }),
-  deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
+  deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; gen5Stage: { label: string; messageId: number } | null; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
   submitDesk: (input: { client_request_id: string; body: string; provider: "claude" | "codex" }) =>
     call<{ request: DeskRequestView; existing: boolean }>("/v1/desk/requests", { method: "POST", body: input }),
   cards: (state: "open" | "closed" | "all" | "discarded", signal?: AbortSignal) => call<{ cards: ControlCardView[]; discarded_count?: number }>(`/v1/control/cards?state=${state}`, { signal }),

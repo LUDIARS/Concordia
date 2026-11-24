@@ -17,11 +17,12 @@ import { visibleChatMessages } from "./message-presentation.js";
 /** @implements spec/feature/session-message-webui-chat.md — D4 chat, unread, and push UI */
 
 // @spec セッションの設計・開始確認・実装・調整
-export function SessionChat() {
-  const { id } = useParams<{ id: string }>();
+export function SessionChat({ deskSessionId }: { deskSessionId?: string } = {}) {
+  const { id: routeId } = useParams<{ id: string }>();
+  const id = deskSessionId ?? routeId;
   const location = useLocation();
   const { teamId } = useTeamFilter();
-  const list = useLiveQuery(() => api.sessions({ teamId: teamId ?? undefined }),
+  const list = useLiveQuery(() => deskSessionId ? Promise.resolve({ sessions: [] }) : api.sessions({ teamId: teamId ?? undefined }),
     ["hello", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], teamId);
   const organizations = useLiveQuery(async () => {
     const [departments, companies] = await Promise.all([
@@ -120,7 +121,7 @@ export function SessionChat() {
     if (event.type === "session.message" && event.target_session_id === id) {
       setMessages((current) => mergeMessage(current, event.message));
     }
-    if (event.type === "session.message.summary") {
+    if (!deskSessionId && event.type === "session.message.summary") {
       void api
         .sessionUnread(event.target_session_id, browserId)
         .then((result) => setUnread((current) => new Map(current).set(event.target_session_id, result.unread)))
@@ -193,7 +194,7 @@ export function SessionChat() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-bg" style={{ touchAction: "manipulation" }}>
-      <aside className="hidden min-h-0 w-80 shrink-0 overflow-y-auto overscroll-contain border-r border-border bg-surface/40 md:block">{listFeedback}{sidebar}</aside>
+      {!deskSessionId && <aside className="hidden min-h-0 w-80 shrink-0 overflow-y-auto overscroll-contain border-r border-border bg-surface/40 md:block">{listFeedback}{sidebar}</aside>}
       {drawer && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-72 overflow-y-auto overscroll-contain bg-surface" onClick={(event) => event.stopPropagation()}>
@@ -203,7 +204,7 @@ export function SessionChat() {
       )}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface p-3 sm:px-5">
-          <button type="button" className="md:hidden" onClick={() => setDrawer(true)} aria-label="セッション一覧を開く">☰</button>
+          {!deskSessionId && <button type="button" className="md:hidden" onClick={() => setDrawer(true)} aria-label="セッション一覧を開く">☰</button>}
           <div className="min-w-0 flex-1"><div className="truncate font-semibold">{session?.current_task || id}</div><div className="mt-0.5 text-xs text-subtle">{department?.name ?? "チャット"} · <span className="text-emerald-300">プレイヤー</span><span className="mx-1">/</span><span className="text-violet-300">AI</span></div></div>
           <Link to={`/sessions/${encodeURIComponent(id)}/logs`} className="text-sm text-accent">ログ</Link>
           <button type="button" disabled={!session} aria-expanded={workOpen} aria-controls="session-work-panel" onClick={() => setWorkOpen((open) => !open)} className="shrink-0 rounded border border-border px-2 py-1 text-xs text-accent">タスク・テスト/PR</button>

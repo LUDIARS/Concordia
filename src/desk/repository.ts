@@ -4,6 +4,7 @@
  * @implements spec/feature/request-desk.md — 状態の所有者 desk_requests
  */
 import type Database from "better-sqlite3";
+import { GEN5_PREFIX, GEN5_STAGES } from "./gen5-stage.js";
 import { canTransition, type DeskRequest, type DeskState } from "./desk-request-policy.js";
 
 export type DeskRequestPatch = Partial<Pick<DeskRequest, "state" | "spawn_id" | "session_id" | "launch_deadline_at" | "error">>;
@@ -12,6 +13,18 @@ export type NewDeskRequest = Pick<DeskRequest, "id" | "request_key" | "origin" |
 
 export class DeskRepository {
   constructor(private readonly db: Database.Database) {}
+
+  /** 発言履歴を正本にし、別セッション・利用者の引用・未知の工程は採用しない。 */
+  gen5Stage(sessionId: string): { label: string; messageId: number } | null {
+    const labels = GEN5_STAGES.map(stage => GEN5_PREFIX + stage);
+    const placeholders = labels.map(() => "?").join(",");
+    const row = this.db.prepare(`
+      SELECT id, rtrim(substr(content, 1, instr(content || char(10), char(10)) - 1), char(13)) AS first_line
+      FROM session_messages WHERE session_id = ? AND author_type IN ('assistant','summary')
+        AND content LIKE 'Gen5工程: %' AND first_line IN (${placeholders})
+      ORDER BY id DESC LIMIT 1`).get(sessionId, ...labels) as { id: number; first_line: string } | undefined;
+    return row ? { label: row.first_line.slice(GEN5_PREFIX.length), messageId: row.id } : null;
+  }
 
   transaction<T>(fn: () => T): T {
     return this.db.transaction(fn)();

@@ -5998,6 +5998,7 @@
     { "source": "src/desk/desk-request-policy.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/dispatcher.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/repository.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/gen5-stage.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/runtime.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/discord-port.ts", "tests": ["src/discord/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/service.ts", "tests": ["src/desk/desk.test.ts", "src/api/desk.test.ts"], "contracts": [] },

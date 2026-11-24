@@ -55,5 +55,6 @@ describe("/v1/desk", () => {
     const detail = await (await app.request(`/requests/${request.id}`)).json();
     expect(detail.request).toMatchObject({ state: "running", open_cards: 1, links: { web: "http://cc/sessions/sess-1" } });
     expect(detail.cards).toHaveLength(1);
+    expect(detail.gen5Stage).toBeNull();
   });
 });

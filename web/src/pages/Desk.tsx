@@ -40,17 +40,17 @@ export function Desk() {
   return <div className="max-w-5xl mx-auto space-y-5">
     <div>
       <h1 className="text-xl font-semibold">依頼窓口</h1>
-      <p className="text-sm text-subtle mt-1">依頼を書くと作業セッションを起動します。人間のアクション・判断が要るときはカードになり、<a href="/control" className="underline">管制</a>で捌けます。セッションへの細かい指示は Discord のセッションチャンネルへ。</p>
+      {selected && <button type="button" className="text-sm text-accent underline" onClick={() => setParams({})}>新しい依頼</button>}
     </div>
-    <form className="space-y-3 rounded border border-border p-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+    {!selected && <form className="space-y-3 rounded border border-border p-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <label className="block">依頼内容<textarea required maxLength={16000} value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="block w-full mt-2 rounded border border-border bg-surface p-2" /></label>
       <div className="flex gap-3 items-center">
         <label>実行CLI <select aria-label="実行CLI" value={provider} onChange={(e) => setProvider(e.target.value as "claude" | "codex")} className="bg-surface border border-border rounded p-2"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
         <button disabled={busy || !body.trim()} className="px-4 py-2 rounded bg-accent text-white disabled:opacity-50">依頼する</button>
       </div>
-    </form>
+    </form>}
     {error && <p role="alert" className="text-red-400 whitespace-pre-wrap">{error}</p>}
-    {selected && <DeskDetail id={selected} />}
+    {selected && <DeskDetail key={selected} id={selected} />}
     <section className="space-y-2" aria-label="依頼の一覧">
       <h2 className="text-lg font-semibold">依頼</h2>
       {list.error && <p role="alert" className="text-amber-400">依頼を取得できません: {list.error}</p>}

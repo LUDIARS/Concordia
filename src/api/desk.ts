@@ -76,6 +76,7 @@ export function deskRouter(deps: DeskApiDeps): Hono {
     if (!request) return c.json({ error: "not_found" }, 404);
     return c.json({
       request: view(deps, request),
+      gen5Stage: request.session_id ? deps.service.repo.gen5Stage(request.session_id) : null,
       cards: request.session_id ? deps.cardsForSession?.(request.session_id) ?? [] : [],
     });
   });

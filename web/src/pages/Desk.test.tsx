@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Desk } from "./Desk.js";
 import { Chores } from "./Chores.js";
 
+vi.mock("./session-chat/SessionChat.js", () => ({
+  SessionChat: ({ deskSessionId }: { deskSessionId: string }) => <textarea aria-label={`chat-${deskSessionId}`} />,
+}));
+
 afterEach(() => { vi.unstubAllGlobals(); });
 
 const running = {
@@ -19,7 +23,7 @@ function respond(url: string, init?: RequestInit): Response {
     return new Response(JSON.stringify({ request: { ...running, id: "req-2", request_key: `web:${body.client_request_id}`, state: "accepted", session_id: null, links: null }, existing: false }), { status: 202 });
   }
   if (url === "/v1/desk/requests") return new Response(JSON.stringify({ requests: [running] }));
-  if (url.startsWith("/v1/desk/requests/req-1")) return new Response(JSON.stringify({ request: running, cards: [{ id: "c1", card_kind: "human_judgment", summary: "方針を決める", state: "open", priority: "normal" }] }));
+  if (url.startsWith("/v1/desk/requests/req-1")) return new Response(JSON.stringify({ request: running, gen5Stage: { label: "人間のプレイ確認", messageId: 4 }, cards: [{ id: "c1", card_kind: "human_judgment", summary: "方針を決める", state: "open", priority: "normal" }] }));
   if (url.startsWith("/v1/desk/requests/")) return new Response(JSON.stringify({ request: { ...running, id: "req-2", state: "accepted", session_id: null, links: null }, cards: [] }));
   if (url.startsWith("/v1/control/sessions")) return new Response(JSON.stringify({ error: "control_disabled" }), { status: 409 });
   if (url.startsWith("/v1/chores")) return new Response(JSON.stringify({ runs: [{ id: "old", prompt: "昔の雑務", provider: "claude", status: "acknowledged", cwd: "/c", output: "済", error: null, spawn_id: null }] }));
@@ -46,6 +50,9 @@ describe("依頼窓口 (/desk、Cc v5)", () => {
       expect(text).toContain("作業中");
       expect(text).toContain("カード 1");
       expect(text).toContain("方針を決める");
+      expect(text).toContain("人間のプレイ確認");
+      expect(view.container.querySelectorAll("textarea")).toHaveLength(1);
+      expect(view.container.querySelector('[aria-label="chat-s1"]')).not.toBeNull();
       expect(text).toContain("Discord のセッションチャンネル");
       expect(text).toContain("プランと進捗を取得できません: control_disabled");
       expect(text).toContain("過去の雑務 (1)");

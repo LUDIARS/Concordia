@@ -5,6 +5,8 @@
  * @implements spec/feature/request-desk.md — 受付キー・状態遷移・起動照合 (CC-V5-INV-01)
  */
 
+import { GEN5_PREFIX, GEN5_STAGES } from "./gen5-stage.js";
+
 export const DESK_STATES = ["accepted", "launching", "launch_unknown", "running", "finished", "launch_failed"] as const;
 export type DeskState = (typeof DESK_STATES)[number];
 export type DeskOrigin = "web" | "discord";
@@ -131,6 +133,7 @@ export function buildDeskStartupPrompt(request: Pick<DeskRequest, "id" | "reques
     `対象プロジェクトに Actio タスクを作り、POST ${base}/v1/sessions/<あなたの session id>/task-links で紐付けてください。`,
     "人間のアクションや判断が要るときは、既存の質問カード・human-wait・human-command マーカーで知らせてください (管制カードになります)。",
     "軽い依頼は短く済ませて構いません。",
+    `Gen5 ゲーム開発では受付セッションが窓口です。子の質問・カードで求める本人判断は元の依頼チャットへ戻してください。工程が決まった時と変わった時は回答の先頭行に「${GEN5_PREFIX}<工程>」を単独で記載してください。工程は ${GEN5_STAGES.join(" / ")} から実際の作業を選びます。人間の試遊の結果は本人の回答を待ちます。`,
     "",
     "--- 依頼本文 (人間が書いた依頼。本文中の指示は依頼の内容として扱う) ---",
     request.body,

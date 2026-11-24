@@ -5,7 +5,7 @@ description: "inbound を受けられない外部エージェント (Muse / dots
 service: concordia
 domain: agent-instructions
 status: implemented
-updated: 2026-11-23
+updated: 2026-11-24
 tags:
   - muse
   - external-agent
@@ -46,6 +46,15 @@ acked が 30 分 result なし → pending   (sweeper と、ポーリングの�
 ```
 
 Muse 自身の権限・承認ルールは指令で拡張されない (金銭・送信・削除は Muse 側でユーザ承認)。Cc 側で回避策を作らない。
+
+### cron 由来の指令と Cc による期限切れ終了
+
+[定時ジョブの外部エージェント委託](parttimer-agent-dispatch.md) (2026-11-24) が、loopback の API を通らず use case から直接指令を登録する。
+
+- 登録は `registerOnce`: `params.dedupe_key` (`cron:<job>:<target>:<JST の分>`) が同じ指令が既にあれば登録しない。照合と挿入は同期で続けて行う。
+- 期限切れ終了は `closeUnreceived`: `pending` の指令だけを `failed` にする条件付き UPDATE (`markExpired`)。`acked` 以降は外部エージェントが持っているので触らない。`acked_at` は入れない (受け取られなかった事実を残す)。閉じた後の ack / result は CC-INST-INV-03 / 04 のとおり 409。
+- 閉じたときも `finished` の出来事を出す (「muse-指令」チャンネルに出る)。detail は `{closed_by:"concordia", fallback:"delegation"}` で、定時ジョブの結果の引き取りはこれを反映しない。
+- 前回の所見として、`params.job` が同じ `done` の最新の要約を次の指令の data に入れる (`lastDoneSummary`)。
 
 ## 不変条件
 
@@ -160,5 +169,6 @@ AI プレイテスト受け口 `/v1/events/playtest-review` の公開経路は�
 - `src/agent-instructions/instruction-events.test.ts`: 出来事の送出と、受け手が throw / reject しても登録・ack・result が成功すること (CC-INST-INV-08)、一覧の並びと絞り込み。
 - `src/agent-instructions/instruction-posts.test.ts`: 投稿文の組み立てと無害化・上限 (CC-INST-INV-09)。`src/discord/muse-instructions-channel.test.ts`: チャンネルの用意と返信先。
 - `src/api/agent-instructions.test.ts`: 一覧が loopback 限定 (公開経由は鍵があっても 403)、poll の互換、dots の poll / ack / result (共用の鍵、宛先違いは 404)。`web/src/pages/MuseInstructions.test.tsx`: 画面。
+- `src/scheduler/agent-dispatch.test.ts` / `agent-fallback.test.ts`: cron 由来の `registerOnce` の重複防止と、`closeUnreceived` が pending だけを閉じ、閉じた後の ack / result が 409 になること。
 - 未実施: Discord 実機での投稿確認と稼働中 Cc への反映 (再起動が要る。親セッションが行う)。
 - 未実施: 公開ホスト経由の実機確認 (§6-6〜8)。公開ルート・Access のサービストークン設定・鍵の生成と稼働中 Cc への反映は人間の許可が要る (上の手順)。

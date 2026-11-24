@@ -128,6 +128,53 @@ export class InstructionService {
     }
   }
 
+  /**
+   * params.dedupe_key が同じ指令が既にあれば登録しない (cron 由来の指令、 CC-PT-AGENT-INV-02)。
+   * 照合と挿入は同期で続けて行うので、 同じプロセス内の並行登録は割り込めない。
+   */
+  registerOnce(input: RegisterInput & { dedupeKey: string }): { kind: "registered" | "duplicate"; id: string } {
+    const { dedupeKey, ...rest } = input;
+    if (rest.params.dedupe_key !== dedupeKey) throw new Error("params.dedupe_key must equal dedupeKey");
+    const existing = this.deps.store.findByDedupeKey(dedupeKey);
+    if (existing) return { kind: "duplicate", id: existing.id };
+    return { kind: "registered", id: this.register(rest).id };
+  }
+
+  /** 本文・params・回答を含む 1 件 (結果の引き取りが params.job を引く)。 */
+  record(id: string): InstructionRecord | null {
+    const row = this.deps.store.find(id);
+    return row ? { ...toState(row), body: row.body, params: parseJson(row.params) ?? {}, resultDetail: parseJson(row.result_detail) } : null;
+  }
+
+  /** dedupe_key が prefix で始まり、 cutoff より前に登録されて受け取られていない (pending の) 指令。 */
+  listUnreceivedBefore(prefix: string, cutoff: Date): InstructionRecord[] {
+    return this.deps.store.listPendingWithDedupePrefixBefore(prefix, isoSeconds(cutoff)).map((row) => ({
+      ...toState(row), body: row.body, params: parseJson(row.params) ?? {}, resultDetail: parseJson(row.result_detail),
+    }));
+  }
+
+  /**
+   * 受け取られていない (pending の) 指令を Cc が failed で閉じる。 acked 以降なら閉じず false。
+   * 閉じた後の ack / result は既存の判定どおり 409 になる (CC-PT-AGENT-INV-05)。
+   */
+  closeUnreceived(id: string, summary: string, detail: Record<string, unknown>): boolean {
+    const row = this.deps.store.find(id);
+    if (!row || row.status !== "pending") return false;
+    const finishedAt = isoSeconds(this.now());
+    const stored = { summary: storedSummary(summary), detail: canonicalJson(detail) };
+    if (!this.deps.store.markExpired(id, { finishedAt, ...stored })) return false;
+    this.emit({
+      kind: "finished", id, agent: row.agent, title: row.title, status: "failed",
+      summary: stored.summary, detail: stored.detail, finishedAt,
+    });
+    return true;
+  }
+
+  /** params.job が一致する done の最新の要約 (前回の所見として次の指令へ渡す)。 */
+  lastDoneSummary(job: string): string | null {
+    return this.deps.store.lastDoneSummaryForJob(job);
+  }
+
   /** 古い順に返す。 返す前に、 30 分 result の無い acked を pending に戻す (CC-INST-INV-05)。 */
   poll(agent: InstructionAgent, status: InstructionStatus, limit: number): DeliveredInstruction[] {
     this.requeueStale();

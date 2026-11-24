@@ -11,7 +11,17 @@ interface CronJobRow {
   cron: string;
   default_call_name: string;
   call_name: string;
+  /** 宛先 ("" = 従来の委託 / dots / muse)。 spec/feature/parttimer-agent-dispatch.md */
+  agent: string;
+  /** data builder があり外部エージェントへ回せるジョブか。 */
+  agent_supported: boolean;
 }
+
+const AGENT_OPTIONS = [
+  { value: "", label: "Cc の委託 (従来)" },
+  { value: "dots", label: "dots へ指令" },
+  { value: "muse", label: "Muse へ指令" },
+] as const;
 
 interface TemplateOption {
   call_name: string;
@@ -23,16 +33,19 @@ export function CronJobsSection() {
   const [templates, setTemplates] = useState<TemplateOption[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackMinutes, setFallbackMinutes] = useState<string>("");
 
   useEffect(() => { void refresh(); }, []);
 
   async function refresh() {
     try {
-      const [jobsRes, templatesRes] = await Promise.all([
+      const [jobsRes, templatesRes, fallbackRes] = await Promise.all([
         fetch("/v1/admin/cron-jobs").then((r) => r.json()) as Promise<{ jobs: CronJobRow[] }>,
         fetch("/v1/delegation/templates").then((r) => r.json()) as Promise<{ templates: TemplateOption[] }>,
+        fetch("/v1/admin/cron-jobs-agent-fallback").then((r) => r.json()) as Promise<{ minutes: number }>,
       ]);
       setJobs(jobsRes.jobs);
+      setFallbackMinutes(String(fallbackRes.minutes));
       setTemplates(templatesRes.templates.map((t) => ({ call_name: t.call_name, title: t.title })));
       setError(null);
     } catch (err) { setError((err as Error).message); }
@@ -44,6 +57,22 @@ export function CronJobsSection() {
       await putJson(`/v1/admin/cron-jobs/${encodeURIComponent(job.name)}`, {
         call_name: callName === job.default_call_name ? null : callName,
       });
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
+  }
+
+  async function applyAgent(job: CronJobRow, agent: string) {
+    setBusy(job.name); setError(null);
+    try {
+      await putJson(`/v1/admin/cron-jobs/${encodeURIComponent(job.name)}/agent`, { agent });
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
+  }
+
+  async function applyFallbackMinutes() {
+    setBusy("__fallback"); setError(null);
+    try {
+      await putJson("/v1/admin/cron-jobs-agent-fallback", { minutes: Number(fallbackMinutes) });
       await refresh();
     } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
@@ -86,8 +115,53 @@ export function CronJobsSection() {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-subtle">宛先</span>
+            <select
+              aria-label={`${job.name} の宛先`}
+              value={job.agent}
+              disabled={busy === job.name}
+              onChange={(e) => applyAgent(job, e.target.value)}
+              className="bg-muted border border-border rounded px-2 py-1 text-sm min-w-[180px]"
+            >
+              {AGENT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} disabled={option.value !== "" && !job.agent_supported}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {!job.agent_supported && (
+              <span className="text-xs text-subtle">外部エージェント用の材料 (data builder) が無いため委託のみ</span>
+            )}
+            {job.agent !== "" && (
+              <span className="px-2 py-0.5 rounded text-xs border bg-warn/20 border-warn text-warn">
+                {job.agent} へ指令 (受け取られなければ {fallbackMinutes || "?"} 分で委託へ戻す)
+              </span>
+            )}
+          </div>
         </div>
       ))}
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <label htmlFor="cron-agent-fallback-minutes" className="text-subtle">
+          指令が受け取られないとき Cc の委託へ戻すまで (分)
+        </label>
+        <input
+          id="cron-agent-fallback-minutes"
+          type="number"
+          min={1}
+          value={fallbackMinutes}
+          onChange={(e) => setFallbackMinutes(e.target.value)}
+          className="bg-muted border border-border rounded px-2 py-1 w-24"
+        />
+        <button
+          type="button"
+          disabled={busy === "__fallback"}
+          onClick={() => void applyFallbackMinutes()}
+          className="px-2 py-1 rounded border border-border bg-muted"
+        >
+          保存
+        </button>
+      </div>
       {error && <div className="text-danger text-xs">{error}</div>}
     </section>
   );

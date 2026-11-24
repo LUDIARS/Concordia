@@ -6,6 +6,8 @@ import {
 import { DEFAULT_UNSTARTED_SEC } from "../delegation/unstarted-run.js";
 import { DEFAULT_ZOMBIE_GRACE_MS } from "../delegation/zombie-run-detect.js";
 import { DEFAULT_HEAD_OFFICE_MAX_SESSIONS } from "../cost/company-session-cap.js";
+import type { InstructionAgent } from "../agent-instructions/instruction-policy.js";
+import { DEFAULT_AGENT_FALLBACK_MINUTES, parseAgentChoice } from "../scheduler/agent-dispatch-policy.js";
 import type { SettingsStore } from "./settings-store.js";
 
 const KEYS = {
@@ -35,6 +37,8 @@ const KEYS = {
   deskEnabled: "admin.desk_enabled",
   deskDepartment: "admin.desk_department_id",
   dotsCardTriage: "admin.control_cards_dots_triage_enabled",
+  cronJobAgentPrefix: "scheduler.cron_job_agent.",
+  cronJobAgentFallbackMinutes: "scheduler.cron_job_agent_fallback_minutes",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -224,6 +228,29 @@ export class RuntimeSettingsStore {
     if (callName === null || !callName.trim()) delete overrides[jobName];
     else overrides[jobName] = callName.trim();
     this.store.set(KEYS.cronJobOverrides, JSON.stringify(overrides));
+  }
+
+  /**
+   * 定時ジョブの宛先 (spec/feature/parttimer-agent-dispatch.md)。 "" / 未設定 = 従来の委託、
+   * "dots" / "muse" = 外部エージェントへの指令。 許可リスト外の保存値は従来の委託として扱う。
+   * data builder の有無の判定は API 層 (保存時に 400) が持つ。
+   */
+  getCronJobAgent(jobName: string): InstructionAgent | null {
+    const parsed = parseAgentChoice(this.store.get(`${KEYS.cronJobAgentPrefix}${jobName}`));
+    return parsed.ok ? parsed.agent : null;
+  }
+  setCronJobAgent(jobName: string, agent: InstructionAgent | null): void {
+    const key = `${KEYS.cronJobAgentPrefix}${jobName}`;
+    if (agent === null) this.store.delete(key);
+    else this.store.set(key, agent);
+  }
+  /** 受け取られない指令を委託へ戻すまでの分 (既定 180)。 */
+  getCronJobAgentFallbackMinutes(): number {
+    return positiveOrDefault(this.store.get(KEYS.cronJobAgentFallbackMinutes), DEFAULT_AGENT_FALLBACK_MINUTES);
+  }
+  setCronJobAgentFallbackMinutes(minutes: number): void {
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 7 * 24 * 60) throw new Error("fallback_minutes must be an integer between 1 and 10080");
+    this.store.set(KEYS.cronJobAgentFallbackMinutes, String(minutes));
   }
 
   /**

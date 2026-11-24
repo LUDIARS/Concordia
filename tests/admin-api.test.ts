@@ -337,6 +337,8 @@ describe("admin API", () => {
     const dailyReview = jobs.find((j) => j.name === "ludiars-review-weekly");
     expect(dailyReview).toBeDefined();
     expect(dailyReview?.call_name).toBe(dailyReview?.default_call_name);
+    // 宛先は既定で従来の委託 ("")。 週次レビューは外部エージェント用の data builder がある (spec/feature/parttimer-agent-dispatch.md)。
+    expect(dailyReview).toMatchObject({ agent: "", agent_supported: true });
   });
 
   it("PUT /v1/admin/cron-jobs/:name overrides the call_name and persists it", async () => {

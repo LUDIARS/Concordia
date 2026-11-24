@@ -269,6 +269,7 @@ import type { CcTaskRepository } from "../fallback-tasks/repository.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
+import { registerCronJobAgentRoutes, serializeCronJobAgent } from "./cron-job-agent-routes.js";
 import { inquiryRouter } from "./inquiry.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { directorRouter } from "./director.js";
@@ -2158,8 +2159,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       cron: job.cron,
       default_call_name: job.call_name,
       call_name: deps.adminState.getCronJobOverride(job.name) ?? job.call_name,
+      ...serializeCronJobAgent(job, deps.adminState),
     };
   }
+  registerCronJobAgentRoutes(app, { jobs: CRON_JOBS, settings: deps.adminState });
   app.get("/v1/admin/cron-jobs", (c) => {
     return c.json({ jobs: CRON_JOBS.map(serializeCronJob) });
   });

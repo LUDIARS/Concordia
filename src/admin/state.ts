@@ -6,6 +6,7 @@ import { WorkflowSettingsStore, type WorkflowSettingsDefaults } from "./workflow
 import { WorkspaceSettingsStore, type WorkspaceSettingsDefaults } from "./workspace-settings.js";
 import { WorkflowToggles } from "../workflow/toggles.js";
 import type { WorkflowKey } from "../workflow/keys.js";
+import type { InstructionAgent } from "../agent-instructions/instruction-policy.js";
 
 export type { LictorMode } from "./runtime-settings.js";
 
@@ -113,6 +114,10 @@ export class AdminState {
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
   setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }
+  getCronJobAgent(jobName: string): InstructionAgent | null { return this.runtime.getCronJobAgent(jobName); }
+  setCronJobAgent(jobName: string, agent: InstructionAgent | null): void { this.runtime.setCronJobAgent(jobName, agent); }
+  getCronJobAgentFallbackMinutes(): number { return this.runtime.getCronJobAgentFallbackMinutes(); }
+  setCronJobAgentFallbackMinutes(minutes: number): void { this.runtime.setCronJobAgentFallbackMinutes(minutes); }
   migrateCronJobOverride(oldJobName: string, newJobName: string, oldDefaultCallName: string, newDefaultCallName: string): void {
     this.runtime.migrateCronJobOverride(oldJobName, newJobName, oldDefaultCallName, newDefaultCallName);
   }

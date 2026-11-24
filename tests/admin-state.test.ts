@@ -85,6 +85,19 @@ describe("AdminState", () => {
     expect(() => env.state.setDailyTokenBudget(Infinity)).toThrow();
   });
 
+  // spec/feature/parttimer-agent-dispatch.md: 定時ジョブの宛先は既定で従来の委託、 戻しの分は既定 180。
+  it("cron job agent: 既定は委託 (null) / dots を永続 / null で既定へ戻す / 戻しの分は既定 180", () => {
+    expect(env.state.getCronJobAgent("deps-sweep-daily")).toBeNull();
+    env.state.setCronJobAgent("deps-sweep-daily", "dots");
+    expect(new AdminState(env.db).getCronJobAgent("deps-sweep-daily")).toBe("dots");
+    env.state.setCronJobAgent("deps-sweep-daily", null);
+    expect(env.state.getCronJobAgent("deps-sweep-daily")).toBeNull();
+    expect(env.state.getCronJobAgentFallbackMinutes()).toBe(180);
+    env.state.setCronJobAgentFallbackMinutes(30);
+    expect(new AdminState(env.db).getCronJobAgentFallbackMinutes()).toBe(30);
+    expect(() => env.state.setCronJobAgentFallbackMinutes(0)).toThrow();
+  });
+
   it("migrates a renamed cron job override without losing a custom template", () => {
     env.state.setCronJobOverride("ludiars-review-daily", "custom-review-template");
 

@@ -265,6 +265,9 @@ import { resolveNoticeMention } from "../inbox/session-return-mention.js";
 import { startActioMorningScheduler } from "../morning/actio-scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
+import { createAgentDispatchRuntime } from "../scheduler/agent-dispatch-runtime.js";
+import { CRON_JOBS } from "../scheduler/cron-jobs.js";
+import { serviceStatusClient } from "../service-status/client.js";
 import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
@@ -3508,19 +3511,37 @@ export async function startBackend(): Promise<BackendHandle> {
         cwd: workspaceRootDefault ?? process.cwd(),
       })),
     );
+    const cronAgentDispatch = createAgentDispatchRuntime({
+      instructions: agentInstructions.routes.service,
+      subscribeEvents: agentInstructions.subscribeEvents,
+      settings: adminState,
+      jobs: CRON_JOBS,
+      delegation: delegationService,
+      templateTitle: (callName) => delegationRepo.findTemplateByCallName(callName)?.title ?? null,
+      workspaceRoot: () => adminState.getWorkspaceRoot() || cfg.workspaceRoot || cfg.spawnDefaultCwd,
+      serviceStatus: () => serviceStatusClient.get(),
+      post: (text) => controlRuntime.postAlert(text),
+    });
     workflowBindings.register({
       key: "daily",
       name: "cron-scheduler",
-      start: () => startCronScheduler({
-        delegationService,
-        resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
-        // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の稼働中チーム。
-        // 本社 scheduler は本社チームだけを fanout する。子会社チームは子会社所有の
-        // delegation から起動し、subsidiary_id と default team を一緒に運ぶ。
-        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActiveForSubsidiary(null)) },
-        // LUDIARS ダッシュボードの日報 (hqOnly) は拠点では発火しない。
-        isSiteRole: () => federation.isSiteRole(),
-      }),
+      start: () => {
+        // 宛先が dots / Muse のジョブは指令へ回し、 結果の引き取りと期限切れの戻しを同じ寿命で回す
+        // (spec/feature/parttimer-agent-dispatch.md)。 宛先未設定のジョブは従来どおり委託を invoke する。
+        const agentRuntime = cronAgentDispatch.start();
+        const scheduler = startCronScheduler({
+          delegationService,
+          dispatchToAgent: cronAgentDispatch.dispatchToAgent,
+          resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
+          // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の稼働中チーム。
+          // 本社 scheduler は本社チームだけを fanout する。子会社チームは子会社所有の
+          // delegation から起動し、subsidiary_id と default team を一緒に運ぶ。
+          fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActiveForSubsidiary(null)) },
+          // LUDIARS ダッシュボードの日報 (hqOnly) は拠点では発火しない。
+          isSiteRole: () => federation.isSiteRole(),
+        });
+        return { stop: () => { scheduler.stop(); agentRuntime.stop(); } };
+      },
     });
     workflowBindings.register({
       key: "review",

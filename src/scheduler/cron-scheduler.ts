@@ -9,6 +9,7 @@
 import { Cron } from "croner";
 import type { DelegationService } from "../delegation/service.js";
 import { createChildLogger } from "../shared/logger.js";
+import type { AgentDispatchInput, AgentDispatchOutcome } from "./agent-dispatch.js";
 import type { CronFanoutTarget } from "./cron-fanout.js";
 import { CRON_JOBS, type CronJobDefinition, type CronJobFanout } from "./cron-jobs.js";
 
@@ -32,6 +33,13 @@ export interface CronSchedulerDeps {
   fanoutResolvers?: Partial<Record<CronJobFanout, () => CronFanoutTarget[]>>;
   /** 拠点ロールなら `hqOnly` のジョブを発火しない。 発火時点で判定する (連合設定は再起動なしで変わる)。 */
   isSiteRole?: () => boolean;
+  /**
+   * 宛先が外部エージェント (dots / Muse) のジョブを、 委託 invoke の代わりに指令 1 件 (対象ごと) へ回す
+   * (spec/feature/parttimer-agent-dispatch.md)。 not_routed なら従来どおり invoke する。 未指定なら常に invoke。
+   */
+  dispatchToAgent?: (input: AgentDispatchInput) => Promise<AgentDispatchOutcome>;
+  /** 発火時刻 (dedupe_key の分)。 テスト用に注入できる。 */
+  now?: () => Date;
 }
 
 export interface CronSchedulerHandle {
@@ -58,6 +66,37 @@ export function startCronScheduler(
     return resolver();
   }
 
+  /**
+   * 外部エージェントへ回せたら true (指令を登録した / 同じ発火の指令が既にある)。
+   * 回す処理が失敗したら warn して false (従来の委託で作業を落とさない)。
+   */
+  async function routedToAgent(
+    job: CronJobDefinition,
+    target: CronFanoutTarget,
+    args: Record<string, unknown>,
+    callName: string,
+    firedAt: Date,
+  ): Promise<boolean> {
+    if (!deps.dispatchToAgent) return false;
+    try {
+      const outcome = await deps.dispatchToAgent({
+        jobName: job.name, targetKey: target.key, args, options: target.options, callName, firedAt,
+      });
+      if (outcome.kind === "not_routed") return false;
+      log.info(
+        { job: job.name, target: target.key || null, agent: outcome.agent, instruction: outcome.id, outcome: outcome.kind },
+        "cron job routed to an external agent",
+      );
+      return true;
+    } catch (error) {
+      log.warn(
+        { job: job.name, target: target.key || null, error: (error as Error).message },
+        "cron job agent dispatch failed; using delegation",
+      );
+      return false;
+    }
+  }
+
   async function runJob(job: CronJobDefinition): Promise<void> {
     if (job.hqOnly && deps.isSiteRole?.()) {
       log.info({ job: job.name }, "cron job is HQ-only; skipping on a site");
@@ -70,6 +109,7 @@ export function startCronScheduler(
       return;
     }
 
+    const firedAt = (deps.now ?? (() => new Date()))();
     const baseArgs = job.buildArgs();
     const call_name = deps.resolveCallNameOverride?.(job.name) ?? job.call_name;
 
@@ -80,6 +120,8 @@ export function startCronScheduler(
         { job: job.name, call_name, default_call_name: job.call_name, target: target.key || null, args },
         "cron job firing",
       );
+
+      if (await routedToAgent(job, target, args, call_name, firedAt)) continue;
 
       try {
         const result = await deps.delegationService.invoke({

@@ -44,6 +44,14 @@ export interface AgentInstructionStore {
   requeueAckedBefore(cutoff: string): RequeuedInstruction[];
   /** finished_at が cutoff より前の done / failed を消す。 消した件数。 */
   purgeFinishedBefore(cutoff: string): number;
+  /** params.dedupe_key が一致する指令 (cron 由来の二重登録防止、spec/feature/parttimer-agent-dispatch.md)。 */
+  findByDedupeKey(key: string): AgentInstructionRow | null;
+  /** params.dedupe_key が prefix で始まり、 created_at が cutoff より前の pending。 古い順。 */
+  listPendingWithDedupePrefixBefore(prefix: string, cutoff: string): AgentInstructionRow[];
+  /** pending → failed (Cc が期限切れで閉じる)。 acked 以降は触らない。 遷移できたら true。 */
+  markExpired(id: string, update: { finishedAt: string; summary: string; detail: string | null }): boolean;
+  /** params.job が一致する done のうち最新の要約。 */
+  lastDoneSummaryForJob(job: string): string | null;
 }
 
 export class SqliteAgentInstructionStore implements AgentInstructionStore {
@@ -116,6 +124,45 @@ export class SqliteAgentInstructionStore implements AgentInstructionStore {
        WHERE status = 'acked' AND acked_at < ?
        RETURNING id, agent, title
     `).all(cutoff) as RequeuedInstruction[];
+  }
+
+  findByDedupeKey(key: string): AgentInstructionRow | null {
+    const row = this.db.prepare(`
+      SELECT * FROM agent_instructions
+       WHERE json_valid(params) AND json_extract(params, '$.dedupe_key') = ?
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1
+    `).get(key) as AgentInstructionRow | undefined;
+    return row ?? null;
+  }
+
+  listPendingWithDedupePrefixBefore(prefix: string, cutoff: string): AgentInstructionRow[] {
+    return this.db.prepare(`
+      SELECT * FROM agent_instructions
+       WHERE status = 'pending' AND created_at < ?
+         AND json_valid(params) AND substr(COALESCE(json_extract(params, '$.dedupe_key'), ''), 1, ?) = ?
+       ORDER BY created_at ASC, id ASC
+    `).all(cutoff, prefix.length, prefix) as AgentInstructionRow[];
+  }
+
+  markExpired(id: string, update: { finishedAt: string; summary: string; detail: string | null }): boolean {
+    // acked_at は入れない (受け取られなかった事実を残す)。 acked 以降は外部エージェントが持っているので触らない。
+    const result = this.db.prepare(`
+      UPDATE agent_instructions
+         SET status = 'failed', finished_at = ?, result_summary = ?, result_detail = ?
+       WHERE id = ? AND status = 'pending'
+    `).run(update.finishedAt, update.summary, update.detail, id);
+    return result.changes === 1;
+  }
+
+  lastDoneSummaryForJob(job: string): string | null {
+    const row = this.db.prepare(`
+      SELECT result_summary FROM agent_instructions
+       WHERE status = 'done' AND json_valid(params) AND json_extract(params, '$.job') = ?
+       ORDER BY finished_at DESC, id DESC
+       LIMIT 1
+    `).get(job) as { result_summary: string | null } | undefined;
+    return row?.result_summary ?? null;
   }
 
   purgeFinishedBefore(cutoff: string): number {

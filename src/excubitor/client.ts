@@ -81,6 +81,14 @@ export class ExcubitorClient {
     return body.services ?? [];
   }
 
+  /** Excubitor expands catalog provides with the host configured for this site. */
+  async topologyValue(key: string, timeoutMs: number): Promise<string | null> {
+    const topology = await this.request<{ env: Record<string, string> }>(
+      "GET", "/api/v1/topology", undefined, timeoutMs,
+    );
+    return topology.env[key] ?? null;
+  }
+
   /** Excubitor が一元採取した全プロセスの最新キャッシュを読む。ローカル WMI/ps は起動しない。 */
   async getProcessSnapshot(timeoutMs = 5_000): Promise<ExcubitorProcessSnapshot> {
     return this.request<ExcubitorProcessSnapshot>("GET", "/api/v1/processes/snapshot", undefined, timeoutMs);

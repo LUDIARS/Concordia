@@ -26,7 +26,7 @@ const QUERY_BUDGET_MS = 2_000;
  * 不在・失敗時は呼び出し元が self_judge へ戻す。
  */
 export class CatalogGeniusClient implements GeniusClient {
-  constructor(private readonly excubitor: Pick<ExcubitorClient, "findService">, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(private readonly excubitor: Pick<ExcubitorClient, "findService" | "topologyValue">, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null> {
     const deadline = Date.now() + QUERY_BUDGET_MS;
@@ -67,8 +67,14 @@ export class CatalogGeniusClient implements GeniusClient {
     if (remainingMs === 0) return null;
     const service = await this.excubitor.findService("genius", remainingMs).catch(() => null);
     const provides = service?.catalog_snapshot?.provides;
-    const value = typeof provides?.GENIUS_URL === "string" ? provides.GENIUS_URL.trim() : "";
-    return /^https?:\/\//.test(value) ? value.replace(/\/+$/, "") : null;
+    let value = provides?.GENIUS_URL?.trim();
+    if (value?.includes("${")) {
+      const budget = deadline - Date.now();
+      if (budget <= 0) return null;
+      value = (await this.excubitor.topologyValue("GENIUS_URL", budget))?.trim();
+    }
+    if (!value || value.includes("${") || !/^https?:\/\//.test(value) || !URL.canParse(value)) return null;
+    return value.replace(/\/+$/, "");
   }
 
   private async request<T>(

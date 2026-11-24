@@ -1,6 +1,8 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/excubitor/client.ts", "tests": ["src/inquiry/genius-client.test.ts"], "contracts": [] },
+    { "source": "src/inquiry/genius-client.ts", "tests": ["src/inquiry/genius-client.test.ts"], "contracts": [] },
     { "source": "src/conflux/merge-observer.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": [] },
     { "source": "src/conflux/merge-poller.ts", "tests": ["src/conflux/merge-return-service.test.ts", "src/conflux/conflux.test.ts"], "contracts": [] },
     { "source": "src/conflux/merge-return-policy.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": ["gen5-return-C-3"] },

@@ -44,7 +44,7 @@ describe("GET /v1/control/sessions (実装メモ 13)", () => {
     records.run("s1", "調べる", "completed", 1, 1);
     records.run("s1", "直す", "pending", 2, 2);
     const reader = createSessionProgressReader({
-      db, boardRows: () => [row("s1"), row("s2")], readTaskLinks, timeoutMs: 50,
+      db, boardRows: () => [row("s1"), row("s2")], readTaskLinks, taskLinksCache: { waitMs: 50 },
       hasTaskLinks: (metadata) => (metadata ?? "").includes("cc_task_links"),
     });
     let enabled = true;
@@ -74,6 +74,42 @@ describe("GET /v1/control/sessions (実装メモ 13)", () => {
     expect((await (await slow.app.request("/v1/control/sessions")).json()).items[0].progress.tasks).toEqual({ state: "unavailable" });
     const failing = setup(async () => { throw new Error("actio down"); });
     expect((await (await failing.app.request("/v1/control/sessions")).json()).items[0].progress.tasks).toEqual({ state: "unavailable" });
+  });
+
+  it("does not grow DB or Actio reads with the number of sessions, and answers without waiting for a slow Actio", async () => {
+    async function measure(count: number) {
+      const db = makeTestDb();
+      const insert = db.prepare(`INSERT INTO sessions (id, provider, repo_path, host, started_at, status, last_seen_at, metadata, branch)
+        VALUES (?, 'claude', 'E:/x', 'h', 1, 'active', 1, ?, 'feat/x')`);
+      const ids = Array.from({ length: count }, (_, i) => `s${i}`);
+      for (const id of ids) insert.run(id, JSON.stringify({ cc_task_links: [{ task_reference: "actio:1" }] }));
+      // 本番で見た遅い Actio (数秒) の代わり。応答はこれを待たない。
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const readTaskLinks = vi.fn(async () => { await gate; return [{ reference: "actio:1", status: "open", state: "current" as const }]; });
+      const reader = createSessionProgressReader({
+        db, boardRows: () => ids.map(row), readTaskLinks, hasTaskLinks: () => true, taskLinksCache: { waitMs: 20 },
+      });
+      const prepare = vi.spyOn(db, "prepare");
+      const started = Date.now();
+      const first = await reader.read();
+      const elapsed = Date.now() - started;
+      const preparesPerRead = prepare.mock.calls.length;
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const second = await reader.read();
+      return { first, second, elapsed, preparesPerRead, actioReads: readTaskLinks.mock.calls.length, count };
+    }
+    const few = await measure(3);
+    const many = await measure(30);
+    expect(many.preparesPerRead).toBe(few.preparesPerRead);
+    expect(few.preparesPerRead).toBeLessThanOrEqual(2);
+    expect(many.elapsed).toBeLessThan(300);
+    expect(many.first.every((item) => item.progress.tasks.state === "unavailable")).toBe(true);
+    // 読み出しは裏で続き、次の表示では覚えた値を返す (2 回の表示で Actio はセッションごとに 1 回だけ)。
+    expect(many.second.every((item) => item.progress.tasks.state === "ok")).toBe(true);
+    expect(many.actioReads).toBe(many.count);
+    expect(few.actioReads).toBe(few.count);
   });
 
   it("answers 409 while the control patrol is off", async () => {

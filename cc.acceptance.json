@@ -5980,6 +5980,7 @@
     { "source": "src/control-cards/sources.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
     { "source": "src/control-session/session-progress-reader.ts", "tests": ["src/control-session/session-progress.test.ts"], "contracts": [] },
     { "source": "src/control-session/session-progress-view.ts", "tests": ["src/control-session/session-progress.test.ts"], "contracts": [] },
+    { "source": "src/control-session/task-links-cache.ts", "tests": ["src/control-session/task-links-cache.test.ts", "src/control-session/session-progress.test.ts"], "contracts": [] },
     { "source": "src/db/v5-desk-cards-migration.ts", "tests": ["src/db/migration-ledger.test.ts", "src/desk/desk.test.ts", "src/control-cards/use-cases.test.ts"], "contracts": [] },
     { "source": "src/desk/desk-request-policy.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
     { "source": "src/desk/dispatcher.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },

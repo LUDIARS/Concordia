@@ -1,8 +1,8 @@
 /**
  * GET /v1/control/sessions の読み口 (Cc v5 実装メモ 13)。ボードの行に、プランと進捗を付けて返す。
- * - ステップと metadata は全セッション分を 1 回の照会で引く
- * - Actio の紐付けはセッションごとに並行で引き、期限 (既定 600ms) を過ぎたものと失敗したものは unavailable
- * - Actio の結果は短期 (既定 30 秒) だけ覚えて、1 秒以内で返す
+ * - ステップと metadata は全セッション分を 1 回の照会で引く (セッション数で照会回数が増えない)
+ * - Actio の紐付けは読み置き (task-links-cache.ts) から返し、応答は Actio の読み出しを短い時間しか待たない
+ * - 読めなかった欄だけ unavailable (「取得できません」)
  *
  * @implements spec/feature/control-session.md §13 プランと進捗
  */
@@ -12,9 +12,7 @@ import { readSessionPlan } from "../session-plan/plan-state.js";
 import { readSessionWorkPhase } from "../work/session-work-phase.js";
 import { buildSessionProgress, type LinkedTaskState, type PlanStep, type SessionWithProgress, type TaskLinksReading } from "./session-progress-view.js";
 import type { ControlBoardRowWithLink } from "./session-link.js";
-
-export const TASK_LINKS_TIMEOUT_MS = 600;
-export const TASK_LINKS_CACHE_MS = 30_000;
+import { createTaskLinksCache, type TaskLinksCacheOptions } from "./task-links-cache.js";
 
 export interface SessionProgressReaderDeps {
   db: Database.Database;
@@ -23,9 +21,8 @@ export interface SessionProgressReaderDeps {
   readTaskLinks: (sessionId: string) => Promise<LinkedTaskState[] | null>;
   /** 紐付けがあるか (無ければ Actio を引かない)。 */
   hasTaskLinks: (metadata: string | null) => boolean;
-  now?: () => number;
-  timeoutMs?: number;
-  cacheMs?: number;
+  /** 読み置きの時間設定 (テスト用。既定は task-links-cache.ts)。 */
+  taskLinksCache?: Omit<TaskLinksCacheOptions, "read">;
 }
 
 interface SessionFacts {
@@ -36,31 +33,13 @@ interface SessionFacts {
   metadata: string | null;
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | "timeout"> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), ms); timer.unref?.(); });
-  return Promise.race([promise, timeout]).finally(() => { if (timer) clearTimeout(timer); });
-}
-
 export function createSessionProgressReader(deps: SessionProgressReaderDeps) {
-  const now = deps.now ?? Date.now;
-  const cache = new Map<string, { at: number; reading: TaskLinksReading }>();
+  const cache = createTaskLinksCache({ ...deps.taskLinksCache, read: deps.readTaskLinks });
 
-  async function taskLinks(session: SessionFacts | undefined): Promise<TaskLinksReading> {
+  function taskLinks(session: SessionFacts | undefined): Promise<TaskLinksReading> | TaskLinksReading {
     if (!session) return { state: "unavailable" };
     if (!deps.hasTaskLinks(session.metadata)) return { state: "ok", items: [] };
-    const cached = cache.get(session.id);
-    if (cached && now() - cached.at < (deps.cacheMs ?? TASK_LINKS_CACHE_MS)) return cached.reading;
-    let reading: TaskLinksReading;
-    try {
-      const result = await withTimeout(deps.readTaskLinks(session.id), deps.timeoutMs ?? TASK_LINKS_TIMEOUT_MS);
-      reading = result === "timeout" || result === null ? { state: "unavailable" } : { state: "ok", items: result };
-    } catch {
-      reading = { state: "unavailable" };
-    }
-    // 期限切れ・失敗は覚えない (次の表示でもう一度試す)。
-    if (reading.state === "ok") cache.set(session.id, { at: now(), reading });
-    return reading;
+    return cache.get(session.id);
   }
 
   return {
@@ -80,6 +59,7 @@ export function createSessionProgressReader(deps: SessionProgressReaderDeps) {
         list.push({ text: record.task_text, status: record.status });
         steps.set(record.session_id, list);
       }
+      cache.retainOnly(ids);
       const links = await Promise.all(rows.map((row) => taskLinks(sessions.get(row.session_id))));
       return rows.map((row, index) => {
         const session = sessions.get(row.session_id);

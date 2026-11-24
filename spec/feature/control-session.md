@@ -267,12 +267,12 @@ Actio `106c0bf7-5d2a-4bc9-bfb0-3c02e9f89b60`、Gen5 統合実装 `f69c01a2-02e0-
 
 - プラン: `session_task_records` のステップと状態 (TodoWrite と desktop_plan の両方が写る。無ければ `metadata.desktop_plan` のステップ)、`desktop_plan` の状態 1 行、作業段階 (`cc_work_phase`)。
 - 進捗: ステップの完了数 / 総数、自動確認の進捗率 (`cc_followup_progress` の指紋の `rate:`。未計測は null で「未計測」と出し 0% にしない)、紐付いた Actio タスクの状態 (`GET /v1/sessions/:id/task-links` と同じ読み口)。
-- 1 秒以内に返す: ステップと metadata は全セッション分を 1 回の照会で引く。Actio は紐付けのあるセッションだけ並行で引き、600ms の期限と 30 秒の短期記憶を付ける。期限切れ・失敗はその欄だけ `unavailable` (「取得できません」)。
+- 1 秒以内に返す: ステップと metadata は全セッション分を 1 回の照会で引く (セッション数で照会回数が増えない)。Actio は紐付けのあるセッションだけ、読み置き (`task-links-cache.ts`) から返す。応答が Actio を待つのは 150ms まで。間に合わない読み出しは裏で続け (30 秒で打ち切り)、読めたら覚えて次の表示で出す。覚えた値は 30 秒過ぎたら古い値を返しつつ裏で引き直し、5 分を過ぎた値は出さない。同じセッションの読み出しは 1 本にまとめ、失敗・打ち切りは覚えずに 10 秒置いてから引き直す。読めていない欄だけ `unavailable` (「取得できません」)。2026-11-24 の実測では Actio の読み出しが紐付きセッションごとに 2〜12 秒かかり、旧来の 600ms 期限では毎回期限切れで覚えられず、応答が常に 600ms 以上かかっていた。
 - 管制が OFF の間は `/board` と同じく 409 `control_disabled`。
 
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`、本体 OFF の分岐を含む)、組み立て (`runtime.ts`)、プランと進捗 (`session-progress-view.ts` / `session-progress-reader.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`、本体 OFF の分岐を含む)、組み立て (`runtime.ts`)、プランと進捗 (`session-progress-view.ts` / `session-progress-reader.ts`、Actio の紐付けの読み置き `task-links-cache.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`review-status-source.ts` — 審査状況の読み口 (open 一覧の短時間キャッシュ・セッションへの絞り込み・読み取り失敗の連続数)。`confirmation-activity.ts` — 応答待ちの確認を解く判定の入力 (HEAD・審査中 PR)。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。

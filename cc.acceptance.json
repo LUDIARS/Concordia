@@ -1,6 +1,7 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/inquiry/decision.ts", "tests": ["src/inquiry/genius-client.test.ts"], "contracts": [] },
     { "source": "src/excubitor/client.ts", "tests": ["src/inquiry/genius-client.test.ts"], "contracts": [] },
     { "source": "src/inquiry/genius-client.ts", "tests": ["src/inquiry/genius-client.test.ts"], "contracts": [] },
     { "source": "src/conflux/merge-observer.ts", "tests": ["src/conflux/merge-return-service.test.ts"], "contracts": [] },

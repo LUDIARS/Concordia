@@ -38,7 +38,7 @@ Haiku の分類だけで答えていたため、「誰を招待するか」「Vi
 | 3 | セッションの状態 | active でない |
 | 4 | 前段の絞り込み (SPEC-GOAL-STOP-Q-01、純関数) | 破壊的操作・取り返しのつかない操作の語がある (削除・force push・本番・課金・公開・資格情報など)。「進める / 止める / 許可 / 見送る」を選ばせる形でない |
 | 5 | 直近の人間の指示 (SPEC-GOAL-STOP-Q-03) | Discord / Slack から届いた inject が無い (ゴールが分からない)。自動 inject は数えない |
-| 6 | Genius の前例 (SPEC-GOAL-STOP-Q-05) | Genius が不在・失敗 (`genius_unavailable`)。採用スコア `CONCORDIA_INQUIRY_SCORE_MIN` (既定 0.6) 以上のカードが無い (`no_precedent`)。人間判断・権限を示すカードがある (`needs_human`)。判定は inquiry と同じ `decideInquiry`、カテゴリは「タスク判断」「設計判断」 |
+| 6 | Genius の前例 (SPEC-GOAL-STOP-Q-05) | Genius が不在・失敗 (`genius_unavailable`)。採用スコア `CONCORDIA_INQUIRY_SCORE_MIN` (既定 0.6) 以上のカードが無い (`no_precedent`)。人間判断・権限を示すカードがある (`needs_human`)。判定は inquiry と同じ `decideInquiry`、カテゴリは`workflow`・`impl-design` |
 | 7 | カードの当てはめ (SPEC-GOAL-STOP-Q-02、既定 haiku) | カードがこの質問を扱っていない (`covered` が偽)、確信 0.8 未満、示したカード id が渡したカードに無い、選択肢 index が範囲外、回答が空、応答が読めない・失敗。人の好み (誰を招待するか・どの製品を入れるか・名前・見た目) はカードがあっても答えない |
 | 8 | 回答 (SPEC-GOAL-STOP-Q-04) | 人間が先に答えた・質問が閉じられた (`already_answered` / `question_closed`) |
 

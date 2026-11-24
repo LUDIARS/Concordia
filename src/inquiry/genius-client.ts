@@ -18,8 +18,9 @@ export interface GeniusClient {
   query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null>;
 }
 
-/** catalog 解決 + healthz + query を合わせた上限 (spec/feature/inquiry.md §10-1)。 */
-const QUERY_BUDGET_MS = 2_000;
+/** Fail fast when unavailable; a healthy service can need longer to load embeddings. */
+const DISCOVERY_BUDGET_MS = 2_000;
+const CARD_SEARCH_BUDGET_MS = 60_000;
 
 /**
  * Genius は人間の判断代行。Cc は catalog に宣言された URL だけを使い、
@@ -29,7 +30,7 @@ export class CatalogGeniusClient implements GeniusClient {
   constructor(private readonly excubitor: Pick<ExcubitorClient, "findService" | "topologyValue">, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null> {
-    const deadline = Date.now() + QUERY_BUDGET_MS;
+    const deadline = Date.now() + DISCOVERY_BUDGET_MS;
     try {
       const url = await this.resolveUrl(deadline);
       if (!url || Date.now() >= deadline) return null;
@@ -47,7 +48,7 @@ export class CatalogGeniusClient implements GeniusClient {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(input),
         },
-        deadline,
+        Date.now() + CARD_SEARCH_BUDGET_MS,
         async (response) => ({
           ok: response.ok,
           body: response.ok ? await response.json() as { cards?: unknown } : null,

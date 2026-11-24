@@ -1,8 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { CatalogGeniusClient } from "./genius-client.js";
+import { geniusCategories } from "./decision.js";
 
 describe("CatalogGeniusClient", () => {
+  it("uses registered Genius categories for task, part-timer and design inquiries", () => {
+    expect(geniusCategories("タスク")).toEqual(["workflow"]);
+    expect(geniusCategories("パートタイマー")).toEqual(["workflow", "delegation"]);
+    expect(geniusCategories("設計")).toEqual(["impl-design"]);
+  });
+
+  it("allows a healthy search to finish after the discovery deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const catalog = { findService: vi.fn().mockResolvedValue({
+        catalog_snapshot: { provides: { GENIUS_URL: "http://localhost:1234" } },
+      }), topologyValue: vi.fn() };
+      const client = new CatalogGeniusClient(catalog, async (url, init) => {
+        if (String(url).endsWith("/healthz")) return new Response(null, { status: 200 });
+        await vi.advanceTimersByTimeAsync(2_500);
+        init?.signal?.throwIfAborted();
+        return Response.json({ cards: [{ id: "1", situation: "review", score: 0.8 }] });
+      });
+      await expect(client.query({ text: "review", k: 1 })).resolves.toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reads the topology from Excubitor and stops before sending task text if the endpoint is missing", async () => {
     const excubitorFetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       if (String(input).endsWith("/api/v1/services/genius")) {

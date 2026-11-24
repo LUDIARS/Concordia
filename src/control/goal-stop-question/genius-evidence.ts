@@ -13,11 +13,11 @@
  */
 
 import type { GeniusCard, GeniusClient } from "../../inquiry/genius-client.js";
-import { decideInquiry } from "../../inquiry/decision.js";
+import { decideInquiry, geniusCategories } from "../../inquiry/decision.js";
 import type { AskedQuestion } from "./prefilter.js";
 
 /** ゴールを止める質問は手順の判断と設計の判断の両方がありうるので、両カテゴリを引く。 */
-export const GOAL_STOP_GENIUS_CATEGORIES = ["タスク判断", "設計判断"];
+export const GOAL_STOP_GENIUS_CATEGORIES = [...geniusCategories("タスク"), ...geniusCategories("設計")];
 
 /** 判断に渡すカードの上限 (プロンプトの量を抑える)。 */
 const MAX_CARDS = 5;

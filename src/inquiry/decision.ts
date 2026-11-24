@@ -4,9 +4,9 @@ export type InquiryCategory = "タスク" | "パートタイマー" | "設計" |
 export type InquiryDecision = "proceed" | "ask_human" | "self_judge";
 
 const categories: Record<InquiryCategory, string[]> = {
-  "タスク": ["タスク判断"],
-  "パートタイマー": ["タスク判断", "稼働判断"],
-  "設計": ["設計判断"],
+  "タスク": ["workflow"],
+  "パートタイマー": ["workflow", "delegation"],
+  "設計": ["impl-design"],
   "権限": ["権限判断"],
 };
 

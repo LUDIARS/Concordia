@@ -86,6 +86,15 @@ function confirmRun(db: ReturnType<typeof makeTestDb>, id: string, prNumber: num
 }
 
 describe("同期での破棄 (実装メモ 14、CC-V5-INV-08)", () => {
+  it("keeps a sessionless kaizen judgment open until human resolution and does not reopen it", () => {
+    const h = setup();
+    const input = { key: "kaizen-1", project: "Cc", summary: "対象外の改善案" };
+    const card = h.service.openKaizenJudgment(input);
+    h.sync([]);
+    expect(h.repo.listOpen()).toContainEqual(expect.objectContaining({ id: card.id, card_kind: "human_judgment" }));
+    expect(h.service.markDone(card.id, "tester")).toMatchObject({ kind: "updated", card: { state: "closed" } });
+    expect(h.service.openKaizenJudgment(input)).toMatchObject({ id: card.id, state: "closed" });
+  });
   it("discards open judgment cards whose session ended, keeps active ones, and never reopens them", () => {
     const h = setup();
     const readings: SourceReading[] = [{ kind: "ask-card", readable: true, items: [item("ask-card", "q-alive", "alive"), item("ask-card", "q-ended", "ended")] }];

@@ -6,6 +6,8 @@
  */
 
 import { INSTRUCTION_AGENTS, INSTRUCTION_LIMITS, type InstructionAgent } from "../agent-instructions/instruction-policy.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:70a53b0c */
+import augurContract_e1aef40a from './agent-jobs/report-only-route.contract.js'; /* augur-inject:contract-predicate:feaaca61 */
 
 /** cron 由来の指令の dedupe_key の接頭辞。 期限切れの戻しはこの接頭辞の指令だけを対象にする。 */
 export const CRON_DEDUPE_PREFIX = "cron:";
@@ -18,6 +20,14 @@ export const FALLBACK_CLOSE_SUMMARY = "期限内に受け取られなかった�
 
 /** Cc が閉じた指令の detail。 結果の引き取りはこの印の付いた finished を反映しない。 */
 export const FALLBACK_CLOSE_DETAIL = { closed_by: "concordia", fallback: "delegation" } as const;
+export const REPORT_ONLY_CLOSE_SUMMARY = "期限内に受け取られなかったため指令を終了した";
+
+/** Expiry must not repeat HQ ingestion or turn a proposal into a work delegation. */
+export function usesReportOnlyRoute(jobName: string): boolean {
+  return jobName === "quaestor-mail-sweep" || jobName === "kaizen-daily";
+}
+// @ts-expect-error augur-inject
+usesReportOnlyRoute = contract(usesReportOnlyRoute, { ...augurContract_e1aef40a, contractId: 'cron-mail-kaizen-C-43', mode: 'observe', sample: 1, where: 'src/scheduler/agent-dispatch-policy.ts:24', rule: 'contract-wrap', id: 'e1aef40a' }); /* augur-inject:contract-wrap:e1aef40a */
 
 export type AgentChoice = { ok: true; agent: InstructionAgent | null } | { ok: false; error: string };
 

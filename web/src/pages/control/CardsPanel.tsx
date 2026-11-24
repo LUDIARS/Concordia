@@ -47,7 +47,7 @@ function CardEditor({ card, onSaved }: { card: ControlCardView; onSaved: () => v
     <label>催促文 <input aria-label="催促文" value={reminderText} maxLength={400} onChange={(e) => setReminderText(e.target.value)} className="bg-surface border border-border rounded p-1 w-48" /></label>
     <label>まとめ先 <input aria-label="まとめ先" value={group} maxLength={100} onChange={(e) => setGroup(e.target.value)} className="bg-surface border border-border rounded p-1 w-28" /></label>
     <button className="border border-border rounded px-3 py-1">捌きを保存</button>
-    {card.source_kind === "human-command" && <button type="button" onClick={() => { void save({ done: true }); }} className="bg-accent text-white rounded px-3 py-1">済み</button>}
+    {(card.source_kind === "human-command" || card.source_kind === "kaizen-proposal") && <button type="button" onClick={() => { void save({ done: true }); }} className="bg-accent text-white rounded px-3 py-1">済み</button>}
     {error && <span role="alert" className="text-red-400">{error}</span>}
   </form>;
 }

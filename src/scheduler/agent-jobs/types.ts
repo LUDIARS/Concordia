@@ -13,7 +13,7 @@ export interface AgentJobContext {
   args: Record<string, unknown>;
 }
 
-/** 結果の出し方。 どれも投稿だけで、 書き込み・PR はしない (CC-PT-AGENT-INV-04)。 */
+/** Cc が投稿する結果の表示種別 (CC-PT-AGENT-INV-04)。 */
 export type AgentJobResultKind = "報告" | "提案" | "下書き" | "要約";
 
 export interface AgentJobSpec {
@@ -21,9 +21,11 @@ export interface AgentJobSpec {
   /** 外部エージェント用の本文 (Cc の API・ファイル操作・投稿の手順は含めない)。 */
   body: string;
   resultKind: AgentJobResultKind;
+  /** Optional HQ work before building data. null means another caller holds the firing reservation. */
+  prepare?(dedupeKey: string): Promise<Record<string, unknown> | null>;
   /**
    * 判断に要る最小の読み取りデータ。 配列は重要度の高い順に並べる (上限超過時は末尾から落ちる)。
    * 秘密・個人の連絡先・メール本文・未公開コード本文は入れない (CC-PT-AGENT-INV-03)。
    */
-  buildData(context: AgentJobContext): Promise<Record<string, unknown>>;
+  buildData(context: AgentJobContext, prepared?: Record<string, unknown>): Promise<Record<string, unknown>>;
 }

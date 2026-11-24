@@ -18,8 +18,10 @@ import { delegationSessionLinkIndexMigration } from "./delegation-session-link-i
 import { v5DeskCardsMigration } from "./v5-desk-cards-migration.js";
 import { musePlaytestRelaysMigration } from "./muse-playtest-relays-migration.js";
 import { controlCardsDiscardMigration } from "./control-cards-discard-migration.js";
+import { mailSweepMigration } from "./cron-mail-sweep-migration.js";
+import { kaizenCloudMigration } from "./kaizen-cloud-migration.js";
 
-export const SCHEMA_VERSION = 158;
+export const SCHEMA_VERSION = 160;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3906,6 +3908,8 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   v5DeskCardsMigration,
   musePlaytestRelaysMigration,
   controlCardsDiscardMigration,
+  mailSweepMigration,
+  kaizenCloudMigration,
 ];
 
 /**

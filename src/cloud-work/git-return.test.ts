@@ -35,6 +35,7 @@ describe("Git return and local review", () => {
     await expect(service.collect(target, request.attemptId)).resolves.toMatchObject({ state: "review_submitted" });
     await expect(service.collect(target, request.attemptId)).resolves.toMatchObject({ state: "review_submitted" });
     expect(review).toHaveBeenCalledOnce();
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({ prContent: expect.stringMatching(/## 実装内容[\s\S]+## 受け入れ条件/) }));
     expect(command.mock.calls.some(([, args]) => args[0] === "update-ref" && args[3] === "0".repeat(40))).toBe(true);
     expect(command.mock.calls.some(([, args]) => args.includes("push"))).toBe(false);
   });

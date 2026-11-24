@@ -9,6 +9,7 @@
 import type { SettingDefinition } from "../types.js";
 import { REWARD_SETTINGS, type RewardTier } from "../../../personal-budget/reward-settings.js";
 import { BOUNTY_HOTFIX_DAILY_LIMIT_KEY, DEFAULT_BOUNTY_HOTFIX_DAILY_LIMIT } from "../../../bounty/hotfix-settings.js";
+import { KAIZEN_CLOUD_LIMIT_KEY, KAIZEN_DEFAULT_CLOUD_LIMIT, KAIZEN_MAX_CLOUD_LIMIT } from "../../../scheduler/agent-jobs/kaizen-settings.js";
 
 const REWARD_TIER_LABEL: Record<RewardTier, string> = {
   "bounty.s1": "バグ報告の報奨 (s1)",
@@ -466,6 +467,19 @@ export const FEDERATION_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const RUNTIME_SETTINGS: readonly SettingDefinition[] = [
+  {
+    key: KAIZEN_CLOUD_LIMIT_KEY,
+    section: "runtime",
+    label: "日次カイゼンの Cloud 投入上限",
+    description: "dots の日次カイゼン回答 1 件から Codex Cloud に自動投入する提案の上限です。",
+    kind: "integer",
+    envName: null,
+    dbKey: KAIZEN_CLOUD_LIMIT_KEY,
+    defaultValue: KAIZEN_DEFAULT_CLOUD_LIMIT,
+    editable: true,
+    minValue: 1,
+    maxValue: KAIZEN_MAX_CLOUD_LIMIT,
+  },
   {
     key: "runtime.codex_model_catalog_executable",
     section: "runtime",

@@ -16,6 +16,7 @@ export const CARD_SOURCE_KINDS = [
   "human-command",
   "management-waiting-human",
   "session-unresponsive",
+  "kaizen-proposal",
 ] as const;
 export type CardSourceKind = (typeof CARD_SOURCE_KINDS)[number];
 
@@ -39,13 +40,14 @@ export const CARD_KIND_OF: Record<CardSourceKind, CardKind> = {
   "human-command": "human_action",
   "management-waiting-human": "human_judgment",
   "session-unresponsive": "human_action",
+  "kaizen-proposal": "human_judgment",
 };
 
 /**
- * カードが正本の出所 (実装メモ 6)。人間依頼は DB に記録が無く、カードが正本になる。
+ * 人間依頼とカイゼンの判断はカードが解決状態の正本になる。
  * これ以外はカード側から閉じない (CC-V5-INV-02 / 03)。
  */
-export const CARD_OWNED_SOURCES: ReadonlySet<CardSourceKind> = new Set(["human-command"]);
+export const CARD_OWNED_SOURCES: ReadonlySet<CardSourceKind> = new Set(["human-command", "kaizen-proposal"]);
 
 export interface ControlCard {
   id: string;

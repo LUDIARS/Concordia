@@ -18,11 +18,13 @@ import { gitRead } from "./agent-job-sources/git-read.js";
 import { readReviewTargets } from "./agent-job-sources/review-targets.js";
 import { readServiceMap } from "./agent-job-sources/service-map.js";
 import { toServiceStatusItems } from "./agent-job-sources/service-status-items.js";
-import { createAgentJobRegistry } from "./agent-jobs/registry.js";
+import { createAgentJobRegistry, type AgentJobSources } from "./agent-jobs/registry.js";
+import type { KaizenStore } from "./agent-jobs/kaizen-store.js";
 import { createAgentResultIntake } from "./agent-result-intake.js";
 import type { CronJobDefinition } from "./cron-jobs.js";
 
-export interface AgentDispatchRuntimeDeps {
+export interface AgentDispatchRuntimeDeps extends Pick<AgentJobSources, "prepareMailSweep" | "kaizenFacts" | "kaizenProjectCodes"> {
+  kaizenStore?: Pick<KaizenStore, "register" | "tracked">;
   instructions: Pick<InstructionService, "registerOnce" | "record" | "listUnreceivedBefore" | "closeUnreceived" | "lastDoneSummary">;
   subscribeEvents: (listener: InstructionEventListener) => () => void;
   settings: {
@@ -32,6 +34,7 @@ export interface AgentDispatchRuntimeDeps {
     getGithubOrg(): string;
   };
   jobs: readonly CronJobDefinition[];
+  isSiteRole: () => boolean;
   delegation: OriginalInvokerDeps["delegation"];
   templateTitle: (callName: string) => string | null;
   workspaceRoot: () => string;
@@ -60,6 +63,9 @@ export function createAgentDispatchRuntime(deps: AgentDispatchRuntimeDeps): Agen
       return readDependencyRepos({ workspaceRoot: root, repos: await readServiceMap(root), githubOrg: deps.settings.getGithubOrg(), git: gitRead });
     },
     lastDoneSummary: (job) => deps.instructions.lastDoneSummary(job),
+    prepareMailSweep: deps.prepareMailSweep,
+    kaizenFacts: deps.kaizenFacts,
+    ...(deps.kaizenProjectCodes ? { kaizenProjectCodes: deps.kaizenProjectCodes } : {}),
   });
   const logPort = {
     info: (detail: Record<string, unknown>, message: string) => log.info(detail, message),
@@ -68,7 +74,14 @@ export function createAgentDispatchRuntime(deps: AgentDispatchRuntimeDeps): Agen
   const dispatchToAgent = createAgentDispatcher({
     resolveAgent: (jobName) => deps.settings.getCronJobAgent(jobName),
     jobs: registry,
-    instructions: deps.instructions,
+    isSiteRole: deps.isSiteRole,
+    instructions: {
+      registerOnce: (input) => {
+        const register = () => deps.instructions.registerOnce(input);
+        return deps.kaizenStore && input.agent === "dots" && input.params.job === "kaizen-daily"
+          ? deps.kaizenStore.register(register) : register();
+      },
+    },
     templateTitle: deps.templateTitle,
     log: logPort,
   });
@@ -76,6 +89,7 @@ export function createAgentDispatchRuntime(deps: AgentDispatchRuntimeDeps): Agen
     paramsOf: (id) => deps.instructions.record(id)?.params ?? null,
     jobs: registry,
     post: deps.post,
+    ...(deps.kaizenStore ? { trackedKaizen: deps.kaizenStore.tracked } : {}),
   });
   const invokeOriginal = createOriginalInvoker({
     jobs: deps.jobs,

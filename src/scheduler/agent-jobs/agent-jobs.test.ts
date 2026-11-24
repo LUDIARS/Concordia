@@ -27,15 +27,19 @@ function sources(overrides: Partial<AgentJobSources> = {}): AgentJobSources {
       { name: "Docs", code: null, url: "https://github.com/LUDIARS/Docs", manifests: [] },
     ],
     lastDoneSummary: (job) => (job === "deps-sweep-daily" ? "前回: 更新候補 2 件" : null),
+    prepareMailSweep: async () => null,
+    kaizenFacts: () => ({ failed_runs: [], failed_cron_jobs: [], human_waiting: 0, instruction_requeues: null, hook_denials: [] }),
     ...overrides,
   };
 }
 
 describe("agent jobs", () => {
   it("INV-06: 外部エージェントへ回せるのは data builder のあるジョブだけ", () => {
-    expect([...AGENT_JOB_NAMES].sort()).toEqual(["ai-note-biweekly-review", "deps-sweep-daily", "ludiars-review-weekly", "ludiars-status-daily"]);
+    expect([...AGENT_JOB_NAMES].sort()).toEqual(["ai-note-biweekly-review", "deps-sweep-daily", "kaizen-daily",
+      "ludiars-review-weekly", "ludiars-status-daily", "quaestor-mail-sweep"]);
     expect(hasAgentJob("vulnerability-response-daily")).toBe(false);
-    expect(createAgentJobRegistry(sources()).get("kaizen-daily")).toBeNull();
+    expect(createAgentJobRegistry(sources()).get("kaizen-daily")?.resultKind).toBe("提案");
+    expect(createAgentJobRegistry(sources()).get("quaestor-mail-sweep")?.resultKind).toBe("報告");
   });
 
   it("どのジョブの本文も指令の上限に収まり、 書き込み・PR をしないと明記する", () => {

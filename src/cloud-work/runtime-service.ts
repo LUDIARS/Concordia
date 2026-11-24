@@ -60,6 +60,20 @@ export class CloudWorkRuntime {
       transferMode: t.transferMode, ready: cloudTargetReady(t, this.ports.env, this.ports.now()) }));
   }
 
+  async kaizenTarget(scope: CloudScope): Promise<string | null> {
+    if (scope.subsidiaryId !== null) return null;
+    for (const target of await this.targets(scope)) {
+      if (!this.isKaizenTarget(target) || !cloudTargetReady(target, this.ports.env, this.ports.now())) continue;
+      try { return resolveCloudWork(target).id; }
+      catch { /* A Kaizen request uses the operator's fixed work evidence. Try the next configured target. */ }
+    }
+    return null;
+  }
+
+  private isKaizenTarget(target: CloudEnvironment): boolean {
+    return target.provider === "codex-cloud" && target.transferMode === "git" && !target.driveExpectedNames?.length;
+  }
+
   private async target(scope: CloudScope, id: string): Promise<CloudEnvironment> {
     const target = (await this.targets(scope)).find(t => t.id === id);
     if (!target) throw new Error("cloud_target_not_found");
@@ -67,7 +81,20 @@ export class CloudWorkRuntime {
   }
 
   async submit(scope: CloudScope, input: CloudWorkInput): Promise<unknown> {
+    return this.submitWork(scope, input);
+  }
+
+  /** Trusted entry point for the HQ scheduler. The HTTP and MCP routes call submit(). */
+  async submitKaizen(scope: CloudScope, input: CloudWorkInput, mayLaunch: () => boolean): Promise<unknown> {
+    if (scope.subsidiaryId !== null) throw new Error("cloud_target_not_found");
+    return this.submitWork(scope, input, "kaizen-daily", mayLaunch);
+  }
+
+  private async submitWork(scope: CloudScope, input: CloudWorkInput, origin?: "kaizen-daily", mayLaunch?: () => boolean): Promise<unknown> {
     const environment = await this.target(scope, input.targetId);
+    if (origin && (!this.isKaizenTarget(environment) || input.work)) {
+      throw new Error("cloud_target_not_found");
+    }
     await this.ports.authorizeTask(input.taskReference, scope, true);
     if (environment.provider === "colab") throw new Error("cloud_colab_owner_required");
     if (!input.computeReason.trim() || !input.llmReason.trim()) throw new Error("cloud_work_evidence_missing");
@@ -76,7 +103,7 @@ export class CloudWorkRuntime {
     const existing = await store.readRecord(input.attemptId, "intent");
     if (existing) {
       const run = existing as StoredRun;
-      if (!this.sameRequest(run, input)) {
+      if (!this.sameRequest(run, input, origin)) {
         throw new Error("cloud_attempt_conflict");
       }
       return this.status(scope, input.attemptId);
@@ -84,29 +111,31 @@ export class CloudWorkRuntime {
     const target = resolveCloudWork(environment, input.work);
     if (!cloudTargetReady(target, this.ports.env, this.ports.now())) throw new Error("cloud_target_not_ready");
     await this.ports.preflight(target);
+    if (mayLaunch && !mayLaunch()) throw new Error("cloud_kaizen_stopped");
     const request: StoredRun = {
       attemptId: input.attemptId, targetId: target.id, transferMode: target.transferMode, taskReference: input.taskReference,
       work: CloudWorkPlanSchema.parse(Object.fromEntries(Object.keys(CloudWorkPlanSchema.shape).map(key => [key, target[key as keyof CloudTarget]]))),
       inputWorkHash: hash(JSON.stringify(input.work ? CloudWorkPlanSchema.parse(input.work) : null)),
       computeReason: input.computeReason, llmReason: input.llmReason, createdAt: this.ports.now(),
       requestFingerprint: requestFingerprint([scope, input.attemptId, input.taskReference, configurationKey(target),
-        input.instruction, input.computeReason, input.llmReason, input.gpuRequired]),
+        input.instruction, input.computeReason, input.llmReason, input.gpuRequired, ...(origin ? [origin] : [])]),
       configurationKey: configurationKey(target), provider: target.provider, environmentId: target.environmentId,
       sourceRevision: target.sourceRevision, instruction: input.instruction,
       eligibility: { repositoryBytes: target.repositoryBytes, environmentPreparable: target.environmentPreparable,
-        requiresLargeProjectClone: target.requiresLargeProjectClone, computeIntensiveArtifactGeneration: true, requiresLlmGuidance: true },
+        requiresLargeProjectClone: target.requiresLargeProjectClone, computeIntensiveArtifactGeneration: !origin, requiresLlmGuidance: true },
+      ...(origin ? { eligibilityOrigin: origin } : {}),
       standardHosted: target.standardHosted, gpuRequired: input.gpuRequired, gpuVerified: target.gpuVerified,
       sourceAvailable: true, artifactTransferReady: true,
     };
     const receipt = await submitCloudWork(request, store, this.ports.adapter(target, input.attemptId));
-    if (receipt.state === "already_reserved" && !this.sameRequest(await this.run(scope, input.attemptId), input)) {
+    if (receipt.state === "already_reserved" && !this.sameRequest(await this.run(scope, input.attemptId), input, origin)) {
       throw new Error("cloud_attempt_conflict");
     }
     return this.status(scope, input.attemptId);
   }
 
-  private sameRequest(run: StoredRun, input: CloudWorkInput): boolean {
-    return run.targetId === input.targetId && run.taskReference === input.taskReference
+  private sameRequest(run: StoredRun, input: CloudWorkInput, origin?: "kaizen-daily"): boolean {
+    return run.eligibilityOrigin === origin && run.targetId === input.targetId && run.taskReference === input.taskReference
       && run.instruction === input.instruction && run.gpuRequired === input.gpuRequired
       && run.computeReason === input.computeReason && run.llmReason === input.llmReason
       && (run.inputWorkHash ?? hash("null")) === hash(JSON.stringify(input.work ? CloudWorkPlanSchema.parse(input.work) : null));

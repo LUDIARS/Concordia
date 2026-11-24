@@ -269,6 +269,14 @@ import { startActioMorningScheduler } from "../morning/actio-scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
 import { createAgentDispatchRuntime } from "../scheduler/agent-dispatch-runtime.js";
+import { createKaizenFactsReader } from "../scheduler/agent-job-sources/kaizen-facts.js";
+import { createKaizenCloudPorts, type KaizenCloud } from "../scheduler/agent-jobs/kaizen-cloud.js";
+import { createKaizenRuntime } from "../scheduler/agent-jobs/kaizen-runtime.js";
+import { createKaizenStore } from "../scheduler/agent-jobs/kaizen-store.js";
+import { KAIZEN_CLOUD_LIMIT_KEY, kaizenCloudLimit } from "../scheduler/agent-jobs/kaizen-settings.js";
+import { createMailSweepExecution } from "../scheduler/agent-job-sources/mail-sweep-execution.js";
+import { createMailSweepStore } from "../scheduler/agent-job-sources/mail-sweep-store.js";
+import { createQuaestorMailSweep } from "../scheduler/agent-job-sources/quaestor-mail-http.js";
 import { CRON_JOBS } from "../scheduler/cron-jobs.js";
 import { serviceStatusClient } from "../service-status/client.js";
 import { startStatScheduler } from "../stat/scheduler.js";
@@ -2678,6 +2686,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // LINE の共用チャネルのトークごとの紐付け。 受け口と管理 API で同じものを使う。
   const lineTalkLinks = new SqliteLineTalkLinkStore(db);
   const cloudBatchScheduleStops: Array<() => Promise<void>> = [];
+  let kaizenCloud: KaizenCloud | undefined;
   // 自動引き継ぎ・リポ担当 (spec/feature/session-auto-succession.md)。 route と監視で同じインスタンスを使う。
   const successionLog = createChildLogger("auto-succession");
   const successionRuntime = buildSuccessionRuntime({
@@ -2731,6 +2740,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     lineTalkLinks,
     ownCloudBatchSchedule: stop => { cloudBatchScheduleStops.push(stop); },
+    bindKaizenCloud: (cloud) => { kaizenCloud = cloud; },
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
@@ -3528,11 +3538,35 @@ export async function startBackend(): Promise<BackendHandle> {
         cwd: workspaceRootDefault ?? process.cwd(),
       })),
     );
+    const kaizenStore = createKaizenStore(db);
+    const kaizenProjects = () => new Map(projectCodesRepo.list().map((project) => [project.code, project.repo_path]));
+    const getKaizenCloud = () => kaizenCloud;
+    const kaizenRuntime = createKaizenRuntime({
+      store: kaizenStore,
+      instruction: (id) => agentInstructions.routes.service.record(id),
+      cloud: getKaizenCloud,
+      enabled: () => !federation.isSiteRole() && adminState.getCronJobAgent("kaizen-daily") === "dots",
+      ports: {
+        ...createKaizenCloudPorts({ cloud: getKaizenCloud, tasks: taskStore, store: kaizenStore, now: Date.now }),
+        projects: kaizenProjects,
+        limit: () => kaizenCloudLimit(adminState.store.get(KAIZEN_CLOUD_LIMIT_KEY)),
+        card: (input) => { v5.cards.service.openKaizenJudgment(input); },
+      },
+      post: controlRuntime.postAlert,
+      now: Date.now,
+      warn: (message) => log.warn(message),
+    });
+    cloudBatchScheduleStops.push(() => kaizenRuntime.waitForIdle());
     const cronAgentDispatch = createAgentDispatchRuntime({
       instructions: agentInstructions.routes.service,
       subscribeEvents: agentInstructions.subscribeEvents,
       settings: adminState,
       jobs: CRON_JOBS,
+      isSiteRole: () => federation.isSiteRole(),
+      prepareMailSweep: createMailSweepExecution(createMailSweepStore(db), createQuaestorMailSweep(excubitorClient)),
+      kaizenFacts: createKaizenFactsReader(db, CRON_JOBS),
+      kaizenStore,
+      kaizenProjectCodes: () => [...kaizenProjects().keys()].sort(),
       delegation: delegationService,
       templateTitle: (callName) => delegationRepo.findTemplateByCallName(callName)?.title ?? null,
       workspaceRoot: () => adminState.getWorkspaceRoot() || cfg.workspaceRoot || cfg.spawnDefaultCwd,
@@ -3546,6 +3580,7 @@ export async function startBackend(): Promise<BackendHandle> {
         // 宛先が dots / Muse のジョブは指令へ回し、 結果の引き取りと期限切れの戻しを同じ寿命で回す
         // (spec/feature/parttimer-agent-dispatch.md)。 宛先未設定のジョブは従来どおり委託を invoke する。
         const agentRuntime = cronAgentDispatch.start();
+        const stopKaizen = kaizenRuntime.start();
         const scheduler = startCronScheduler({
           delegationService,
           dispatchToAgent: cronAgentDispatch.dispatchToAgent,
@@ -3557,7 +3592,7 @@ export async function startBackend(): Promise<BackendHandle> {
           // LUDIARS ダッシュボードの日報 (hqOnly) は拠点では発火しない。
           isSiteRole: () => federation.isSiteRole(),
         });
-        return { stop: () => { scheduler.stop(); agentRuntime.stop(); } };
+        return { stop: () => { scheduler.stop(); agentRuntime.stop(); stopKaizen(); } };
       },
     });
     workflowBindings.register({

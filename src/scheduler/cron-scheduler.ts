@@ -10,6 +10,7 @@ import { Cron } from "croner";
 import type { DelegationService } from "../delegation/service.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { AgentDispatchInput, AgentDispatchOutcome } from "./agent-dispatch.js";
+import { usesReportOnlyRoute } from "./agent-dispatch-policy.js";
 import type { CronFanoutTarget } from "./cron-fanout.js";
 import { CRON_JOBS, type CronJobDefinition, type CronJobFanout } from "./cron-jobs.js";
 
@@ -84,16 +85,18 @@ export function startCronScheduler(
       });
       if (outcome.kind === "not_routed") return false;
       log.info(
-        { job: job.name, target: target.key || null, agent: outcome.agent, instruction: outcome.id, outcome: outcome.kind },
+        { job: job.name, target: target.key || null, agent: outcome.agent,
+          instruction: "id" in outcome ? outcome.id : null, outcome: outcome.kind },
         "cron job routed to an external agent",
       );
       return true;
     } catch (error) {
+      const reportOnly = usesReportOnlyRoute(job.name);
       log.warn(
         { job: job.name, target: target.key || null, error: (error as Error).message },
-        "cron job agent dispatch failed; using delegation",
+        reportOnly ? "report-only cron job agent dispatch failed" : "cron job agent dispatch failed; using delegation",
       );
-      return false;
+      return reportOnly;
     }
   }
 

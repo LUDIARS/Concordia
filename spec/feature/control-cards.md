@@ -33,13 +33,16 @@ updated: 2026-11-24
 | 捌き | `control_cards` の priority / assignee / remind_at / reminder_text / card_group と `triaged_by` (`dots:<instruction id>` / `human:<actor>`) |
 | 催促 | `control_card_reminders` (送信記録) |
 
-出所 (`source_kind`) と閉じる条件は [計画の表](../plan/2026-11-24-control-session-to-dots.md#カードの出所-既存の正本を変えない) のとおり。読み方は承認インボックスの read model (`src/inbox/read-model.ts`) と human-wait / CDGD の `waiting_human` / 進捗ボードの `unresponsive`。人間依頼 (`human-command`) だけは DB に記録が無いので AI の発言のマーカーからカードを作り、カードが正本 (人間の「済み」・人間依頼の OK ボタン・セッション終了で閉じる)。
+出所 (`source_kind`) と閉じる条件は [計画の表](../plan/2026-11-24-control-session-to-dots.md#カードの出所-既存の正本を変えない) のとおり。読み方は承認インボックスの read model (`src/inbox/read-model.ts`) と human-wait / CDGD の `waiting_human` / 進捗ボードの `unresponsive`。人間依頼 (`human-command`) は AI の発言のマーカーからカードを作り、カードが解決状態の正本になる (人間の「済み」・人間依頼の OK ボタン・セッション終了で閉じる)。
+
+日次カイゼンの提案 (`kaizen-proposal`) はセッションを持たない `human_judgment` カードとする。
+提案の出所キーで 1 件にまとめ、dots の捌きと催促に載せる。カードが解決状態を持ち、人間が「済み」で閉じる。
 
 ## 不変条件
 
 | ID | 内容 | 実装 |
 |---|---|---|
-| CC-V5-INV-02 | カードは出所の解決状態を書き換えない。回答・実行は既存の経路へ。カードから閉じられるのは人間依頼だけ (他は 409 `resolve_at_source`) | `card-domain.ts` / `service.ts` |
+| CC-V5-INV-02 | カードは出所の解決状態を書き換えない。回答・実行は既存の経路へ。カードから閉じられるのは人間依頼と日次カイゼンの提案 (他は 409 `resolve_at_source`) | `card-domain.ts` / `service.ts` |
 | CC-V5-INV-03 | 閉じるのは出所を読めて、未解決として現れなかったときだけ。読めなかった出所のカードは開いたまま | `card-sync-policy.ts` / `sources.ts` |
 | CC-V5-INV-04 | dots の捌きは 5 列だけ。不明・閉じたカード・重複・範囲外の値は捨てる。最後に積んだ自分の指令の `done` だけを適用する | `card-triage-policy.ts` / `card-triage-dispatch.ts` |
 | CC-V5-INV-05 | 催促は Cc が出す。同じカードは最短 30 分あけ、深夜帯 (`src/shared/quiet-hours.ts`) は出さない。メンションは構造化した担当者 1 人だけ、本文の mention は無効化 | `reminder-policy.ts` / `reminder-runner.ts` / `src/discord/desk.ts` |

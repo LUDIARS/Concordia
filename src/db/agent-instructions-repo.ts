@@ -41,7 +41,7 @@ export interface AgentInstructionStore {
   /** 新しい順の一覧 (人が見る用)。 agent / status は省略で全部。 */
   listRecent(filter: { agent?: string | undefined; status?: InstructionStatus | undefined; limit: number }): AgentInstructionRow[];
   /** acked_at が cutoff より前の acked を pending に戻す。 戻した指令。 */
-  requeueAckedBefore(cutoff: string): RequeuedInstruction[];
+  requeueAckedBefore(cutoff: string, requeuedAt: string): RequeuedInstruction[];
   /** finished_at が cutoff より前の done / failed を消す。 消した件数。 */
   purgeFinishedBefore(cutoff: string): number;
   /** params.dedupe_key が一致する指令 (cron 由来の二重登録防止、spec/feature/parttimer-agent-dispatch.md)。 */
@@ -118,12 +118,22 @@ export class SqliteAgentInstructionStore implements AgentInstructionStore {
     return result.changes === 1;
   }
 
-  requeueAckedBefore(cutoff: string): RequeuedInstruction[] {
-    return this.db.prepare(`
+  requeueAckedBefore(cutoff: string, requeuedAt: string): RequeuedInstruction[] {
+    const transition = this.db.prepare(`
       UPDATE agent_instructions SET status = 'pending', acked_at = NULL
        WHERE status = 'acked' AND acked_at < ?
        RETURNING id, agent, title
-    `).all(cutoff) as RequeuedInstruction[];
+    `);
+    return this.db.transaction(() => {
+      const rows = transition.all(cutoff) as RequeuedInstruction[];
+      if (rows.length > 0) {
+        this.db.prepare(`
+          INSERT INTO agent_instruction_requeue_counts (jst_date, count) VALUES (date(?, '+9 hours'), ?)
+          ON CONFLICT(jst_date) DO UPDATE SET count = count + excluded.count
+        `).run(requeuedAt, rows.length);
+      }
+      return rows;
+    })();
   }
 
   findByDedupeKey(key: string): AgentInstructionRow | null {

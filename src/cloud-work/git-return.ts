@@ -68,7 +68,18 @@ export class CloudGitReturn {
     await this.command(target.repoPath, ["-c", "protocol.file.allow=always", "fetch", "--no-tags", "--no-write-fetch-head", "--", repo, result.oid]);
     await this.command(target.repoPath, ["update-ref", grant.ref, result.oid, "0".repeat(result.oid.length)]);
     const review = await this.review({ repoPath: target.repoPath, branch: grant.ref.slice("refs/heads/".length),
-      prContent: `Cloud work ${target.id}/${attemptId}\nSource: ${grant.sourceRevision}\nResult: ${result.oid}\nBoundary: isolated cloud Git return. Recovery: retain receive/review journals; never retry unknown submission.\nValidation: transport identity and source ancestry verified. Artifact behavior and acceptance require Revisor review.` });
+      prContent: [
+        "## 実装内容",
+        "隔離された Git 返送口で受領したクラウド作業の成果を審査に提出します。",
+        `- 実行: ${target.id}/${attemptId}`,
+        `- 入力コミット: ${grant.sourceRevision}`,
+        `- 成果コミット: ${result.oid}`,
+        "- 受付結果が不明な場合は返送と審査の記録を保持して照合します。",
+        "",
+        "## 受け入れ条件",
+        "- 返送元の識別、入力コミットとの祖先関係、指定された成果ファイルを回収時に確認済みです。",
+        "- 成果物の動作と品質は Revisor の審査で確認します。",
+      ].join("\n") });
     const pr = (review as { pullRequest?: { id?: unknown; number?: unknown; status?: unknown } } | null)?.pullRequest;
     const submitted = !!pr && typeof pr.id === "string" && typeof pr.number === "number" && pr.status === "open";
     const receipt = { state: submitted ? "review_submitted" : "review_submission_unconfirmed", oid: result.oid, review };

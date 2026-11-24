@@ -5,6 +5,11 @@ import type { InstructionAgent } from "../agent-instructions/instruction-policy.
 import { SqliteAgentInstructionStore } from "../db/agent-instructions-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { createAgentDispatcher } from "./agent-dispatch.js";
+import { createMailSweepExecution } from "./agent-job-sources/mail-sweep-execution.js";
+import { createMailSweepStore } from "./agent-job-sources/mail-sweep-store.js";
+import { createKaizenDailyJob } from "./agent-jobs/kaizen-daily.js";
+import { createQuaestorMailSweepJob } from "./agent-jobs/quaestor-mail-sweep.js";
+import type { MailSweepData } from "./agent-jobs/quaestor-mail-sweep-data.js";
 import type { AgentJobRegistry } from "./agent-jobs/registry.js";
 import type { AgentJobSpec } from "./agent-jobs/types.js";
 import { startCronScheduler } from "./cron-scheduler.js";
@@ -119,5 +124,63 @@ describe("cron scheduler の外部エージェント分岐", () => {
     expect(params.data.items[0]).toBe(many[0]);
     expect(params.data.owner).not.toContain("someone@example.com");
     expect(params.data.token).toBe("[redacted]");
+  });
+
+  it.each<MailSweepData>([
+    { sweep_status: "completed", disabled: false, needs_review_ids: [], fetched: 0,
+      processed: { invoice: 0, cloud_notice: 0, ci_failure: 0, dependabot: 0, ignore: 0 },
+      committed: 0, needs_review: 0, notified: 0, errors: [] },
+    { sweep_status: "unknown", failure_kind: "timeout" },
+  ])("dots 宛てで同じ発火を繰り返しても sweep と指令はそれぞれ 1 件 (%j)", async (result) => {
+    const db = makeTestDb();
+    try {
+      const sweep = vi.fn(async () => result);
+      const mail = createQuaestorMailSweepJob({ prepareMailSweep: createMailSweepExecution(createMailSweepStore(db), sweep) });
+      const ctx = setup({ agents: { [mail.jobName]: "dots" }, specs: [mail] });
+      handle = startCronScheduler({ delegationService: ctx.delegationService, dispatchToAgent: ctx.dispatch, now: () => FIRED_AT },
+        [job({ name: mail.jobName, call_name: mail.jobName, buildArgs: () => ({ body: "private" }) })]);
+      await Promise.all([handle.triggerNow(), handle.triggerNow()]);
+      await handle.triggerNow();
+      expect(sweep).toHaveBeenCalledTimes(1);
+      expect(ctx.invoke).not.toHaveBeenCalled();
+      expect(ctx.service.history({ limit: 10 })).toEqual([expect.objectContaining({
+        agent: "dots", type: "run_task", params: {
+          job: mail.jobName, dedupe_key: `cron:${mail.jobName}:-:2026-11-25T07:10`, fired_at: FIRED_AT.toISOString(),
+          data: { ...result, slot: expect.any(String), date: "2026-11-25" },
+        },
+      })]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each(["quaestor-mail-sweep", "kaizen-daily"])("%s の宛先が空なら従来の委託を起動する", async (name) => {
+    const definition = spec(name);
+    definition.prepare = vi.fn();
+    const ctx = setup({ specs: [definition] });
+    handle = startCronScheduler({ delegationService: ctx.delegationService, dispatchToAgent: ctx.dispatch, now: () => FIRED_AT },
+      [job({ name, call_name: name })]);
+    await handle.triggerNow();
+    expect(ctx.invoke).toHaveBeenCalledWith(expect.objectContaining({ call_name: name }));
+    expect(definition.prepare).not.toHaveBeenCalled();
+    expect(definition.buildData).not.toHaveBeenCalled();
+    expect(ctx.service.history({ limit: 10 })).toEqual([]);
+  });
+
+  it("カイゼンの params は 8000 バイトに収め、省いた集計の件数を付ける", async () => {
+    const facts = createKaizenDailyJob({
+      kaizenFacts: () => ({
+        failed_runs: Array.from({ length: 500 }, (_, index) => ({ call_name: `job-${index}`, reason: "timeout", count: 1 })),
+        failed_cron_jobs: [], hook_denials: [], human_waiting: 3, instruction_requeues: null,
+      }),
+    });
+    const ctx = setup({ agents: { [facts.jobName]: "dots" }, specs: [facts] });
+    await ctx.dispatch({ jobName: facts.jobName, targetKey: "", args: {}, callName: facts.jobName, firedAt: FIRED_AT });
+    const params = ctx.service.history({ limit: 1 })[0]?.params as {
+      data: { date: string; failed_runs: unknown[]; truncated: number; human_waiting: number };
+    };
+    expect(Buffer.byteLength(JSON.stringify(params), "utf8")).toBeLessThanOrEqual(8000);
+    expect(params.data).toMatchObject({ date: "2026-11-24", human_waiting: 3 });
+    expect(params.data.truncated).toBe(500 - params.data.failed_runs.length);
   });
 });

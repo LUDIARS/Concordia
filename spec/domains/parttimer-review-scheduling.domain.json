@@ -50,6 +50,15 @@
       "pathPattern": "(^|/)src/scheduler/agent-job-sources/[^/]+\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/scheduler/ontime-runtime\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/cron-mail-sweep-migration\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/kaizen-cloud-migration\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/api/cron-job-agent-routes(\\.test)?\\.ts$"
     },
     {

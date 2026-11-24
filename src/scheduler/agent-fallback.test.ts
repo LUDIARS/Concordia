@@ -51,6 +51,18 @@ describe("受け取られない指令の戻し (agent-fallback)", () => {
     expect(ctx.invokeOriginal).not.toHaveBeenCalled();
   });
 
+  it.each(["quaestor-mail-sweep", "kaizen-daily"])("%s は終了を知らせて委託へ戻さない", async (job) => {
+    const ctx = setup();
+    const id = ctx.register(job);
+    ctx.advanceMinutes(181);
+    expect(await ctx.run()).toEqual({ closed: 1, invoked: 0 });
+    expect(await ctx.run()).toEqual({ closed: 0, invoked: 0 });
+    expect(ctx.invokeOriginal).not.toHaveBeenCalled();
+    expect(ctx.service.get(id)).toMatchObject({ status: "failed", ackedAt: null });
+    expect(ctx.post).toHaveBeenCalledTimes(1);
+    expect(ctx.post).toHaveBeenCalledWith(expect.stringContaining("期限内に受け取られなかったため指令を終了した"));
+  });
+
   it("閉じた後の ack / result は 409 (conflict) で、 結果の投稿もしない", async () => {
     const ctx = setup();
     const id = ctx.register("deps-sweep-daily");

@@ -7,7 +7,7 @@
  */
 
 import { agentLabel, INSTRUCTION_POST_MAX_CHARS, neutralizeLine } from "../../agent-instructions/instruction-posts.js";
-import { FALLBACK_CLOSE_SUMMARY } from "../agent-dispatch-policy.js";
+import { FALLBACK_CLOSE_SUMMARY, REPORT_ONLY_CLOSE_SUMMARY } from "../agent-dispatch-policy.js";
 import type { AgentJobResultKind } from "./types.js";
 
 const SUMMARY_CHARS = 400;
@@ -23,6 +23,7 @@ export interface AgentJobResultView {
   /** canonical JSON (保存値)。 */
   detail: unknown;
   instructionId: string;
+  application?: boolean;
 }
 
 function clip(text: string, max: number): string {
@@ -55,7 +56,7 @@ export function buildAgentJobResultPost(kind: AgentJobResultKind, view: AgentJob
     `> ${neutralizeLine(view.summary, SUMMARY_CHARS)}`,
     ...items.slice(0, MAX_ITEMS).map((item) => `- ${neutralizeLine(item, ITEM_CHARS)}`),
     ...(items.length > MAX_ITEMS ? [`- …ほか ${items.length - MAX_ITEMS} 件`] : []),
-    "書き込み・PR はしていません (提案の投稿まで)。",
+    ...(view.application ? [] : ["書き込み・PR はしていません (提案の投稿まで)。"]),
   ];
   return clip(lines.join("\n"), INSTRUCTION_POST_MAX_CHARS);
 }
@@ -70,4 +71,17 @@ export function buildFallbackPost(input: { title: string; agent: string; instruc
     `↩️ **${neutralizeLine(input.title, 200)}** — ${who} 宛ての指令 ${idCode(input.instructionId)} は${FALLBACK_CLOSE_SUMMARY}。 ${outcome}`,
     INSTRUCTION_POST_MAX_CHARS,
   );
+}
+
+export function buildReportOnlyExpiryPost(
+  record: { title: string; agent: string; id: string; params: unknown },
+  job: string,
+): string {
+  const data = (record.params as { data?: { sweep_status?: unknown; failure_kind?: unknown; fetched?: unknown } } | null)?.data;
+  const status = data?.sweep_status;
+  const mail = job === "quaestor-mail-sweep"
+    ? ` メール取り込み: ${status === "completed" ? `実行済み (取得 ${typeof data?.fetched === "number" ? data.fetched : "不明"} 件)`
+      : status === "disabled" ? "無効" : status === "failed" ? "失敗" : "結果不明"}。`
+    : "";
+  return `⏳ **${neutralizeLine(record.title, 200)}** — ${agentLabel(record.agent)} 宛ての指令 ${idCode(record.id)} は${REPORT_ONLY_CLOSE_SUMMARY}。${mail}`;
 }

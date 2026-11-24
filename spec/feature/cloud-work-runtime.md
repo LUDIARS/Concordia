@@ -52,6 +52,10 @@ preserving the journal and collected outputs; never remove intents to retry.
 
 ## 共通実行契約
 
+日次カイゼンは本社 cron が登録した指令を起点に、登録プロジェクトに対応する Codex Cloud の
+Git 単独返送ターゲットへ投入する。構成には固定の作業証拠が必要。HTTP 経路とは独立した Cc 内部呼出しで、Actio スコープ、全体予算、
+本社の容量、送信意図と受付の記録、Git 回収・審査の境界を共用する。
+
 Actio `actio:cf6b45c9-6e28-47c1-b030-7cad7d551ffa`。UX-CC-W2/W3/W4/W5、CC-INV-02/03/04/07。
 cloud-execution は依頼意図・提供元の受付・観測・回収を所有する。Actio は仕事の進捗、Revisor と依頼者は品質判断を所有する。
 

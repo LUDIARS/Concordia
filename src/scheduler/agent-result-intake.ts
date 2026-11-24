@@ -18,6 +18,7 @@ export interface AgentResultIntakeDeps {
   jobs: AgentJobRegistry;
   /** 従来の出力先への投稿 (送信側で allowedMentions を空にする)。 */
   post: (text: string) => Promise<unknown>;
+  trackedKaizen?: (id: string) => boolean;
 }
 
 function parseDetail(detail: string | null): unknown {
@@ -28,6 +29,7 @@ function parseDetail(detail: string | null): unknown {
 export function createAgentResultIntake(deps: AgentResultIntakeDeps): (event: InstructionEvent) => Promise<void> {
   return async (event) => {
     if (event.kind !== "finished") return;
+    if (event.status === "done" && deps.trackedKaizen?.(event.id)) return;
     const params = parseCronInstructionParams(deps.paramsOf(event.id));
     if (!params) return;
     const detail = parseDetail(event.detail);

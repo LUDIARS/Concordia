@@ -5,13 +5,21 @@ import { InstructionService } from "../agent-instructions/instruction-service.js
 import { SqliteAgentInstructionStore } from "../db/agent-instructions-repo.js";
 import { createAgentResultIntake } from "./agent-result-intake.js";
 import type { AgentJobRegistry } from "./agent-jobs/registry.js";
+import { createKaizenDailyJob } from "./agent-jobs/kaizen-daily.js";
+import { createQuaestorMailSweepJob } from "./agent-jobs/quaestor-mail-sweep.js";
 
 // spec/feature/parttimer-agent-dispatch.md CC-PT-AGENT-INV-04
 function setup() {
   const relay = createInstructionEventRelay({ warn: vi.fn() });
   const service = new InstructionService({ store: new SqliteAgentInstructionStore(makeTestDb()), events: (event) => relay.emit(event) });
   const posts: string[] = [];
-  const jobs: AgentJobRegistry = { get: (name) => (name === "ai-note-biweekly-review" ? { jobName: name, body: "", resultKind: "下書き", buildData: async () => ({}) } : null) };
+  const kaizen = createKaizenDailyJob({ kaizenFacts: () => { throw new Error("not used by result intake"); } });
+  const mail = createQuaestorMailSweepJob({ prepareMailSweep: async () => { throw new Error("not used by result intake"); } });
+  const jobs: AgentJobRegistry = { get: (name) => {
+    if (name === kaizen.jobName) return kaizen;
+    if (name === mail.jobName) return mail;
+    return name === "ai-note-biweekly-review" ? { jobName: name, body: "", resultKind: "下書き", buildData: async () => ({}) } : null;
+  } };
   const intake = createAgentResultIntake({
     paramsOf: (id) => service.record(id)?.params ?? null,
     jobs,
@@ -49,6 +57,20 @@ describe("結果の引き取り (agent-result-intake)", () => {
     ctx.service.recordResult(id, { agent: "dots", status: "failed", summary: "マニフェストが読めない" });
     await ctx.flush();
     expect(ctx.posts).toEqual([expect.stringContaining("dots が失敗: マニフェストが読めない")]);
+  });
+
+  it.each([["quaestor-mail-sweep", "報告"], ["kaizen-daily", "提案"]])("%s の%sを通知先へ投稿する", async (job, kind) => {
+    const ctx = setup();
+    const id = ctx.register({ job, dedupe_key: `cron:${job}:-:2026-11-24T09:00` });
+    ctx.service.recordResult(id, {
+      agent: "dots", status: "done", summary: "概要 @everyone",
+      detail: { items: ["確認事項 <@123> https://evil.example/x"] },
+    });
+    await ctx.flush();
+    expect(ctx.posts).toHaveLength(1);
+    expect(ctx.posts[0]).toContain(`dots の${kind}`);
+    expect(ctx.posts[0]).toContain("確認事項");
+    expect(ctx.posts[0]).not.toMatch(/@everyone|<@123>|https:\/\/evil\.example/);
   });
 
   it("cron 由来でない指令の結果は反映しない", async () => {

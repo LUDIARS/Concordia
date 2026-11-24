@@ -43,4 +43,13 @@ describe("cloud admission (CC-CLOUD-09)", () => {
   it("rejects heavy deterministic builds when they do not need LLM guidance", () => {
     expect(assessCloudEligibility({ ...eligible, requiresLlmGuidance: false }).eligible).toBe(false);
   });
+
+  it("waives only artifact load for the scheduled kaizen origin", () => {
+    const light = { ...eligible, computeIntensiveArtifactGeneration: false };
+    expect(assessCloudEligibility(light).eligible).toBe(false);
+    expect(assessCloudEligibility(light, "kaizen-daily").eligible).toBe(true);
+    expect(assessCloudEligibility({ ...light, repositoryBytes: MAX_CLOUD_REPOSITORY_BYTES + 1,
+      environmentPreparable: false, requiresLargeProjectClone: true, requiresLlmGuidance: false }, "kaizen-daily").reasons)
+      .toEqual(["repository_too_large", "environment_not_ready", "large_project_clone_required", "llm_guidance_not_required"]);
+  });
 });

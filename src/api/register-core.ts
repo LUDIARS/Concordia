@@ -520,6 +520,7 @@ export interface CoreRuntimeDeps {
   githubIssueWorkflow?: GithubIssueWorkflowApiDeps;
   /** Owns the cloud batch timer so backend shutdown can stop it before closing persistence. */
   ownCloudBatchSchedule?: (stop: () => Promise<void>) => void;
+  bindKaizenCloud?: (cloud: import("../scheduler/agent-jobs/kaizen-cloud.js").KaizenCloud) => void;
 }
 
 /** @implements spec/feature/github-issue-workflow.md — 操作面 */
@@ -920,6 +921,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   };
   const cloudRoot = join(dirname(deps.config.dbPath), "cloud-work");
   const cloudRuntime = createCloudWorkRuntime({ root: cloudRoot, tasks: deps.taskStore, submitLocalPr: deps.submitDirectLocalPr });
+  deps.bindKaizenCloud?.({
+    runtime: cloudRuntime,
+    authorize: () => {
+      if (deps.costStatus?.().blocked) throw new Error("cloud_budget_exhausted");
+      if (!sessionCaps.check(null).allowed) throw new Error("cloud_company_capacity_exhausted");
+    },
+  });
   // Unattended kicks reuse the creator session's budget/capacity/question gates.
   const cloudBatches = createCloudBatchKicker({ root: cloudRoot, tasks: deps.taskStore, runtime: cloudRuntime,
     authorizeKick: batch => authorizeCloudSubmit(batch.createdBySessionId, batch.scope) });

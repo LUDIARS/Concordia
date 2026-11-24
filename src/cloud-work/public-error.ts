@@ -17,6 +17,7 @@ const PUBLIC_CLOUD_ERRORS: ReadonlySet<string> = new Set([
   "cloud_git_artifact_too_large", "cloud_git_artifact_tree_invalid", "cloud_git_binding_missing",
   "cloud_git_branch_checked_out", "cloud_git_collection_unavailable", "cloud_git_repository_changed",
   "cloud_git_result_not_received", "cloud_git_review_unknown", "cloud_gpu_unverified",
+  "cloud_kaizen_stopped",
   "cloud_journal_incomplete", "cloud_observation_head_office_only", "cloud_pending_human_question",
   "cloud_provider_mismatch", "cloud_published_source_unverified", "cloud_review_unavailable",
   "cloud_s3_transfer_not_selected", "cloud_source_unavailable", "cloud_storage_credentials_missing",

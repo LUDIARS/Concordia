@@ -10,6 +10,8 @@ import { registerCronJobAgentRoutes, serializeCronJobAgent } from "./cron-job-ag
 const jobs: CronJobDefinition[] = [
   { name: "deps-sweep-daily", cron: "0 0 1 1 *", call_name: "deps-sweep-daily", buildArgs: () => ({}) },
   { name: "vulnerability-response-daily", cron: "0 0 1 1 *", call_name: "vulnerability-response-daily", buildArgs: () => ({}) },
+  { name: "quaestor-mail-sweep", cron: "0 0 1 1 *", call_name: "quaestor-mail-sweep", buildArgs: () => ({}) },
+  { name: "kaizen-daily", cron: "0 0 1 1 *", call_name: "kaizen-daily", buildArgs: () => ({}) },
 ];
 
 function setup() {
@@ -35,6 +37,14 @@ describe("PUT /v1/admin/cron-jobs/:name/agent", () => {
     expect(settings.getCronJobAgent("deps-sweep-daily")).toBe("dots");
     expect((await put("/v1/admin/cron-jobs/deps-sweep-daily/agent", { agent: "" })).status).toBe(200);
     expect(settings.getCronJobAgent("deps-sweep-daily")).toBeNull();
+  });
+
+  it.each(["quaestor-mail-sweep", "kaizen-daily"])("%s は既定で未切替かつ外部宛先に対応する", async (name) => {
+    const { settings, put } = setup();
+    expect(serializeCronJobAgent(jobs.find((job) => job.name === name)!, settings)).toEqual({ agent: "", agent_supported: true });
+    const res = await put(`/v1/admin/cron-jobs/${name}/agent`, { agent: "dots" });
+    expect(res.status).toBe(200);
+    expect(settings.getCronJobAgent(name)).toBe("dots");
   });
 
   it("INV-06: data builder の無いジョブを外部エージェントへ切り替える要求は 400 (従来への '' は通す)", async () => {

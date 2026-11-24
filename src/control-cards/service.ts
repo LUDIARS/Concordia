@@ -4,7 +4,8 @@
  *
  * @implements spec/feature/control-cards.md — 人間の捌き
  */
-import { clipText, type CardState, type CardTriagePatch, type ControlCard } from "./card-domain.js";
+import { randomUUID } from "node:crypto";
+import { CARD_SUMMARY_MAX_CHARS, clipText, type CardState, type CardTriagePatch, type ControlCard } from "./card-domain.js";
 import type { HumanCommandCards } from "./human-command-cards.js";
 import { humanCommandSourceKey } from "./human-command-cards.js";
 import type { ControlCardsRepository, ReminderRecord } from "./repository.js";
@@ -43,6 +44,14 @@ export class ControlCardsService {
     return this.repo.reminders(id);
   }
 
+  openKaizenJudgment(input: { key: string; project: string | null; summary: string }): ControlCard {
+    const now = this.now();
+    return this.repo.transaction(() => this.repo.findBySource("kaizen-proposal", input.key) ?? this.repo.open(randomUUID(), {
+      source_kind: "kaizen-proposal", source_key: input.key, project: input.project, session_id: null, link: null,
+      summary: clipText(input.summary, CARD_SUMMARY_MAX_CHARS), raised_at: now,
+    }, now));
+  }
+
   /** 人間の捌き (5 列だけ)。 */
   triage(id: string, patch: CardTriagePatch, actor: string): HumanCardUpdate {
     const card = this.repo.find(id);
@@ -51,11 +60,15 @@ export class ControlCardsService {
     return updated ? { kind: "updated", card: updated } : { kind: "closed" };
   }
 
-  /** 人間依頼を済みにする。他の出所のカードは既存の回答経路で解決する (CC-V5-INV-02)。 */
+  /** カードが解決状態を持つ人間依頼・カイゼンの判断を済みにする (CC-V5-INV-02)。 */
   markDone(id: string, actor: string): HumanCardUpdate {
     const card = this.repo.find(id);
     if (!card) return { kind: "not_found" };
     if (card.state !== "open") return { kind: "closed" };
+    if (card.source_kind === "kaizen-proposal") {
+      const closed = this.repo.close(id, `human:${clipText(actor, 100)}`, this.now()) ? this.repo.find(id) : null;
+      return closed ? { kind: "updated", card: closed } : { kind: "closed" };
+    }
     if (card.source_kind !== "human-command") return { kind: "not_owned" };
     const closed = this.humanCommands.markDone(card, actor);
     return closed ? { kind: "updated", card: closed } : { kind: "closed" };

@@ -238,7 +238,8 @@ export class InstructionService {
   }
 
   private requeueStale(): number {
-    const requeued = this.deps.store.requeueAckedBefore(redeliveryCutoff(this.now()));
+    const now = this.now();
+    const requeued = this.deps.store.requeueAckedBefore(redeliveryCutoff(now), isoSeconds(now));
     for (const row of requeued) this.emit({ kind: "requeued", id: row.id, agent: row.agent, title: row.title });
     return requeued.length;
   }

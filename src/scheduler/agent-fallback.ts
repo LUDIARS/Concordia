@@ -12,11 +12,13 @@ import {
   CRON_DEDUPE_PREFIX,
   FALLBACK_CLOSE_DETAIL,
   FALLBACK_CLOSE_SUMMARY,
+  REPORT_ONLY_CLOSE_SUMMARY,
   fallbackCutoff,
   parseCronInstructionParams,
+  usesReportOnlyRoute,
   type CronInstructionParams,
 } from "./agent-dispatch-policy.js";
-import { buildFallbackPost } from "./agent-jobs/result-post.js";
+import { buildFallbackPost, buildReportOnlyExpiryPost } from "./agent-jobs/result-post.js";
 import type { CronJobDefinition } from "./cron-jobs.js";
 
 /** 期限切れの確認の間隔。 期限 (既定 180 分) に対して十分細かい。 */
@@ -44,6 +46,16 @@ export async function runAgentFallback(deps: AgentFallbackDeps): Promise<{ close
   for (const record of deps.instructions.listUnreceivedBefore(CRON_DEDUPE_PREFIX, cutoff)) {
     const params = parseCronInstructionParams(record.params);
     if (!params) continue;
+    if (usesReportOnlyRoute(params.job)) {
+      if (!deps.instructions.closeUnreceived(record.id, REPORT_ONLY_CLOSE_SUMMARY, { closed_by: "concordia" })) continue;
+      closed += 1;
+      try {
+        await deps.post(buildReportOnlyExpiryPost(record, params.job));
+      } catch (error) {
+        deps.log.warn({ id: record.id, error: error instanceof Error ? error.message : String(error) }, "agent expiry post failed");
+      }
+      continue;
+    }
     // 閉じられた (= この呼び出しが所有権を取った) ときだけ起動する。 先に ack されていれば外部エージェントの仕事のまま。
     if (!deps.instructions.closeUnreceived(record.id, FALLBACK_CLOSE_SUMMARY, { ...FALLBACK_CLOSE_DETAIL })) continue;
     closed += 1;

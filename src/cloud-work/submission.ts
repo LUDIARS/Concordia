@@ -11,6 +11,7 @@ export interface CloudSubmission {
   sourceRevision: string;
   instruction: string;
   eligibility: CloudEligibilityEvidence;
+  eligibilityOrigin?: "kaizen-daily";
   standardHosted: boolean;
   gpuRequired: boolean;
   gpuVerified: boolean;
@@ -51,7 +52,7 @@ export async function submitCloudWork(
   }
   if (adapter.provider !== request.provider) throw new Error("cloud_provider_mismatch");
   if (!request.standardHosted) throw new Error("standard_hosted_required");
-  if (!assessCloudEligibility(request.eligibility).eligible) throw new Error("cloud_work_ineligible");
+  if (!assessCloudEligibility(request.eligibility, request.eligibilityOrigin).eligible) throw new Error("cloud_work_ineligible");
   if (request.gpuRequired && !request.gpuVerified) throw new Error("cloud_gpu_unverified");
   if (!request.sourceAvailable) throw new Error("cloud_source_unavailable");
   if (!request.artifactTransferReady) throw new Error("cloud_artifact_transfer_unready");

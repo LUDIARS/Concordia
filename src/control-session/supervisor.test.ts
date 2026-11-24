@@ -175,4 +175,25 @@ describe("control supervisor", () => {
     expect(report.spawned).toBe(false);
     expect(report.boardRows).toBe(1);
   });
+
+  it("keeps the board and patrol but never starts the control body while the body is OFF (Cc v5 CC-V5 実装メモ 8)", async () => {
+    let body = true;
+    const h = harness([session("worker")], { isBodyEnabled: () => body });
+    await h.supervisor.runOnce();
+    expect(h.spawned).toHaveLength(1);
+    h.setActive([session("worker"), session("ctl", { concordia_spawn_id: "spawn-1" })]);
+    await h.supervisor.runOnce();
+    body = false;
+    const report = await h.supervisor.runOnce();
+    // 保持者にだけ終了を案内して消し、ボードは worker の行を残す。
+    expect(report).toMatchObject({ enabled: true, controlSessionId: null, spawned: false, digested: [] });
+    expect(h.injected).toContainEqual({ sessionId: "ctl", text: CONTROL_RETIRE_NOTICE });
+    expect(h.holders.read()).toBeNull();
+    expect(h.board.list().map((row) => row.session_id).sort()).toEqual(["ctl", "worker"]);
+    h.advance(CONTROL_SPAWN_GRACE_MS * 10);
+    h.setActive([session("worker")]);
+    await h.supervisor.runOnce();
+    expect(h.spawned).toHaveLength(1);
+    expect(h.board.list().map((row) => row.session_id)).toEqual(["worker"]);
+  });
 });

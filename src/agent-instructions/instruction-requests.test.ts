@@ -76,4 +76,8 @@ describe("instruction requests (CC-INST-INV-01)", () => {
     expect(parseAck({ agent: "dots" })).toEqual({ ok: true, value: { agent: "dots" } });
     expect(parsePollQuery((name) => (name === "agent" ? "dots" : undefined))).toEqual({ ok: true, value: { agent: "dots", status: "pending", limit: 10 } });
   });
+
+  it("accepts card_triage as an allowed type (CC-INST-INV-02 改訂、Cc v5)", () => {
+    expect(parseRegister({ agent: "dots", type: "card_triage", title: "管制カードの捌き", body: "b", params: { cards: [] } }).ok).toBe(true);
+  });
 });

@@ -87,34 +87,34 @@ describe("Discord chores", () => {
     expect(card.components[0].toJSON().components.every(b => !b.disabled)).toBe(true);
     expect(choreCard({ ...row, status: "continued" }).components[0].toJSON().components.every(b => b.disabled)).toBe(true);
   });
-  it("moves an existing chores window out of its category (2026-10-06 neco 指示)", async () => {
+  it("leaves the window channel to the request desk: no create, rename or move (Cc v5)", async () => {
     const setParent = vi.fn(async () => undefined);
-    const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", parentId: "meta-category", setParent };
+    const channel = { id: "channel", type: ChannelType.GuildText, name: "依頼窓口", parentId: null, setParent };
     const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
+    const create = vi.fn();
+    Object.assign(guild.channels, { create });
     const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", log: { warn: vi.fn() } });
     try {
-      expect(setParent).toHaveBeenCalledWith(null, expect.anything());
+      expect(setParent).not.toHaveBeenCalled();
+      expect((channel as unknown as { setName: ReturnType<typeof vi.fn> }).setName).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
     } finally { surface.stopChores(); }
   });
 
-  it("ignores bots, denies unauthorized callers and accepts a human in the dedicated channel", async () => {
+  it("no longer takes new chores from the window or the forum (Cc v5: the desk takes them)", async () => {
     vi.useFakeTimers();
-    const fetcher = vi.fn(async (_url: unknown, _options?: RequestInit) => new Response(JSON.stringify({ run: row }), { status: 202 }));
+    const fetcher = vi.fn(async (_url: unknown, _options?: RequestInit) => new Response(JSON.stringify({ runs: [] })));
     vi.stubGlobal("fetch", fetcher);
-    const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務" };
-    const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const config = memoryConfig();
-    const surface = await startChoresDiscord({ guild, config, baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
-    const message = { guildId: "guild", channelId: "channel", id: "message", author: { id: "human", bot: false }, webhookId: null, channel: { isThread: () => false }, content: "[codex] 依頼", reply: vi.fn() };
-    expect(surface.handlesMessage(message as unknown as Message)).toBe(true);
-    expect(surface.handlesMessage({ ...message, guildId: "other" } as unknown as Message)).toBe(false);
-    await surface.message({ ...message, author: { id: "bot", bot: true } } as unknown as Message);
-    await surface.message({ ...message, author: { id: "other", bot: false } } as unknown as Message);
-    expect(fetcher).not.toHaveBeenCalled();
-    await surface.message(message as unknown as Message);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fetcher.mock.calls[0][1]?.body as string)).toMatchObject({ provider: "codex", prompt: "依頼", request_key: "discord:guild:message" });
-    surface.stopChores();
+    const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", { id: "channel", type: ChannelType.GuildText }]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
+    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
+    const message = { guildId: "guild", channelId: "channel", id: "message", author: { id: "human", bot: false }, webhookId: null,
+      channel: { isThread: () => false }, content: "[codex] 依頼", reply: vi.fn() } as unknown as Message;
+    try {
+      expect(surface.handlesMessage(message)).toBe(false);
+      expect(surface.handlesThread({ guildId: "guild", parentId: "forum" } as never)).toBe(false);
+      await surface.message(message);
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+    } finally { surface.stopChores(); }
   });
   it("rejects copied buttons outside the dedicated channel", async () => {
     vi.useFakeTimers();
@@ -128,7 +128,7 @@ describe("Discord chores", () => {
     await surface.interaction(interaction as unknown as Interaction);
     expect(interaction.reply).toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled(); surface.stopChores();
   });
-  it("answers a window request only in the chores forum and guides the window to its thread (CC-CHORES-FORUM AT-06)", async () => {
+  it("answers a window request only in the chores forum and guides the window to its thread for an already accepted run (CC-CHORES-FORUM AT-06)", async () => {
     vi.useFakeTimers();
     const run = { ...row, request_key: "discord:123:456" };
     let delivered = false;
@@ -141,12 +141,11 @@ describe("Discord chores", () => {
     const send = vi.fn(async (_options: unknown) => ({ id: "notice" }));
     const channel = { id: "channel", type: ChannelType.GuildText, name: "雑務窓口", send, messages: { fetch: vi.fn() } };
     const guild = prepareGuild({ id: "123", channels: { cache: new Map([["channel", channel]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
-    const message = { guildId: "123", channelId: "channel", id: "456", author: { id: "human", bot: false }, webhookId: null,
-      channel: { isThread: () => false }, content: "依頼", reply: vi.fn() };
+    // v5 前に窓口で受け付けた run。受付時に覚えた投稿元はそのまま残っている。
+    const config = memoryConfig();
+    config.set("chores_discord_source:discord:123:456", JSON.stringify({ channelId: "channel", messageId: "456", forum: false }));
+    const surface = await startChoresDiscord({ guild, config, baseUrl: "http://cc", allowed: () => true, log: { warn: vi.fn() } });
     try {
-      await surface.message(message as unknown as Message);
-      expect(message.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("<#work-thread>") }));
       await vi.advanceTimersByTimeAsync(9000);
       expect(delivered).toBe(true);
       // 窓口には結果カードを出さず、依頼者への案内を 1 回だけ返信する。
@@ -163,33 +162,5 @@ describe("Discord chores", () => {
     expect(acceptReplyText(row, { fromForum: false, threadId: null })).toContain("照合待ち");
   });
 
-  it("accepts a forum starter with the same permission and request identity while ignoring discussion and bot mirrors", async () => {
-    vi.useFakeTimers();
-    const keys: string[] = [];
-    const fetcher = vi.fn(async (_url: unknown, options?: RequestInit) => {
-      const body = JSON.parse(options?.body as string) as { request_key: string };
-      keys.push(body.request_key);
-      return new Response(JSON.stringify({ run: { ...row, request_key: body.request_key } }), { status: 202 });
-    });
-    vi.stubGlobal("fetch", fetcher);
-    const guild = prepareGuild({ id: "guild", channels: { cache: new Map([["channel", { id: "channel", type: ChannelType.GuildText }]]) }, client: { user: { id: "bot" } } } as unknown as Guild);
-    const surface = await startChoresDiscord({ guild, config: memoryConfig(), baseUrl: "http://cc", allowed: id => id === "human", log: { warn: vi.fn() } });
-    const message = { guildId: "guild", channelId: "work-thread", id: "work-thread", channel: { isThread: () => true, parentId: "forum" },
-      author: { id: "human", bot: false }, webhookId: null, content: "[codex] フォーラムの依頼", reply: vi.fn() } as unknown as Message;
-    const target = await guild.channels.fetch("work-thread");
-    if (!target?.isThread()) throw new Error("Fixture thread unavailable");
-    vi.mocked(target.fetchStarterMessage).mockResolvedValue(message as Message<true>);
-    try {
-      expect(surface.handlesMessage(message)).toBe(true);
-      await surface.message({ ...message, id: "discussion" } as Message);
-      await surface.message({ ...message, author: { id: "bot", bot: true } } as unknown as Message);
-      await surface.message({ ...message, webhookId: "webhook" } as Message);
-      expect(fetcher).not.toHaveBeenCalled();
-      await surface.message(message);
-      await surface.message(message); // Both gateway paths reuse the original identity; the API is idempotent.
-      expect(new Set(keys)).toEqual(new Set(["discord:guild:work-thread"]));
-      expect(target.send).toHaveBeenCalledTimes(1);
-      expect(message.reply).toHaveBeenCalledTimes(1);
-    } finally { surface.stopChores(); }
-  });
+
 });

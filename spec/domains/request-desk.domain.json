@@ -1,0 +1,22 @@
+{
+  "name": "request-desk",
+  "description": "Cc v5 の依頼窓口 (2026-11-24 neco 指示「依頼窓口のチャットを設けて」「軽い依頼も重い依頼も全て一つの窓口でやれるようにする」)。agent-delegation の下位で、雑務 (chores) の新規受付を引き継ぐ。Web の /desk と Discord の「依頼窓口」チャンネルから依頼を受付キーで 1 回だけ受け、spawn ID を先に保存して作業セッションを 1 回だけ起動し、spawn ID で照合して running / finished を観測する。Actio タスクは起動したセッションが作る。依頼ごとの Discord スレッドには受付・起動・カードの開閉・終了・催促だけを出す。UX-CC-W2/W5; CC-V5-INV-01/06/07。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)spec/feature/request-desk\\.md$" },
+    { "pathPattern": "(^|/)src/desk/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/api/desk(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/desk(-notices)?(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/Desk(\\.test)?\\.tsx$" },
+    { "pathPattern": "(^|/)web/src/pages/desk/[^/]+\\.tsx?$" }
+  ],
+  "cardTemplate": "Explain which requests the desk accepted and from which surface, whether each launch was confirmed by spawn id, is still being reconciled or failed and why, which session took the request, and which notices were posted to its Discord thread.",
+  "specRefs": [
+    "spec/feature/request-desk.md",
+    "spec/plan/2026-11-24-control-session-to-dots.md",
+    "spec/feature/chores.md",
+    "spec/ux/product.md",
+    "spec/architecture/ddd.md"
+  ]
+}

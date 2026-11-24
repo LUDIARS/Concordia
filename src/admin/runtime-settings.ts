@@ -31,6 +31,10 @@ const KEYS = {
   goalStopQuestionGuard: "admin.goal_stop_question_guard_enabled",
   controlSession: "admin.control_session_enabled",
   controlSessionReaper: "admin.control_session_reaper_enabled",
+  controlSessionBody: "admin.control_session_body_enabled",
+  deskEnabled: "admin.desk_enabled",
+  deskDepartment: "admin.desk_department_id",
+  dotsCardTriage: "admin.control_cards_dots_triage_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -176,6 +180,22 @@ export class RuntimeSettingsStore {
     const raw = this.store.get(KEYS.controlSessionReaper);
     if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
     return true;
+  }
+
+  /** Cc 内の管制セッション本体を起動するか (Cc v5 は既定 OFF、spec/feature/control-session.md §1)。 */
+  getControlSessionBodyEnabled(): boolean { return this.flag(KEYS.controlSessionBody, false); }
+  /** 依頼窓口の新規受付 (既定 ON、spec/feature/request-desk.md)。 */
+  getDeskEnabled(): boolean { return this.flag(KEYS.deskEnabled, true); }
+  /** 依頼から起動するセッションの部署。空は部署なし。 */
+  getDeskDepartmentId(): string | null { return this.store.get(KEYS.deskDepartment)?.trim() || null; }
+  /** 管制カードの捌きを dots に頼むか (既定 ON、spec/feature/control-cards.md)。 */
+  getDotsCardTriageEnabled(): boolean { return this.flag(KEYS.dotsCardTriage, true); }
+
+  /** DB (WebUI 設定) → 既定。巡回ごとに読むので切替に再起動は要らない。 */
+  private flag(key: string, fallback: boolean): boolean {
+    const raw = this.store.get(key);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    return fallback;
   }
 
   /**

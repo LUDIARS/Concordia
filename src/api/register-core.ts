@@ -11,6 +11,8 @@ import { startCloudBatchSchedule } from "../cloud-work/batch-schedule.js";
 import { serviceStatusRouter } from "./service-status.js";
 import { serviceStatusClient } from "../service-status/client.js";
 import { choresRouter } from "./chores.js";
+import { deskRouter, type DeskApiDeps } from "./desk.js";
+import { controlCardsRouter, type ControlCardsApiDeps } from "./control-cards.js";
 import { managementAdminRouter, managementRouter } from "./management.js";
 import { autonomousLoopRouter } from "./autonomous-loop.js";
 import type { CircuitBreakerService } from "../management/circuit-breaker-service.js";
@@ -464,6 +466,10 @@ export interface CoreRuntimeDeps {
   /** 管制セッション (spec/feature/control-session.md)。 */
   controlSession?: ControlSessionApiDeps;
   chores?: ChoresService;
+  /** 依頼窓口 (Cc v5、spec/feature/request-desk.md)。 */
+  desk?: DeskApiDeps;
+  /** 管制カードとスプリント状況 (Cc v5、spec/feature/control-cards.md)。 */
+  controlCards?: ControlCardsApiDeps;
   /** CDGD マネジメント層 (spec/feature/cdgd-management.md)。 */
   management?: ManagementService;
   autonomousLoopBreaker?: CircuitBreakerService;
@@ -541,7 +547,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.dailyGoals) {
     app.route("/v1/daily-goals", dailyGoalRunRouter(deps.dailyGoals, { isEnabled: () => deps.adminState.isWorkflowEnabled("daily_goal") }));
   }
+  if (deps.controlCards) app.route("/v1/control", controlCardsRouter(deps.controlCards));
   if (deps.controlSession) app.route("/v1/control", controlSessionRouter(deps.controlSession));
+  if (deps.desk) app.route("/v1/desk", deskRouter(deps.desk));
   if (deps.chores) app.route("/v1/chores", choresRouter(deps.chores));
   if (deps.management) {
     app.route("/v1/management", managementRouter(deps.management));

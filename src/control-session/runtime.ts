@@ -41,6 +41,8 @@ export interface ControlRuntimeDeps {
   db: Database.Database;
   settings: Pick<SettingsStore, "get" | "set" | "delete">;
   isEnabled(): boolean;
+  /** Cc 内の管制セッション本体を動かすか (v5 の既定 false)。未注入は true。 */
+  isBodyEnabled?(): boolean;
   sessions: { findAllActive(): SessionRow[]; findSession(id: string): SessionRow | null };
   projectOf(session: SessionRow): string;
   latestStat(sessionId: string): { ts: number; payload: string } | null;
@@ -95,6 +97,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
 
   const supervisor = createControlSupervisor({
     isEnabled: deps.isEnabled,
+    ...(deps.isBodyEnabled ? { isBodyEnabled: deps.isBodyEnabled } : {}),
     sessions: deps.sessions,
     holders,
     board,

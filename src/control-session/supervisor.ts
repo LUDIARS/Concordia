@@ -19,6 +19,12 @@ export const CONTROL_RETIRE_NOTICE = "[管制] 管制セッションは別の世
 
 export interface ControlSupervisorDeps {
   isEnabled(): boolean;
+  /**
+   * Cc 内の常駐 Claude 管制セッション本体を動かすか (Cc v5、設定 session.control_session_body_enabled、既定 false)。
+   * false の間は singleton の起動と停止要約の送信をせず、保持者がいれば終了案内を送って保持者だけ消す。
+   * ボードの更新は isEnabled だけで決まる。未注入は true (v4 までの動き)。
+   */
+  isBodyEnabled?(): boolean;
   sessions: { findAllActive(): SessionRow[] };
   holders: ControlHolderStore;
   board: ControlBoardRepo;
@@ -63,14 +69,14 @@ export function createControlSupervisor(deps: ControlSupervisorDeps) {
     return holder ? liveBySpawnId(deps.sessions.findAllActive(), holder.spawn_id)?.id ?? null : null;
   }
 
-  function retire(active: readonly SessionRow[]): void {
+  function retire(active: readonly SessionRow[], options: { keepBoard: boolean } = { keepBoard: false }): void {
     const holder = deps.holders.read();
     if (!holder) return;
     const live = liveBySpawnId(active, holder.spawn_id);
     if (live) deps.injectToControl(live.id, CONTROL_RETIRE_NOTICE);
     deps.holders.clear();
-    deps.board.clear();
-    deps.log.info("control session disabled: holder cleared");
+    if (!options.keepBoard) deps.board.clear();
+    deps.log.info(options.keepBoard ? "control session body disabled: holder cleared, board kept" : "control session disabled: holder cleared");
   }
 
   /** 起動の準備や spawn が返らなくても巡回 (ボード更新・まとめ) を止めない。 */
@@ -149,6 +155,14 @@ export function createControlSupervisor(deps: ControlSupervisorDeps) {
       return { enabled: false, controlSessionId: null, spawned: false, boardRows: 0, digested: [] };
     }
     const nowMs = deps.now();
+    if (deps.isBodyEnabled?.() === false) {
+      // v5: 判断の担い手は dots (カードの捌き) と巡回。本体は起動せず、ボード・巡回・まとめは今のまま (実装メモ 8)。
+      // 保持者を消すと退役世代の記録も消えるので、先に退役世代へ案内してから現役の保持者へ終了を案内する。
+      notifyRetired(active);
+      retire(active, { keepBoard: true });
+      const boardRows = refreshBoard(active, nowMs);
+      return { enabled: true, controlSessionId: null, spawned: false, boardRows, digested: [] };
+    }
     const singleton = await ensureSingleton(active, nowMs);
     notifyRetired(active);
     const boardRows = refreshBoard(active, nowMs);

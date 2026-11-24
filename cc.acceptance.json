@@ -45,13 +45,13 @@
     { "source": "src/delegation/parttimer-prompts.ts", "tests": ["src/delegation/seed.test.ts"], "contracts": ["seed-model-roles-C-2"] },
     { "source": "src/discord/forum-spawn.ts", "tests": ["src/discord/forum-spawn.test.ts"], "contracts": [] },
     { "source": "src/discord/commands/spawn.ts", "tests": ["src/discord/commands/spawn.test.ts"], "contracts": [] },
-    { "source": "src/api/register-core.ts", "tests": ["tests/delegation-regression.test.ts"], "contracts": [] },
+    { "source": "src/api/register-core.ts", "tests": ["tests/delegation-regression.test.ts", "src/api/desk.test.ts", "src/api/control-cards.test.ts"], "contracts": [] },
     { "source": "src/api/register-core.ts", "tests": ["tests/spawn-session-model-role.test.ts"], "contracts": [] },
     { "source": "src/director/patrol-runtime.ts", "tests": ["src/director/patrol-runtime.test.ts"], "contracts": [] },
     { "source": "src/director/walk-runtime.ts", "tests": ["src/director/walk-runtime.test.ts"], "contracts": [] },
     { "source": "src/consultation/consult-model.ts", "tests": ["src/consultation/consult-model.test.ts"], "contracts": [] },
     { "source": "src/config/settings/definitions/core.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] },
-    { "source": "src/config/settings/definitions/session.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] },
+    { "source": "src/config/settings/definitions/session.ts", "tests": ["src/config/settings/registry.test.ts", "src/config/settings/coverage.test.ts"], "contracts": [] },
     { "source": "src/config/settings/definitions/operations.ts", "tests": ["src/config/settings/registry.test.ts"], "contracts": [] },
     { "source": "src/model-catalog/template-model-role.contract.ts", "tests": ["src/model-catalog/template-model-role.test.ts"], "contracts": ["model-role-tpl-C-1"] },
     { "source": "src/model-catalog/ontime-runtime.ts", "tests": ["src/model-catalog/template-model-role.test.ts"], "contracts": ["model-role-tpl-C-1"] },
@@ -70,7 +70,7 @@
     { "source": "src/model-catalog/role-policy.ts", "tests": ["src/model-catalog/seed.test.ts", "src/model-catalog/role-map.test.ts"], "contracts": [] },
     { "source": "src/control/provider-preset.ts", "tests": ["src/control/provider-preset.test.ts"], "contracts": [] },
     { "source": "src/discord/webhook-identity.ts", "tests": ["src/discord/webhook-identity.test.ts"], "contracts": [] },
-    { "source": "src/bootstrap/core.ts", "tests": ["src/delegation/service-model-role.test.ts"], "contracts": [] },
+    { "source": "src/bootstrap/core.ts", "tests": ["src/delegation/service-model-role.test.ts", "src/api/desk.test.ts", "src/control-cards/use-cases.test.ts"], "contracts": [] },
     { "source": "src/chat-worker.ts", "tests": ["src/delegation/service-model-role.test.ts"], "contracts": [] },
     { "source": "src/workflow-worker.ts", "tests": ["src/delegation/service-model-role.test.ts"], "contracts": [] },
     { "source": "src/model-catalog/role-map.ts", "tests": ["src/model-catalog/role-map.test.ts", "src/model-catalog/seed.test.ts", "src/delegation/service-model-role.test.ts"], "contracts": [] },
@@ -82,7 +82,7 @@
     { "source": "src/harness/test-isolation.ts", "tests": ["src/harness/test-isolation-team-policy.test.ts", "src/api/harness-session-project-policy.test.ts"], "contracts": [] },
     { "source": "src/discord/session-event-discord-policy.ts", "tests": ["src/discord/session-event-discord-policy.test.ts"], "contracts": ["stall-discord-C-1"] },
     { "source": "src/discord/session-event-discord-policy.contract.ts", "tests": ["src/discord/session-event-discord-policy.test.ts"], "contracts": ["stall-discord-C-1"] },
-    { "source": "src/discord/bot.ts", "tests": ["src/discord/session-event-discord-policy.test.ts"], "contracts": ["stall-discord-C-1"] },
+    { "source": "src/discord/bot.ts", "tests": ["src/discord/session-event-discord-policy.test.ts", "src/discord/desk.test.ts", "src/discord/human-request.test.ts"], "contracts": ["stall-discord-C-1"] },
     { "source": "src/discord/monitor-channel.ts", "tests": ["src/discord/monitor-channel.test.ts"], "contracts": [] },
     { "source": "src/discord/monitor-delivery-policy.ts", "tests": ["src/discord/monitor-delivery-policy.test.ts"], "contracts": ["monitor-C-2"] },
     { "source": "src/discord/monitor-render.ts", "tests": ["src/discord/monitor-render.test.ts"], "contracts": [] },
@@ -1454,7 +1454,8 @@
     {
       "source": "src/api/chores.ts",
       "tests": [
-        "src/api/chores.test.ts"
+        "src/api/chores.test.ts",
+        "tests/chores-wiring.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01"
@@ -1463,7 +1464,8 @@
     {
       "source": "src/discord/chores.ts",
       "tests": [
-        "src/discord/chores.test.ts"
+        "src/discord/chores.test.ts",
+        "tests/chores-wiring.test.ts"
       ],
       "contracts": [
         "CC-CHORES-01"
@@ -1472,18 +1474,21 @@
     {
       "source": "web/src/pages/Chores.tsx",
       "tests": [
-        "web/src/pages/Chores.test.tsx"
+        "web/src/pages/desk/PastChores.test.tsx",
+        "web/src/pages/Desk.test.tsx"
       ],
       "contracts": [
         "CC-CHORES-01"
       ]
     },
-    {"source":"web/src/App.tsx","tests":["web/src/pages/Chores.test.tsx","tests/chores-wiring.test.ts","web/src/pages/session-chat/SessionChat.test.tsx","web/src/components/Nav.test.tsx"],"contracts":["CC-CHORES-01","SPEC-CC-WORKPLACE"]},
+    {"source":"web/src/App.tsx","tests":["web/src/pages/desk/PastChores.test.tsx","tests/chores-wiring.test.ts","web/src/pages/session-chat/SessionChat.test.tsx","web/src/components/Nav.test.tsx"],"contracts":["CC-CHORES-01","SPEC-CC-WORKPLACE"]},
     {
       "source": "web/src/App.tsx",
       "tests": [
-        "web/src/pages/Chores.test.tsx",
-        "tests/chores-wiring.test.ts"
+        "web/src/pages/desk/PastChores.test.tsx",
+        "tests/chores-wiring.test.ts",
+        "web/src/pages/Desk.test.tsx",
+        "web/src/pages/Control.test.tsx"
       ],
       "contracts": [
         "CC-CHORES-01"
@@ -3735,14 +3740,16 @@
     {
       "source": "src/admin/runtime-settings.ts",
       "tests": [
-        "src/admin/runtime-settings.test.ts"
+        "src/admin/runtime-settings.test.ts",
+        "src/desk/desk.test.ts"
       ],
       "contracts": []
     },
     {
       "source": "src/admin/state.ts",
       "tests": [
-        "src/admin/runtime-settings.test.ts"
+        "src/admin/runtime-settings.test.ts",
+        "src/control-session/supervisor.test.ts"
       ],
       "contracts": []
     },
@@ -5844,7 +5851,7 @@
     {"source":"src/control-session/session-link.ts","tests":["src/control-session/session-link.test.ts","src/control-session/hourly-summary.test.ts"],"contracts":[]},
     {"source":"src/control-session/dots-status.ts","tests":["src/control-session/dots-status.test.ts","src/control-session/hourly-summary.test.ts"],"contracts":[]},
     {"source":"src/control-session/hourly-summary.ts","tests":["src/control-session/hourly-summary.test.ts","src/control-session/dots-status.test.ts"],"contracts":[]},
-    {"source":"src/control-session/runtime.ts","tests":["src/control-session/runtime.test.ts","src/control-session/dots-status.test.ts"],"contracts":[]},
+    {"source":"src/control-session/runtime.ts","tests":["src/control-session/runtime.test.ts","src/control-session/dots-status.test.ts","src/control-session/supervisor.test.ts"],"contracts":[]},
     {"source":"src/management/status-snapshot.ts","tests":["src/management/status-snapshot.test.ts"],"contracts":[]},
     {"source":"src/bootstrap/core.ts","tests":["src/management/status-snapshot.test.ts","src/control-session/dots-status.test.ts"],"contracts":[]},
     {"source":"src/control-session/reaper-policy.ts","tests":["src/control-session/reaper-policy.test.ts","src/control-session/reaper.test.ts"],"contracts":[]},
@@ -5868,7 +5875,7 @@
     {"source":"src/control-session/ended-log.ts","tests":["src/control-session/ended-log.test.ts"],"contracts":[]},
     {"source":"src/control-session/jst-clock.ts","tests":["src/control-session/hourly-summary.test.ts","src/control-session/patrol.test.ts"],"contracts":[]},
     {"source":"src/control-session/channel-surface.ts","tests":["src/control-session/runtime.test.ts","src/discord/control-channel.test.ts"],"contracts":[]},
-    {"source":"src/api/control-session.ts","tests":["src/api/control-session.test.ts"],"contracts":[]},
+    {"source":"src/api/control-session.ts","tests":["src/api/control-session.test.ts", "src/control-session/session-progress.test.ts"],"contracts":[]},
     {"source":"src/discord/control-channel.ts","tests":["src/discord/control-channel.test.ts"],"contracts":[]},
     {"source":"src/api/register-core.ts","tests":["src/api/control-session.test.ts"],"contracts":[]},
     {"source":"src/discord/bot.ts","tests":["src/discord/control-channel.test.ts"],"contracts":[]},
@@ -5906,13 +5913,13 @@
     {"source":"web/src/pages/settings/sections/AllSettingsSection.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
     {"source":"web/src/pages/settings/sections/SettingValueField.tsx","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
     {"source":"web/src/pages/settings/sections/settingDraftCheck.ts","tests":["web/src/pages/settings/sections/AllSettingsSection.test.tsx"],"contracts":[]},
-    { "source": "src/agent-instructions/instruction-policy.ts", "tests": ["src/agent-instructions/instruction-policy.test.ts", "src/agent-instructions/instruction-service.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/instruction-policy.ts", "tests": ["src/agent-instructions/instruction-policy.test.ts", "src/agent-instructions/instruction-service.test.ts", "src/agent-instructions/instruction-requests.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-requests.ts", "tests": ["src/agent-instructions/instruction-requests.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-service.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/public-access.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-token.ts", "tests": ["src/agent-instructions/instruction-token.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/access-config.ts", "tests": ["src/agent-instructions/public-access.test.ts", "src/agent-instructions/runtime.test.ts"], "contracts": [] },
-    { "source": "src/agent-instructions/runtime.ts", "tests": ["src/agent-instructions/runtime.test.ts"], "contracts": [] },
+    { "source": "src/agent-instructions/runtime.ts", "tests": ["src/agent-instructions/runtime.test.ts", "src/agent-instructions/instruction-events.test.ts"], "contracts": [] },
     { "source": "src/db/agent-instructions-repo.ts", "tests": ["src/agent-instructions/instruction-service.test.ts", "src/api/agent-instructions.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-events.ts", "tests": ["src/agent-instructions/instruction-events.test.ts"], "contracts": [] },
     { "source": "src/agent-instructions/instruction-posts.ts", "tests": ["src/agent-instructions/instruction-posts.test.ts", "src/discord/muse-instructions-channel.test.ts"], "contracts": [] },
@@ -5955,6 +5962,44 @@
     { "source": "src/discord/bot.ts", "tests": ["src/discord/session-channel-status-drift.test.ts","src/discord/test-forum-recorded-keys.test.ts"], "contracts": [] },
     { "source": "src/discord/session-channel.ts", "tests": ["src/discord/session-channel.test.ts","src/discord/session-channel-private.test.ts","src/discord/session-channel-status-drift.test.ts"], "contracts": [] },
     { "source": "src/discord/test-forum-reconcile.ts", "tests": ["src/discord/test-forum-reconcile.test.ts","src/discord/test-forum-recorded-keys.test.ts"], "contracts": [] },
-    { "source": "src/sweeper.ts", "tests": ["src/db/nightly-vacuum.test.ts"], "contracts": [] }
+    { "source": "src/sweeper.ts", "tests": ["src/db/nightly-vacuum.test.ts"], "contracts": [] },
+    { "source": "src/api/control-cards.ts", "tests": ["src/api/control-cards.test.ts"], "contracts": [] },
+    { "source": "src/api/desk.ts", "tests": ["src/api/desk.test.ts"], "contracts": [] },
+    { "source": "src/bootstrap/v5-desk-cards.ts", "tests": ["src/api/desk.test.ts", "src/api/control-cards.test.ts", "src/control-session/session-progress.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/card-domain.ts", "tests": ["src/control-cards/policies.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/card-sync-policy.ts", "tests": ["src/control-cards/policies.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/card-sync.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/card-triage-dispatch.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/card-triage-policy.ts", "tests": ["src/control-cards/policies.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/human-command-cards.ts", "tests": ["src/control-cards/use-cases.test.ts", "src/api/control-cards.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/reminder-policy.ts", "tests": ["src/control-cards/policies.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/reminder-runner.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/repository.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/runtime.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/service.ts", "tests": ["src/control-cards/use-cases.test.ts", "src/api/control-cards.test.ts"], "contracts": [] },
+    { "source": "src/control-cards/sources.ts", "tests": ["src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/control-session/session-progress-reader.ts", "tests": ["src/control-session/session-progress.test.ts"], "contracts": [] },
+    { "source": "src/control-session/session-progress-view.ts", "tests": ["src/control-session/session-progress.test.ts"], "contracts": [] },
+    { "source": "src/db/v5-desk-cards-migration.ts", "tests": ["src/db/migration-ledger.test.ts", "src/desk/desk.test.ts", "src/control-cards/use-cases.test.ts"], "contracts": [] },
+    { "source": "src/desk/desk-request-policy.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/dispatcher.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/repository.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/runtime.ts", "tests": ["src/desk/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/discord-port.ts", "tests": ["src/discord/desk.test.ts"], "contracts": [] },
+    { "source": "src/desk/service.ts", "tests": ["src/desk/desk.test.ts", "src/api/desk.test.ts"], "contracts": [] },
+    { "source": "src/discord/desk-notices.ts", "tests": ["src/discord/desk.test.ts"], "contracts": [] },
+    { "source": "src/discord/desk.ts", "tests": ["src/discord/desk.test.ts"], "contracts": [] },
+    { "source": "web/src/pages/Control.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/Desk.tsx", "tests": ["web/src/pages/Desk.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/CardsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/SessionProgress.tsx", "tests": ["web/src/pages/Control.test.tsx", "web/src/pages/Desk.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/SessionsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/SprintsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/TasksPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/controlApi.ts", "tests": ["web/src/pages/Control.test.tsx", "web/src/pages/Desk.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/usePolling.ts", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/desk/DeskDetail.tsx", "tests": ["web/src/pages/Desk.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/desk/PastChores.tsx", "tests": ["web/src/pages/desk/PastChores.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/desk/deskLabels.ts", "tests": ["web/src/pages/Desk.test.tsx"], "contracts": [] }
   ]
 }

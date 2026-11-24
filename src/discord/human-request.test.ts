@@ -63,16 +63,17 @@ describe("human request posts", () => {
       channels: { fetch: vi.fn(async () => channel) },
     } as unknown as Guild;
     const store = new Map<string, string>([["human_request_channel_id", channel.id]]);
-    const config = { get: (key: string) => store.get(key) ?? null, set: (key: string, value: string) => store.set(key, value) } as unknown as DiscordConfigRepo;
+    const config = { get: (key: string) => store.get(key) ?? null, set: (key: string, value: string) => store.set(key, value), delete: (key: string) => store.delete(key) } as unknown as DiscordConfigRepo;
     (guild as unknown as { channels: { cache: Map<string, unknown> } }).channels.cache = new Map([[channel.id, { ...channel, parentId: "cat" }]]);
     return { guild, config, channel, sent, deleted };
   }
 
   it("説明・コマンドだけ・OK ボタンの順に 1 回だけ投稿し、OK でコマンド投稿を消す", async () => {
     const h = fakeGuild();
+    const onDone = vi.fn();
     const surface = await startHumanRequestDiscord({
       guild: h.guild, config: h.config, parentId: "cat", sessionUrl: () => "https://discord.com/channels/1/2",
-      allowed: (userId) => userId === "neco", log: { warn: () => undefined },
+      allowed: (userId) => userId === "neco", log: { warn: () => undefined }, onDone,
     });
     const message = { sessionId: "s", messageId: 7, authorType: "assistant", content: fence('{"description":"理由","command":"!gh auth login"}') };
     await surface.onSessionMessage(message);
@@ -100,5 +101,9 @@ describe("human request posts", () => {
     await surface.interaction(owner as unknown as Interaction);
     expect(h.deleted).toEqual([commandId]);
     expect(owner.editReply).toHaveBeenCalledWith(expect.objectContaining({ components: [] }));
+    // OK で管制カードも閉じる (Cc v5)。発言 ID と発言内の順番で伝え、伝えたら対応を消す。
+    expect(onDone).toHaveBeenCalledWith({ sessionMessageId: 7, index: 0, userId: "neco" });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(h.config.get(`human_request_card:${commandId}`)).toBeNull();
   });
 });

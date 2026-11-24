@@ -1,7 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type Guild, type Message, type Interaction, type TextChannel, type ThreadChannel } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
-import { canChooseChore, parseChoreMessage, type Chore } from "../chores/domain.js";
-import { choreDiscordRequestKey, isChoreDiscordIntake } from "../chores/discord-intake.js";
+import { canChooseChore, type Chore } from "../chores/domain.js";
 import { createChoresForum } from "./chores-forum.js";
 
 export function choreCard(run: Chore): { content: string; components: ActionRowBuilder<ButtonBuilder>[]; allowedMentions: { parse: [] } } {
@@ -57,19 +56,13 @@ export async function startChoresDiscord(input: {
   allowed?: (userId: string) => boolean; log: { warn: (message: string) => void };
 }): Promise<ChoresDiscord> {
   const { guild, config } = input;
+  // Cc v5: 窓口チャンネルは依頼窓口 (desk.ts) が「依頼窓口」へ改名して引き継ぐ。ここでは作らず・改名せず、
+  // 既存の雑務 run の窓口カードの編集にだけ使う (2026-11-24 neco 決定「依頼窓口にまとめる」)。
   const saved = config.get("chores_channel_id");
-  const existing = saved ? guild.channels.cache.get(saved) : [...guild.channels.cache.values()].find(c => c.type === ChannelType.GuildText && ["雑務", "雑務窓口"].includes(c.name));
-  // 雑務窓口はカテゴリ外のルートチャンネル (2026-10-06 neco 指示「雑務窓口とサービス稼働はカテゴリから出す」)。
-  // 雑務課のフォーラムもカテゴリを持たない (2026-10-10 neco 指示)。
-  const channel: TextChannel = existing?.type === ChannelType.GuildText ? existing : await guild.channels.create({
-    name: "雑務窓口", type: ChannelType.GuildText,
-    topic: "依頼を投稿すると雑務課フォーラムにスレッドを作り、ワンショット実行の作業と回答をそこへ投稿します。先頭 [codex] でCodex、既定はClaude。",
-  });
-  if (channel.name !== "雑務窓口") await channel.setName("雑務窓口");
-  if (channel.parentId) await channel.setParent(null, { reason: "chores window moved out of category" });
-  config.set("chores_channel_id", channel.id);
+  const existing = saved ? guild.channels.cache.get(saved) ?? await guild.channels.fetch(saved).catch(() => null) : null;
+  const channel: TextChannel | null = existing?.type === ChannelType.GuildText ? existing : null;
   let stopped = false;
-  const forum = await createChoresForum({ guild, config, windowId: channel.id, card: choreCard, stopped: () => stopped });
+  const forum = await createChoresForum({ guild, config, windowId: channel?.id ?? "", card: choreCard, stopped: () => stopped });
   const abort = new AbortController();
   let delivering = false;
   const call = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -84,7 +77,7 @@ export async function startChoresDiscord(input: {
   /** 窓口の依頼者へ、最初の結果が出たときだけ雑務課スレッドへの案内を返信する (回答本文は窓口に出さない)。 */
   const noticeWindowResult = async (run: Chore, threadId: string): Promise<void> => {
     const reply = choreCompletionReply(run, guild.id);
-    if (!reply.reply) return;
+    if (!reply.reply || !channel) return;
     const noticeKey = `chores_window_notice:${run.id}`;
     // 結果不明の外部投稿は繰り返さない (pending のまま残す)。
     if (!config.compareAndSwap(noticeKey, null, "pending")) return;
@@ -109,6 +102,8 @@ export async function startChoresDiscord(input: {
           await call(`/${run.id}/delivery`, { revision: run.revision, message_id: messageId });
           continue;
         }
+        // 窓口チャンネルを照合できなければ、成果は WebUI (/desk の「過去の雑務」) で読める。配達は次の周回で試す。
+        if (!channel) continue;
         let old: Message | null = null;
         const windowCardId = forum.rememberedWindowCard(run.id) ?? run.discord_message_id;
         if (windowCardId) {
@@ -126,46 +121,12 @@ export async function startChoresDiscord(input: {
   };
   const timer = setInterval(() => { void deliver(); }, 3000);
   timer.unref();
-  const handlesMessage = (message: Message): boolean => isChoreDiscordIntake({
-    guildId: message.guildId, channelId: message.channelId, parentId: message.channel.isThread() ? message.channel.parentId : null,
-    messageId: message.id, isThread: message.channel.isThread(),
-  }, { guildId: guild.id, windowId: channel.id, forumId: forum.forumId });
-  const accept = async (message: Message): Promise<void> => {
-    if (stopped || !handlesMessage(message) || message.author.bot || message.webhookId) return;
-    if (input.allowed?.(message.author.id) !== true) {
-      await message.reply({ content: "雑務の実行にはセッション起動権限が必要です。", allowedMentions: { parse: [] } });
-      return;
-    }
-    const parsed = parseChoreMessage(message.content);
-    if (!parsed.prompt) return;
-    let run: Chore;
-    try {
-      const requestKey = choreDiscordRequestKey({ guildId: guild.id, messageId: message.id });
-      forum.rememberSource(requestKey, message);
-      ({ run } = await call<{ run: Chore }>("", { ...parsed, request_key: requestKey }));
-    } catch (error) {
-      if (!stopped) await message.reply({ content: `雑務の受付状態を確認できません: ${String(error).slice(0, 1500)}`, allowedMentions: { parse: [] } });
-      return;
-    }
-    if (stopped) return;
-    let recorded = true;
-    try { await forum.mirror(run); }
-    catch (error) { recorded = false; input.log.warn(`chores forum delivery unresolved run=${run.id}: ${String(error)}`); }
-    const replyKey = `chores_accept_reply:${choreDiscordRequestKey({ guildId: guild.id, messageId: message.id })}`;
-    if (!stopped && config.compareAndSwap(replyKey, null, "pending")) {
-      await message.reply({ content: acceptReplyText(run, { fromForum: message.channel.isThread(), threadId: recorded ? forum.workThreadId(run.id) : null }), allowedMentions: { parse: [] } });
-      config.compareAndSwap(replyKey, "pending", "done"); // Do not repeat a reply whose external result is unknown.
-    }
-  };
   return {
-    handlesMessage,
-    message: accept,
-    handlesThread: (thread) => thread.guildId === guild.id && thread.parentId === forum.forumId,
-    async thread(thread) {
-      if (stopped || thread.guildId !== guild.id || thread.parentId !== forum.forumId) return;
-      const starter = await thread.fetchStarterMessage();
-      if (starter && !stopped) await accept(starter);
-    },
+    // Cc v5: 新規受付は依頼窓口 (desk.ts) が持つ。窓口・雑務課フォーラムの投稿は雑務として受けない。
+    handlesMessage: () => false,
+    message: async () => undefined,
+    handlesThread: () => false,
+    thread: async () => undefined,
     handlesInteraction: (interaction) => interaction.isButton() && interaction.customId.startsWith("chore:"),
     async interaction(interaction) {
       if (!interaction.isButton() || stopped) return;
@@ -185,7 +146,7 @@ export async function startChoresDiscord(input: {
         if (stopped) return;
         const originThread = await forum.resultChannel(run);
         const messageId = originThread ? forum.forumCardId(run.id)
-          : forum.rememberedWindowCard(run.id) ?? (interaction.channelId === channel.id ? interaction.message.id : null);
+          : forum.rememberedWindowCard(run.id) ?? (interaction.channelId === channel?.id ? interaction.message.id : null);
         if (messageId) await call(`/${run.id}/delivery`, { revision: run.revision, message_id: messageId });
       } catch (error) { await interaction.followUp({ content: `状態を確認できません: ${String(error).slice(0, 1500)}`, ephemeral: true }); }
     },

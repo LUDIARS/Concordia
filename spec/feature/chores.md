@@ -9,6 +9,8 @@ domain: chores
 
 > 所属ドメイン: [`chores`](../domains/chores.domain.json)
 
+> **Cc v5 で新規受付を停止 (2026-11-24 neco 決定「依頼窓口にまとめる」)**: 雑務の新規受付は [依頼窓口](request-desk.md) にまとめた。依頼は軽重を問わず通常の作業セッションとして起動する (カードの出所になる human-wait・質問カードはセッションにしか無いため)。`POST /v1/chores` は 410 `chores_retired_use_desk`、Discord の窓口チャンネルは「依頼窓口」へ改名して依頼窓口が受ける。雑務課フォーラムは過去の雑務の表示用に残し、新しい投稿を雑務として受けない。受付済みの `chores_runs` は読み取り専用で残し、処理中の run は従来どおり配達と OK / Continue まで扱う。Web `/chores` は `/desk` へ転送し、過去の雑務は `/desk` の「過去の雑務」欄で読める。以下の受付の記述は v4 までの動き。
+
 2026-09-25 neco指示: Discordに雑務チャンネル、WebUIに専用ページを作る。
 専用ディレクトリで `claude -p` または `codex exec` を実行し、完了後にOK/Continueを提示する。
 Continueのみ通常のCcセッションをspawnする。

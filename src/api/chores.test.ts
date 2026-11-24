@@ -13,26 +13,25 @@ function setup() {
     isBlocked: () => false, execute: async () => ({ ok: true, output: "done", error: null }),
     continue: async () => ({ ok: true }), logError: () => {} });
   const app = choresRouter(service);
-  return { app, repo, post: (path: string, body: unknown) => app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) };
+  return { app, repo, service, post: (path: string, body: unknown) => app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) };
 }
 describe("chores HTTP", () => {
-  it("returns durable acceptance and deduplicates retries", async () => {
+  it("retires new intake with 410 and points to the desk (Cc v5)", async () => {
     const { app, post } = setup();
-    const body = { request_key: "same", provider: "codex", prompt: "依頼" };
-    expect((await post("/", body)).status).toBe(202);
-    expect((await post("/", body)).status).toBe(202);
+    const response = await post("/", { request_key: "same", provider: "codex", prompt: "依頼" });
+    expect(response.status).toBe(410);
+    expect((await response.json()).error).toBe("chores_retired_use_desk");
     const list = await (await app.request("/")).json();
-    expect(list.runs).toHaveLength(1);
+    expect(list.runs).toHaveLength(0);
   });
-  it("rejects bad inputs and unknown choices", async () => {
+  it("rejects unknown choices", async () => {
     const { post } = setup();
-    expect((await post("/", { request_key: "a", provider: "shell", prompt: "exec" })).status).toBe(400);
     expect((await post("/missing/choice", { action: "continue" })).status).toBe(409);
     expect((await post("/missing/choice", { action: "anything" })).status).toBe(400);
   });
   it("preserves a result until its delivery revision is acknowledged", async () => {
-    const { app, post, repo } = setup();
-    const { run } = await (await post("/", { request_key: "a", provider: "claude", prompt: "依頼" })).json();
+    const { app, post, repo, service } = setup();
+    const run = service.submit("a", "依頼", "claude");
     const done = repo.transition(repo.find(run.id)!, "succeeded", 2)!;
     expect((await (await app.request("/deliveries")).json()).runs).toHaveLength(1);
     await post(`/${run.id}/delivery`, { revision: done.revision, message_id: "123" });

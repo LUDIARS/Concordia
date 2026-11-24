@@ -105,6 +105,10 @@ export class AdminState {
   getLanguageGuardEnabled(): boolean { return this.runtime.getLanguageGuardEnabled(); }
   getControlSessionEnabled(): boolean { return this.runtime.getControlSessionEnabled(); }
   getControlSessionReaperEnabled(): boolean { return this.runtime.getControlSessionReaperEnabled(); }
+  getControlSessionBodyEnabled(): boolean { return this.runtime.getControlSessionBodyEnabled(); }
+  getDeskEnabled(): boolean { return this.runtime.getDeskEnabled(); }
+  getDeskDepartmentId(): string | null { return this.runtime.getDeskDepartmentId(); }
+  getDotsCardTriageEnabled(): boolean { return this.runtime.getDotsCardTriageEnabled(); }
   getGoalStopQuestionGuardEnabled(): boolean { return this.runtime.getGoalStopQuestionGuardEnabled(); }
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }

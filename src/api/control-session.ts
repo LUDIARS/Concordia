@@ -3,6 +3,7 @@
  *
  * - GET  /v1/control/status        設定・保持者・管制セッションの生死
  * - GET  /v1/control/board         進捗ボード全件
+ * - GET  /v1/control/sessions      ボードの行 + プランと進捗 (Cc v5 実装メモ 13)
  * - GET  /v1/control/merge-playtest-returns  マージ後の帰還受付履歴
  * - POST /v1/control/instructions  管制セッションからの追加指示
  *
@@ -15,6 +16,7 @@ import type { ControlHolder } from "../control-session/holder-store.js";
 import type { DispatchResult, InstructionOrigin } from "../control-session/instruction-dispatch.js";
 import type { ExternalBridgeReader } from "../control-session/external-bridge-status.js";
 import type { MergeReturnRecord } from "../conflux/merge-return-repository.js";
+import type { SessionWithProgress } from "../control-session/session-progress-view.js";
 
 const InstructionSchema = z.object({
   from_session_id: z.string().min(1),
@@ -29,6 +31,8 @@ export interface ControlSessionApiDeps {
   boardRows(): ControlBoardRowWithLink[];
   externalBridges?: ExternalBridgeReader;
   mergeReturns?: () => (MergeReturnRecord & { build_status: string | null })[];
+  /** ボードの行 + プランと進捗 (Cc v5 実装メモ 13)。無ければ /sessions は 404。 */
+  sessionProgress?: () => Promise<SessionWithProgress[]>;
   dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult>;
 }
 
@@ -48,6 +52,13 @@ export function controlSessionRouter(deps: ControlSessionApiDeps): Hono {
   app.get("/board", (c) => {
     if (!deps.isEnabled()) return c.json({ error: "control_disabled" }, 409);
     return c.json({ items: deps.boardRows(), external_bridges: deps.externalBridges?.() ?? [] });
+  });
+
+  app.get("/sessions", async (c) => {
+    if (!deps.isEnabled()) return c.json({ error: "control_disabled" }, 409);
+    if (!deps.sessionProgress) return c.json({ error: "not_found" }, 404);
+    c.header("cache-control", "no-store");
+    return c.json({ items: await deps.sessionProgress() });
   });
 
   app.get("/merge-playtest-returns", (c) => c.json({ items: deps.mergeReturns?.() ?? [] }));

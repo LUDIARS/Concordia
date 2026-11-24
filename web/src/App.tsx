@@ -3,6 +3,8 @@ import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
 import { Chores } from "./pages/Chores.js";
+import { Desk } from "./pages/Desk.js";
+import { Control } from "./pages/Control.js";
 import { Management } from "./pages/Management.js";
 import { SessionChat } from "./pages/session-chat/SessionChat.js";
 import { SessionLogs as SessionLogDetail } from "./pages/session-logs/SessionLogs.js";
@@ -43,7 +45,8 @@ const NAV: NavItem[] = [
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
-  { to: "/chores", label: "雑務", section: "チーム" },
+  { to: "/desk", label: "依頼窓口", section: "チーム" },
+  { to: "/control", label: "管制", section: "チーム" },
   { to: "/management", label: "CDGD管理", section: "チーム" },
   { to: "/director", label: "Director", section: "チーム" },
   { to: "/taskflow", label: "Taskflow", section: "チーム" },
@@ -99,6 +102,8 @@ export function App() {
           <Route path="/bounty" element={<Bounty />} />
           <Route path="/work" element={<Work />} />
           <Route path="/chores" element={<Chores />} />
+          <Route path="/desk" element={<Desk />} />
+          <Route path="/control" element={<Control />} />
           <Route path="/management" element={<Management />} />
           <Route path="/director" element={<Director />} />
           <Route path="/taskflow" element={<Taskflow />} />

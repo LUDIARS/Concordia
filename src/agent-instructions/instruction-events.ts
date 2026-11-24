@@ -23,27 +23,39 @@ export interface InstructionEventRelay {
   emit(event: InstructionEvent): void;
   /** 受け手を差し替える。 null で外す。 */
   attach(listener: InstructionEventListener | null): void;
+  /**
+   * attach とは別の受け手を足す (管制カードの dots の回答、spec/feature/control-cards.md)。返り値で外す。
+   * attach の受け手 (「muse-指令」チャンネル) は変えない。失敗の扱いは attach と同じ。
+   */
+  subscribe(listener: InstructionEventListener): () => void;
 }
 
 export function createInstructionEventRelay(log: { warn(detail: Record<string, unknown>, message: string): void }): InstructionEventRelay {
   let listener: InstructionEventListener | null = null;
+  const subscribers = new Set<InstructionEventListener>();
   const warn = (event: InstructionEvent, error: unknown) => log.warn(
     { id: event.id, kind: event.kind, error: error instanceof Error ? error.message : String(error) },
     "agent instruction event could not be delivered",
   );
+  const deliver = (target: InstructionEventListener, event: InstructionEvent) => {
+    try {
+      const pending = target(event);
+      if (pending && typeof pending.then === "function") pending.then(undefined, (error: unknown) => warn(event, error));
+    } catch (error) {
+      warn(event, error);
+    }
+  };
   return {
     emit(event) {
-      const current = listener;
-      if (!current) return;
-      try {
-        const pending = current(event);
-        if (pending && typeof pending.then === "function") pending.then(undefined, (error: unknown) => warn(event, error));
-      } catch (error) {
-        warn(event, error);
-      }
+      if (listener) deliver(listener, event);
+      for (const subscriber of [...subscribers]) deliver(subscriber, event);
     },
     attach(next) {
       listener = next;
+    },
+    subscribe(next) {
+      subscribers.add(next);
+      return () => { subscribers.delete(next); };
     },
   };
 }

@@ -63,6 +63,8 @@ export async function startHumanRequestDiscord(input: {
   /** セッションの Discord 投稿 (スレッド / チャンネル) の URL。 無ければ null。 */
   sessionUrl: (sessionId: string) => string | null;
   allowed?: (userId: string) => boolean;
+  /** OK を押した人間依頼 (発言 ID と発言内の順番) を管制カードへ伝える (Cc v5、実装メモ 9)。失敗しても OK は済ませる。 */
+  onDone?: (input: { sessionMessageId: number; index: number; userId: string }) => void;
   log: { warn(message: string): void };
 }): Promise<HumanRequestDiscord> {
   const channelId = await ensureHumanRequestChannel(input.guild, input.config, input.parentId);
@@ -74,12 +76,14 @@ export async function startHumanRequestDiscord(input: {
     return found?.type === ChannelType.GuildText ? found : null;
   };
 
-  const post = async (sessionId: string, request: HumanCommandRequest): Promise<void> => {
+  const cardKey = (commandMessageId: string) => `human_request_card:${commandMessageId}`;
+  const post = async (sessionId: string, request: HumanCommandRequest, source: { messageId: number; index: number }): Promise<void> => {
     const target = await channel();
     if (!target || stopped) return;
     const none = { parse: [] as [] };
     await target.send({ content: humanRequestHeader(request, input.sessionUrl(sessionId)), allowedMentions: none });
     const commandMessage = await target.send({ content: request.command, allowedMentions: none });
+    input.config.set(cardKey(commandMessage.id), `${source.messageId}:${source.index}`);
     await target.send({
       content: "実行したら OK を押してください。押すとコマンドの投稿を消します。",
       components: [humanRequestOkRow(commandMessage.id)],
@@ -94,7 +98,7 @@ export async function startHumanRequestDiscord(input: {
       if (requests.length === 0) return;
       seen.add(message.messageId);
       if (seen.size > SEEN_LIMIT) seen.delete(seen.values().next().value as number);
-      for (const request of requests) await post(message.sessionId, request);
+      for (const [index, request] of requests.entries()) await post(message.sessionId, request, { messageId: message.messageId, index });
     },
     handlesInteraction: (interaction) => interaction.isButton() && interaction.customId.startsWith(OK_PREFIX),
     async interaction(interaction) {
@@ -109,6 +113,12 @@ export async function startHumanRequestDiscord(input: {
       const target = await channel();
       // 既に消えている (手動削除・二重押下) なら目的は達成済みとして処理済みにする。
       await target?.messages.delete(commandMessageId).catch(() => undefined);
+      const source = /^(\d+):(\d+)$/.exec(input.config.get(cardKey(commandMessageId)) ?? "");
+      if (source) {
+        try { input.onDone?.({ sessionMessageId: Number(source[1]), index: Number(source[2]), userId: interaction.user.id }); }
+        catch (error) { input.log.warn(`human request card close failed: ${String(error)}`); }
+        input.config.delete(cardKey(commandMessageId));
+      }
       await interaction.editReply({ content: `✅ 処理済み (<@${interaction.user.id}>)`, components: [], allowedMentions: { parse: [] } });
     },
     stop() {

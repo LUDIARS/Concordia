@@ -15,7 +15,9 @@ describe("chore request to result to continuation", () => {
     const app = new Hono().route("/v1/chores", choresRouter(service));
     const post = (path: string, body: unknown) => app.request(`/v1/chores${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     try {
-      const { run } = await (await post("", { request_key: "discord:1:2", provider: "claude", prompt: "整理して" })).json();
+      // v5 で HTTP の新規受付は 410。処理中の雑務 (受付済みの run) は従来どおり完了・Continue まで扱う。
+      expect((await post("", { request_key: "discord:1:2", provider: "claude", prompt: "整理して" })).status).toBe(410);
+      const run = service.submit("discord:1:2", "整理して", "claude");
       service.tick();
       // Let the injected CLI promise persist its result, without timers/processes.
       await Promise.resolve(); await Promise.resolve();

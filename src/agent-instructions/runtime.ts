@@ -20,6 +20,8 @@ export interface AgentInstructionsRuntime {
   sweep: () => void;
   /** 出来事の受け手 (Discord の「muse-指令」チャンネル) を差し込む。 null で外す (CC-INST-INV-08)。 */
   attachEvents: (listener: InstructionEventListener | null) => void;
+  /** 「muse-指令」チャンネルとは別の受け手 (管制カードの dots の回答)。返り値で外す。 */
+  subscribeEvents: (listener: InstructionEventListener) => () => void;
   museEvidence: () => ReturnType<SqliteAgentInstructionStore["evidence"]> & { configured: boolean };
 }
 
@@ -44,6 +46,7 @@ export function createAgentInstructionsRuntime(
       log: { info: (detail, message) => log.info(detail, message), warn: (detail, message) => log.warn(detail, message) },
     },
     attachEvents: (listener) => events.attach(listener),
+    subscribeEvents: (listener) => events.subscribe(listener),
     museEvidence: () => ({ configured: token().kind === "set", ...store.evidence("muse") }),
     sweep: () => {
       const { requeued, purged } = service.sweep();

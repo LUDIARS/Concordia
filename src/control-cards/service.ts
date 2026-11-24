@@ -1,0 +1,64 @@
+/**
+ * 管制カードの読み取りと人間の捌きの use case (Web と Discord が同じものを呼ぶ、CC-V5-INV-07)。
+ * 人間が変えられるのも捌きの列だけ。カードを閉じられるのは人間依頼の「済み」だけ (CC-V5-INV-02)。
+ *
+ * @implements spec/feature/control-cards.md — 人間の捌き
+ */
+import { clipText, type CardState, type CardTriagePatch, type ControlCard } from "./card-domain.js";
+import type { HumanCommandCards } from "./human-command-cards.js";
+import { humanCommandSourceKey } from "./human-command-cards.js";
+import type { ControlCardsRepository, ReminderRecord } from "./repository.js";
+
+export type HumanCardUpdate =
+  | { kind: "updated"; card: ControlCard }
+  | { kind: "not_found" }
+  | { kind: "closed" }
+  | { kind: "not_owned" };
+
+export class ControlCardsService {
+  constructor(
+    private readonly repo: ControlCardsRepository,
+    private readonly humanCommands: HumanCommandCards,
+    private readonly now: () => number,
+  ) {}
+
+  list(state: CardState | null, limit = 100): ControlCard[] {
+    return this.repo.list(state, Math.max(1, Math.min(limit, 500)));
+  }
+
+  find(id: string): ControlCard | null {
+    return this.repo.find(id);
+  }
+
+  bySession(sessionId: string): ControlCard[] {
+    return this.repo.listBySession(sessionId);
+  }
+
+  reminders(id: string): ReminderRecord[] {
+    return this.repo.reminders(id);
+  }
+
+  /** 人間の捌き (5 列だけ)。 */
+  triage(id: string, patch: CardTriagePatch, actor: string): HumanCardUpdate {
+    const card = this.repo.find(id);
+    if (!card) return { kind: "not_found" };
+    const updated = card.state === "open" ? this.repo.triage(id, patch, `human:${clipText(actor, 100)}`, this.now()) : null;
+    return updated ? { kind: "updated", card: updated } : { kind: "closed" };
+  }
+
+  /** 人間依頼を済みにする。他の出所のカードは既存の回答経路で解決する (CC-V5-INV-02)。 */
+  markDone(id: string, actor: string): HumanCardUpdate {
+    const card = this.repo.find(id);
+    if (!card) return { kind: "not_found" };
+    if (card.state !== "open") return { kind: "closed" };
+    if (card.source_kind !== "human-command") return { kind: "not_owned" };
+    const closed = this.humanCommands.markDone(card, actor);
+    return closed ? { kind: "updated", card: closed } : { kind: "closed" };
+  }
+
+  /** Discord の人間依頼の OK ボタン (実装メモ 9「人間依頼の OK でカードも閉じる」)。 */
+  markHumanCommandDone(sessionMessageId: number, index: number, actor: string): ControlCard | null {
+    const card = this.repo.findBySource("human-command", humanCommandSourceKey(sessionMessageId, index));
+    return card ? this.humanCommands.markDone(card, actor) : null;
+  }
+}

@@ -83,4 +83,20 @@ describe("InstructionService.history (一覧の口)", () => {
     expect(service.poll("muse", "pending", 10)).toEqual([]);
     expect(service.poll("dots", "pending", 10).map((row) => row.id)).toEqual([second.id]);
   });
+
+  it("delivers to subscribers besides the attached channel and survives their failures (Cc v5 管制カード)", () => {
+    const attached: string[] = [];
+    const subscribed: string[] = [];
+    const { service, relay, warnings } = setup((event) => { attached.push(event.kind); });
+    const unsubscribe = relay.subscribe((event) => { subscribed.push(event.kind); });
+    relay.subscribe(() => { throw new Error("subscriber broke"); });
+    const first = service.register({ ...input, agent: "dots", type: "card_triage" });
+    expect(attached).toEqual(["registered"]);
+    expect(subscribed).toEqual(["registered"]);
+    expect(warnings).toHaveLength(1);
+    unsubscribe();
+    service.ack(first.id, "dots");
+    expect(attached).toEqual(["registered", "acked"]);
+    expect(subscribed).toEqual(["registered"]);
+  });
 });

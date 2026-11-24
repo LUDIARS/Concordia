@@ -192,6 +192,8 @@ import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { isAwaitingHumanInput, readSessionTranscriptTail, startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { createControlRuntime } from "../control-session/runtime.js";
+import { createV5Runtime } from "./v5-desk-cards.js";
+import { parseHumanCommandRequests } from "../discord/human-command-marker.js";
 import { controlSessionLink } from "../control-session/session-link.js";
 import type { SessionRow } from "../shared/types.js";
 import { CONTROL_SUPERVISOR_SOURCE } from "../control-session/supervisor.js";
@@ -2240,6 +2242,8 @@ export async function startBackend(): Promise<BackendHandle> {
     db,
     settings: adminState.store,
     isEnabled: () => adminState.getControlSessionEnabled(),
+    // Cc v5: Cc 内の管制セッション本体は既定で起動しない (判断は dots の捌きと巡回、spec/feature/control-session.md §1)。
+    isBodyEnabled: () => adminState.getControlSessionBodyEnabled(),
     sessions: repo,
     projectOf: (session) => {
       const origin = session.repo_origin ? normalizeRepoOrigin(session.repo_origin) : null;
@@ -2358,6 +2362,39 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
   });
+  // Cc v5 の依頼窓口・管制カード・プランと進捗 (spec/plan/2026-11-24-control-session-to-dots.md)。
+  const v5WebHost = readWebSsoConfig(process.env)?.publicHost;
+  const v5 = createV5Runtime({
+    db,
+    concordiaUrl: publicUrl,
+    webBase: v5WebHost ? `https://${v5WebHost}` : publicUrl,
+    settings: adminState.store,
+    flags: {
+      controlEnabled: () => adminState.getControlSessionEnabled(),
+      deskEnabled: () => adminState.getDeskEnabled(),
+      deskDepartmentId: () => adminState.getDeskDepartmentId(),
+      dotsTriageEnabled: () => adminState.getDotsCardTriageEnabled(),
+    },
+    departmentExists: (id) => departmentsRepo.find(id) !== null,
+    isCostBlocked,
+    workspaceRoot: () => adminState.getWorkspaceRoot() || cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    writePrompt: (text) => delegationService.writeAdHocPrompt(text),
+    projectOf: (sessionId) => controlRuntime.api.boardRows().find((row) => row.session_id === sessionId)?.project
+      ?? (() => { const session = repo.findSession(sessionId); return session ? projectCodesRepo.findByRepoPath(session.repo_path)?.code ?? null : null; })(),
+    sessionDiscordUrl: (sessionId) => {
+      const channel = discordChannels.findBySessionId(sessionId);
+      const guildId = resolveDiscordConfig(discordConfig, secretBox).guildId;
+      return channel && guildId ? `https://discord.com/channels/${guildId}/${channel.channel_id}` : null;
+    },
+    instructions: { service: agentInstructions.routes.service, subscribe: agentInstructions.subscribeEvents },
+    postToControlChannel: (text) => controlRuntime.postAlert(text),
+    parseHumanCommands: parseHumanCommandRequests,
+    boardRows: () => controlRuntime.api.boardRows(),
+    sessions: repo,
+    taskStore,
+    sprints: new SprintDialoguesRepository(db),
+    log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
+  });
   // 管制セッション自身へは停止確認・Goal & Go・現況報告を送らない (管制の文脈を汚さない)。
   const isAutoCheckSuppressed = (session: SessionRow): boolean =>
     isSessionAutoCheckDisabled(session) || controlRuntime.isControlSession(session);
@@ -2368,6 +2405,8 @@ export async function startBackend(): Promise<BackendHandle> {
       attachChannel: (surface) => controlRuntime.attachChannel(surface),
     },
     agentInstructionEvents: { attach: agentInstructions.attachEvents },
+    requestDesk: v5.deskDiscord,
+    humanRequestDone: v5.humanRequestDone,
     backlogAdmission: createBacklogAdmission(excubitorClient, () => readActioChatSecret(process.env)),
     db,
     onHumanReturn: notifyHumanReturn,
@@ -2557,6 +2596,9 @@ export async function startBackend(): Promise<BackendHandle> {
         onHumanReturn: _humanReturn,
         // 指令チャンネルは本社 Bot だけが持つ。 子会社の停止で本社の投稿先を外させない。
         agentInstructionEvents: _instructionEvents,
+        // 依頼窓口と人間依頼のカードは本社 Bot だけ。
+        requestDesk: _requestDesk,
+        humanRequestDone: _humanRequestDone,
         ...base
       } = discordBotDeps!;
       return base;
@@ -2672,7 +2714,9 @@ export async function startBackend(): Promise<BackendHandle> {
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
-    controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: conflux.recentMergeReturns },
+    controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: conflux.recentMergeReturns, sessionProgress: v5.sessionProgress },
+    desk: v5.deskApi,
+    controlCards: v5.cardsApi,
     actioChat: {
       secret: () => actioChatSharedSecret,
       scopeCache: createChatScopeCache(),
@@ -3370,6 +3414,8 @@ export async function startBackend(): Promise<BackendHandle> {
       skipSession: (session) => controlRuntime.isControlSession(session) }));
     // 管制の巡回 (1 分周期)。OFF の間は保持者を消すだけで何も起動しない。
     trackPostListenHandle(controlRuntime.start());
+    // 管制カードの巡回 (1 分周期、同期 → dots への捌きの指令 → 催促)。管制が OFF の間は何もしない。
+    v5.cards.start();
     trackPostListenHandle(startRepoChangeWatcher({ sessions: repo }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
   }
@@ -3771,6 +3817,8 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("chores", () => choresRuntime.stop());
+  resources.own("request desk", () => v5.desk.stop());
+  resources.own("control cards", () => v5.cards.stop());
   resources.own("management remote", () => managementRemote.stop());
   resources.own("management", () => managementRuntime.stop());
   resources.own("conflux integration", conflux.stop);

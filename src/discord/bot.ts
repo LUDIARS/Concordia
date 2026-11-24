@@ -5,6 +5,7 @@ import { consultAttachmentDir, requesterFromSessionMetadata } from "../consultat
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { handleMeetingLinkInteraction, isMeetingLinkInteraction } from "../meeting-links/discord.js";
 import { startChoresDiscord, type ChoresDiscord } from "./chores.js";
+import { startDeskDiscord, type DeskDiscord, type DeskDiscordPort } from "./desk.js";
 import { createChatRelaySurface } from "./chat-relay-surface.js";
 import type { DiscordChatRelayService } from "../discord-chat-relay/relay-service.js";
 import { startHumanRequestDiscord, type HumanRequestDiscord } from "./human-request.js";
@@ -413,6 +414,10 @@ export interface DiscordBotDeps {
   controlSession?: ControlChannelPort & { attachChannel(surface: ControlChannelSurface | null): void };
   /** 指令ブリッジの出来事を「muse-指令」チャンネルへ流す口 (本社 Bot だけ。spec/feature/agent-instructions-bridge.md CC-INST-INV-08)。 */
   agentInstructionEvents?: { attach(listener: InstructionEventListener | null): void };
+  /** 依頼窓口 (Cc v5、本社 Bot だけ。spec/feature/request-desk.md)。無ければ窓口チャンネルを受け付けない。 */
+  requestDesk?: DeskDiscordPort;
+  /** 人間依頼の OK を管制カードへ伝える (Cc v5、spec/feature/control-cards.md)。 */
+  humanRequestDone?: (input: { sessionMessageId: number; index: number; userId: string }) => void;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -1096,6 +1101,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let phaseTitleSync: ReturnType<typeof startForumPhaseTitleSync> | null = null;
   let choresDiscord: ChoresDiscord | null = null;
+  let deskDiscord: DeskDiscord | null = null;
   let cloudObservationForum: ReturnType<typeof startCloudForum> | null = null;
   let humanRequestDiscord: HumanRequestDiscord | null = null;
   let managementDiscord: ManagementDiscord | null = null;
@@ -1264,6 +1270,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const clearRuntimeTimers = (): void => {
     choresDiscord?.stopChores();
     choresDiscord = null;
+    deskDiscord?.stop();
+    deskDiscord = null;
     if (cloudObservationForum) {
       void cloudObservationForum.stop().catch(() => log.warn("cloud observation shutdown failed"));
       cloudObservationForum = null;
@@ -1343,6 +1351,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           return row ? `https://discord.com/channels/${guild.id}/${row.channel_id}` : null;
         },
         allowed: isSessionControlUserAllowed, log,
+        ...(deps.humanRequestDone && !subsidiaryId ? { onDone: deps.humanRequestDone } : {}),
       }).catch((error) => { log.warn(`human request channel unavailable: ${String(error)}`); return null; });
       if (!subsidiaryId) {
         privateChannelProvisioner = createPrivateChannelProvisioner({
@@ -1360,6 +1369,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // 雑務課・cdgd管理・デイリーゴールはカテゴリを持たないチャンネル (2026-10-10 neco 指示)。
         choresDiscord = await startChoresDiscord({ guild, config: configRepo,
           baseUrl: deps.concordiaUrl, allowed: isSessionControlUserAllowed, log });
+        // 雑務窓口のチャンネルを「依頼窓口」へ改名して引き継ぐ (Cc v5)。作れなくても Bot 起動は止めない。
+        deskDiscord?.stop();
+        deskDiscord = deps.requestDesk
+          ? await startDeskDiscord({ guild, config: configRepo, port: deps.requestDesk, allowed: isSessionControlUserAllowed, log })
+            .catch((error) => { log.warn(`request desk channel unavailable: ${String(error)}`); return null; })
+          : null;
         dailyGoalDiscord?.stop();
         dailyGoalDiscord = deps.dailyGoals
           ? await startDailyGoalDiscord({ guild, config: configRepo, port: deps.dailyGoals, log })
@@ -1991,6 +2006,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (sprintDialoguesDiscord?.handlesMessage(msg)) {
       void sprintDialoguesDiscord.message(msg).catch(error => log.warn(`sprint dialogue input failed: ${String(error)}`));
+      return;
+    }
+    if (deskDiscord?.handlesMessage(msg)) {
+      void deskDiscord.message(msg).catch((error) => log.warn(`request desk message failed: ${String(error)}`));
       return;
     }
     if (choresDiscord?.handlesMessage(msg)) {

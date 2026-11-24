@@ -16,7 +16,11 @@ export const INSTRUCTION_AGENTS = ["muse", "dots"] as const;
 export type InstructionAgent = (typeof INSTRUCTION_AGENTS)[number];
 
 /** 指令 type の許可リスト (指示書 §3.3)。 */
-export const INSTRUCTION_TYPES = ["notify_only", "run_task", "status_query", "playtest"] as const;
+/**
+ * card_triage は Cc v5 の管制カードの捌き (dots 宛て、spec/feature/control-cards.md)。
+ * 2026-11-24 neco 指示「カードの捌きやリマインドを担当して欲しい」で追加 (CC-INST-INV-02 の改訂)。
+ */
+export const INSTRUCTION_TYPES = ["notify_only", "run_task", "status_query", "playtest", "card_triage"] as const;
 export type InstructionType = (typeof INSTRUCTION_TYPES)[number];
 
 export const INSTRUCTION_STATUSES = ["pending", "acked", "done", "failed"] as const;

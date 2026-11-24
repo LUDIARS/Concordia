@@ -51,6 +51,10 @@ updated: 2026-11-21
 
 ### 1. singleton の起動と復旧 (CC-CTL-INV-01)
 
+> **Cc v5 (2026-11-24 改訂、[計画](../plan/2026-11-24-control-session-to-dots.md))**: 管制の判断の担い手を dots ([管制カード](control-cards.md)の捌きと催促) と Cc の機械的な巡回に分け、Cc 内の常駐 Claude 管制セッション本体は既定で起動しない。
+> `session.control_session_enabled` の意味は「巡回 (進捗ボード・追加指示・片付け・毎時まとめ・管制チャンネル・管制カード)」に限り、本体の起動は新設定 `session.control_session_body_enabled` (既定 OFF) が決める。
+> 本体 OFF の間、巡回は singleton の起動と停止の要約の送信をせず、保持者がいれば終了の案内を送って保持者だけを消す (ボードは消さない)。以下の singleton の記述は本体 ON のときの動き。
+
 - 設定が ON のとき、巡回は保持者 (spawn ID・世代・起動時刻) と、その spawn ID で登録された active なセッションを照合する。
   - 保持者が無い → 管制セッションを 1 つ起動し、保持者を記録する。
   - 保持者の spawn ID のセッションが active → 何もしない (Cc の再起動をまたいでも同じセッションを使い続ける)。
@@ -256,9 +260,19 @@ Actio `106c0bf7-5d2a-4bc9-bfb0-3c02e9f89b60`、Gen5 統合実装 `f69c01a2-02e0-
 状態は保存済みの結果と現在の設定に基づく。帰還の受付とビルドの進行状況は
 [`GET /v1/control/merge-playtest-returns`](merge-playtest-return.md) で確認できる。
 
+### 13. セッションのプランと進捗 (Cc v5 実装メモ 13)
+
+2026-11-24 neco 指示 (原文)「WebUIの状況には今出てない「プラン」と「進捗」を出す」。
+`GET /v1/control/sessions` は進捗ボードの行に、既存の正本から読んだプランと進捗を付けて返す (読み取り専用、loopback / Web SSO の範囲)。Web の `/control` の「動いているセッション」欄と `/desk` の依頼詳細が使う。
+
+- プラン: `session_task_records` のステップと状態 (TodoWrite と desktop_plan の両方が写る。無ければ `metadata.desktop_plan` のステップ)、`desktop_plan` の状態 1 行、作業段階 (`cc_work_phase`)。
+- 進捗: ステップの完了数 / 総数、自動確認の進捗率 (`cc_followup_progress` の指紋の `rate:`。未計測は null で「未計測」と出し 0% にしない)、紐付いた Actio タスクの状態 (`GET /v1/sessions/:id/task-links` と同じ読み口)。
+- 1 秒以内に返す: ステップと metadata は全セッション分を 1 回の照会で引く。Actio は紐付けのあるセッションだけ並行で引き、600ms の期限と 30 秒の短期記憶を付ける。期限切れ・失敗はその欄だけ `unavailable` (「取得できません」)。
+- 管制が OFF の間は `/board` と同じく 409 `control_disabled`。
+
 ## 実装の対応
 
-- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`)、組み立て (`runtime.ts`)。
+- `src/control-session/` — 設定の読み出し、singleton の判定 (`singleton-policy.ts`) と保持者 (`holder-store.ts`)、進捗ボード (`board-repo.ts` / `board-projection.ts`)、送ってよい条件 (`instruction-eligibility.ts`)、届け方 (`instruction-dispatch.ts`)、停止の要約 (`stall-digest.ts`)、1 時間ごとのまとめ (`hourly-summary.ts`)、判断待ちのセッションへのリンク (`session-link.ts`)、dots の連携状況 (`dots-status.ts`、読み取りは `src/management/status-snapshot.ts`)、子セッションの片付け (`reaper-policy.ts` / `reaper-facts.ts` / `reaper.ts`)、一括指示の解釈 (`bulk-command.ts`)、側セッション (`side-dialogue.ts`)、作業場所の準備 (`charter.ts`)、巡回 (`supervisor.ts`、本体 OFF の分岐を含む)、組み立て (`runtime.ts`)、プランと進捗 (`session-progress-view.ts` / `session-progress-reader.ts`)。
 - `src/api/control-session.ts` — HTTP API。
 - `src/discord/control-channel.ts` — 管制チャンネル。
 - `src/control/session-classify.ts` — 分類の純関数。`src/control-session/classify-facts.ts` — 分類の入力。`review-status-source.ts` — 審査状況の読み口 (open 一覧の短時間キャッシュ・セッションへの絞り込み・読み取り失敗の連続数)。`confirmation-activity.ts` — 応答待ちの確認を解く判定の入力 (HEAD・審査中 PR)。`patrol-nudge-policy.ts` / `patrol.ts` — 停止への追加指示と応答なしの報告。`ended-log.ts` — 終了したものの記録。`src/control/nudge-skip-record.ts` — 自動確認の見送り理由。

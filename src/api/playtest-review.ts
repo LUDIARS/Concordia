@@ -11,36 +11,10 @@
 
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { z } from "zod";
-import type { DeploymentDelivery } from "../deploy/service-deployed.js";
-import { handlePlaytestReview, type PlaytestReviewTargets } from "../playtest-review/handle-playtest-review.js";
+import { announcePlaytestReview, type PlaytestAnnounceDeps } from "../playtest-review/announce-playtest-review.js";
 import type { PlaytestReviewAuthDecision } from "../playtest-review/playtest-review-auth.js";
-import { PLAYTEST_ASPECTS } from "../playtest-review/playtest-review-notice.js";
-import { toPlaytestManagementEvent } from "../playtest-review/management-event.js";
-import type { PlaytestDeliveryEvidence } from "../playtest-review/delivery-evidence.js";
-import type { PlaytestReviewLedger } from "../playtest-review/recent-run-ledger.js";
-import type { PlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
-import { PLAYTEST_VIDEO_MAX_BYTES, type PlaytestReviewVideo, type PlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
-
-const Point = z.object({ aspect: z.enum(PLAYTEST_ASPECTS), text: z.string().trim().min(1).max(300) }).strict();
-const Text = (max: number) => z.string().trim().min(1).max(max);
-
-const EventSchema = z.object({
-  runId: Text(200),
-  gameId: Text(200),
-  gameTitle: Text(200),
-  persona: Text(200),
-  screen: z.enum(["image", "text"]),
-  ticks: z.number().int().min(0),
-  turns: z.number().int().min(0),
-  outcome: Text(200),
-  summary: Text(400),
-  good: z.array(Point).min(1).max(8),
-  bad: z.array(Point).min(1).max(8),
-  confusions: z.array(Point).max(8),
-  reflection: z.array(Text(300)).min(1).max(8),
-  voluptasId: Text(200).nullable(),
-}).strict();
+import { PlaytestReviewEventSchema } from "../playtest-review/playtest-review-schema.js";
+import { PLAYTEST_VIDEO_MAX_BYTES, type PlaytestReviewVideo } from "../playtest-review/playtest-review-video.js";
 
 /** multipart の余白 (境界・review 部) を動画の上限に足した本文の上限。 */
 const REQUEST_MAX_BYTES = PLAYTEST_VIDEO_MAX_BYTES + 256 * 1024;
@@ -63,17 +37,9 @@ async function readBody(c: Context): Promise<ReadBody> {
   return { event, video: { name: name.toLowerCase().endsWith(".mp4") ? name : `${name}.mp4`, bytes: new Uint8Array(await video.arrayBuffer()) } };
 }
 
-export function playtestReviewRouter(deps: {
-  ledger: PlaytestReviewLedger;
-  targets: PlaytestReviewTargets;
-  delivery: DeploymentDelivery;
-  tabula?: PlaytestReviewTabula;
-  videoDelivery?: PlaytestVideoDelivery;
-  recordManagementEvent?: (event: ReturnType<typeof toPlaytestManagementEvent>) => void;
-  deliveryEvidence?: Pick<PlaytestDeliveryEvidence, "record">;
+export function playtestReviewRouter(deps: PlaytestAnnounceDeps & {
   /** 鍵の判定。 本文 (スキーマ検証) より先に呼ぶ。 */
   authorize: (header: string | undefined) => PlaytestReviewAuthDecision;
-  log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
 }): Hono {
   const app = new Hono();
   app.post("/", bodyLimit({ maxSize: REQUEST_MAX_BYTES, onError: (c) => c.json({ error: "too_large" }, 413) }), async (c) => {
@@ -85,40 +51,9 @@ export function playtestReviewRouter(deps: {
     }
     const body = await readBody(c);
     if ("error" in body) return c.json({ error: body.error }, 400);
-    const parsed = EventSchema.safeParse(body.event);
+    const parsed = PlaytestReviewEventSchema.safeParse(body.event);
     if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
-    // A repeat can repair a missing management record without repeating delivery.
-    try {
-      deps.recordManagementEvent?.(toPlaytestManagementEvent(parsed.data));
-    } catch {
-      deps.log?.warn({ runId: parsed.data.runId }, "playtest-review management event could not be recorded");
-    }
-    const outcome = await handlePlaytestReview({
-      event: parsed.data,
-      ledger: deps.ledger,
-      targets: deps.targets,
-      delivery: deps.delivery,
-      ...(deps.tabula ? { tabula: deps.tabula } : {}),
-      ...(body.video ? { video: body.video } : {}),
-      ...(deps.videoDelivery ? { videoDelivery: deps.videoDelivery } : {}),
-    });
-    try {
-      deps.deliveryEvidence?.record(outcome);
-    } catch {
-      deps.log?.warn({ runId: parsed.data.runId }, "playtest-review delivery evidence could not be recorded");
-    }
-    const detail = {
-      runId: parsed.data.runId,
-      gameId: parsed.data.gameId,
-      duplicate: outcome.duplicate,
-      unconfigured: outcome.unconfigured,
-      delivered: outcome.delivered.map((result) => result.target),
-      failed: outcome.failed.map((result) => ({ ...result.target, error: result.error })),
-      tabula: outcome.tabula,
-      video: outcome.video && { delivered: outcome.video.delivered.map((result) => result.target), failed: outcome.video.failed.map((result) => ({ ...result.target, error: result.error })) },
-    };
-    if (outcome.failed.length > 0 || (outcome.video?.failed.length ?? 0) > 0 || (outcome.tabula !== null && "error" in outcome.tabula)) deps.log?.warn(detail, "playtest-review delivery failed");
-    else deps.log?.info(detail, outcome.unconfigured ? "playtest-review skipped because no destination is configured" : "playtest-review delivery completed");
+    const outcome = await announcePlaytestReview(deps, parsed.data, body.video);
     return c.json(outcome, outcome.duplicate ? 200 : 202);
   });
   return app;

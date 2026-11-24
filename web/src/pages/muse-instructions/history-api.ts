@@ -21,6 +21,18 @@ export interface InstructionRecord {
   body: string;
   params: unknown;
   resultDetail: unknown;
+  /** Muse の試遊結果の中継の状態 (playtest の結果だけ。 無ければ省く)。 */
+  relay?: RelayState;
+}
+
+/** spec/feature/playtest-review-notify.md — Muse の結果の中継。 */
+export interface RelayState {
+  voluptasState: "pending" | "saved" | "failed" | "skipped";
+  voluptasId: string | null;
+  announceState: "pending" | "announcing" | "delivered" | "failed" | "skipped";
+  announce: { duplicate: boolean; unconfigured: boolean; delivered: number; failed: number; tabula: "posted" | "failed" | null } | null;
+  error: string | null;
+  attempts: number;
 }
 
 export interface HistoryFilter {

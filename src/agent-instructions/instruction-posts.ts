@@ -85,6 +85,8 @@ export function buildInstructionPost(event: InstructionEvent): InstructionPost {
         content: `↩️ ${code(event.id)} は受領から 30 分回答が無いため、 再配信待ち (pending) に戻しました`,
         replyTo: event.id,
       };
+    case "note":
+      return { content: `📝 ${code(event.id)} ${neutralizeLine(event.text, SUMMARY_CHARS)}`, replyTo: event.id };
     case "finished": {
       const mark = event.status === "done" ? "✅" : "❌";
       const head = [

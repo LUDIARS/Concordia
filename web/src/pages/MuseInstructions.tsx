@@ -13,6 +13,7 @@ import {
   INSTRUCTION_STATUS_OPTIONS,
   type InstructionRecord,
 } from "./muse-instructions/history-api.js";
+import { RelayStatus } from "./muse-instructions/RelayStatus.js";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   pending: { label: "配信待ち", className: "text-subtle" },
@@ -47,6 +48,7 @@ function Detail({ record }: { record: InstructionRecord }) {
           <pre className="whitespace-pre-wrap break-words font-mono">{json(record.resultDetail)}</pre>
         </div>
       )}
+      {record.relay && <RelayStatus relay={record.relay} />}
     </div>
   );
 }

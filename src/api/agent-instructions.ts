@@ -6,7 +6,7 @@
  *   GET  /v1/instructions            ポーリング (公開経由は専用の鍵 x-excubitor-token か Authorization が要る)
  *   POST /v1/instructions/:id/ack    受領確認 (同上)
  *   POST /v1/instructions/:id/result 結果報告 (同上)
- *   GET  /v1/instructions/history    一覧 (loopback のみ。新しい順、 agent / status で絞る。 Web の「Muse 指令」)
+ *   GET  /v1/instructions/history    一覧 (loopback のみ。新しい順、 agent / status で絞る。 Web の「Muse 指令」。 中継の状態があれば relay を添える)
  *   GET  /v1/instructions/:id        状態確認 (loopback のみ)
  *
  * 公開ホストの SSO と応答キャッシュより前に登録する (buildApp)。 ここで返した応答は後続へ進まない。
@@ -29,6 +29,8 @@ export const AGENT_INSTRUCTIONS_MAX_BODY_BYTES = 64 * 1024;
 export interface AgentInstructionsDeps {
   service: InstructionService;
   access: InstructionAccessGate;
+  /** 一覧の行に添える後追いの状態 (Muse の試遊結果の中継)。 無ければ添えない。 */
+  annotate?: (id: string) => Record<string, unknown> | null;
   log?: { info: (detail: Record<string, unknown>, message: string) => void; warn: (detail: Record<string, unknown>, message: string) => void };
 }
 
@@ -141,7 +143,10 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
   app.get("/history", localOnly, (c) => {
     const parsed = parseHistoryQuery((name) => c.req.query(name));
     if (!parsed.ok) return fail(c, 400, parsed.error);
-    const instructions = deps.service.history(parsed.value);
+    const instructions = deps.service.history(parsed.value).map((record) => {
+      const relay = deps.annotate?.(record.id) ?? null;
+      return relay ? { ...record, relay } : record;
+    });
     return c.json({ data: { instructions } }, 200);
   });
 

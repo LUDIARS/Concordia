@@ -333,6 +333,20 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: false,
     editable: true,
   },
+  {
+    key: "playtest_notify.muse_relay_enabled",
+    section: "playtest-notify",
+    label: "Muse の試遊結果を中継する",
+    description:
+      "ON (既定) なら、 Muse が playtest 指令の result の detail.review に入れた感想を Voluptas へ保存し (「兄弟サービス」の Voluptas の設定)、"
+      + " 記録 ID を付けて上と同じ宛先へ告知する。 OFF にすると新しい結果の中継と再試行を止める (指令の受付は変わらない)。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "playtest_notify.muse_relay_enabled",
+    dbStore: "meta",
+    defaultValue: true,
+    editable: true,
+  },
 ] as const;
 
 /**

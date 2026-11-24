@@ -51,4 +51,11 @@ describe("指令チャンネルの文 (CC-INST-INV-09)", () => {
     expect(detailBlock("not json", 100)).toBe(fence + "json\nnot json\n" + fence);
     expect(detailBlock(null, 100)).toBeNull();
   });
+
+  it("replies a note (the relay status) to the registration post, neutralized", () => {
+    const post = buildInstructionPost({ kind: "note", id, agent: "muse", text: "中継: Voluptas 保存 aipt_1 / 告知 2 件 @everyone" });
+    expect(post.replyTo).toBe(id);
+    expect(post.content).toContain("中継: Voluptas 保存 aipt_1 / 告知 2 件");
+    expect(post.content).not.toMatch(/@everyone/u);
+  });
 });

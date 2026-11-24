@@ -39,5 +39,9 @@ Muse に同じコミットの試遊を依頼できる。Revisor が PR の採否
   契約 `gen5-return-C-4` の述語は `src/conflux/merge-return-instruction.contract.ts` に置く。
   Amicii (`Ai`) は Muse が iMac で GitHub から取得してビルドするため `build: false` で有効化する (neco 2026-11-23、Actio `4ce26882`)。
 
+- 再試遊の指令 (type `playtest`) に Muse が `done` で返す result に `detail.review` があれば、Cc が Voluptas へ保存して
+  本社の宛先へ告知する ([AI プレイテスト感想の投稿](playtest-review-notify.md) の「Muse の結果の中継」、形は
+  [指令ブリッジ](agent-instructions-bridge.md) の「playtest の結果」)。帰還台帳は中継の状態を持たない (所有者は中継台帳 `muse_playtest_relays`)。
+
 移行 153 は台帳と外部連携の結果列を追加する。帰還受付を止めるにはプロジェクトを opt-in 設定から外す。
 保存済みの指令・ビルド結果と帰還履歴は運用確認に使う。ロールバック時も履歴テーブルを保持する。

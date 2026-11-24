@@ -10,7 +10,7 @@ import { registerAgentInstructionsRoute } from "./agent-instructions.js";
 const HOST = "cc-home.ai-run-do.com";
 const KEY = "k".repeat(40);
 
-function setup(options: { key?: string | null | "unreadable" } = {}) {
+function setup(options: { key?: string | null | "unreadable"; annotate?: (id: string) => Record<string, unknown> | null } = {}) {
   const db = makeTestDb();
   const clock = { now: new Date("2026-11-21T00:00:00Z") };
   const service = new InstructionService({ store: new SqliteAgentInstructionStore(db), now: () => clock.now });
@@ -22,7 +22,7 @@ function setup(options: { key?: string | null | "unreadable" } = {}) {
   const warnings: Array<Record<string, unknown>> = [];
   const log = { info: () => {}, warn: (detail: Record<string, unknown>) => { warnings.push(detail); } };
   const app = new Hono();
-  registerAgentInstructionsRoute(app, { service, access: createInstructionAccessGate({ publicHost: HOST, readToken }), log });
+  registerAgentInstructionsRoute(app, { service, access: createInstructionAccessGate({ publicHost: HOST, readToken }), log, ...(options.annotate ? { annotate: options.annotate } : {}) });
   // buildApp では後ろに SSO ゲートが居る。 ブリッジの応答がそこへ落ちないことを確かめる番兵。
   app.use("*", async (c) => c.text("fell through", 599 as never));
   const local = { host: "127.0.0.1:11111" };
@@ -216,6 +216,16 @@ const register = async (json: ReturnType<typeof setup>["json"], body: Record<str
 };
 
 describe("/v1/instructions/history (一覧の口、 loopback のみ)", () => {
+  it("adds the playtest relay status to rows that have one", async () => {
+    let relayed = "";
+    const { json, get } = setup({ annotate: (id) => (id === relayed ? { voluptasState: "saved", voluptasId: "aipt_1", announceState: "delivered" } : null) });
+    relayed = await register(json, { ...instruction, type: "playtest" });
+    const other = await register(json, instruction);
+    const { data } = await (await get("/v1/instructions/history")).json() as { data: { instructions: Array<Record<string, unknown>> } };
+    expect(data.instructions.find((item) => item.id === relayed)?.relay).toEqual({ voluptasState: "saved", voluptasId: "aipt_1", announceState: "delivered" });
+    expect(data.instructions.find((item) => item.id === other)).not.toHaveProperty("relay");
+  });
+
   it("lists newest first with body and result, filters by agent / status, and keeps poll unchanged", async () => {
     const { json, get, advance } = setup();
     const first = await register(json, instruction);

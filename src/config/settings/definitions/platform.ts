@@ -84,6 +84,23 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
     kind: "secret", envName: null, dbKey: "services.tabula_import_token",
     defaultValue: null, editable: true,
   },
+  // Muse の試遊結果の中継で感想を保存する Voluptas (spec/feature/playtest-review-notify.md — Muse の結果の中継)。
+  // 秘密は env から読まず DB + 設定画面の 1 系統 (CC-MUSE-RELAY-INV-05)。 どちらかが未設定なら保存を skipped にして告知だけ行う。
+  {
+    key: "services.voluptas_url", section: "services",
+    label: "Voluptas の接続先",
+    description: "Muse の試遊結果を保存する Voluptas の URL (LAN 内)。 POST /api/ai-playtests/reviews を呼ぶ。 未設定なら保存せず告知だけ行う。",
+    kind: "string", envName: null, dbKey: "services.voluptas_url",
+    defaultValue: null, editable: true,
+    stringPattern: "^https?://", stringPatternDescription: "http:// または https:// で始まる URL",
+  },
+  {
+    key: "services.voluptas_ai_playtest_token", section: "services",
+    label: "Voluptas AI プレイテスト保存トークン",
+    description: "Voluptas の VOLUPTAS_AI_PLAYTEST_TOKEN と同じ値 (Authorization: Bearer で送る)。 schema_meta は secret-box で暗号化して保存され、 API には実値を返さない。 消すと保存を止めて告知だけになる。",
+    kind: "secret", envName: null, dbKey: "services.voluptas_ai_playtest_token",
+    defaultValue: null, editable: true,
+  },
   // 技術相談のファイル受け渡し (spec/feature/tech-consultation.md §6.4)。 秘密は env から読まず DB + 設定画面の 1 系統。
   {
     key: "services.google_drive_service_account", section: "services",

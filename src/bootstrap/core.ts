@@ -173,6 +173,9 @@ import { readExternalBridges } from "../control-session/external-bridge-status.j
 import { createPlaytestVideoDelivery } from "../playtest-review/playtest-review-video.js";
 import { createPlaytestReviewTargets, PLAYTEST_SLACK_WEBHOOK } from "../playtest-review/playtest-review-targets.js";
 import { createPlaytestReviewTabula } from "../playtest-review/playtest-review-tabula.js";
+import { announcePlaytestReview } from "../playtest-review/announce-playtest-review.js";
+import { startMusePlaytestRelay } from "../playtest-review/muse-relay-runtime.js";
+import { readVoluptasConnection } from "../playtest-review/voluptas-client.js";
 import { decidePlaytestReviewAuth, PLAYTEST_INTAKE_TOKEN_SETTING, readPlaytestIntakeToken } from "../playtest-review/playtest-review-auth.js";
 import { SqlitePackageUpdateLedger } from "../deploy/package-updates-runtime.js";
 import { SqliteProjectNoticeLedger, createProjectNoticeDelivery } from "../deploy/project-created-runtime.js";
@@ -2696,12 +2699,26 @@ export async function startBackend(): Promise<BackendHandle> {
     readContextTokens: async (session) => (await estimateContextTokens(session))?.tokens ?? null,
     log: { info: (message) => successionLog.info(message), warn: (message) => successionLog.warn(message) },
   });
+  const playtestAnnounce = { ...playtestReview, recordManagementEvent: (event: Parameters<typeof managementRuntime.service.recordPlaytestReview>[0]) => managementRuntime.service.recordPlaytestReview(event) };
+  // Muse の試遊結果の中継 (spec/feature/playtest-review-notify.md — Muse の結果の中継)。 指令ブリッジの finished を受け、
+  // LAN 内の Voluptas へ保存してから既存の告知を内部呼び出しする。 公開経路は増やさない (CC-MUSE-RELAY-INV-06)。
+  // Voluptas の接続先と鍵は設定画面の 1 系統 (schema_meta、鍵は secret-box)。 鍵を読めないときは throw → 再試行に回す。
+  const musePlaytestRelay = startMusePlaytestRelay({
+    db,
+    subscribe: agentInstructions.subscribeEvents,
+    instructionType: (id) => agentInstructions.routes.service.get(id)?.type ?? null,
+    enabled: () => readMetaSetting("playtest_notify.muse_relay_enabled") !== "false" && readMetaSetting("playtest_notify.muse_relay_enabled") !== "0",
+    voluptas: () => readVoluptasConnection({ url: readMetaSetting("services.voluptas_url"), token: adminState.store.get("services.voluptas_ai_playtest_token") }),
+    announce: (event) => announcePlaytestReview(playtestAnnounce, event),
+    note: agentInstructions.note,
+    log: createChildLogger("muse-playtest-relay"),
+  });
   const app = buildApp({
     succession: successionRuntime.succession,
     repoAgents: successionRuntime.repoAgents,
     webSso,
     conflux: conflux.routes,
-    agentInstructions: agentInstructions.routes,
+    agentInstructions: { ...agentInstructions.routes, annotate: (id) => { const view = musePlaytestRelay.viewOf(id); return view ? { ...view } : null; } },
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
       secrets: (channel) => readLineChannelSecrets(adminState.store, channel),
@@ -2859,7 +2876,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorConfig: revisorConfigRepo,
     serviceDeployed,
     releasePublished,
-    playtestReview: { ...playtestReview, recordManagementEvent: (event) => managementRuntime.service.recordPlaytestReview(event) },
+    playtestReview: playtestAnnounce,
     packageUpdates,
     projectNotice: {
       arm: (event) => { projectNoticeLedger.arm(event, Date.now()); },

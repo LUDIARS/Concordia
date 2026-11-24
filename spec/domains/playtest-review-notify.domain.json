@@ -6,10 +6,12 @@
   "membership": [
     { "pathPattern": "(^|/)src/playtest-review/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/playtest-review(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/muse-playtest-relays-(repo|migration)\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/muse-instructions/RelayStatus\\.tsx$" },
     { "pathPattern": "(^|/)spec/feature/playtest-review-notify\\.md$" }
   ],
   "cardTemplate": "Describe the strict intake (good and bad required), the in-process at-most-once claim by runId, the settings-owned HQ destinations (Discord channel + Slack webhook) and the shared deployment transport.",
   "mechanics": ["non-blocking-delivery"],
   "specRefs": ["spec/feature/playtest-review-notify.md", "spec/ux/product.md#UX-CC-W11"],
-  "rationale": "宛先と秘密を Cc の設定に閉じ、送り手 (Ingenium) が Discord / Slack の URL を持たない。配送はデプロイ通知と同じ transport を共有して二重実装を避け、台帳は DB migration を足さずにプロセス内で持つ (再起動を跨ぐ重複は防がないと明記)。"
+  "rationale": "宛先と秘密を Cc の設定に閉じ、送り手 (Ingenium) が Discord / Slack の URL を持たない。配送はデプロイ通知と同じ transport を共有して二重実装を避け、台帳は DB migration を足さずにプロセス内で持つ (再起動を跨ぐ重複は防がないと明記)。Muse の結果の中継だけは Voluptas の保存と告知を 1 回に保つため DB の中継台帳 (muse_playtest_relays) を持つ。"
 }

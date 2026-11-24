@@ -16,8 +16,9 @@ import { gen5MergeReturnMigration } from "./gen5-merge-return-migration.js";
 import { sessionEventsKindIndexMigration } from "./session-events-kind-index-migration.js";
 import { delegationSessionLinkIndexMigration } from "./delegation-session-link-index-migration.js";
 import { v5DeskCardsMigration } from "./v5-desk-cards-migration.js";
+import { musePlaytestRelaysMigration } from "./muse-playtest-relays-migration.js";
 
-export const SCHEMA_VERSION = 156;
+export const SCHEMA_VERSION = 157;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3902,6 +3903,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   sessionEventsKindIndexMigration,
   delegationSessionLinkIndexMigration,
   v5DeskCardsMigration,
+  musePlaytestRelaysMigration,
 ];
 
 /**

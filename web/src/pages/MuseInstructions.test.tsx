@@ -54,6 +54,24 @@ describe("Muse 指令 page", () => {
     } finally { await cleanup(); }
   });
 
+  it("shows the playtest relay status (record id, announcement and reason) in the detail", async () => {
+    const relayed = {
+      ...record, type: "playtest",
+      relay: { voluptasState: "failed", voluptasId: null, announceState: "delivered", announce: { duplicate: false, unconfigured: false, delivered: 2, failed: 0, tabula: "posted" }, error: "voluptas_rejected: HTTP 401", attempts: 1 },
+    };
+    const saved = { ...record, id: "inst:muse:20261123T000000Z:bbbbbb", relay: { ...relayed.relay, voluptasState: "saved", voluptasId: "aipt_77", error: null } };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { instructions: [relayed, saved] } }), { status: 200 })));
+    const { container, cleanup } = await render();
+    try {
+      const rows = [...container.querySelectorAll("tbody tr")] as HTMLElement[];
+      await act(async () => { rows[0]!.click(); });
+      const status = container.querySelector("[data-testid='relay-status']")?.textContent ?? "";
+      expect(status).toContain("保存失敗");
+      expect(status).toContain("delivered (2 件 + Tabula)");
+      expect(status).toContain("voluptas_rejected: HTTP 401");
+    } finally { await cleanup(); }
+  });
+
   it("explains that the list is loopback only when the server answers 403", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "local_only", message: "x" } }), { status: 403 })));
     const { container, cleanup } = await render();

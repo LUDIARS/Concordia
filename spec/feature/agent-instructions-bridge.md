@@ -144,6 +144,7 @@ AI プレイテスト受け口 `/v1/events/playtest-review` の公開経路は�
 | ack | 登録の投稿への返信で「<宛先> が受け取りました」 |
 | result | 登録の投稿への返信で「<宛先> の回答」status (`done` ✅ / `failed` ❌)・題・要約・詳細 (JSON を整形し 1500 文字までのコードブロック) |
 | 30 分で `pending` へ戻った | 登録の投稿への返信で 1 行 |
+| 補足 (`note`、Muse の試遊結果の中継の状態) | 登録の投稿への返信で 1 行 (「中継: Voluptas 保存 <id> / 告知 <n> 件」) |
 
 - 返信先は登録の投稿 (直近 500 件をメモリで覚える)。覚えていない (Cc の再起動を跨いだ等) ときは同じチャンネルへ id 付きで投稿する。元の投稿が消えていても失敗にしない (`failIfNotExists: false`)。
 - 投稿は 1 件 1900 文字以内。失敗は CC-INST-INV-08 のとおり warn だけ。
@@ -151,11 +152,35 @@ AI プレイテスト受け口 `/v1/events/playtest-review` の公開経路は�
 ### Web の「Muse 指令」(`web/src/pages/MuseInstructions.tsx`)
 
 - ナビ「運用」の「Muse 指令」(`/muse-instructions`)。`GET /v1/instructions/history` を 15 秒ごとに読み、表 (宛先・id・種類・題・状態・作成/受領/完了時刻・回答の要約) で出す。宛先 (muse / dots) と状態で絞れる。
-- 行を開くと本文・params・回答の要約と詳細。
+- 行を開くと本文・params・回答の要約と詳細。playtest の結果を中継した行は中継の状態 (保存: 記録 ID / 失敗理由、告知: delivered / failed) も出す
+  (一覧の各行の `relay`、[AI プレイテスト感想の投稿](playtest-review-notify.md) の「Muse の結果の中継」)。
 - 一覧は loopback のみなので、公開ホスト経由で開くと「自宅側からだけ開けます」と出る。
 
 `web/src/pages/MuseInstructions.tsx` / `web/src/pages/muse-instructions/history-api.ts` / `web/src/App.tsx`: 画面・一覧の読み出し・導線。
 `src/discord/muse-instructions-channel.ts` / `src/agent-instructions/instruction-posts.ts` / `src/agent-instructions/instruction-events.ts`: チャンネル・投稿文・出来事の中継。
+
+## playtest の結果 (`detail.review`)
+
+type `playtest` の指令に `done` で返す result の `detail` には `review` を入れる。Cc はこれを Voluptas へ保存し、本社の宛先へ告知する
+([AI プレイテスト感想の投稿](playtest-review-notify.md) の「Muse の結果の中継」)。`review` が無い・形が違う結果も 202 で受理するが、中継はしない。
+
+```json
+{
+  "review": {
+    "runId": "muse-20261124-001", "gameId": "amicii", "gameTitle": "Amicii", "persona": "casual",
+    "outcome": "cleared", "screen": "image", "ticks": 1200, "turns": 40,
+    "summary": "総評 (400 文字まで)",
+    "good": [{ "aspect": "ux", "text": "良い点 (300 文字まで)" }],
+    "bad": [{ "aspect": "game", "text": "悪い点" }],
+    "confusions": [],
+    "reflection": ["AI の反省 (1〜8 行)"]
+  }
+}
+```
+
+- 項目は `POST /v1/events/playtest-review` の本文と同じ (camelCase、決めた項目だけ)。`voluptasId` は入れない (Cc が保存してから付ける)。
+- `good` / `bad` は 1〜8 件必須、`confusions` は 0〜8 件、`aspect` は `ux` / `control` / `game`、`screen` は `image` / `text`、`ticks` / `turns` は 0 以上の整数。
+- `runId` は試遊 1 回ごとに一意にする (Voluptas の冪等キー)。`detail` 全体は 16000 バイトまで。
 
 ## 復旧
 

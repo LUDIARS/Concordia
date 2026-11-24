@@ -22,6 +22,8 @@ export interface AgentInstructionsRuntime {
   attachEvents: (listener: InstructionEventListener | null) => void;
   /** 「muse-指令」チャンネルとは別の受け手 (管制カードの dots の回答)。返り値で外す。 */
   subscribeEvents: (listener: InstructionEventListener) => () => void;
+  /** 「muse-指令」チャンネルの登録投稿へ補足を返す (Muse の試遊結果の中継の状態)。 */
+  note: (id: string, agent: string, text: string) => void;
   museEvidence: () => ReturnType<SqliteAgentInstructionStore["evidence"]> & { configured: boolean };
 }
 
@@ -47,6 +49,7 @@ export function createAgentInstructionsRuntime(
     },
     attachEvents: (listener) => events.attach(listener),
     subscribeEvents: (listener) => events.subscribe(listener),
+    note: (id, agent, text) => events.emit({ kind: "note", id, agent, text }),
     museEvidence: () => ({ configured: token().kind === "set", ...store.evidence("muse") }),
     sweep: () => {
       const { requeued, purged } = service.sweep();

@@ -5,7 +5,7 @@ description: "Ingenium の ingenium playtest が渡す AI プレイテスト感�
 service: concordia
 domain: playtest-review-notify
 status: implemented
-updated: 2026-11-21
+updated: 2026-11-24
 tags:
   - notification
   - ingenium
@@ -136,7 +136,48 @@ Tabula は [技術相談](tech-consultation.md) §5 と同じ取り込みクラ�
 ゲーム名 / 遊び方・画面の種類・判断回数・tick・結果 / 総評 / 👍 良い点 / 👎 悪い点 / ❓ 迷ったところ (あるときだけ) / 🔁 AI の反省 / Voluptas 記録 ID。
 2000 文字で切る。
 
+## Muse の結果の中継 (`src/playtest-review/muse-relay.ts`)
+
+2026-11-24 neco 指示「CcのMuseの中継を修正」。Actio `210f7331-0419-4b3e-b0a3-e5e79fe6a7d0`、設計 `spec/plan/2026-11-24-muse-playtest-relay.md`。
+Muse は公開経路 `/v1/instructions*` しか持たず、受け口 (`/v1/events/playtest-review`) にも Voluptas にも直接届かない
+(Muse の出口は 1 要求に秘密 1 つまで)。そこで Muse の playtest 指令の result を Cc が中継し、LAN 内から Voluptas へ保存して上の告知へ流す。
+
+- 入力: 宛先 `muse`・type `playtest`・status `done` の指令の result の `detail.review` (形は [指令ブリッジ](agent-instructions-bridge.md) の「playtest の結果」)。
+  受け口と同じ本文スキーマ (`src/playtest-review/playtest-review-schema.ts`、`voluptasId` だけ除く) で検証する。
+  無い・通らない結果は保存も告知もせず、理由を台帳と「muse-指令」の返信に残す (result の受理 202 は変えない)。
+- 保存 (`src/playtest-review/voluptas-client.ts`): Voluptas `POST /api/ai-playtests/reviews` へ `Authorization: Bearer <鍵>` と
+  `Idempotency-Key: <runId>` で送る。本文は Voluptas の allowlist へ写す (`muse-relay-policy.ts` の `toVoluptasReview`):
+  `format=ai-playtest-review/1`・`source=ai-autoplayer`・snake_case・点の `evidence` は `{ticks: [], shots: []}`・
+  `created_at` は指令の finishedAt・`engine_version=muse`・`adapter=cc-muse-relay`。201 / 200 の `data.review.id` を記録 ID にする。
+- 告知 (`src/playtest-review/announce-playtest-review.ts`): 記録 ID を `voluptasId` に入れ、受け口と同じ use case を内部呼び出しする
+  (CDGD 変更列 `ig:playtest-review:<runId>`・Discord / Slack / Tabula・配送の証跡は受け口と同じ)。保存に失敗して確定したときは記録 ID なしで告知する。
+- 台帳 `muse_playtest_relays` (migration 157 `src/db/muse-playtest-relays-migration.ts`、`src/db/muse-playtest-relays-repo.ts`): 1 指令 1 行。
+  `voluptas_state` `pending|saved|failed|skipped`、`announce_state` `pending|announcing|delivered|failed|skipped`、記録 ID・告知の要約・理由・試行回数・次の試行時刻。
+- 再試行: Voluptas の不達・5xx は 1 分から倍にして最大 6 時間間隔で 10 回まで (60 秒ごとの周期で拾う)。4xx は再試行せず `failed`。
+  鍵を読めない (復号できない) ときは未設定扱いにせず再試行に回す。
+- 見える化: Web の「Muse 指令」の行の詳細に中継の状態 (`GET /v1/instructions/history` の `relay`、`web/src/pages/muse-instructions/RelayStatus.tsx`)。
+  「muse-指令」の登録投稿へ「中継: Voluptas 保存 <id> / 告知 <n> 件」を 1 回返す (指令の出来事 `note`)。
+- 設定: `services.voluptas_url` (string、`^https?://`)・`services.voluptas_ai_playtest_token` (secret、Voluptas の `VOLUPTAS_AI_PLAYTEST_TOKEN` と同じ値) は
+  「兄弟サービス」、`playtest_notify.muse_relay_enabled` (既定 ON) は「AI プレイテスト通知」。秘密は env から読まず DB + 設定画面の 1 系統。
+  接続先か鍵が未設定なら保存を `skipped` にして告知だけ行う。
+- 結線 (`src/playtest-review/muse-relay-runtime.ts`、`src/bootstrap/core.ts`): 指令ブリッジの `subscribe` で finished を受け、起動時に台帳から再開する。
+
+不変条件:
+
+- **CC-MUSE-RELAY-INV-01** 中継の対象は宛先 muse・type playtest・status done の指令だけ。同じ指令は 1 回だけ台帳に載る (instruction_id 主キー)。
+- **CC-MUSE-RELAY-INV-02** `detail.review` は既存の感想スキーマで検証し、通らないものは保存も告知もしない (良い点・悪い点の必須を含む)。
+- **CC-MUSE-RELAY-INV-03** Voluptas への保存は runId を冪等キーにし、保存の確定 (saved / skipped / failed) より前に告知しない。
+- **CC-MUSE-RELAY-INV-04** 告知は 1 指令 1 回。告知の前に台帳を `announcing` にし、その状態で再起動を跨いだ行は「結果不明」の `failed` にして再送しない。
+- **CC-MUSE-RELAY-INV-05** 鍵は設定画面 1 系統で暗号化保存し、API・ログ・台帳・投稿に出さない。Muse の文面は信頼できない入力として告知側と「muse-指令」の mention 無効化を通す。
+- **CC-MUSE-RELAY-INV-06** 公開経路は増やさない (`/v1/events/*` は公開しない)。中継は Cc の内部で完結する。
+
+検証: `src/playtest-review/muse-relay.test.ts` (対象外の無視・review 無し / 検証失敗・201 / 200 で記録 ID 付きの 1 回告知・5xx の再試行・4xx の打ち切り・未設定の skipped・
+再起動相当の再開で二重告知しない・鍵がログ・台帳・投稿に出ない)。
+
 ## 復旧
+
+中継: 設定の鍵を消せば保存を止めて告知だけになる。中継そのものは `playtest_notify.muse_relay_enabled` を OFF にすると止まる。
+台帳は表だけなので、消しても指令と Voluptas の記録には影響しない (`failed` の行をやり直したいときは行を消してから Muse に同じ指令を新しく出してもらう)。
 
 投稿が失敗したら、宛先ごとの `failed` が送り手 (Ingenium) の出力に残る。同じ `runId` は Cc が動いている間は受け付けないので、
 送り直すときは Ingenium を新しい run で回す。宛先の設定を直せば次の run から届く。

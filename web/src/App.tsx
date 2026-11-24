@@ -40,13 +40,13 @@ import { Rules } from "./pages/Rules.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
+  { to: "/control", label: "オーバービュー", section: "チーム" },
   { to: "/workplace", label: "職場", section: "チーム" },
   { to: "/inbox", label: "未回答", section: "チーム" },
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
   { to: "/desk", label: "依頼窓口", section: "チーム" },
-  { to: "/control", label: "管制", section: "チーム" },
   { to: "/management", label: "CDGD管理", section: "チーム" },
   { to: "/director", label: "Director", section: "チーム" },
   { to: "/taskflow", label: "Taskflow", section: "チーム" },

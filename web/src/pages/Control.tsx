@@ -10,12 +10,11 @@ import { TasksPanel } from "./control/TasksPanel.js";
 export function Control() {
   return <div className="max-w-6xl mx-auto space-y-6">
     <div>
-      <h1 className="text-xl font-semibold">管制</h1>
-      <p className="text-sm text-subtle mt-1">人間のアクション・判断 (カード)、Actio タスク、動いているセッション、スプリントを 1 画面で見ます。カードの捌きは dots と人間が変えられます。</p>
+      <h1 className="text-xl font-semibold">オーバービュー</h1>
     </div>
+    <SessionsPanel />
     <div className="grid gap-6 lg:grid-cols-2">
       <CardsPanel />
-      <SessionsPanel />
       <TasksPanel />
       <SprintsPanel />
     </div>

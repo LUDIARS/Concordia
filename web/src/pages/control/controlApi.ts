@@ -43,6 +43,8 @@ export interface ControlCardView {
 export interface PlanStep { text: string; status: "pending" | "in_progress" | "completed" }
 
 export interface SessionProgressRow {
+  desk_request_id?: string | null;
+  gen5_stage?: string | null;
   session_id: string;
   project: string;
   branch: string | null;

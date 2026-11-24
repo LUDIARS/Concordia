@@ -6009,6 +6009,8 @@
     { "source": "web/src/pages/control/CardsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
     { "source": "web/src/pages/control/SessionProgress.tsx", "tests": ["web/src/pages/Control.test.tsx", "web/src/pages/Desk.test.tsx"], "contracts": [] },
     { "source": "web/src/pages/control/SessionsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/projectGraph.ts", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
+    { "source": "web/src/pages/control/ProjectMicro.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
     { "source": "web/src/pages/control/SprintsPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
     { "source": "web/src/pages/control/TasksPanel.tsx", "tests": ["web/src/pages/Control.test.tsx"], "contracts": [] },
     { "source": "web/src/pages/control/controlApi.ts", "tests": ["web/src/pages/Control.test.tsx", "web/src/pages/Desk.test.tsx"], "contracts": [] },

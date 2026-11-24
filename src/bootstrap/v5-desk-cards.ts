@@ -121,7 +121,11 @@ export function createV5Runtime(deps: V5Deps): V5Runtime {
       sessionLinks,
       webUrl,
     },
-    sessionProgress: () => progress.read(),
+    sessionProgress: async () => (await progress.read()).map(row => {
+      const request = desk.service.findBySession(row.session_id);
+      return { ...row, desk_request_id: request?.id ?? null,
+        gen5_stage: request ? desk.service.repo.gen5Stage(row.session_id)?.label ?? null : null };
+    }),
     humanRequestDone: ({ sessionMessageId, index, userId }) => {
       cards.service.markHumanCommandDone(sessionMessageId, index, `discord:${userId}`);
     },

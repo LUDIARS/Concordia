@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Desk } from "./Desk.js";
 import { Chores } from "./Chores.js";
 
+// Control also imports DeskDetail. Reload the shared module with this suite's chat mock.
+vi.hoisted(() => vi.resetModules());
 vi.mock("./session-chat/SessionChat.js", () => ({
   SessionChat: ({ deskSessionId }: { deskSessionId: string }) => <textarea aria-label={`chat-${deskSessionId}`} />,
 }));

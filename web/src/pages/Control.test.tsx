@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Control } from "./Control.js";
+import { projectGraph } from "./control/projectGraph.js";
+import type { SessionProgressRow } from "./control/controlApi.js";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -14,6 +16,7 @@ const card = {
 const sessionRow = (id: string, progress: Record<string, unknown>) => ({
   session_id: id, project: id === "s1" ? "Concordia" : "Actio", branch: "feat/x", current_task: `作業 ${id}`, status: "working", status_reason: null,
   last_activity_at: 1, link: null,
+  gen5_stage: id === "s1" ? "人間のプレイ確認" : null,
   plan: { steps: [{ text: "設計", status: "completed" }, { text: "実装", status: "in_progress" }], desktop_plan_status: null, work_phase: { phase: "implementation", label: "実装", design_summary: "" } },
   progress: { steps_completed: 1, steps_total: 2, ...progress },
 });
@@ -46,6 +49,17 @@ async function render() {
 }
 
 describe("管制画面 (/control、Cc v5)", () => {
+  it("weights known steps, counts all sessions and leaves unmeasured projects unknown", () => {
+    const row = (id: string, project: string, done: number, total: number) => ({
+      ...sessionRow(id, {}), project, status: "human_wait",
+      progress: { steps_completed: done, steps_total: total, followup_rate: null, tasks: { state: "unavailable" } },
+    } as SessionProgressRow);
+    const [a, b] = projectGraph([row("1", "A", 1, 2), row("2", "B", 0, 0), row("3", "A", 0, 0), row("4", "A", 0, 8)]);
+    expect(a).toMatchObject({ name: "A", percent: 10, measured: 2, done: 1, total: 10 });
+    expect(a!.counts.get("人間待ち")).toBe(3);
+    expect(b!.percent).toBeNull();
+  });
+
   it("shows cards, Actio tasks, running sessions with plan/progress, and sprints", async () => {
     const view = await render();
     try {
@@ -54,10 +68,10 @@ describe("管制画面 (/control、Cc v5)", () => {
       expect(text).toContain("優先度 高");
       expect(text).toContain("捌き: dots:inst:dots:1");
       expect(text).toContain("依頼窓口を作る");
-      expect(text).toContain("PR #900");
+      expect(text).not.toContain("PR #900");
       expect(text).toContain("Sprint 12");
-      expect(text).toContain("ステップ 1 / 2");
-      expect(text).toContain("作業段階: 実装");
+      expect(text).toContain("計画進捗 50%");
+      expect(text).toContain("オーバービュー");
     } finally { await view.cleanup(); }
   });
 
@@ -65,10 +79,23 @@ describe("管制画面 (/control、Cc v5)", () => {
     const view = await render();
     try {
       const sessions = view.container.querySelector('[aria-label="動いているセッション"]')!;
-      const [first, second] = [...sessions.querySelectorAll("article")];
+      const select = async (name: string) => {
+        const button = [...sessions.querySelectorAll("button")].find(b => b.textContent?.includes(name));
+        expect(button).toBeDefined();
+        await act(async () => { button!.click(); });
+      };
+      await select("Concordia");
+      const first = sessions.querySelector("article")!;
+      expect(first.textContent).toContain("作業 s1");
+      expect(first.querySelector('[aria-label="Gen5 ワークフロー"] [aria-current="step"]')?.textContent).toBe("人間のプレイ確認");
+      expect(first.querySelector('[aria-label="工程チャート"]')?.textContent).toContain("進行中 · 実装");
       expect(first!.textContent).toContain("自動確認の進捗率: 未計測");
       expect(first!.textContent).not.toContain("0%");
       expect(first!.textContent).toContain("取得できません");
+      await select("マクロ");
+      await select("Actio");
+      const second = sessions.querySelector("article")!;
+      expect(second.textContent).not.toContain("作業 s1");
       expect(second!.textContent).toContain("自動確認の進捗率: 40%");
       expect(second!.textContent).toContain("actio:9 (in_progress)");
     } finally { await view.cleanup(); }

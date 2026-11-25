@@ -62,6 +62,13 @@ Quaestor がメール・文書の状態を所有し、Cc は発火キーごと�
 停止後の同じ発火の再処理には保存済みの結果を使う。指令登録前の中断は cron 自体の過去分再生の対象外。
 取り込み失敗・結果不明・無効化も指令の材料に含める。要確認文書一覧は既存の要確認分を含み、今回の件数とは別に扱う。
 
+Quaestor は常駐巡回 (MailCrawler) が取り込みを所有しているとき、手動の sweep を 409 `crawler owns ingestion` で断る
+(2026-11-25 09:40 の初回で dots が「HTTP 409 で件数が読めない」と報告した)。この 409 のときは sweep を再送せず、
+`GET /v1/mail/crawler` の状態を `sweep_status: "crawler"` として指令に入れる (`quaestor-mail-crawler-data.ts`)。
+渡すのは ready・running・pending・processed・failures・next_at・last_failure (stage・category・HTTP 状態・時刻)・backfill (状態・件数) だけで、
+backfill の requestId・エラークラス名・解析モデルは渡さない。巡回の状態が読めなければ `failure_kind: "crawler_unavailable"` で失敗の事実を渡す。
+本文では、認証系の失敗が続いているとき人間の再認証が要る点を summary の先頭に書くよう dots に頼む。それ以外の 409 は従来どおり `http_error` とする。
+
 カイゼンのカウントは前日 JST の 00:00 から当日 00:00 までを対象にし、人間待ちはその区間の終端時点を集計する。
 30 分で pending に戻った指令は日ごとの件数を遷移と同時に記録する。計測開始前を含む日は件数を不明 (`null`) とする。
 本文、transcript、個人情報を渡さない。

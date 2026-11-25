@@ -6056,6 +6056,7 @@
     { "source": "src/scheduler/agent-jobs/deps-sweep-daily.ts", "tests": ["src/scheduler/agent-jobs/agent-jobs.test.ts", "src/scheduler/agent-dispatch.test.ts", "src/scheduler/agent-jobs/kaizen-runtime.test.ts"], "contracts": ["CC-PT-AGENT-INV-03", "CC-PT-AGENT-INV-04", "CC-PT-AGENT-INV-07"] },
     { "source": "src/scheduler/agent-jobs/quaestor-mail-sweep.ts", "tests": ["src/scheduler/agent-dispatch.test.ts", "src/scheduler/agent-result-intake.test.ts"], "contracts": ["CC-PT-AGENT-INV-01", "CC-PT-AGENT-INV-03", "CC-PT-AGENT-INV-04"] },
     { "source": "src/scheduler/agent-jobs/quaestor-mail-sweep-data.ts", "tests": ["src/scheduler/agent-job-sources/mail-sweep.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
+    { "source": "src/scheduler/agent-jobs/quaestor-mail-crawler-data.ts", "tests": ["src/scheduler/agent-job-sources/mail-sweep.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
     { "source": "src/scheduler/agent-job-sources/quaestor-mail-http.ts", "tests": ["src/scheduler/agent-job-sources/mail-sweep.test.ts"], "contracts": ["CC-PT-AGENT-INV-02", "CC-PT-AGENT-INV-03"] },
     { "source": "src/scheduler/agent-job-sources/mail-sweep-execution.ts", "tests": ["src/scheduler/agent-job-sources/mail-sweep.test.ts", "src/scheduler/agent-dispatch.test.ts"], "contracts": ["CC-PT-AGENT-INV-02", "CC-PT-AGENT-INV-05"] },
     { "source": "src/scheduler/agent-job-sources/mail-sweep-store.ts", "tests": ["src/scheduler/agent-job-sources/mail-sweep.test.ts"], "contracts": ["CC-PT-AGENT-INV-02"] },

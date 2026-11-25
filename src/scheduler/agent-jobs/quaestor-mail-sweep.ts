@@ -18,6 +18,8 @@ export function createQuaestorMailSweepJob(sources: MailSweepSources): AgentJobS
       "実行枠・日付、取り込み状態と分類別件数、確定・要確認・通知件数をまとめてください。",
       "要確認 ID は一覧取得時点の既存分を含みます。失敗・結果不明・無効化・取得できなかった ID はその旨を示してください。",
       "エラーはメッセージ ID と種別だけにし、rate_limit / auth は次回に回す旨を示してください。",
+      "sweep_status が crawler のときは、取り込みは Quaestor の常駐巡回が行っています (手動の取り込みは断られます)。crawler の ready・pending・processed・failures・last_failure・backfill を報告してください。",
+      "last_failure.category が認証系 (auth を含むもの) で failures が増えているなら、人間の再認証が要る点として summary の先頭に書いてください。",
     ]),
     prepare: async (dedupeKey) => {
       const result = await sources.prepareMailSweep(dedupeKey);

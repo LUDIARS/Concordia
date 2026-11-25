@@ -45,6 +45,45 @@ describe("HQ mail sweep", () => {
     expect(request).toHaveBeenCalledTimes(3);
   });
 
+  it("常駐巡回が取り込みを所有する 409 では sweep を再送せず、巡回の状態を許可した欄だけで返す", async () => {
+    const crawler = {
+      ready: true, running: false, pending: 0, nextAt: 1_795_571_328_640, processed: 11487, lastError: "mail_crawl_failed",
+      pageSize: 10, failures: 951,
+      lastFailure: { stage: "list_ids", errorClass: "MailInboxError", at: 1_795_567_728_640, category: "gmail_auth_refresh_rejected", status: 400 },
+      backfill: { requestId: "private-request-id", target: null, processed: 11321, status: "exhausted" },
+      analysis: { model: "private-model", transport: "codex-exec" },
+    };
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ error: "crawler owns ingestion; inspect /v1/mail/crawler" }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json(crawler))
+      .mockResolvedValueOnce(Response.json([{ id: reviewId }]));
+    const result = await createQuaestorMailSweep(directory, request)();
+    expect(result).toEqual({
+      sweep_status: "crawler",
+      crawler: {
+        ready: true, running: false, pending: 0, processed: 11487, failures: 951,
+        next_at: new Date(1_795_571_328_640).toISOString(),
+        last_failure: { stage: "list_ids", category: "gmail_auth_refresh_rejected", http_status: 400, at: new Date(1_795_567_728_640).toISOString() },
+        backfill: { status: "exhausted", processed: 11321 },
+      },
+      needs_review_ids: [reviewId],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private|MailInboxError|codex/);
+    expect(request.mock.calls.map((call) => call[0])).toEqual([
+      "http://127.0.0.1:12345/v1/mail/sweep",
+      "http://127.0.0.1:12345/v1/mail/crawler",
+      "http://127.0.0.1:12345/v1/mail/documents?status=needs_review",
+    ]);
+  });
+
+  it("巡回の状態が読めなければ失敗の事実を返す", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ error: "crawler owns ingestion; inspect /v1/mail/crawler" }, { status: 409 }))
+      .mockRejectedValueOnce(new Error("private endpoint"));
+    expect(await createQuaestorMailSweep(directory, request)()).toEqual({ sweep_status: "failed", failure_kind: "crawler_unavailable" });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("進行中の予約を他の呼び出しが奪わず、中断後は結果不明とする", async () => {
     const db = makeTestDb();
     try {

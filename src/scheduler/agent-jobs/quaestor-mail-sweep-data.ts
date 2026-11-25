@@ -1,5 +1,6 @@
 import { contract } from '../ontime-runtime.js'; /* augur-inject:import:6823e522 */
 import augurContract_9414817c from './quaestor-mail-sweep-data.contract.js'; /* augur-inject:contract-predicate:a5abc27a */
+import type { MailCrawlerData } from "./quaestor-mail-crawler-data.js";
 /** @implements spec/feature/parttimer-agent-dispatch.md — メール取り込みの許可リスト */
 const CLASSIFICATIONS = ["invoice", "cloud_notice", "ci_failure", "dependabot", "ignore"] as const;
 const ERROR_KINDS = ["auth", "rate_limit", "not_found", "network", "invalid_response"] as const;
@@ -49,9 +50,17 @@ export function projectReviewIds(payload: unknown): string[] | null {
   }))];
 }
 
-type SweepFailure = "endpoint_unavailable" | "timeout" | "transport" | "http_error" | "invalid_response" | "interrupted";
+type SweepFailure = "endpoint_unavailable" | "timeout" | "transport" | "http_error" | "invalid_response" | "interrupted"
+  | "crawler_unavailable";
 
 export type MailSweepData =
+  | {
+    /** 常駐巡回が取り込みを所有しているため手動 sweep は断られ、 巡回の状態を報告する。 */
+    sweep_status: "crawler";
+    crawler: MailCrawlerData;
+    needs_review_ids: string[];
+    needs_review_ids_unavailable?: true;
+  }
   | (NonNullable<ReturnType<typeof projectMailSweep>> & {
     sweep_status: "completed" | "disabled";
     needs_review_ids: string[];

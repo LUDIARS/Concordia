@@ -1,6 +1,6 @@
 ---
 type: feature
-title: "依頼窓口 — 軽い依頼も重い依頼も 1 つの窓口で受け、作業セッションを起動する (Cc v5)"
+title: "依頼窓口 — Actio に受け付け、プロジェクト管制へ届ける (Cc v5)"
 id: CC-DESK
 service: concordia
 domain: request-desk
@@ -10,12 +10,25 @@ related:
   - feature/control-cards.md
   - feature/chores.md
   - feature/chores-forum-window.md
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # 依頼窓口 (Cc v5)
 
 > 所属ドメイン: [`request-desk`](../domains/request-desk.domain.json)。設計の正本は [Cc v5 計画](../plan/2026-11-24-control-session-to-dots.md) (実装メモ 1〜13 が優先)。Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。
+
+## Actio による依頼の割り当て
+
+Actio `actio:8049bc2f-78ab-488a-b479-0242f5db464d` の変更範囲では、この節を従来の起動仕様に優先する。UX-CC-W2/W5、V5-S1、CC-INV-01/02/03/04/07/08 に対応する。
+
+- 受付は Web・Discord および指令元が同じ use case を使う。登録済みプロジェクトを明示指定、または本文の登録名・略号から一意に判定する。曖昧な場合は、依頼詳細から対象を選べる管制判断カードを出す。選択後に対象を固定し、`desk:<request_id>` を Actio の作成キーとする。
+- 依頼窓口は受付、対象、Actio 参照、管制の起動予約、受け箱の配達と委託受付を所有する。Actio が本文、実行担当、完了状態を所有し、委託ドメインが子の起動と結果を所有する。受付の本文は窓口表示と作成の再照合に使う。
+- 各本社プロジェクトに専任のプロジェクト管制セッションを 1 つ置く。プロジェクトの最新の起動予約 ID、専任ロール、リポジトリと稼働状態が一致するセッションだけに払い出す。管制がなければ対象の本体で既存の spawn を使う。プロジェクトごとに起動の予約は 1 件、全体で確認待ちは 4 件、常駐と起動待ちの合計は 8 件までとする。起動失敗または登録確認の 5 分経過は管制アクションカードに出す。旧世代が復帰しても新世代の予約がある間は受け付けない。
+- Actio 参照を永続化された受け箱に保持し、管制が応答可能な区切りで既存の inject を使う。管制は既存の `POST /v1/desk/requests/:id/claim` で委託を受け付ける。Cc が `sol` の委託経路へ既存参照と管制セッション ID を渡し、子が実装と成果提出を担当する。同一プロジェクトで受付済みと起動待ちを含め 2 件までを払い出し、それ以降は受け箱に残す。画面の管制担当と、Actio に記録する実行担当をそれぞれ追跡できる。
+- 管制が終了・停滞した場合は新しい管制を起動し、未完了の依頼を引き継ぐ。復帰した旧管制には、子を保持したまま自身を終了するよう案内する。子がまだ稼働中なら同じ run を監督する。管制は子の進捗・結果を確認し、停滞時は既存の継続・終了経路で作業を保全する。成果提出がなく失敗が確定し子の終了を確認できた場合は、同じ Actio 参照で 1 回再委託する。結果不明、確認待ち、再失敗はカードに残す。終了・取消は Actio から観測し、委託の成功だけで完了にはしない。
+- 旧依頼は旧起動の照合と終了観測を継続する。複数依頼で同じセッションを使う場合、その共有会話へのリンクを表示する。依頼ごとの Discord スレッドは引き続き受付・割り当て・状態の通知先とする。
+- Web の依頼詳細は、委託先の子セッション ID が返ったときに実行セッションへのリンクを表示する。プロジェクト管制のチャットへのリンクは引き続き表示する。
+- dots と管制は `POST /v1/instructions/desk-requests` に `request_id`、`body`、任意の `project` と `provider` を送る。外部 dots は指令ブリッジの認証を使用する。管制は loopback で自身の `session_id` を指定する。再送には同じ `request_id` を使う。本社のプロジェクトとセッションを対象とする。
 
 2026-11-24 neco 指示 (原文):「依頼窓口のチャットを設けて、実行内容に従って人間のアクション、人間の判断が必要なものをカードにして管制が管理するようにCcを改修する」「軽い依頼も重い依頼も全て一つの窓口でやれるようにする」。
 
@@ -26,14 +39,14 @@ updated: 2026-11-24
 Gen5 の現在工程は受付担当が回答先頭の `Gen5工程: <工程名>` で明示した最新の有効な報告。工程は表示用で、試遊完了・Actio の状態・実行許可を変更しない。記録が無ければ未報告と表示する。質問と判断は受付セッションに集約し、そのセッションを所有者とする管制カードの種類・状態・要点を表示する。再読込は保存済みの発言とカードから復元する。
 
 - 価値: 依頼から実行・人間の手当てまでが 1 本の流れで追える (UX-CC-W5)。Discord と Web のどちらからでも同じ依頼ができる (UX-CC-W2)。
-- シナリオ V5-S1 の入口: 人間が依頼窓口に書く → Cc が作業セッションを起動する → セッションが対象プロジェクトに Actio タスクを作って紐付ける → 人間のアクション / 判断はカードになる → セッション終了で依頼は `finished`。
+- シナリオ V5-S1 の入口: 人間が依頼窓口に書く → Cc が対象プロジェクトに Actio タスクを作る → 専任管制が委託を受け付ける → 子が作業し判断や成果を記録する → Actio の終了状態を窓口で確認できる。
 
 ## 業務用語と状態の所有者
 
 | 用語 | 状態の正本 |
 |---|---|
 | 依頼 (desk request) | `desk_requests` (Cc)。受付元・依頼者・CLI・本文・状態・spawn ID・session ID・Discord のスレッド |
-| Actio タスク | Actio。依頼窓口は作らず、起動したセッションが作り `POST /v1/sessions/:id/task-links` で紐付ける (実装メモ 1) |
+| Actio タスク | Actio。Cc が受付キーと対応するタスクを作り、委託の実行担当と完了状態を照合する |
 | セッション本体の会話 | 既存のセッション用 Discord チャンネル / Web チャット (`/sessions/:id`)。依頼窓口には写さない (実装メモ 2) |
 
 状態: `accepted` → `launching` → (`launch_unknown`) → `running` → `finished`、または `launch_failed`。逆戻りしない。
@@ -48,7 +61,7 @@ Gen5 の現在工程は受付担当が回答先頭の `Gen5工程: <工程名>` 
 
 ## 構成
 
-- 起動は CDGD 管理の起動と同じ作り (`recordPendingDelegationSpawn({cwd: Castra root, callName: "desk", departmentId, startupInjectText})` → `spawnSession` → `sessions.metadata.concordia_spawn_id` で照合)。部署は設定 `desk.department_id` (空・存在しない ID なら部署なし)。コスト上限中と `desk.enabled` OFF の間は `accepted` のまま待つ。先頭 `[codex]` で Codex のセッションを起動する。
+- 起動は `recordPendingDelegationSpawn` → `spawnSession` → `sessions.metadata.concordia_spawn_id` の順に既存経路で照合する。部署は設定 `desk.department_id`。旧依頼は Castra root の従来経路で照合する。コスト上限中は新規起動・委託を待つ。プロジェクト管制の手順は [プロジェクト管制スキル](../../skills/cc-project-control/SKILL.md) と起動時の案内で共有する。
 - API: `POST /v1/desk/requests` (Web は `client_request_id`、Discord は `request_key`)、`GET /v1/desk/requests`、`GET /v1/desk/requests/:id` (開いているカードの数・カード・セッションへのリンク)。
 - Discord: 旧「雑務窓口」テキストチャンネル (`chores_channel_id`) を「依頼窓口」へ改名して ID・履歴を引き継ぐ (トップレベル)。投稿 1 件 = 依頼 1 件。投稿から `message.startThread` で依頼ごとのスレッドを作り、受付・起動 (セッションのチャンネル / Web チャットへのリンク)・カードの開閉・終了・催促だけを出す。同じ知らせは 2 度出さない (Discord 設定ストアの CAS、結果不明の投稿は繰り返さない)。
 - Web `/desk`: 投稿欄 (送信ごとの受付 ID、同じ本文の再送は同じ ID)、依頼の一覧、依頼の詳細 (リンク・カード・[プランと進捗](control-session.md#13-セッションのプランと進捗-cc-v5-実装メモ-13))、過去の雑務 (読み取りと処理中の run の OK / Continue)。`/chores` は `/desk` へ転送する。
@@ -57,7 +70,7 @@ Gen5 の現在工程は受付担当が回答先頭の `Gen5工程: <工程名>` 
 ## 復旧
 
 - 設定 `desk.enabled` を OFF で新規受付だけ止まる。受付済みの依頼・起動したセッションは影響を受けない。
-- 起動が `launch_unknown` のまま残ったら、spawn ID で照合が続き、5 分で `launch_failed` に倒れる。再依頼は新しい投稿として行う。
+- 起動が `launch_unknown` のまま残ったら、同じ spawn ID で照合を続け、5 分で `launch_failed` とする。依頼詳細の再試行で同じ Actio 参照を使う。
 
 ## 実装の対応
 

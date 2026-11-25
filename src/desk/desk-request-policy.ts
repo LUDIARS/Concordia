@@ -28,6 +28,16 @@ export interface DeskRequest {
   created_at: number;
   updated_at: number;
   revision: number;
+  routing_enabled?: number;
+  requested_project?: string | null;
+  project_code?: string | null;
+  routing_repo?: string | null;
+  task_reference?: string | null;
+  previous_session_id?: string | null;
+  delivery?: "waiting" | "sending" | "sent" | "claimed" | null;
+  delivery_at?: number | null;
+  routing_issue?: "project" | "launch" | "delivery" | null;
+  retry_at?: number;
 }
 
 /** 起動してからセッション登録を待つ上限 (実装メモ 3)。超えたら launch_failed。 */
@@ -71,12 +81,12 @@ export function deskBodyProblem(body: string): string | null {
 }
 
 const NEXT: Record<DeskState, readonly DeskState[]> = {
-  accepted: ["launching"],
-  launching: ["running", "launch_unknown", "launch_failed"],
-  launch_unknown: ["running", "launch_failed"],
-  running: ["finished"],
+  accepted: ["launching", "running", "finished"],
+  launching: ["accepted", "running", "launch_unknown", "launch_failed", "finished"],
+  launch_unknown: ["accepted", "running", "launch_failed", "finished"],
+  running: ["accepted", "finished"],
   finished: [],
-  launch_failed: [],
+  launch_failed: ["accepted"],
 };
 
 export function canTransition(from: DeskState, to: DeskState): boolean {
@@ -84,7 +94,7 @@ export function canTransition(from: DeskState, to: DeskState): boolean {
 }
 
 export function isTerminal(state: DeskState): boolean {
-  return NEXT[state].length === 0;
+  return state === "finished" || state === "launch_failed";
 }
 
 export type SubmitDecision = "create" | "existing" | "conflict";
@@ -94,11 +104,12 @@ export type SubmitDecision = "create" | "existing" | "conflict";
  * 違う中身で同じキーを使ったら衝突 (別の依頼を同じ依頼として黙って捨てない)。
  */
 export function decideSubmission(
-  existing: Pick<DeskRequest, "body" | "provider"> | null,
-  incoming: { body: string; provider: DeskProvider },
+  existing: Pick<DeskRequest, "body" | "provider" | "requested_project"> | null,
+  incoming: { body: string; provider: DeskProvider; project?: string },
 ): SubmitDecision {
   if (!existing) return "create";
-  return existing.body === incoming.body.trim() && existing.provider === incoming.provider ? "existing" : "conflict";
+  const sameProject = (incoming.project?.trim().toLowerCase() || null) === (existing.requested_project ?? null);
+  return existing.body === incoming.body.trim() && existing.provider === incoming.provider && sameProject ? "existing" : "conflict";
 }
 
 export type ReconcileDecision =

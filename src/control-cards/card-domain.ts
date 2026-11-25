@@ -17,6 +17,8 @@ export const CARD_SOURCE_KINDS = [
   "management-waiting-human",
   "session-unresponsive",
   "kaizen-proposal",
+  "desk-project-selection",
+  "desk-routing-issue",
 ] as const;
 export type CardSourceKind = (typeof CARD_SOURCE_KINDS)[number];
 
@@ -41,6 +43,8 @@ export const CARD_KIND_OF: Record<CardSourceKind, CardKind> = {
   "management-waiting-human": "human_judgment",
   "session-unresponsive": "human_action",
   "kaizen-proposal": "human_judgment",
+  "desk-project-selection": "human_judgment",
+  "desk-routing-issue": "human_action",
 };
 
 /**

@@ -196,6 +196,9 @@ import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { isAwaitingHumanInput, readSessionTranscriptTail, startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { createControlRuntime } from "../control-session/runtime.js";
 import { createV5Runtime } from "./v5-desk-cards.js";
+import { createDeskAgentIntake } from "../api/desk-agent-intake.js";
+import { isSessionEndPending } from "../control/session-end-request-state.js";
+import { isDeskResident } from "../desk/routing-runtime.js";
 import { parseHumanCommandRequests } from "../discord/human-command-marker.js";
 import { controlSessionLink } from "../control-session/session-link.js";
 import type { SessionRow } from "../shared/types.js";
@@ -2311,7 +2314,7 @@ export async function startBackend(): Promise<BackendHandle> {
     reaper: {
       isEnabled: () => adminState.getControlSessionReaperEnabled(),
       findRun: (runId) => delegationRepo.findRun(runId),
-      isResidentChild: (sessionId) => !!db.prepare(
+      isResidentChild: (sessionId) => isDeskResident(repo.findSession(sessionId)?.metadata ?? null) || !!db.prepare(
         "SELECT 1 FROM resident_sidecars WHERE child_session_id = ? AND state != 'closed' LIMIT 1",
       ).get(sessionId),
       parentReceivedRunTerminal: (parentSessionId, runId) => !!db.prepare(
@@ -2406,12 +2409,33 @@ export async function startBackend(): Promise<BackendHandle> {
     boardRows: () => controlRuntime.api.boardRows(),
     sessions: repo,
     taskStore,
+    deskRouting: {
+      projects: () => projectCodesRepo.list().map((row) => ({
+        code: row.code, name: row.project, repoPath: row.repo_path, repoOrigin: row.repo_origin,
+      })),
+      taskStore,
+      activeSessions: () => repo.findAllActive(),
+      session: (id) => repo.findSession(id),
+      excludeSession: (session) => controlRuntime.isControlSession(session)
+        || isSessionEndPending(session.metadata)
+        || controlRuntime.api.boardRows().some((row) => row.session_id === session.id
+          && row.status === "unresponsive")
+        || (session.ws_clients === 0 && Date.now() / 1000 - session.last_seen_at > 120),
+      isStalled: (id) => controlRuntime.api.boardRows().some((row) => row.session_id === id && row.status === "stalled"),
+      lastFrame: (id) => transcriptLogs.listBySession(id, { tail: true, limit: 1 })[0] ?? null,
+      delegation: {
+        findRun: (trigger) => delegationRepo.findRunByTriggeredBy(trigger),
+        findRunByChild: (id) => delegationRepo.findRunByChildSession(id),
+        invoke: (input) => delegationService.invoke(input),
+        childStopped: (id) => repo.findSession(id)?.status === "ended",
+      },
+    },
     sprints: new SprintDialoguesRepository(db),
     log: { info: (message) => controlLog.info(message), warn: (message) => controlLog.warn(message) },
   });
   // 管制セッション自身へは停止確認・Goal & Go・現況報告を送らない (管制の文脈を汚さない)。
   const isAutoCheckSuppressed = (session: SessionRow): boolean =>
-    isSessionAutoCheckDisabled(session) || controlRuntime.isControlSession(session);
+    isSessionAutoCheckDisabled(session) || controlRuntime.isControlSession(session) || isDeskResident(session.metadata);
   discordBotDeps = {
     dailyGoals: dailyGoalRuntime.surface,
     controlSession: {
@@ -2727,7 +2751,14 @@ export async function startBackend(): Promise<BackendHandle> {
     repoAgents: successionRuntime.repoAgents,
     webSso,
     conflux: conflux.routes,
-    agentInstructions: { ...agentInstructions.routes, annotate: (id) => { const view = musePlaytestRelay.viewOf(id); return view ? { ...view } : null; } },
+    agentInstructions: {
+      ...agentInstructions.routes,
+      deskIntake: createDeskAgentIntake(v5.desk.service, (id) => {
+        const session = repo.findSession(id);
+        return session?.status === "active" && controlRuntime.isControlSession(session);
+      }),
+      annotate: (id) => { const view = musePlaytestRelay.viewOf(id); return view ? { ...view } : null; },
+    },
     lineWebhook: {
       targets: () => readLineWebhookTargets(readMetaSetting("services.line_webhook_targets")),
       secrets: (channel) => readLineChannelSecrets(adminState.store, channel),

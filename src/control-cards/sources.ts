@@ -18,12 +18,14 @@ import {
 import { pendingPlans } from "../inbox/pending-plans.js";
 import type { CardSourceItem, CardSourceKind } from "./card-domain.js";
 import type { SourceReading } from "./card-sync-policy.js";
+import type { DeskRequest } from "../desk/desk-request-policy.js";
 
 export interface CardSourcePorts {
   /** セッションのプロジェクト (project code)。分からなければ null。 */
   projectOf: (sessionId: string) => string | null;
   /** Web 画面のパスを開ける URL にする。 */
   webUrl: (path: string) => string;
+  deskIssues?: () => DeskRequest[];
 }
 
 function inboxLink(item: InboxItem): string {
@@ -86,6 +88,18 @@ export function createCardSources(db: Database.Database, ports: CardSourcePorts)
         session_id: row.session_id, project: row.project, link: ports.webUrl(`/sessions/${row.session_id}`),
       }))],
   ];
+  if (ports.deskIssues) {
+    const readIssues = ports.deskIssues;
+    for (const kind of ["desk-project-selection", "desk-routing-issue"] as const) {
+      readers.push([kind, () => readIssues()
+        .filter((row) => (kind === "desk-project-selection") === (row.routing_issue === "project"))
+        .map((row) => ({
+          source_kind: kind, source_key: `desk:${row.id}`, session_id: null,
+          summary: row.error ?? "依頼の状況を確認する", project: row.project_code ?? null,
+          raised_at: row.created_at, link: ports.webUrl(`/desk?request=${encodeURIComponent(row.id)}`),
+        }))]);
+    }
+  }
 
   return {
     read(): SourceReading[] {

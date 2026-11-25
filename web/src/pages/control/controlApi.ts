@@ -12,6 +12,12 @@ export interface DeskRequestView {
   body: string;
   state: "accepted" | "launching" | "launch_unknown" | "running" | "finished" | "launch_failed";
   session_id: string | null;
+  project_code?: string | null;
+  task_reference?: string | null;
+  delegation_run_id?: string | null;
+  child_session_id?: string | null;
+  delivery?: "waiting" | "sending" | "sent" | "claimed" | null;
+  routing_issue?: "project" | "launch" | "delivery" | null;
   error: string | null;
   created_at: number;
   updated_at: number;
@@ -44,6 +50,7 @@ export interface PlanStep { text: string; status: "pending" | "in_progress" | "c
 
 export interface SessionProgressRow {
   desk_request_id?: string | null;
+  desk_task_reference?: string | null;
   gen5_stage?: string | null;
   session_id: string;
   project: string;
@@ -107,8 +114,12 @@ export const choresApi = {
 
 export const controlApi = {
   deskRequests: (signal?: AbortSignal) => call<{ requests: DeskRequestView[] }>("/v1/desk/requests", { signal }),
-  deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; gen5Stage: { label: string; messageId: number } | null; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
-  submitDesk: (input: { client_request_id: string; body: string; provider: "claude" | "codex" }) =>
+  deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; gen5Stage: { label: string; messageId: number } | null; projects?: Array<{ code: string; name: string }>; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
+  selectDeskProject: (id: string, project: string) =>
+    call(`/v1/desk/requests/${encodeURIComponent(id)}/project`, { method: "POST", body: { project } }),
+  retryDeskLaunch: (id: string) =>
+    call(`/v1/desk/requests/${encodeURIComponent(id)}/retry-launch`, { method: "POST" }),
+  submitDesk: (input: { client_request_id: string; body: string; provider: "claude" | "codex"; project?: string }) =>
     call<{ request: DeskRequestView; existing: boolean }>("/v1/desk/requests", { method: "POST", body: input }),
   cards: (state: "open" | "closed" | "all" | "discarded", signal?: AbortSignal) => call<{ cards: ControlCardView[]; discarded_count?: number }>(`/v1/control/cards?state=${state}`, { signal }),
   updateCard: (id: string, patch: Record<string, unknown>) => call<{ card: ControlCardView }>(`/v1/control/cards/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),

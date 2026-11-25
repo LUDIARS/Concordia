@@ -64,11 +64,16 @@ export async function startDeskDiscord(input: {
   const onRequest = (request: DeskRequest) => {
     const text = stateNotice(request, request.session_id ? port.sessionLinks(request.session_id) : null);
     if (!text) return;
-    void threadOf(request).then((thread) => postOnce(`desk_notice:${request.id}:${request.state}`, thread, text))
+    const event = request.routing_enabled
+      ? [request.state, request.routing_issue, request.session_id, request.spawn_id].join(":")
+      : request.state;
+    void threadOf(request).then((thread) => postOnce(`desk_notice:${request.id}:${event}`, thread, text))
       .catch((error) => input.log.warn(`desk notice failed request=${request.id}: ${String(error)}`));
   };
   const onCard = (change: CardChange) => {
-    const request = change.card.session_id ? port.findBySession(change.card.session_id) : null;
+    const fromDesk = change.card.source_kind === "desk-project-selection" || change.card.source_kind === "desk-routing-issue";
+    const request = fromDesk && change.card.source_key.startsWith("desk:") ? port.get(change.card.source_key.slice("desk:".length))
+      : change.card.session_id ? port.findBySession(change.card.session_id) : null;
     if (!request) return;
     const stamp = change.kind === "opened" ? change.card.updated_at : change.card.closed_at;
     void threadOf(request).then((thread) => postOnce(`desk_card:${change.card.id}:${change.kind}:${stamp}`, thread, cardNotice(change.kind, change.card)))

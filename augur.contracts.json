@@ -3,6 +3,8 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "desk-routing-C-1", "criterion": "C-1 currentProjectControl(sessions, spawnId): 現行の起動予約と一致する適格な管制が一つのときだけ返す", "symbol": "currentProjectControl", "file": "src/desk/routing-policy.ts", "module": "src/desk/routing-policy.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "desk-routing-C-2", "criterion": "C-2 canOfferDeskRequest(occupied): プロジェクトの委託枠が 2 件未満のときだけ新規の払い出しを許す", "symbol": "canOfferDeskRequest", "file": "src/desk/routing-policy.ts", "module": "src/desk/project-control-capacity.contract.ts", "mode": "observe", "sample": 1 },
     {"id":"actio-read-cache-C-1","criterion":"C-1 selectActioOverviewSnapshot(previous, candidate, revision, currentRevision): 書き込み前の読み直しや部分取得で完全な一覧を置き換えない","symbol":"selectActioOverviewSnapshot","file":"src/taskflow/actio-overview-cache-policy.ts","module":"src/taskflow/actio-overview-cache-policy.contract.ts","mode":"observe","sample":1},
     { "id": "web-idle-C-1", "criterion": "C-1 toWsObserverHeartbeat(sessionId, ts): 読み取り専用の接続にだけ版付き ping を返す", "symbol": "toWsObserverHeartbeat", "file": "src/api/ws-observer-heartbeat.ts", "module": "src/api/ws-observer-heartbeat.contract.ts", "mode": "observe", "sample": 1 },
     {"id":"gen5-return-C-1","criterion":"C-1 toPlaytestManagementEvent(event): 試遊感想を runId・gameId に対応する AI 由来の管理変更に変換し、要約を2000文字以内に収める","symbol":"toPlaytestManagementEvent","file":"src/playtest-review/management-event.ts","module":"src/playtest-review/management-event.contract.ts","mode":"observe","sample":1},

@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import type { DeskApiDeps } from "../api/desk.js";
 import type { ControlCardsApiDeps } from "../api/control-cards.js";
 import { createControlCardsRuntime, type ControlCardsRuntime } from "../control-cards/runtime.js";
+import type { ControlCard } from "../control-cards/card-domain.js";
 import { createSessionProgressReader } from "../control-session/session-progress-reader.js";
 import type { ControlBoardRowWithLink } from "../control-session/session-link.js";
 import type { DeskDiscordPort } from "../desk/discord-port.js";
@@ -20,6 +21,7 @@ import type { TaskStore } from "../taskflow/store.js";
 import { readLinkedTaskViews, readSessionTaskLinks } from "../work/session-task-links.js";
 import type { SprintDialoguesRepository } from "../sprint-dialogues/repository.js";
 import type { SessionWithProgress } from "../control-session/session-progress-view.js";
+import type { DeskRoutingRuntimeDeps } from "../desk/routing-runtime.js";
 
 export interface V5Deps {
   db: Database.Database;
@@ -46,6 +48,7 @@ export interface V5Deps {
   boardRows: () => ControlBoardRowWithLink[];
   sessions: Pick<SessionsRepo, "findSession">;
   taskStore: Pick<TaskStore, "read" | "readReference">;
+  deskRouting: DeskRoutingRuntimeDeps;
   sprints: SprintDialoguesRepository;
   log: { info(message: string): void; warn(message: string): void };
 }
@@ -73,6 +76,7 @@ export function createV5Runtime(deps: V5Deps): V5Runtime {
       return id && deps.departmentExists(id) ? id : null;
     },
     writePrompt: deps.writePrompt,
+    routing: deps.deskRouting,
   });
   const cards = createControlCardsRuntime({
     db: deps.db,
@@ -88,13 +92,14 @@ export function createV5Runtime(deps: V5Deps): V5Runtime {
     },
     postToControlChannel: deps.postToControlChannel,
     parseHumanCommands: deps.parseHumanCommands,
+    deskIssues: () => desk.service.repo.routingIssues(),
     log: deps.log,
   });
   const sessionLinks = (sessionId: string) => ({ discord: deps.sessionDiscordUrl(sessionId), web: webUrl(`/sessions/${sessionId}`) });
-  const cardSummaries = (sessionId: string) => cards.service.bySession(sessionId).map((card) => ({
+  const cardSummary = (card: ControlCard) => ({
     id: card.id, card_kind: card.card_kind, summary: card.summary, state: card.state, priority: card.priority,
     raised_at: card.raised_at, closed_at: card.closed_at,
-  }));
+  });
   const progress = createSessionProgressReader({
     db: deps.db,
     boardRows: deps.boardRows,
@@ -108,7 +113,11 @@ export function createV5Runtime(deps: V5Deps): V5Runtime {
   return {
     desk,
     cards,
-    deskApi: { service: desk.service, cardsForSession: cardSummaries, sessionLinks },
+    deskApi: {
+      service: desk.service, sessionLinks,
+      cardsForSession: (id) => cards.service.bySession(id).map(cardSummary),
+      cardsForRequest: (id) => cards.service.byDeskRequest(id).map(cardSummary),
+    },
     cardsApi: { service: cards.service, sprints: () => deps.sprints.list() },
     deskDiscord: {
       submit: (input) => desk.service.submit(input),
@@ -124,6 +133,7 @@ export function createV5Runtime(deps: V5Deps): V5Runtime {
     sessionProgress: async () => (await progress.read()).map(row => {
       const request = desk.service.findBySession(row.session_id);
       return { ...row, desk_request_id: request?.id ?? null,
+        desk_task_reference: request?.task_reference ?? null,
         gen5_stage: request ? desk.service.repo.gen5Stage(row.session_id)?.label ?? null : null };
     }),
     humanRequestDone: ({ sessionMessageId, index, userId }) => {

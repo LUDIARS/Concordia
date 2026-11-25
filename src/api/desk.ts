@@ -19,6 +19,7 @@ const SubmitSchema = z.object({
   body: z.string().min(1).max(DESK_BODY_MAX_CHARS * 4),
   provider: z.enum(["claude", "codex"]).default("claude"),
   requester: z.string().max(200).optional(),
+  project: z.string().trim().min(1).max(100).optional(),
 }).strict().refine((value) => Boolean(value.client_request_id) !== Boolean(value.request_key), "client_request_id か request_key のどちらか 1 つ");
 
 export interface DeskCardSummary {
@@ -35,15 +36,32 @@ export interface DeskApiDeps {
   service: DeskService;
   /** そのセッションのカード (開閉とも)。 */
   cardsForSession?: (sessionId: string) => DeskCardSummary[];
+  cardsForRequest?: (requestId: string) => DeskCardSummary[];
   /** セッションの Discord チャンネル URL と Web チャットのパス。 */
   sessionLinks?: (sessionId: string) => { discord: string | null; web: string };
 }
 
+function requestCards(deps: DeskApiDeps, request: DeskRequest): DeskCardSummary[] {
+  const childSession = request.task_reference ? deps.service.delegationRun(request.id)?.childSessionId : null;
+  return [
+    ...(deps.cardsForRequest?.(request.id) ?? []),
+    ...(request.session_id && (!request.routing_enabled || request.delivery === "claimed")
+      ? deps.cardsForSession?.(request.session_id) ?? [] : []),
+    ...(childSession && childSession !== request.session_id ? deps.cardsForSession?.(childSession) ?? [] : []),
+  ];
+}
+
 function view(deps: DeskApiDeps, request: DeskRequest) {
-  const cards = request.session_id ? deps.cardsForSession?.(request.session_id) ?? [] : [];
+  const run = request.task_reference ? deps.service.delegationRun(request.id) : null;
   return {
-    ...request,
-    open_cards: cards.filter((card) => card.state === "open").length,
+    id: request.id, request_key: request.request_key, origin: request.origin, requester: request.requester,
+    provider: request.provider, body: request.body, state: request.state, spawn_id: request.spawn_id,
+    session_id: request.session_id, launch_deadline_at: request.launch_deadline_at, error: request.error,
+    discord_thread_id: request.discord_thread_id, created_at: request.created_at, updated_at: request.updated_at,
+    revision: request.revision, project_code: request.project_code, task_reference: request.task_reference,
+    routing_issue: request.routing_issue, delivery: request.delivery,
+    ...(run ? { delegation_run_id: run.id, child_session_id: run.childSessionId } : {}),
+    open_cards: requestCards(deps, request).filter((card) => card.state === "open").length,
     links: request.session_id ? deps.sessionLinks?.(request.session_id) ?? { discord: null, web: `/sessions/${request.session_id}` } : null,
   };
 }
@@ -55,10 +73,11 @@ export function deskRouter(deps: DeskApiDeps): Hono {
   app.post("/requests", async (c) => {
     const parsed = SubmitSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_request", detail: parsed.error.issues.map((issue) => issue.message) }, 400);
-    const { client_request_id, request_key, body, provider, requester } = parsed.data;
+    const { client_request_id, request_key, body, provider, requester, project } = parsed.data;
     const key = request_key ?? webRequestKey(client_request_id!);
     if (!key) return c.json({ error: "invalid_request", detail: ["client_request_id は 8〜100 文字の英数字・-_"] }, 400);
-    const outcome = deps.service.submit({ requestKey: key, requester: requester ?? (request_key ? "discord" : "web"), provider, body });
+    const outcome = deps.service.submit({ requestKey: key, requester: requester ?? (request_key ? "discord" : "web"), provider, body,
+      ...(project === undefined ? {} : { project }) });
     if (outcome.kind === "invalid") return c.json({ error: "invalid_request", detail: [outcome.problem] }, 400);
     if (outcome.kind === "disabled") return c.json({ error: "desk_disabled" }, 503);
     if (outcome.kind === "conflict") return c.json({ error: "request_key_reused", request: view(deps, outcome.request) }, 409);
@@ -77,8 +96,28 @@ export function deskRouter(deps: DeskApiDeps): Hono {
     return c.json({
       request: view(deps, request),
       gen5Stage: request.session_id ? deps.service.repo.gen5Stage(request.session_id) : null,
-      cards: request.session_id ? deps.cardsForSession?.(request.session_id) ?? [] : [],
+      projects: request.routing_issue === "project" ? deps.service.projects() : [],
+      cards: requestCards(deps, request),
     });
+  });
+
+  app.post("/requests/:id/project", async (c) => {
+    const parsed = z.object({ project: z.string().trim().min(1).max(100) }).strict().safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_project" }, 400);
+    const request = deps.service.selectProject(c.req.param("id"), parsed.data.project);
+    return request ? c.json({ request: view(deps, request) }) : c.json({ error: "project_selection_unavailable" }, 409);
+  });
+
+  app.post("/requests/:id/retry-launch", (c) => {
+    const request = deps.service.retryLaunch(c.req.param("id"));
+    return request ? c.json({ request: view(deps, request) }) : c.json({ error: "launch_retry_unavailable" }, 409);
+  });
+
+  app.post("/requests/:id/claim", async (c) => {
+    const parsed = z.object({ session_id: z.string().trim().min(1).max(200) }).strict().safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_session" }, 400);
+    const request = deps.service.claim(c.req.param("id"), parsed.data.session_id);
+    return request ? c.json({ task_reference: request.task_reference }) : c.json({ error: "claim_unavailable" }, 409);
   });
 
   return app;

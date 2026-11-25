@@ -3,6 +3,7 @@ import { makeTestDb } from "../../tests/helpers/db.js";
 import { DeskRepository } from "../desk/repository.js";
 import { DeskService } from "../desk/service.js";
 import { deskRouter } from "./desk.js";
+import { createDeskAgentIntake } from "./desk-agent-intake.js";
 
 function setup(enabled = true) {
   let seq = 0;
@@ -17,6 +18,23 @@ function setup(enabled = true) {
 }
 
 describe("/v1/desk", () => {
+  it("routes dots and active Control intake through the same idempotent desk acceptance", () => {
+    let id = 0;
+    const service = new DeskService(new DeskRepository(makeTestDb()), {
+      now: () => 1, id: () => `req-${++id}`, isEnabled: () => true,
+      projects: () => [{ code: "Cc", name: "Concordia", repoPath: "/repos/Concordia" }],
+    });
+    const intake = createDeskAgentIntake(service, (id) => id === "control-session");
+    const input = { request_id: "req-1", project: "Cc", body: "依頼" };
+    const first = intake(input, true);
+    expect(first.status).toBe(202);
+    expect(intake(input, true)).toEqual({ status: 200, body: first.body });
+    expect(intake({ ...input, body: "別の依頼" }, true).status).toBe(409);
+    expect(intake({ ...input, session_id: "control-session" }, true).status).toBe(403);
+    expect(intake({ ...input, session_id: "control-session" }, false).status).toBe(202);
+    expect(service.list()).toHaveLength(2);
+  });
+
   it("accepts once per client request id and returns the same request on retry (CC-V5-INV-01)", async () => {
     const { app, post } = setup();
     const first = await post({ client_request_id: "abcdefgh-1", body: "依頼", provider: "codex" });

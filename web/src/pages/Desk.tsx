@@ -8,7 +8,7 @@ import { controlApi, type DeskRequestView } from "./control/controlApi.js";
 import { usePolling } from "./control/usePolling.js";
 import { ReconnectingStatus } from "../components/ReconnectingStatus.js";
 import { DeskDetail } from "./desk/DeskDetail.js";
-import { DESK_STATE_LABEL } from "./desk/deskLabels.js";
+import { deskStateLabel } from "./desk/deskLabels.js";
 import { PastChores } from "./desk/PastChores.js";
 
 export function Desk() {
@@ -16,21 +16,25 @@ export function Desk() {
   const selected = params.get("request");
   const list = usePolling((signal) => controlApi.deskRequests(signal), 5_000);
   const [body, setBody] = useState("");
+  const [project, setProject] = useState("");
   const [provider, setProvider] = useState<"claude" | "codex">("claude");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // 同じ本文の再送 (結果が分からなかった送信) は同じ受付 ID を使う。
-  const pending = useRef<{ id: string; body: string; provider: string } | null>(null);
+  const pending = useRef<{ id: string; body: string; provider: string; project: string } | null>(null);
   const submit = async () => {
     if (busy || !body.trim()) return;
     setBusy(true); setError("");
-    if (!pending.current || pending.current.body !== body || pending.current.provider !== provider) {
-      pending.current = { id: crypto.randomUUID(), body, provider };
+    const selectedProject = project.trim();
+    if (!pending.current || pending.current.body !== body || pending.current.provider !== provider || pending.current.project !== selectedProject) {
+      pending.current = { id: crypto.randomUUID(), body, provider, project: selectedProject };
     }
     try {
-      const { request } = await controlApi.submitDesk({ client_request_id: pending.current.id, body, provider });
+      const { request } = await controlApi.submitDesk({ client_request_id: pending.current.id, body, provider,
+        ...(selectedProject ? { project: selectedProject } : {}) });
       pending.current = null;
       setBody("");
+      setProject("");
       setParams({ request: request.id });
       list.reload();
     } catch (e) {
@@ -45,6 +49,7 @@ export function Desk() {
     </div>
     {!selected && <form className="space-y-3 rounded border border-border p-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <label className="block">依頼内容<textarea required maxLength={16000} value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="block w-full mt-2 rounded border border-border bg-surface p-2" /></label>
+      <label className="block">対象プロジェクトの略号（任意）<input type="text" value={project} maxLength={100} onChange={(e) => setProject(e.target.value)} className="ml-2 rounded border border-border bg-surface p-2" /></label>
       <div className="flex gap-3 items-center">
         <label>実行CLI <select aria-label="実行CLI" value={provider} onChange={(e) => setProvider(e.target.value as "claude" | "codex")} className="bg-surface border border-border rounded p-2"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
         <button disabled={busy || !body.trim()} className="px-4 py-2 rounded bg-accent text-white disabled:opacity-50">依頼する</button>
@@ -58,8 +63,8 @@ export function Desk() {
       {list.data && requests.length === 0 && <p className="text-subtle">まだ依頼はありません。</p>}
       {requests.map((request) => <button key={request.id} type="button" onClick={() => setParams({ request: request.id })}
         className={`block w-full text-left border rounded p-3 ${selected === request.id ? "border-accent" : "border-border"}`}>
-        <div className="flex flex-wrap gap-2 text-sm"><strong>{DESK_STATE_LABEL[request.state]}</strong>
-          <span className="text-subtle">{request.origin} · {new Date(request.created_at).toLocaleString()}</span>
+        <div className="flex flex-wrap gap-2 text-sm"><strong>{deskStateLabel(request)}</strong>
+          <span className="text-subtle">{request.project_code ? `${request.project_code} · ` : ""}{request.origin} · {new Date(request.created_at).toLocaleString()}</span>
           {request.open_cards > 0 && <span className="text-amber-400">カード {request.open_cards}</span>}</div>
         <p className="break-words line-clamp-2">{request.body}</p>
       </button>)}

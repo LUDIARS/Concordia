@@ -1,12 +1,15 @@
 {
   "name": "request-desk",
-  "description": "Cc v5 の依頼窓口 (2026-11-24 neco 指示「依頼窓口のチャットを設けて」「軽い依頼も重い依頼も全て一つの窓口でやれるようにする」)。agent-delegation の下位で、雑務 (chores) の新規受付を引き継ぐ。Web の /desk と Discord の「依頼窓口」チャンネルから依頼を受付キーで 1 回だけ受け、spawn ID を先に保存して作業セッションを 1 回だけ起動し、spawn ID で照合して running / finished を観測する。Actio タスクは起動したセッションが作る。依頼ごとの Discord スレッドには受付・起動・カードの開閉・終了・催促だけを出す。UX-CC-W2/W5; CC-V5-INV-01/06/07。",
+  "description": "Cc v5 の依頼窓口。受付キーで依頼を受け、Actio タスクを作り、対象プロジェクト専任の管制セッションの受け箱へ届ける。管制の起動予約、配達、委託受付を管理し、Actio の実行担当と委託 run を既存の所有者から照合する。旧依頼は旧起動との照合を続ける。UX-CC-W2/W5、CC-V5-INV-01/06/07。Actio actio:8049bc2f-78ab-488a-b479-0242f5db464d。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)spec/feature/request-desk\\.md$" },
+    { "pathPattern": "(^|/)skills/cc-project-control/SKILL\\.md$" },
     { "pathPattern": "(^|/)src/desk/[^/]+\\.ts$" },
     { "pathPattern": "(^|/)src/api/desk(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/desk-agent-intake\\.ts$" },
+    { "pathPattern": "(^|/)src/db/desk-actio-routing-migration\\.ts$" },
     { "pathPattern": "(^|/)src/discord/desk(-notices)?(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/pages/Desk(\\.test)?\\.tsx$" },
     { "pathPattern": "(^|/)web/src/pages/desk/[^/]+\\.tsx?$" }

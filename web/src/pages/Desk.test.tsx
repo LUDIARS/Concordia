@@ -25,6 +25,17 @@ function respond(url: string, init?: RequestInit): Response {
     return new Response(JSON.stringify({ request: { ...running, id: "req-2", request_key: `web:${body.client_request_id}`, state: "accepted", session_id: null, links: null }, existing: false }), { status: 202 });
   }
   if (url === "/v1/desk/requests") return new Response(JSON.stringify({ requests: [running] }));
+  if (url === "/v1/desk/requests/routed") return new Response(JSON.stringify({
+    request: { ...running, project_code: "Cc", task_reference: "actio:task-1", delivery: "waiting" },
+    cards: [], gen5Stage: null,
+  }));
+  if (url === "/v1/desk/requests/delegated") return new Response(JSON.stringify({
+    request: {
+      ...running, project_code: "Cc", task_reference: "actio:task-2", delivery: "claimed",
+      delegation_run_id: "run-2", child_session_id: "child-2",
+    },
+    cards: [], gen5Stage: null,
+  }));
   if (url.startsWith("/v1/desk/requests/req-1")) return new Response(JSON.stringify({ request: running, gen5Stage: { label: "人間のプレイ確認", messageId: 4 }, cards: [{ id: "c1", card_kind: "human_judgment", summary: "方針を決める", state: "open", priority: "normal" }] }));
   if (url.startsWith("/v1/desk/requests/")) return new Response(JSON.stringify({ request: { ...running, id: "req-2", state: "accepted", session_id: null, links: null }, cards: [] }));
   if (url.startsWith("/v1/control/sessions")) return new Response(JSON.stringify({ error: "control_disabled" }), { status: 409 });
@@ -44,6 +55,25 @@ async function render(path: string) {
 }
 
 describe("依頼窓口 (/desk、Cc v5)", () => {
+  it("shows the Actio reference and separates assignment from claim", async () => {
+    const view = await render("/desk?request=routed");
+    try {
+      expect(view.container.textContent).toContain("actio:task-1");
+      expect(view.container.textContent).toContain("プロジェクト管制の受付待ち");
+      expect(view.container.textContent).toContain("プロジェクト管制の Web チャット");
+      expect(view.container.textContent).not.toContain("実行セッション");
+    } finally { await view.cleanup(); }
+  });
+
+  it("links to the delegated execution session and keeps the control session chat", async () => {
+    const view = await render("/desk?request=delegated");
+    try {
+      const links = [...view.container.querySelectorAll("a")];
+      expect(links.find((link) => link.textContent === "child-2")?.getAttribute("href")).toBe("/sessions/child-2");
+      expect(links.find((link) => link.textContent === "プロジェクト管制の Web チャット")?.getAttribute("href")).toBe("http://cc/sessions/s1");
+    } finally { await view.cleanup(); }
+  });
+
   it("lists requests and shows the detail with session links, cards, and an explicit progress state", async () => {
     const view = await render("/desk?request=req-1");
     try {

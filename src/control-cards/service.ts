@@ -40,6 +40,12 @@ export class ControlCardsService {
     return this.repo.listBySession(sessionId);
   }
 
+  byDeskRequest(requestId: string): ControlCard[] {
+    const key = `desk:${requestId}`;
+    const sources = ["desk-project-selection", "desk-routing-issue"];
+    return sources.flatMap((source) => this.repo.findBySource(source, key) ?? []);
+  }
+
   reminders(id: string): ReminderRecord[] {
     return this.repo.reminders(id);
   }

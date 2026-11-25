@@ -21,6 +21,7 @@ import type { InstructionAccessGate } from "../agent-instructions/public-access.
 import { INSTRUCTION_ID_PATTERN } from "../agent-instructions/instruction-policy.js";
 import { parseAck, parseHistoryQuery, parsePollQuery, parseRegister, parseResult, type RequestError } from "../agent-instructions/instruction-requests.js";
 import type { InstructionService } from "../agent-instructions/instruction-service.js";
+import type { createDeskAgentIntake } from "./desk-agent-intake.js";
 
 export const AGENT_INSTRUCTIONS_PATH = "/v1/instructions";
 /** 本文の上限。 params 8000 / detail 16000 バイトに JSON の余白を足す。 */
@@ -28,6 +29,7 @@ export const AGENT_INSTRUCTIONS_MAX_BODY_BYTES = 64 * 1024;
 
 export interface AgentInstructionsDeps {
   service: InstructionService;
+  deskIntake?: ReturnType<typeof createDeskAgentIntake>;
   access: InstructionAccessGate;
   /** 一覧の行に添える後追いの状態 (Muse の試遊結果の中継)。 無ければ添えない。 */
   annotate?: (id: string) => Record<string, unknown> | null;
@@ -98,6 +100,14 @@ export function agentInstructionsRouter(deps: AgentInstructionsDeps): Hono {
     if (!parsed.ok) return fail(c, 400, parsed.error);
     const instructions = deps.service.poll(parsed.value.agent, parsed.value.status, parsed.value.limit);
     return c.json({ data: { instructions } }, 200);
+  });
+
+  app.post("/desk-requests", guard, limit, async (c) => {
+    if (!deps.deskIntake) return fail(c, 404, NOT_FOUND);
+    const read = await readJson(c);
+    if (!read.ok) return fail(c, 400, NOT_JSON);
+    const outcome = deps.deskIntake(read.body, deps.access.origin(header(c)) === "public");
+    return c.json(outcome.body, outcome.status);
   });
 
   app.post("/:id/ack", guard, limit, async (c) => {

@@ -20,6 +20,7 @@ import { runReminders, type ReminderDelivery } from "./reminder-runner.js";
 import { ControlCardsRepository } from "./repository.js";
 import { ControlCardsService } from "./service.js";
 import { createCardSources } from "./sources.js";
+import type { DeskRequest } from "../desk/desk-request-policy.js";
 
 export const CONTROL_CARDS_TICK_MS = 60 * 1000;
 const ENDED_STATUSES = new Set(["ended", "lost"]);
@@ -40,6 +41,7 @@ export interface ControlCardsRuntimeDeps {
   /** 依頼窓口のスレッドが無いときの催促の届け先 (管制チャンネル)。送れたら true。 */
   postToControlChannel: (text: string) => Promise<boolean>;
   parseHumanCommands: HumanCommandParser;
+  deskIssues?: () => DeskRequest[];
   log: { info(message: string): void; warn(message: string): void };
 }
 
@@ -55,7 +57,8 @@ export function createControlCardsRuntime(deps: ControlCardsRuntimeDeps) {
     repo, parse: deps.parseHumanCommands, now: Date.now, id: randomUUID, projectOf: deps.projectOf, webUrl: deps.webUrl, onChange, log: deps.log,
   });
   const service = new ControlCardsService(repo, humanCommands, Date.now);
-  const sources = createCardSources(deps.db, { projectOf: deps.projectOf, webUrl: deps.webUrl });
+  const sources = createCardSources(deps.db, { projectOf: deps.projectOf, webUrl: deps.webUrl,
+    ...(deps.deskIssues ? { deskIssues: deps.deskIssues } : {}) });
   const triage = createTriageDispatch({
     repo, isEnabled: deps.isDotsTriageEnabled, state: deps.settings,
     register: deps.instructions.register, instructionStatus: deps.instructions.status, now: Date.now, log: deps.log,

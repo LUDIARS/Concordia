@@ -14,6 +14,9 @@ import { buildDeskStartupPrompt, type DeskRequest } from "./desk-request-policy.
 import { DeskDispatcher, type DeskLaunchResult } from "./dispatcher.js";
 import { DeskRepository } from "./repository.js";
 import { DeskService } from "./service.js";
+import { DeskRoutingDispatcher } from "./routing-dispatcher.js";
+import { projectControlStartup } from "./project-control-prompt.js";
+import { createDeskRoutingPorts, PROJECT_CONTROL_ROLE, type DeskRoutingRuntimeDeps } from "./routing-runtime.js";
 
 export const DESK_TICK_MS = 2_000;
 const ENDED_STATUSES = new Set(["ended", "lost"]);
@@ -27,6 +30,7 @@ export interface DeskRuntimeDeps {
   /** 空なら部署なし。存在しない部署は渡さない。 */
   departmentId: () => string | null;
   writePrompt: (text: string) => Promise<string>;
+  routing: DeskRoutingRuntimeDeps;
   /** 起動の差し替え (テスト用)。既定は spawnSession。 */
   spawn?: typeof spawnSession;
 }
@@ -42,11 +46,19 @@ export interface DeskRuntime {
 export function createDeskRuntime(deps: DeskRuntimeDeps): DeskRuntime {
   const log = createChildLogger("desk");
   const repo = new DeskRepository(deps.db);
-  const service = new DeskService(repo, { now: Date.now, id: randomUUID, isEnabled: deps.isEnabled });
+  const routingPorts = createDeskRoutingPorts(deps.routing, repo, deps.concordiaUrl);
+  const service = new DeskService(repo, {
+    now: Date.now, id: randomUUID, isEnabled: deps.isEnabled, projects: deps.routing.projects,
+    canClaim: (id, project) => routingPorts.projectControl(project)?.id === id,
+    delegationRun: routingPorts.delegationRun,
+    requestForChildSession: routingPorts.requestForChildSession,
+  });
   const findBySpawn = deps.db.prepare("SELECT id FROM sessions WHERE json_extract(metadata, '$.concordia_spawn_id') = ? LIMIT 1");
   const sessionStatus = deps.db.prepare("SELECT status FROM sessions WHERE id = ?");
   const spawn = deps.spawn ?? spawnSession;
   let listener: ((request: DeskRequest) => void) | null = null;
+  const findSessionBySpawnId = (spawnId: string) => (findBySpawn.get(spawnId) as { id: string } | undefined)?.id ?? null;
+  const logError = (error: unknown) => log.error({ err: error }, "desk dispatch failed");
 
   const launch = async (request: DeskRequest, spawnId: string): Promise<DeskLaunchResult> => {
     const cwd = deps.workspaceRoot();
@@ -73,17 +85,42 @@ export function createDeskRuntime(deps: DeskRuntimeDeps): DeskRuntime {
     isEnabled: deps.isEnabled,
     isCostBlocked: deps.isCostBlocked,
     launch,
-    findSessionBySpawnId: (spawnId) => (findBySpawn.get(spawnId) as { id: string } | undefined)?.id ?? null,
+    findSessionBySpawnId,
     isSessionEnded: (sessionId) => {
       const row = sessionStatus.get(sessionId) as { status: string } | undefined;
       return row ? ENDED_STATUSES.has(row.status) : null;
     },
     onChange: (request) => listener?.(request),
-    logError: (error) => log.error({ err: error }, "desk dispatch failed"),
+    logError,
+  });
+  const routing = new DeskRoutingDispatcher(repo, {
+    ...routingPorts,
+    now: Date.now, id: randomUUID, isCostBlocked: deps.isCostBlocked, findSessionBySpawnId, logError,
+    onChange: (request) => listener?.(request),
+    async launch(request, project, spawnId) {
+      const cwd = project.repoPath;
+      const prompt = projectControlStartup(project.code);
+      const promptFile = await deps.writePrompt(prompt);
+      recordPendingDelegationSpawn({ cwd, spawnId, callName: PROJECT_CONTROL_ROLE, project: project.code,
+        departmentId: deps.departmentId(), startupInjectText: prompt, goalAndGo: false });
+      const result = await spawn({ provider: request.provider, cwd, cwdProvided: true, spawnId,
+        title: `${project.code} プロジェクト管制`, env: interactiveSpawnEnvironment(request.provider, promptFile) });
+      if (!result.ok) forgetPendingDelegationSpawnBySpawnId(spawnId);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
+    },
   });
 
+  let nextRetirementCheck = 0;
   const timer = setInterval(() => {
-    try { dispatcher.tick(); } catch (error) { log.error({ err: error }, "desk tick failed"); }
+    try {
+      dispatcher.tick();
+      routing.tick();
+      const now = Date.now();
+      if (now >= nextRetirementCheck) {
+        nextRetirementCheck = now + 60_000;
+        routingPorts.retireSuperseded();
+      }
+    } catch (error) { log.error({ err: error }, "desk tick failed"); }
   }, DESK_TICK_MS);
   timer.unref();
 
@@ -93,7 +130,7 @@ export function createDeskRuntime(deps: DeskRuntimeDeps): DeskRuntime {
     attachListener: (next) => { listener = next; },
     stop: async () => {
       clearInterval(timer);
-      await dispatcher.stop();
+      await Promise.all([dispatcher.stop(), routing.stop()]);
     },
   };
 }

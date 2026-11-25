@@ -20,8 +20,9 @@ import { musePlaytestRelaysMigration } from "./muse-playtest-relays-migration.js
 import { controlCardsDiscardMigration } from "./control-cards-discard-migration.js";
 import { mailSweepMigration } from "./cron-mail-sweep-migration.js";
 import { kaizenCloudMigration } from "./kaizen-cloud-migration.js";
+import { deskActioRoutingMigration } from "./desk-actio-routing-migration.js";
 
-export const SCHEMA_VERSION = 160;
+export const SCHEMA_VERSION = 162;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3910,6 +3911,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   controlCardsDiscardMigration,
   mailSweepMigration,
   kaizenCloudMigration,
+  deskActioRoutingMigration,
 ];
 
 /**

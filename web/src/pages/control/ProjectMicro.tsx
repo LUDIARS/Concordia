@@ -15,6 +15,8 @@ export function ProjectMicro({ sessions }: { sessions: SessionProgressRow[] }) {
         onClick={() => setChat(chat === row.session_id ? null : row.session_id)}>{chat === row.session_id ? "チャットを閉じる" : "チャットを開く"}</button>
     </header>
     <p className="my-2 text-xs">{sessionStatus[row.status ?? ""] ?? row.status ?? "未分類"} · Gen5　{row.gen5_stage ?? "工程未報告"}</p>
+    {row.desk_task_reference && row.desk_request_id && <a className="text-xs text-accent underline"
+      href={`/desk?request=${encodeURIComponent(row.desk_request_id)}`}>{row.desk_task_reference}</a>}
     {row.gen5_stage && <ol aria-label="Gen5 ワークフロー" className="flex flex-wrap items-center gap-y-1 py-2 text-xs">
       {GEN5_STAGES.map((stage, index) => <li key={stage} className="flex items-center">
         {index > 0 && <span aria-hidden="true" className="w-3 border-t border-border" />}

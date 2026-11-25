@@ -37,8 +37,9 @@ function respond(url: string, init?: RequestInit): Response {
   return new Response("{}", { status: 404 });
 }
 
-async function render() {
-  const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => respond(String(url), init));
+async function render(overview?: Response) {
+  const fetcher = vi.fn(async (url: unknown, init?: RequestInit) =>
+    overview && String(url).includes("/v1/taskflow/overview") ? overview : respond(String(url), init));
   vi.stubGlobal("fetch", fetcher);
   const container = document.createElement("div");
   document.body.append(container);
@@ -49,6 +50,27 @@ async function render() {
 }
 
 describe("管制画面 (/control、Cc v5)", () => {
+  it("keeps retrieved Actio rows visible with partial read guidance", async () => {
+    const full = await respond("/v1/taskflow/overview").json();
+    const view = await render(new Response(JSON.stringify({ ...full, partial_reason: "actio_read_timeout" })));
+    try {
+      const panel = view.container.querySelector('[aria-label="Actio タスク"]');
+      expect(panel?.textContent).toContain("依頼窓口を作る");
+      expect(panel?.querySelector('[role="alert"]')?.textContent).toContain("一部だけ取得");
+      expect(panel?.textContent).toContain("読み取りが時間切れ");
+      expect(panel?.textContent).not.toContain("処理結果");
+    } finally { await view.cleanup(); }
+  });
+
+  it("does not report zero active tasks for an empty partial overview", async () => {
+    const view = await render(new Response(JSON.stringify({ tasks: [], partial_reason: "actio_unreachable" })));
+    try {
+      const panel = view.container.querySelector('[aria-label="Actio タスク"]');
+      expect(panel?.querySelector('[role="alert"]')?.textContent).toContain("接続できませんでした");
+      expect(panel?.textContent).not.toContain("進行中のタスクはありません");
+    } finally { await view.cleanup(); }
+  });
+
   it("weights known steps, counts all sessions and leaves unmeasured projects unknown", () => {
     const row = (id: string, project: string, done: number, total: number) => ({
       ...sessionRow(id, {}), project, status: "human_wait",

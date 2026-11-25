@@ -10,7 +10,8 @@ import { assignTaskWorker, taskSessionMetadata } from "./session-metadata.js";
 import { mergeTaskPrEvidence, TaskPrEvidence } from "./pr-evidence.js";
 import type { PlanningTask } from "./continuation-plan.js";
 import { appendTaskInstruction, endTaskRun, startTaskRun, taskRuns } from "./task-runs.js";
-import { readAllActioTasks } from "./actio-task-pages.js";
+import { actioTaskPages, readAllActioTasks } from "./actio-task-pages.js";
+import { readActioOverviewPages, type ActioOverviewPages } from "./actio-overview-pages.js";
 
 const Task = z.object({
   // Newer Actio lists summaries without description; GET /api/tasks/:id still returns it.
@@ -53,9 +54,24 @@ export class ActioWorkflowClient {
   constructor(private readonly transport: ActioTransport) {}
 
   async list(binding: ActioBinding): Promise<ActioWorkflowTask[]> {
+    const tasks = await readAllActioTasks((path) => this.transport.request(binding, "GET", path), this.listQuery(binding), Task);
+    return this.scopeList(binding, tasks);
+  }
+
+  async listForOverview(binding: ActioBinding): Promise<ActioOverviewPages<ActioWorkflowTask>> {
+    const result = await readActioOverviewPages(actioTaskPages(
+      (path) => this.transport.request(binding, "GET", path), this.listQuery(binding), Task,
+    ));
+    return { ...result, tasks: this.scopeList(binding, result.tasks) };
+  }
+
+  private listQuery(binding: ActioBinding): URLSearchParams {
     const query = new URLSearchParams({ scope: "owned", project: binding.projectId, pluginId: ACTIO_WORKFLOW_SOURCE });
     if (binding.teamId) query.set("team_id", binding.teamId);
-    const tasks = await readAllActioTasks((path) => this.transport.request(binding, "GET", path), query, Task);
+    return query;
+  }
+
+  private scopeList(binding: ActioBinding, tasks: ActioWorkflowTask[]): ActioWorkflowTask[] {
     return tasks
       .filter((task) => !isOtherTeamTaskOfTeamlessListing(binding, task))
       .map((task) => this.scoped(binding, task));

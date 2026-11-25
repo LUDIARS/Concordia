@@ -44,6 +44,24 @@ describe("Taskflow", () => {
     expect(container.textContent).not.toContain('該当するタスクはありません');
     expect(container.textContent).not.toContain('secret-value');
   });
+
+  it("labels zero rows in a partial overview as an incomplete count", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.startsWith("/v1/taskflow/overview")) return new Response(JSON.stringify({
+        generated_at: 1, tasks: [], partial_reason: "actio_read_timeout",
+        counts: { total: 0, pending: 0, delegated: 0, done: 0, cancelled: 0, ci_failure: 0, ci_pending: 0 },
+      }));
+      if (url.startsWith("/v1/subsidiaries")) return new Response(JSON.stringify({ subsidiaries: [] }));
+      return new Response(JSON.stringify({ teams: [] }));
+    }));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => { root!.render(<MemoryRouter><TeamFilterProvider><Taskflow /></TeamFilterProvider></MemoryRouter>); });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("件数は取得できた分");
+    expect(container.textContent).not.toContain("該当するタスクはありません");
+  });
   it("shows the task status and the execution state as separate columns", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
       const url = String(input);

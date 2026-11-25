@@ -3,7 +3,7 @@ import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TaskStatus } from "../taskflow/types.js";
-import type { TaskStore } from "../taskflow/store.js";
+import type { TaskOverviewScan, TaskStore } from "../taskflow/store.js";
 import { registerActioTaskRoutes } from "./taskflow-actio.js";
 import type { TaskflowStateStore, TaskRuntimePatch } from "../taskflow/state-store.js";
 import {
@@ -201,8 +201,12 @@ export function taskflowRouter(input: {
       headOffice: c.req.query("head_office"),
     });
     if (!scope.ok) return c.json({ error: scope.error }, 400);
+    const selection = project ? { project } : undefined;
+    const scan: TaskOverviewScan = input.store.scanForOverview
+      ? await input.store.scanForOverview(selection)
+      : { documents: await input.store.scan(selection) };
     const overview = buildTaskflowOverview({
-      documents: await input.store.scan(project ? { project } : undefined),
+      documents: scan.documents,
       relativePath: (document) => input.store.relativePath(document),
       sessions: input.sessions.listSessions({}),
       runs: input.delegation.recentRuns(1000),
@@ -221,6 +225,7 @@ export function taskflowRouter(input: {
       ...overview,
       counts: countTaskflowRows(tasks),
       tasks,
+      ...(scan.partialReason ? { partial_reason: scan.partialReason } : {}),
     });
   });
   return app;

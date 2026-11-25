@@ -200,6 +200,7 @@ export interface TaskflowExecution {
 
 export interface TaskflowOverviewResult {
   generated_at: number;
+  partial_reason?: string;
   counts: {
     total: number;
     pending: number;

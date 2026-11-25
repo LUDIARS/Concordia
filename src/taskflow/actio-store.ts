@@ -6,7 +6,7 @@ import { workflowStatus, type ActioWorkflowClient, type ActioWorkflowTask } from
 import { ActioTeamCandidatesError, selectActioTeam } from "./actio-team-selection.js";
 import { mainRepositoryKey } from "./repository-identity.js";
 import type { TaskflowStateStore } from "./state-store.js";
-import type { RemainingTasksInput, TaskCreateInput, TaskRunStart, TaskScanScope, TaskStore } from "./store.js";
+import type { RemainingTasksInput, TaskCreateInput, TaskOverviewScan, TaskRunStart, TaskScanScope, TaskStore } from "./store.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
 import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
@@ -28,14 +28,27 @@ export class ActioTaskStore implements TaskStore {
   ) {}
 
   async scan(scope?: TaskScanScope): Promise<TaskDocument[]> {
-    const selection = scope?.project ? { project: scope.project } : undefined;
     const documents: TaskDocument[] = [];
-    for (const binding of await this.bindings(selection)) {
-      // Older/custom readers can ignore selection; never read unrelated task bodies.
-      if (!matchesActioBindingScope(binding, selection)) continue;
+    for (const binding of await this.scanBindings(scope)) {
       for (const task of await this.client.list(binding)) documents.push(this.document(binding, task));
     }
     return documents;
+  }
+
+  async scanForOverview(scope?: TaskScanScope): Promise<TaskOverviewScan> {
+    const documents: TaskDocument[] = [];
+    for (const binding of await this.scanBindings(scope)) {
+      const { tasks, partialReason } = await this.client.listForOverview(binding);
+      for (const task of tasks) documents.push(this.document(binding, task));
+      if (partialReason) return { documents, partialReason };
+    }
+    return { documents };
+  }
+
+  private async scanBindings(scope?: TaskScanScope): Promise<ActioBinding[]> {
+    const selection = scope?.project ? { project: scope.project } : undefined;
+    // Older/custom readers can ignore selection; never read unrelated tasks.
+    return (await this.bindings(selection)).filter((binding) => matchesActioBindingScope(binding, selection));
   }
 
   async findForProject(project: string, statuses?: readonly TaskStatus[], subsidiaryId?: string | null): Promise<TaskDocument[]> {

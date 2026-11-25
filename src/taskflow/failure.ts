@@ -42,6 +42,12 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
   ["Actio task service unavailable", {
     code: "actio_unavailable", status: 503, message: "Actio の稼働状態を確認してください。",
   }],
+  ["Actio read timed out", {
+    code: "actio_read_timeout", status: 503, message: "Actio の読み取りが時間切れになりました。再取得できます。",
+  }],
+  ["Actio read connection failed", {
+    code: "actio_unreachable", status: 503, message: "Actio に接続できませんでした。接続が回復したら再取得してください。",
+  }],
   ["Actio service lookup failed", {
     code: "actio_service_lookup_failed", status: 503,
     message: "Excubitor から Actio の接続先を取得できませんでした (Actio の停止とは別)。Excubitor の応答を確認して再試行してください。",
@@ -51,7 +57,8 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
       code: "actio_scope_denied", status: 403, message: "Actio の所有者・組織・認証方式が対象と一致しません。",
     }]),
   ...["Invalid Actio task list response", "Invalid Actio task response", "Actio source identity mismatch",
-    "Invalid Actio team list response"]
+    "Invalid Actio team list response", "Invalid Actio read response", "Actio task list cursor repeated",
+    "Actio task list exceeded the page limit"]
     .map((message): [string, TaskflowFailureDescription] => [message, {
       code: "actio_response_invalid", status: 502, message: "Actio の応答がタスクの契約と一致しません。",
     }]),

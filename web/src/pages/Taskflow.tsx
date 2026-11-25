@@ -162,9 +162,13 @@ export function Taskflow() {
         <h2 className="font-semibold">タスク情報を更新できませんでした</h2>
         <p>{failureGuidance(error.reason)}</p>
         <p className="text-xs">確認コード: {error.reason}{error.status ? ` / HTTP ${error.status}` : ''}</p>
-        <p>{data ? '以下は前回取得した情報です。現在の状態は未確認です。' : '現在のタスク件数・状態は未確認です。'}</p>
+        <p>{data?.partial_reason ? '前回取得できた一部の情報を表示しています。現在の状態は未確認です。'
+          : data ? '以下は前回取得した情報です。現在の状態は未確認です。' : '現在のタスク件数・状態は未確認です。'}</p>
         <p>審査通知後などの処理エラーは、対象セッションの「ログ確認」で確認できます。</p>
       </section>}
+      {!error && data?.partial_reason && <p role="alert" className="rounded border border-warn p-3 text-sm">
+        タスクを一部だけ取得しました。件数は取得できた分です。{failureGuidance(data.partial_reason)}
+      </p>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
         <table className="w-full min-w-[1400px] text-sm">
@@ -243,7 +247,7 @@ export function Taskflow() {
                 <td className="p-2 text-xs whitespace-nowrap">{task.kind || "—"}</td>
               </tr>
             ))}
-            {data && visible.length === 0 && (
+            {data && !data.partial_reason && visible.length === 0 && (
               <tr><td colSpan={9} className="p-6 text-center text-subtle">{error ? '前回取得時は該当するタスクがありませんでした。現在の状態は未確認です。' : '該当するタスクはありません。'}</td></tr>
             )}
           </tbody>

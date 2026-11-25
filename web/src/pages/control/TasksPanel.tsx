@@ -1,14 +1,22 @@
 /** Actio タスク欄 (Cc v5)。既存の taskflow 一覧 API を読むだけ。 */
 import { api } from "../../api.js";
+import { failureGuidance } from "../../lib/taskflow-failure.js";
 import { usePolling } from "./usePolling.js";
 
 export function TasksPanel() {
-  const { data, error } = usePolling(() => api.taskflowOverview(), 30_000);
+  const { data, error, reload } = usePolling(() => api.taskflowOverview(), 30_000);
+  const partial = data?.partial_reason;
   const open = data?.tasks.filter((task) => task.status !== "done" && task.status !== "cancelled") ?? [];
   return <section className="space-y-2" aria-label="Actio タスク">
-    <h2 className="text-lg font-semibold">Actio タスク {data ? `(${open.length})` : ""}</h2>
-    {error && <p role="alert" className="text-amber-400">Actio タスクを取得できません: {error}</p>}
-    {data && open.length === 0 && <p className="text-subtle">進行中のタスクはありません。</p>}
+    <h2 className="text-lg font-semibold">Actio タスク {data ? `(${open.length}${partial ? " 件取得" : ""})` : ""}</h2>
+    {error && <p role="alert" className="text-amber-400">
+      Actio タスクを更新できませんでした。{error}{data && " 前回取得した情報を表示しています。"}
+    </p>}
+    {!error && partial && <p role="alert" className="text-amber-400">
+      Actio タスクを一部だけ取得しました。{failureGuidance(partial)}
+    </p>}
+    {(error || partial) && <button type="button" className="text-xs text-accent" onClick={reload}>タスク一覧を更新</button>}
+    {data && !partial && !error && open.length === 0 && <p className="text-subtle">進行中のタスクはありません。</p>}
     <ul className="max-h-64 overflow-y-auto divide-y divide-border text-xs leading-5">
       {open.map(task => <li key={task.path}>
         <details className="group">

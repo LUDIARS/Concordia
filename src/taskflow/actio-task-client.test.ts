@@ -88,6 +88,40 @@ describe("workflowStatus", () => {
 });
 
 describe("ActioWorkflowClient", () => {
+  it("retains completed overview pages but rejects an incomplete strict listing", async () => {
+    const first = { tasks: [task()], nextCursor: "next" };
+    const timeout = new Error("Actio read timed out");
+    const request = vi.fn()
+      .mockResolvedValueOnce(first).mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce(first).mockRejectedValueOnce(timeout);
+    const client = new ActioWorkflowClient({ request } as unknown as ActioTransport);
+
+    await expect(client.listForOverview(BINDING)).resolves.toMatchObject({
+      tasks: [{ id: "task-1" }], partialReason: "actio_read_timeout",
+    });
+    expect(request.mock.calls[1]?.[2]).toContain("cursor=next");
+    await expect(client.list(BINDING)).rejects.toBe(timeout);
+  });
+
+  it("marks an empty completed overview page as partial when the continuation fails", async () => {
+    const { transport: t } = transport({ tasks: [], nextCursor: "next" }, {});
+    await expect(new ActioWorkflowClient(t).listForOverview(BINDING)).resolves.toEqual({
+      tasks: [], partialReason: "actio_response_invalid",
+    });
+  });
+
+  it("rejects an overview when the first page fails", async () => {
+    const { transport: t, request } = transport();
+    const timeout = new Error("Actio read timed out");
+    request.mockRejectedValueOnce(timeout);
+    await expect(new ActioWorkflowClient(t).listForOverview(BINDING)).rejects.toBe(timeout);
+  });
+
+  it("rejects out-of-scope rows even when the overview is incomplete", async () => {
+    const { transport: t } = transport({ tasks: [task({ ownerId: "other" })], nextCursor: "next" }, {});
+    await expect(new ActioWorkflowClient(t).listForOverview(BINDING)).rejects.toThrow("Actio task ownership mismatch");
+  });
+
   it("lists only the configured project, owner and workflow source", async () => {
     const { transport: t, request } = transport({ tasks: [task()] });
 

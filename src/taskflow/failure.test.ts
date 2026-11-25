@@ -14,6 +14,9 @@ describe("safe taskflow failure descriptions", () => {
     ["Invalid Actio task response", "actio_response_invalid", 502],
     ["Actio service lookup failed", "actio_service_lookup_failed", 503],
     ["Actio task service unavailable", "actio_unavailable", 503],
+    ["Actio read timed out", "actio_read_timeout", 503],
+    ["Actio read connection failed", "actio_unreachable", 503],
+    ["Invalid Actio read response", "actio_response_invalid", 502],
     ["Invalid Actio team list response", "actio_response_invalid", 502],
   ])("classifies %s", (message, code, status) => {
     expect(describeTaskflowFailure(new Error(message))).toMatchObject({ code, status });

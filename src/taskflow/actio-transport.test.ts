@@ -198,14 +198,46 @@ describe("ActioTransport", () => {
   });
 
   /** A write may have committed; the caller must retry with the same source identity. */
-  it("reports a transport failure as an unknown outcome", async () => {
+  it.each(["POST", "PATCH"] as const)("reports a %s transport failure as an unknown outcome", async (method) => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({ id: "owner-1" }))
       .mockRejectedValueOnce(new Error("socket hang up"));
     const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
 
-    await expect(transport.request(BINDING, "POST", "/api/tasks", {}))
+    await expect(transport.request(BINDING, method, "/api/tasks", {}))
       .rejects.toThrow("Actio task request outcome unknown; reconcile using the same task identity");
+  });
+
+  it("reports a GET connection failure without exposing the underlying error", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "owner-1" }))
+      .mockRejectedValueOnce(new TypeError("private socket detail"));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
+
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow(/^Actio read connection failed$/);
+  });
+
+  it("reports an expired GET response body as a read timeout", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "owner-1" }))
+      .mockImplementationOnce(async (_url: string, { signal }: { signal: AbortSignal }) => ({
+        ok: true,
+        json: () => new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      }));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never, 5);
+
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow(/^Actio read timed out$/);
+  });
+
+  it("reports invalid JSON from a GET as an invalid response", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ id: "owner-1" }))
+      .mockResolvedValueOnce(new Response("private invalid JSON"));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
+
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow(/^Invalid Actio read response$/);
   });
 });
 

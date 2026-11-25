@@ -1,6 +1,8 @@
 /** Fixed user-facing guidance only; never render arbitrary server exception text. @implements CC-TF-ERROR-01 */
 const GUIDANCE: Readonly<Record<string, string>> = {
   actio_unavailable: 'タスク管理サービス（Actio）に接続できません。Excubitorで稼働状態を確認してください。',
+  actio_read_timeout: 'Actioの読み取りが時間切れになりました。表示を更新すると再取得できます。',
+  actio_unreachable: 'Actioに接続できませんでした。接続が回復したら表示を更新してください。',
   actio_configuration_invalid: 'Actioへの接続設定・認証設定を確認してください。',
   actio_binding_invalid: 'この作業とActioのプロジェクト・組織の対応を確認してください。',
   actio_project_ambiguous: 'Actioの対象プロジェクト・チームを一つに特定できません。登録内容を確認してください。',

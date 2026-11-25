@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getTaskflowOverview, failureGuidance } from './taskflow-failure.js';
 
+it.each([
+  ['actio_read_timeout', '読み取りが時間切れ'],
+  ['actio_unreachable', '接続できませんでした'],
+])('renders retry guidance for %s', (reason, text) => {
+  expect(failureGuidance(reason)).toContain(text);
+  expect(failureGuidance(reason)).toContain('表示を更新');
+  expect(failureGuidance(reason)).not.toContain('元の依頼');
+});
+
 afterEach(() => vi.unstubAllGlobals());
 describe('safe taskflow read errors', () => {
   it('preserves a known reason without displaying arbitrary response details', async () => {

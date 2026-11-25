@@ -8,7 +8,7 @@ import { ACTIO_WORKFLOW_SOURCE, type ActioWorkflowClient, type ActioWorkflowTask
 import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { taskflowRouter } from "./taskflow.js";
 
-function fixture() {
+function fixture(partialReason?: string) {
   const read = createActioBindingReader({
     configured: () => [],
     repositories: () => [
@@ -27,13 +27,26 @@ function fixture() {
     pluginId: ACTIO_WORKFLOW_SOURCE, pluginPayload: { version: 3 }, createdAt: "2026-09-27T00:00:00Z",
   }]);
   const state = new TaskflowStateStore(makeTestDb());
-  const store = new ActioTaskStore(read, { list } as unknown as ActioWorkflowClient, state);
+  const listForOverview = async (binding: ActioBinding) => ({ tasks: await list(binding), partialReason });
+  const store = new ActioTaskStore(read, { list, listForOverview } as unknown as ActioWorkflowClient, state);
   const app = taskflowRouter({
     store, state, sessions: { listSessions: () => [] },
     delegation: { recentRuns: () => [] }, prs: { list: () => [] },
   } as unknown as Parameters<typeof taskflowRouter>[0]);
   return { app, list };
 }
+
+it("returns the partial reason with overview tasks and counts after filtering", async () => {
+  const { app } = fixture("actio_read_timeout");
+  for (const [query, count] of [["status=pending", 1], ["status=done", 0]] as const) {
+    const response = await app.request(`/overview?project=Terpsichore&${query}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const result = await response.json();
+    expect(result).toMatchObject({ partial_reason: "actio_read_timeout", counts: { total: count } });
+    expect(result.tasks).toHaveLength(count);
+  }
+});
 
 describe.each(["/tasks", "/overview"])("project-scoped %s", (path) => {
   it("returns the selected team's existing pending task despite unrelated ambiguity", async () => {

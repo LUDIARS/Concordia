@@ -3,6 +3,7 @@ import { resolveServicePort } from "../excubitor/service-port.js";
 import type { ActioAccess } from "./actio-binding.js";
 import { z } from "zod";
 import { actingForHeaders } from "./actio-acting-for.js";
+import { classifyActioRequestFailure } from "./actio-request-failure.js";
 
 const LocalTeams = z.object({ teams: z.array(z.object({ id: z.string(), role: z.string() })) });
 /** How long a port resolved from the catalog may stand in when the catalog lookup itself fails. */
@@ -124,7 +125,7 @@ export class ActioTransport {
     }
   }
 
-  private async send(base: string, token: string | undefined, method: string, path: string, body?: unknown,
+  private async send(base: string, token: string | undefined, method: "GET" | "POST" | "PATCH", path: string, body?: unknown,
     extraHeaders: Record<string, string> = {}): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -141,8 +142,7 @@ export class ActioTransport {
       return await response.json() as unknown;
     } catch (error) {
       if (error instanceof Error && /^Actio task request rejected \(\d+\)$/.test(error.message)) throw error;
-      // POST/PATCH may have committed: callers must retry with the same source identity.
-      throw new Error("Actio task request outcome unknown; reconcile using the same task identity");
+      throw new Error(classifyActioRequestFailure(method, controller.signal.aborted, error instanceof SyntaxError));
     } finally {
       clearTimeout(timer);
     }

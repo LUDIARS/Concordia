@@ -5,6 +5,8 @@ import type { TaskStore } from "../taskflow/store.js";
 describe("taskflow HTTP failure boundary", () => {
   it.each([
     ["Actio task project binding missing or ambiguous", 503, "actio_binding_invalid"],
+    ["Actio read timed out", 503, "actio_read_timeout"],
+    ["Actio read connection failed", 503, "actio_unreachable"],
     ["Actio project team registration is ambiguous", 503, "actio_project_ambiguous"],
     ["Actio task request identity reused with different content", 409, "task_identity_conflict"],
     ["SQL failure containing private body secret-token", 500, "taskflow_internal_error"],

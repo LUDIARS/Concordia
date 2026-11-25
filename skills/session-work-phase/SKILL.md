@@ -37,9 +37,10 @@ Cc は task の作成・状態更新をこの API では行わない。
 進められる許可済み作業がないときだけ `POST /v1/sessions/:id/human-wait`:
 
 ```json
-{"summary":"人間が判断すべき事項と停止している理由","task_references":["actio:<task-id>"]}
+{"summary":"審査結果が揃い、提出の可否を判断できる状態","human_action":"#4194 を通すか決める","task_references":["actio:<task-id>"]}
 ```
 
+`human_action` には人間が行う操作や判断を、命令形の一文で80文字以内に書く。背景や停止理由は `summary` に書く。
 `GET /v1/sessions/:id/human-wait` で記録を確認する。登録中は自動確認を停止する。
 質問への回答または正規 Discord/Slack 入力で解除する。時間経過や AI の発言では解除しない。
 ローカル TUI の打鍵通知は回答送信を証明しないため解除対象外。ローカル送信だけによる自動解除は未対応。

@@ -4,9 +4,11 @@ import { z } from "zod";
 import type { SessionsApiDeps } from "./deps.js";
 import { HUMAN_WAIT_KEY, readHumanWait } from "../../control/human-wait.js";
 import { readSubsidiaryId } from "../../shared/subsidiary-id.js";
+import { normalizeHumanAction } from "../../control-cards/human-action.js";
 
 const WaitSchema = z.object({
   summary: z.string().trim().min(1).max(2000),
+  human_action: z.string().max(2000).optional(),
   task_references: z.array(z.string().regex(/^actio:[A-Za-z0-9-]+$/)).max(16),
 }).strict();
 
@@ -28,7 +30,9 @@ export function registerHumanWaitRoutes(app: Hono, deps: Pick<SessionsApiDeps, "
       || readSubsidiaryId(latest.metadata) !== readSubsidiaryId(session.metadata)) {
       return c.json({ error: "binding_changed" }, 409);
     }
+    const humanAction = normalizeHumanAction(parsed.data.human_action);
     const state = { active: true, summary: parsed.data.summary,
+      ...(humanAction ? { human_action: humanAction } : {}),
       task_references: [...new Set(parsed.data.task_references)], since: Date.now() };
     deps.repo.updateMetadata(id, (metadata) => ({ ...metadata, [HUMAN_WAIT_KEY]: state }));
     return c.json({ human_wait: state });

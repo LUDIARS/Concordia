@@ -43,7 +43,7 @@ Director ゴールフローが回るほど ask_human は増えるため、対で
 
 | 種別 | 正本 |
 |---|---|
-| ask カード | `discord_pending_questions` の未回答行（`inquiry_id` 無し） |
+| ask カード | `discord_pending_questions` の未回答行（`inquiry_id` 無し）。質問登録で受け取った任意の `human_action` を[管制カード](control-cards.md)に渡す |
 | inquiry ask_human | `session_events` の inquiry 監査行 + `inquiry_id` を持つ `discord_pending_questions` の未回答行 |
 | Director blocked | `director_steps` (status = blocked) + 紐付く decision |
 | confirm / 昇格承認待ち | `confirm_runs` の `pending` / `confirming` 行 |

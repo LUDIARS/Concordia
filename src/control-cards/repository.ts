@@ -79,14 +79,15 @@ export class ControlCardsRepository {
     if (existing) {
       if (existing.state === "open" || existing.state === "discarded") return existing;
       this.db.prepare(`UPDATE control_cards SET state = 'open', summary = ?, link = ?, closed_at = NULL, close_reason = NULL,
-        remind_at = ?, updated_at = ? WHERE id = ?`).run(item.summary, item.link, now + DEFAULT_REMIND_AFTER_MS, now, existing.id);
+        human_action = COALESCE(?, human_action), remind_at = ?, updated_at = ? WHERE id = ?`)
+        .run(item.summary, item.link, item.human_action ?? null, now + DEFAULT_REMIND_AFTER_MS, now, existing.id);
       return this.find(existing.id)!;
     }
-    this.db.prepare(`INSERT INTO control_cards (id, source_kind, source_key, card_kind, summary, session_id, project, link, state,
+    this.db.prepare(`INSERT INTO control_cards (id, source_kind, source_key, card_kind, summary, human_action, session_id, project, link, state,
         raised_at, priority, remind_at, created_at, updated_at)
-      VALUES (@id, @source_kind, @source_key, @card_kind, @summary, @session_id, @project, @link, 'open',
+      VALUES (@id, @source_kind, @source_key, @card_kind, @summary, @human_action, @session_id, @project, @link, 'open',
         @raised_at, 'normal', @remind_at, @now, @now)`).run({
-      id, ...item, card_kind: CARD_KIND_OF[item.source_kind], remind_at: now + DEFAULT_REMIND_AFTER_MS, now,
+      id, ...item, human_action: item.human_action ?? null, card_kind: CARD_KIND_OF[item.source_kind], remind_at: now + DEFAULT_REMIND_AFTER_MS, now,
     });
     return this.find(id)!;
   }
@@ -105,10 +106,12 @@ export class ControlCardsRepository {
       }
       return existing;
     }
-    this.db.prepare(`INSERT INTO control_cards (id, source_kind, source_key, card_kind, summary, session_id, project, link, state,
+    this.db.prepare(`INSERT INTO control_cards (id, source_kind, source_key, card_kind, summary, human_action, session_id, project, link, state,
         raised_at, discarded_at, discard_reason, priority, created_at, updated_at)
-      VALUES (@id, @source_kind, @source_key, @card_kind, @summary, @session_id, @project, @link, 'discarded',
-        @raised_at, @now, @reason, 'normal', @now, @now)`).run({ id, ...item, card_kind: CARD_KIND_OF[item.source_kind], reason, now });
+      VALUES (@id, @source_kind, @source_key, @card_kind, @summary, @human_action, @session_id, @project, @link, 'discarded',
+        @raised_at, @now, @reason, 'normal', @now, @now)`).run({
+      id, ...item, human_action: item.human_action ?? null, card_kind: CARD_KIND_OF[item.source_kind], reason, now,
+    });
     return this.find(id)!;
   }
 
@@ -118,8 +121,9 @@ export class ControlCardsRepository {
       WHERE id = ? AND state = 'open'`).run(now, reason, now, id).changes === 1;
   }
 
-  refresh(id: string, summary: string, link: string | null, now: number): void {
-    this.db.prepare("UPDATE control_cards SET summary = ?, link = ?, updated_at = ? WHERE id = ? AND state = 'open'").run(summary, link, now, id);
+  refresh(id: string, item: Pick<CardSourceItem, "summary" | "link" | "human_action">, now: number): void {
+    this.db.prepare(`UPDATE control_cards SET summary = ?, link = ?, human_action = COALESCE(?, human_action), updated_at = ?
+      WHERE id = ? AND state = 'open'`).run(item.summary, item.link, item.human_action ?? null, now, id);
   }
 
   /** 開いているときだけ閉じる。閉じたら true。 */
@@ -134,10 +138,11 @@ export class ControlCardsRepository {
     if (!current || current.state !== "open") return null;
     const next = { ...current, ...patch };
     this.db.prepare(`UPDATE control_cards SET priority = @priority, assignee = @assignee, remind_at = @remind_at,
-        reminder_text = @reminder_text, card_group = @card_group, triaged_by = @triaged_by, triaged_at = @now, updated_at = @now
+        reminder_text = @reminder_text, card_group = @card_group, human_action = COALESCE(NULLIF(human_action, ''), @human_action),
+        triaged_by = @triaged_by, triaged_at = @now, updated_at = @now
       WHERE id = @id AND state = 'open'`).run({
       id, priority: next.priority, assignee: next.assignee, remind_at: next.remind_at, reminder_text: next.reminder_text,
-      card_group: next.card_group, triaged_by: triagedBy, now,
+      card_group: next.card_group, human_action: patch.human_action ?? null, triaged_by: triagedBy, now,
     });
     return this.find(id);
   }

@@ -3,9 +3,10 @@
  * 回答は各カードの回答先 (既存の画面) で行う。「済み」にできるのは人間依頼のカードだけ (CC-V5-INV-02)。
  * 破棄したカード (持ち主のセッションが active でない判断、実装メモ 14) は既定で出さず、「破棄済み n 件」の切替でだけ見る。
  */
-import { useEffect, useState } from "react";
-import { controlApi, type ControlCardView } from "./controlApi.js";
+import { useState } from "react";
+import { controlApi, type ControlCardList, type ControlCardView } from "./controlApi.js";
 import { usePolling } from "./usePolling.js";
+import { CardDescription } from "./CardDescription.js";
 import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
 const KIND_LABEL: Record<ControlCardView["card_kind"], string> = { human_action: "アクション", human_judgment: "判断" };
@@ -53,13 +54,13 @@ function CardEditor({ card, onSaved }: { card: ControlCardView; onSaved: () => v
   </form>;
 }
 
-export function CardsPanel() {
+export function CardsPanel({ openCards }: { openCards: ReturnType<typeof usePolling<ControlCardList>> }) {
   const [showDiscarded, setShowDiscarded] = useState(false);
-  const { data, error, reconnecting, reload } = usePolling((signal) => controlApi.cards(showDiscarded ? "discarded" : "open", signal), 15_000);
+  const discarded = usePolling(signal => controlApi.cards("discarded", signal), showDiscarded ? 15_000 : null);
+  const { data, error, reconnecting, reload } = showDiscarded ? discarded : openCards;
   const [editing, setEditing] = useState<string | null>(null);
-  useEffect(() => { reload(); }, [showDiscarded, reload]);
   const now = Date.now();
-  const discardedCount = data?.discarded_count ?? 0;
+  const discardedCount = openCards.data?.discarded_count ?? 0;
   return <section className="space-y-2" aria-label="管制カード">
     <div className="flex items-baseline gap-3">
       <h2 className="text-lg font-semibold">{showDiscarded ? "破棄済みのカード" : "カード"} {data ? `(${data.cards.length})` : ""}</h2>
@@ -70,6 +71,7 @@ export function CardsPanel() {
     {reconnecting ? <ReconnectingStatus /> : error && <p role="alert" className="text-amber-400">カードを取得できません: {error}</p>}
     {data && data.cards.length === 0 && <p className="text-subtle">{showDiscarded ? "破棄済みのカードはありません。" : "人間のアクション・判断が要るカードはありません。"}</p>}
     {data?.cards.map((card) => <article key={card.id} className="border border-border rounded p-3 space-y-1">
+      <CardDescription card={card} />
       <div className="flex flex-wrap gap-2 text-sm">
         <strong>{KIND_LABEL[card.card_kind]}</strong>
         <span>優先度 {PRIORITY_LABEL[card.priority]}</span>
@@ -79,7 +81,6 @@ export function CardsPanel() {
         {card.triaged_by && <span className="text-subtle">捌き: {card.triaged_by}</span>}
         {card.state === "discarded" && <span className="text-subtle">破棄: {card.discard_reason ? DISCARD_LABEL[card.discard_reason] : "理由不明"}</span>}
       </div>
-      <p className="break-words">{card.summary}</p>
       <div className="flex gap-3 text-sm">
         {card.link && <a href={card.link} className="text-accent underline">回答する</a>}
         {card.session_id && <a href={`/sessions/${card.session_id}`} className="text-accent underline">セッション</a>}

@@ -1,13 +1,15 @@
 /**
  * dots の捌き (指令ブリッジの card_triage) の業務判断 (純関数)。
  * - 指令に載せるカードの要約と、指令を積むかの判定 (§3、実装メモ 7)
- * - dots の回答の検証。変えられるのは優先度・担当者・催促時刻・催促文・まとめ先だけ。
+ * - dots の回答の検証。捌きの5列と、空欄の人間アクションを受け付ける。
  *   不明なカード ID・閉じたカード・範囲外の値は捨てる (CC-V5-INV-04)。
  *
  * @implements spec/feature/control-cards.md — dots の捌き (CC-V5-INV-04)
  */
 import { createHash } from "node:crypto";
+import { redactSecrets } from "../shared/redact-secrets.js";
 import { CARD_PRIORITIES, clipText, type CardPriority, type CardTriagePatch, type ControlCard } from "./card-domain.js";
+import { HUMAN_ACTION_MAX_CHARS, normalizeHumanAction } from "./human-action.js";
 
 export const TRIAGE_MAX_CARDS = 20;
 export const TRIAGE_SUMMARY_CHARS = 200;
@@ -27,6 +29,7 @@ export interface TriageCardSummary {
   kind: string;
   source: string;
   summary: string;
+  human_action: string | null;
   project: string | null;
   age_minutes: number;
   priority: CardPriority;
@@ -40,16 +43,18 @@ export interface TriageParams {
   response_schema: string;
 }
 
-const RESPONSE_SCHEMA = "result.detail.cards[] = {card_id, priority: high|normal|low, assignee?, remind_at? (ISO 8601), reminder_text? (400 字まで), group?}";
+const RESPONSE_SCHEMA = "result.detail.cards[] = {card_id, priority: high|normal|low, assignee?, remind_at? (ISO 8601), reminder_text? (400 字まで), group?, human_action? (空欄のみ、人間がやることを80文字以内の一文で)}";
 
-/** 優先度の高い順・古い順に最大 20 件。本文・transcript は入れない (§3)。 */
+/** 未補完のカードを先に取り、各グループは優先度の高い順・古い順に最大 20 件。 */
 export function buildTriageParams(openCards: readonly ControlCard[], nowMs: number): TriageParams {
-  const ordered = [...openCards].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || a.raised_at - b.raised_at);
+  const ordered = [...openCards].sort((a, b) => Number(Boolean(a.human_action)) - Number(Boolean(b.human_action))
+    || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || a.raised_at - b.raised_at);
   let cards = ordered.slice(0, TRIAGE_MAX_CARDS).map((card): TriageCardSummary => ({
     card_id: card.id,
     kind: card.card_kind,
     source: card.source_kind,
-    summary: clipText(card.summary, TRIAGE_SUMMARY_CHARS),
+    summary: clipText(redactSecrets(card.summary), TRIAGE_SUMMARY_CHARS),
+    human_action: card.human_action,
     project: card.project,
     age_minutes: Math.max(0, Math.floor((nowMs - card.raised_at) / 60_000)),
     priority: card.priority,
@@ -65,7 +70,7 @@ export function buildTriageParams(openCards: readonly ControlCard[], nowMs: numb
 /** 開いているカードの集合と捌きに関わる内容の指紋。変わったときだけ指令を積む。 */
 export function triageFingerprint(openCards: readonly ControlCard[]): string {
   const rows = [...openCards]
-    .map((card) => [card.id, card.summary, card.priority, card.assignee ?? "", card.remind_at ?? ""].join("\u0001"))
+    .map((card) => [card.id, card.summary, card.priority, card.assignee ?? "", card.remind_at ?? "", card.human_action ?? ""].join("\u0001"))
     .sort();
   return createHash("sha256").update(rows.join("\u0002"), "utf8").digest("hex");
 }
@@ -136,7 +141,12 @@ export function validateTriageResult(detail: unknown, openCardIds: ReadonlySet<s
     const assignee = optionalText(row.assignee, ASSIGNEE_MAX_CHARS);
     const reminderText = optionalText(row.reminder_text, REMINDER_TEXT_MAX_CHARS);
     const group = optionalText(row.group, GROUP_MAX_CHARS);
-    if (assignee === false || reminderText === false || group === false) { result.dropped.push({ card_id: cardId, reason: "文字列が範囲外" }); continue; }
+    const humanAction = optionalText(row.human_action, HUMAN_ACTION_MAX_CHARS);
+    if (assignee === false || reminderText === false || group === false || humanAction === false) {
+      result.dropped.push({ card_id: cardId, reason: "文字列が範囲外" }); continue;
+    }
+    const normalizedAction = normalizeHumanAction(humanAction);
+    if (normalizedAction) patch.human_action = normalizedAction;
     if (assignee !== undefined) patch.assignee = assignee;
     if (reminderText !== undefined) patch.reminder_text = reminderText;
     if (group !== undefined) patch.card_group = group;

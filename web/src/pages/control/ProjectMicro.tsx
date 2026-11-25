@@ -1,14 +1,28 @@
 import { useState } from "react";
-import type { SessionProgressRow } from "./controlApi.js";
+import type { ControlCardView, SessionProgressRow } from "./controlApi.js";
 import { SessionProgress } from "./SessionProgress.js";
 import { SessionChat } from "../session-chat/SessionChat.js";
 import { DeskDetail } from "../desk/DeskDetail.js";
-import { sessionStatus } from "./projectGraph.js";
+import { projectCards, sessionStatus } from "./projectGraph.js";
 import { GEN5_STAGES } from "../../../../src/desk/gen5-stage.js";
+import { CardDescription } from "./CardDescription.js";
+import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
-export function ProjectMicro({ sessions }: { sessions: SessionProgressRow[] }) {
+export function ProjectMicro({ project, sessions, cards, cardError, cardsReconnecting }: {
+  project: string; sessions: SessionProgressRow[]; cards: ControlCardView[]; cardError: string | null; cardsReconnecting: boolean;
+}) {
   const [chat, setChat] = useState<string | null>(null);
-  return <div className="space-y-3">{sessions.map(row => <article key={row.session_id} className="rounded border border-border bg-surface p-3">
+  const related = projectCards(cards, project, sessions);
+  return <div className="space-y-3">
+    {(related.length > 0 || cardError || cardsReconnecting) && <section aria-label="関連する管制カード" className="space-y-2">
+      <h3 className="font-semibold">関連するカード</h3>
+      {cardsReconnecting ? <ReconnectingStatus /> : cardError && <p role="alert" className="text-amber-400">カードを取得できません: {cardError}</p>}
+      <ul className="space-y-2">{related.map(card => <li key={card.id} className="space-y-1 rounded border border-border p-3">
+        <CardDescription card={card} />
+        {card.link && <a href={card.link} className="text-sm text-accent underline">回答する</a>}
+      </li>)}</ul>
+    </section>}
+    {sessions.map(row => <article key={row.session_id} className="rounded border border-border bg-surface p-3">
     <header className="flex flex-wrap items-center justify-between gap-2">
       <strong>{row.current_task || "作業内容未報告"}</strong>
       <button className="text-xs text-accent underline" aria-expanded={chat === row.session_id}

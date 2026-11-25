@@ -58,7 +58,7 @@ export function syncControlCards(ports: CardSyncPorts): CardSyncResult {
       if (card.state === "open") changes.push({ kind: "opened", card });
     }
     for (const { item, reason } of discard.createDiscarded) ports.repo.openDiscarded(ports.id(), item, reason, now);
-    for (const row of plan.refresh) ports.repo.refresh(row.id, row.summary, row.link, now);
+    for (const row of plan.refresh) ports.repo.refresh(row.id, row, now);
     for (const row of plan.close) {
       if (ports.repo.close(row.id, row.reason, now)) changes.push({ kind: "closed", card: ports.repo.find(row.id)! });
     }

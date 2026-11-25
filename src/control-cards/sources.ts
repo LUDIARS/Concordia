@@ -16,9 +16,10 @@ import {
   type InboxItem,
 } from "../inbox/read-model.js";
 import { pendingPlans } from "../inbox/pending-plans.js";
+import type { DeskRequest } from "../desk/desk-request-policy.js";
 import type { CardSourceItem, CardSourceKind } from "./card-domain.js";
 import type { SourceReading } from "./card-sync-policy.js";
-import type { DeskRequest } from "../desk/desk-request-policy.js";
+import { normalizeHumanAction } from "./human-action.js";
 
 export interface CardSourcePorts {
   /** セッションのプロジェクト (project code)。分からなければ null。 */
@@ -39,6 +40,7 @@ export function createCardSources(db: Database.Database, ports: CardSourcePorts)
     source_kind: kind,
     source_key: item.key,
     summary: item.summary,
+    human_action: normalizeHumanAction(item.humanAction),
     raised_at: item.raisedAt,
     session_id: item.sessionId ?? null,
     project: item.sessionId ? ports.projectOf(item.sessionId) : null,
@@ -65,7 +67,8 @@ export function createCardSources(db: Database.Database, ports: CardSourcePorts)
         const wait = readHumanWait(row.metadata);
         return wait ? [{
           source_kind: "human-wait" as const, source_key: `human-wait:${row.id}:${wait.since}`,
-          summary: `人間待ち: ${wait.summary}`, raised_at: wait.since < 1e12 ? wait.since * 1000 : wait.since,
+          summary: `人間待ち: ${wait.summary}`, human_action: normalizeHumanAction(wait.human_action),
+          raised_at: wait.since < 1e12 ? wait.since * 1000 : wait.since,
           session_id: row.id, project: ports.projectOf(row.id), link: ports.webUrl(`/sessions/${row.id}`),
         }] : [];
       })],

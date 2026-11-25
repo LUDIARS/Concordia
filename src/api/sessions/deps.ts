@@ -62,6 +62,7 @@ export interface ChannelDirectory {
     providerRequestId?: string;
     session_id: string;
     question: string;
+    human_action?: string;
     options: Array<ChannelDirectoryQuestionOption | string>;
     multiSelect?: boolean;
     /** 委託子の質問なら親 (委託元) の session id。 人間へは配信しない印。 */

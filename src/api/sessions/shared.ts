@@ -174,6 +174,7 @@ export const PendingQuestionOptionSchema = z.union([
 ]);
 export const PendingQuestionSchema = z.object({
   question: z.string().min(1).max(2000),
+  human_action: z.string().max(2000).optional(),
   options: z.array(PendingQuestionOptionSchema).min(1).max(25),
   multi_select: z.boolean().optional(),
   kind: z.enum(["question", "plan_approval"]).optional(),

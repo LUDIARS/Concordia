@@ -11,6 +11,7 @@ import {
   validateTriageResult,
 } from "./card-triage-policy.js";
 import { REMINDER_MIN_INTERVAL_MS, decideReminder, neutralizeMentions, reminderMention, renderReminder } from "./reminder-policy.js";
+import { normalizeHumanAction } from "./human-action.js";
 
 const NOW = 1_800_000_000_000;
 
@@ -20,7 +21,7 @@ function item(key: string, kind: CardSourceItem["source_kind"] = "ask-card"): Ca
 
 function card(id: string, patch: Partial<ControlCard> = {}): ControlCard {
   return {
-    id, source_kind: "ask-card", source_key: id, card_kind: "human_judgment", summary: `要旨 ${id}`, session_id: "s1", project: "Cc",
+    id, source_kind: "ask-card", source_key: id, card_kind: "human_judgment", summary: `要旨 ${id}`, human_action: null, session_id: "s1", project: "Cc",
     link: null, state: "open", raised_at: NOW - 3_600_000, closed_at: null, close_reason: null, discarded_at: null, discard_reason: null, priority: "normal", assignee: null,
     remind_at: NOW, reminder_text: null, card_group: null, triaged_by: null, triaged_at: null, created_at: NOW, updated_at: NOW, ...patch,
   };
@@ -66,6 +67,25 @@ describe("カード同期の判定 (CC-V5-INV-02 / 03)", () => {
 });
 
 describe("dots の捌き (CC-V5-INV-04)", () => {
+  it("normalizes actions without exposing secrets or live mentions", () => {
+    expect(normalizeHumanAction(null)).toBeNull();
+    expect(normalizeHumanAction(" \n ")).toBeNull();
+    expect(normalizeHumanAction(" @everyone に\n password=secret123 を共有する ")).toBe("@​everyone に password=[REDACTED] を共有する");
+    expect(normalizeHumanAction("😀".repeat(81))).toBe("😀".repeat(79) + "…");
+  });
+
+  it("accepts a safe action in a dots response and rejects overlong input", () => {
+    const params = buildTriageParams([card("b", { human_action: "接続を確認する", priority: "high" }), card("a")], NOW);
+    expect(params.cards.map(row => row.human_action)).toEqual([null, "接続を確認する"]);
+    expect(params.response_schema).toContain("human_action?");
+    expect(validateTriageResult({ cards: [
+      { card_id: "a", human_action: " @here に token=some-secret の更新を依頼する " },
+      { card_id: "b", human_action: "長".repeat(81) },
+    ] }, new Set(["a", "b"]), NOW)).toEqual({
+      apply: [{ cardId: "a", patch: { human_action: "@​here に token=[REDACTED] の更新を依頼する" } }],
+      dropped: [{ card_id: "b", reason: "文字列が範囲外" }],
+    });
+  });
   it("summarizes at most 20 cards, high priority and oldest first, within 8000 bytes", () => {
     const cards = Array.from({ length: 30 }, (_, index) => card(`c${index}`, {
       raised_at: NOW - index * 1000, priority: index === 29 ? "high" : "normal", summary: "長".repeat(300),

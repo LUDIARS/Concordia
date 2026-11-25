@@ -481,6 +481,7 @@ export interface DiscordPendingQuestionsRepo {
     providerRequestId?: string | null;
     session_id: string;
     question: string;
+    human_action?: string;
     options: Array<PendingQuestionOption | string>;
     multiSelect?: boolean;
     /** 委託子の質問なら親 (委託元) の session id。 人間へは配信しない印。 */
@@ -585,8 +586,8 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         .filter((o) => typeof o.label === "string" && o.label.trim().length > 0);
       const info = db.prepare(
         `INSERT INTO discord_pending_questions
-           (session_id, question, options_json, multi_select, parent_session_id, ts, kind, provider_request_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (session_id, question, options_json, multi_select, parent_session_id, ts, kind, provider_request_id, human_action)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         input.session_id,
         input.question,
@@ -596,6 +597,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         ts,
         input.kind ?? "question",
         input.providerRequestId ?? null,
+        input.human_action ?? null,
       );
       return this.findById(Number(info.lastInsertRowid))!;
     },

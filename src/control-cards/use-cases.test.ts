@@ -49,7 +49,9 @@ describe("カードの同期 (CC-V5-INV-02 / 03)", () => {
   it("reads the existing sources without writing them (human-wait, board unresponsive, management, ask cards)", () => {
     const h = setup();
     h.db.prepare(`INSERT INTO sessions (id, provider, repo_path, host, started_at, status, last_seen_at, metadata)
-      VALUES ('s1', 'claude', 'E:/x', 'h', 1, 'active', 1, ?)`).run(JSON.stringify({ cc_human_wait: { active: true, summary: "承認待ち", task_references: [], since: NOW } }));
+      VALUES ('s1', 'claude', 'E:/x', 'h', 1, 'active', 1, ?)`).run(JSON.stringify({ cc_human_wait: {
+      active: true, summary: "承認待ち", human_action: "反映を承認する", task_references: [], since: NOW,
+    } }));
     h.db.prepare(`INSERT INTO control_progress_board (session_id, project, updated_at, status, status_reason, classified_at)
       VALUES ('s1', 'Cc', 1, 'unresponsive', '反応なし', 100)`).run();
     const readings = createCardSources(h.db, { projectOf: () => "Cc", webUrl: (path) => path }).read();
@@ -59,6 +61,7 @@ describe("カードの同期 (CC-V5-INV-02 / 03)", () => {
     expect(byKind["session-unresponsive"]).toMatchObject({ items: [{ source_key: "unresponsive:s1", raised_at: 100_000 }] });
     h.sync(readings);
     expect(h.repo.listOpen().map((row) => row.source_kind).sort()).toEqual(["human-wait", "session-unresponsive"]);
+    expect(h.repo.listOpen().find(row => row.source_kind === "human-wait")?.human_action).toBe("反映を承認する");
     expect(h.db.prepare("SELECT status FROM control_progress_board WHERE session_id = 's1'").get()).toEqual({ status: "unresponsive" });
   });
 });
@@ -142,6 +145,26 @@ describe("dots への捌きの指令", () => {
     expect(t.dispatch.tick()).toMatchObject({ reason: "disabled" });
     expect(t.registered).toHaveLength(0);
     expect(h.repo.listOpen()[0]).toMatchObject({ priority: "normal", remind_at: NOW + 86_400_000 });
+  });
+
+  it("fills an empty action, preserves it on ordinary sync, and prefers action supplied by the source", () => {
+    const h = setup();
+    const t = triage(h);
+    const item = ask("q1");
+    const sync = (source: typeof item & { human_action?: string }) => h.sync([{ kind: "ask-card", readable: true, items: [source] }]);
+    sync(item);
+    t.dispatch.tick();
+    const [card] = h.repo.listOpen();
+    const finished = {
+      kind: "finished" as const, id: "inst:dots:1", agent: "dots", title: "捌き", status: "done" as const, summary: "完了",
+      detail: JSON.stringify({ cards: [{ card_id: card!.id, human_action: "申請を確認する" }] }), finishedAt: "",
+    };
+    t.dispatch.onInstructionEvent(finished);
+    sync({ ...item, summary: "更新した要旨" });
+    expect(h.repo.find(card!.id)?.human_action).toBe("申請を確認する");
+    sync({ ...item, summary: "更新した要旨", human_action: "反映を承認する" });
+    t.dispatch.onInstructionEvent(finished);
+    expect(h.repo.find(card!.id)?.human_action).toBe("反映を承認する");
   });
 });
 

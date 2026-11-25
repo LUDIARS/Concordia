@@ -1,6 +1,6 @@
 /**
  * 管制カードの業務用語 (spec/feature/control-cards.md)。型と定数だけを置く。
- * カードの解決の正本は出所で、カードは出所の参照・捌き・催促の予定だけを持つ (CC-V5-INV-02)。
+ * カードの解決の正本は出所で、カードは出所の参照・表示内容・捌き・催促の予定を持つ (CC-V5-INV-02)。
  *
  * @implements spec/feature/control-cards.md — 業務用語
  */
@@ -59,6 +59,7 @@ export interface ControlCard {
   source_key: string;
   card_kind: CardKind;
   summary: string;
+  human_action: string | null;
   session_id: string | null;
   project: string | null;
   link: string | null;
@@ -84,6 +85,7 @@ export interface CardSourceItem {
   source_kind: CardSourceKind;
   source_key: string;
   summary: string;
+  human_action?: string | null;
   raised_at: number;
   session_id: string | null;
   project: string | null;
@@ -92,6 +94,8 @@ export interface CardSourceItem {
 
 /** 捌きで変えられる列 (CC-V5-INV-04)。 */
 export interface CardTriagePatch {
+  /** dots は空欄だけを補完できる。 */
+  human_action?: string;
   priority?: CardPriority;
   assignee?: string | null;
   remind_at?: number | null;

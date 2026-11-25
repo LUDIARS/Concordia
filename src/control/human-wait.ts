@@ -9,6 +9,7 @@ export const HUMAN_WAIT_KEY = "cc_human_wait";
 export interface HumanWaitState {
   active: boolean;
   summary: string;
+  human_action?: string;
   task_references: string[];
   since: number;
 }
@@ -21,6 +22,7 @@ export function readHumanWait(metadata: string | null): HumanWaitState | null {
     if (row.active !== true || typeof row.summary !== "string"
       || !Array.isArray(row.task_references) || typeof row.since !== "number") return null;
     return { active: true, summary: row.summary,
+      ...(typeof row.human_action === "string" ? { human_action: row.human_action } : {}),
       task_references: row.task_references.filter((item): item is string => typeof item === "string"), since: row.since };
   } catch { return null; }
 }

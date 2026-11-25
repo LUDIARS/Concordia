@@ -37,8 +37,8 @@ function readFailure(error: unknown): ReadFailure {
   };
 }
 
-/** Reads keep the last successful snapshot while transport recovery is in progress. */
-export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, intervalMs: number): {
+/** Automatic reads pause at a null interval and keep their last snapshot during recovery. */
+export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, intervalMs: number | null): {
   data: T | null; error: string | null; reconnecting: boolean; reload: () => void;
 } {
   const [data, setData] = useState<T | null>(null);
@@ -80,6 +80,7 @@ export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, interva
   const reload = useCallback(() => { void read(); }, [read]);
 
   useEffect(() => {
+    if (intervalMs === null) return cancel;
     reload();
     const timer = setInterval(() => {
       if (!attempt.current) reload();

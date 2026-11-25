@@ -33,6 +33,7 @@ export interface InboxItem {
   readonly kind: InboxItemKind;
   /** 一覧に出す要旨。 本文そのままではなく先頭を切り詰めたもの。 */
   readonly summary: string;
+  readonly humanAction?: string;
   /** 発生時刻 (epoch ms)。 経過時間の計算元。 */
   readonly raisedAt: number;
   /** 由来。 回答画面への遷移に使う。 どれか 1 つ以上が入る。 */
@@ -61,18 +62,19 @@ function summarize(text: string): string {
  */
 export function askCardItems(db: Database.Database): InboxItem[] {
   const rows = db.prepare(`
-    SELECT q.id, q.session_id, q.question, q.ts * 1000 AS raised_at
+    SELECT q.id, q.session_id, q.question, q.human_action, q.ts * 1000 AS raised_at
       FROM discord_pending_questions q
      WHERE q.answered_at IS NULL AND q.closed_at IS NULL
        AND NOT EXISTS (
              SELECT 1 FROM director_decisions d WHERE d.pending_question_id = q.id
            )
      ORDER BY q.ts ASC
-  `).all() as Array<{ id: number; session_id: string; question: string; raised_at: number }>;
+  `).all() as Array<{ id: number; session_id: string; question: string; human_action: string | null; raised_at: number }>;
   return rows.map((row) => ({
     key: `ask-card:${row.id}`,
     kind: "ask-card" as const,
     summary: summarize(row.question),
+    ...(row.human_action ? { humanAction: row.human_action } : {}),
     // discord_pending_questions is an older table whose timestamps are epoch seconds.
     raisedAt: row.raised_at,
     sessionId: row.session_id,

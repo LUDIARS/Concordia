@@ -3,6 +3,8 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "control-card-action-C-1", "criterion": "C-1 normalizeHumanAction(value): 入力を伏字とメンション無効化済みの80文字以内の一行にする", "symbol": "normalizeHumanAction", "file": "src/control-cards/human-action.ts", "module": "src/control-cards/human-action.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "control-card-action-C-2", "criterion": "C-2 applyMigrations(db): 版 162 の台帳に migration 161 と 162 が揃い、人間がやることと Actio 依頼の列を読み取れる", "symbol": "applyMigrations", "file": "src/db/schema.ts", "module": "src/db/control-card-desk-schema.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "grok-C-1", "criterion": "C-1 buildRoleMap(input): Grok の有効な世代付きモデルを表示順で選び、候補がなければ grok-4.7 を返す", "symbol": "buildRoleMap", "file": "src/model-catalog/role-map.ts", "module": "src/model-catalog/grok-role-map.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "grok-C-2", "criterion": "C-2 resolveDelegationSpawn(target, model): Grok は lictor grok に有効モデルを --model で明示し、空なら grok-4.7 を使う", "symbol": "resolveDelegationSpawn", "file": "src/control/provider-preset.ts", "module": "src/control/grok-spawn.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "grok-C-3", "criterion": "C-3 resolveDelegationRuntimeArgs(provider, options): Grok は low・medium・high・xhigh だけを --reasoning-effort で渡す", "symbol": "resolveDelegationRuntimeArgs", "file": "src/control/provider-preset.ts", "module": "src/control/grok-effort.contract.ts", "mode": "observe", "sample": 1 },

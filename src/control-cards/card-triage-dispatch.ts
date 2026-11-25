@@ -66,8 +66,8 @@ export function createTriageDispatch(ports: TriageDispatchPorts) {
         title: `管制カードの捌き (${open.length} 件)`,
         body: [
           "開いている管制カードの優先度・担当者・次の催促時刻・催促文・まとめ先を決めてください。",
-          "変えられるのはこの 5 つだけです。カードの開閉・回答・セッションの操作はできません。",
-          "回答は result.detail.cards[] に {card_id, priority, assignee?, remind_at?, reminder_text?, group?} で返してください。",
+          "human_action が空欄なら、人間が行う操作や判断を具体的な命令形の一文で80文字以内にまとめ、human_action に返してください。要旨から判断できない場合は省略してください。",
+          "カードの開閉・回答・セッションの操作はできません。回答は params.response_schema の形式で返してください。",
         ].join("\n"),
         params: params as unknown as Record<string, unknown>,
       });

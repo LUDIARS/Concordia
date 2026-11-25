@@ -6,6 +6,7 @@ import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, genera
 import { answerPendingQuestion, type AnswerQuestionBody } from "../../control/answer-question.js";
 import { buildDelegationQuestionRelayText } from "../../delegation/coordination.js";
 import { escalateQuestionToHuman } from "../../control/question-escalation.js";
+import { normalizeHumanAction } from "../../control-cards/human-action.js";
 
 export function registerQaRoutes(app: Hono, deps: SessionsApiDeps): void {
   // Inspect structured questions/permissions before their contents reach DB or another session.
@@ -65,7 +66,7 @@ app.post("/:id/permission-response", async (c) => {
     return c.json(json as Record<string, unknown>, upstream.status as 200);
   });
 
-app.post("/:id/pending-question", async (c) => {
+  app.post("/:id/pending-question", async (c) => {
     const id = c.req.param("id");
     if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
@@ -101,6 +102,7 @@ app.post("/:id/pending-question", async (c) => {
       kind: parsed.data.kind,
       providerRequestId: parsed.data.provider_request_id,
       question: parsed.data.question,
+      human_action: normalizeHumanAction(parsed.data.human_action) ?? undefined,
       options: parsed.data.options,
       multiSelect: parsed.data.multi_select === true,
       parentSessionId: parentSessionId ?? null,

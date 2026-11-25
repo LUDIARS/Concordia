@@ -12,10 +12,10 @@ it("records an explicit human wait through its dedicated route", async () => {
   const app = new Hono();
   registerHumanWaitRoutes(app, { repo });
   const response = await app.request("/s/human-wait", { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ summary: "判断待ち", task_references: ["actio:T-1"] }) });
+    body: JSON.stringify({ summary: "判断待ち", human_action: " #4194 を通すか決める ", task_references: ["actio:T-1"] }) });
   expect(response.status).toBe(200);
   expect((await (await app.request("/s/human-wait")).json()).human_wait).toMatchObject({
-    active: true, summary: "判断待ち", task_references: ["actio:T-1"],
+    active: true, summary: "判断待ち", human_action: "#4194 を通すか決める", task_references: ["actio:T-1"],
   });
   expect(PatchSchema.safeParse({ metadata: { cc_human_wait: null } }).success).toBe(false);
 });

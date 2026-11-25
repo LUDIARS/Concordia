@@ -20,6 +20,31 @@ const EDIT_APPLIED_MIGRATION = [
 describe("migration ledger", () => {
   const frozen = new Map(FROZEN_MIGRATIONS.map((entry) => [entry.version, entry]));
 
+  it.each([160, 162])("adds optional human actions to a database at version %i", (version) => {
+    const db = new Database(":memory:");
+    try {
+      runMigrations(db, MIGRATIONS.filter(migration => migration.version <= version && migration.version !== 161), version);
+      const previousLedger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+      db.exec(`INSERT INTO control_cards(id, source_kind, source_key, card_kind, summary, state, raised_at, created_at, updated_at)
+        VALUES ('legacy', 'ask-card', 'q1', 'human_judgment', 'original summary', 'open', 1, 1, 1);
+        INSERT INTO discord_pending_questions(session_id, question, options_json, ts)
+        VALUES ('legacy', 'original question', '[]', 1);`);
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+      expect(db.prepare("SELECT summary, state, human_action FROM control_cards WHERE id = 'legacy'").get())
+        .toEqual({ summary: "original summary", state: "open", human_action: null });
+      expect(db.prepare("SELECT question, human_action FROM discord_pending_questions WHERE session_id = 'legacy'").get())
+        .toEqual({ question: "original question", human_action: null });
+      expect(db.prepare("SELECT * FROM schema_migrations WHERE version <= ? AND version <> 161 ORDER BY version").all(version))
+        .toEqual(previousLedger);
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version IN (161, 162) ORDER BY version").all())
+        .toEqual([{ version: 161, name: "control-card-human-action" }, { version: 162, name: "desk-actio-routing" }]);
+      expect(schemaFingerprint(db)).toBe(SCHEMA_FINGERPRINT);
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps SCHEMA_VERSION aligned with the newest migration", () => {
     expect(SCHEMA_VERSION).toBe(Math.max(...MIGRATIONS.map((migration) => migration.version)));
   });

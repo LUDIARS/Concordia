@@ -28,8 +28,8 @@ export interface CardSyncInput {
 
 export interface CardSyncPlan {
   create: CardSourceItem[];
-  /** 要旨・リンクが変わった開いているカード。 */
-  refresh: Array<{ id: string; summary: string; link: string | null }>;
+  /** 出所から得た表示情報が変わった開いているカード。 */
+  refresh: Array<Pick<CardSourceItem, "summary" | "link" | "human_action"> & { id: string }>;
   close: Array<{ id: string; reason: string }>;
   unreadable: CardSourceKind[];
 }
@@ -55,7 +55,9 @@ export function planCardSync(input: CardSyncInput): CardSyncPlan {
       seen.add(id);
       const card = open.get(id);
       if (!card) plan.create.push(item);
-      else if (card.summary !== item.summary || card.link !== item.link) plan.refresh.push({ id: card.id, summary: item.summary, link: item.link });
+      else if (card.summary !== item.summary || card.link !== item.link || (item.human_action && item.human_action !== card.human_action)) {
+        plan.refresh.push({ id: card.id, summary: item.summary, link: item.link, human_action: item.human_action });
+      }
     }
   }
 

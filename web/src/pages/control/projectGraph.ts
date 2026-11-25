@@ -1,9 +1,16 @@
-import type { SessionProgressRow } from "./controlApi.js";
+import type { ControlCardView, SessionProgressRow } from "./controlApi.js";
 
 export const sessionStatus: Record<string, string> = {
   working: "作業中", awaiting_result: "結果待ち", human_wait: "人間待ち",
   stalled: "停滞", unresponsive: "応答なし", end_candidate: "終了候補",
 };
+
+export function projectCards<T extends Pick<ControlCardView, "project" | "session_id">>(
+  cards: readonly T[], project: string, sessions: readonly Pick<SessionProgressRow, "session_id">[],
+): T[] {
+  const sessionIds = new Set(sessions.map(row => row.session_id));
+  return cards.filter(card => card.project === project || (card.session_id !== null && sessionIds.has(card.session_id)));
+}
 
 /** 同じプロジェクトで観測できたステップだけを分母とする。 */
 export function projectGraph(rows: SessionProgressRow[]) {

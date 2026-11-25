@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { controlApi } from "./controlApi.js";
+import { controlApi, type ControlCardView } from "./controlApi.js";
 import { ProjectMicro } from "./ProjectMicro.js";
 import { projectGraph } from "./projectGraph.js";
 import { usePolling } from "./usePolling.js";
 import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
-export function SessionsPanel() {
+export function SessionsPanel({ cards, cardError, cardsReconnecting }: {
+  cards: ControlCardView[]; cardError: string | null; cardsReconnecting: boolean;
+}) {
   const { data, error, reconnecting } = usePolling((signal) => controlApi.sessions(signal), 15_000);
   const [view, setView] = useState<"macro" | "micro">("macro");
   const [selected, setSelected] = useState("");
@@ -42,7 +44,9 @@ export function SessionsPanel() {
         value={current?.name ?? ""} onChange={e => setSelected(e.target.value)}>
         {!current && <option value="">選択してください</option>}
         {projects.map(p => <option key={p.name}>{p.name}</option>)}</select></label>
-      {current ? <ProjectMicro key={current.name} sessions={current.sessions} /> : <p>選択していたプロジェクトには稼働セッションがありません。</p>}
+      {current ? <ProjectMicro key={current.name} project={current.name} sessions={current.sessions}
+        cards={cards} cardError={cardError} cardsReconnecting={cardsReconnecting} />
+        : <p>選択していたプロジェクトには稼働セッションがありません。</p>}
     </>}
   </section>;
 }

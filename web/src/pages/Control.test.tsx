@@ -3,16 +3,19 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Control } from "./Control.js";
-import { projectGraph } from "./control/projectGraph.js";
+import { projectCards, projectGraph } from "./control/projectGraph.js";
 import type { SessionProgressRow } from "./control/controlApi.js";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 const card = {
-  id: "card-1", source_kind: "human-command", card_kind: "human_action", summary: "gh auth login を打つ", session_id: "s1", project: "Cc",
+  id: "card-1", source_kind: "human-command", card_kind: "human_action", summary: "gh auth login を打つ",
+  human_action: "GitHub に再ログインする", session_id: "s1", project: "Cc",
   link: "http://cc/sessions/s1", state: "open", raised_at: Date.now() - 2 * 3_600_000, closed_at: null, priority: "high", assignee: "neco",
   remind_at: null, reminder_text: null, card_group: null, triaged_by: "dots:inst:dots:1",
 };
+const projectOnlyCard = { ...card, id: "card-2", project: "Concordia", session_id: null, human_action: "Concordia の設定を確認する" };
+const otherCard = { ...card, id: "card-3", project: "Actio", session_id: "s2", human_action: "Actio の担当を決める" };
 const sessionRow = (id: string, progress: Record<string, unknown>) => ({
   session_id: id, project: id === "s1" ? "Concordia" : "Actio", branch: "feat/x", current_task: `作業 ${id}`, status: "working", status_reason: null,
   last_activity_at: 1, link: null,
@@ -23,7 +26,7 @@ const sessionRow = (id: string, progress: Record<string, unknown>) => ({
 
 function respond(url: string, init?: RequestInit): Response {
   if (url.startsWith("/v1/control/cards/") && init?.method === "PATCH") return new Response(JSON.stringify({ card: { ...card, state: "closed" } }));
-  if (url.startsWith("/v1/control/cards")) return new Response(JSON.stringify({ cards: [card] }));
+  if (url.startsWith("/v1/control/cards")) return new Response(JSON.stringify({ cards: [card, projectOnlyCard, otherCard] }));
   if (url.startsWith("/v1/control/sessions")) return new Response(JSON.stringify({ items: [
     sessionRow("s1", { followup_rate: null, tasks: { state: "unavailable" } }),
     sessionRow("s2", { followup_rate: 40, tasks: { state: "ok", items: [{ reference: "actio:9", status: "in_progress", state: "current" }] } }),
@@ -50,6 +53,12 @@ async function render(overview?: Response) {
 }
 
 describe("管制画面 (/control、Cc v5)", () => {
+  it("matches by project or session, retaining card order without duplicating dual matches", () => {
+    const dual = { ...card, project: "Concordia" };
+    expect(projectCards([card, otherCard, projectOnlyCard, dual], "Concordia", [{ session_id: "s1" }]))
+      .toEqual([card, projectOnlyCard, dual]);
+  });
+
   it("shows the last snapshot and its age when the Actio refresh fails", async () => {
     const full = await respond("/v1/taskflow/overview").json();
     const fetchedAt = new Date(Date.now() - 120_000).toISOString();
@@ -190,6 +199,25 @@ describe("管制画面 (/control、Cc v5)", () => {
       expect(second.textContent).not.toContain("作業 s1");
       expect(second!.textContent).toContain("自動確認の進捗率: 40%");
       expect(second!.textContent).toContain("actio:9 (in_progress)");
+    } finally { await view.cleanup(); }
+  });
+
+  it("shows action headings with collapsed summaries, and limits micro cards to the selected project", async () => {
+    const view = await render();
+    try {
+      const overview = view.container.querySelector('[aria-label="動いているセッション"]')!;
+      const allCards = view.container.querySelector('[aria-label="管制カード"]')!;
+      expect(overview.querySelector('[aria-label="関連する管制カード"]')).toBeNull();
+      const first = allCards.querySelector("article")!;
+      expect(first.firstElementChild?.textContent).toBe(card.human_action);
+      expect(first.querySelector("details")?.open).toBe(false);
+      expect(first.querySelector("details p")?.textContent).toBe(card.summary);
+      const select = [...overview.querySelectorAll("button")].find(button => button.textContent?.includes("Concordia"))!;
+      await act(async () => { select.click(); });
+      const related = overview.querySelector('[aria-label="関連する管制カード"]')!;
+      expect([...related.querySelectorAll("li h3")].map(heading => heading.textContent))
+        .toEqual([card.human_action, projectOnlyCard.human_action]);
+      expect(allCards.textContent).toContain(otherCard.human_action);
     } finally { await view.cleanup(); }
   });
 

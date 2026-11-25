@@ -30,6 +30,7 @@ export interface ControlCardView {
   source_kind: string;
   card_kind: "human_action" | "human_judgment";
   summary: string;
+  human_action: string | null;
   session_id: string | null;
   project: string | null;
   link: string | null;
@@ -47,6 +48,11 @@ export interface ControlCardView {
 }
 
 export interface PlanStep { text: string; status: "pending" | "in_progress" | "completed" }
+
+export interface ControlCardList {
+  cards: ControlCardView[];
+  discarded_count?: number;
+}
 
 export interface SessionProgressRow {
   desk_request_id?: string | null;
@@ -121,7 +127,7 @@ export const controlApi = {
     call(`/v1/desk/requests/${encodeURIComponent(id)}/retry-launch`, { method: "POST" }),
   submitDesk: (input: { client_request_id: string; body: string; provider: "claude" | "codex"; project?: string }) =>
     call<{ request: DeskRequestView; existing: boolean }>("/v1/desk/requests", { method: "POST", body: input }),
-  cards: (state: "open" | "closed" | "all" | "discarded", signal?: AbortSignal) => call<{ cards: ControlCardView[]; discarded_count?: number }>(`/v1/control/cards?state=${state}`, { signal }),
+  cards: (state: "open" | "closed" | "all" | "discarded", signal?: AbortSignal) => call<ControlCardList>(`/v1/control/cards?state=${state}`, { signal }),
   updateCard: (id: string, patch: Record<string, unknown>) => call<{ card: ControlCardView }>(`/v1/control/cards/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
   sessions: (signal?: AbortSignal) => call<{ items: SessionProgressRow[] }>("/v1/control/sessions", { signal }),
   sprints: (signal?: AbortSignal) => call<{ sprints: SprintView[] }>("/v1/control/sprints", { signal }),

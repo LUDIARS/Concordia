@@ -11,7 +11,7 @@ related:
   - feature/agent-instructions-bridge.md
   - feature/human-request-channel.md
   - feature/control-session.md
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # 管制カード (Cc v5)
@@ -45,9 +45,20 @@ Actio `actio:03f95a5b-2f41-4953-8364-a367701b84e9`。UX-CC-W5 / UX-CC-S6。タ�
 
 | 用語 | 状態の正本 |
 |---|---|
-| カード | `control_cards`。出所の参照・捌き・催促の予定だけを持つ。**解決の正本は出所** |
+| カード | `control_cards`。出所の参照・表示内容・捌き・催促の予定を持つ。**解決の正本は出所** |
 | 捌き | `control_cards` の priority / assignee / remind_at / reminder_text / card_group と `triaged_by` (`dots:<instruction id>` / `human:<actor>`) |
 | 催促 | `control_card_reminders` (送信記録) |
+| 人間がやること | カードの `human_action`。質問登録と human-wait が明示値を持ち、空欄は dots が補完する |
+
+### 人間がやることとプロジェクト内のカード
+
+Actio `actio:b5983f59-aa62-468e-abfa-9fb89ef91782`。V5-S2 (UX-CC-W2 / W4) で同時に複数プロジェクトを扱うとき、ミクロ表示ではプロジェクト名の一致または所属セッション ID の一致で、開いている関連カードを表示する。下段の全体カード欄では全プロジェクトを確認できる。
+
+カードの冒頭に人間が実行・判断する一文を表示する。要旨は「詳細」で開く。一文が未設定なら種別に応じて行動の確認または判断の確認を案内する。
+
+`POST /v1/sessions/:id/human-wait` と `POST /v1/sessions/:id/pending-question` は任意の `human_action` を受け付ける。一文は80文字以内で、表示前に空白を整え、秘密を伏字にしてメンションを無効化する。
+
+**CC-V5-INV-09**　dots は `human_action` が空欄の開いているカードだけを補完する。反映時にも空欄を照合し、明示値を保持する。出所から明示値を読めるようになった場合はそちらを優先する。従来のカードは空欄から始まり、通常の同期と指令で補完できる。
 
 出所 (`source_kind`) と閉じる条件は [計画の表](../plan/2026-11-24-control-session-to-dots.md#カードの出所-既存の正本を変えない) のとおり。読み方は承認インボックスの read model (`src/inbox/read-model.ts`) と human-wait / CDGD の `waiting_human` / 進捗ボードの `unresponsive`。人間依頼 (`human-command`) は AI の発言のマーカーからカードを作り、カードが解決状態の正本になる (人間の「済み」・人間依頼の OK ボタン・セッション終了で閉じる)。
 
@@ -60,7 +71,7 @@ Actio `actio:03f95a5b-2f41-4953-8364-a367701b84e9`。UX-CC-W5 / UX-CC-S6。タ�
 |---|---|---|
 | CC-V5-INV-02 | カードは出所の解決状態を書き換えない。回答・実行は既存の経路へ。カードから閉じられるのは人間依頼と日次カイゼンの提案 (他は 409 `resolve_at_source`) | `card-domain.ts` / `service.ts` |
 | CC-V5-INV-03 | 閉じるのは出所を読めて、未解決として現れなかったときだけ。読めなかった出所のカードは開いたまま | `card-sync-policy.ts` / `sources.ts` |
-| CC-V5-INV-04 | dots の捌きは 5 列だけ。不明・閉じたカード・重複・範囲外の値は捨てる。最後に積んだ自分の指令の `done` だけを適用する | `card-triage-policy.ts` / `card-triage-dispatch.ts` |
+| CC-V5-INV-04 | dots は捌きの 5 列を変更し、CC-V5-INV-09 に従い空欄を補完できる。不明・閉じたカード・重複・範囲外の値は捨てる。最後に積んだ自分の指令の `done` だけを適用する | `card-triage-policy.ts` / `card-triage-dispatch.ts` |
 | CC-V5-INV-05 | 催促は Cc が出す。同じカードは最短 30 分あけ、深夜帯 (`src/shared/quiet-hours.ts`) は出さない。メンションは構造化した担当者 1 人だけ、本文の mention は無効化 | `reminder-policy.ts` / `reminder-runner.ts` / `src/discord/desk.ts` |
 | CC-V5-INV-06 | API と画面は loopback / 既存の Web SSO の範囲。dots には開けない | `src/api/control-cards.ts` |
 | CC-V5-INV-07 | Web と Discord は同じ use case (`ControlCardsService`) を呼ぶ | `service.ts` |
@@ -80,13 +91,16 @@ Actio `actio:03f95a5b-2f41-4953-8364-a367701b84e9`。UX-CC-W5 / UX-CC-S6。タ�
 
 - 巡回 (1 分、`session.control_session_enabled` が ON の間): 出所の同期 → dots への `card_triage` 指令 → 催促。
 - 既定の捌き: 作成時に優先度 normal・催促は 24 時間後。催促した後も 24 時間後に次の予定。
-- dots への指令 ([指令ブリッジ](agent-instructions-bridge.md)): 開いているカードの集合か捌きが変わったら、最短 10 分あけて 1 件だけ積む。前の指令が終わっていなければ積まない。params は優先度・古い順に最大 20 件、要旨 200 字、8000 バイト以内。回答 `detail.cards[]` = `{card_id, priority, assignee?, remind_at?, reminder_text?, group?}`。設定 `control_cards.dots_triage_enabled` (既定 ON)。
+- dots への指令 ([指令ブリッジ](agent-instructions-bridge.md)) は開いているカードの集合、捌き、表示用の一文の変更を検知し、最短 10 分あけて 1 件だけ積む。前の指令が終わっていなければ積まない。params は一文の空欄を先に取り、各グループを優先度・古い順に並べて最大 20 件、要旨 200 字、8000 バイト以内。回答 `detail.cards[]` は `{card_id, priority, assignee?, remind_at?, reminder_text?, group?, human_action?}`。設定 `control_cards.dots_triage_enabled` は既定 ON。
 - 催促の届け先: 依頼窓口のスレッド (依頼から起動したセッションのカード)、無ければ管制チャンネル (メンションなし)。
 - API: `GET /v1/control/cards?state=open|closed|all|discarded` (既定 open。`all` は開閉だけで、破棄は `discarded` でだけ読める。応答に `discarded_count`)、`PATCH /v1/control/cards/:id` (捌き 5 列と人間依頼の `done`)、`GET /v1/control/sprints` (スプリントの投影、読み取り専用で Actio へ書かない)。
 - Web `/control`: カード (捌きの編集)・Actio タスク (既存 taskflow 一覧)・動いているセッション ([プランと進捗](control-session.md))・スプリント状況の 4 欄。カードの管理面は Discord に作らない。
 
 ## 復旧
 
+- migration 161 は既存行を保持し、一文の列を空欄で追加する。Actio 依頼の migration 162 を適用済みの DB でも、台帳にない 161 を次の移行で適用する。両方を含むスキーマの版は 162。
+- Actio の部分取得は取得済みの範囲と失敗を表示する。管制カードは再接続中も直前の一覧を表示し、プロジェクトのミクロ表示では関連カードに絞る。破棄済み一覧の自動取得は、その一覧を開いている間だけ行う。
+- Revisor #4220 の統合は Actio `actio:007240b4-4497-455c-b371-04dee169bedc` を参照。
 - `control_cards` を空にしても次の巡回で開いているものが作り直される (捌きと催促の記録は失う)。
 - `control_cards.dots_triage_enabled` を OFF で指令を出さない (既定の捌きで回る)。
 - 管制を OFF (`session.control_session_enabled`) でカードの巡回は止まる。カードの表は残る。

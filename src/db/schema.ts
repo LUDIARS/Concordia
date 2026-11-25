@@ -20,6 +20,7 @@ import { musePlaytestRelaysMigration } from "./muse-playtest-relays-migration.js
 import { controlCardsDiscardMigration } from "./control-cards-discard-migration.js";
 import { mailSweepMigration } from "./cron-mail-sweep-migration.js";
 import { kaizenCloudMigration } from "./kaizen-cloud-migration.js";
+import { controlCardHumanActionMigration } from "./control-card-human-action-migration.js";
 import { deskActioRoutingMigration } from "./desk-actio-routing-migration.js";
 
 export const SCHEMA_VERSION = 162;
@@ -3911,6 +3912,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   controlCardsDiscardMigration,
   mailSweepMigration,
   kaizenCloudMigration,
+  controlCardHumanActionMigration,
   deskActioRoutingMigration,
 ];
 

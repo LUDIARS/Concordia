@@ -4,6 +4,28 @@ import { expect, it, vi } from "vitest";
 import { usePolling } from "./usePolling.js";
 import { TaskflowLoadError } from "../../lib/taskflow-failure.js";
 
+it("aborts a pending read and pauses automatic recovery while the interval is null", async () => {
+  const load = vi.fn<(signal: AbortSignal) => Promise<string>>()
+    .mockImplementationOnce(() => new Promise(() => {}))
+    .mockResolvedValue("current");
+  const view = renderHook(({ interval }: { interval: number | null }) => usePolling(load, interval),
+    { initialProps: { interval: null as number | null } });
+  try {
+    window.dispatchEvent(new Event("online"));
+    expect(load).not.toHaveBeenCalled();
+    view.rerender({ interval: 1000 });
+    expect(load).toHaveBeenCalledOnce();
+    view.rerender({ interval: null });
+    expect(load.mock.calls[0]![0].aborted).toBe(true);
+    window.dispatchEvent(new Event("online"));
+    expect(load).toHaveBeenCalledOnce();
+    await act(async () => { view.rerender({ interval: 1000 }); });
+    expect(view.result.current).toMatchObject({ data: "current", error: null, reconnecting: false });
+  } finally {
+    view.unmount();
+  }
+});
+
 it("starts the next poll after a rejection", async () => {
   vi.useFakeTimers();
   const load = vi.fn()

@@ -14,7 +14,7 @@ export interface DelegationTemplateLite {
   default_cwd?: string | null;
   project?: string | null;
   description?: string;
-  target_provider?: "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
+  target_provider?: "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "grok" | "gemma4-12";
   model?: string | null;
   default_options?: Record<string, unknown>;
 }

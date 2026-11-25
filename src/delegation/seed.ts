@@ -600,6 +600,15 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     emoji: "💎",
     sortOrder: 14,
   }),
+  implementationTemplate({
+    callName: "grok",
+    label: "Grok",
+    note: "Grok CLI の実装委託。",
+    model: "grok",
+    provider: "grok",
+    emoji: "⚡",
+    sortOrder: 15,
+  }),
   // Gemini 4 Argon (2026-11-20 neco 指示「Delegation で Argon と Neon を指定できるようにして」)。 明示指定でだけ使う。
   implementationTemplate({
     callName: "argon",

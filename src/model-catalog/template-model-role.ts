@@ -1,5 +1,5 @@
 /**
- * 委託テンプレートの model に書かれた役割名 (opus / sonnet / haiku / fable / sol / astra / luna / neon / argon、
+ * 委託テンプレートの model に書かれた役割名 (opus / sonnet / haiku / fable / sol / astra / luna / neon / argon / grok、
  * Claude は `[1m]` 接尾辞可) を、 spawn 直前に role map でモデル ID へ解決する。
  *
  * - 明示的なモデル ID (claude-opus-5-5 等) はそのまま通す (上書きの互換)。
@@ -20,13 +20,17 @@ export const GEMINI_MODEL_ROLES = ["neon", "argon"] as const;
 /** Gemini 系の既定役割。 argon は明示指定のみ (MRM-GEM-05)。 */
 export const GEMINI_DEFAULT_ROLE = "neon";
 
-const ROLE_NAME = /^(opus|sonnet|haiku|fable|sol|astra|luna|neon|argon)(\[1m\])?$/;
+export const GROK_MODEL_ROLES = ["grok"] as const;
+export const GROK_DEFAULT_ROLE = "grok";
+
+const ROLE_NAME = /^(opus|sonnet|haiku|fable|sol|astra|luna|neon|argon|grok)(\[1m\])?$/;
 
 /** provider → 役割の系統。 役割名を持たない provider (gemma4-12 等) は null。 */
-export function modelRoleFamily(provider: string): "claude" | "codex" | "gemini" | null {
+export function modelRoleFamily(provider: string): keyof RoleMap["roles"] | null {
   if (provider === "claude") return "claude";
   if (provider === "codex" || provider === "codex-sdk") return "codex";
   if (provider === "gemini" || provider === "agy") return "gemini";
+  if (provider === "grok") return "grok";
   return null;
 }
 
@@ -47,15 +51,17 @@ export function resolveTemplateModel(input: {
   model: string | null | undefined;
   roles: RoleMap["roles"];
 }): TemplateModelResolution {
-  // agy は model 未指定でも既定役割 neon を明示して起動する (MRM-GEM-04)。
-  const requested = input.provider === "agy" && !(input.model ?? "").trim() ? GEMINI_DEFAULT_ROLE : input.model;
+  const defaultRole = input.provider === "agy" ? GEMINI_DEFAULT_ROLE
+    : input.provider === "grok" ? GROK_DEFAULT_ROLE : undefined;
+  const requested = (input.model ?? "").trim() ? input.model : defaultRole;
   const parsed = parseModelRole(requested);
   if (!parsed) return { ok: true, model: input.model ?? null, role: null };
   const family = modelRoleFamily(input.provider);
   const roles = family === "claude" ? CLAUDE_MODEL_ROLES as readonly string[]
     : family === "codex" ? CODEX_MODEL_ROLES as readonly string[]
-    : family === "gemini" ? GEMINI_MODEL_ROLES as readonly string[] : [];
-  // `[1m]` は Claude CLI だけの接尾辞。 Codex / Gemini では止める (MRM-TPL-03 / MRM-GEM-02)。
+    : family === "gemini" ? GEMINI_MODEL_ROLES as readonly string[]
+    : family === "grok" ? GROK_MODEL_ROLES as readonly string[] : [];
+  // `[1m]` は Claude CLI だけの接尾辞 (MRM-TPL-03)。
   if (!family || !roles.includes(parsed.role) || (family !== "claude" && parsed.suffix)) {
     return { ok: false, error: `delegation_model_role_unresolved:${parsed.role}${parsed.suffix} (provider ${input.provider})` };
   }

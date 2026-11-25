@@ -11,43 +11,14 @@
  * ゲートは Claude Code と同じ supervisor (CONCORDIA_HARNESS_RUNTIME / CONCORDIA_HARNESS_CONFIG) を使う。
  * 設定が欠けていたら通さずに止める (無言で素通しにしない)。
  */
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runSupervisor } from "./harness-hook-supervisor.mjs";
 import { runConcordiaHook } from "./concordia-hook-runtime.mjs";
 import { agyDenyResponse, isAgyToolFailure, isGatedAgyTool, toClaudeHookInput } from "./agy-hook-mapping.mjs";
 
 const PROVIDER = "antigravity-cli";
-const SUPERVISOR_TIMEOUT_MS = 30_000;
-
-/** supervisor を起動して判定を受け取る。 { code, stderr }。 */
-function runSupervisor({ runtime, config, input, env }) {
-  return new Promise((resolvePromise) => {
-    const child = spawn(process.execPath, [join(runtime, "harness/supervisor-cli.js"), config], {
-      env, windowsHide: true, shell: false, stdio: ["pipe", "ignore", "pipe"],
-    });
-    let stderr = "";
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolvePromise(result);
-    };
-    const timer = setTimeout(() => {
-      child.kill();
-      finish({ code: null, stderr: `harness supervisor did not answer within ${SUPERVISOR_TIMEOUT_MS} ms` });
-    }, SUPERVISOR_TIMEOUT_MS);
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => finish({ code: null, stderr: error.message }));
-    child.on("exit", (code) => finish({ code, stderr }));
-    child.stdin.on("error", () => { /* supervisor が先に終わった。 exit で結果を受け取る */ });
-    child.stdin.end(input);
-  });
-}
-
 /** PreToolUse: 止めるなら agy への応答 (JSON 文字列)、 通すなら null。 */
 export async function gateAgyToolCall({ agy, env = process.env, supervise = runSupervisor }) {
   if (env.CONCORDIA_DISABLE === "1") return null;

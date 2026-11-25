@@ -5,6 +5,7 @@ const roles = {
   claude: { opus: "claude-opus-next", sonnet: "claude-sonnet-next", haiku: "claude-haiku-next", fable: "claude-fable-next" },
   codex: { sol: "gpt-next-sol", astra: "gpt-next-astra", luna: "gpt-next-luna" },
   gemini: { neon: "gemini-next-neon", argon: "gemini-next-argon" },
+  grok: { grok: "grok-5.1" },
 };
 
 describe("parseModelRole", () => {
@@ -18,6 +19,23 @@ describe("parseModelRole", () => {
 });
 
 describe("resolveTemplateModel", () => {
+  it("uses the configured Grok model for the explicit or default role", () => {
+    for (const model of [null, "  ", "Grok"]) {
+      expect(resolveTemplateModel({ provider: "grok", model, roles })).toEqual({
+        ok: true, model: "grok-5.1", role: "grok",
+      });
+    }
+    expect(resolveTemplateModel({ provider: "grok", model: "grok-4.7", roles }))
+      .toEqual({ ok: true, model: "grok-4.7", role: null });
+  });
+
+  it("rejects Grok roles with a mismatched provider, suffix or missing model", () => {
+    expect(resolveTemplateModel({ provider: "agy", model: "grok", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "grok", model: "grok[1m]", roles })).toMatchObject({ ok: false });
+    expect(resolveTemplateModel({ provider: "grok", model: null, roles: { ...roles, grok: {} } }))
+      .toMatchObject({ ok: false });
+  });
+
   it("resolves a Claude role through the role map and keeps the [1m] suffix", () => {
     expect(resolveTemplateModel({ provider: "claude", model: "sonnet", roles }))
       .toEqual({ ok: true, model: "claude-sonnet-next", role: "sonnet" });

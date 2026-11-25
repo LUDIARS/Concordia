@@ -8,7 +8,7 @@
 import { fileURLToPath } from "node:url";
 
 /** プランを CLI で送らせる provider。 */
-const CLI_PLAN_PROVIDERS: ReadonlySet<string> = new Set(["antigravity-cli"]);
+const CLI_PLAN_PROVIDERS: ReadonlySet<string> = new Set(["antigravity-cli", "grok-cli"]);
 
 /** 送り口の CLI (tools/session-plan.mjs) の絶対パス。 */
 export const SESSION_PLAN_CLI = fileURLToPath(new URL("../../tools/session-plan.mjs", import.meta.url)).replace(/\\/g, "/");

@@ -12,7 +12,7 @@ const BASE = "";
  * gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由で起動。
  * 実 spawn CLI への解決は backend `src/control/provider-preset.ts`)。 新規追加時は backend を同時更新する.
  */
-export type SpawnProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
+export type SpawnProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "grok" | "gemma4-12";
 
 export interface DelegationInputSchemaItem {
   name: string;
@@ -56,7 +56,7 @@ export interface DelegationTemplateLite {
 }
 
 /** delegation テンプレ / spawn が選べるモデル候補 (GET /v1/model-catalog)。 */
-export type ModelCatalogProvider = "any" | "claude" | "codex" | "gemini" | "gemma4-12";
+export type ModelCatalogProvider = "any" | "claude" | "codex" | "gemini" | "grok" | "gemma4-12";
 export interface ModelCatalogItem {
   id: string;
   model_id: string;

@@ -34,6 +34,9 @@ describe("getProvider — 未実装・不明プロバイダ", () => {
   it("antigravity-cli (Lictor の agy) は null を返す (transcript 非対応)", () => {
     expect(getProvider("antigravity-cli")).toBeNull();
   });
+  it("has no transcript adapter for grok-cli", () => {
+    expect(getProvider("grok-cli")).toBeNull();
+  });
 
   it("codex-sdk は null を返す (CLI 固有の recovery / rollout 走査を持たない)", () => {
     expect(getProvider("codex-sdk")).toBeNull();

@@ -6,7 +6,7 @@ import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
 // codex-sdk = Satelles ヘッドレスランナー (wt.exe / Lictor を使わない codex ファミリレーン)。
 // agy = Antigravity CLI (`lictor agy`)。 Gemini 4 Neon / Argon を起動する Gemini 系レーン。
-export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
+export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "grok" | "gemma4-12";
 
 /**
  * モデルカタログの行を引く provider。 codex-sdk は codex の行、 agy は gemini の行を共有する
@@ -23,7 +23,9 @@ export function catalogProviderFor(provider: Provider): string {
  * 「CLI 既定」ではなく Neon を明示する。
  */
 export function emptyModelLabel(provider: Provider): string {
-  return provider === "agy" ? "(既定: Neon)" : "(provider CLI 既定)";
+  if (provider === "agy") return "(既定: Neon)";
+  if (provider === "grok") return "(既定: Grok)";
+  return "(provider CLI 既定)";
 }
 
 // 雇用形態カテゴリ (サーバ側正本: src/db/delegation-repo.ts DELEGATION_CATEGORIES)。

@@ -57,12 +57,12 @@ it("does not discover workflow-specific skills at startup", async () => {
   expect(paths.some((path) => path.includes("revisor-cc-workflow"))).toBe(false);
 });
 
-it("tells only agy sessions how to send their plan, without touching the other providers' policy", async () => {
+it.each(["antigravity-cli", "grok-cli"])("adds CLI plan guidance for %s while preserving Claude startup policy", async (provider) => {
   const base = { repoPath: "E:/fixture", observedBranch: "feat/work", pendingSpawn: null, workspaceRoots: [], requirements: null };
   const claude = (await buildStartupPolicy({ ...base, provider: "claude-code" })).policy;
-  const agy = (await buildStartupPolicy({ ...base, provider: "antigravity-cli" })).policy;
+  const cli = (await buildStartupPolicy({ ...base, provider })).policy;
   expect(claude.fields).not.toHaveProperty("sessionPlan");
   expect(claude.text).not.toContain("[Cc session plan]");
-  expect(agy.fields.sessionPlan).toContain("[Cc session plan]");
-  expect(agy.text).toMatch(/\[Cc session plan\][\s\S]*tools\/session-plan\.mjs" wrap-up[\s\S]*\[Cc policy revision/);
+  expect(cli.fields.sessionPlan).toContain("[Cc session plan]");
+  expect(cli.text).toMatch(/\[Cc session plan\][\s\S]*tools\/session-plan\.mjs" wrap-up[\s\S]*\[Cc policy revision/);
 });

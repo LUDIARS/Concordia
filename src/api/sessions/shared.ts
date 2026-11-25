@@ -51,6 +51,8 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
     // "antigravity-cli" で登録してくる。 spawn 時は `lictor agy`。
     case "antigravity-cli":
       return "agy";
+    case "grok-cli":
+      return "grok";
     default:
       return null;
   }
@@ -65,7 +67,7 @@ const WritableMetadataSchema = z.record(z.unknown()).refine(
 
 export const StartSchema = z.object({
   id: z.string().min(1).max(128),
-  provider: z.enum(["claude-code", "gemini-cli", "antigravity-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
+  provider: z.enum(["claude-code", "gemini-cli", "antigravity-cli", "grok-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
   repo_path: z.string().min(1),
   repo_origin: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),

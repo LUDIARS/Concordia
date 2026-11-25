@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
-import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_ROLE_MODELS } from "./role-policy.js";
+import { INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_GROK_ROLE_MODELS, INITIAL_ROLE_MODELS } from "./role-policy.js";
 import { buildRoleMap } from "./role-map.js";
 import { currentRoleSeedModels, seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
-  it("keeps the active Claude/Codex seed rows equal to the role-policy values", () => {
+  it("keeps the current seed rows equal to the role-policy values", () => {
     const seeded = currentRoleSeedModels().map((row) => row.model_id).sort();
     const policy = [
       ...Object.values(INITIAL_CLAUDE_ROLE_MODELS), ...Object.values(INITIAL_ROLE_MODELS), ...Object.values(INITIAL_GEMINI_ROLE_MODELS),
+      ...Object.values(INITIAL_GROK_ROLE_MODELS),
     ].sort();
     expect(seeded).toEqual(policy);
   });
@@ -20,6 +21,7 @@ describe("seedModelCatalog", () => {
     const map = buildRoleMap({ roles: [], catalog: repo.list(), nowMs: 0 });
     expect(map.roles.claude).toEqual(INITIAL_CLAUDE_ROLE_MODELS);
     expect(map.roles.gemini).toEqual(INITIAL_GEMINI_ROLE_MODELS);
+    expect(map.roles.grok).toEqual(INITIAL_GROK_ROLE_MODELS);
   });
 
   it("adds the Gemini neon row to an existing catalog and keeps the older Gemini rows", () => {
@@ -74,6 +76,9 @@ describe("seedModelCatalog", () => {
     expect(ids).toContain("custom-model");
     expect(ids).toContain("claude-opus-5-5");
     expect(ids).toContain("gpt-6.2-sol");
+    expect(repo.list().filter((m) => m.provider === "grok")).toEqual([
+      expect.objectContaining({ model_id: "grok-4.7", label: "Grok 4.7", sort_order: 7, is_active: 1 }),
+    ]);
     expect(ids).not.toContain("claude-opus-4-8");
     expect(ids).not.toContain("gemini-2.5-pro");
   });

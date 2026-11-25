@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { SESSION_PLAN_CLI, sessionPlanGuidance } from "./plan-guidance.js";
 
 describe("session plan guidance", () => {
-  it("tells agy when and how to send the plan through the CLI", () => {
-    const text = sessionPlanGuidance("antigravity-cli", "E:/c/tools/session-plan.mjs");
+  it.each(["antigravity-cli", "grok-cli"])("tells %s how to send the plan through the CLI", (provider) => {
+    const text = sessionPlanGuidance(provider, "E:/c/tools/session-plan.mjs");
     expect(text).toContain("複数の手順がある作業は、 着手前にプランを送って");
     expect(text).toContain("短い返答や 1 手順で済む作業はプラン不要");
     expect(text).toContain('node "E:/c/tools/session-plan.mjs" update --file=');

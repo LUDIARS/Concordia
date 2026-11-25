@@ -5,6 +5,19 @@ import {ModelCatalogRepo} from "../src/db/model-catalog-repo.js";
 import {seedInitialRoles} from "../src/model-catalog/initial-roles.js";
 import {modelCatalogRouter} from "../src/api/model-catalog.js";
 describe("role API compatibility and explicit errors",() => {
+  it("accepts Grok catalog rows and resolves the Grok role map", async () => {
+    const router = modelCatalogRouter({ repo: new ModelCatalogRepo(makeTestDb()), now: () => 0 });
+    const readMap = async () => (await router.request("/role-map")).json();
+    expect(await readMap()).toMatchObject({ roles: { grok: { grok: "grok-4.7" } } });
+
+    const created = await router.request("/", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "grok", model_id: "grok-5.1", sort_order: 1 }),
+    });
+    expect(created.status).toBe(201);
+    expect(await readMap()).toMatchObject({ roles: { grok: { grok: "grok-5.1" } } });
+  });
+
   it("adds versioned role resolution while preserving candidate CRUD",async()=>{
     const db=makeTestDb();const roles=new ModelRoleRepo(db);const now=Date.parse("2026-10-03T00:00:00Z");seedInitialRoles(roles,now);
     const router=modelCatalogRouter({repo:new ModelCatalogRepo(db),roles,now:()=>now});

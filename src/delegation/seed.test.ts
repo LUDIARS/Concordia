@@ -285,7 +285,11 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
     const spawnable = repo.listTemplates().filter((t) => !t.call_only).map((t) => t.call_name);
     expect(spawnable.indexOf("neon")).toBe(spawnable.indexOf("astra-mid") + 1);
-    expect(spawnable.indexOf("neon")).toBeLessThan(spawnable.indexOf("sol"));
+    expect(spawnable.indexOf("grok")).toBe(spawnable.indexOf("neon") + 1);
+    expect(spawnable.indexOf("grok")).toBeLessThan(spawnable.indexOf("sol"));
+    expect(repo.findTemplateByCallName("grok")).toMatchObject({
+      target_provider: "grok", model: "grok", emoji: "⚡", sort_order: 15, category: "employee", is_active: 1,
+    });
   });
 
   // 2026-11-21 neco 指示「Delegation から Astra With Sidecar を非表示に」。 選択肢からは外し、定義は残す。
@@ -325,6 +329,7 @@ describe("seedDelegationTemplates", () => {
       "sonnet-mid",
       "fable",
       "neon",
+      "grok",
       "argon",
       "haiku",
       "gemma4-12-impl",

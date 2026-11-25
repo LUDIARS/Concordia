@@ -16,6 +16,7 @@ const EXPECTED_SEED_CALLS = [
   "astra-with-sidecar",
   // Gemini 4 Neon (2026-11-20 neco 指示、 Antigravity CLI で起動)。 2026-11-21 neco 指示「Neon を Astra の下に」。
   "neon",
+  "grok",
   // astra-xhigh は 2026-10-03 に廃止 (neco 指示「Astra の xhigh を消して」)。
   "sol",
   "fable",
@@ -92,11 +93,12 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 15, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
     expect(json.templates.filter((t) => t.target_provider === "agy").map((t) => t.call_name)).toEqual(["opus-gemini", "neon", "argon"]);
+    expect(json.templates.find((t) => t.call_name === "grok")).toMatchObject({ target_provider: "grok", emoji: "⚡" });
     expect(json.templates.filter((t) => t.forum_tag).map((t) => t.call_name)).toEqual([
       "forum-claude-session",
       "forum-codex-session",

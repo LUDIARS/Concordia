@@ -6,24 +6,29 @@
  * - Claude: モデルカタログの有効行のうち、 系統 (opus / sonnet / haiku / fable) ごとに
  *   sort_order が最小のもの。 無ければ INITIAL_CLAUDE_ROLE_MODELS。
  * - Gemini: Claude と同じ決め方で系統 neon / argon を引く。 無ければ INITIAL_GEMINI_ROLE_MODELS (MRM-GEM-01)。
+ * - Grok: カタログの有効行から世代付きの Grok を選ぶ。無ければ INITIAL_GROK_ROLE_MODELS。
  *
  * @implements CC-MODEL-ROLE-MAP MRM-GEM-01
  */
 import type { ModelCatalogRow } from "../db/model-catalog-repo.js";
 import {
-  INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_ROLE_MODELS, type RoleSnapshot,
+  INITIAL_CLAUDE_ROLE_MODELS, INITIAL_GEMINI_ROLE_MODELS, INITIAL_GROK_ROLE_MODELS, INITIAL_ROLE_MODELS, type RoleSnapshot,
 } from "./role-policy.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:3f8a6bd6 */
+import augurContract_32380cda from './grok-role-map.contract.js'; /* augur-inject:contract-predicate:2bb362f0 */
 
 type CatalogRow = Pick<ModelCatalogRow, "provider" | "model_id" | "sort_order" | "is_active">;
 
 export interface RoleMap {
   schemaVersion: 1;
   generatedAt: string;
-  roles: { codex: Record<string, string>; claude: Record<string, string>; gemini: Record<string, string> };
+  roles: { codex: Record<string, string>; claude: Record<string, string>; gemini: Record<string, string>; grok: Record<string, string> };
 }
 
 const CLAUDE_FAMILY = /^claude-(opus|sonnet|haiku|fable)-\d/;
 const GEMINI_FAMILY = /^gemini-\d+(?:\.\d+)?-(neon|argon)$/;
+
+const GROK_FAMILY = /^(grok)-\d+(?:\.\d+)?$/;
 
 /** provider の有効行のうち、 系統 (正規表現の 1 番目の捕捉) ごとに sort_order 最小の行を採る。 無い系統は初期値。 */
 export function pickCatalogFamilies(
@@ -58,5 +63,8 @@ export function buildRoleMap(input: {
   }
   const claude = pickCatalogFamilies(input.catalog, "claude", CLAUDE_FAMILY, INITIAL_CLAUDE_ROLE_MODELS);
   const gemini = pickCatalogFamilies(input.catalog, "gemini", GEMINI_FAMILY, INITIAL_GEMINI_ROLE_MODELS);
-  return { schemaVersion: 1, generatedAt: new Date(input.nowMs).toISOString(), roles: { codex, claude, gemini } };
+  const grok = pickCatalogFamilies(input.catalog, "grok", GROK_FAMILY, INITIAL_GROK_ROLE_MODELS);
+  return { schemaVersion: 1, generatedAt: new Date(input.nowMs).toISOString(), roles: { codex, claude, gemini, grok } };
 }
+// @ts-expect-error augur-inject
+buildRoleMap = contract(buildRoleMap, { ...augurContract_32380cda, contractId: 'grok-C-1', mode: 'observe', sample: 1, where: 'src/model-catalog/role-map.ts:53', rule: 'contract-wrap', id: '32380cda' }); /* augur-inject:contract-wrap:32380cda */

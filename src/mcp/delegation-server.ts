@@ -69,7 +69,7 @@ async function main(): Promise<void> {
     "delegation_list_templates",
     {
       description:
-        "List active delegation templates registered in Concordia. Each template has a call_name (used to invoke), target_provider (codex-sdk / claude / gemini / agy / gemma4-12), title, description, and input_schema.",
+        "List active delegation templates registered in Concordia. Each template has a call_name (used to invoke), target_provider (codex-sdk / claude / gemini / agy / grok / gemma4-12), title, description, and input_schema.",
       inputSchema: {
         include_inactive: z.boolean().optional().describe("Also return inactive templates"),
       },
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
           model: z.string().nullable().optional(),
           // 正本は src/db/delegation-repo.ts の DELEGATION_PROVIDERS。 この server は
           // DB モジュールを読み込まない独立プロセスなのでリテラルで同期する。
-          provider: z.enum(["claude", "codex", "codex-sdk", "gemini", "agy", "gemma4-12"]).optional(),
+          provider: z.enum(["claude", "codex", "codex-sdk", "gemini", "agy", "grok", "gemma4-12"]).optional(),
           reasoning_effort: z.string().optional(),
         }).optional().describe("One-shot model/provider/reasoning overrides"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),

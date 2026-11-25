@@ -34,6 +34,12 @@ describe("antigravity-cli (Lictor の agy provider)", () => {
   });
 });
 
+it("accepts Grok CLI registration and resolves spawn to lictor grok", () => {
+  expect(StartSchema.safeParse({ id: "lictor-grok-1", provider: "grok-cli", repo_path: "E:/fixture", host: "host" }).success)
+    .toBe(true);
+  expect(toSpawnProvider("grok-cli")).toBe("grok");
+});
+
 describe("serializeSession", () => {
   it("includes target_project", () => {
     expect(serializeSession(session({ target_project: "E:/Document/Ars/Lictor" }))).toMatchObject({

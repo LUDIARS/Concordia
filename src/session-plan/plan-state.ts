@@ -1,6 +1,6 @@
 /**
  * セッションの作業のプラン (update_plan / wrap_up) を、 セッションごとの状態として持つ
- * (spec/feature/session-plan-discord.md)。 送り手 (デスクトップの Claude アプリの hook・agy の CLI) に依らない。
+ * (spec/feature/session-plan-discord.md)。 送り手 (デスクトップの Claude アプリの hook・agy と Grok の CLI) に依らない。
  *
  * プラン更新は差分で届く (全体の置き換え / 次へ進める / 番号で完了・開始)。 ここで直前の状態に当てて
  * プラン全体を組み立て直す。 純関数のみ。 保存・投稿は呼び出し側。

@@ -33,7 +33,7 @@ const OUTPUT_MODES: Array<{ value: DepartmentOutputMode; label: string }> = [
   { value: "off", label: "出さない" },
 ];
 
-const PROVIDERS = ["claude", "codex", "codex-sdk", "gemini", "agy", "gemma4-12"];
+const PROVIDERS = ["claude", "codex", "codex-sdk", "gemini", "agy", "grok", "gemma4-12"];
 
 type LaunchKind = "none" | "template" | "provider";
 

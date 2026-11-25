@@ -85,6 +85,7 @@ describe("session plan state", () => {
 
   it("labels the post by the sending provider and keeps Claude for the rest", () => {
     expect(sessionPlanAuthorLabel("antigravity-cli")).toBe("agy プラン");
+    expect(sessionPlanAuthorLabel("grok-cli")).toBe("grok プラン");
     expect(sessionPlanAuthorLabel("claude-code")).toBe("Claude プラン");
     expect(sessionPlanAuthorLabel(null)).toBe("Claude プラン");
   });

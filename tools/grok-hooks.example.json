@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node E:/Document/Ars/Concordia/tools/grok-hook.mjs pre-tool --runtime=E:/Document/Ars/.claude/state/harness-runtime --config=E:/Document/Ars/.claude/state/harness-supervisor.json",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "node E:/Document/Ars/Concordia/tools/grok-hook.mjs post-tool", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "node E:/Document/Ars/Concordia/tools/grok-hook.mjs post-tool-failure", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "node E:/Document/Ars/Concordia/tools/grok-hook.mjs prompt", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

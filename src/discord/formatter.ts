@@ -15,6 +15,7 @@ export function sessionChannelSlug(agentType: string | null, roleLabel: string |
 function normalizeAgentType(agentType: string | null): string {
   const v = (agentType ?? "").trim().toLowerCase();
   if (v.startsWith("claude")) return "claude";
+  if (v.startsWith("grok")) return "grok";
   if (v.startsWith("gemini")) return "gemini";
   if (v.startsWith("antigravity") || v === "agy") return "agy";
   if (v.startsWith("codex")) return "codex";
@@ -43,6 +44,7 @@ const STATE_EMOJI: Record<ChannelDisplayState, string> = {
 const AGENT_EMOJI: Record<string, string> = {
   codex: "\u{1F916}", // 🤖 ロボット
   gemini: "♊", // ♊ ふたご座
+  grok: "⚡",
   agy: "\u{1FA90}", // 🪐 Antigravity
 };
 

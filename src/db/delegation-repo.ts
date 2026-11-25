@@ -18,8 +18,8 @@ import { canonicalTemplateCallName } from "../delegation/template-call-names.js"
 // wt.exe を経由せず `satelles run|serve` を直接起動する。 effort 系は codex ファミリ扱い
 // (src/control/provider-preset.ts:isCodexFamilyProvider)。
 // 解決は src/control/provider-preset.ts:resolveDelegationSpawn が単一情報源。
-export type DelegationProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "gemma4-12";
-export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "codex-sdk", "gemini", "agy", "gemma4-12"];
+export type DelegationProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "agy" | "grok" | "gemma4-12";
+export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "codex-sdk", "gemini", "agy", "grok", "gemma4-12"];
 
 // Delegation の雇用形態カテゴリ (spec/feature/delegation.md §2)。
 //   employee   = 従業員: セッションワーカー。spawn で対話セッションとして起動する汎用実装レーン

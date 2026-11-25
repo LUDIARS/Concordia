@@ -58,6 +58,8 @@ export function friendlyModelName(
 ): string {
   // 表示名はモデル ID の形から導く (ID ごとの固定表は持たない: 新世代で表を足し忘れないため)。
   const normalized = model?.trim().toLowerCase() ?? "";
+  const grok = /^grok-(\d+(?:\.\d+)?)$/.exec(normalized);
+  if (grok) return `Grok ${grok[1]}`;
   const gpt = /^gpt-(\d+(?:\.\d+)*)(?:-(.+))?$/.exec(normalized);
   if (gpt) {
     const rest = gpt[2] ? ` ${gpt[2].split("-").map(titlePart).join(" ")}` : "";
@@ -76,6 +78,7 @@ export function friendlyModelName(
   }
   if (/^[a-z]+(?:\[1m\])?$/.test(normalized)) return titlePart(normalized);
   if (model?.trim()) return normalizeWhitespace(model);
+  if (/^grok(?:-cli)?$/i.test(provider ?? "")) return "Grok";
   if (provider?.toLowerCase().includes("codex")) return "Codex";
   if (provider?.toLowerCase().includes("claude")) return "Claude";
   return "Concordia";

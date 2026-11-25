@@ -21,6 +21,7 @@ export default defineConfig({
       "tools/consultation-harness.test.mjs",
       "tools/concordia-hook-runtime.test.mjs",
       "tools/agy-hook.test.mjs",
+      "tools/grok-hook.test.mjs",
       "tools/concordia-hook-desktop-plan.test.mjs",
       "tools/session-plan.test.mjs",
       "tools/concordia-hook-mcp.test.mjs",

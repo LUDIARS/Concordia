@@ -18,6 +18,7 @@ Gemini の `neon` は 2026-11-20 neco 指示「Gemini Neon を使えるように
 |---|---|---|
 | codex | sol / astra / luna | 役割カタログ (`model_role_snapshots`)。`codex model/list` で毎日自動更新 (sidecar-lifecycle-model-refresh.md) |
 | claude | opus / sonnet / haiku / fable | モデルカタログ (Settings → Models) の有効行のうち、系統ごとに `sort_order` が最小の行。無ければ `INITIAL_CLAUDE_ROLE_MODELS` |
+| grok | grok | `grok-<版>` に合う有効行のうち `sort_order` 最小。無ければ `INITIAL_GROK_ROLE_MODELS` (MRM-GROK-01) |
 | gemini | neon / argon | Claude と同じ決め方 (`gemini-<版>-neon` / `gemini-<版>-argon` の有効行のうち系統ごとに `sort_order` 最小)。無ければ `INITIAL_GEMINI_ROLE_MODELS` (MRM-GEM-01)。既定役割は neon (MRM-GEM-05) |
 
 Cc のコードでモデル ID を書いてよいのは `src/model-catalog/role-policy.ts` の
@@ -26,7 +27,7 @@ Cc のコードでモデル ID を書いてよいのは `src/model-catalog/role-
 
 ## 配布
 
-- `GET /v1/model-catalog/role-map` → `{ schemaVersion: 1, generatedAt, roles: { codex: {...}, claude: {...}, gemini: {...} } }`
+- `GET /v1/model-catalog/role-map` → `{ schemaVersion: 1, generatedAt, roles: { codex: {...}, claude: {...}, gemini: {...}, grok: {...} } }`
 - 同じ内容をファイルにも書く。Lapilli one-shot (JS / C++) はこのファイルを同期的に読む。
   - `LUDIARS_MODEL_ROLES_FILE` があればそこ
   - Windows: `%LOCALAPPDATA%\LUDIARS\model-roles.json`
@@ -47,10 +48,10 @@ Cc のコードでモデル ID を書いてよいのは `src/model-catalog/role-
 
 Actio f0b8cfc3 (2026-11-19 neco 指示「今回こそハードコード根絶で」)。
 
-- MRM-TPL-01: `delegation_templates.model` は役割名 (`opus` / `sonnet` / `haiku` / `fable` / `sol` / `astra` / `luna` / `neon` / `argon`、Claude は `[1m]` 接尾辞可) を持てる。
+- MRM-TPL-01: `delegation_templates.model` は役割名 (`opus` / `sonnet` / `haiku` / `fable` / `sol` / `astra` / `luna` / `neon` / `argon` / `grok`、Claude は `[1m]` 接尾辞可) を持てる。
   spawn 直前 (`DelegationService.launch`、tier 選定の後) に role map で ID へ解決する。カタログ・役割の変更は再起動なしで次の spawn から効く。
   実装: `src/model-catalog/template-model-role.ts` (解決) / `src/model-catalog/role-map-source.ts` (DB から都度読む口)。
-- MRM-TPL-02: 明示的なモデル ID (`claude-opus-5-5` 等) はそのまま使う (上書きの互換)。`auto` や空も変えない (例外: provider `agy` の空は既定役割 neon、MRM-GEM-05)。
+- MRM-TPL-02: 明示的なモデル ID (`claude-opus-5-5` 等) はそのまま使う (上書きの互換)。`auto` や空も変えない (空の例外は `agy` の neon と `grok` の grok)。
 - MRM-TPL-03: 役割名なのに解決できない (provider と系統が違う、Codex に `[1m]`、role map に無い) ときは spawn しない。
   エラー `delegation_model_role_unresolved:<role>` を返す。古い ID へ黙って戻さない。`effective_model` には解決後の ID を記録する。
 - MRM-TPL-04: migration 148 (`src/db/template-model-roles-migration.ts`) が既存行の ID を役割名へ移す。
@@ -126,6 +127,17 @@ Antigravity CLI (`agy`) での起動を足した。Gemini CLI は Gemini 4 向�
 - 範囲外: Lapilli one-shot の Gemini 対応 (今回は不要と人間が判断)、Gemini CLI の更新、`gemini-4-hydrogen` / `gemini-3.8-flash`、agy の `--effort` 連携。
 - 戻すとき: コミットを revert する。既存 DB に入った `gemini-4-neon` / `gemini-4-argon` 行は Settings → Models で無効 (`is_active=0`) にする
   (起動時の upsert は `is_active` を上書きしない)。provider `agy` の委託テンプレート行は revert 後の seed で `neon` が `gemini` に戻り、`argon` は Delegation 画面で無効にする。
+
+## Grok CLI
+
+関連タスク `actio:fad4458d-32f8-4fee-89ca-f94b9c0043c5`。委託者は Grok を選び、モデルカタログで採用した版を起動できる (UX-CC-W1 / UX-CC-S1)。
+
+- MRM-GROK-01: モデルカタログが Grok の有効行を所有する。`roles.grok` は `pickCatalogFamilies` で選ぶ。初期行は `grok-4.7`、表示名 Grok 4.7、sort_order 7。
+- MRM-GROK-02: `grok` の役割名と空モデルは role map から解決する。`[1m]` 付き、系統違い、対応表に無い役割は起動前に拒否する。
+- MRM-GROK-03: 委託名 `grok` は Grok、⚡、sort_order 15。起動時は `lictor grok` に `--model` を明示する。role map を通らない起動経路の空モデルには初期モデルを用いる。
+- MRM-GROK-04: `reasoning_effort` の low / medium / high / xhigh は `--reasoning-effort` として渡す。未指定時は CLI の既定値 high を使う。
+
+復旧時は Grok の委託テンプレートとモデルの行を管理画面で無効化し、必要に応じて変更コミットを revert する。
 
 ## 表示・判定もモデル ID の列挙を持たない
 

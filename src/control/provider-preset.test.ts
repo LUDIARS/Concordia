@@ -5,12 +5,38 @@ import {
   DELEGATION_PROVIDER_LABELS,
   delegationOptionSuggestions,
   GEMMA4_12_DEFAULT_MODEL,
+  normalizeProviderEffort,
   resolveDelegationRuntimeEnv,
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
   resolveEffectiveDelegationRuntimeOptions,
 } from "./provider-preset.js";
 import { INITIAL_GEMINI_ROLE_MODELS } from "../model-catalog/role-policy.js";
+
+describe("Grok delegation preset", () => {
+  it("passes the default and requested model explicitly to lictor grok", () => {
+    expect(resolveDelegationSpawn("grok", " ")).toEqual({
+      provider: "grok", args: ["--model", "grok-4.7"], effectiveModel: "grok-4.7",
+    });
+    expect(resolveDelegationSpawn("grok", " grok-5 ")).toEqual({
+      provider: "grok", args: ["--model", "grok-5"], effectiveModel: "grok-5",
+    });
+  });
+
+  it("offers and forwards only the supported reasoning efforts", () => {
+    const supported = ["low", "medium", "high", "xhigh"];
+    expect(delegationOptionSuggestions("grok").find((option) => option.key === "reasoning_effort")
+      ?.choices?.map((choice) => choice.value)).toEqual(supported);
+    for (const effort of supported) {
+      expect(normalizeProviderEffort("grok", effort)).toBe(effort);
+      expect(resolveDelegationRuntimeArgs("grok", { reasoning_effort: ` ${effort.toUpperCase()} ` }))
+        .toEqual(["--reasoning-effort", effort]);
+    }
+    for (const effort of ["auto", "ultra", "max", undefined]) {
+      expect(resolveDelegationRuntimeArgs("grok", { reasoning_effort: effort })).toEqual([]);
+    }
+  });
+});
 
 describe("resolveDelegationSpawn", () => {
   it("gemma4-12 → Lictor ネイティブ local-agent (codex 経由しない) + LICTOR_LOCAL_MODEL env", () => {

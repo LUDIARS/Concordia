@@ -179,6 +179,7 @@ export function Delegation() {
                 <option value="claude">claude</option>
                 <option value="gemini">gemini</option>
                 <option value="agy">agy (Antigravity / 既定 Neon)</option>
+                <option value="grok">grok (Grok CLI)</option>
                 <option value="gemma4-12">gemma4-12 (ローカル LLM / Ollama)</option>
               </select>
             </label>

@@ -3,6 +3,9 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "grok-C-1", "criterion": "C-1 buildRoleMap(input): Grok の有効な世代付きモデルを表示順で選び、候補がなければ grok-4.7 を返す", "symbol": "buildRoleMap", "file": "src/model-catalog/role-map.ts", "module": "src/model-catalog/grok-role-map.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "grok-C-2", "criterion": "C-2 resolveDelegationSpawn(target, model): Grok は lictor grok に有効モデルを --model で明示し、空なら grok-4.7 を使う", "symbol": "resolveDelegationSpawn", "file": "src/control/provider-preset.ts", "module": "src/control/grok-spawn.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "grok-C-3", "criterion": "C-3 resolveDelegationRuntimeArgs(provider, options): Grok は low・medium・high・xhigh だけを --reasoning-effort で渡す", "symbol": "resolveDelegationRuntimeArgs", "file": "src/control/provider-preset.ts", "module": "src/control/grok-effort.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "desk-routing-C-1", "criterion": "C-1 currentProjectControl(sessions, spawnId): 現行の起動予約と一致する適格な管制が一つのときだけ返す", "symbol": "currentProjectControl", "file": "src/desk/routing-policy.ts", "module": "src/desk/routing-policy.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "desk-routing-C-2", "criterion": "C-2 canOfferDeskRequest(occupied): プロジェクトの委託枠が 2 件未満のときだけ新規の払い出しを許す", "symbol": "canOfferDeskRequest", "file": "src/desk/routing-policy.ts", "module": "src/desk/project-control-capacity.contract.ts", "mode": "observe", "sample": 1 },
     {"id":"actio-read-cache-C-1","criterion":"C-1 selectActioOverviewSnapshot(previous, candidate, revision, currentRevision): 書き込み前の読み直しや部分取得で完全な一覧を置き換えない","symbol":"selectActioOverviewSnapshot","file":"src/taskflow/actio-overview-cache-policy.ts","module":"src/taskflow/actio-overview-cache-policy.contract.ts","mode":"observe","sample":1},

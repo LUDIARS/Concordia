@@ -47,6 +47,8 @@ describe("agentEmoji / buildSessionChannelName", () => {
     expect(agentEmoji("gemini-cli")).toBe("♊");
     expect(agentEmoji("antigravity-cli")).toBe("🪐");
     expect(agentEmoji("agy")).toBe("🪐");
+    expect(agentEmoji("grok-cli")).toBe("⚡");
+    expect(agentEmoji("grok-4.7")).toBe("⚡");
     expect(agentEmoji(null)).toBe("🔹");
   });
   it("buildSessionChannelName: <状態><エージェント>-body", () => {

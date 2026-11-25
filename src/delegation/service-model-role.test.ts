@@ -11,6 +11,7 @@ const roles = {
   claude: { opus: "claude-opus-next", sonnet: "claude-sonnet-next", haiku: "claude-haiku-next", fable: "claude-fable-next" },
   codex: { sol: "gpt-next-sol", astra: "gpt-next-astra", luna: "gpt-next-luna" },
   gemini: { neon: "gemini-next-neon" },
+  grok: { grok: "grok-5.1" },
 };
 
 describe("DelegationService role-named templates", () => {
@@ -29,7 +30,7 @@ describe("DelegationService role-named templates", () => {
   });
   afterEach(() => rmSync(promptsDir, { recursive: true, force: true }));
 
-  const create = (call_name: string, target_provider: "claude" | "codex", model: string) =>
+  const create = (call_name: string, target_provider: "claude" | "codex" | "grok", model: string) =>
     repo.createTemplate({ call_name, title: call_name, target_provider, model, prompt_template: "go", input_schema: [] });
 
   it("resolves the role name to the role map ID and records it as effective_model", async () => {
@@ -45,6 +46,17 @@ describe("DelegationService role-named templates", () => {
     create("role-codex", "codex", "gpt-explicit-sol");
     const result = await service().invoke({ call_name: "role-codex", args: {}, overrides: { model: "luna" } });
     expect(result.ok && result.run.effective_model).toBe("gpt-next-luna");
+  });
+
+  it("passes the catalog-selected Grok model and requested effort through delegation", async () => {
+    create("role-grok", "grok", "grok");
+    const result = await service().invoke({
+      call_name: "role-grok", args: {}, overrides: { reasoning_effort: "xhigh" },
+    });
+    expect(result.ok && result.run.effective_model).toBe("grok-5.1");
+    expect(spawnCalls[0]).toMatchObject({
+      provider: "grok", args: ["--model", "grok-5.1", "--reasoning-effort", "xhigh"],
+    });
   });
 
   it("keeps an explicit model ID unchanged", async () => {

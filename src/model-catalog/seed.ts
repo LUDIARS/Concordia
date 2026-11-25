@@ -10,6 +10,7 @@
  */
 
 import type { CreateModelInput, ModelCatalogRepo } from "../db/model-catalog-repo.js";
+import { initialRoleModel } from "./role-policy.js";
 
 /** role-policy と揃えた現行の有効行。 */
 const CURRENT_ROLE_MODELS: CreateModelInput[] = [
@@ -24,6 +25,7 @@ const CURRENT_ROLE_MODELS: CreateModelInput[] = [
   // Gemini 系の既定は Neon なので sort_order は neon < argon (MRM-GEM-05)。
   { provider: "gemini", model_id: "gemini-4-neon", label: "Gemini 4 Neon", sort_order: 5 },
   { provider: "gemini", model_id: "gemini-4-argon", label: "Gemini 4 Argon", sort_order: 6 },
+  { provider: "grok", model_id: initialRoleModel("grok"), label: "Grok 4.7", sort_order: 7 },
 ];
 
 const SEED_MODELS: CreateModelInput[] = [

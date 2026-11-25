@@ -13,6 +13,19 @@ const snapshot = (role: string, modelId: string): RoleSnapshot => ({
 });
 
 describe("buildRoleMap", () => {
+  it("selects the first ranked active Grok version and falls back to Grok 4.7", () => {
+    const input = { roles: [], nowMs: 0 };
+    expect(buildRoleMap({ ...input, catalog: [] }).roles.grok).toEqual({ grok: "grok-4.7" });
+    const map = buildRoleMap({ ...input, catalog: [
+      { provider: "grok", model_id: "grok-4.7", sort_order: 7, is_active: 1 },
+      { provider: "grok", model_id: "grok-5.1", sort_order: 2, is_active: 1 },
+      { provider: "grok", model_id: "grok-6", sort_order: 1, is_active: 0 },
+      { provider: "grok", model_id: "grok-7-preview", sort_order: 0, is_active: 1 },
+      { provider: "any", model_id: "grok-8", sort_order: 0, is_active: 1 },
+    ] });
+    expect(map.roles.grok).toEqual({ grok: "grok-5.1" });
+  });
+
   it("Codex は役割カタログの現在値、 Claude は系統ごとに sort_order 最小の有効行を採る", () => {
     const map = buildRoleMap({
       roles: [snapshot("sol", "gpt-7-sol"), snapshot("unknown", "gpt-x")],

@@ -24,8 +24,9 @@ updated: 2026-11-21
 |---|---|---|
 | デスクトップの Claude アプリ | hook がアプリの MCP ツール `update_plan` / `wrap_up` を見分けて自動で送る | [`desktop-plan-discord.md`](desktop-plan-discord.md) |
 | agy | agy 自身がコマンド実行ツールから `tools/session-plan.mjs` を呼ぶ (起動案内で指示する) | [`agy-harness-hook.md`](agy-harness-hook.md) |
+| Grok CLI | 起動案内に従って Grok が `tools/session-plan.mjs` を呼ぶ | [Grok CLI のハーネスフック](grok-harness-hook.md) |
 
-どちらも同じ口 `POST /v1/sessions/:id/event { kind: "desktop_plan", payload: { tool, input } }` に届ける。
+すべての送り手は同じ口 `POST /v1/sessions/:id/event { kind: "desktop_plan", payload: { tool, input } }` に届ける。
 `tool` は `update_plan` / `wrap_up`、 `input` はアプリのツールと同じ形。 kind と保存先 (`metadata.desktop_plan`) の
 名前はデスクトップ版から据え置く (既存の hook・保存済みのプランをそのまま読むため)。
 
@@ -45,7 +46,7 @@ updated: 2026-11-21
   セッションのスレッドへ投稿する。 変わらない更新は投稿しない。
 - サマリ (`wrap_up`) は毎回投稿する。 要約・済んだステップ・人への質問と選択肢を出す。
 - 投稿は `session_id` 付きの system 投稿。 egress がセッションのスレッドへ送る。
-- 作者ラベルはセッションの provider で決める: `antigravity-cli` は `agy プラン`、 それ以外は `Claude プラン` (従来どおり)。
+- 作者ラベルはセッションの provider で決める: `antigravity-cli` は `agy プラン`、`grok-cli` は `grok プラン`、それ以外は `Claude プラン` (従来どおり)。
 
 ## 応答
 
@@ -63,7 +64,7 @@ updated: 2026-11-21
 
 ## 起動案内 (`src/session-plan/plan-guidance.ts`)
 
-- provider が `antigravity-cli` のセッションの起動案内に `[Cc session plan]` を足す: 複数手順の作業ではまずプランを送る、
+- provider が `antigravity-cli` または `grok-cli` のセッションの起動案内に `[Cc session plan]` を足す: 複数手順の作業ではまずプランを送る、
   手順が進むたび更新、 終わりに wrap-up、 短い返答はプラン不要、 と CLI の呼び方 (絶対パス) と非 0 の扱い。
 - 他の provider には足さない。 起動案内の版 (revision) を変えないよう、 フィールド自体を持たせない。
 

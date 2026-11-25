@@ -18,8 +18,11 @@
  */
 
 import type { SpawnProvider } from "./spawner.js";
-import { INITIAL_GEMINI_ROLE_MODELS } from "../model-catalog/role-policy.js";
+import { INITIAL_GEMINI_ROLE_MODELS, INITIAL_GROK_ROLE_MODELS } from "../model-catalog/role-policy.js";
 import { createChildLogger } from "../shared/logger.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:be05f306 */
+import augurContract_0e2de197 from './grok-spawn.contract.js'; /* augur-inject:contract-predicate:b462488b */
+import augurContract_6d204067 from './grok-effort.contract.js'; /* augur-inject:contract-predicate:7035cf7a */
 
 const log = createChildLogger("control/provider-preset");
 
@@ -46,6 +49,7 @@ export const DELEGATION_PROVIDER_LABELS: Record<string, string> = {
   "codex-sdk": "Codex SDK (Satelles headless)",
   gemini: "Gemini",
   agy: "Antigravity",
+  grok: "Grok",
   "gemma4-12": "gemma4-12 (ローカル LLM / Ollama)",
 };
 
@@ -85,10 +89,20 @@ export const CLAUDE_OPUS_DEFAULT_EFFORT = "medium";
 
 const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "ultra"]);
 const CLAUDE_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const GROK_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
   const suggestions: DelegationOptionSuggestion[] = [];
+  if (provider === "grok") {
+    suggestions.push({
+      key: "reasoning_effort",
+      label: "Reasoning effort",
+      type: "select",
+      description: "Grok CLI の --reasoning-effort。未指定時は CLI の既定値 high。",
+      choices: Array.from(GROK_REASONING_EFFORTS, (value) => ({ label: value, value })),
+    });
+  }
   if (isCodexFamilyProvider(provider) && supportsCodexReasoningEffort(model)) {
     const choices: DelegationOptionChoice[] = [
       { label: "auto (learned)", value: "auto" },
@@ -245,6 +259,10 @@ export function resolveDelegationRuntimeArgs(
   options: DelegationRuntimeOptions | null | undefined,
   warningLog: ProviderPresetLog = log,
 ): string[] {
+  if (provider === "grok") {
+    const effort = normalizeProviderEffort(provider, options?.reasoning_effort);
+    return effort ? ["--reasoning-effort", effort] : [];
+  }
   if (provider === "claude") {
     const o = isPlainRecord(options) ? options : {};
     const effort = normalizeProviderEffort(provider, o.effort ?? o.reasoning_effort);
@@ -326,6 +344,8 @@ export function resolveDelegationRuntimeArgs(
   }
   return args;
 }
+// @ts-expect-error augur-inject
+resolveDelegationRuntimeArgs = contract(resolveDelegationRuntimeArgs, { ...augurContract_6d204067, contractId: 'grok-C-3', mode: 'observe', sample: 1, where: 'src/control/provider-preset.ts:254', rule: 'contract-wrap', id: '6d204067' }); /* augur-inject:contract-wrap:6d204067 */
 
 /** `network_access` 値が「無効化」の意図かどうか (boolean / 文字列表現の両対応)。 */
 function isNetworkAccessDisabled(value: unknown): boolean {
@@ -373,6 +393,7 @@ export function normalizeProviderEffort(provider: string, value: unknown): strin
   if (normalized === "auto") return null;
   if (isCodexFamilyProvider(provider)) return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
   if (provider === "claude") return CLAUDE_REASONING_EFFORTS.has(normalized) ? normalized : null;
+  if (provider === "grok") return GROK_REASONING_EFFORTS.has(normalized) ? normalized : null;
   return null;
 }
 
@@ -416,10 +437,14 @@ export function resolveDelegationSpawn(
       env: { LICTOR_LOCAL_MODEL: effectiveModel },
     };
   }
-  const m = (model ?? "").trim() || (target === "agy" ? INITIAL_GEMINI_ROLE_MODELS.neon : "");
+  const fallback = target === "agy" ? INITIAL_GEMINI_ROLE_MODELS.neon
+    : target === "grok" ? INITIAL_GROK_ROLE_MODELS.grok : "";
+  const m = (model ?? "").trim() || fallback;
   return {
     provider: target as SpawnProvider,
     args: m ? ["--model", m] : [],
     effectiveModel: m || null,
   };
 }
+// @ts-expect-error augur-inject
+resolveDelegationSpawn = contract(resolveDelegationSpawn, { ...augurContract_0e2de197, contractId: 'grok-C-2', mode: 'observe', sample: 1, where: 'src/control/provider-preset.ts:421', rule: 'contract-wrap', id: '0e2de197' }); /* augur-inject:contract-wrap:0e2de197 */

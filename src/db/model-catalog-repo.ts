@@ -12,8 +12,8 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 
 /** model 候補が紐づく provider。 'any' は全 provider 共通候補。 gemma4-12 = ローカル LLM レーン (旧名 gamma)。 */
-export type ModelProvider = "any" | "claude" | "codex" | "gemini" | "gemma4-12";
-export const MODEL_PROVIDERS: readonly ModelProvider[] = ["any", "claude", "codex", "gemini", "gemma4-12"];
+export type ModelProvider = "any" | "claude" | "codex" | "gemini" | "grok" | "gemma4-12";
+export const MODEL_PROVIDERS: readonly ModelProvider[] = ["any", "claude", "codex", "gemini", "grok", "gemma4-12"];
 
 export function isModelProvider(v: unknown): v is ModelProvider {
   return typeof v === "string" && (MODEL_PROVIDERS as readonly string[]).includes(v);

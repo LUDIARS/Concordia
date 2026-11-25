@@ -16,6 +16,7 @@ const STEP_MARK: Record<SessionPlanStep["status"], string> = {
 /** 送り手の provider ごとの投稿の作者ラベル。 表に無い provider は Claude 系として扱う (従来どおり)。 */
 const AUTHOR_LABELS: Readonly<Record<string, string>> = {
   "antigravity-cli": "agy プラン",
+  "grok-cli": "grok プラン",
 };
 export const DEFAULT_SESSION_PLAN_AUTHOR_LABEL = "Claude プラン";
 

@@ -56,6 +56,9 @@ describe("Discord webhook identity", () => {
     expect(friendlyModelName("gpt-7.3-sol")).toBe("GPT-7.3 Sol");
     expect(friendlyModelName("gpt-5.5")).toBe("GPT-5.5");
     expect(friendlyModelName("sonnet")).toBe("Sonnet");
+    expect(friendlyModelName("grok-4.7")).toBe("Grok 4.7");
+    expect(friendlyModelName(null, "grok")).toBe("Grok");
+    expect(friendlyModelName(null, "grok-cli")).toBe("Grok");
   });
 });
 

@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { catalogProviderFor, emptyModelLabel } from "./model.js";
 
 describe("delegation model helpers (agy / Antigravity)", () => {
+  it("uses the Grok catalog and displays the default role", () => {
+    expect(catalogProviderFor("grok")).toBe("grok");
+    expect(emptyModelLabel("grok")).toBe("(既定: Grok)");
+  });
+
   it("agy はモデルカタログの gemini 行を共有し、 codex-sdk は codex 行を共有する", () => {
     expect(catalogProviderFor("agy")).toBe("gemini");
     expect(catalogProviderFor("codex-sdk")).toBe("codex");

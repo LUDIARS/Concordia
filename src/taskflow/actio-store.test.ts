@@ -34,7 +34,7 @@ function fixture(bindings: ActioBinding[] = [HQ], override: Partial<ActioWorkflo
   const list = vi.fn(async (_binding: ActioBinding) => [task()]);
   const get = vi.fn(async (_binding: ActioBinding, _id: string) => task());
   const create = vi.fn(async (_binding: ActioBinding, _input: CreateInput) => ({ task: task(), existed: false }));
-  const setStatus = vi.fn(async (_binding: ActioBinding, _id: string, _status: TaskStatus) => undefined);
+  const setStatus = vi.fn(async (_binding: ActioBinding, id: string, _status: TaskStatus) => task({ id, status: "done" }));
   const client = { list, get, create, setStatus, ...override } as unknown as ActioWorkflowClient;
   return { state, list, get, create, setStatus, store: new ActioTaskStore(() => bindings, client, state) };
 }
@@ -188,6 +188,30 @@ describe("ActioTaskStore", () => {
     await store.updateStatus(HQ.repoPath, "actio:task-1", "done", null);
 
     expect(setStatus).toHaveBeenCalledWith(HQ, "task-1", "done");
+  });
+
+  it("projects confirmed creates and status changes into both overview scopes before listing again", async () => {
+    const listForOverview = vi.fn(async () => ({ tasks: [task()] }));
+    const create = vi.fn(async () => ({ task: task({ id: "new-task" }), existed: false }));
+    const { store } = fixture([HQ], { create, listForOverview });
+    const original = await store.scanForOverview();
+    expect(original.documents[0]?.body).toBe("");
+    await store.scanForOverview({ project: "Concordia" });
+
+    // Keep the invalidated list pending so the assertions exercise the write projection.
+    listForOverview.mockImplementation(() => new Promise(() => {}));
+    await store.create({ repoPath: HQ.repoPath, subsidiaryId: null, sourceRef: "new",
+      title: "タイトル", body: "本文", kind: "調査", memoryLinks: [] });
+    await store.updateStatus(HQ.repoPath, "actio:task-1", "done", null);
+
+    for (const scope of [undefined, { project: "Concordia" }]) {
+      const result = await store.scanForOverview(scope);
+      expect(result.documents).toMatchObject([
+        { path: "actio:task-1", runtime: { status: "done" } },
+        { path: "actio:new-task", runtime: { status: "pending" }, body: "" },
+      ]);
+      expect(result.freshness).toMatchObject({ stale: true, refreshing: true });
+    }
   });
 
   it("requires an Actio reference before touching a status", async () => {

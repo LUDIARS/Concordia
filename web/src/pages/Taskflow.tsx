@@ -81,6 +81,14 @@ export function Taskflow() {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (!data?.refreshing || error) return;
+    const timer = setTimeout(() => void load(), 2_000);
+    return () => clearTimeout(timer);
+  }, [data, error, load]);
+
+  const unconfirmed = data?.fetched_at === null || !!data?.refresh_error || !!data?.stale;
+
   const projects = useMemo(
     () => [...new Set(data?.tasks.map((task) => task.project) ?? [])].sort(),
     [data],
@@ -115,7 +123,7 @@ export function Taskflow() {
         </button>
       </header>
 
-      {data && (
+      {data && data.fetched_at !== null && (
         <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
           <Summary label="全件" value={data.counts.total} />
           <Summary label="未着手" value={data.counts.pending} />
@@ -155,7 +163,7 @@ export function Taskflow() {
             <option key={value} value={value}>{STATUS_LABEL[value]}</option>
           ))}
         </select>
-        <span className="text-xs text-subtle">{!data && error ? '件数は未確認' : `表示 ${visible.length} 件`}</span>
+        <span className="text-xs text-subtle">{unconfirmed || (!data && error) ? '件数は未確認' : `表示 ${visible.length} 件`}</span>
       </section>
 
       {error && <section role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm">
@@ -169,6 +177,10 @@ export function Taskflow() {
       {!error && data?.partial_reason && <p role="alert" className="rounded border border-warn p-3 text-sm">
         タスクを一部だけ取得しました。件数は取得できた分です。{failureGuidance(data.partial_reason)}
       </p>}
+      {!error && data?.refresh_error && data.refresh_error !== data.partial_reason && <p role="alert" className="rounded border border-warn p-3 text-sm">
+        タスク一覧を更新できませんでした。{failureGuidance(data.refresh_error)}
+      </p>}
+      {data?.refreshing && <p role="status" className="text-sm text-subtle">Actio のタスク一覧を取得中…</p>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
         <table className="w-full min-w-[1400px] text-sm">
@@ -247,7 +259,7 @@ export function Taskflow() {
                 <td className="p-2 text-xs whitespace-nowrap">{task.kind || "—"}</td>
               </tr>
             ))}
-            {data && !data.partial_reason && visible.length === 0 && (
+            {data && !unconfirmed && !data.partial_reason && visible.length === 0 && (
               <tr><td colSpan={9} className="p-6 text-center text-subtle">{error ? '前回取得時は該当するタスクがありませんでした。現在の状態は未確認です。' : '該当するタスクはありません。'}</td></tr>
             )}
           </tbody>

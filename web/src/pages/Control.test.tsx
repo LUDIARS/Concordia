@@ -50,6 +50,29 @@ async function render(overview?: Response) {
 }
 
 describe("管制画面 (/control、Cc v5)", () => {
+  it("shows the last snapshot and its age when the Actio refresh fails", async () => {
+    const full = await respond("/v1/taskflow/overview").json();
+    const fetchedAt = new Date(Date.now() - 120_000).toISOString();
+    const view = await render(new Response(JSON.stringify({
+      ...full, fetched_at: fetchedAt, stale: true, refreshing: false, refresh_error: "actio_read_timeout",
+    })));
+    try {
+      const panel = view.container.querySelector('[aria-label="Actio タスク"]');
+      expect(panel?.querySelector("time")?.getAttribute("datetime")).toBe(fetchedAt);
+      expect(panel?.textContent).toContain("2 分前");
+      expect(panel?.textContent).toContain("依頼窓口を作る");
+      expect(panel?.querySelector('[role="alert"]')?.textContent).toContain("読み取りが時間切れ");
+    } finally { await view.cleanup(); }
+  });
+
+  it("shows a cold refresh without declaring the task list empty", async () => {
+    const view = await render(new Response(JSON.stringify({ tasks: [], fetched_at: null, refreshing: true })));
+    try {
+      const panel = view.container.querySelector('[aria-label="Actio タスク"]');
+      expect(panel?.querySelector('[role="status"]')?.textContent).toContain("取得中");
+      expect(panel?.textContent).not.toContain("進行中のタスクはありません");
+    } finally { await view.cleanup(); }
+  });
   it("keeps retrieved Actio rows visible with partial read guidance", async () => {
     const full = await respond("/v1/taskflow/overview").json();
     const view = await render(new Response(JSON.stringify({ ...full, partial_reason: "actio_read_timeout" })));
@@ -90,6 +113,31 @@ describe("管制画面 (/control、Cc v5)", () => {
       expect(view.container.textContent).toContain("動いているセッションはありません");
       expect(view.container.textContent).not.toContain("再接続中");
       expect(view.fetcher.mock.calls.some(([url, init]) => String(url).includes("/v1/taskflow/overview") && Boolean(init?.signal))).toBe(true);
+    } finally { await view.cleanup(); }
+  });
+
+  it("retains the Actio snapshot and its timestamp through a browser disconnect", async () => {
+    const full = await respond("/v1/taskflow/overview").json();
+    const fetchedAt = new Date(Date.now() - 120_000).toISOString();
+    const view = await render(new Response(JSON.stringify({ ...full, fetched_at: fetchedAt, stale: true })));
+    try {
+      view.fetcher.mockImplementation(async (url, init) => {
+        if (String(url).includes("/v1/taskflow/overview")) throw new TypeError("fetch failed");
+        return respond(String(url), init);
+      });
+      await act(async () => { window.dispatchEvent(new Event("focus")); });
+      const panel = view.container.querySelector('[aria-label="Actio タスク"]');
+      expect(panel?.textContent).toContain("再接続中");
+      expect(panel?.textContent).toContain("依頼窓口を作る");
+      expect(panel?.querySelector("time")?.getAttribute("datetime")).toBe(fetchedAt);
+      expect(panel?.querySelector('[role="alert"]')).toBeNull();
+
+      view.fetcher.mockImplementation(async (url, init) => String(url).includes("/v1/taskflow/overview")
+        ? new Response(JSON.stringify({ ...full, tasks: [], fetched_at: fetchedAt, stale: false }))
+        : respond(String(url), init));
+      await act(async () => { window.dispatchEvent(new Event("online")); });
+      expect(panel?.textContent).toContain("進行中のタスクはありません");
+      expect(panel?.textContent).not.toContain("再接続中");
     } finally { await view.cleanup(); }
   });
 

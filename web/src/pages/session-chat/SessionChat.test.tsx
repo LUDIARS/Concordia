@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { SessionMessage, SessionRow } from "../../api.js";
 import { SessionChat } from "./SessionChat.js";
+import { SessionWorkPanel } from "./SessionWorkPanel.js";
 
 vi.mock("../../lib/TeamFilterContext.js", () => ({ useTeamFilter: () => ({ teamId: null }) }));
 vi.mock("./ChatInput.js", () => ({ ChatInput: () => <div>メッセージ入力</div> }));
@@ -34,6 +35,10 @@ beforeEach(() => {
     else if (path.endsWith("/chat-attachments")) body = { messages: [] };
     else if (path.endsWith("/unread")) body = { unread: 0 };
     else if (path.endsWith("/read")) body = { ok: true };
+    else if (path === "/v1/sessions/s1/tasks") body = { items: [] };
+    else if (path === "/v1/taskflow/overview") body = { tasks: [], fetched_at: null, refresh_error: "actio_read_timeout" };
+    else if (path === "/v1/testing") body = { claims: [] };
+    else if (path === "/v1/prs/revisor") body = { configured: true, pull_requests: [] };
     else throw new Error(`Unexpected request: ${String(raw)}`);
     return new Response(JSON.stringify(body));
   }));
@@ -49,6 +54,12 @@ function renderChat(path: string) {
 }
 
 describe("workplace chat", () => {
+  it("keeps related tasks unconfirmed after an initial Actio timeout", async () => {
+    render(<MemoryRouter><SessionWorkPanel session={session} onClose={() => {}} /></MemoryRouter>);
+    await screen.findByText(/読み取りが時間切れ/);
+    expect(screen.queryByText("関連タスクはありません")).toBeNull();
+  });
+
   it("opens the desk session inside a request URL without another session selector", async () => {
     render(<MemoryRouter initialEntries={["/desk?request=r1"]}><SessionChat deskSessionId="s1" /></MemoryRouter>);
     await screen.findByText("最終回答");

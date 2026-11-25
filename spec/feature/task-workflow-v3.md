@@ -30,7 +30,7 @@ Example (identifiers are placeholders):
 [{"repoPath":"C:/workspace/Concordia","project":"Concordia","projectId":"<Actio project ID>","ownerId":"<Actio user ID>","tokenEnv":"CONCORDIA_ACTIO_TASK_TOKEN","subsidiaryId":null,"teamId":null}]
 ```
 
-The service can start without task credentials, but task operations then fail explicitly. This is not an offline backend. Actio's current list API returns descriptions along with metadata: Cc processes those responses transiently, excludes taskflow HTTP responses from caching, and does not persist descriptions in the execution ledger. This does not promise that task bodies never enter process memory.
+The service can start without task credentials, but task operations then fail explicitly. Actio may return descriptions along with list metadata. Cc processes those descriptions transiently and excludes them from the execution ledger and the in-process [overview snapshot](taskflow-failure-visibility.md#cc-tf-read-03). Taskflow HTTP responses use `Cache-Control: no-store`.
 
 ## Agent contract
 

@@ -11,12 +11,14 @@ import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
 import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
 import type { TaskPrEvidence } from "./pr-evidence.js";
+import { ActioOverviewCache } from "./actio-overview-cache.js";
 
 export const ACTIO_REFERENCE = /^actio:([A-Za-z0-9-]+)$/;
 
 /** Actio is the only runtime content store. Cc persists references, never bodies. */
 export class ActioTaskStore implements TaskStore {
   private readonly assignments = new Map<string, Promise<void>>();
+  private readonly overviewCache = new ActioOverviewCache(() => this.now().getTime());
   readonly authoritative = true;
   constructor(
     private readonly bindings: ActioBindingReader,
@@ -36,10 +38,22 @@ export class ActioTaskStore implements TaskStore {
   }
 
   async scanForOverview(scope?: TaskScanScope): Promise<TaskOverviewScan> {
+    const project = scope?.project?.toLowerCase() || null;
+    const scan = await this.overviewCache.read(project, () => this.loadOverview(project ? { project } : undefined));
+    return {
+      ...scan,
+      documents: scan.documents.map((document) => {
+        const runtime = this.state.find({ repoPath: document.repoPath, taskPath: document.path });
+        return runtime && document.runtime ? { ...document, runtime: { ...runtime, status: document.runtime.status } } : document;
+      }),
+    };
+  }
+
+  private async loadOverview(scope?: TaskScanScope): Promise<TaskOverviewScan> {
     const documents: TaskDocument[] = [];
     for (const binding of await this.scanBindings(scope)) {
       const { tasks, partialReason } = await this.client.listForOverview(binding);
-      for (const task of tasks) documents.push(this.document(binding, task));
+      for (const task of tasks) documents.push(this.overviewDocument(this.document(binding, task)));
       if (partialReason) return { documents, partialReason };
     }
     return { documents };
@@ -131,12 +145,15 @@ export class ActioTaskStore implements TaskStore {
       if (binding.teamId !== null || !binding.teamCandidates?.length || !(error instanceof Error)) throw error;
       throw new ActioTeamCandidatesError(error.message, binding.teamCandidates);
     }
-    return this.document(binding, result.task);
+    const document = this.document(binding, result.task);
+    this.overviewCache.record(this.overviewDocument(document));
+    return document;
   }
 
   async updateStatus(repoPath: string, reference: string, status: TaskStatus, subsidiaryId: string | null): Promise<void> {
     const binding = await this.binding(repoPath, subsidiaryId);
-    await this.client.setStatus(binding, this.id(reference), status);
+    const task = await this.client.setStatus(binding, this.id(reference), status);
+    this.overviewCache.record(this.overviewDocument(this.document(binding, task)));
   }
 
   async setWorkingSession(repoPath: string, reference: string, sessionId: string | null, subsidiaryId: string | null, expected?: string | null): Promise<void> {
@@ -147,9 +164,10 @@ export class ActioTaskStore implements TaskStore {
     const operation = (async () => {
       // A failed predecessor reports its own error; subsequent reconciliation still runs.
       await previous?.catch(() => undefined);
-      await this.client.setWorkingSession(binding, id, sessionId, expected);
+      const task = await this.client.setWorkingSession(binding, id, sessionId, expected);
       this.state.registerActioReference(binding.repoPath, reference, id, subsidiaryId);
       this.state.update({ repoPath: binding.repoPath, taskPath: reference }, { source_session: sessionId });
+      this.overviewCache.record(this.overviewDocument(this.document(binding, task)));
     })();
     this.assignments.set(key, operation);
     try { await operation; }
@@ -178,6 +196,7 @@ export class ActioTaskStore implements TaskStore {
         kind: "実装", memoryLinks: [],
       });
       const document = this.document(binding, created.task);
+      this.overviewCache.record(this.overviewDocument(document));
       result[created.existed ? "existed" : "created"].push(document.path);
     }
     return result;
@@ -198,6 +217,11 @@ export class ActioTaskStore implements TaskStore {
     const id = ACTIO_REFERENCE.exec(reference)?.[1];
     if (!id) throw new Error("Actio task reference required");
     return id;
+  }
+
+  private overviewDocument(document: TaskDocument): TaskDocument {
+    const { task, project, kind, created, issued_by_session_id, working_session_id } = document.frontmatter;
+    return { ...document, body: "", frontmatter: { task, project, kind, created, issued_by_session_id, working_session_id } };
   }
 
   private document(binding: ActioBinding, task: ActioWorkflowTask): TaskDocument {

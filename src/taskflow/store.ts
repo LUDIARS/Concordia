@@ -35,6 +35,12 @@ export interface TaskScanScope { project?: string }
 export interface TaskOverviewScan {
   documents: TaskDocument[];
   partialReason?: string;
+  freshness?: {
+    fetched_at: string | null;
+    refreshing: boolean;
+    stale: boolean;
+    refresh_error: string | null;
+  };
 }
 
 /** The runtime depends on task retrieval, never on a filesystem backend. */

@@ -50,7 +50,7 @@ function isOtherTeamTaskOfTeamlessListing(binding: ActioBinding, task: ActioWork
 
 /** Maps Actio's task contract without weakening the configured ownership scope. */
 export class ActioWorkflowClient {
-  private readonly metadataWrites = new Map<string, Promise<void>>();
+  private readonly metadataWrites = new Map<string, Promise<unknown>>();
   constructor(private readonly transport: ActioTransport) {}
 
   async list(binding: ActioBinding): Promise<ActioWorkflowTask[]> {
@@ -142,12 +142,17 @@ export class ActioWorkflowClient {
     return { task, existed: false };
   }
 
-  async setStatus(binding: ActioBinding, id: string, status: TaskStatus): Promise<void> {
-    await this.get(binding, id);
-    this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { status: this.remoteStatus(status) }));
+  async setStatus(binding: ActioBinding, id: string, status: TaskStatus): Promise<ActioWorkflowTask> {
+    return this.serializeMetadata(binding, id, async () => {
+      await this.get(binding, id);
+      const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { status: this.remoteStatus(status) }));
+      if (updated.id !== id) throw new Error("Actio task identity mismatch");
+      if (workflowStatus(updated.status) !== status) throw new Error("Invalid Actio task response");
+      return updated;
+    });
   }
 
-  async setWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<void> {
+  async setWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<ActioWorkflowTask> {
     return this.serializeMetadata(binding, id, () => this.writeWorkingSession(binding, id, worker, expected));
   }
 
@@ -217,24 +222,27 @@ export class ActioWorkflowClient {
     return planning;
   }
 
-  private async serializeMetadata(binding: ActioBinding, id: string, write: () => Promise<void>): Promise<void> {
+  private async serializeMetadata<T>(binding: ActioBinding, id: string, write: () => Promise<T>): Promise<T> {
     const key = JSON.stringify([binding.ownerId, binding.projectId, binding.teamId, id]);
     const previous = this.metadataWrites.get(key);
-    const operation = (async () => { await previous?.catch(() => undefined); await write(); })();
+    const operation = (async () => { await previous?.catch(() => undefined); return write(); })();
     this.metadataWrites.set(key, operation);
-    try { await operation; }
+    try { return await operation; }
     finally { if (this.metadataWrites.get(key) === operation) this.metadataWrites.delete(key); }
   }
 
-  private async writeWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<void> {
+  private async writeWorkingSession(binding: ActioBinding, id: string, worker: string | null, expected?: string | null): Promise<ActioWorkflowTask> {
     const current = await this.get(binding, id);
+    if (current.id !== id) throw new Error("Actio task identity mismatch");
     const pluginPayload = assignTaskWorker(current.pluginPayload, worker, expected);
-    if (taskSessionMetadata(current.pluginPayload).working_session_id === worker) return;
+    if (taskSessionMetadata(current.pluginPayload).working_session_id === worker) return current;
     const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { pluginPayload }));
+    if (updated.id !== id) throw new Error("Actio task identity mismatch");
     const result = taskSessionMetadata(updated.pluginPayload);
     if (result.working_session_id !== worker || result.issued_by_session_id !== pluginPayload.issued_by_session_id) {
       throw new Error("Invalid Actio session metadata");
     }
+    return updated;
   }
 
   private remoteStatus(status: TaskStatus): string {

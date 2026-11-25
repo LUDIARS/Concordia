@@ -43,7 +43,10 @@ it("returns the partial reason with overview tasks and counts after filtering", 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const result = await response.json();
-    expect(result).toMatchObject({ partial_reason: "actio_read_timeout", counts: { total: count } });
+    expect(result).toMatchObject({
+      partial_reason: "actio_read_timeout", counts: { total: count },
+      fetched_at: expect.any(String), refreshing: false, stale: true, refresh_error: "actio_read_timeout",
+    });
     expect(result.tasks).toHaveLength(count);
   }
 });

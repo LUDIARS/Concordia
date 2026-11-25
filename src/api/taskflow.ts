@@ -226,6 +226,7 @@ export function taskflowRouter(input: {
       counts: countTaskflowRows(tasks),
       tasks,
       ...(scan.partialReason ? { partial_reason: scan.partialReason } : {}),
+      ...scan.freshness,
     });
   });
   return app;

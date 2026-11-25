@@ -1,16 +1,24 @@
 // @spec ハーネス信頼性の実装境界
 // @spec セッションの設計・開始確認・実装・調整
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, type SessionRow } from "../../api.js";
 import { useLiveQuery } from "../../hooks/useWsEvent.js";
 import { isSessionPr, isSessionTask } from "./related-work.js";
 import { SessionHarnessPanel } from "./SessionHarnessPanel.js";
 import { SessionWorkPhaseDetails } from "./SessionWorkPhase.js";
+import { failureGuidance } from "../../lib/taskflow-failure.js";
 
 /** @implements SPEC-SESSION-CHAT-RESPONSE-WORK */
 export function SessionWorkPanel({ session, onClose }: { session: SessionRow; onClose: () => void }) {
   const tasks = useLiveQuery(() => api.sessionTasks(session.id), ["hello", "session.event"], session.id);
   const workflow = useLiveQuery(() => api.taskflowOverview(), ["hello", "task.enqueued", "session.task_changed", "pr.changed"], session.id);
+  const { data: overview, refetch: refetchOverview } = workflow;
+  useEffect(() => {
+    if (!overview?.refreshing) return;
+    const timer = setTimeout(refetchOverview, 2_000);
+    return () => clearTimeout(timer);
+  }, [overview, refetchOverview]);
   const testing = useLiveQuery(() => api.testingClaims(), ["hello", "session.event", "operational.claim.opened", "operational.claim.released"], session.id);
   const prs = useLiveQuery(() => api.prsRevisor(), ["hello", "pr.changed"], session.id);
   const linkedTasks = workflow.data?.tasks.filter((task) => isSessionTask(task, session.id)) ?? [];
@@ -32,9 +40,12 @@ export function SessionWorkPanel({ session, onClose }: { session: SessionRow; on
         {session.current_task && <p className="break-words text-subtle">{session.current_task}</p>}
         <LoadState error={tasks.error} loading={!tasks.data} />
         {tasks.data?.items.map((task) => <div key={task.id} className="rounded border border-border p-2"><span className="text-xs text-subtle">{task.status}</span><p className="break-words">{task.task_text}</p></div>)}
-        <LoadState error={workflow.error} loading={!workflow.data} />
+        <LoadState error={workflow.error} loading={!overview || !!overview.refreshing} />
+        {overview?.refresh_error && <p role="alert" className="text-danger">{failureGuidance(overview.refresh_error)}</p>}
         {linkedTasks.map((task) => <div key={task.path} className="rounded border border-border p-2"><span className="text-xs text-subtle">{task.status}</span><p className="break-words">{task.title}</p>{task.pr && <p>PR #{task.pr.number} · {task.pr.state} · CI: {task.ci_status}</p>}</div>)}
-        {tasks.data?.items.length === 0 && workflow.data && linkedTasks.length === 0 && <p className="text-subtle">関連タスクはありません</p>}
+        {tasks.data?.items.length === 0 && overview && overview.fetched_at !== null
+          && !overview.stale && !overview.partial_reason && linkedTasks.length === 0
+          && <p className="text-subtle">関連タスクはありません</p>}
       </section>
       <section className="mt-4 space-y-2 text-sm">
         <h3 className="font-semibold">実行中のテスト宣言</h3>

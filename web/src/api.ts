@@ -201,6 +201,10 @@ export interface TaskflowExecution {
 export interface TaskflowOverviewResult {
   generated_at: number;
   partial_reason?: string;
+  fetched_at?: string | null;
+  refreshing?: boolean;
+  stale?: boolean;
+  refresh_error?: string | null;
   counts: {
     total: number;
     pending: number;

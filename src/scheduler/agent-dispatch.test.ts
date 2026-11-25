@@ -131,9 +131,11 @@ describe("cron scheduler の外部エージェント分岐", () => {
     };
     expect(Buffer.byteLength(JSON.stringify(params), "utf8")).toBeLessThanOrEqual(8000);
     expect(params.data.truncated).toBe(repos.length - params.data.repos.length);
+    // 先頭は発火日ごとにずれる (上限で落ちる末尾が毎日同じにならないように)。
+    const first = `repo-${Math.floor(FIRED_AT.getTime() / 86_400_000) % repos.length}`;
     expect(params.data.repos[0]).toEqual({
-      name: "repo-0", code: null, url: "https://github.com/LUDIARS/repo-0",
-      manifests: ["https://github.com/LUDIARS/repo-0/blob/main/package.json"],
+      name: first, code: null, url: `https://github.com/LUDIARS/${first}`,
+      manifests: [`https://github.com/LUDIARS/${first}/blob/main/package.json`], declarations: [],
     });
     expect(params.data.previous_summary).toBe("連絡先 [redacted] [redacted]");
     expect(JSON.stringify(params.data)).not.toContain("private-source-data");

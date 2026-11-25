@@ -8,6 +8,7 @@
 import { composeAgentBody } from "./body.js";
 import { CLOUD_PROPOSAL_FORMAT } from "./kaizen-proposal.js";
 import type { AgentJobSpec } from "./types.js";
+import type { DependencyDeclaration } from "../agent-job-sources/dependency-declarations.js";
 import { contract } from '../ontime-runtime.js'; /* augur-inject:import:e0598a6a */
 import augurContract_9faef046 from './deps-sweep-daily.contract.js'; /* augur-inject:contract-predicate:d427b56d */
 
@@ -18,8 +19,22 @@ export interface DependencyRepo {
   code: string | null;
   /** 公開 GitHub の https URL (資格情報なし)。 */
   url: string;
-  /** リポ root からの相対パス (package.json / Cargo.toml など)。 */
+  /** マニフェストの公開 URL (package.json / Cargo.toml など)。 */
   manifests: string[];
+  /** main の package.json 系の依存宣言 (名前と版指定)。 外部エージェントは URL を読めないため Cc が読んで渡す。 */
+  declarations?: DependencyDeclaration[];
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * 純関数: 発火日ごとに先頭を 1 つずらす。 data は上限超過で末尾から落ちるため、
+ * 毎日同じリポだけが渡らないよう、 日を追って全リポを一巡させる。
+ */
+export function rotateByDay<T>(items: readonly T[], firedAt: Date): T[] {
+  if (items.length === 0) return [];
+  const offset = Math.floor(firedAt.getTime() / DAY_MS) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
 }
 
 export interface DepsSweepSources {
@@ -34,7 +49,9 @@ export function createDepsSweepDailyJob(sources: DepsSweepSources): AgentJobSpec
     body: composeAgentBody([
       "LUDIARS の公開リポの依存関係を点検し、報告と修正提案を返してください。実装は Cc が Codex Cloud に割り当てます。",
       "",
-      "params.data.repos の各マニフェスト (GitHub の公開 URL) を読み、 更新候補と既存挙動への影響の見立てを挙げてください。",
+      "params.data.repos の各リポの declarations (main の package.json の依存の名前と版指定) を見て、 既知の脆弱性・大きく遅れた版・非互換の恐れがある更新候補と、既存挙動への影響の見立てを挙げてください。",
+      "manifests は所在の参考です (URL を読みに行く必要はありません)。 declarations の無いマニフェスト (Cargo.toml など) は所在だけの報告で構いません。",
+      "data は上限のため日替わりで一部のリポだけが入ります (truncated は今回入らなかった件数)。",
       "前回の要約 (previous_summary) から変わった点を先に書き、",
       "件数の合計より「どのパッケージが問題か」が分かる形を優先してください。",
       ...CLOUD_PROPOSAL_FORMAT,
@@ -43,10 +60,12 @@ export function createDepsSweepDailyJob(sources: DepsSweepSources): AgentJobSpec
       "kind=cloud_fix はリポ内の依存更新と最小限の互換修正・回帰テストに限定します。major 更新は既存挙動を維持できる根拠と回帰テストの手順を示せる場合だけ提案してください。",
       "安全に更新できる根拠がない候補は detail.items へ記載してください。更新案がない日も点検結果を返してください。",
     ]),
-    async buildData() {
-      const repos = (await sources.dependencyRepos())
-        .filter((repo) => repo.manifests.length > 0)
-        .map((repo) => ({ name: repo.name, code: repo.code, url: repo.url, manifests: repo.manifests }));
+    async buildData(context) {
+      const repos = rotateByDay((await sources.dependencyRepos())
+        .filter((repo) => repo.manifests.length > 0), context.firedAt)
+        .map((repo) => ({
+          name: repo.name, code: repo.code, url: repo.url, manifests: repo.manifests, declarations: repo.declarations ?? [],
+        }));
       return { previous_summary: sources.lastDoneSummary(DEPS_SWEEP_DAILY_JOB), repos };
     },
   };

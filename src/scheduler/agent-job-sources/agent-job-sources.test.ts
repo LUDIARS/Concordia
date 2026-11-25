@@ -61,16 +61,20 @@ describe("agent job sources", () => {
     expect(normalizeGithubOrigin("https://gitlab.com/LUDIARS/Ars.git")).toBeNull();
   });
 
-  it("依存点検は設定の org のリポだけ、 実在するマニフェストの URL を渡す。 org 未設定は throw", async () => {
+  it("依存点検は設定の org のリポだけ、 実在するマニフェストの URL と main の依存宣言を渡す。 org 未設定は throw", async () => {
     const root = workspace();
     mkdirSync(join(root, "Pub", "web"), { recursive: true });
     writeFileSync(join(root, "Pub", "package.json"), "{}");
     writeFileSync(join(root, "Pub", "web", "package.json"), "{}");
-    const git: GitRead = async (repo) => (repo.endsWith("Pub") ? "git@github.com:LUDIARS/Pub.git" : "git@github.com:someone/Private.git");
+    const git: GitRead = async (repo, args) => {
+      if (args[0] === "show") return args[1] === "main:package.json" ? JSON.stringify({ dependencies: { hono: "^4.6.0" } }) : null;
+      return repo.endsWith("Pub") ? "git@github.com:LUDIARS/Pub.git" : "git@github.com:someone/Private.git";
+    };
     const repos = [{ name: "Pub", code: "Pb", dailyReview: false }, { name: "Private", code: null, dailyReview: false }];
     expect(await readDependencyRepos({ workspaceRoot: root, repos, githubOrg: "ludiars", git })).toEqual([{
       name: "Pub", code: "Pb", url: "https://github.com/LUDIARS/Pub",
       manifests: ["https://github.com/LUDIARS/Pub/blob/main/package.json", "https://github.com/LUDIARS/Pub/blob/main/web/package.json"],
+      declarations: [{ manifest: "package.json", dependencies: { hono: "^4.6.0" }, dev_dependencies: {} }],
     }]);
     await expect(readDependencyRepos({ workspaceRoot: root, repos, githubOrg: "", git })).rejects.toThrow(/github org/);
   });

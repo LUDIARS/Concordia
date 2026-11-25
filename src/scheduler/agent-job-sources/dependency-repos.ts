@@ -1,6 +1,7 @@
 /**
  * 依存点検の対象: service-map のリポのうち、 origin が設定の GitHub org にあるものの
- * マニフェストの所在 (GitHub の URL)。 マニフェストの中身は読まない。
+ * マニフェストの所在 (GitHub の URL) と、 main の package.json の依存宣言 (名前と版指定)。
+ * 外部エージェントは URL を読みに行けないため、 依存宣言は Cc が読んで渡す。
  *
  * @implements spec/feature/parttimer-agent-dispatch.md — 読み取り adapter (依存点検)
  */
@@ -8,6 +9,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import type { DependencyRepo } from "../agent-jobs/deps-sweep-daily.js";
+import { readDependencyDeclarations } from "./dependency-declarations.js";
 import type { GitRead } from "./git-read.js";
 import type { ServiceMapRepo } from "./service-map.js";
 
@@ -43,11 +45,13 @@ export async function readDependencyRepos(deps: {
     const origin = await deps.git(repoPath, ["remote", "get-url", "origin"]);
     const github = origin ? normalizeGithubOrigin(origin) : null;
     if (!github || github.owner.toLowerCase() !== org) continue;
-    const manifests: string[] = [];
+    const found: string[] = [];
     for (const candidate of MANIFEST_CANDIDATES) {
-      if (await exists(join(repoPath, ...candidate.split("/")))) manifests.push(`${github.url}/blob/main/${candidate}`);
+      if (await exists(join(repoPath, ...candidate.split("/")))) found.push(candidate);
     }
-    result.push({ name: repo.name, code: repo.code, url: github.url, manifests });
+    const manifests = found.map((candidate) => `${github.url}/blob/main/${candidate}`);
+    const declarations = await readDependencyDeclarations(deps.git, repoPath, found);
+    result.push({ name: repo.name, code: repo.code, url: github.url, manifests, declarations });
   }
   return result;
 }

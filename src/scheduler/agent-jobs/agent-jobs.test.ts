@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { INSTRUCTION_LIMITS } from "../../agent-instructions/instruction-policy.js";
 import { selectAiNoteTargets, type AiNoteArticle } from "./ai-note-biweekly-review.js";
+import { rotateByDay } from "./deps-sweep-daily.js";
 import { REVIEW_FILES_PER_REPO } from "./ludiars-review-weekly.js";
 import { AGENT_JOB_NAMES, createAgentJobRegistry, hasAgentJob, type AgentJobSources } from "./registry.js";
 import { buildAgentJobResultPost, buildFallbackPost } from "./result-post.js";
@@ -74,6 +75,25 @@ describe("agent jobs", () => {
     const data = await job.buildData(context);
     expect((data.repos as { name: string }[]).map((repo) => repo.name)).toEqual(["Concordia"]);
     expect(data.previous_summary).toBe("前回: 更新候補 2 件");
+    expect((data.repos as { declarations: unknown[] }[])[0]!.declarations).toEqual([]);
+  });
+
+  it("依存点検の対象は発火日ごとに先頭がずれ、 日を追って全リポを一巡する", () => {
+    const day = 86_400_000;
+    const base = new Date(Math.floor(Date.UTC(2026, 10, 25) / day) * day);
+    const items = ["a", "b", "c"];
+    const firsts = [0, 1, 2, 3].map((n) => rotateByDay(items, new Date(base.getTime() + n * day))[0]);
+    expect(new Set(firsts.slice(0, 3)).size).toBe(3);
+    expect(firsts[3]).toBe(firsts[0]);
+    expect(rotateByDay(items, base).sort()).toEqual(items);
+    expect(rotateByDay([], base)).toEqual([]);
+  });
+
+  it("カイゼンと依存点検の本文は個別承認が要らないことを明記する", () => {
+    const registry = createAgentJobRegistry(sources());
+    for (const name of ["kaizen-daily", "deps-sweep-daily"]) {
+      expect(registry.get(name)!.body).toContain("個別承認は不要");
+    }
   });
 
   it("AIノートは evergreen と 14 日以内のものを外し、 未レビュー・古い順に並べる", () => {

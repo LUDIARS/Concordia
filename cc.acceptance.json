@@ -6078,6 +6078,7 @@
     { "source": "src/scheduler/agent-job-sources/service-map.ts", "tests": ["src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": [] },
     { "source": "src/scheduler/agent-job-sources/review-targets.ts", "tests": ["src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
     { "source": "src/scheduler/agent-job-sources/dependency-repos.ts", "tests": ["src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
+    { "source": "src/scheduler/agent-job-sources/dependency-declarations.ts", "tests": ["src/scheduler/agent-job-sources/dependency-declarations.test.ts", "src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
     { "source": "src/scheduler/agent-job-sources/ai-note-articles.ts", "tests": ["src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
     { "source": "src/scheduler/agent-job-sources/service-status-items.ts", "tests": ["src/scheduler/agent-job-sources/agent-job-sources.test.ts"], "contracts": ["CC-PT-AGENT-INV-03"] },
     { "source": "src/api/cron-job-agent-routes.ts", "tests": ["src/api/cron-job-agent-routes.test.ts"], "contracts": ["CC-PT-AGENT-INV-06"] },

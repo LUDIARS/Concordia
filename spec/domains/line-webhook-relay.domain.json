@@ -4,7 +4,8 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)src/line-webhook/[^/]+\\.ts$" }
+    { "pathPattern": "(^|/)src/line-webhook/[^/]+\\.ts$" },
+    { "pathPattern": "^tests/helpers/line-webhook-upstream(\\.contract)?\\.ts$" }
   ],
   "specRefs": ["spec/feature/line-webhook-relay.md", "spec/feature/trust-boundaries.md", "spec/ux/product.md"]
 }

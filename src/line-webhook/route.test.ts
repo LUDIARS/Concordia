@@ -1,7 +1,6 @@
 import { createHmac } from "node:crypto";
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { relayToLineTestUpstream, type LineTestUpstream } from "../../tests/helpers/line-webhook-upstream.js";
 import { makeTestApp } from "../../tests/helpers/test-app.js";
 import type { WebSsoGate } from "../web-sso/http-gate.js";
 import type { LineChannelSecrets } from "./channel-secrets.js";
@@ -18,60 +17,35 @@ const GROUP = "C0000000000000000000000000000000a";
 const sign = (body: string | Buffer) => createHmac("sha256", CHANNEL_SECRET).update(body).digest("base64");
 const say = (text: string) => [{ type: "text", text }];
 
-interface Received {
-  headers: IncomingHttpHeaders;
-  body: Record<string, unknown>;
+function testUpstream(service: string): LineTestUpstream {
+  return {
+    url: `http://${service}.example.test/integrations/line/webhook`,
+    received: [],
+    answer: () => ({ status: 200, body: { replies: [] } }),
+  };
 }
 
-/** サービスの代役。 届いたヘッダと本文を記録し、 answer で答える。 */
-interface Upstream {
-  server: Server;
-  url: string;
-  received: Received[];
-  answer: (body: Record<string, unknown>) => { status: number; body: unknown; delayMs?: number };
-}
-
-async function startUpstream(): Promise<Upstream> {
-  const upstream = { received: [], answer: () => ({ status: 200, body: { replies: [] } }) } as unknown as Upstream;
-  upstream.server = createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-      upstream.received.push({ headers: req.headers, body });
-      const reply = upstream.answer(body);
-      setTimeout(() => {
-        res.writeHead(reply.status, { "content-type": "application/json" });
-        res.end(typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body));
-      }, reply.delayMs ?? 0);
-    });
-  });
-  await new Promise<void>((resolve) => upstream.server.listen(0, "127.0.0.1", resolve));
-  upstream.url = `http://127.0.0.1:${(upstream.server.address() as AddressInfo).port}/integrations/line/webhook`;
-  return upstream;
-}
-
-let mfUp: Upstream;
-let mmUp: Upstream;
+let mfUp: LineTestUpstream;
+let mmUp: LineTestUpstream;
 let replyCalls: LineReplyRequest[] = [];
 let replyOutcome: () => Promise<LineReplyOutcome> = async () => ({ ok: true });
 let logged: Array<{ level: string; fields: Record<string, unknown>; message: string }> = [];
 let links: MemoryLineTalkLinkStore;
+let onReplyFailure: (() => void) | undefined;
 
-beforeEach(async () => {
+beforeEach(() => {
   replyCalls = [];
   logged = [];
   replyOutcome = async () => ({ ok: true });
+  onReplyFailure = undefined;
   links = new MemoryLineTalkLinkStore();
-  [mfUp, mmUp] = await Promise.all([startUpstream(), startUpstream()]);
+  mfUp = testUpstream("mf");
+  mmUp = testUpstream("mm");
 });
 
-afterEach(async () => {
-  for (const upstream of [mfUp, mmUp]) {
-    upstream.server.closeAllConnections();
-    await new Promise<void>((resolve) => upstream.server.close(() => resolve()));
-  }
-});
+function nextReplyFailure(): Promise<void> {
+  return new Promise((resolve) => { onReplyFailure = resolve; });
+}
 
 /** 公開ホストの要求は全部拒否するゲート (cf-ray の付いた要求 = トンネル由来を想定)。 */
 const denyPublic: WebSsoGate = {
@@ -83,7 +57,13 @@ const denyPublic: WebSsoGate = {
 
 const captureLog: LineWebhookLog = {
   info: (fields, message) => { logged.push({ level: "info", fields, message }); },
-  warn: (fields, message) => { logged.push({ level: "warn", fields, message }); },
+  warn: (fields, message) => {
+    logged.push({ level: "warn", fields, message });
+    if (message === "line reply failed") {
+      onReplyFailure?.();
+      onReplyFailure = undefined;
+    }
+  },
 };
 
 const mf = (overrides: Partial<LineWebhookTarget> = {}): LineWebhookTarget => ({
@@ -96,7 +76,7 @@ const mm = (overrides: Partial<LineWebhookTarget> = {}): LineWebhookTarget => ({
 interface AppOptions {
   secrets?: Partial<LineChannelSecrets>;
   relayTokens?: Record<string, string | null>;
-  timeoutMs?: number;
+  relayFailure?: "timeout" | "connect";
 }
 
 function appWith(targets: LineWebhookTarget[], options: AppOptions = {}) {
@@ -110,7 +90,12 @@ function appWith(targets: LineWebhookTarget[], options: AppOptions = {}) {
       relayToken: (service) => relayTokens[service] ?? null,
       talkLinks: links,
       sendReply: (request) => { replyCalls.push(request); return replyOutcome(); },
-      timeoutMs: options.timeoutMs,
+      relay: async (input) => {
+        if (options.relayFailure) return { kind: "unreachable", reason: options.relayFailure };
+        const upstream = [mfUp, mmUp].find((target) => target.url === input.url);
+        if (!upstream) throw new Error(`Unexpected test relay destination: ${input.url}`);
+        return relayToLineTestUpstream(input, upstream);
+      },
       log: captureLog,
       now: () => 1000,
     },
@@ -144,9 +129,6 @@ function deliver(
     body,
   });
 }
-
-/** 返信は LINE への応答の後で走るので、 少し待つ。 */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("POST /hooks/line/:channel — 署名の検証", () => {
   it("署名が一致すればトンネル経由 (未認証) でも通る", async () => {
@@ -194,7 +176,9 @@ describe("POST /hooks/line/:channel — 振り分けと転送", () => {
   });
 
   it("中継トークン・サービス名・チャネル名を付け、X-Line-Signature / cf-* / x-forwarded-* / Cookie は送らない", async () => {
-    await deliver(appWith([mf(), mm()]), [textEvent("おてつだい")]);
+    const res = await deliver(appWith([mf(), mm()]), [textEvent("おてつだい")]);
+    expect(res.status).toBe(200);
+    expect(mfUp.received).toHaveLength(1);
     const headers = mfUp.received[0]!.headers;
     expect(headers["content-type"]).toBe("application/json");
     expect(headers.authorization).toBe(`Bearer ${RELAY_TOKENS.mf}`);
@@ -206,7 +190,9 @@ describe("POST /hooks/line/:channel — 振り分けと転送", () => {
   });
 
   it("host を指定したサービスには Host ヘッダをそれにして送る", async () => {
-    await deliver(appWith([mf({ host: "mf-hook.example.test" })]), [textEvent("おてつだい")]);
+    const res = await deliver(appWith([mf({ host: "mf-hook.example.test" })]), [textEvent("おてつだい")]);
+    expect(res.status).toBe(200);
+    expect(mfUp.received).toHaveLength(1);
     expect(mfUp.received[0]!.headers.host).toBe("mf-hook.example.test");
   });
 
@@ -251,7 +237,6 @@ describe("POST /hooks/line/:channel — つなぐ", () => {
     expect(mfUp.received).toHaveLength(1);
     expect(mmUp.received).toHaveLength(1);
     expect(links.forTalk("ludiars", GROUP)).toEqual([{ service: "mm", isDefault: true }]);
-    await settle();
     expect(replyCalls).toEqual([{ accessToken: ACCESS_TOKEN, reply: { replyToken: "reply-token-1", messages: say("つながりました") } }]);
   });
 
@@ -283,7 +268,6 @@ describe("POST /hooks/line/:channel — postback", () => {
       messages: [{ type: "template", altText: "x", template: { type: "buttons", text: "どれ", actions: [{ type: "postback", label: "できた", data: "done=1" }] } }],
     }] } });
     await deliver(appWith([mf(), mm()]), [textEvent("メモリア")]);
-    await settle();
     const template = replyCalls[0]!.reply.messages[0]!.template as { actions: Array<{ data: string }> };
     expect(template.actions[0]!.data).toBe("cc:mm:done=1");
 
@@ -307,7 +291,6 @@ describe("POST /hooks/line/:channel — postback", () => {
     const long = "x".repeat(299);
     mfUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-1", messages: [{ type: "postback", data: long }] }] } });
     await deliver(appWith([mf()]), [textEvent("おてつだい")]);
-    await settle();
     expect(replyCalls[0]!.reply.messages[0]!.data).toBe(long);
     expect(logged.some((entry) => entry.level === "warn" && entry.message.startsWith("line postback data too long"))).toBe(true);
   });
@@ -340,7 +323,6 @@ describe("POST /hooks/line/:channel — 退出と参加", () => {
     mmUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-join", messages: [...say("mm-1"), ...say("mm-2"), ...say("mm-3")] }] } });
     const res = await deliver(appWith([mf(), mm()]), [join]);
     expect(res.status).toBe(200);
-    await settle();
     expect(replyCalls).toHaveLength(1);
     expect(replyCalls[0]!.reply.messages.map((message) => message.text)).toEqual(["mf-1", "mf-2", "mf-3", "mm-1", "mm-2"]);
     expect(logged.some((entry) => entry.message.includes("over the limit") && entry.fields.dropped === 1)).toBe(true);
@@ -355,7 +337,6 @@ describe("POST /hooks/line/:channel — LINE への応答", () => {
     mmUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-join", messages: say("mm です") }] } });
     const res = await deliver(appWith([mf(), mm()]), [join]);
     expect(res.status).toBe(200);
-    await settle();
     expect(replyCalls.map((call) => call.reply.messages)).toEqual([say("mm です")]);
   });
 
@@ -365,15 +346,13 @@ describe("POST /hooks/line/:channel — LINE への応答", () => {
     const res = await deliver(appWith([mf(), mm()]), [join]);
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "upstream_failed" });
-    await settle();
     expect(replyCalls).toEqual([]);
   });
 
   it("タイムアウト・接続失敗・中継トークン未設定は失敗として数える", async () => {
-    mfUp.answer = () => ({ status: 200, body: { replies: [] }, delayMs: 500 });
-    const timeout = await deliver(appWith([mf()], { timeoutMs: 50 }), [textEvent("おてつだい")]);
+    const timeout = await deliver(appWith([mf()], { relayFailure: "timeout" }), [textEvent("おてつだい")]);
     expect(timeout.status).toBe(502);
-    const unreachable = await deliver(appWith([mf({ url: "http://127.0.0.1:1/hook" })]), [textEvent("おてつだい")]);
+    const unreachable = await deliver(appWith([mf()], { relayFailure: "connect" }), [textEvent("おてつだい")]);
     expect(unreachable.status).toBe(502);
     const before = mfUp.received.length;
     const noToken = await deliver(appWith([mf()], { relayTokens: { mf: null } }), [textEvent("おてつだい")]);
@@ -383,11 +362,18 @@ describe("POST /hooks/line/:channel — LINE への応答", () => {
 
   it("返信が失敗しても例外でも LINE への 200 は変えない", async () => {
     mfUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-1", messages: say("おかえり") }] } });
-    replyOutcome = async () => ({ ok: false, status: 400 });
+    let finishReply!: (outcome: LineReplyOutcome) => void;
+    const pendingReply = new Promise<LineReplyOutcome>((resolve) => { finishReply = resolve; });
+    replyOutcome = () => pendingReply;
+    const firstFailure = nextReplyFailure();
     expect((await deliver(appWith([mf()]), [textEvent("おてつだい")])).status).toBe(200);
+    finishReply({ ok: false, status: 400 });
+    await firstFailure;
+
     replyOutcome = async () => { throw new Error("offline"); };
+    const secondFailure = nextReplyFailure();
     expect((await deliver(appWith([mf()]), [textEvent("おてつだい")])).status).toBe(200);
-    await settle();
+    await secondFailure;
     expect(logged.filter((entry) => entry.message === "line reply failed")).toHaveLength(2);
   });
 
@@ -395,7 +381,6 @@ describe("POST /hooks/line/:channel — LINE への応答", () => {
     mfUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-1", messages: say("おかえり") }] } });
     const res = await deliver(appWith([mf()], { secrets: { channelAccessToken: null } }), [textEvent("おてつだい")]);
     expect(res.status).toBe(200);
-    await settle();
     expect(replyCalls).toEqual([]);
   });
 });
@@ -406,10 +391,11 @@ describe("POST /hooks/line/:channel — ログ", () => {
     const body = JSON.stringify({ destination: "U-bot", events });
     mfUp.answer = () => ({ status: 200, body: { replies: [{ replyToken: "reply-token-secret", messages: say("おかえり") }] } });
     replyOutcome = async () => ({ ok: false, status: 500 });
+    const failure = nextReplyFailure();
     await deliver(appWith([mf()]), events);
+    await failure;
     await deliver(appWith([mf()], { secrets: { channelAccessToken: null } }), events);
     await deliver(appWith([mf()]), events, { "x-line-signature": "d3Jvbmc=" });
-    await settle();
     const text = JSON.stringify(logged);
     expect(logged.length).toBeGreaterThan(0);
     for (const secret of [

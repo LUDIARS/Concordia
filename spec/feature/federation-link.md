@@ -106,6 +106,10 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
 - `revoked` / `auth_failed` を受けた拠点クライアントは再接続を止め、
   `reportError("federation", …)` で拠点側エラーチャンネルへ通知する
   (人間の再設定が必要なため、黙って畳まない)。
+- 本社 listener の終了開始後は、hello 待ちを含む全ソケットを close 1001 で閉じ、
+  受信済みのフレームや pong が遅れて届いても登録簿・outbox を操作しない。
+  連合リンク試験は受信・認証拒否・ack の完了をイベントで観測する。
+  回帰対応は `actio:bd7a85d7-5fd2-4134-a387-d4967d363735`。
 
 ## 設定配布 (Phase 2)
 

@@ -28,6 +28,8 @@ import {
 import type { FederationConfigSnapshot } from "./protocol.js";
 import type { FederationActivityReportFrame, FederationUsageReportFrame,FederationEgressRequestFrame, FederationFrameInput, FederationInquiryRequestFrame, FederationInquiryResultFrame, FederationMirrorOpenRequestFrame } from "./protocol.js";
 import { isAllowedFederationRemote } from "./transport-policy.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:3504b368 */
+import augurContract_85c790ae from './hq-listener-shutdown.contract.js'; /* augur-inject:contract-predicate:246c45a0 */
 
 const log = createChildLogger("federation/hq");
 
@@ -108,6 +110,12 @@ interface LiveSocket {
   isAlive: boolean;
 }
 
+export function acceptsFederationFrames(closing: boolean, readyState: number): boolean {
+  return !closing && readyState === WebSocket.OPEN;
+}
+// @ts-expect-error augur-inject
+acceptsFederationFrames = contract(acceptsFederationFrames, { ...augurContract_85c790ae, contractId: 'federation-shutdown-C-101', mode: 'observe', sample: 1, where: 'src/federation/hq-listener.ts:111', rule: 'contract-wrap', id: '85c790ae' }); /* augur-inject:contract-wrap:85c790ae */
+
 export function startFederationListener(deps: FederationListenerDeps): Promise<FederationListenerHandle> {
   const nowSec = deps.nowSec ?? (() => Math.floor(Date.now() / 1000));
   const isAllowedRemote = deps.isAllowedRemote ?? isAllowedFederationRemote;
@@ -117,6 +125,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
   let pendingHandshakes = 0;
   /** remote 別の hello 待ち接続数。 0 になったら消す (エントリを溜めない)。 */
   const pendingByRemote = new Map<string, number>();
+  let closing = false;
 
   // 連合面は WS 専用。HTTP リクエストへは何も生やさない (/v1 透過転送の禁止)。
   const server: HttpServer = createServer((_req, res) => {
@@ -180,6 +189,13 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
 
   wss.on("connection", (ws, req) => {
     const remote = req.socket.remoteAddress ?? "unknown";
+    let siteId: string | null = null;
+    ws.on("error", (err) => log.warn({ remote, siteId, err: (err as Error).message }, "federation socket error"));
+
+    if (closing) {
+      ws.close(1001, "hq shutting down");
+      return;
+    }
     // CC-FED-T2: 平文 ws を許すのは tailnet (WireGuard) の内側だけなので、それ以外の接続元は hello 前に切る。
     if (!isAllowedRemote(req.socket.remoteAddress)) {
       log.warn({ remote }, "federation connection rejected: remote is not loopback or tailnet");
@@ -214,18 +230,16 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
       else pendingByRemote.delete(remote);
     };
 
-    let siteId: string | null = null;
     const helloTimer = setTimeout(() => {
-      if (!siteId) {
+      if (!siteId && acceptsFederationFrames(closing, ws.readyState)) {
         sendError(ws, "auth_failed", "hello timeout");
         ws.close(1008, "hello timeout");
       }
     }, HELLO_TIMEOUT_MS);
     helloTimer.unref?.();
 
-    ws.on("error", (err) => log.warn({ remote, siteId, err: (err as Error).message }, "federation socket error"));
-
     ws.on("message", (raw) => {
+      if (!acceptsFederationFrames(closing, ws.readyState)) return;
       const text = raw.toString();
       if (!siteId && Buffer.byteLength(text) > MAX_PRE_AUTH_FRAME_BYTES) {
         log.warn({ remote }, "federation frame rejected: too large before hello");
@@ -396,7 +410,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
     });
 
     ws.on("pong", () => {
-      if (!siteId) return;
+      if (!siteId || !acceptsFederationFrames(closing, ws.readyState)) return;
       const socket = sockets.get(siteId);
       if (socket) socket.isAlive = true;
       deps.sites.touchSeen(siteId);
@@ -481,9 +495,12 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
     },
     send,
     close() {
+      if (closing) return;
+      closing = true;
       clearInterval(pingTimer);
-      for (const socket of sockets.values()) {
-        try { socket.ws.close(1001, "hq shutting down"); } catch { /* ignore */ }
+      // Include peers that are still waiting to send hello.
+      for (const ws of wss.clients) {
+        ws.close(1001, "hq shutting down");
       }
       wss.close();
       server.close();

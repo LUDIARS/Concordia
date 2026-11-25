@@ -845,13 +845,13 @@ export const api = {
     return get<LimitTimeseries>(`/v1/cost/limit-timeseries${qs ? "?" + qs : ""}`);
   },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
-  taskflowOverview: (opts: { teamId?: string; subsidiaryId?: string; headOffice?: boolean } = {}) => {
+  taskflowOverview: (opts: { teamId?: string; subsidiaryId?: string; headOffice?: boolean; signal?: AbortSignal } = {}) => {
     const q = new URLSearchParams();
     if (opts.teamId) q.set("team_id", opts.teamId);
     if (opts.subsidiaryId) q.set("subsidiary_id", opts.subsidiaryId);
     if (opts.headOffice) q.set("head_office", "1");
     const qs = q.toString();
-    return getTaskflowOverview<TaskflowOverviewResult>(`${BASE}/v1/taskflow/overview${qs ? "?" + qs : ""}`);
+    return getTaskflowOverview<TaskflowOverviewResult>(`${BASE}/v1/taskflow/overview${qs ? "?" + qs : ""}`, opts.signal);
   },
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>

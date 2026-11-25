@@ -20,6 +20,7 @@ import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/
 import { reviveIfLost } from "./sessions/shared.js";
 import { secureValuesMatch } from "../shared/secure-compare.js";
 import { webSsoAllowsUpgrade, type WebSsoGate } from "../web-sso/http-gate.js";
+import { toWsObserverHeartbeat } from "./ws-observer-heartbeat.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -243,6 +244,12 @@ export function attachWsServer(
       }
       alive = false;
       try { ws.ping(); } catch { /* swallow */ }
+      // A browser cannot observe native ping/pong frames. Give observers a
+      // timestamp for detecting an apparently open socket after waking up.
+      const heartbeat = toWsObserverHeartbeat(sessionId, Math.floor(Date.now() / 1000));
+      if (heartbeat) {
+        try { ws.send(JSON.stringify(heartbeat)); } catch { /* Native heartbeat still detects closure. */ }
+      }
     }, PING_INTERVAL_MS);
 
     ws.on("close", () => {

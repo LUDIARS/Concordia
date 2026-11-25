@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { wsClient, type ConcordiaEvent } from "../lib/ws-client.js";
+import { onBrowserResume } from "../lib/browser-resume.js";
 
 type EventType = ConcordiaEvent["type"];
 type Filter = EventType | EventType[] | null;
@@ -78,8 +79,12 @@ export function useLiveQuery<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsKey, refreshKey]);
 
-  useWsEvent(events.length > 0 ? events : null, () => {
-    if (events.length === 0) return; // null filter 時の暴発防止
+  const live = events.length > 0;
+  useEffect(() => {
+    if (live) return onBrowserResume(doFetch);
+  }, [live, doFetch]);
+
+  useWsEvent(live ? [...new Set<EventType>(["hello", ...events])] : [], () => {
     doFetch();
   });
 

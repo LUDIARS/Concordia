@@ -33,6 +33,31 @@ class Client extends EventEmitter {
   terminate(){this.emit("close");}
 }
 describe("PTY continuation gate keeps observable evidence",() => {
+  it("sends application heartbeats only to observers while retaining native ping", () => {
+    vi.useFakeTimers();
+    const handle = attachWsServer({} as HttpServer);
+    const server = transport.server!;
+    const observer = new Client();
+    const session = new Client();
+    try {
+      server.clients.add(observer);
+      server.clients.add(session);
+      server.emit("connection", observer, { url: "/ws" });
+      server.emit("connection", session, { url: "/ws?session=s" });
+      observer.send.mockClear();
+      session.send.mockClear();
+      vi.advanceTimersByTime(25_000);
+      expect(observer.ping).toHaveBeenCalledOnce();
+      expect(session.ping).toHaveBeenCalledOnce();
+      expect(observer.send).toHaveBeenCalledOnce();
+      expect(JSON.parse(observer.send.mock.calls[0]![0])).toMatchObject({ v: 1, type: "ping" });
+      expect(session.send).not.toHaveBeenCalled();
+    } finally {
+      handle.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("routes through attachWsServer without sending a refused command or hiding review dispatch",()=>{
     const handle=attachWsServer({} as HttpServer);const server=transport.server!;
     const client=new Client();server.clients.add(client);server.emit("connection",client,{url:"/ws?session=s"});

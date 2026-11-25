@@ -11,6 +11,8 @@
  *   off();
  */
 
+import { onBrowserResume } from "./browser-resume.js";
+
 type WsFrameVersion = 1;
 
 type ConcordiaEventPayload =
@@ -75,6 +77,8 @@ type Listener = (ev: ConcordiaEvent) => void;
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 15_000;
+// The server sends observer heartbeats every 25 seconds.
+const SOCKET_STALE_MS = 60_000;
 const KNOWN_WS_TYPES = new Set<string>([
   "hello",
   "session.started",
@@ -116,13 +120,13 @@ function normalizeWsFrame(input: unknown): ConcordiaEvent | null {
   return { ...(input as Record<string, unknown>), v: 1 } as ConcordiaEvent;
 }
 
-class ConcordiaWsClient {
+export class ConcordiaWsClient {
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
-  private intentionalClose = false;
-  private connected = false;
+  private stopWatchingBrowser: (() => void) | null = null;
+  private lastFrameAt = 0;
   private url: string;
 
   constructor() {
@@ -132,46 +136,52 @@ class ConcordiaWsClient {
   }
 
   connect(): void {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      return;
+    if (!this.stopWatchingBrowser && typeof window !== "undefined") {
+      const unsubscribe = onBrowserResume(this.resume);
+      window.addEventListener("offline", this.dropSocket);
+      this.stopWatchingBrowser = () => {
+        unsubscribe();
+        window.removeEventListener("offline", this.dropSocket);
+      };
     }
-    this.intentionalClose = false;
+    if (this.ws || this.reconnectTimer !== null || this.isOffline()) return;
+    let socket: WebSocket;
     try {
-      this.ws = new WebSocket(this.url);
-    } catch (e) {
+      socket = new WebSocket(this.url);
+    } catch {
       this.scheduleReconnect();
       return;
     }
-    this.ws.addEventListener("open", () => {
-      this.connected = true;
-      this.reconnectAttempt = 0;
-    });
-    this.ws.addEventListener("message", (e) => {
+    this.ws = socket;
+    this.lastFrameAt = Date.now();
+    socket.addEventListener("message", (e) => {
+      if (this.ws !== socket) return;
       let parsed: ConcordiaEvent | null = null;
       try { parsed = normalizeWsFrame(JSON.parse(e.data)); } catch { return; }
       if (!parsed) return;
+      this.lastFrameAt = Date.now();
+      if (parsed.type === "hello") this.reconnectAttempt = 0;
+      if (parsed.type === "ping") return;
       for (const l of this.listeners) {
         try { l(parsed); } catch { /* swallow */ }
       }
     });
-    this.ws.addEventListener("close", () => {
-      this.connected = false;
+    socket.addEventListener("close", () => {
+      if (this.ws !== socket) return;
       this.ws = null;
-      if (!this.intentionalClose) this.scheduleReconnect();
-    });
-    this.ws.addEventListener("error", () => {
-      // close ハンドラに任せる
+      this.scheduleReconnect();
     });
   }
 
   disconnect(): void {
-    this.intentionalClose = true;
-    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    if (this.ws) { try { this.ws.close(); } catch { /* swallow */ } this.ws = null; }
+    this.stopWatchingBrowser?.();
+    this.stopWatchingBrowser = null;
+    this.dropSocket();
+    this.reconnectAttempt = 0;
   }
 
   isConnected(): boolean {
-    return this.connected;
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
   /** 全 event を受け取る. unsubscribe 関数を返す. */
@@ -192,7 +202,7 @@ class ConcordiaWsClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
+    if (this.reconnectTimer !== null || this.isOffline()) return;
     const delay = Math.min(
       RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt),
       RECONNECT_MAX_MS,
@@ -203,6 +213,27 @@ class ConcordiaWsClient {
       this.connect();
     }, delay);
   }
+
+  private isOffline(): boolean {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+
+  private readonly dropSocket = (): void => {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const socket = this.ws;
+    this.ws = null;
+    try { socket?.close(); } catch { /* The retired socket can no longer affect this client. */ }
+  };
+
+  private readonly resume = (): void => {
+    if (this.isOffline()) return;
+    if (this.ws && Date.now() - this.lastFrameAt < SOCKET_STALE_MS) return;
+    this.dropSocket();
+    this.connect();
+  };
 }
 
 export const wsClient = new ConcordiaWsClient();

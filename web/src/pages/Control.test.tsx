@@ -71,6 +71,28 @@ describe("管制画面 (/control、Cc v5)", () => {
     } finally { await view.cleanup(); }
   });
 
+  it("keeps the last successful snapshot during a failed wake refresh and recovers on online", async () => {
+    const view = await render();
+    try {
+      view.fetcher.mockImplementation(async (url, init) => {
+        if (String(url).startsWith("/v1/control/sessions")) throw new TypeError("fetch failed");
+        return respond(String(url), init);
+      });
+      await act(async () => { window.dispatchEvent(new Event("focus")); });
+      expect(view.container.textContent).toContain("Concordia");
+      expect(view.container.textContent).toContain("再接続中");
+      expect(view.container.textContent).not.toContain("fetch failed");
+
+      view.fetcher.mockImplementation(async (url, init) => String(url).startsWith("/v1/control/sessions")
+        ? new Response(JSON.stringify({ items: [] }))
+        : respond(String(url), init));
+      await act(async () => { window.dispatchEvent(new Event("online")); });
+      expect(view.container.textContent).toContain("動いているセッションはありません");
+      expect(view.container.textContent).not.toContain("再接続中");
+      expect(view.fetcher.mock.calls.some(([url, init]) => String(url).includes("/v1/taskflow/overview") && Boolean(init?.signal))).toBe(true);
+    } finally { await view.cleanup(); }
+  });
+
   it("weights known steps, counts all sessions and leaves unmeasured projects unknown", () => {
     const row = (id: string, project: string, done: number, total: number) => ({
       ...sessionRow(id, {}), project, status: "human_wait",

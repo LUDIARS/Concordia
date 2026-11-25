@@ -3,9 +3,10 @@ import { controlApi } from "./controlApi.js";
 import { ProjectMicro } from "./ProjectMicro.js";
 import { projectGraph } from "./projectGraph.js";
 import { usePolling } from "./usePolling.js";
+import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
 export function SessionsPanel() {
-  const { data, error } = usePolling((signal) => controlApi.sessions(signal), 15_000);
+  const { data, error, reconnecting } = usePolling((signal) => controlApi.sessions(signal), 15_000);
   const [view, setView] = useState<"macro" | "micro">("macro");
   const [selected, setSelected] = useState("");
   const projects = projectGraph(data?.items ?? []);
@@ -19,7 +20,7 @@ export function SessionsPanel() {
           onClick={() => setView(mode)} className={`rounded px-3 py-1 text-sm ${view === mode ? "bg-accent text-white" : "text-subtle"}`}>{mode === "macro" ? "マクロ" : "ミクロ"}</button>)}
       </div>
     </div>
-    {error && <p role="alert" className="text-amber-400">セッションを取得できません: {error === "control_disabled" ? "管制が OFF です" : error}</p>}
+    {reconnecting ? <ReconnectingStatus /> : error && <p role="alert" className="text-amber-400">セッションを取得できません: {error === "control_disabled" ? "管制が OFF です" : error}</p>}
     {!data && !error && <p role="status">読み込み中…</p>}
     {data && !projects.length && <p className="text-subtle">動いているセッションはありません。</p>}
     {view === "macro" && projects.length > 0 && <div aria-label="プロジェクトグラフ" className="rounded border border-border bg-surface/40 p-4">

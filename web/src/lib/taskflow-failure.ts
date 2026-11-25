@@ -38,9 +38,9 @@ export class TaskflowLoadError extends Error {
 }
 
 /** Read-only refresh, with bounded, allowlisted error information. @implements CC-TF-ERROR-01 */
-export async function getTaskflowOverview<T>(path: string): Promise<T> {
+export async function getTaskflowOverview<T>(path: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
-  try { response = await fetch(path); }
+  try { response = await (signal ? fetch(path, { signal }) : fetch(path)); }
   catch { throw new TaskflowLoadError('taskflow_connection_failed'); }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);

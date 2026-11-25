@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { controlApi, type DeskRequestView } from "./control/controlApi.js";
 import { usePolling } from "./control/usePolling.js";
+import { ReconnectingStatus } from "../components/ReconnectingStatus.js";
 import { DeskDetail } from "./desk/DeskDetail.js";
 import { DESK_STATE_LABEL } from "./desk/deskLabels.js";
 import { PastChores } from "./desk/PastChores.js";
@@ -53,7 +54,7 @@ export function Desk() {
     {selected && <DeskDetail key={selected} id={selected} />}
     <section className="space-y-2" aria-label="依頼の一覧">
       <h2 className="text-lg font-semibold">依頼</h2>
-      {list.error && <p role="alert" className="text-amber-400">依頼を取得できません: {list.error}</p>}
+      {list.reconnecting ? <ReconnectingStatus /> : list.error && <p role="alert" className="text-amber-400">依頼を取得できません: {list.error}</p>}
       {list.data && requests.length === 0 && <p className="text-subtle">まだ依頼はありません。</p>}
       {requests.map((request) => <button key={request.id} type="button" onClick={() => setParams({ request: request.id })}
         className={`block w-full text-left border rounded p-3 ${selected === request.id ? "border-accent" : "border-border"}`}>

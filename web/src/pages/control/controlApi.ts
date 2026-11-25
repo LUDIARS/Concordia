@@ -87,9 +87,11 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown; s
     ...(init?.signal ? { signal: init.signal } : {}),
     ...(init?.body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }),
   });
-  const data = await response.json().catch(() => ({})) as T & { error?: string; detail?: unknown };
-  if (!response.ok) throw new ApiError(data.error ?? `HTTP ${response.status}`, response.status);
-  return data;
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: unknown } | null;
+    throw new ApiError(typeof data?.error === "string" ? data.error : `HTTP ${response.status}`, response.status);
+  }
+  return await response.json() as T;
 }
 
 /** 過去の雑務 (受付済みの run の読み取りと OK / Continue だけ。新規受付は依頼窓口へまとめた)。 */

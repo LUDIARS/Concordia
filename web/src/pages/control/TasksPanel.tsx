@@ -2,14 +2,16 @@
 import { api } from "../../api.js";
 import { failureGuidance } from "../../lib/taskflow-failure.js";
 import { usePolling } from "./usePolling.js";
+import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
 export function TasksPanel() {
-  const { data, error, reload } = usePolling(() => api.taskflowOverview(), 30_000);
+  const { data, error, reconnecting, reload } = usePolling((signal) => api.taskflowOverview({ signal }), 30_000);
   const partial = data?.partial_reason;
   const open = data?.tasks.filter((task) => task.status !== "done" && task.status !== "cancelled") ?? [];
   return <section className="space-y-2" aria-label="Actio タスク">
     <h2 className="text-lg font-semibold">Actio タスク {data ? `(${open.length}${partial ? " 件取得" : ""})` : ""}</h2>
-    {error && <p role="alert" className="text-amber-400">
+    {reconnecting && <ReconnectingStatus />}
+    {error && (!reconnecting || data) && <p role={reconnecting ? undefined : "alert"} className={reconnecting ? "text-xs text-subtle" : "text-amber-400"}>
       Actio タスクを更新できませんでした。{error}{data && " 前回取得した情報を表示しています。"}
     </p>}
     {!error && partial && <p role="alert" className="text-amber-400">

@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { controlApi, type ControlCardView } from "./controlApi.js";
 import { usePolling } from "./usePolling.js";
+import { ReconnectingStatus } from "../../components/ReconnectingStatus.js";
 
 const KIND_LABEL: Record<ControlCardView["card_kind"], string> = { human_action: "アクション", human_judgment: "判断" };
 const PRIORITY_LABEL: Record<ControlCardView["priority"], string> = { high: "高", normal: "中", low: "低" };
@@ -54,7 +55,7 @@ function CardEditor({ card, onSaved }: { card: ControlCardView; onSaved: () => v
 
 export function CardsPanel() {
   const [showDiscarded, setShowDiscarded] = useState(false);
-  const { data, error, reload } = usePolling((signal) => controlApi.cards(showDiscarded ? "discarded" : "open", signal), 15_000);
+  const { data, error, reconnecting, reload } = usePolling((signal) => controlApi.cards(showDiscarded ? "discarded" : "open", signal), 15_000);
   const [editing, setEditing] = useState<string | null>(null);
   useEffect(() => { reload(); }, [showDiscarded, reload]);
   const now = Date.now();
@@ -66,7 +67,7 @@ export function CardsPanel() {
         onClick={() => { setEditing(null); setShowDiscarded(!showDiscarded); }}>
         {showDiscarded ? "開いているカードに戻る" : `破棄済み ${discardedCount} 件`}</button>}
     </div>
-    {error && <p role="alert" className="text-amber-400">カードを取得できません: {error}</p>}
+    {reconnecting ? <ReconnectingStatus /> : error && <p role="alert" className="text-amber-400">カードを取得できません: {error}</p>}
     {data && data.cards.length === 0 && <p className="text-subtle">{showDiscarded ? "破棄済みのカードはありません。" : "人間のアクション・判断が要るカードはありません。"}</p>}
     {data?.cards.map((card) => <article key={card.id} className="border border-border rounded p-3 space-y-1">
       <div className="flex flex-wrap gap-2 text-sm">

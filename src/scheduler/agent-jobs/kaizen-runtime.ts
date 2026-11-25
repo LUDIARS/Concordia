@@ -1,10 +1,12 @@
 import type { InstructionRecord } from "../../agent-instructions/instruction-service.js";
 import { neutralizeLine } from "../../agent-instructions/instruction-posts.js";
 import { publicCloudError } from "../../cloud-work/public-error.js";
+import type { ScheduledCloudOrigin } from "../../cloud-work/eligibility.js";
 import { startSupervisedInterval } from "../../shared/loop-bulkhead.js";
 import { applyKaizenResult, type KaizenApplierPorts } from "./kaizen-applier.js";
 import type { KaizenCloud } from "./kaizen-cloud.js";
-import { isClosedByConcordia } from "../agent-dispatch-policy.js";
+import { isClosedByConcordia, parseCronInstructionParams } from "../agent-dispatch-policy.js";
+import { isScheduledCloudProposalJob } from "./kaizen-proposal.js";
 import type { KaizenAttempt, KaizenStore } from "./kaizen-store.js";
 
 const INTERVAL_MS = 60_000;
@@ -15,7 +17,7 @@ export function createKaizenRuntime(deps: {
   store: KaizenStore;
   instruction(id: string): InstructionRecord | null;
   cloud: () => KaizenCloud | undefined;
-  enabled(): boolean;
+  enabled(job: ScheduledCloudOrigin): boolean;
   ports: KaizenApplierPorts;
   post(text: string): Promise<boolean>;
   now(): number;
@@ -64,18 +66,19 @@ export function createKaizenRuntime(deps: {
       let report = row.report;
       if (report === null) {
         const record = deps.instruction(row.id);
+        const job = parseCronInstructionParams(record?.params)?.job;
         if (!record || record.status !== "done" || record.agent !== "dots" || record.type !== "run_task"
-          || isClosedByConcordia(record.resultDetail)) {
+          || !isScheduledCloudProposalJob(job) || isClosedByConcordia(record.resultDetail)) {
           deps.store.markPosted(row.id, deps.now());
           continue;
         }
         if (row.started_at !== null) {
           if (row.started_at > deps.now() - INTERRUPTED_MS) continue;
-          report = `日次カイゼン ${row.id} — 処理が中断しました。Actio のタスクと Cloud 受付を照合してください。`;
+          report = `${neutralizeLine(record.title, 100)} ${row.id} — 処理が中断しました。Actio のタスクと Cloud 受付を照合してください。`;
           deps.ports.card({ key: row.id, project: null, summary: report });
         } else {
           if (!deps.store.claim(row.id, deps.now())) continue;
-          report = await applyKaizenResult(record, deps.ports, () => active() && deps.enabled());
+          report = await applyKaizenResult(record, deps.ports, () => active() && deps.enabled(job), job);
         }
         deps.store.recordReport(row.id, report);
       }

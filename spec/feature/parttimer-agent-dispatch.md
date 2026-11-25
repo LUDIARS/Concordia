@@ -50,7 +50,7 @@ tags:
 | `ludiars-status-daily` | サービスの code・名前・状態・本社の観測か (止まっている順)、前回の要約 | `service-status-items.ts` (Excubitor の観測。拠点名は渡さない) | 要約 |
 | `ludiars-review-weekly` | Tier 1 リポの main の HEAD・前回レビューの HEAD・commit 数・差分の統計とファイル一覧 (1 リポ 30 件) | `review-targets.ts` / `service-map.ts` / `git-read.ts` (コード本文は読まない) | 提案 |
 | `ai-note-biweekly-review` | evergreen を除き最終レビューが 14 日以上前の記事の題・区分・日付・所見・URL、前回の要約 | `ai-note-articles.ts` (記事本文は読まない) | 下書き |
-| `deps-sweep-daily` | 設定の GitHub org にあるリポのマニフェストの URL、前回の要約 | `dependency-repos.ts` (マニフェストの中身は読まない。org 未設定は失敗) | 報告 |
+| `deps-sweep-daily` | 設定の GitHub org にあるリポのマニフェストの URL、前回の要約 | `dependency-repos.ts` (マニフェストの中身は読まない。org 未設定は失敗) | 点検報告と依存更新の提案。適格な提案を Cc がクラウド実装へ回す |
 | `quaestor-mail-sweep` | 実行枠・日付、取り込みの結果、分類別件数、要確認件数と文書 ID、通知件数、エラー種別とメッセージ ID | 本社 Cc が発火時に Quaestor へ sweep を一度依頼し、文書一覧からは ID だけを取り出す | 管制へ報告 |
 | `kaizen-daily` | 前日 JST の失敗・停滞の集計 | Cc DB の集計専用の読み取り | dots の提案を Cc がクラウド実装または管制カードに回し、結果を管制へ投稿 |
 
@@ -77,6 +77,17 @@ Cc は適格な候補を上限内で順に Actio に登録し、既存の Codex 
 人間判断、上限超過、対象外、投入失敗・受付不明は管制カードにし、結果を既存の管制チャンネルへまとめて投稿する。
 不正入力は処理せず件数を報告する。Cloud の成果は既存の Git 受領・Revisor 提出を通す。
 宛先が dots 以外の場合は従来の結果処理を使う。
+
+### 日次依存関係点検
+
+Actio `actio:682e0c79-b946-42bf-afa7-d38d93872f48`。価値 UX-CC-W2/W4/W5、シナリオ UX-CC-S4。
+2026-11-24 neco 指示により、07:10 の dots 宛て点検を依存更新の実装まで接続する。
+`detail.items` の点検結果は更新候補がなくても投稿する。`detail.proposals` は日次カイゼンと同じ形式で、対象リポのコード、パッケージ、現行版から目標版、脆弱性や互換性の根拠、更新手順を記す。
+投入先は当該指令の点検材料に含まれる登録済みプロジェクトに限る。作業範囲はそのリポの依存定義と lockfile、および既存挙動を維持するための最小限の修正と回帰テストとする。
+major 更新は既存挙動を維持し、対象の回帰テストを通せる場合だけ成果を返す。確認できない場合は点検結果として報告する。
+Cc は日次カイゼンと同じ回答処理、試行予約、投入上限、停止判定、65 分の Git 返送窓を使用する。同じ回答に実装指示が重複する場合は対象プロジェクトと指示本文で照合する。Codex Cloud は実装を返し、Revisor が審査を所有する。
+点検の宛先が dots でなくなると新規投入を止める。すでに受け付けた成果の回収は続ける。
+未受領の点検指令は既存の点検委託に戻る。
 
 - 一覧の正本は `agent-jobs/registry.ts` の `AGENT_JOB_NAMES`。ここに無いジョブは宛先を外部エージェントにできない。
 - 外部エージェント用の本文は `agent-jobs/body.ts` の共通の枠 (材料は params.data だけ・summary と detail.items で返す・書き込みや PR をしない) に、ジョブ固有の依頼を載せる。

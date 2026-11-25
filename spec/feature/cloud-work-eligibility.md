@@ -19,7 +19,8 @@ Codex Cloud / Claude Code Cloud 共通で、次の4条件をすべて満たす�
 4. 成果物の操作・判断などにLLMの指示が必要。
 
 2026-11-24 neco 指示「組む・カイゼンは条件の例外」。Actio `actio:cc99b26e-366a-430c-bf58-0f72aa95fc9d`。
-Cc が登録した日次カイゼン (`kaizen-daily`) の dots 回答に由来する Codex Cloud 実装に限り条件 3 を免除する。
+Cc が登録した日次カイゼン (`kaizen-daily`) と日次依存関係点検 (`deps-sweep-daily`) の dots 回答に由来する Codex Cloud 実装に限り条件 3 を免除する。
+依存点検への適用は、点検から更新対応・解決まで進める 2026-11-24 の neco 指示に基づく (Actio `actio:682e0c79-b946-42bf-afa7-d38d93872f48`)。小規模な依存更新も対象にする。
 条件 1・2・4 と既存の起動前検査は適用する。HTTP・MCP の呼出側は由来を指定できない。
 
 モデリング、Rust等のアプリのビルドとテスト、学習、レンダリングは候補例であり、

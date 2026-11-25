@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { INSTRUCTION_POST_MAX_CHARS, neutralizeLine } from "../../agent-instructions/instruction-posts.js";
 import type { InstructionRecord } from "../../agent-instructions/instruction-service.js";
+import type { ScheduledCloudOrigin } from "../../cloud-work/eligibility.js";
 import { assessKaizenProposal, KAIZEN_MAX_PROPOSALS, type KaizenProposal } from "./kaizen-proposal.js";
 import { buildAgentJobResultPost } from "./result-post.js";
 
@@ -17,15 +18,30 @@ export interface KaizenApplierPorts {
   limit(): number;
   target(repo: string): Promise<{ repositoryKey: string; targetId: string } | null>;
   submit(key: string, repo: string, proposal: KaizenFix, target: { repositoryKey: string; targetId: string },
-    mayLaunch: () => boolean): Promise<{ state: string; taskReference?: string }>;
+    mayLaunch: () => boolean, job: ScheduledCloudOrigin): Promise<{ state: string; taskReference?: string }>;
   card(input: KaizenJudgment): void;
 }
 
-export async function applyKaizenResult(record: InstructionRecord, ports: KaizenApplierPorts, mayLaunch: () => boolean): Promise<string> {
+function dependencyProjectCodes(params: unknown): Set<string> {
+  const repos = (params as { data?: { repos?: unknown } } | null)?.data?.repos;
+  const codes = new Set<string>();
+  if (Array.isArray(repos)) {
+    for (const repo of repos as Array<{ code?: unknown } | null>) {
+      if (typeof repo?.code === "string") codes.add(repo.code);
+    }
+  }
+  return codes;
+}
+
+export async function applyKaizenResult(
+  record: InstructionRecord, ports: KaizenApplierPorts, mayLaunch: () => boolean, job: ScheduledCloudOrigin = "kaizen-daily",
+): Promise<string> {
   const detail = record.resultDetail as { proposals?: unknown } | null;
   const items = Array.isArray(detail?.proposals) ? detail.proposals : [];
   const projects = ports.projects();
-  const allowed = new Set(projects.keys());
+  const isDepsSweep = job === "deps-sweep-daily";
+  const inspected = isDepsSweep ? dependencyProjectCodes(record.params) : null;
+  const allowed = new Set([...projects.keys()].filter((code) => inspected === null || inspected.has(code)));
   const limit = ports.limit();
   let selected = 0;
   let submitted = 0;
@@ -35,6 +51,7 @@ export async function applyKaizenResult(record: InstructionRecord, ports: Kaizen
     ? Math.max(0, items.length - KAIZEN_MAX_PROPOSALS) : 1;
   const runKey = createHash("sha256").update(record.id).digest("hex");
   const lines: string[] = [];
+  const seen = new Set<string>();
   for (const [index, item] of items.slice(0, KAIZEN_MAX_PROPOSALS).entries()) {
     const proposal = assessKaizenProposal(item, allowed);
     if (proposal.kind === "rejected") { rejected++; continue; }
@@ -43,8 +60,13 @@ export async function applyKaizenResult(record: InstructionRecord, ports: Kaizen
     let disposition = "人間の判断が必要";
     let taskReference: string | undefined;
     if (proposal.kind === "cloud_fix") {
+      if (isDepsSweep) {
+        const identity = JSON.stringify([proposal.project, proposal.instruction]);
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+      }
       if (!mayLaunch()) {
-        disposition = "カイゼンの自動投入が停止中";
+        disposition = "自動投入が停止中";
       } else if (selected >= limit) {
         disposition = "自動投入の上限に到達";
       } else {
@@ -56,7 +78,7 @@ export async function applyKaizenResult(record: InstructionRecord, ports: Kaizen
           failed++;
         } else if (mayLaunch()) {
           selected++;
-          const result = await ports.submit(key, repo, proposal, target, mayLaunch);
+          const result = await ports.submit(key, repo, proposal, target, mayLaunch, job);
           taskReference = result.taskReference;
           if (result.state === "submitted") {
             submitted++;
@@ -67,7 +89,7 @@ export async function applyKaizenResult(record: InstructionRecord, ports: Kaizen
           disposition = result.state === "submission_unknown" ? "Cloud 受付不明。再投入前に照合が必要"
             : `自動投入できません (${result.state})`;
         } else {
-          disposition = "カイゼンの自動投入が停止中";
+          disposition = "自動投入が停止中";
         }
       }
     }
@@ -77,11 +99,11 @@ export async function applyKaizenResult(record: InstructionRecord, ports: Kaizen
     lines.push(`- カード #${index + 1} ${neutralizeLine(disposition, 65)}`);
   }
   const report = buildAgentJobResultPost("提案", {
-    jobName: "kaizen-daily", title: record.title, agent: record.agent, status: "done", summary: record.resultSummary ?? "",
+    jobName: job, title: record.title, agent: record.agent, status: "done", summary: record.resultSummary ?? "",
     detail: record.resultDetail, instructionId: record.id, application: true,
   });
   const body = [
-    `日次カイゼン ${record.id} — Cloud 受付 ${submitted} 件・管制カード ${cards} 件・投入経路の失敗 ${failed} 件・不正または件数超過 ${rejected} 件`,
+    `${isDepsSweep ? "日次依存関係点検" : "日次カイゼン"} ${record.id} — Cloud 受付 ${submitted} 件・管制カード ${cards} 件・投入経路の失敗 ${failed} 件・不正または件数超過 ${rejected} 件`,
     ...lines.slice(0, 8),
     report,
   ].join("\n");

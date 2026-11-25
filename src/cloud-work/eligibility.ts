@@ -2,6 +2,7 @@ import { contract } from './ontime-runtime.js'; /* augur-inject:import:bc8ff131 
 import augurContract_d296301e from './kaizen-eligibility.contract.js'; /* augur-inject:contract-predicate:2a5ac120 */
 /** @implements CC-CLOUD-09 — necessary conditions, not execution authorization. */
 export const MAX_CLOUD_REPOSITORY_BYTES = 50_000_000;
+export type ScheduledCloudOrigin = "kaizen-daily" | "deps-sweep-daily";
 
 /** Facts must describe the current request/revision, not a project-name heuristic. */
 export interface CloudEligibilityEvidence {
@@ -29,7 +30,7 @@ export interface CloudEligibilityDecision {
   reasons: readonly CloudIneligibilityReason[];
 }
 
-export function assessCloudEligibility(evidence: CloudEligibilityEvidence, origin?: "kaizen-daily"): CloudEligibilityDecision {
+export function assessCloudEligibility(evidence: CloudEligibilityEvidence, origin?: ScheduledCloudOrigin): CloudEligibilityDecision {
   const reasons: CloudIneligibilityReason[] = [];
   const size = evidence.repositoryBytes;
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
@@ -43,7 +44,7 @@ export function assessCloudEligibility(evidence: CloudEligibilityEvidence, origi
   if (evidence.requiresLargeProjectClone !== false) {
     reasons.push(evidence.requiresLargeProjectClone === true ? "large_project_clone_required" : "dependency_clone_unverified");
   }
-  if (origin !== "kaizen-daily" && evidence.computeIntensiveArtifactGeneration !== true) {
+  if (origin !== "kaizen-daily" && origin !== "deps-sweep-daily" && evidence.computeIntensiveArtifactGeneration !== true) {
     reasons.push(evidence.computeIntensiveArtifactGeneration === false
       ? "artifact_generation_not_compute_intensive" : "artifact_load_unverified");
   }

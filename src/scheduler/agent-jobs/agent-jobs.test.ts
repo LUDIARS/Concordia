@@ -67,7 +67,11 @@ describe("agent jobs", () => {
   });
 
   it("依存点検はマニフェストのあるリポだけを渡し、 前回の要約を添える", async () => {
-    const data = await createAgentJobRegistry(sources()).get("deps-sweep-daily")!.buildData(context);
+    const job = createAgentJobRegistry(sources()).get("deps-sweep-daily")!;
+    expect(job.resultKind).toBe("提案");
+    expect(job.body).toContain("detail.proposals");
+    expect(job.body).toContain("detail.items");
+    const data = await job.buildData(context);
     expect((data.repos as { name: string }[]).map((repo) => repo.name)).toEqual(["Concordia"]);
     expect(data.previous_summary).toBe("前回: 更新候補 2 件");
   });

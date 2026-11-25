@@ -1,9 +1,21 @@
 /** @implements CC-PT-AGENT-INV-07 */
 import { scrubText } from "../agent-dispatch-policy.js";
+import type { ScheduledCloudOrigin } from "../../cloud-work/eligibility.js";
 import { contract } from '../ontime-runtime.js'; /* augur-inject:import:cc82b842 */
 import augurContract_7892eb85 from './kaizen-proposal.contract.js'; /* augur-inject:contract-predicate:3997e68a */
 
 export const KAIZEN_MAX_PROPOSALS = 20;
+
+export const CLOUD_PROPOSAL_FORMAT = [
+  `dots は detail.proposals に提案を最大 ${KAIZEN_MAX_PROPOSALS} 件、優先順で返してください。detail.items の報告用の文字列も残してください。`,
+  "各提案の形式は {title, reason, target_repo, kind, instruction?} です。title は120文字、根拠を含む reason は500文字までです。",
+  "実装できる修正は kind=cloud_fix とし、instruction に具体的な実装指示を3000文字以内で入れてください。",
+  "人間の判断が要るものは kind=human_judgment とし、判断点を reason に入れてください。",
+] as const;
+
+export function isScheduledCloudProposalJob(job: unknown): job is ScheduledCloudOrigin {
+  return job === "kaizen-daily" || job === "deps-sweep-daily";
+}
 
 interface Proposal {
   title: string;

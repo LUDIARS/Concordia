@@ -1,4 +1,4 @@
-import { assessCloudEligibility, type CloudEligibilityEvidence } from "./eligibility.js";
+import { assessCloudEligibility, type CloudEligibilityEvidence, type ScheduledCloudOrigin } from "./eligibility.js";
 
 export type CloudProvider = "codex-cloud" | "claude-cloud" | "colab" | "aws";
 
@@ -11,7 +11,7 @@ export interface CloudSubmission {
   sourceRevision: string;
   instruction: string;
   eligibility: CloudEligibilityEvidence;
-  eligibilityOrigin?: "kaizen-daily";
+  eligibilityOrigin?: ScheduledCloudOrigin;
   standardHosted: boolean;
   gpuRequired: boolean;
   gpuVerified: boolean;

@@ -8,6 +8,6 @@ export default {
     return result.eligible === (typeof size === "number" && Number.isSafeInteger(size) && size >= 0 && size <= 50_000_000
       && evidence.environmentPreparable === true && evidence.requiresLargeProjectClone === false
       && evidence.requiresLlmGuidance === true
-      && (origin === "kaizen-daily" || evidence.computeIntensiveArtifactGeneration === true));
+      && (origin === "kaizen-daily" || origin === "deps-sweep-daily" || evidence.computeIntensiveArtifactGeneration === true));
   },
 };

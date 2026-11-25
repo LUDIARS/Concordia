@@ -3545,7 +3545,7 @@ export async function startBackend(): Promise<BackendHandle> {
       store: kaizenStore,
       instruction: (id) => agentInstructions.routes.service.record(id),
       cloud: getKaizenCloud,
-      enabled: () => !federation.isSiteRole() && adminState.getCronJobAgent("kaizen-daily") === "dots",
+      enabled: (job) => !federation.isSiteRole() && adminState.getCronJobAgent(job) === "dots",
       ports: {
         ...createKaizenCloudPorts({ cloud: getKaizenCloud, tasks: taskStore, store: kaizenStore, now: Date.now }),
         projects: kaizenProjects,

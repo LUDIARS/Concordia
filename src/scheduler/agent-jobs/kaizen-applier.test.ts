@@ -26,7 +26,7 @@ describe("daily kaizen proposal application", () => {
     const report = await applyKaizenResult(record([{ ...fix, target_repo: "Li" }, fix, fix, judgment]), ports, () => true);
     expect(ports.submit).toHaveBeenCalledOnce();
     expect(ports.submit).toHaveBeenCalledWith(expect.stringMatching(/^kaizen-[a-f0-9]{64}-2$/),
-      "/cc", expect.objectContaining({ kind: "cloud_fix" }), { repositoryKey: "/cc", targetId: "cc" }, expect.any(Function));
+      "/cc", expect.objectContaining({ kind: "cloud_fix" }), { repositoryKey: "/cc", targetId: "cc" }, expect.any(Function), "kaizen-daily");
     expect(ports.card.mock.calls.map(([card]) => card.summary)).toEqual([
       expect.stringContaining("利用不可"), expect.stringContaining("上限"), expect.stringContaining("人間の判断"),
     ]);

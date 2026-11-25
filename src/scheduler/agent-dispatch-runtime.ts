@@ -19,6 +19,7 @@ import { readReviewTargets } from "./agent-job-sources/review-targets.js";
 import { readServiceMap } from "./agent-job-sources/service-map.js";
 import { toServiceStatusItems } from "./agent-job-sources/service-status-items.js";
 import { createAgentJobRegistry, type AgentJobSources } from "./agent-jobs/registry.js";
+import { isScheduledCloudProposalJob } from "./agent-jobs/kaizen-proposal.js";
 import type { KaizenStore } from "./agent-jobs/kaizen-store.js";
 import { createAgentResultIntake } from "./agent-result-intake.js";
 import type { CronJobDefinition } from "./cron-jobs.js";
@@ -78,7 +79,7 @@ export function createAgentDispatchRuntime(deps: AgentDispatchRuntimeDeps): Agen
     instructions: {
       registerOnce: (input) => {
         const register = () => deps.instructions.registerOnce(input);
-        return deps.kaizenStore && input.agent === "dots" && input.params.job === "kaizen-daily"
+        return deps.kaizenStore && !deps.isSiteRole() && input.agent === "dots" && isScheduledCloudProposalJob(input.params.job)
           ? deps.kaizenStore.register(register) : register();
       },
     },

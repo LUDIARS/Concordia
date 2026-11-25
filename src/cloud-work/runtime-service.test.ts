@@ -29,18 +29,18 @@ async function fixture() {
 }
 
 describe("integrated cloud work runtime", () => {
-  it("limits the scheduled kaizen exception to configured HQ Codex Git targets", async () => {
+  it.each(["kaizen-daily", "deps-sweep-daily"] as const)("limits the %s exception to configured HQ Codex Git targets", async (origin) => {
     const f = await fixture();
     expect(await f.runtime.kaizenTarget(scope)).toBeNull();
-    await expect(f.runtime.submitKaizen(scope, input, () => true)).rejects.toThrow("cloud_target_not_found");
+    await expect(f.runtime.submitKaizen(scope, input, () => true, origin)).rejects.toThrow("cloud_target_not_found");
     f.target.transferMode = "git";
     f.target.git = { publicHost: "git.example.com", accessHeaderEnv: "ACCESS", accessHeaderName: "X-Access" };
     f.ports.env.ACCESS = "test";
     expect(await f.runtime.kaizenTarget(scope)).toBe(input.targetId);
-    await expect(f.runtime.submitKaizen(scope, input, () => false)).rejects.toThrow("cloud_kaizen_stopped");
+    await expect(f.runtime.submitKaizen(scope, input, () => false, origin)).rejects.toThrow("cloud_kaizen_stopped");
     expect(f.submit).not.toHaveBeenCalled();
-    await expect(f.runtime.submitKaizen(scope, input, () => true)).resolves.toMatchObject({ state: "submitted" });
-    expect(f.submit).toHaveBeenCalledWith(expect.objectContaining({ eligibilityOrigin: "kaizen-daily",
+    await expect(f.runtime.submitKaizen(scope, input, () => true, origin)).resolves.toMatchObject({ state: "submitted" });
+    expect(f.submit).toHaveBeenCalledWith(expect.objectContaining({ eligibilityOrigin: origin,
       eligibility: expect.objectContaining({ computeIntensiveArtifactGeneration: false }) }), expect.any(Function));
     await expect(f.runtime.submit(scope, input)).rejects.toThrow("cloud_attempt_conflict");
     expect(f.submit).toHaveBeenCalledOnce();

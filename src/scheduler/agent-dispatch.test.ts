@@ -8,6 +8,7 @@ import { createAgentDispatcher } from "./agent-dispatch.js";
 import { createMailSweepExecution } from "./agent-job-sources/mail-sweep-execution.js";
 import { createMailSweepStore } from "./agent-job-sources/mail-sweep-store.js";
 import { createKaizenDailyJob } from "./agent-jobs/kaizen-daily.js";
+import { createDepsSweepDailyJob } from "./agent-jobs/deps-sweep-daily.js";
 import { createQuaestorMailSweepJob } from "./agent-jobs/quaestor-mail-sweep.js";
 import type { MailSweepData } from "./agent-jobs/quaestor-mail-sweep-data.js";
 import type { AgentJobRegistry } from "./agent-jobs/registry.js";
@@ -108,22 +109,34 @@ describe("cron scheduler の外部エージェント分岐", () => {
     expect(ctx.service.history({ limit: 10 })).toEqual([]);
   });
 
-  it("INV-03: params は 8000 バイトに収め、 落とした件数を data.truncated に、 メール・トークンは伏せる", async () => {
-    const many = Array.from({ length: 400 }, (_, index) => `item-${index}-${"x".repeat(30)}`);
+  it("INV-03: 依存点検の data は公開メタデータだけを送り、秘密を伏せて 8000 バイトに収める", async () => {
     // トークン形の偽値は実行時に組み立てる (ソースに置くと情報流出検査が本物と区別できない)。
     const fakeToken = ["ghp", "abcdefghijklmnop1234"].join("_");
+    const repos = Array.from({ length: 400 }, (_, index) => {
+      const name = `repo-${index}`;
+      const url = `https://github.com/LUDIARS/${name}`;
+      return { name, code: null, url, manifests: [`${url}/blob/main/package.json`], env: "private-source-data" };
+    });
     const ctx = setup({
-      agents: { "deps-sweep-daily": "muse" },
-      specs: [spec("deps-sweep-daily", { items: many, owner: "連絡先 someone@example.com", token: fakeToken })],
+      agents: { "deps-sweep-daily": "dots" },
+      specs: [createDepsSweepDailyJob({
+        dependencyRepos: async () => repos,
+        lastDoneSummary: () => `連絡先 someone@example.com ${fakeToken}`,
+      })],
     });
     const outcome = await ctx.dispatch({ jobName: "deps-sweep-daily", targetKey: "", args: {}, callName: "deps-sweep-daily", firedAt: FIRED_AT });
     expect(outcome.kind).toBe("registered");
-    const params = ctx.service.history({ limit: 1 })[0]!.params as { data: { items: string[]; truncated: number; owner: string; token: string } };
+    const params = ctx.service.history({ limit: 1 })[0]!.params as {
+      data: { repos: unknown[]; truncated: number; previous_summary: string };
+    };
     expect(Buffer.byteLength(JSON.stringify(params), "utf8")).toBeLessThanOrEqual(8000);
-    expect(params.data.truncated).toBe(400 - params.data.items.length);
-    expect(params.data.items[0]).toBe(many[0]);
-    expect(params.data.owner).not.toContain("someone@example.com");
-    expect(params.data.token).toBe("[redacted]");
+    expect(params.data.truncated).toBe(repos.length - params.data.repos.length);
+    expect(params.data.repos[0]).toEqual({
+      name: "repo-0", code: null, url: "https://github.com/LUDIARS/repo-0",
+      manifests: ["https://github.com/LUDIARS/repo-0/blob/main/package.json"],
+    });
+    expect(params.data.previous_summary).toBe("連絡先 [redacted] [redacted]");
+    expect(JSON.stringify(params.data)).not.toContain("private-source-data");
   });
 
   it.each<MailSweepData>([

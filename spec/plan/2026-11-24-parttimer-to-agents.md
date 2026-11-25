@@ -66,7 +66,7 @@ dots 回答の Q3 を元にした。切替そのもの (設定値) は v5 の反
 | 関連未完了タスク取得 (Memoria) | dots | — (個人範囲制御が無いので今回は外す) | — |
 | ディレクター タスク整理 (fanout) | dots | 同上のタスク一覧 + Director 案件の題・状態 | 提案として投稿 (書き込みなし) |
 | ディレクター 課題スカウト (fanout) | dots | チームのプロジェクトの直近の PR 題・CI 失敗・Revisor 所見の要約 | 提案として投稿 |
-| 日次依存関係点検 (`deps-sweep-daily`) | dots | 公開リポのマニフェストの所在 (GitHub URL) と前回の点検結果の要約 | 報告として投稿 (PR は作らない) |
+| 日次依存関係点検 (`deps-sweep-daily`) | dots | 公開リポのマニフェストの所在 (GitHub URL) と前回の点検結果の要約 | 点検結果を投稿し、適格な依存更新を日次カイゼンと同じ Codex Cloud Git 返送・Revisor 審査へ渡す |
 | 週次レビュー (`ludiars-review-weekly`) | dots | 対象リポの正確な ref と差分の統計・ファイル一覧 | 提案として投稿 |
 | AIノート記事 隔週レビュー (`ai-note-biweekly-review`) | dots | 選定済み記事の題・公開 URL・前回所見 | 下書きとして投稿 |
 | LUDIARS ダッシュボード日報 (`ludiars-status-daily`) | dots | サービスの稼働状態・版の一覧 (service-status / service-versions) | 要約の投稿。日報の PR は Cc 側の委託が引き続き作る |

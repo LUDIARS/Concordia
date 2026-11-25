@@ -9,6 +9,7 @@ import { executionEvidence, requestFingerprint, type CloudExecutionAdapter, type
 import type { CloudReceipt } from "./submission.js";
 import { verifyCloudArtifacts } from "./artifact-verification.js";
 import type { AttemptJournal } from "./batch-policy.js";
+import type { ScheduledCloudOrigin } from "./eligibility.js";
 
 export interface CloudScope { repositoryKey: string; subsidiaryId: string | null }
 export interface CloudWorkInput {
@@ -85,12 +86,14 @@ export class CloudWorkRuntime {
   }
 
   /** Trusted entry point for the HQ scheduler. The HTTP and MCP routes call submit(). */
-  async submitKaizen(scope: CloudScope, input: CloudWorkInput, mayLaunch: () => boolean): Promise<unknown> {
+  async submitKaizen(
+    scope: CloudScope, input: CloudWorkInput, mayLaunch: () => boolean, origin: ScheduledCloudOrigin = "kaizen-daily",
+  ): Promise<unknown> {
     if (scope.subsidiaryId !== null) throw new Error("cloud_target_not_found");
-    return this.submitWork(scope, input, "kaizen-daily", mayLaunch);
+    return this.submitWork(scope, input, origin, mayLaunch);
   }
 
-  private async submitWork(scope: CloudScope, input: CloudWorkInput, origin?: "kaizen-daily", mayLaunch?: () => boolean): Promise<unknown> {
+  private async submitWork(scope: CloudScope, input: CloudWorkInput, origin?: ScheduledCloudOrigin, mayLaunch?: () => boolean): Promise<unknown> {
     const environment = await this.target(scope, input.targetId);
     if (origin && (!this.isKaizenTarget(environment) || input.work)) {
       throw new Error("cloud_target_not_found");
@@ -134,7 +137,7 @@ export class CloudWorkRuntime {
     return this.status(scope, input.attemptId);
   }
 
-  private sameRequest(run: StoredRun, input: CloudWorkInput, origin?: "kaizen-daily"): boolean {
+  private sameRequest(run: StoredRun, input: CloudWorkInput, origin?: ScheduledCloudOrigin): boolean {
     return run.eligibilityOrigin === origin && run.targetId === input.targetId && run.taskReference === input.taskReference
       && run.instruction === input.instruction && run.gpuRequired === input.gpuRequired
       && run.computeReason === input.computeReason && run.llmReason === input.llmReason

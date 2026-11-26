@@ -445,6 +445,7 @@ UX シナリオ ID (`UX-CC-*`) は各 UX 文書が定義する。
   - [discord-excubitor-commands.md](feature/discord-excubitor-commands.md) — Discord からの Excubitor project 起動・再起動 (implemented)
   - [discord-forum-migration.md](feature/discord-forum-migration.md) — Discord フォーラム移行 — Session / Test / TaskWorkflow
   - [discord-image-ingress.md](feature/discord-image-ingress.md) — Discord 添付・embed のセッション取り込み (implemented)
+  - [discord-notion-sync.md](feature/discord-notion-sync.md) — Discord セクションチャンネル → Notion 取り込みスキル (implemented)
   - [discord-lictor-relay.md](feature/discord-lictor-relay.md) — Discord ↔ Lictor 仲介リレー設計 (返信混線の根治) (implemented)
   - [discord-session-direct-inject.md](feature/discord-session-direct-inject.md) — Discord session channel 直接 inject — 仕様 (PR-B 後の小機能) (planned)
   - [discord-session-task-post.md](feature/discord-session-task-post.md) — Discord セッションのタスク本文投稿と pin (implemented)

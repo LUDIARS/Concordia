@@ -23,6 +23,8 @@ import { collectChannelCostRows } from "../cost/channel-cost.js";
 import type { CostReport } from "../cost/cost-report.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
 import { aggregateLimitTimeseries, collectLimitSamples } from "../cost/limit-sampler.js";
+import { readGrokUsage } from "../cost/grok-usage.js";
+import { latestWeeklyQuotas } from "../cost/weekly-quota.js";
 import { collectSampledCostOverview } from "../cost/sample-overview.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { CompanySessionCapRow } from "../cost/company-session-cap.js";
@@ -34,6 +36,7 @@ export interface CostApiDeps {
   resolveSessionChannelId: (sessionId: string) => string | null;
   samples: CostUsageSamplesRepo;
   limitSamples: CostLimitSamplesRepo;
+  readGrokUsage?: typeof readGrokUsage;
   oneShots: CostOneShotCallsRepo;
   overviewSource?: "live" | "samples";
   /** 本社モニターと同じ子会社一覧 (本社=未タグは内部で算出)。 */
@@ -102,6 +105,13 @@ export function costRouter(deps: CostApiDeps): Hono {
   });
 
   app.get("/session-caps", (c) => c.json({ companies: deps.listSessionCaps?.() ?? [] }));
+
+  app.get("/limits/latest", async (c) => {
+    const samples = deps.limitSamples.listLatestByProvider();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const grok = await (deps.readGrokUsage ?? readGrokUsage)({ nowSec });
+    return c.json({ providers: latestWeeklyQuotas(samples, grok, nowSec) });
+  });
 
   app.get("/timeseries", (c) => {
     const started = Date.now();

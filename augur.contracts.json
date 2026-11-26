@@ -3,6 +3,8 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "weekly-ai-quota-C-1", "criterion": "C-1 parseGrokBillingLogLine(line, nowSec): 有効な週間観測だけから利用率・期限・プラン・観測時刻を返す", "symbol": "parseGrokBillingLogLine", "file": "src/cost/grok-usage.ts", "module": "src/cost/grok-usage.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "weekly-ai-quota-C-2", "criterion": "C-2 latestWeeklyQuotas(samples, grok, nowSec): 4 社の固定順を維持し、期限切れと未計測を除外して最新の週間残量を返す", "symbol": "latestWeeklyQuotas", "file": "src/cost/weekly-quota.ts", "module": "src/cost/weekly-quota.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "desk-capacity-test-C-103", "criterion": "C-103 observeDeskCapacity(h): 受付待ちの二件で枠を保持し、先行依頼の完了を観測してから三件目を配達する", "symbol": "observeDeskCapacity", "file": "src/desk/routing.test.ts", "module": "src/desk/routing-capacity-test.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "actio-overview-test-C-104", "criterion": "C-104 readSettledOverview(cache, load): 更新の完了後に一覧を読み、更新中の状態を返さない", "symbol": "readSettledOverview", "file": "src/taskflow/actio-overview-cache.test.ts", "module": "src/taskflow/overview-refresh-test.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "actio-handover-test-C-105", "criterion": "C-105 raceHandovers(store): 同じ未割当タスクへの二つの担当変更のうち一つだけが成功する", "symbol": "raceHandovers", "file": "src/taskflow/task-session-flow.test.ts", "module": "src/taskflow/handover-race-test.contract.ts", "mode": "observe", "sample": 1 },

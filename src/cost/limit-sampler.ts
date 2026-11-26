@@ -55,6 +55,18 @@ export function collectLimitSamples(
       reset_weekly_at: report.geminiUsage?.weekly?.resetsAtSec ?? null,
     });
   if (geminiSample) samples.push(geminiSample);
+  const grok = report.grokUsage;
+  if (grok && grok.resetWeeklyAt > nowSec) {
+    samples.push({
+      ts: grok.observedAtSec,
+      provider: "grok-cli",
+      plan: grok.plan,
+      used_5h_pct: null,
+      used_weekly_pct: grok.usedWeeklyPct,
+      reset_5h_at: null,
+      reset_weekly_at: grok.resetWeeklyAt,
+    });
+  }
   return samples;
 }
 

@@ -35,7 +35,11 @@ const tok = (v: number | null): string => {
   return (x / 1_000_000).toFixed(2) + "M";
 };
 const providerColors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
-const providerLabel = (provider: string) => provider === "antigravity-cli" ? "Gemini" : provider;
+function providerLabel(provider: string): string {
+  if (provider === "antigravity-cli") return "Gemini";
+  if (provider === "grok-cli") return "Grok";
+  return provider;
+}
 const pct = (v: number | null): string => v === null || !Number.isFinite(v) ? "—" : `${v.toFixed(1)}%`;
 
 function OrgBlock({ report, heading }: { report: OrgCostReport; heading: string }) {

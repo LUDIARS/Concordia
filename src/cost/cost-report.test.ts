@@ -38,6 +38,14 @@ function baseReport(): CostReport {
 }
 
 describe("renderCostReportMarkdown", () => {
+  it("renders Grok's weekly remaining percent and reset", () => {
+    const grokUsage = { usedWeeklyPct: 1, resetWeeklyAt: 9000, plan: "SuperGrok", observedAtSec: 1500 };
+    const md = renderCostReportMarkdown({ ...baseReport(), grokUsage }, PLAIN_FMT, 1600);
+    expect(md).toContain("### Grok\n- 週間リミット残: 99.0%\n- 週間リセット: t=9000\n");
+    expect(renderCostReportMarkdown(baseReport(), PLAIN_FMT, 1600))
+      .toContain("### Grok\n- 週間リミット残: -\n- 週間リセット: -\n");
+  });
+
   it("見出し・プロバイダ別トークン・残量を本文に出す", () => {
     const md = renderCostReportMarkdown(baseReport(), PLAIN_FMT, 1234);
     expect(md).toContain("## コスト / 使用量");

@@ -92,6 +92,22 @@ provider の正本ルート (`~/.claude/projects` / `~/.codex/sessions`) 配下�
 context 推定 (`context-estimate`) と cost 系 cache (`session-cost` / `session-usage-cache` /
 `windowed-usage` / `windowed-usage-cache` / `channel-cost-cache`) は全てこの関数を通す。
 
+### オーバービューの週間残量
+
+Actio `actio:96758f69-0691-4cb9-87e6-df9dfc1d097a`。運用担当が次に使える AI を選ぶとき、
+`/control` の「AI 残量」で ChatGPT・Claude・Gemini・Grok の週間残量を比較する
+（`UX-CC-W4`）。週間観測とサンプルは observability が所有し、管制画面は読み取り専用で表示する。
+
+- **CC-COST-QUOTA-INV-01** 週間残量は観測済みの週間利用率を 100 から引き、小数第 1 位に丸め、
+  0〜100 に収める。期限切れ・欠損は未計測として扱う。
+- **CC-COST-QUOTA-INV-02** Grok CLI の `GROK_HOME`（未設定時は `~/.grok`）の
+  `logs/unified.jsonl` 末尾最大 2 MiB から週間クレジット観測を読む。利用率はログの 0〜100 の値。
+  期限は `currentPeriod.end` が優先で、欠損時は `billingPeriodEnd` を使う。
+- `GET /v1/cost/limits/latest` は保存済みの直近サンプルを固定順の 4 件で返す。
+  Grok は保存値より新しい観測をログから補い、サンプラーの次回実行を待たずに表示できる。
+- パネルには週間残量の横バー、プラン、週間リセット日時、更新ボタンを表示する。
+  20% 以下は警告色、5% 以下は危険色。未計測は空バーで示す。開閉は画面内で完結する。
+
 ### rate-limit の表示と通知
 
 - Gemini (Antigravity CLI) は `agy -p /usage` の 5H / 週間枠を出す (上の C-4 / C-5)。

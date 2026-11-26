@@ -13,6 +13,16 @@ function report(): CostReport {
 }
 
 describe("collectLimitSamples", () => {
+  it("records Grok with its observation timestamp and weekly values only", () => {
+    const r = report();
+    r.grokUsage = { usedWeeklyPct: 0, resetWeeklyAt: 9000, plan: "SuperGrok", observedAtSec: 1500 };
+    expect(collectLimitSamples(r, 1600)).toEqual([{
+      ts: 1500, provider: "grok-cli", plan: "SuperGrok",
+      used_5h_pct: null, used_weekly_pct: 0, reset_5h_at: null, reset_weekly_at: 9000,
+    }]);
+    expect(collectLimitSamples(r, 9000)).toEqual([]);
+  });
+
   it("records what was observed", () => {
     const r = report();
     r.codexRate = { used5h: null, usedWeekly: 63, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };

@@ -14,6 +14,7 @@ import { fetchCodexRateLimits } from "./codex-rate-limits.js";
 import type { AgyUsage } from "./agy-usage.js";
 import { fetchAgyUsage } from "./agy-usage-fetch.js";
 import { renderGeminiUsageLines } from "./agy-usage-lines.js";
+import { readGrokUsage, type GrokUsage } from "./grok-usage.js";
 import { mapRolloutRateLimitsToCostRate } from "./codex-rollout-rate.js";
 import type { Totals } from "../cost/log-usage.js";
 import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
@@ -38,6 +39,7 @@ export interface CostReport {
   claudeUsage: OAuthUsage | null;
   /** Gemini (Antigravity CLI `/usage`) の 5H / 週間枠。取得できなければ null、旧データは未設定。 */
   geminiUsage?: AgyUsage | null;
+  grokUsage?: GrokUsage | null;
   /** 本社: 拠点から届いた週間使用量 (SPEC-FED-SITE-USAGE)。 拠点ロールや拠点なしでは空。 */
   siteUsage?: readonly SiteUsageEntry[];
 }
@@ -64,6 +66,7 @@ export async function collectCostReport(
     codexRateFetcher?: () => Promise<CostRate | null>;
     /** テスト用: Gemini (agy /usage) の利用枠 fetcher の差し替え (既定 fetchAgyUsage)。 */
     agyUsageFetcher?: () => Promise<AgyUsage | null>;
+    grokUsageReader?: () => Promise<GrokUsage | null>;
     /** 本社: 拠点から届いた週間使用量の一覧 (federation が持つ)。 */
     listSiteUsage?: () => readonly SiteUsageEntry[];
   },
@@ -117,9 +120,10 @@ export async function collectCostReport(
   const geminiUsage = await (opts?.agyUsageFetcher ?? (() => fetchAgyUsage({ log: opts?.oauthLog })))()
     .catch(() => null);
   logStep("fetch-agy-usage", startedAt, ` available=${geminiUsage ? 1 : 0}`);
+  const grokUsage = await (opts?.grokUsageReader ?? readGrokUsage)();
   const siteUsage = opts?.listSiteUsage?.() ?? [];
   opts?.perfLog?.info?.(`cost-report total duration_ms=${Date.now() - totalStartedAt}`);
-  return { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage, geminiUsage, siteUsage };
+  return { codexTotals, claudeTotals, geminiTotals, codexRate, claudeUsage, geminiUsage, grokUsage, siteUsage };
 }
 
 /**
@@ -173,6 +177,10 @@ export function renderCostReportMarkdown(
   lines.push("### Gemini");
   lines.push(`- Tokens: ${fmtNum(geminiTotals.total)} (in=${fmtNum(geminiTotals.input)}, cached=${fmtNum(geminiTotals.cached)}, out=${fmtNum(geminiTotals.output)})`);
   lines.push(...renderGeminiUsageLines(report.geminiUsage ?? null, fmt));
+  lines.push("");
+  lines.push("### Grok");
+  lines.push(`- 週間リミット残: ${pct(remain(report.grokUsage?.usedWeeklyPct ?? null))}`);
+  lines.push(`- 週間リセット: ${fmt.at(report.grokUsage?.resetWeeklyAt ?? null)}`);
   const siteLines = renderSiteUsageLines(report.siteUsage ?? [], fmt, nowSec);
   if (siteLines.length > 0) {
     lines.push("");

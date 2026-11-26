@@ -16,6 +16,12 @@ const card = {
 };
 const projectOnlyCard = { ...card, id: "card-2", project: "Concordia", session_id: null, human_action: "Concordia の設定を確認する" };
 const otherCard = { ...card, id: "card-3", project: "Actio", session_id: "s2", human_action: "Actio の担当を決める" };
+const weeklyQuotaRows = [
+  { key: "chatgpt", label: "ChatGPT", remainWeeklyPct: 73.5, plan: "Pro", resetWeeklyAt: 1795622400 },
+  { key: "claude", label: "Claude", remainWeeklyPct: 20, plan: null, resetWeeklyAt: null },
+  { key: "gemini", label: "Gemini", remainWeeklyPct: 5, plan: null, resetWeeklyAt: null },
+  { key: "grok", label: "Grok", remainWeeklyPct: null, plan: null, resetWeeklyAt: null },
+];
 const sessionRow = (id: string, progress: Record<string, unknown>) => ({
   session_id: id, project: id === "s1" ? "Concordia" : "Actio", branch: "feat/x", current_task: `作業 ${id}`, status: "working", status_reason: null,
   last_activity_at: 1, link: null,
@@ -25,6 +31,7 @@ const sessionRow = (id: string, progress: Record<string, unknown>) => ({
 });
 
 function respond(url: string, init?: RequestInit): Response {
+  if (url === "/v1/cost/limits/latest") return Response.json({ providers: weeklyQuotaRows });
   if (url.startsWith("/v1/control/cards/") && init?.method === "PATCH") return new Response(JSON.stringify({ card: { ...card, state: "closed" } }));
   if (url.startsWith("/v1/control/cards")) return new Response(JSON.stringify({ cards: [card, projectOnlyCard, otherCard] }));
   if (url.startsWith("/v1/control/sessions")) return new Response(JSON.stringify({ items: [
@@ -53,6 +60,42 @@ async function render(overview?: Response) {
 }
 
 describe("管制画面 (/control、Cc v5)", () => {
+  it("opens the weekly quota panel on demand and supports refreshing and closing", async () => {
+    const view = await render();
+    try {
+      const trigger = view.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+      const dialog = () => view.container.querySelector<HTMLElement>('[role="dialog"]');
+      const quotaCalls = () => view.fetcher.mock.calls.filter(([url]) => url === "/v1/cost/limits/latest");
+      expect(quotaCalls()).toHaveLength(0);
+      await act(async () => trigger.click());
+      const rows = [...dialog()!.querySelectorAll("li")];
+      expect(rows.map((row) => row.querySelector("span")?.textContent)).toEqual(["ChatGPT", "Claude", "Gemini", "Grok"]);
+      expect(rows[0].textContent).toContain("残 73.5%");
+      expect(rows[0].textContent).toContain("Pro");
+      expect(rows[0].textContent).toContain(new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" }).format(1795622400 * 1000));
+      expect(rows[0].querySelector<HTMLElement>("[style]")?.style.width).toBe("73.5%");
+      expect(rows[1].querySelector(".bg-amber-500")).toBeTruthy();
+      expect(rows[2].querySelector(".bg-danger")).toBeTruthy();
+      expect(rows[3].textContent).toContain("未計測");
+      expect(rows[3].querySelector("[style]")).toBeNull();
+      expect(dialog()!.textContent).not.toContain("5H");
+
+      const refresh = [...dialog()!.querySelectorAll("button")].find((button) => button.textContent === "更新")!;
+      await act(async () => refresh.click());
+      expect(quotaCalls()).toHaveLength(2);
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+
+      await act(async () => trigger.click());
+      await act(async () => dialog()!.parentElement!.click());
+      expect(dialog()).toBeNull();
+      await act(async () => trigger.click());
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>('[aria-label="AI 残量を閉じる"]')!.click());
+      expect(dialog()).toBeNull();
+    } finally { await view.cleanup(); }
+  });
+
   it("matches by project or session, retaining card order without duplicating dual matches", () => {
     const dual = { ...card, project: "Concordia" };
     expect(projectCards([card, otherCard, projectOnlyCard, dual], "Concordia", [{ session_id: "s1" }]))

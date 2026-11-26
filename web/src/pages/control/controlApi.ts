@@ -54,6 +54,17 @@ export interface ControlCardList {
   discarded_count?: number;
 }
 
+export interface AiWeeklyQuota {
+  key: "chatgpt" | "claude" | "gemini" | "grok";
+  provider: string;
+  label: string;
+  plan: string | null;
+  usedWeeklyPct: number | null;
+  remainWeeklyPct: number | null;
+  resetWeeklyAt: number | null;
+  sampledAt: number | null;
+}
+
 export interface SessionProgressRow {
   desk_request_id?: string | null;
   desk_task_reference?: string | null;
@@ -119,6 +130,7 @@ export const choresApi = {
 };
 
 export const controlApi = {
+  latestQuotas: (signal?: AbortSignal) => call<{ providers: AiWeeklyQuota[] }>("/v1/cost/limits/latest", { signal }),
   deskRequests: (signal?: AbortSignal) => call<{ requests: DeskRequestView[] }>("/v1/desk/requests", { signal }),
   deskRequest: (id: string, signal?: AbortSignal) => call<{ request: DeskRequestView; gen5Stage: { label: string; messageId: number } | null; projects?: Array<{ code: string; name: string }>; cards: Array<Pick<ControlCardView, "id" | "card_kind" | "summary" | "state" | "priority">> }>(`/v1/desk/requests/${encodeURIComponent(id)}`, { signal }),
   selectDeskProject: (id: string, project: string) =>

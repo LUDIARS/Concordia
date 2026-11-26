@@ -24,7 +24,8 @@ updated: 2026-11-26
 チームの Discord セクションチャンネルに書かれた仕様・決定事項を、Notion をタスクボードとして使う
 チーム (最初は Clicker-A / Clicker-B / Clicker-Test) の Notion にも残す。
 提供物は `skills/discord-notion-sync/SKILL.md` の手順だけで、人の依頼で実行する。
-自動起動・定期実行・Bot の常駐配線・Cc 本体のコード変更は含めない。
+自動起動・定期実行・Bot の常駐配線は含めない。画像・添付の取り込みに必要な Cc 側の収集と
+読み取り API は 2026-11-26 に追加した (neco 指示「Cc変えていいよ」「画像だけの投稿を無視しないようにして」)。
 
 ## 対象チャンネル
 
@@ -37,16 +38,34 @@ updated: 2026-11-26
 
 ## 読み取り元
 
-Cc には収集済み投稿を返す HTTP API が無い。スキルは Cc 本体の `concordia.db` を
+Cc には収集済み投稿の一覧を返す HTTP API が無い。スキルは Cc 本体の `concordia.db` を
 `better-sqlite3` の readonly で開き、`team_discussion_messages` と `team_surfaces` を読む。
 書き込み・スキーマ変更・Discord API の直接呼び出し・Bot トークンの利用はしない。
 
 | 列 | 用途 |
 |---|---|
 | channel_id / message_id | 照合キー `discord:<channel_id>/<message_id>`、投稿日時 (snowflake から算出) |
-| content | 原文 |
+| content | 原文 (画像・添付だけの投稿は空文字) |
+| attachments_json | 添付の情報 `[{id,name,content_type,size,kind}]`。`kind` は `image` / `file`。URL は持たない |
 | revision | 編集の検出 (編集時刻、未編集なら投稿時刻) |
 | author_id | 読まない・Notion に書かない |
+
+## 画像・添付
+
+`attachments_json` が空でない投稿は、Cc の読み取り専用 API で実物を得る。
+
+```
+GET /v1/teams/:team_id/discussion/messages/:message_id/attachments
+→ { ref: "discord:<channel_id>/<message_id>", channel_id, message_id,
+    attachments: [{ kind: "image" | "file", name, size, path, url }] }
+```
+
+- Cc が bot で投稿を取り直し (CDN の URL は約 24 時間で切れるため記録しない)、既存の受信箱
+  (`image-inbox` / `attachment-inbox`) で `<一時フォルダ>/concordia-team-discussion-attachments/<team_id>/` へ保存する。
+  取得先は Discord の CDN だけ、画像は 1 投稿 4 枚・20MiB、その他は 10 件・25MiB、7 日で掃除。
+- `path` は Cc と同じ機械のローカルパス、`url` はその場でだけ使える期限付き URL。どちらも Notion の原文欄には書かない。
+- 記録された投稿だけを返す (別チームの `team_id` では 404)。Discord 未設定は 503、取得失敗は 502、保存失敗は 502 (`detail` に理由)。
+- token は Cc が持ち、スキルには渡らない。
 
 ## 書き込み先と照合
 
@@ -68,7 +87,7 @@ Cc には収集済み投稿を返す HTTP API が無い。スキルは Cc 本体
 
 ## 未対応
 
-- **画像**: `collectTeamMessage` は本文 (`message.content`) だけを保存し、添付を保存しない。
-  添付だけの投稿は収集もされない。画像を取り込むには Cc 側で添付の収集と読み取り経路を足す別変更が要る。
+- **過去の画像**: この変更より前に記録された投稿の `attachments_json` は `[]` のまま。bot の再接続時の履歴読み戻し
+  (`team-discussion-history.ts`) で同じ投稿が記録し直され、添付の情報が埋まる。
 - **ジャンプ URL**: Cc はチームの guild ID を保存しないため、Discord への直リンクは作らない。
 - **自動実行**: 対象外。定期実行にする場合は Cc の機能として別途設計する。

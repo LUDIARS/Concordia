@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { ChannelType, Collection, type Guild, type Message } from "discord.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { teamDiscussionConversationMigration } from "../db/team-discussion-conversation-migration.js";
+import { teamDiscussionAttachmentsMigration } from "../db/team-discussion-attachments-migration.js";
 import { discussionFacilitator, type DiscussionRunner } from "../team-discussion-conversation/conversation.js";
 import { DISCUSSION_QUIET_MS, parseDiscussionDecision } from "../team-discussion-conversation/policy.js";
 import { DiscussionFacilitationRepository } from "../team-discussion-conversation/repository.js";
@@ -29,6 +30,7 @@ beforeEach(() => {
     INSERT INTO team_surfaces VALUES ('team','ideas','企画相談'),('other','other-ideas','企画相談');
   `);
   teamDiscussionConversationMigration.up(db);
+  teamDiscussionAttachmentsMigration.up(db);
 });
 afterEach(() => db.close());
 

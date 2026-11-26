@@ -288,6 +288,7 @@ import { createConsultationSafety } from "../consultation/safety-runtime.js";
 import { consultationSafetyRouter } from "./consultation-safety.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
+import { teamDiscussionAttachmentsRouter, type TeamDiscussionAttachmentsDeps } from "./team-discussion-attachments.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
 import { departmentsRouter } from "./departments.js";
 import type { DepartmentsRepo } from "../db/departments-repo.js";
@@ -451,6 +452,8 @@ export interface CoreDelegationDeps {
   subsidiaryBudget?: SubsidiaryBudgetTracker;
   /** 子会社 Discord の読み取り (REST)。 未注入なら /discord/* は 503。 */
   subsidiaryDiscordRead?: SubsidiaryDiscordReader;
+  /** セクションチャンネルの添付の取り直し (discord-notion-sync 用)。 未注入なら経路ごと出さない。 */
+  teamDiscussionAttachments?: TeamDiscussionAttachmentsDeps;
   /**
    * 実装委託の追跡タスクを起票する Memoria の口。 未注入なら追跡タスク無しで委託を配る
    * (実装は止めない)。 spec/feature/delegation-implementation-inject.md。
@@ -1016,6 +1019,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // 社員名簿 (役職権限登録リスト)。 spawn / end-session / キルスイッチの権限判定の正本。
   if (deps.staff) {
     app.route("/v1/staff", staffRouter({ repo: deps.staff }));
+  }
+  if (deps.teamDiscussionAttachments) {
+    app.route("/v1/teams", teamDiscussionAttachmentsRouter(deps.teamDiscussionAttachments));
   }
   if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics, deps.subsidiary, deps.departments));
   if (deps.useCases && deps.useCaseService && deps.useCaseCorrections) {

@@ -3,7 +3,7 @@ title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
 domain: revisor-local-pr
-updated: 2026-09-13
+updated: 2026-11-26
 ---
 
 # Revisor Test Workflow synchronization
@@ -110,6 +110,8 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   レポート掲載と普通のコメント投稿では起動しない。
 - スレッドに人間が投稿したとき:
   - surface の `session_id` が生きていれば、投稿本文を inject で届ける (📨)。
+    画像・添付だけの投稿も捨てず、セッションのチャンネルと同じ受信箱 (image-inbox / attachment-inbox)
+    へ保存して保存先パスを本文に添える。保存に失敗したら inject せず、理由をスレッドへ返信する。
   - 生きた session が無ければ普通のフォーラムコメントとして扱い、起動しない。
 - Test Forum session は検証と報告だけを担当する。Revisor の workflow token は委譲せず、
   提出・再審査・マージ・クローズなどの状態変更を session に実行させない。

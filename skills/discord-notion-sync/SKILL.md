@@ -45,12 +45,13 @@ const after = afterPath ? JSON.parse(readFileSync(afterPath, "utf8")) : {};
 const db = new Database("concordia.db", { readonly: true, fileMustExist: true });
 const surfaces = new Map(db.prepare("SELECT surface, channel_id FROM team_surfaces WHERE team_id=?").all(team)
   .map((r) => [r.channel_id, r.surface]));
-const rows = db.prepare(`SELECT channel_id, message_id, content, revision FROM team_discussion_messages
+const rows = db.prepare(`SELECT channel_id, message_id, content, revision, attachments_json FROM team_discussion_messages
   WHERE team_id=? ORDER BY CAST(message_id AS INTEGER)`).all(team);
 db.close();
 const epoch = 1420070400000n;
 const out = rows.filter((r) => !after[r.channel_id] || BigInt(r.message_id) > BigInt(after[r.channel_id]))
-  .map((r) => ({ ...r, surface: surfaces.get(r.channel_id) ?? "(スレッド)",
+  .map(({ attachments_json, ...r }) => ({ ...r, attachments: JSON.parse(attachments_json || "[]"),
+    surface: surfaces.get(r.channel_id) ?? "(スレッド)",
     posted_at: new Date(Number((BigInt(r.message_id) >> 22n) + epoch)).toISOString() }));
 process.stdout.write(JSON.stringify(out, null, 1));
 ```
@@ -59,6 +60,7 @@ process.stdout.write(JSON.stringify(out, null, 1));
 - スレッド内の投稿は `channel_id` がスレッド ID になる (`surface` は「(スレッド)」)。親の面は
   Discord 上の表示か、同じスレッドの既存行の `チャンネル` で補う。推測で面を決めない。
 - 投稿者 ID (`author_id`) は読まない・Notion に書かない。
+- `attachments` は添付の情報 (`id` `name` `content_type` `size` `kind`=image/file)。画像・添付だけの投稿は `content` が空。
 - 0 件なら「新しい投稿なし」と報告して終える。
 
 ## 2. 種類を分ける
@@ -68,9 +70,10 @@ process.stdout.write(JSON.stringify(out, null, 1));
 - **仕様**: 画面・ルール・数値・データ形式など「こう作る」を述べたもの。
 - **決定事項**: 「〜にする」「〜で確定」など結論や合意。誰が決めたかは書かない。
 - **質問・相談**: 未決の問い。答えが後の投稿にあれば両方を取り込み、本文で相互に参照する。
-- **画像**: 現行の Cc は添付を収集しないので、このスキルでは取り込めない (仕様 §未対応)。
-  本文に画像への言及しかない投稿は「その他」にし、「画像は Discord を参照」と書く。
+- **画像**: 本文が無い・短い説明だけで、画像が主の投稿 (`attachments` に `kind: "image"` がある)。
+  本文が仕様・決定事項なら本文で分け、画像は §3-4 で添える。
 - 雑談・あいさつ・絵文字だけの投稿は取り込まない。取り込まなかった件数を報告に書く。
+  画像・添付がある投稿は本文が空でも取り込む。
 
 ## 3. 照合して追記する
 
@@ -92,11 +95,28 @@ Notion は claude.ai の Notion コネクタ (`notion-fetch` / `notion-query-dat
 ## 原文
 <投稿本文をそのまま。改変しない>
 
+## 添付
+- <ファイル名> (<種類>、<サイズ>)
+
 ## 投稿元
 - チャンネル: <面の名前>
 - 投稿日時: <ISO 時刻>
 - メッセージ: discord:<channel_id>/<message_id>
 ```
+
+4. `attachments` がある投稿は、Cc から実物を得て Notion ページに添える。
+   Cc の接続先は Excubitor catalog から解決し、ポートを固定しない。
+
+   ```
+   GET /v1/teams/<team_id>/discussion/messages/<message_id>/attachments
+   ```
+
+   - 返る `attachments[].path` (Cc と同じ機械に保存されたファイル) を、Notion コネクタのファイル添付
+     (`notion-create-file-upload` など) でページへ添付する。画像はページ本文の「## 添付」に画像として置く。
+   - `url` は約 24 時間で切れる。Notion の本文・プロパティに書かない。`path` も Notion に書かない。
+   - 503 / 502 や添付に失敗したものは、ファイル名だけを「## 添付」に書いて「添付未取得」と付け、件数を報告する。
+     同じ投稿の再実行では、「添付未取得」の行がある既存ページにだけ添付をやり直す (ページは作り直さない)。
+   - 添付は 1 投稿で画像 4 枚・その他 10 件まで。超えたものは Cc が 502 (`detail`) で返すので、その旨を報告する。
 
 - 本文の秘匿語・トークンらしき文字列 (`ghp_` `sk-` `xox` で始まるもの、招待 URL の末尾コードなど) は
   `[伏字]` にし、伏字にした件数を報告する。原文欄でもこの伏字だけは例外として行う。
@@ -110,7 +130,7 @@ Notion は claude.ai の Notion コネクタ (`notion-fetch` / `notion-query-dat
 
 ```markdown
 ## <実行時刻>
-- 取り込み: 仕様 N / 決定事項 N / 質問・相談 N / その他 N、更新 N、見送り N、伏字 N
+- 取り込み: 仕様 N / 決定事項 N / 画像 N / 質問・相談 N / その他 N、更新 N、見送り N、伏字 N、添付 N (未取得 N)
 - 続きの位置:
   ```json
   { "<channel_id>": "<最後の message_id>" }

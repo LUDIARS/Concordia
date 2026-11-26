@@ -49,6 +49,7 @@ function message(overrides: {
   channelType?: number;
   parentId?: string | null;
   content?: string;
+  attachments?: Array<{ id: string; name: string; contentType: string | null; size: number; url: string }>;
 } = {}) {
   const react = vi.fn(async (_emoji: string) => undefined);
   const msg = {
@@ -62,6 +63,8 @@ function message(overrides: {
       type: overrides.channelType ?? ChannelType.PublicThread,
       parentId: overrides.parentId === undefined ? "forum-1" : overrides.parentId,
     },
+    attachments: new Map((overrides.attachments ?? []).map((attachment) => [attachment.id, attachment])),
+    reply: vi.fn(async () => undefined),
     react,
   } as unknown as Message;
   return { msg, react };
@@ -168,6 +171,46 @@ describe("handleTestForumMessage", () => {
     const { msg, react } = message({ content: "   " });
     expect(await handleTestForumMessage(msg, deps())).toBe(true);
     expect(requestTestSpawn).not.toHaveBeenCalled();
+    expect(react).not.toHaveBeenCalled();
+  });
+
+  it("delivers an image-only post to the live test session instead of dropping it", async () => {
+    const injectToSession = vi.fn();
+    const storeImages = vi.fn(async () => ["C:/tmp/inbox/session-1-msg-1-1.png"]);
+    const { msg, react } = message({
+      content: "",
+      attachments: [{ id: "a1", name: "shot.png", contentType: "image/png", size: 10, url: "https://cdn.discordapp.com/a/shot.png" }],
+    });
+    const handled = await handleTestForumMessage(msg, deps({
+      injectToSession,
+      storeImages,
+      isSessionAlive: (id: string) => id === "session-1",
+    }, [surfaceRow({ session_id: "session-1", run_state: "testing" })]));
+
+    expect(handled).toBe(true);
+    expect(storeImages).toHaveBeenCalledWith(expect.objectContaining({ messageId: "msg-1", sessionId: "session-1" }));
+    const [, text, source] = injectToSession.mock.calls[0]!;
+    expect(text).toContain("C:/tmp/inbox/session-1-msg-1-1.png");
+    expect(source).toBe("discord:user-1:thread-42:msg-1");
+    expect(react).toHaveBeenCalledWith("📨");
+  });
+
+  it("replies instead of injecting when the attachment cannot be stored", async () => {
+    const injectToSession = vi.fn();
+    const storeFiles = vi.fn(async () => { throw new Error("boom"); });
+    const { msg, react } = message({
+      content: "",
+      attachments: [{ id: "a1", name: "log.txt", contentType: "text/plain", size: 10, url: "https://cdn.discordapp.com/a/log.txt" }],
+    });
+    const handled = await handleTestForumMessage(msg, deps({
+      injectToSession,
+      storeFiles,
+      isSessionAlive: () => true,
+    }, [surfaceRow({ session_id: "session-1", run_state: "testing" })]));
+
+    expect(handled).toBe(true);
+    expect(injectToSession).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalled();
     expect(react).not.toHaveBeenCalled();
   });
 });

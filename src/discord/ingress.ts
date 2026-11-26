@@ -15,17 +15,15 @@ import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { eventBus } from "../events.js";
 import {
   buildDiscordImageInjectText,
-  isDiscordImageAttachment,
   publicDiscordImageError,
   storeDiscordImages,
-  type DiscordImageAttachment,
 } from "./image-inbox.js";
 import {
   buildDiscordFileInjectText,
   publicDiscordFileError,
   storeDiscordFiles,
-  type DiscordFileAttachment,
 } from "./attachment-inbox.js";
+import { splitMessageAttachments } from "./message-attachments.js";
 import { appendDiscordEmbedContext, extractDiscordEmbedIngress } from "./embed-ingress.js";
 import type { ConversationIngressDecision, ConversationIngressPort } from "./conversation-ingress.js";
 
@@ -176,24 +174,9 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     return;
   }
   const text = msg.content.trim();
-  const imageAttachments = [...msg.attachments.values()]
-    .map((attachment): DiscordImageAttachment => ({
-      contentType: attachment.contentType,
-      name: attachment.name,
-      size: attachment.size,
-      url: attachment.url,
-    }))
-    .filter(isDiscordImageAttachment);
   // 画像以外の添付 (PDF・文書・表・テキストなど) も受け取る。 以前は黙って捨てており、 添付だけの投稿は
   // 「空の投稿」になっていた (2026-10-23、 相談部屋で添付が届かなかった)。
-  const fileAttachments = [...msg.attachments.values()]
-    .map((attachment): DiscordFileAttachment => ({
-      contentType: attachment.contentType,
-      name: attachment.name,
-      size: attachment.size,
-      url: attachment.url,
-    }))
-    .filter((attachment) => !isDiscordImageAttachment(attachment));
+  const { images: imageAttachments, files: fileAttachments } = splitMessageAttachments(msg.attachments.values());
   const embedIngress = extractDiscordEmbedIngress(msg.embeds);
   imageAttachments.push(...embedIngress.images);
   const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);

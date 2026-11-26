@@ -420,6 +420,8 @@ import { collectWalkMaterials } from "../director/walk-materials.js";
 import { WalksRepo } from "../db/walks-repo.js";
 import { startParttimerClockout } from "../control/parttimer-clockout.js";
 import { createSubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
+import { createTeamAttachmentReader } from "../discord/team-attachment-reader.js";
+import { createTeamAttachmentFetcher } from "../discord/team-attachment-fetcher.js";
 import { concordiaBaseUrl, memoriaBaseUrl } from "../config/service-urls.js";
 import { createMemoriaJournalHttp } from "../daily-goal-run/memoria-journal.js";
 import type { WorkflowKey } from "../workflow/keys.js";
@@ -2648,6 +2650,11 @@ export async function startBackend(): Promise<BackendHandle> {
   const subsidiaryDiscordRead = createSubsidiaryDiscordReader({
     resolveToken: () => resolveDiscordConfig(discordConfig, secretBox).token,
   });
+  // セクションチャンネルの添付の取り直し (REST・書き込み無し)。 token は呼び出し側へ渡さない。
+  const teamAttachmentFetcher = createTeamAttachmentFetcher({
+    reader: createTeamAttachmentReader({ resolveToken: () => resolveDiscordConfig(discordConfig, secretBox).token }),
+    log: createChildLogger("team-discussion-attachments"),
+  });
 
   // 本社内 desk (軽量窓口): 専用 Bot を立てず、 本社 Bot に「タスク依頼」チャンネルを
   // 1 本作らせて同じガードゲートに通す。 有効な desk は先頭 1 件のみ配線する — 本社 guild に
@@ -2959,6 +2966,7 @@ export async function startBackend(): Promise<BackendHandle> {
     subsidiaryManager,
     subsidiaryBudget,
     subsidiaryDiscordRead,
+    teamDiscussionAttachments: { db, fetcher: teamAttachmentFetcher },
     adminState,
     costStatus: () => costRuntime.tracker.status(),
     costOverviewSource: costMode === "worker" ? "samples" : "live",

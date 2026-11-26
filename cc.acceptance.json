@@ -1,6 +1,16 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/discord/message-attachments.ts","tests":["src/discord/message-attachments.test.ts","src/discord/team-discussion.test.ts","src/discord/test-forum-message.test.ts"],"contracts":[]},
+    {"source":"src/discord/team-attachment-reader.ts","tests":["src/discord/team-attachment-reader.test.ts"],"contracts":[]},
+    {"source":"src/discord/team-attachment-fetcher.ts","tests":["src/discord/team-attachment-fetcher.test.ts"],"contracts":[]},
+    {"source":"src/shared/team-discussion-attachments.ts","tests":["src/api/team-discussion-attachments.test.ts","src/discord/team-attachment-fetcher.test.ts"],"contracts":[]},
+    {"source":"src/api/team-discussion-attachments.ts","tests":["src/api/team-discussion-attachments.test.ts"],"contracts":[]},
+    {"source":"src/discord/test-forum-message.ts","tests":["src/discord/test-forum-message.test.ts"],"contracts":[]},
+    {"source":"src/discord/ingress.ts","tests":["src/discord/ingress.test.ts"],"contracts":[]},
+    {"source":"src/db/schema.ts","tests":["src/db/migration-ledger.test.ts","src/discord/team-discussion.test.ts"],"contracts":[]},
+    {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts"],"contracts":[]},
+    {"source":"src/db/team-discussion-attachments-migration.ts","tests":["src/db/migration-ledger.test.ts","src/discord/team-discussion-conversation.test.ts"],"contracts":[]},
     { "source": "src/delegation/actio-content-fetch-rule.ts", "tests": ["src/delegation/actio-content-fetch-rule.test.ts"], "contracts": [] },
     { "source": "src/discord/error-monitor.ts", "tests": ["src/discord/error-monitor.test.ts","src/discord/error-watch-source.test.ts"], "contracts": [] },
     { "source": "src/mcp/vestigium-server.ts", "tests": ["src/mcp/victorialogs-reader.test.ts"], "contracts": [] },

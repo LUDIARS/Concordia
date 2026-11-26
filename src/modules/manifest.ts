@@ -95,6 +95,18 @@ export const MODULE_MANIFEST: readonly ModuleManifestEntry[] = [
     degradedNote:
       "off にすると delegation の queue が進まない。 委託の登録は受け付けるが起動されない。",
   },
+  {
+    // GLab の Unity 開発用の WS / HTTP 受け口 (spec/feature/glab-unity-hub.md)。 常に別プロセス。
+    name: "glab-unity-hub",
+    domain: "glab-unity-hub",
+    modeEnv: null,
+    modes: ["worker"],
+    excubitorCode: "concordia-glab-unity-hub",
+    healthPath: "/health",
+    degradedNote:
+      "止まると Unity (Foundation の GLab Hub) からの接続・Melpomene の報告・PR からの仕様下書き作成が止まる。"
+      + " `/glab-unity-token` の発行と失効は Bot 側で続き、 backend と他のモジュールには影響しない。",
+  },
 ];
 
 /** 台帳から 1 件引く。 未知の名前は null (throw しない — 表示のための読み取り面なので)。 */

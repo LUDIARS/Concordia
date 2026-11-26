@@ -37,7 +37,9 @@ import { BUDGET_RESUME_PREFIX } from "./budget-resume.js";
  * 子会社 guild へ登録する slash command。
  * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "bug", "budget", "patrol"]);
+// `glab-unity-token` は GLab の guild にだけ登録される (guild-scoped-commands.ts)。 GLab が子会社 guild のとき
+// dispatch で弾かれないよう許可集合に入れる。 発行は打った本人の分だけ (spec/feature/glab-unity-hub.md §1)。
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "backlog", "バックログに追加", "consult", "bug", "budget", "patrol", "glab-unity-token"]);
 
 /**
  * 子会社 guild にだけ登録するコマンド。 `/patrol` は子会社のサーバー管理者が自分の巡回チャットを

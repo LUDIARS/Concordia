@@ -1,0 +1,14 @@
+{
+  "name": "glab-unity-hub",
+  "description": "GLab の Unity 開発用の受け口 (Concordia の拡張モジュール、 別プロセスの worker)。 Discord で本人だけが発行できるトークンで WebSocket / HTTP を守り、 海外監視・レート制限・監査を掛けたうえで、 Discord の会話・Breviarium の状態・Notion のタスクボード・Actio のスプリント・カリオペの文書・Praeforma の仕様下書き・Melpomene のバグ報告を Unity から扱えるようにする。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/glab-unity-hub/([^/]+/)?[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/glab-unity-hub-worker(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/commands/glab-unity-token(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/guild-scoped-commands\\.ts$" },
+    { "pathPattern": "(^|/)src/config/settings/definitions/glab-unity-hub\\.ts$" }
+  ],
+  "specRefs": ["spec/feature/glab-unity-hub.md", "spec/feature/module-manifest.md", "spec/feature/trust-boundaries.md"]
+}

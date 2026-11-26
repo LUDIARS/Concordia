@@ -40,6 +40,11 @@ const ListQuery = z.object({
 
 export interface GithubRouterDeps {
   notifyTeamUpdate?: (repo: string, event: string, action: string) => void;
+  /**
+   * repo 個別 secret で署名を通った `pull_request` を渡す (GLab-UnityHub の仕様下書き、
+   * spec/feature/glab-unity-hub.md §4d)。 対象 repo / action の判定は受け手が行う。
+   */
+  onPullRequest?: (repo: string, payload: unknown) => void;
   runs: GithubIssueRunsRepo;
   config: GithubWorkflowConfig;
   dispatch: GithubDispatchDeps;
@@ -129,6 +134,13 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     if (repoSecret && claimedRepo && event && /^[a-z_]{1,64}$/.test(event)) {
       const action = z.object({ action: z.string().regex(/^[a-z_]{1,64}$/).optional() }).safeParse(payload);
       deps.notifyTeamUpdate?.(claimedRepo, event, action.success ? action.data.action ?? "" : "");
+      if (event === "pull_request" && deps.onPullRequest) {
+        try {
+          deps.onPullRequest(claimedRepo, payload);
+        } catch (error) {
+          log.warn(`pull_request hook failed repo=${claimedRepo}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
     }
 
     const classification = classifyIssueEvent({ event, payload, label: deps.config.label() });

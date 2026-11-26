@@ -15,6 +15,7 @@ import type { ConsultCommandDeps } from "./commands/consult-deps.js";
 import type { BountyFlowDeps } from "./bounty-flow.js";
 import type { PersonalBudgetCommandDeps } from "./personal-budget-discord.js";
 import type { SpawnSitePort } from "./spawn-site-port.js";
+import type { GlabUnityTokenCommandPort } from "../glab-unity-hub/application/token-service.js";
 
 export type { SpawnSitePort } from "./spawn-site-port.js";
 
@@ -91,6 +92,11 @@ export interface DiscordCommandDeps {
    * 使う。 未注入なら操作パネルは「使えない」と明示して返す (無言で何も起きない、にしない)。
    */
   prOperations?: SessionPrPort;
+  /**
+   * `/glab-unity-token` の発行・一覧・失効 (spec/feature/glab-unity-hub.md §1)。 未注入なら設定から
+   * モジュール DB を開く。 null は「未設定」として案内だけ返す。
+   */
+  glabUnityTokens?: GlabUnityTokenCommandPort | null;
 }
 
 export interface DiscordCommandSpec {

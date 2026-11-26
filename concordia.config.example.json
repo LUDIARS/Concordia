@@ -9,5 +9,54 @@
     "$comment": "Vite port and external host names. localhost and 127.0.0.1 are always allowed.",
     "port": 10101,
     "allowedHosts": []
+  },
+  "glabUnityHub": {
+    "$comment": "GLab-UnityHub (spec/feature/glab-unity-hub.md). Non-secret settings only. Tokens/keys never go here: Discord uses the Concordia Discord settings, Notion uses env CC_NOTION_TOKEN_<credentialKey>, GitHub uses gh auth. Env GLAB_UNITY_HUB_* overrides guildId/port/allowedCountries/geoPolicy.",
+    "guildId": "000000000000000000",
+    "publicHostname": "glab-unity-hub.example.com",
+    "allowedCountries": [
+      "JP"
+    ],
+    "geoPolicy": "block",
+    "notifyUserId": "000000000000000000",
+    "bugReportChannelId": "000000000000000000",
+    "notionBoards": [
+      {
+        "id": "glab-tasks",
+        "name": "GLab タスクボード",
+        "dataSourceId": "00000000000000000000000000000000",
+        "credentialKey": "GLAB",
+        "properties": {
+          "title": "Name",
+          "status": "Status",
+          "statusType": "status",
+          "assignees": "Assignee",
+          "due": "Due"
+        }
+      }
+    ],
+    "melpomeneRepos": [
+      "LUDIARS/CookieClicker"
+    ],
+    "specRepos": [
+      {
+        "repo": "LUDIARS/CookieClicker",
+        "project": "CookieClicker",
+        "praeformaProjectId": "pf-project-id"
+      }
+    ],
+    "projects": [
+      {
+        "code": "CookieClicker",
+        "name": "クッキークリッカー",
+        "repoPath": "E:/Document/Ars/CookieClicker",
+        "breviariumProject": "CookieClicker",
+        "actioProject": "CookieClicker",
+        "praeformaProjectId": "pf-project-id"
+      }
+    ],
+    "actioUsers": {
+      "000000000000000000": "actio-user-id"
+    }
   }
 }

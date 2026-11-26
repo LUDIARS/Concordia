@@ -173,3 +173,30 @@ services:
     health:
       type: process
       interval_sec: 30
+
+  # GLab の Unity 開発用の WebSocket / HTTP 受け口 (spec/feature/glab-unity-hub.md)。
+  # 待受は loopback だけ。 外部公開は Cloudflare Tunnel の公開ホスト名経由 (Access なし、 トークンで守る)。
+  # 公開手順は docs/glab-unity-hub-publish.md。 起動は人が許可してから (autostart: false)。
+  # Portus (@ludiars/portus) が要る。 未導入なら GLAB_UNITY_HUB_PORTUS_ROOT にビルド済み Portus を指す。
+  - code: concordia-glab-unity-hub
+    name: Concordia GLab-UnityHub
+    tier: personal
+    project_code: concordia
+    component: worker
+    port: 11115
+    repo: LUDIARS/Concordia
+    runtime: node
+    cwd: ${ARS_ROOT}/Concordia
+    command: node --env-file-if-exists=.env dist/glab-unity-hub-worker.js
+    autostart: false
+    restart_policy: on-failure
+    max_restart: 5
+    log_path: ${ARS_ROOT}/logs/concordia-glab-unity-hub
+    health:
+      type: http
+      url: http://127.0.0.1:11115/health
+      interval_sec: 30
+      grace_period_sec: 15
+    env:
+      NODE_ENV: production
+      GLAB_UNITY_HUB_PORT: "11115"

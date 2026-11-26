@@ -62,6 +62,8 @@ import {
 } from "./forum-spawn-intake.js";
 import { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction, isSubsidiaryOnlyCommand } from "./subsidiary-scope.js";
 import patrolCommand from "./commands/patrol.js";
+import glabUnityTokenCommand from "./commands/glab-unity-token.js";
+import { isCommandAvailableInGuild } from "./guild-scoped-commands.js";
 import { backlogCommands, handleBacklogCommand } from "./actio-backlog-command.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
@@ -72,6 +74,10 @@ export interface CommandRegistrationOptions {
   subsidiary?: boolean;
   /** 無効なワークフローのコマンドは guild へ登録しない。 */
   isWorkflowEnabled?: WorkflowEnabledResolver;
+  /** 登録先 guild。 guild 限定のコマンド (/glab-unity-token) はこの値で出し分ける。 */
+  guildId?: string;
+  /** guild 限定コマンドの対象 guild の解決 (テスト用)。 */
+  resolveScopedGuild?: (name: string) => string | null;
 }
 
 // User-facing slash commands.
@@ -107,6 +113,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   goalAndGoCommand,
   doctorCommand,
   patrolCommand,
+  glabUnityTokenCommand,
 ];
 
 // 子会社 guild の許可範囲は subsidiary-scope.ts が正本 (登録と dispatch で同じ集合を使う)。
@@ -119,6 +126,8 @@ export function commandNamesForRegistration(opts: CommandRegistrationOptions = {
     // 子会社専用のコマンド (/patrol) は本社 guild に出さない。
     .filter((c) => opts.subsidiary || !isSubsidiaryOnlyCommand(c.builder.name))
     .filter((c) => isCommandWorkflowEnabled(c.builder.name, isWorkflowEnabled))
+    // guild 限定のコマンドは対象 guild にだけ出す (/glab-unity-token は GLab だけ)。
+    .filter((c) => isCommandAvailableInGuild(c.builder.name, opts.guildId, opts.resolveScopedGuild))
     .map((c) => c.builder.name).concat(backlogCommands.map(c => c.name));
 }
 
@@ -129,7 +138,7 @@ export async function registerGuildCommands(
   opts: CommandRegistrationOptions = {},
 ): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);
-  const allowed = new Set(commandNamesForRegistration(opts));
+  const allowed = new Set(commandNamesForRegistration({ ...opts, guildId }));
   const body = COMMANDS.filter((c) => allowed.has(c.builder.name)).map((c) => c.builder.toJSON());
   body.push(...backlogCommands);
   await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body });

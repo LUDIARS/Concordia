@@ -64,6 +64,8 @@ function harness(options: {
   enabled?: boolean;
   /** リポジトリ別 secret (owner/name は小文字で渡す)。 */
   repoSecrets?: Record<string, string>;
+  /** 署名済みの pull_request を受け取る口 (GLab-UnityHub の仕様下書き)。 */
+  onPullRequest?: (repo: string, payload: unknown) => void;
 } = {}) {
   const db = new Database(":memory:");
   applyMigrations(db);
@@ -89,6 +91,7 @@ function harness(options: {
     markDelivery: (id) => (delivered.has(id) ? false : (delivered.add(id), true)),
     pollOnce: async () => ({ scanned: 0, dispatched: 0 }),
     isEnabled: () => options.enabled ?? true,
+    ...(options.onPullRequest ? { onPullRequest: options.onPullRequest } : {}),
     dispatch: {
       runs,
       projects,
@@ -140,6 +143,20 @@ describe("POST /v1/github/webhook", () => {
       expect(merge.mock.calls).toEqual([["LUDIARS/Concordia", "main", "cc-task-42"]]);
     } finally { merge.mockRestore(); db.close(); }
   });
+  it("repo 個別 secret で署名を通った pull_request を onPullRequest へ渡す (GLab-UnityHub の PR フック)", async () => {
+    const repository = { full_name: "LUDIARS/Concordia" };
+    const onPullRequest = vi.fn();
+    const { app, db } = harness({ repoSecrets: { "ludiars/concordia": REPO_SECRET }, onPullRequest });
+    try {
+      const body = JSON.stringify({ repository, action: "opened", pull_request: { number: 7, head: { sha: "abc1234" } } });
+      await post(app, body, { "x-github-event": "pull_request", "x-github-delivery": "pr-1", "x-hub-signature-256": githubSignature(REPO_SECRET, body) });
+      expect(onPullRequest).toHaveBeenCalledWith("LUDIARS/Concordia", expect.objectContaining({ action: "opened" }));
+      // 署名が違えば渡さない。
+      await post(app, body, { "x-github-event": "pull_request", "x-github-delivery": "pr-2", "x-hub-signature-256": githubSignature(OTHER_REPO_SECRET, body) });
+      expect(onPullRequest).toHaveBeenCalledTimes(1);
+    } finally { db.close(); }
+  });
+
   it("dispatches a correctly signed issues event", async () => {
     const { db, app, runs } = harness();
     const body = JSON.stringify(payload());

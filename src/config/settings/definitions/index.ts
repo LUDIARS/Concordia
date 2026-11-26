@@ -31,6 +31,7 @@ import {
   RUNTIME_SETTINGS,
   WORKFLOW_SETTINGS,
 } from "./operations.js";
+import { GLAB_UNITY_HUB_SETTINGS } from "./glab-unity-hub.js";
 
 const ALL: readonly SettingDefinition[] = [
   ...CORE_SETTINGS,
@@ -52,6 +53,7 @@ const ALL: readonly SettingDefinition[] = [
   ...FEDERATION_SETTINGS,
   ...MANAGEMENT_SETTINGS,
   ...RUNTIME_SETTINGS,
+  ...GLAB_UNITY_HUB_SETTINGS,
 ];
 
 function validate(definitions: readonly SettingDefinition[]): readonly SettingDefinition[] {

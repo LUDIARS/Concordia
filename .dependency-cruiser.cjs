@@ -70,6 +70,8 @@ module.exports = {
           "^src/app\\.ts$",
           "^src/bootstrap/core\\.ts$",
           "^src/chat-worker\\.ts$",
+          // GLab-UnityHub worker reads the Bot token through discord/conn-config (composition root)
+          "^src/glab-unity-hub-worker\\.ts$",
           "^src/api/register-chat\\.ts$",
           // Chat modules themselves
           "^src/discord/",

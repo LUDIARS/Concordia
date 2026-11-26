@@ -98,6 +98,7 @@ import type { SecretBox } from "../shared/secret-box.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import { settingsRouter } from "./settings.js";
 import { githubRouter, type GithubRouterDeps } from "./github.js";
+import { enqueueGlabSpecDraft } from "../glab-unity-hub/adapters/module-store.js";
 import { githubAdminRouter, type GithubAdminRouterDeps } from "./github-admin.js";
 import { lineWebhookAdminRouter } from "../line-webhook/admin-route.js";
 import { readLineWebhookTargets } from "../line-webhook/targets.js";
@@ -782,7 +783,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         eventBus.emit({ type: "team.card_requested", team_id: row.team_id, kind: "github-update",
           title: "GitHub 更新", body: [repo, event, action].filter(Boolean).join(" · "), ts: Math.floor(Date.now() / 1000) });
       }
-    } }));
+    },
+    // GLab チームのリポの PR から Praeforma の仕様下書きを作る (ジョブを積むだけ。 処理は Hub worker)。
+    onPullRequest: (repo, payload) => { enqueueGlabSpecDraft(repo, payload); } }));
     app.route("/v1/admin/github", githubAdminRouter({
       config: github.config,
       optedInProjects: github.optedInProjects,

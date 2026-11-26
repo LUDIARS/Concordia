@@ -1,6 +1,10 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/api/github.ts", "tests": ["src/api/github.test.ts"], "contracts": [] },
+    { "source": "src/taskflow/project-work-actions.ts", "tests": ["src/taskflow/project-work-actions.test.ts"], "contracts": [] },
+    { "source": "src/taskflow/project-work-dispatch.ts", "tests": ["src/taskflow/project-work-dispatch.test.ts"], "contracts": [] },
+    { "source": "src/taskflow/notion-work-pages.ts", "tests": ["src/taskflow/project-work-dispatch.test.ts"], "contracts": [] },
     { "source": "src/federation/hq-listener.ts", "tests": ["tests/federation-link.test.ts"], "contracts": ["federation-shutdown-C-101"] },
     { "source": "src/taskflow/actio-read-retry.ts", "tests": ["src/taskflow/actio-transport.test.ts"], "contracts": ["actio-stall-C-151"] },
     { "source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": ["control-card-action-C-2"] },

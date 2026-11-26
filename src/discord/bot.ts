@@ -98,6 +98,8 @@ import {
 import { markQuestionMessageAnswered, postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
+import { dispatchWorkPost } from "../taskflow/project-work-dispatch.js";
+import { workProjects } from "../taskflow/project-work-actions.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
@@ -1980,11 +1982,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   client.on(Events.ClientReady, onClientReady);
   clientListenerCleanup.push(() => client.off(Events.ClientReady, onClientReady));
 
+  const forwardWorkPost = (message: Message) => {
+    if (!message.guildId || message.author.bot || message.webhookId || message.system) return;
+    void dispatchWorkPost({ guild: message.guildId, channel: message.channelId, id: message.id, text: message.content }, async () => {
+      const member = await message.guild?.members.fetch({ user: message.author.id, force: true });
+      return { role: staffRepo.roleOf("discord", message.author.id), discordRoles: member ? [...member.roles.cache.keys()].filter(id => id !== message.guildId) : [] };
+    })
+      .catch(() => log.warn(`project work post failed for message ${message.id}`));
+  };
   const onMessageCreate = instrumentDiscord("messageCreate", (msg) => {
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
     companyPinSharing.pinNotice(msg);
+    forwardWorkPost(msg);
     // サービスへ中継する指定チャンネル (spec/feature/discord-chat-relay.md)。 受け持った発言は他の ingress へ回さない。
     if (chatRelaySurface?.handlesMessage(msg)) {
       void chatRelaySurface.message(msg).catch((error) => log.warn(`discord chat relay failed: ${(error as Error).name}`));
@@ -2176,10 +2187,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const onMessageUpdate = instrumentDiscord("messageUpdate", (_old: unknown, updated: Message | PartialMessage) => {
     if (gatewayClosed || stopping || !inScope(updated.guildId)) return;
     const surface = dailyGoalDiscord;
-    if (!surface) return;
     void (async () => {
+      const routed = workProjects().some(p => p.bindings.some(b => b.channel === updated.channelId && b.guild === updated.guildId));
+      if (!routed && !surface) return;
       const message = updated.partial ? await updated.fetch() : updated;
-      if (surface.handlesMessage(message)) await surface.messageUpdated(message);
+      if (routed) forwardWorkPost(message);
+      if (surface?.handlesMessage(message)) await surface.messageUpdated(message);
     })().catch((error) => log.warn(`daily goal edited post failed: ${String(error)}`));
   });
   client.on(Events.MessageUpdate, onMessageUpdate);

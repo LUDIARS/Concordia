@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as workActions from "../taskflow/project-work-dispatch.js";
 import { applyMigrations } from "../db/schema.js";
 import { makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
@@ -125,6 +126,20 @@ async function post(app: ReturnType<typeof harness>["app"], body: string, header
 }
 
 describe("POST /v1/github/webhook", () => {
+  it("dispatches a same-repository signed merge and ignores a fork with the same branch name", async () => {
+    const repository = { full_name: "LUDIARS/Concordia" };
+    const { app, db } = harness({ repoSecrets: { "ludiars/concordia": REPO_SECRET } });
+    const merge = vi.spyOn(workActions, "dispatchWorkMerge").mockResolvedValue();
+    try {
+      for (const full_name of ["fork/Concordia", repository.full_name]) {
+        const body = JSON.stringify({ repository, action: "closed", pull_request: { merged: true,
+          base: { repo: repository, ref: "main" }, head: { repo: { full_name }, ref: "cc-task-42" } } });
+        await post(app, body, { "x-github-event": "pull_request", "x-github-delivery": full_name,
+          "x-hub-signature-256": githubSignature(REPO_SECRET, body) });
+      }
+      expect(merge.mock.calls).toEqual([["LUDIARS/Concordia", "main", "cc-task-42"]]);
+    } finally { merge.mockRestore(); db.close(); }
+  });
   it("dispatches a correctly signed issues event", async () => {
     const { db, app, runs } = harness();
     const body = JSON.stringify(payload());

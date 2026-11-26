@@ -26,6 +26,8 @@ import { taskflowFailureLogFields } from "./failure-diagnostics.js";
 import { recordTaskflowFailure, type TaskflowFailureOperation } from "./failure-record.js";
 import { syncTaskSessionAssignment } from "./session-assignment.js";
 import { syncSessionPrEvidence } from "./sync-pr-evidence.js";
+import { dispatchWorkMerge } from "./project-work-dispatch.js";
+import { workProjects } from "./project-work-actions.js";
 import { sessionWorkingRepoPath } from "../control/session-working-repo.js";
 
 const log = createChildLogger("taskflow-runtime");
@@ -94,6 +96,12 @@ export class TaskflowRuntime {
   }
 
   private async handleRevisorNotice(sessionId: string): Promise<void> {
+    if (this.deps.revisor && workProjects().length) {
+      const merged = await findSessionLocalPr({ sessionId, sessions: this.deps.sessions, revisor: this.deps.revisor });
+      if (merged?.status === "merged") {
+        await dispatchWorkMerge(merged.repository, merged.baseRef, merged.headRef);
+      }
+    }
     await syncSessionPrEvidence({ ...this.deps, sessionId });
     const taskflowRun = this.deps.delegation.findRunByChildSession(sessionId);
     // 先に「マージ済みか」だけを確かめる。 failed / action_required の通知でゴール判断を

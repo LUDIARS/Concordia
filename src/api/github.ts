@@ -8,6 +8,7 @@
  */
 
 import { Hono } from "hono";
+import { dispatchWorkMerge } from "../taskflow/project-work-dispatch.js";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { createChildLogger } from "../shared/logger.js";
@@ -73,9 +74,10 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     }
     const claimedRepo = claimedRepository(parsed);
     let secret: string | null;
+    let repoSecret: string | null;
     try {
-      secret = (claimedRepo ? deps.config.repoWebhookSecret(claimedRepo) : null)
-        ?? deps.config.webhookSecret();
+      repoSecret = claimedRepo ? deps.config.repoWebhookSecret(claimedRepo) ?? null : null;
+      secret = repoSecret ?? deps.config.webhookSecret();
     } catch {
       log.warn("github webhook rejected: secret store is unavailable");
       return c.json({ error: "webhook_secret_unavailable" }, 503);
@@ -104,6 +106,18 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     // ping は GitHub 側の疎通確認。 署名を通ったことだけ返す。
     if (event === "ping") return c.json({ ok: true, pong: true });
     if (!delivery) return c.json({ error: "missing_delivery_id" }, 400);
+    if (event === "pull_request" && claimedRepo && repoSecret) {
+      const merge = z.object({ action: z.literal("closed"), pull_request: z.object({
+        merged: z.literal(true), head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }) }),
+        base: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }) }),
+      }) }).safeParse(parsed);
+      if (merge.success) {
+        const { head, base } = merge.data.pull_request;
+        if ([head.repo.full_name, base.repo.full_name].every(name => name.toLowerCase() === claimedRepo.toLowerCase())) {
+          await dispatchWorkMerge(claimedRepo, base.ref, head.ref);
+        }
+      }
+    }
     if (!deps.markDelivery(delivery, event ?? "unknown")) {
       return c.json({ ok: true, duplicate: true });
     }

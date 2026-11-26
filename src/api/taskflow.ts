@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { TaskStatus } from "../taskflow/types.js";
+import type { TaskDocument, TaskStatus } from "../taskflow/types.js";
 import type { TaskOverviewScan, TaskStore } from "../taskflow/store.js";
 import { registerActioTaskRoutes } from "./taskflow-actio.js";
 import type { TaskflowStateStore, TaskRuntimePatch } from "../taskflow/state-store.js";
@@ -58,7 +58,7 @@ export function taskflowRouter(input: {
   app.onError((error, c) => {
     const failure = describeTaskflowFailure(error);
     // Unclassified exceptions also log their type / redacted message / throw site; the response is unchanged.
-    log.warn(taskflowFailureLogFields(failure, error), "taskflow request failed");
+    log.warn({ ...taskflowFailureLogFields(failure, error), method: c.req.method, route: c.req.routePath }, "taskflow request failed");
     c.header("Cache-Control", "no-store");
     return c.json({ error: "taskflow_actio_unavailable_or_invalid_scope", reason: failure.code }, failure.status);
   });
@@ -76,7 +76,12 @@ export function taskflowRouter(input: {
       headOffice: c.req.query("head_office"),
     });
     if (!scope.ok) return c.json({ error: scope.error }, 400);
-    const tasks = (await input.store.scan(project ? { project } : undefined)).map((document) => {
+    const rawLimit = c.req.query("limit");
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (limit !== undefined && (!/^\d+$/.test(rawLimit ?? "") || !Number.isSafeInteger(limit) || limit < 1)) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+    const row = (document: TaskDocument) => {
       const runId = document.runtime?.delegation_run_id;
       const sessionId = document.runtime?.source_session;
       return {
@@ -87,11 +92,18 @@ export function taskflowRouter(input: {
           session: sessionId ? input.sessions.findSession(sessionId) : null,
         }),
       };
-    }).filter(({ document, subsidiaryId }) => {
+    };
+    const matches = ({ document, subsidiaryId }: ReturnType<typeof row>): boolean => {
       if (project && document.frontmatter.project.toLowerCase() !== project) return false;
       if (status && (document.runtime?.status ?? "pending") !== status) return false;
       return matchesTaskflowOrganizationScope(subsidiaryId, scope.scope);
-    }).map(({ document, subsidiaryId }) => ({
+    };
+    const selection = project ? { project } : undefined;
+    const documents = limit === undefined
+      ? await input.store.scan(selection)
+      : await input.store.scan(selection, { count: limit, matches: (document) => matches(row(document)) });
+    const rows = documents.map(row).filter(matches);
+    const tasks = rows.slice(0, limit ?? rows.length).map(({ document, subsidiaryId }) => ({
       path: input.store.relativePath(document),
       repo_path: document.repoPath,
       title: document.title,

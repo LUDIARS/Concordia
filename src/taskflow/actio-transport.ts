@@ -2,14 +2,23 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import type { ActioAccess } from "./actio-binding.js";
 import { z } from "zod";
+import { setTimeout as delay } from "node:timers/promises";
+import { createChildLogger } from "../shared/logger.js";
 import { actingForHeaders } from "./actio-acting-for.js";
 import { classifyActioRequestFailure } from "./actio-request-failure.js";
+import { actioReadRetryDelay } from "./actio-read-retry.js";
+import { describeTaskflowFailure } from "./failure.js";
+import { taskflowCauseCode } from "./failure-diagnostics.js";
 
 const LocalTeams = z.object({ teams: z.array(z.object({ id: z.string(), role: z.string() })) });
 /** How long a port resolved from the catalog may stand in when the catalog lookup itself fails. */
 const LAST_PORT_TTL_MS = 5 * 60_000;
 /** Upper bound for the liveness probe used when the catalog state disagrees. */
 const LIVENESS_TIMEOUT_MS = 3_000;
+const logger = createChildLogger("taskflow/actio-transport");
+type Method = "GET" | "POST" | "PATCH";
+type Stage = "identity" | "team" | "resource";
+const NETWORK_TIMEOUT_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
 
 /** Authenticated, bounded Actio I/O. Never log response bodies or credentials. */
 export class ActioTransport {
@@ -20,12 +29,12 @@ export class ActioTransport {
     private readonly timeoutMs = 10_000,
     private readonly now: () => number = Date.now,
     /** Records catalog state disagreements (state value and port only; never bodies or credentials). */
-    private readonly log: (message: string) => void = (message) => console.warn(message),
+    private readonly log: (message: string) => void = (message) => logger.warn(message),
   ) {}
 
   private lastPort: { port: number; at: number } | null = null;
 
-  async request(binding: ActioAccess, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> {
+  async request(binding: ActioAccess, method: Method, path: string, body?: unknown): Promise<unknown> {
     const local = binding.authMode === "loopback";
     if (local && (binding.ownerId !== "actio-local"
       || binding.subsidiaryId !== null || binding.tokenEnv !== undefined)) {
@@ -37,24 +46,30 @@ export class ActioTransport {
     const base = `http://127.0.0.1:${port}`;
     // Actio's userContext can treat an invalid token as anonymous. Verify the
     // actual identity before every operation, including task creation.
-    const identity = await this.send(base, token, "GET", "/api/auth/me");
+    const identity = await this.send("identity", base, token, "GET", "/api/auth/me");
     if (!identity || typeof identity !== "object" || !("id" in identity) || identity.id !== binding.ownerId) {
-      throw new Error("Actio task identity mismatch");
+      throw this.scopeFailure("identity", "Actio task identity mismatch");
     }
     const localIdentity = "localMode" in identity && identity.localMode === true;
     if (local ? !localIdentity || !("access" in identity) || identity.access !== "loopback" : localIdentity) {
-      throw new Error("Actio task authentication mode mismatch");
+      throw this.scopeFailure("identity", "Actio task authentication mode mismatch");
     }
     if (local && binding.teamId !== null) {
-      const teams = LocalTeams.safeParse(await this.send(base, token, "GET", "/api/teams"));
-      if (!teams.success) throw new Error("Invalid Actio team list response");
+      const teams = LocalTeams.safeParse(await this.send("team", base, token, "GET", "/api/teams"));
+      if (!teams.success) throw this.scopeFailure("team", "Invalid Actio team list response");
       if (!teams.data.teams.some(team => team.id === binding.teamId && team.role === "leader")) {
-        throw new Error("Actio task team access mismatch");
+        throw this.scopeFailure("team", "Actio task team access mismatch");
       }
     }
     // Only the local owner speaks for a human; Actio trusts the header from loopback only.
     const extra = local && method !== "GET" ? actingForHeaders() : {};
-    return this.send(base, token, method, path, body, extra);
+    return this.send("resource", base, token, method, path, body, extra);
+  }
+
+  private scopeFailure(stage: Stage, message: string): Error {
+    const failure = new Error(message);
+    logger.warn({ stage, reason: describeTaskflowFailure(failure).code }, "Actio response verification failed");
+    return failure;
   }
 
   /**
@@ -66,8 +81,11 @@ export class ActioTransport {
     let service: Awaited<ReturnType<ExcubitorClient["findService"]>>;
     try {
       service = await this.catalog.findService("actio", this.timeoutMs);
-    } catch {
-      if (this.lastPort && this.now() - this.lastPort.at <= LAST_PORT_TTL_MS) return this.lastPort.port;
+    } catch (error) {
+      const fallback = this.recentPort();
+      logger.warn({ stage: "catalog", reason: "actio_service_lookup_failed", cause_code: taskflowCauseCode(error),
+        fallback_port: fallback }, "Actio endpoint lookup failed");
+      if (fallback !== null) return fallback;
       throw new Error("Actio service lookup failed");
     }
     // Historical process observations can retain an old port after a restart.
@@ -125,26 +143,45 @@ export class ActioTransport {
     }
   }
 
-  private async send(base: string, token: string | undefined, method: "GET" | "POST" | "PATCH", path: string, body?: unknown,
+  private async send(stage: Stage, base: string, token: string | undefined, method: Method, path: string, body?: unknown,
     extraHeaders: Record<string, string> = {}): Promise<unknown> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const response = await this.fetchImpl(`${base}${path}`, {
-        method, redirect: "error", signal: controller.signal,
-        headers: { ...extraHeaders, ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new Error(`Actio task request rejected (${response.status})`);
+    const deadline = performance.now() + this.timeoutMs;
+    // Leave part of the read budget available after a stalled first attempt.
+    const firstTimeout = method === "GET" && this.timeoutMs > 300 ? Math.ceil(this.timeoutMs / 2) : this.timeoutMs;
+    for (let attempt = 1; ; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = attempt === 1 ? firstTimeout : Math.max(0, deadline - performance.now());
+      if (timeout === 0) throw new Error("Actio read timed out");
+      const timer = setTimeout(() => controller.abort(), timeout);
+      let status: number | undefined;
+      let retryDelay: number | null;
+      try {
+        const response = await this.fetchImpl(`${base}${path}`, {
+          method, redirect: "error", signal: controller.signal,
+          headers: { ...extraHeaders, ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        status = response.status;
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => { /* Keep the rejection status if the body stream has already closed. */ });
+          throw new Error(`Actio task request rejected (${response.status})`);
+        }
+        return await response.json() as unknown;
+      } catch (error) {
+        const causeCode = taskflowCauseCode(error);
+        const timedOut = controller.signal.aborted || (causeCode !== null && NETWORK_TIMEOUT_CODES.has(causeCode));
+        const failure = status !== undefined && (status < 200 || status >= 300)
+          ? new Error(`Actio task request rejected (${status})`)
+          : new Error(classifyActioRequestFailure(method, timedOut, error instanceof SyntaxError));
+        const reason = describeTaskflowFailure(failure).code;
+        retryDelay = actioReadRetryDelay(method, reason, attempt, deadline - performance.now(), status);
+        logger.warn({ stage, method, attempt, reason, http_status: status, cause_code: causeCode,
+          retry_delay_ms: retryDelay }, "Actio HTTP request failed");
+        if (retryDelay === null) throw failure;
+      } finally {
+        clearTimeout(timer);
       }
-      return await response.json() as unknown;
-    } catch (error) {
-      if (error instanceof Error && /^Actio task request rejected \(\d+\)$/.test(error.message)) throw error;
-      throw new Error(classifyActioRequestFailure(method, controller.signal.aborted, error instanceof SyntaxError));
-    } finally {
-      clearTimeout(timer);
+      await delay(retryDelay);
     }
   }
 }

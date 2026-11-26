@@ -32,6 +32,11 @@ export interface TaskRunStart {
 
 export interface TaskScanScope { project?: string }
 
+export interface TaskScanLimit {
+  count: number;
+  matches(document: TaskDocument): boolean;
+}
+
 export interface TaskOverviewScan {
   documents: TaskDocument[];
   partialReason?: string;
@@ -48,7 +53,7 @@ export interface TaskStore {
   nextExecutable?(repoPath: string, subsidiaryId: string | null): Promise<TaskDocument | null>;
   canContinue?(repoPath: string, reference: string, subsidiaryId: string | null, sessionId?: string): Promise<boolean>;
   setPrEvidence?(repoPath: string, reference: string, evidence: TaskPrEvidence, subsidiaryId: string | null): Promise<void>;
-  scan(scope?: TaskScanScope): Promise<TaskDocument[]>;
+  scan(scope?: TaskScanScope, limit?: TaskScanLimit): Promise<TaskDocument[]>;
   scanForOverview?(scope?: TaskScanScope): Promise<TaskOverviewScan>;
   findForProject(project: string, statuses?: readonly TaskStatus[], subsidiaryId?: string | null): Promise<TaskDocument[]>;
   findByRelativePath(repoPath: string, reference: string): Promise<{ status: string } | null>;

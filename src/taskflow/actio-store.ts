@@ -6,7 +6,7 @@ import { workflowStatus, type ActioWorkflowClient, type ActioWorkflowTask } from
 import { ActioTeamCandidatesError, selectActioTeam } from "./actio-team-selection.js";
 import { mainRepositoryKey } from "./repository-identity.js";
 import type { TaskflowStateStore } from "./state-store.js";
-import type { RemainingTasksInput, TaskCreateInput, TaskOverviewScan, TaskRunStart, TaskScanScope, TaskStore } from "./store.js";
+import type { RemainingTasksInput, TaskCreateInput, TaskOverviewScan, TaskRunStart, TaskScanLimit, TaskScanScope, TaskStore } from "./store.js";
 import type { TaskDocument, TaskStatus } from "./types.js";
 import { taskSessionMetadata } from "./session-metadata.js";
 import { selectContinuationTask, taskWaitReason } from "./continuation-plan.js";
@@ -29,10 +29,26 @@ export class ActioTaskStore implements TaskStore {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async scan(scope?: TaskScanScope): Promise<TaskDocument[]> {
+  async scan(scope?: TaskScanScope, limit?: TaskScanLimit): Promise<TaskDocument[]> {
+    if (limit) return this.scanLimited(scope, limit);
     const documents: TaskDocument[] = [];
     for (const binding of await this.scanBindings(scope)) {
       for (const task of await this.client.list(binding)) documents.push(this.document(binding, task));
+    }
+    return documents;
+  }
+
+  private async scanLimited(scope: TaskScanScope | undefined, limit: TaskScanLimit): Promise<TaskDocument[]> {
+    const documents: TaskDocument[] = [];
+    for (const binding of await this.scanBindings(scope)) {
+      for await (const page of this.client.listPages(binding)) {
+        for (const task of page) {
+          const document = this.document(binding, task);
+          if (!limit.matches(document)) continue;
+          documents.push(document);
+          if (documents.length >= limit.count) return documents;
+        }
+      }
     }
     return documents;
   }

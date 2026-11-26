@@ -2,6 +2,7 @@
   "version": 1,
   "implementations": [
     { "source": "src/federation/hq-listener.ts", "tests": ["tests/federation-link.test.ts"], "contracts": ["federation-shutdown-C-101"] },
+    { "source": "src/taskflow/actio-read-retry.ts", "tests": ["src/taskflow/actio-transport.test.ts"], "contracts": ["actio-stall-C-151"] },
     { "source": "src/db/schema.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": ["control-card-action-C-2"] },
     { "source": "src/db/control-card-desk-schema.contract.ts", "tests": ["src/db/migration-ledger.test.ts"], "contracts": ["control-card-action-C-2"] },
     { "source": "src/desk/routing-policy.ts", "tests": ["src/desk/routing.test.ts"], "contracts": ["desk-routing-C-1", "desk-routing-C-2"] },

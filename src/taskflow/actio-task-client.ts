@@ -58,6 +58,12 @@ export class ActioWorkflowClient {
     return this.scopeList(binding, tasks);
   }
 
+  async *listPages(binding: ActioBinding): AsyncGenerator<ActioWorkflowTask[]> {
+    for await (const page of actioTaskPages((path) => this.transport.request(binding, "GET", path), this.listQuery(binding), Task)) {
+      yield this.scopeList(binding, page);
+    }
+  }
+
   async listForOverview(binding: ActioBinding): Promise<ActioOverviewPages<ActioWorkflowTask>> {
     const result = await readActioOverviewPages(actioTaskPages(
       (path) => this.transport.request(binding, "GET", path), this.listQuery(binding), Task,

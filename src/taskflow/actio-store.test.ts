@@ -72,6 +72,23 @@ describe("ActioTaskStore", () => {
     expect(await store.scan()).toHaveLength(2);
   });
 
+  it("stops fetching pages and projects once the filtered limit is reached", async () => {
+    const later = { ...HQ, project: "Other", repoPath: "E:/Other", projectId: "other" };
+    const listPages = vi.fn(async function* (_binding: ActioBinding) {
+      yield [task({ id: "pending" })];
+      yield [task({ id: "done", status: "done" })];
+      throw new Error("unexpected next page");
+    });
+    const { store, list } = fixture([HQ, later], { listPages });
+
+    const rows = await store.scan(undefined, { count: 1, matches: (document) => document.runtime?.status === "done" });
+
+    expect(rows.map((row) => row.path)).toEqual(["actio:done"]);
+    expect(listPages).toHaveBeenCalledTimes(1);
+    expect(listPages).toHaveBeenCalledWith(HQ);
+    expect(list).not.toHaveBeenCalled();
+  });
+
   /** A task file path is not a reference; following one would reopen the file route. */
   it("refuses a legacy Markdown reference", async () => {
     const { store } = fixture();

@@ -52,7 +52,8 @@ const known: ReadonlyMap<string, TaskflowFailureDescription> = new Map([
     code: "actio_service_lookup_failed", status: 503,
     message: "Excubitor から Actio の接続先を取得できませんでした (Actio の停止とは別)。Excubitor の応答を確認して再試行してください。",
   }],
-  ...["Actio task identity mismatch", "Actio task authentication mode mismatch", "Actio task ownership mismatch"]
+  ...["Actio task identity mismatch", "Actio task authentication mode mismatch", "Actio task ownership mismatch",
+    "Actio task team access mismatch", "Actio dependency ownership mismatch"]
     .map((message): [string, TaskflowFailureDescription] => [message, {
       code: "actio_scope_denied", status: 403, message: "Actio の所有者・組織・認証方式が対象と一致しません。",
     }]),

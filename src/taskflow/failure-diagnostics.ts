@@ -28,6 +28,15 @@ function safeName(value: unknown): string | null {
   return typeof value === "string" && SAFE_NAME.test(value) ? value : null;
 }
 
+export function taskflowCauseCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const cause = (error as { cause?: unknown }).cause;
+  const causeCode = cause && typeof cause === "object" ? (cause as { code?: unknown }).code : undefined;
+  const ownCode = (error as { code?: unknown }).code;
+  const code = causeCode ?? ownCode;
+  return typeof code === "string" && SAFE_CODE.test(code) ? code : null;
+}
+
 function safeMessage(message: string): string {
   const singleLine = redactSecrets(message)
     .replace(/(https?:\/\/[^\s?#]+)[?#]\S*/gi, "$1?[REDACTED]")
@@ -74,13 +83,12 @@ export function describeTaskflowFailureDiagnostics(error: unknown): TaskflowFail
       error_site: null, cause_name: null, cause_code: null };
   }
   const cause = (error as { cause?: unknown }).cause;
-  const causeCode = cause && typeof cause === "object" ? (cause as { code?: unknown }).code : undefined;
   return {
     error_name: safeName(error.name) ?? safeName(error.constructor?.name) ?? "Error",
     error_message: safeMessage(String(error.message ?? "")),
     error_site: applicationStackSite(error.stack),
     cause_name: cause instanceof Error ? safeName(cause.name) : null,
-    cause_code: typeof causeCode === "string" && SAFE_CODE.test(causeCode) ? causeCode : null,
+    cause_code: taskflowCauseCode(error),
   };
 }
 // @ts-expect-error augur-inject

@@ -196,6 +196,7 @@ describe("ActioTransport", () => {
 
     await expect(transport.request(BINDING, "GET", "/api/tasks"))
       .rejects.toThrow("Actio task request rejected (403)");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   /** A write may have committed; the caller must retry with the same source identity. */
@@ -207,15 +208,31 @@ describe("ActioTransport", () => {
 
     await expect(transport.request(BINDING, method, "/api/tasks", {}))
       .rejects.toThrow("Actio task request outcome unknown; reconcile using the same task identity");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("reports a GET connection failure without exposing the underlying error", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({ id: "owner-1" }))
-      .mockRejectedValueOnce(new TypeError("private socket detail"));
+      .mockRejectedValue(new TypeError("private socket detail"));
     const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
 
     await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow(/^Actio read connection failed$/);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a transient identity failure and a temporary task response", async () => {
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }))
+      .mockResolvedValueOnce(json({ id: "owner-1" }))
+      .mockResolvedValueOnce(json({ secret: "unavailable" }, 503))
+      .mockResolvedValueOnce(json({ tasks: [] }));
+    const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
+
+    await expect(transport.request(BINDING, "GET", "/api/tasks")).resolves.toEqual({ tasks: [] });
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+      "/api/auth/me", "/api/auth/me", "/api/tasks", "/api/tasks",
+    ]);
   });
 
   it("reports an expired GET response body as a read timeout", async () => {
@@ -239,6 +256,7 @@ describe("ActioTransport", () => {
     const transport = new ActioTransport(catalog(RUNNING), () => "token", fetchImpl as never);
 
     await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow(/^Invalid Actio read response$/);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
 

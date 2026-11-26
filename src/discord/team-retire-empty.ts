@@ -12,8 +12,8 @@ export async function retireEmptyTeamChannels(db: Database.Database, guild: Guil
     if (!bot || !channel.permissionsFor(bot)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory,
       PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageThreads])) continue;
     if ((await channel.threads.fetchActive()).threads.size) continue;
-    if ((await channel.threads.fetchArchived({type: "public", limit: 1})).threads.size) continue;
-    if ((await channel.threads.fetchArchived({type: "private", limit: 1})).threads.size) continue;
+    if ((await channel.threads.fetchArchived({ type: "public", limit: 2 })).threads.size) continue;
+    if ((await channel.threads.fetchArchived({ type: "private", fetchAll: true, limit: 2 })).threads.size) continue;
     if ((await channel.messages.fetch({limit: 1, cache: false})).size) continue;
     await channel.delete("Cc: remove empty superseded team channel");
     db.prepare("DELETE FROM team_surfaces WHERE team_id=? AND surface=? AND channel_id=?").run(team, name, row.channel_id);

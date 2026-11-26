@@ -9,9 +9,10 @@ it("only removes the bound empty legacy channel in this category", async () => {
   try {
     db.prepare("INSERT INTO teams(id,name,slug,created_at,updated_at) VALUES ('t','T','t',1,1)").run();
     const empty = async () => ({ threads: new Map() });
+    const fetchArchived = vi.fn(empty);
     const remove = vi.fn();
     const base = { type: ChannelType.GuildText, parentId: "cat", permissionsFor: () => ({has: () => true}),
-      threads: {fetchActive: empty, fetchArchived: empty}, delete: remove };
+      threads: {fetchActive: empty, fetchArchived}, delete: remove };
     const fetch = async (name: string) => ({ ...base, name, messages: {fetch: async () => ({size: name === "direction" ? 1 : 0})} });
     const guild = {channels: {fetch}, members: {me: {}}} as unknown as Guild;
     for (const name of ["コスト", "direction"]) db.prepare("INSERT INTO team_surfaces VALUES (?,?,?)").run("t",name,name);
@@ -19,6 +20,8 @@ it("only removes the bound empty legacy channel in this category", async () => {
     expect(remove).not.toHaveBeenCalled();
     await retireEmptyTeamChannels(db, guild, "t", "cat");
     expect(remove).toHaveBeenCalledTimes(1);
+    expect(fetchArchived).toHaveBeenCalledWith({ type: "public", limit: 2 });
+    expect(fetchArchived).toHaveBeenCalledWith({ type: "private", fetchAll: true, limit: 2 });
     expect(db.prepare("SELECT surface FROM team_surfaces").pluck().all()).toEqual(["direction"]);
   } finally { db.close(); }
 });

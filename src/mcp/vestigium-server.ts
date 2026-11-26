@@ -34,6 +34,8 @@ import {
   lastSeenAt,
   type VestigiumRecord,
 } from './vestigium-reader.js';
+import { createVictoriaLogsReader, isServiceCode } from './victorialogs-reader.js';
+import { victoriaLogsUrl } from '../discord/error-watch-source.js';
 
 interface ServiceEntry {
   code: string;
@@ -80,6 +82,11 @@ async function main(): Promise<void> {
     }
   };
 
+  // VictoriaLogs の URL があれば、サービスコードで VictoriaLogs から読む (ログの正本)。
+  // 無ければ従来どおり catalog の log_path のファイルを読む。
+  const victoriaUrl = victoriaLogsUrl(process.env);
+  const victoria = victoriaUrl ? createVictoriaLogsReader({ origin: victoriaUrl }) : null;
+
   const server = new McpServer(
     { name: 'concordia-vestigium', version: '0.1.0' },
     { capabilities: { tools: {} } },
@@ -92,6 +99,11 @@ async function main(): Promise<void> {
       inputSchema: {},
     },
     async () => {
+      if (victoria) {
+        const codes = await victoria.listServices();
+        const services = await Promise.all(codes.map(async (code) => ({ code, source: 'victorialogs', last_seen_at: await victoria.lastSeenAt(code) })));
+        return { content: [{ type: 'text', text: JSON.stringify({ services }, null, 2) }] };
+      }
       const catalog = await reloadCatalog();
       const services = await Promise.all(catalog.map(async (s) => ({
         code: s.code,
@@ -116,6 +128,11 @@ async function main(): Promise<void> {
       },
     },
     async ({ service, lines, since_ms }) => {
+      if (victoria) {
+        if (!isServiceCode(service)) return { isError: true, content: [{ type: 'text', text: `invalid service code "${service}"` }] };
+        const recs = await victoria.recent({ service, limit: lines ?? 200, since: since_ms });
+        return { content: [{ type: 'text', text: recs.reverse().map(formatRecord).join('\n') || '(no entries)' }] };
+      }
       const catalog = await reloadCatalog();
       const svc = findService(catalog, service);
       if (!svc) {
@@ -150,6 +167,12 @@ async function main(): Promise<void> {
       },
     },
     async ({ services, pattern, limit, since_ms }) => {
+      if (victoria) {
+        const codes = services.filter(isServiceCode);
+        if (codes.length === 0) return { isError: true, content: [{ type: 'text', text: 'no valid service codes' }] };
+        const hits = await victoria.search({ services: codes, pattern, limit: limit ?? 200, since: since_ms });
+        return { content: [{ type: 'text', text: hits.length === 0 ? '(no hits)' : hits.reverse().map((r) => `${r.service.padEnd(20)} ${formatRecord(r)}`).join('\n') }] };
+      }
       const catalog = await reloadCatalog();
       const targets = services
         .map((code) => findService(catalog, code))
@@ -188,6 +211,14 @@ async function main(): Promise<void> {
       },
     },
     async ({ services, limit }) => {
+      if (victoria) {
+        const codes = services && services.length > 0 ? services.filter(isServiceCode) : await victoria.listServices();
+        if (codes.length === 0) return { isError: true, content: [{ type: 'text', text: 'no services available' }] };
+        const all = (await Promise.all(codes.map((service) => victoria.recent({ service, limit: 1000, level: ['error', 'fatal'] })))).flat();
+        all.sort((a, b) => b.ts - a.ts);
+        const trimmed = all.slice(0, limit ?? 50);
+        return { content: [{ type: 'text', text: trimmed.length === 0 ? '(no errors)' : trimmed.reverse().map((r) => `${r.service.padEnd(20)} ${formatRecord(r)}`).join('\n') }] };
+      }
       const catalog = await reloadCatalog();
       const targets = services && services.length > 0
         ? catalog.filter((s) => services.includes(s.code))

@@ -61,6 +61,8 @@ services:
       CONCORDIA_MEETING_LINK_GUILD_ID: "1136199339417534606"
       CONCORDIA_MEETING_LINK_PUBLIC_URL: "https://ae.ai-run-do.com"
       CONCORDIA_COST_MODE: worker
+      # エラー監視とログ MCP の読む先 (Vestigium の victorialogs、ログの正本。neco 2026-11-26)。
+      CONCORDIA_LOGS_VICTORIALOGS_URL: http://127.0.0.1:9428
       CONCORDIA_DISCORD_COST_REFRESH_MIN: "10"
       CONCORDIA_LOG_FILE: "1"
       CONCORDIA_LOG_FILE_PATH: ${ARS_ROOT}/logs/concordia/cc-live.jsonl

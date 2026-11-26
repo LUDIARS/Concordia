@@ -2,6 +2,10 @@
   "version": 1,
   "implementations": [
     { "source": "src/delegation/actio-content-fetch-rule.ts", "tests": ["src/delegation/actio-content-fetch-rule.test.ts"], "contracts": [] },
+    { "source": "src/discord/error-monitor.ts", "tests": ["src/discord/error-monitor.test.ts","src/discord/error-watch-source.test.ts"], "contracts": [] },
+    { "source": "src/mcp/vestigium-server.ts", "tests": ["src/mcp/victorialogs-reader.test.ts"], "contracts": [] },
+    { "source": "src/mcp/victorialogs-reader.ts", "tests": ["src/mcp/victorialogs-reader.test.ts"], "contracts": [] },
+    { "source": "src/discord/error-watch-source.ts", "tests": ["src/discord/error-watch-source.test.ts"], "contracts": [] },
     { "source": "src/discord/team-retire-empty.ts", "tests": ["src/discord/team-retire-empty.test.ts"], "contracts": [] },
     { "source": "src/discord/team-management-access.ts", "tests": ["src/discord/team-provision.test.ts"], "contracts": [] },
     { "source": "src/discord/team-role-setup.ts", "tests": ["src/discord/team-role-setup.test.ts"], "contracts": [] },

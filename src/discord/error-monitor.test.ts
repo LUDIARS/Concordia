@@ -35,6 +35,8 @@ describe("startVestigiumErrorWatch in-flight guard", () => {
 
   it("shares the in-flight poll instead of starting a duplicate run", async () => {
     vi.stubEnv("CONCORDIA_ERROR_WATCH_LOGS_ROOT", "E:/fake/vestigium");
+    vi.stubEnv("CONCORDIA_LOGS_VICTORIALOGS_URL", "");
+    vi.stubEnv("VESTIGIUM_VICTORIALOGS_URL", "");
     let resolveServices!: (value: string[]) => void;
     listVestigiumServices.mockImplementation(
       () => new Promise<string[]>((resolve) => { resolveServices = resolve; }),
@@ -60,6 +62,8 @@ describe("startVestigiumErrorWatch in-flight guard", () => {
 
   it("does not double-report the same record when overlapping polls occur across two services", async () => {
     vi.stubEnv("CONCORDIA_ERROR_WATCH_LOGS_ROOT", "E:/fake/vestigium");
+    vi.stubEnv("CONCORDIA_LOGS_VICTORIALOGS_URL", "");
+    vi.stubEnv("VESTIGIUM_VICTORIALOGS_URL", "");
     listVestigiumServices.mockResolvedValue(["svc-a"]);
     let recentCalls = 0;
     recent.mockImplementation(async () => {

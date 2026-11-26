@@ -336,6 +336,7 @@ import { AugurTools } from "../developer-tools/augur.js";
 import { ToolTestJobs } from "../developer-tools/test-jobs.js";
 import { readActioBindings } from "../taskflow/actio-binding.js";
 import { createActioBindingReader } from "../taskflow/actio-project-binding.js";
+import { cachedActioProjects } from "../taskflow/actio-projects-cache.js";
 import { listLocalActioProjects } from "../taskflow/actio-projects.js";
 import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { startTaskStatusReconcile } from "../taskflow/state-reconcile-scheduler.js";
@@ -1597,9 +1598,11 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   const taskflowState = new TaskflowStateStore(db);
   const actioTransport = new ActioTransport(excubitorClient, (name) => process.env[name]);
+  // タスクの読み書きのたびに取り直していた Actio のプロジェクト登録を短時間使い回す。
+  const registeredActioProjects = cachedActioProjects(() => listLocalActioProjects(actioTransport));
   const taskStore = new ActioTaskStore(
     createActioBindingReader({ configured: () => readActioBindings(),
-      repositories: () => projectCodesRepo.list(), registered: () => listLocalActioProjects(actioTransport) }),
+      repositories: () => projectCodesRepo.list(), registered: registeredActioProjects }),
     new ActioWorkflowClient(actioTransport),
     taskflowState,
     (runId) => isDelegationRunOver(db, runId),
@@ -1929,7 +1932,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegation: { invoke: (input) => delegationService.invoke(input), findRun: (runId) => delegationRepo.findRun(runId) },
     actio: {
       bindings: createActioBindingReader({ configured: () => readActioBindings(),
-        repositories: () => projectCodesRepo.list(), registered: () => listLocalActioProjects(actioTransport) }),
+        repositories: () => projectCodesRepo.list(), registered: registeredActioProjects }),
       transport: actioTransport,
     },
     rewards: personalBudget.rewards,

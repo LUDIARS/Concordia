@@ -11,6 +11,7 @@
     {"source":"src/db/schema.ts","tests":["src/db/migration-ledger.test.ts","src/discord/team-discussion.test.ts"],"contracts":[]},
     {"source":"src/db/migration-ledger.ts","tests":["src/db/migration-ledger.test.ts"],"contracts":[]},
     {"source":"src/db/team-discussion-attachments-migration.ts","tests":["src/db/migration-ledger.test.ts","src/discord/team-discussion-conversation.test.ts"],"contracts":[]},
+    { "source": "src/taskflow/actio-projects-cache.ts", "tests": ["src/taskflow/actio-projects-cache.test.ts"], "contracts": [] },
     { "source": "src/delegation/actio-content-fetch-rule.ts", "tests": ["src/delegation/actio-content-fetch-rule.test.ts"], "contracts": [] },
     { "source": "src/discord/error-monitor.ts", "tests": ["src/discord/error-monitor.test.ts","src/discord/error-watch-source.test.ts"], "contracts": [] },
     { "source": "src/mcp/vestigium-server.ts", "tests": ["src/mcp/victorialogs-reader.test.ts"], "contracts": [] },

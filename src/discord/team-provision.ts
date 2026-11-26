@@ -10,11 +10,12 @@ import {
 import { SESSION_STATE_TAG_NAMES } from "./config.js";
 import { ensureTeamRoles, TeamRoleNames } from "./team-role-setup.js";
 import { DISCUSSIONS } from "./team-discussion.js";
+import { retireEmptyTeamChannels } from "./team-retire-empty.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
 import {
   managementChannelOverwrites,
-  managementViewerIds,
+  guildManagementViewerIds,
   syncManagementAccess,
 } from "./team-management-access.js";
 
@@ -25,7 +26,7 @@ import {
  * テスト側が写しを手書きすると、 面を足したときに片方だけ古くなって
  * 「存在しない面へ張る」を見逃す。
  */
-export const SURFACES = ["目標", "タスクボード", "management", ...DISCUSSIONS, "AI通知"] as const;
+export const SURFACES = ["目標", "タスクボード", ...DISCUSSIONS, "AI通知", "management"] as const;
 
 type TeamSurface = typeof SURFACES[number];
 
@@ -77,8 +78,10 @@ export async function ensureTeamDiscordLayout(input: {
     `).run(input.teamId, surface, channel.id);
   }
   const row = input.db.prepare("SELECT settings_json FROM teams WHERE id=?").get(input.teamId) as { settings_json: string } | undefined;
-  const names = TeamRoleNames.optional().parse(JSON.parse(row?.settings_json ?? "{}").discord_role_names);
+  const settings = JSON.parse(row?.settings_json ?? "{}");
+  const names = TeamRoleNames.optional().parse(settings.discord_role_names);
   if (names?.length) await ensureTeamRoles(input.guild, names);
+  if (settings.retire_empty_legacy_channels === true) await retireEmptyTeamChannels(input.db, input.guild, input.teamId, category.id);
 }
 
 async function resolveCategory(input: {
@@ -128,7 +131,7 @@ async function resolveSurface(
   const permissionOverwrites = RESTRICTED_SURFACES.has(surface)
     ? managementChannelOverwrites({
         guild: input.guild,
-        viewerIds: managementViewerIds(input.db),
+        viewerIds: await guildManagementViewerIds(input.db, input.guild),
       })
     : undefined;
   return input.guild.channels.create({

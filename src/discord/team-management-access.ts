@@ -35,6 +35,19 @@ export function managementViewerIds(db: Database.Database): string[] {
   return [...new Set(rows.map((row) => row.platform_user_id))].sort();
 }
 
+export async function guildManagementViewerIds(db: Database.Database, guild: Guild): Promise<string[]> {
+  const members: string[] = [];
+  for (const id of managementViewerIds(db)) {
+    try {
+      await guild.members.fetch({ user: id, force: true });
+      members.push(id);
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === 10007)) throw error;
+    }
+  }
+  return members;
+}
+
 /**
  * `管理` 面の overwrite を名簿と一致させる。
  *
@@ -68,13 +81,13 @@ async function syncManagementAccessNow(input: {
   db: Database.Database;
 }): Promise<ManagementAccessSync> {
   const { guild, channel, db } = input;
-  const allowed = managementViewerIds(db);
+  const allowed = await guildManagementViewerIds(db, guild);
   const botId = managementBotId(guild);
 
   // 旧版や手動作成の同名チャンネルを採用した場合も、公開状態を残さない。
   await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
     ViewChannel: false,
-  }, { reason: ACCESS_SYNC_REASON });
+  }, { reason: ACCESS_SYNC_REASON, type: OverwriteType.Role });
 
   const existing = new Set<string>();
   for (const overwrite of channel.permissionOverwrites.cache.values()) {
@@ -87,7 +100,7 @@ async function syncManagementAccessNow(input: {
     if (overwrite.id !== guild.roles.everyone.id) {
       await channel.permissionOverwrites.edit(overwrite.id, {
         ViewChannel: false,
-      }, { reason: ACCESS_SYNC_REASON });
+      }, { reason: ACCESS_SYNC_REASON, type: OverwriteType.Role });
     }
   }
 
@@ -102,7 +115,7 @@ async function syncManagementAccessNow(input: {
       ViewChannel: true,
       ReadMessageHistory: true,
       ...(id === botId ? { SendMessages: true, EmbedLinks: true } : {}),
-    }, { reason: ACCESS_SYNC_REASON });
+    }, { reason: ACCESS_SYNC_REASON, type: OverwriteType.Member });
     if (!existing.has(id)) added[added.length] = id;
   }
 
@@ -125,21 +138,23 @@ async function syncManagementAccessNow(input: {
 export function managementChannelOverwrites(input: {
   guild: Guild;
   viewerIds: readonly string[];
-}): { id: string; deny?: bigint[]; allow?: bigint[] }[] {
+}): { id: string; type: OverwriteType; deny?: bigint[]; allow?: bigint[] }[] {
   const botId = managementBotId(input.guild);
-  const overwrites: { id: string; deny?: bigint[]; allow?: bigint[] }[] = [
-    { id: input.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+  const overwrites: { id: string; type: OverwriteType; deny?: bigint[]; allow?: bigint[] }[] = [
+    { id: input.guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
   ];
   for (const id of input.viewerIds) {
     // bot が名簿にも登録されていても、同じ ID の overwrite を二重に渡さない。
     if (id === botId) continue;
     overwrites[overwrites.length] = {
       id,
+      type: OverwriteType.Member,
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
     };
   }
   overwrites[overwrites.length] = {
     id: botId,
+    type: OverwriteType.Member,
     allow: [
       PermissionFlagsBits.ViewChannel,
       PermissionFlagsBits.ReadMessageHistory,

@@ -23,6 +23,7 @@ const RetiredVibesDefaultsSchema = z.object({
 }).strict();
 
 const SettingsSchema = z.object({
+  retire_empty_legacy_channels: z.boolean().optional(),
   discord_role_names: TeamRoleNames.optional(),
   revisor_lane: z.enum(["local", "github"]).optional(),
   pr_rules: PrRulesSchema.optional(),

@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { ChannelType, OverwriteType, PermissionFlagsBits } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
@@ -71,6 +71,7 @@ function makeGuild() {
     return channel;
   });
   const guild = {
+    members: { fetch: vi.fn(async ({ user }: { user: string }) => ({ id: user })) },
     roles: { everyone: { id: "everyone" } },
     client: { user: { id: "bot-1" } },
     channels: {
@@ -126,9 +127,10 @@ describe("ensureTeamDiscordLayout", () => {
     }
     const managementCreate = create.mock.calls.find(([options]) => options.name === "管理")?.[0];
     expect(managementCreate?.permissionOverwrites).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "everyone", deny: [PermissionFlagsBits.ViewChannel] }),
+      expect.objectContaining({ id: "everyone", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] }),
       expect.objectContaining({
         id: "bot-1",
+        type: OverwriteType.Member,
         allow: expect.arrayContaining([
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,

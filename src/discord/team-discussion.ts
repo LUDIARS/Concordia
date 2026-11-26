@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { ChannelType, type Message } from "discord.js";
+import { acceptsDiscussionPost } from "../team-discussion-conversation/policy.js";
 
 export const DISCUSSIONS = ["チーム相談", "企画相談", "プログラマー", "デザイナー", "サウンド", "プランナー"] as const;
 
@@ -11,16 +12,20 @@ export function discussionOwner(db: Database.Database, channel: string, category
 }
 
 export function collectTeamMessage(db: Database.Database, ownsTeam: (id: string) => boolean, message: Message) {
-  if (!message.inGuild() || message.author.bot || message.webhookId || message.system || !message.content) return false;
+  if (!message.inGuild()) return false;
   const channel = message.channel;
-  if (channel.type === ChannelType.PrivateThread) return false;
+  const human = !(message.author.bot || message.webhookId || message.system);
+  const publicChannel = channel.type !== ChannelType.PrivateThread;
   const surface = channel.isThread() ? channel.parent : channel;
-  if (!surface) return false;
-  const team = discussionOwner(db, surface.id, surface.parentId);
-  if (!team || !ownsTeam(team)) return false;
-  db.prepare(`INSERT INTO team_discussion_messages(team_id, channel_id, message_id, author_id, content, revision)
-    VALUES(?,?,?,?,?,?) ON CONFLICT(team_id,message_id) DO UPDATE SET content=excluded.content,revision=excluded.revision
-    WHERE excluded.revision >= team_discussion_messages.revision`).run(team, channel.id, message.id, message.author.id,
-    message.content, message.editedTimestamp ?? message.createdTimestamp);
+  const team = human && publicChannel && surface ? discussionOwner(db, surface.id, surface.parentId) : null;
+  const eligible = acceptsDiscussionPost({ human, publicChannel, ownedSurface: !!team && ownsTeam(team), hasContent: !!message.content });
+  if (!eligible || !team || !surface) return false;
+  db.prepare(`INSERT INTO team_discussion_messages(
+    team_id, channel_id, message_id, author_id, content, revision, guild_id, surface_id, created_at)
+    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(team_id,message_id) DO UPDATE SET
+      guild_id=excluded.guild_id,surface_id=excluded.surface_id,created_at=excluded.created_at,
+      content=CASE WHEN excluded.revision >= revision THEN excluded.content ELSE content END,
+      revision=max(revision,excluded.revision)`).run(team, channel.id, message.id, message.author.id, message.content,
+    message.editedTimestamp ?? message.createdTimestamp, message.guildId, surface.id, message.createdTimestamp);
   return true;
 }

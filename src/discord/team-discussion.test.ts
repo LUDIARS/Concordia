@@ -9,7 +9,8 @@ beforeEach(() => {
   db = new Database(":memory:");
   db.exec(`CREATE TABLE teams(id TEXT, discord_category_id TEXT);
     CREATE TABLE team_surfaces(team_id TEXT,surface TEXT,channel_id TEXT);
-    CREATE TABLE team_discussion_messages(team_id,channel_id,message_id,author_id,content,revision,PRIMARY KEY(team_id,message_id));
+    CREATE TABLE team_discussion_messages(team_id,channel_id,message_id,author_id,content,revision,
+      guild_id,surface_id,created_at,PRIMARY KEY(team_id,message_id));
     INSERT INTO teams VALUES('team','category');
     INSERT INTO team_surfaces VALUES('team','企画相談','ideas'),('team','AI通知','alerts'),('team','management','private');`);
 });

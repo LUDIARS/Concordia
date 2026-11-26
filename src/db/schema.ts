@@ -22,8 +22,9 @@ import { mailSweepMigration } from "./cron-mail-sweep-migration.js";
 import { kaizenCloudMigration } from "./kaizen-cloud-migration.js";
 import { controlCardHumanActionMigration } from "./control-card-human-action-migration.js";
 import { deskActioRoutingMigration } from "./desk-actio-routing-migration.js";
+import { teamDiscussionConversationMigration } from "./team-discussion-conversation-migration.js";
 
-export const SCHEMA_VERSION = 163;
+export const SCHEMA_VERSION = 164;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3921,6 +3922,7 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       content TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(team_id,message_id)
     )`);
   } },
+  teamDiscussionConversationMigration,
 ];
 
 /**

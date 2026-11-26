@@ -101,6 +101,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { dispatchWorkPost } from "../taskflow/project-work-dispatch.js";
 import { collectTeamMessage, discussionOwner } from "./team-discussion.js";
 import { readTeamDiscussionHistory } from "./team-discussion-history.js";
+import { startTeamDiscussionFacilitation } from "./team-discussion-conversation.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
@@ -285,7 +286,7 @@ export { shouldPostPermissionRequestToDiscord } from "./permission-request-flag.
 
 export type DiscordHeadlessRunner = (
   prompt: string,
-  opts?: RwfRunOptions & { timeoutMs?: number; conversationOnly?: boolean; signal?: AbortSignal },
+  opts?: RwfRunOptions & { timeoutMs?: number; conversationOnly?: boolean; signal?: AbortSignal; recordPrompt?: boolean },
 ) => Promise<RwfRunResult>;
 export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
 
@@ -1109,6 +1110,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let humanRequestDiscord: HumanRequestDiscord | null = null;
   let managementDiscord: ManagementDiscord | null = null;
   let sprintDialoguesDiscord: SprintDialoguesDiscord | null = null;
+  let teamDiscussionFacilitation: ReturnType<typeof startTeamDiscussionFacilitation> | undefined;
   let dailyGoalDiscord: DailyGoalDiscord | null = null;
   let controlChannelDiscord: ControlChannelDiscord | null = null;
   const readWorkPhase = (sessionId: string) => {
@@ -1270,7 +1272,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     timer.unref?.();
     backgroundTimers.add(timer);
   };
-  const clearRuntimeTimers = (): void => {
+  const clearRuntimeTimers = async (): Promise<void> => {
+    const discussionStopped = teamDiscussionFacilitation?.stop();
     choresDiscord?.stopChores();
     choresDiscord = null;
     deskDiscord?.stop();
@@ -1309,6 +1312,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
     if (reactionListenerTimer) { clearInterval(reactionListenerTimer); reactionListenerTimer = null; }
     if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
+    await discussionStopped;
   };
   const stopAfterGatewayInstability = (status: string, error: string): void => {
     if (gatewayClosed || stopping) return;
@@ -1316,13 +1320,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     stopping = true;
     unsubscribe?.();
     unsubscribe = null;
-    clearRuntimeTimers();
+    const timersStopped = clearRuntimeTimers();
     errorMonitor?.stop();
     errorMonitor = null;
     detachClientListeners();
     deps.onRuntimeState?.({ running: false, status, error });
     log.warn(`${status}: ${error}; stopped embedded Discord bot`);
-    void gatewayLease.release().catch((e) => log.warn(`discord gateway release failed: ${(e as Error).message}`));
+    void timersStopped.finally(() => gatewayLease.release()).catch((e) => log.warn(`discord gateway shutdown failed: ${(e as Error).message}`));
   };
 
   let readyInitialization: Promise<void> | null = null;
@@ -1405,6 +1409,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }
       // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
       const teams = teamsRepo.listForSubsidiary(subsidiaryId);
+      const recoveringDiscussions = new Set(teams.map(team => team.id));
       for (const team of teams) {
         await ensureTeamDiscordLayout({
           guild,
@@ -1413,7 +1418,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           name: team.name,
         }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
         void readTeamDiscussionHistory(deps.db, guild, team.id, () => gatewayClosed || stopping)
+          .then(() => { recoveringDiscussions.delete(team.id); })
           .catch(() => log.warn(`team discussion history incomplete team=${team.id}`));
+      }
+      if (!gatewayClosed && !stopping) {
+        teamDiscussionFacilitation = startTeamDiscussionFacilitation({ guild, db: deps.db, subsidiaryId,
+          historyReady: teamId => !recoveringDiscussions.has(teamId), ownsTeam: teamOwnedByRuntime,
+          run: deps.runHeadless, warn: message => log.warn(message) });
       }
       // 部署フォーラム (departments.md §9.3)。 自社所有・既定でない・稼働中の部署だけ。
       for (const department of departmentsRepo.listForOrganization(subsidiaryId ?? null)) {
@@ -3512,6 +3523,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
   } catch (error) {
     detachClientListeners();
+    await teamDiscussionFacilitation?.stop();
     await gatewayLease.release();
     throw error;
   }

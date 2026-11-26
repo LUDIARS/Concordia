@@ -96,6 +96,7 @@
     "spec/feature/session-message-webui-chat.md#121-応答の進行と関連作業2026-09-10",
     "spec/feature/cost-observability.md#rate-limit-の表示と通知",
     "spec/feature/teams.md",
+    "spec/feature/team-discussion-conversation.md",
     "spec/feature/discord-notion-sync.md",
     "spec/feature/sprint-dialogues.md",
     "spec/feature/actio-chat-transport.md",

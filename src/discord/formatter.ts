@@ -79,6 +79,7 @@ export function chunkForDiscord(text: string, max = DISCORD_MAX_CONTENT): string
     let cut = remaining.lastIndexOf("\n\n", max);
     if (cut < max / 2) cut = remaining.lastIndexOf("\n", max);
     if (cut < max / 2) cut = max;
+    if (cut > 1 && /[\uD800-\uDBFF]/.test(remaining.charAt(cut - 1)) && /[\uDC00-\uDFFF]/.test(remaining.charAt(cut))) cut--;
     out.push(remaining.slice(0, cut).trimEnd());
     remaining = remaining.slice(cut).trimStart();
   }

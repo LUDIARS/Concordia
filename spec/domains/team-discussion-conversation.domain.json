@@ -1,0 +1,13 @@
+{
+  "name": "team-discussion-conversation",
+  "description": "Channel-scoped discussion facilitation, proposal summaries, evaluation ranges and delivery receipts.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/team-discussion-conversation/[^/]+\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/team-discussion-(conversation|delivery)(\\.test|\\.contract)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/team-discussion-conversation-migration\\.ts$" }
+  ],
+  "cardTemplate": "Explain the quiet period, channel scope, evaluated and delivered positions, and delivery recovery.",
+  "specRefs": ["spec/feature/team-discussion-conversation.md", "spec/feature/teams.md", "spec/feature/sprint-dialogues.md", "spec/ux/product.md", "spec/architecture/ddd.md"]
+}

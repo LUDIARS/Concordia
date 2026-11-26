@@ -83,6 +83,14 @@ describe("resolveGitBashPath (via runClaude on win32)", () => {
     expect(args[1]).not.toContain("--dangerously-skip-permissions");
   });
 
+  it("can record cost metadata without keeping the consultation text", async () => {
+    const { recordLocalOneShot } = await import("../cost/one-shot-recorder.js");
+    const { runClaude } = await import("./claude-runner.js");
+    vi.mocked(recordLocalOneShot).mockClear();
+    await runClaude("チーム内の会話", { conversationOnly: true, recordPrompt: false });
+    expect(recordLocalOneShot).toHaveBeenCalledWith(expect.objectContaining({ status: "ok", prompt: "" }));
+  });
+
   it("最初の候補が存在すればそれを使い、以後は access を呼び直さない", async () => {
     accessMock.mockImplementation(async (path: string) => {
       if (path === "C:\\Program Files\\Git\\bin\\bash.exe") return;

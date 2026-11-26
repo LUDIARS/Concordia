@@ -69,6 +69,8 @@ export interface ClaudeRunResult {
 export interface RunClaudeOptions {
   /** Conversation-only calls have no tools, MCP, skills, hooks or user/project customization. */
   conversationOnly?: boolean;
+  /** Persist execution metadata without copying the prompt into the cost ledger. */
+  recordPrompt?: boolean;
   signal?: AbortSignal;
   /** `--model` に渡す値 (例 "haiku" / "sonnet" / "claude-opus-5-5")。 未指定で共有ライブラリの既定。 */
   model?: string;
@@ -279,7 +281,7 @@ function recordClaudeOneShot(
     command: "claude -p",
     model: opts.model ?? null,
     cwd: opts.cwd ?? process.cwd(),
-    prompt,
+    prompt: opts.recordPrompt === false ? "" : prompt,
     status: result.status,
     exit_code: result.exit_code,
     duration_ms: result.duration_ms,

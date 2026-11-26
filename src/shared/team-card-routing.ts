@@ -25,21 +25,22 @@ export type TeamCardKind =
   | "cost-session";
 
 export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
+  "github-update": "AI通知",
   "director-plan": "目標",
-  "decision-log": "direction",
-  "question": "direction",
-  "cost-daily": "コスト",
+  "decision-log": "AI通知",
+  "question": "AI通知",
+  "cost-daily": "AI通知",
   // セッション終了時の 1 本分の実績。 日次サマリ (cost-daily) と同じ面に出す。
-  "cost-session": "コスト",
+  "cost-session": "AI通知",
   "task-kanban": "タスクボード",
   // 課題スカウトはタスク整理と同じ面へ進言を載せる (新規 surface は作らない)。
   "issue-hypothesis": "タスクボード",
   // 朝礼は目標の進み方を報告するので、 director-plan と同じ 目標 面に出す。
   "standup": "目標",
   // 定例の開始通知。 本体の議論は定例セッションの thread で行い、 ここには入口だけ置く。
-  "meeting": "direction",
+  "meeting": "AI通知",
   // タスクの見直し提案は判断を仰ぐカードなので direction。
-  "review": "direction",
+  "review": "AI通知",
   // 遅延と調整案は稼働の内情を含むので、 権限者だけが見る management 面 (表示名 管理) へ出す。
   "delay": "management",
   "adjust": "management",

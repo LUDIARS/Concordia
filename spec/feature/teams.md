@@ -84,14 +84,15 @@ CREATE TABLE team_repos (
 |---|---|
 | 目標チャンネル | director_cases の goal/case 状態カード。 プラン設計カード (plan-gate §2.2) |
 | タスクボード | taskflow overview の kanban 状態カード (1 メッセージ更新型、 session-status-card パターン) |
-| コストチャンネル | cost-observability のチーム畳み込み (日次サマリ + 予算アラート) |
-| direction チャンネル | Director 判断ログ (Decision Request / Genius 回答 / ask_human 質問カード)。 セッション契約の未決質問カード (session-contract §3.3)。 チーム設定変更の監査カード |
-| 管理チャンネル (`management`) | `@everyone` 非公開。社員名簿の管理職・執行役員だけが閲覧する遅延レポート・調整提案 |
-| セッションフォーラム | 既存 Session forum をチーム配下へ (1 セッション = 1 スレッド、 現行踏襲) |
-| タスクフォーラム | discord-forum-migration の 1 run = 1 スレッドをチーム配下へ |
+| チーム相談フォーラム | チームで相談する公開スレッド |
+| 企画相談、プログラマー、デザイナー、サウンド、プランナー | 職種・企画別の通常チャンネル |
+| AI通知 | GitHub の署名付き更新とチームの変更通知 |
+| 管理 | 既存の管理職・執行役員限定の面 |
 
-- 既存のグローバル forum は「チーム未所属」用として残す。 チーム側へは新規分から流す
-  (既存スレッドの引っ越しはしない)。
+CC-TEAM-DISCUSSION-01 (UX-CC-W1/W4, S1/S5)。Cc はチームに保存したチャンネルIDとカテゴリ・会社の所有関係を照合する。チーム相談と上記5チャンネルだけで、人の投稿と公開スレッドを収集する。通知、ボード、管理、個人用スレッド、別チーム、Bot投稿は収集しない。再接続で範囲内の履歴を読み戻し、投稿IDと編集時刻で重複を防ぐ。旧構成の履歴は保持する。新規チームには旧セッション・タスクフォーラム、コスト、direction を作成しない。
+
+CC-TEAM-NOTICE-01。Cc がリポジトリ別の署名を検証した GitHub イベントは、そのリポジトリに割り当てたチームの AI通知へ配送する。通知にはリポジトリ・イベント種別・操作名を載せる。チームの作成・設定変更も同じ場所に通知する。非公開の管理カードは管理面のままとする。
+
 - 本社 runtime は `subsidiary_id IS NULL`、子会社 runtime は自分の `subsidiary_id` の team だけを
   provision / event route する。物理 Discord Client を共有しても guild 間で team surface を
   混ぜない。子会社の既定 team は subsidiary delegation の起動時に `options.team` へ入る。

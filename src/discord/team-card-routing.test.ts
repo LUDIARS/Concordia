@@ -18,15 +18,15 @@ describe("resolveTeamCardChannel", () => {
     const team = repo.create({ name: "Alpha", slug: "alpha" });
     const insert = db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, ?, ?)");
     insert.run(team.id, "目標", "chan-goal");
-    insert.run(team.id, "direction", "chan-direction");
+    insert.run(team.id, "AI通知", "chan-direction");
     insert.run(team.id, "management", "chan-management");
-    insert.run(team.id, "コスト", "chan-cost");
+
     insert.run(team.id, "タスクボード", "chan-board");
 
     expect(resolveTeamCardChannel(repo, team.id, "director-plan")).toBe("chan-goal");
     expect(resolveTeamCardChannel(repo, team.id, "decision-log")).toBe("chan-direction");
     expect(resolveTeamCardChannel(repo, team.id, "question")).toBe("chan-direction");
-    expect(resolveTeamCardChannel(repo, team.id, "cost-daily")).toBe("chan-cost");
+    expect(resolveTeamCardChannel(repo, team.id, "cost-daily")).toBe("chan-direction");
     expect(resolveTeamCardChannel(repo, team.id, "task-kanban")).toBe("chan-board");
     expect(resolveTeamCardChannel(repo, team.id, "issue-hypothesis")).toBe("chan-board");
     expect(resolveTeamCardChannel(repo, team.id, "review")).toBe("chan-direction");

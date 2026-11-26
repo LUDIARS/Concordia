@@ -776,7 +776,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }));
   if (deps.githubIssueWorkflow) {
     const github = deps.githubIssueWorkflow;
-    app.route("/v1/github", githubRouter(github));
+    app.route("/v1/github", githubRouter({ ...github, notifyTeamUpdate: (repo, event, action) => {
+      for (const row of deps.teams?.listRepoAssignments() ?? []) {
+        if (normalizeRepoOrigin(row.repo_origin).toLowerCase() !== repo.toLowerCase()) continue;
+        eventBus.emit({ type: "team.card_requested", team_id: row.team_id, kind: "github-update",
+          title: "GitHub 更新", body: [repo, event, action].filter(Boolean).join(" · "), ts: Math.floor(Date.now() / 1000) });
+      }
+    } }));
     app.route("/v1/admin/github", githubAdminRouter({
       config: github.config,
       optedInProjects: github.optedInProjects,

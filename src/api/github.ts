@@ -39,6 +39,7 @@ const ListQuery = z.object({
 });
 
 export interface GithubRouterDeps {
+  notifyTeamUpdate?: (repo: string, event: string, action: string) => void;
   runs: GithubIssueRunsRepo;
   config: GithubWorkflowConfig;
   dispatch: GithubDispatchDeps;
@@ -125,6 +126,10 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     // 署名検証の前に一度だけ parse している。 壊れた JSON は署名が通っていても進めない。
     if (parsed === null) return c.json({ error: "invalid_json" }, 400);
     const payload: unknown = parsed;
+    if (repoSecret && claimedRepo && event && /^[a-z_]{1,64}$/.test(event)) {
+      const action = z.object({ action: z.string().regex(/^[a-z_]{1,64}$/).optional() }).safeParse(payload);
+      deps.notifyTeamUpdate?.(claimedRepo, event, action.success ? action.data.action ?? "" : "");
+    }
 
     const classification = classifyIssueEvent({ event, payload, label: deps.config.label() });
     if (classification.kind === "ignored") {

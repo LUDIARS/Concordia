@@ -1,10 +1,10 @@
-// team.created / team.changed の変更内容を、 team の direction 面 (team_surfaces
-// の surface='direction' に保存済み channel_id) へ監査カードとして投稿する。
+// team.created / team.changed の変更内容を、 team の AI通知 面 (team_surfaces
+// の surface='AI通知' に保存済み channel_id) へ監査カードとして投稿する。
 //
 // - 呼び出し元 runtime が会社所有権を検証し、対象 guild へだけ投稿する。
 // - 同一イベントの再配信/bot 再起動で二重投稿しないよう、 team_audit_posts への
 //   claim (INSERT ... ON CONFLICT DO NOTHING) を「投稿 1 回」の唯一の関門にする。
-// - direction 面が未プロビジョニングなら安全にスキップする (エラーにしない)。
+// - AI通知 面が未プロビジョニングなら安全にスキップする (エラーにしない)。
 
 import { EmbedBuilder, type Guild } from "discord.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
@@ -43,16 +43,16 @@ function renderCard(input: TeamAuditCardInput): { embeds: EmbedBuilder[] } {
 }
 
 /**
- * team.created / team.changed の監査カードを direction 面へ 1 回だけ投稿する。
+ * team.created / team.changed の監査カードを AI通知 面へ 1 回だけ投稿する。
  *
- * direction 面が存在することを確認してから dedupe を claim する。面が未プロビジョニングで
+ * AI通知 面が存在することを確認してから dedupe を claim する。面が未プロビジョニングで
  * claim してしまうと、後で面が用意されても再配信時に投稿できなくなるため。
  */
 export async function postTeamAuditCard(deps: TeamAuditCardDeps, input: TeamAuditCardInput): Promise<void> {
   const dedupeKey = dedupeKeyFor(input);
-  const channelId = deps.teamsRepo.surfaceChannelId(input.teamId, "direction");
+  const channelId = deps.teamsRepo.surfaceChannelId(input.teamId, "AI通知");
   if (!channelId) {
-    deps.log.info(`team-audit-card: direction surface missing for team=${input.teamId}, skip`);
+    deps.log.info(`team-audit-card: AI通知 surface missing for team=${input.teamId}, skip`);
     return;
   }
 
@@ -64,7 +64,7 @@ export async function postTeamAuditCard(deps: TeamAuditCardDeps, input: TeamAudi
   try {
     const channel = await deps.guild.channels.fetch(channelId).catch(() => null);
     if (!channel?.isTextBased() || !("send" in channel)) {
-      deps.log.warn(`team-audit-card: direction channel ${channelId} not text-based for team=${input.teamId}`);
+      deps.log.warn(`team-audit-card: AI通知 channel ${channelId} not text-based for team=${input.teamId}`);
       return;
     }
     await channel.send({ ...renderCard(input), allowedMentions: { parse: [] } });

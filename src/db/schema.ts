@@ -23,7 +23,7 @@ import { kaizenCloudMigration } from "./kaizen-cloud-migration.js";
 import { controlCardHumanActionMigration } from "./control-card-human-action-migration.js";
 import { deskActioRoutingMigration } from "./desk-actio-routing-migration.js";
 
-export const SCHEMA_VERSION = 162;
+export const SCHEMA_VERSION = 163;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -3914,6 +3914,13 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   kaizenCloudMigration,
   controlCardHumanActionMigration,
   deskActioRoutingMigration,
+  { version: 163, name: "team-discussion-messages", source: "team discussion source posts v1", up(db) {
+    db.exec(`CREATE TABLE team_discussion_messages (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL, message_id TEXT NOT NULL, author_id TEXT NOT NULL,
+      content TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(team_id,message_id)
+    )`);
+  } },
 ];
 
 /**

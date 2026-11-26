@@ -26,6 +26,6 @@ export type TeamCardPostKind = (typeof TEAM_CARD_POST_KINDS)[number];
  * event `team.card_requested` が運べる種別 = POST 可能種別 + Cc 内部 emit 専用の
  * question (Director 巡回の人間エスカレーション。API からは投げられない)。
  */
-export const TEAM_CARD_EVENT_KINDS = [...TEAM_CARD_POST_KINDS, "question"] as const;
+export const TEAM_CARD_EVENT_KINDS = [...TEAM_CARD_POST_KINDS, "question", "github-update"] as const;
 
 export type TeamCardEventKind = (typeof TEAM_CARD_EVENT_KINDS)[number];

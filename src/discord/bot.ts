@@ -99,7 +99,8 @@ import { markQuestionMessageAnswered, postQuestion, resolveQuestionMessage } fro
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { dispatchWorkPost } from "../taskflow/project-work-dispatch.js";
-import { workProjects } from "../taskflow/project-work-actions.js";
+import { collectTeamMessage, discussionOwner } from "./team-discussion.js";
+import { readTeamDiscussionHistory } from "./team-discussion-history.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
@@ -1411,6 +1412,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           teamId: team.id,
           name: team.name,
         }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
+        void readTeamDiscussionHistory(deps.db, guild, team.id, () => gatewayClosed || stopping)
+          .catch(() => log.warn(`team discussion history incomplete team=${team.id}`));
       }
       // 部署フォーラム (departments.md §9.3)。 自社所有・既定でない・稼働中の部署だけ。
       for (const department of departmentsRepo.listForOrganization(subsidiaryId ?? null)) {
@@ -1984,6 +1987,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   const forwardWorkPost = (message: Message) => {
     if (!message.guildId || message.author.bot || message.webhookId || message.system) return;
+    if (!collectTeamMessage(deps.db, teamOwnedByRuntime, message)) return;
     void dispatchWorkPost({ guild: message.guildId, channel: message.channelId, id: message.id, text: message.content }, async () => {
       const member = await message.guild?.members.fetch({ user: message.author.id, force: true });
       return { role: staffRepo.roleOf("discord", message.author.id), discordRoles: member ? [...member.roles.cache.keys()].filter(id => id !== message.guildId) : [] };
@@ -2188,7 +2192,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping || !inScope(updated.guildId)) return;
     const surface = dailyGoalDiscord;
     void (async () => {
-      const routed = workProjects().some(p => p.bindings.some(b => b.channel === updated.channelId && b.guild === updated.guildId));
+      const channel = updated.channel;
+      const parent = channel.isThread() ? channel.parent : channel;
+      const owner = parent && "parentId" in parent ? discussionOwner(deps.db, parent.id, parent.parentId) : null;
+      const routed = owner !== null && teamOwnedByRuntime(owner) && channel.type !== ChannelType.PrivateThread;
       if (!routed && !surface) return;
       const message = updated.partial ? await updated.fetch() : updated;
       if (routed) forwardWorkPost(message);

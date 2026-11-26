@@ -21,11 +21,11 @@ function makeGuild(channel: { send: ReturnType<typeof vi.fn> } | null) {
 const log = { info: vi.fn(), warn: vi.fn() };
 
 describe("postTeamAuditCard", () => {
-  it("posts once to the team's direction surface", async () => {
+  it("posts once to the team's AI通知 surface", async () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Alpha", slug: "alpha" });
-    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'direction', 'chan-direction')").run(team.id);
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'AI通知', 'chan-AI通知')").run(team.id);
     const send = vi.fn(async () => undefined);
     const guild = makeGuild({ send });
 
@@ -34,7 +34,7 @@ describe("postTeamAuditCard", () => {
       { kind: "created", eventId: "created-1", teamId: team.id, name: team.name, slug: team.slug, ts: 1 },
     );
 
-    expect(guild.channels.fetch).toHaveBeenCalledWith("chan-direction");
+    expect(guild.channels.fetch).toHaveBeenCalledWith("chan-AI通知");
     expect(send).toHaveBeenCalledTimes(1);
     db.close();
   });
@@ -43,7 +43,7 @@ describe("postTeamAuditCard", () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Beta", slug: "beta" });
-    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'direction', 'chan-direction')").run(team.id);
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'AI通知', 'chan-AI通知')").run(team.id);
     const send = vi.fn(async () => undefined);
     const guild = makeGuild({ send });
     const input = { kind: "changed" as const, eventId: "changed-1", teamId: team.id, fields: ["rules_text"], ts: 42 };
@@ -59,7 +59,7 @@ describe("postTeamAuditCard", () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Beta", slug: "beta" });
-    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'direction', 'chan-direction')").run(team.id);
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'AI通知', 'chan-AI通知')").run(team.id);
     const send = vi.fn(async () => undefined);
     const guild = makeGuild({ send });
 
@@ -76,7 +76,7 @@ describe("postTeamAuditCard", () => {
     db.close();
   });
 
-  it("skips safely without throwing when the direction surface is not provisioned", async () => {
+  it("skips safely without throwing when the AI通知 surface is not provisioned", async () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Gamma", slug: "gamma" });
@@ -104,7 +104,7 @@ describe("postTeamAuditCard", () => {
       { kind: "created", eventId: "created-1", teamId: team.id, name: team.name, slug: team.slug, ts: 1 },
     );
 
-    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'direction', 'chan-direction')").run(team.id);
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'AI通知', 'chan-AI通知')").run(team.id);
     const guild = makeGuild({ send });
     await postTeamAuditCard(
       { guild, teamsRepo: repo, log },
@@ -119,7 +119,7 @@ describe("postTeamAuditCard", () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Epsilon", slug: "epsilon" });
-    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'direction', 'chan-direction')").run(team.id);
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'AI通知', 'chan-AI通知')").run(team.id);
     const send = vi.fn(async () => undefined);
     const guild = makeGuild({ send });
 
@@ -128,7 +128,7 @@ describe("postTeamAuditCard", () => {
       { kind: "created", eventId: "created-1", teamId: team.id, name: team.name, slug: team.slug, ts: 1 },
     );
 
-    expect(guild.channels.fetch).toHaveBeenCalledWith("chan-direction");
+    expect(guild.channels.fetch).toHaveBeenCalledWith("chan-AI通知");
     expect(send).toHaveBeenCalledOnce();
     db.close();
   });

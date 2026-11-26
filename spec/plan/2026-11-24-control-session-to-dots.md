@@ -15,7 +15,7 @@ updated: 2026-11-24
 
 # Cc v5 — 依頼窓口と管制カード
 
-Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。Cc のメジャーバージョン 5 (`package.json` 3.0.0 → 5.0.0)、Gen5 ワークフローの中核。
+Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。Cc の公開版は `package.json` 3.0.0 → 3.1.0 (マイナー。neco 2026-11-24「3.1.xでたのむ」、4.0.0 は MUSA 系を組み込んだ後)。「Cc v5」は Gen5 ワークフローの中核となる世代名。
 
 ## 経緯
 
@@ -140,7 +140,7 @@ Actio `5075ba3e-56f7-4f53-a732-af3fda910879`。Cc のメジャーバージョン
 8. **Cc 内の管制セッション本体を止める**: `createControlSupervisor` に `isBodyEnabled()` を足し、新設定 `session.control_session_body_enabled` (既定 false) が false の間は singleton の起動と停止要約の送信をせず、保持者がいれば終了案内を送って保持者だけ消す (ボード・巡回の追加指示・片付け・毎時まとめ・管制チャンネルは今のまま動かす)。
 9. **雑務の受付停止**: `src/discord/chores.ts` の窓口・フォーラムからの新規受付をやめ (既存 run の配達・OK / Continue は残す)、窓口チャンネルは `src/discord/desk.ts` が引き継いで「依頼窓口」へ改名する。依頼ごとのスレッドは窓口の投稿から `message.startThread` で作る (雑務課フォーラムは過去の雑務の表示用に残す)。Web `POST /v1/chores` は 410 `chores_retired_use_desk` を返し、`/chores` 画面は `/desk` へ案内する。
 10. **設定の追加** (`src/config/settings/definitions/`): `desk.enabled` (boolean、既定 true)、`desk.department_id` (string、既定空)、`control_cards.dots_triage_enabled` (boolean、既定 true)、`session.control_session_body_enabled` (boolean、既定 false)。
-11. **版**: `package.json` の version を `5.0.0` に。
+11. **版**: `package.json` の version を `3.1.0` に (Revisor のマイナー Release)。
 12. **面の分担** (2026-11-24 neco 指示 (原文)「軽い依頼も重い依頼も全て一つの窓口でやれるようにする。カードやタスク状況、スプリント状況の管理はWebWIでやり、各セッションの細かい指示はDiscordでやる」):
     - 依頼は軽重を問わず依頼窓口 1 つで受ける (雑務のワンショットを別口で残さない。軽い依頼も通常のセッションとして起動し、セッションが短く済ませる)。
     - **管理は WebUI**: `/control` にカード・Actio タスク・動いているセッションに加えて **スプリント状況** の欄を置く。スプリントの正本は Actio で、Cc は `src/sprint-dialogues/` の投影 (dialogueKey=`actio:<teamId>:<sprintId>`、フェーズ・closed・タスク) を持つので、それを読み取り専用で出す (Cc から Actio へ書かない)。カードの捌きの変更 (優先度・担当者・催促・済み) も Web で行う。

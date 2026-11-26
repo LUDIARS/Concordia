@@ -137,6 +137,8 @@ CC-TEAM-NOTICE-01。Cc がリポジトリ別の署名を検証した GitHub イ�
 
 ## 3. チームルール (二層)
 
+CC-TEAM-ROLE-01 (UX-CC-W1/W2)。チーム管理者が settings.discord_role_names に設定した名前に限り、所属会社の Discord に割当なし・権限なし・メンション不可の通常ロールを作れる。同じ名前が既に存在すれば再確認し、権限付き・管理対象・同名複数との衝突は停止する。ロールの割当や権限変更、既存ロールの削除はこの操作に含めない。設定を外せば以後の作成を停止する。
+
 PrivateUnityProject (Unity・private・別 org・Revisor push ルール別) を成立させる分解:
 
 ### 3.1 A 層 — typed settings (機械で強制)

@@ -8,6 +8,7 @@ import {
   type GuildForumTagData,
 } from "discord.js";
 import { SESSION_STATE_TAG_NAMES } from "./config.js";
+import { ensureTeamRoles, TeamRoleNames } from "./team-role-setup.js";
 import { DISCUSSIONS } from "./team-discussion.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
@@ -75,6 +76,9 @@ export async function ensureTeamDiscordLayout(input: {
       ON CONFLICT(team_id, surface) DO UPDATE SET channel_id = excluded.channel_id
     `).run(input.teamId, surface, channel.id);
   }
+  const row = input.db.prepare("SELECT settings_json FROM teams WHERE id=?").get(input.teamId) as { settings_json: string } | undefined;
+  const names = TeamRoleNames.optional().parse(JSON.parse(row?.settings_json ?? "{}").discord_role_names);
+  if (names?.length) await ensureTeamRoles(input.guild, names);
 }
 
 async function resolveCategory(input: {

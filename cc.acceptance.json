@@ -1,9 +1,11 @@
 {
   "version": 1,
   "implementations": [
+    { "source": "src/discord/team-role-setup.ts", "tests": ["src/discord/team-role-setup.test.ts"], "contracts": [] },
+    { "source": "src/discord/team-provision.ts", "tests": ["src/discord/team-provision.test.ts","src/discord/team-role-setup.test.ts"], "contracts": [] },
+    { "source": "src/api/teams.ts", "tests": ["src/api/teams.test.ts","src/discord/team-role-setup.test.ts"], "contracts": [] },
     {"source":"src/discord/team-discussion.ts","tests":["src/discord/team-discussion.test.ts"],"contracts":[]},
     {"source":"src/discord/team-discussion-history.ts","tests":["src/discord/team-discussion.test.ts"],"contracts":[]},
-    {"source":"src/discord/team-provision.ts","tests":["src/discord/team-provision.test.ts"],"contracts":[]},
     {"source":"src/discord/team-audit-card.ts","tests":["src/discord/team-audit-card.test.ts"],"contracts":[]},
     {"source":"src/shared/team-card-routing.ts","tests":["src/discord/team-card-routing.test.ts"],"contracts":[]},
     {"source":"src/shared/team-cards.ts","tests":["src/discord/team-card-routing.test.ts"],"contracts":[]},

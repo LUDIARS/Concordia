@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
+import { TeamRoleNames } from "../discord/team-role-setup.js";
 import type { TeamMetrics, TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
@@ -22,6 +23,7 @@ const RetiredVibesDefaultsSchema = z.object({
 }).strict();
 
 const SettingsSchema = z.object({
+  discord_role_names: TeamRoleNames.optional(),
   revisor_lane: z.enum(["local", "github"]).optional(),
   pr_rules: PrRulesSchema.optional(),
   test_policy: z.enum(["confirm-queue", "custos-unity"]).optional(),

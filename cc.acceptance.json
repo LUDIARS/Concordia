@@ -6273,6 +6273,7 @@
     { "source": "src/api/register-core.ts", "tests": ["src/api/github.test.ts", "src/glab-unity-hub/adapters/adapters.test.ts"], "contracts": ["guh-C-8"] },
     { "source": "src/modules/manifest.ts", "tests": ["src/modules/resolve.test.ts"], "contracts": [] },
     { "source": "src/config/settings/definitions/glab-unity-hub.ts", "tests": ["src/config/settings/coverage.test.ts", "src/config/settings/registry.test.ts"], "contracts": [] },
-    { "source": "src/config/settings/definitions/index.ts", "tests": ["src/config/settings/coverage.test.ts", "src/config/settings/registry.test.ts"], "contracts": [] }
+    { "source": "src/config/settings/definitions/index.ts", "tests": ["src/config/settings/coverage.test.ts", "src/config/settings/registry.test.ts"], "contracts": [] },
+    { "source": "src/delegation/coordination.ts", "tests": ["src/delegation/coordination.test.ts"], "contracts": [] }
   ]
 }

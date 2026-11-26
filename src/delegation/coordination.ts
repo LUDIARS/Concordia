@@ -24,14 +24,36 @@ export function resolveDelegationRunIdForSession(input: {
   return input.pendingRunId?.trim() || null;
 }
 
+/**
+ * partial の報告を受けて実際に何が起きたか。親は通知の題名で「続きが動いているか」を判断するので、
+ * 題名は実際の扱いに合わせる (2026-11-26: 待ちだけが残った partial にも「continuation scheduled」と
+ * 出し、続きの run が無いまま親が待ち続けた。run fc22e4dd・d505e27a)。
+ */
+export type PartialContinuation =
+  | { kind: "requeued"; runId: string | null }
+  | { kind: "in-session" }
+  | { kind: "wait-only" };
+
+function partialTitle(continuation: PartialContinuation | undefined): string {
+  if (!continuation) return "Delegation partial";
+  if (continuation.kind === "requeued") {
+    return continuation.runId
+      ? `Delegation partial — continuation scheduled (run ${continuation.runId})`
+      : "Delegation partial — continuation scheduled";
+  }
+  if (continuation.kind === "in-session") return "Delegation partial — continuing in the same session";
+  return "Delegation partial — no continuation scheduled (only waits remain; run closed)";
+}
+
 export function buildDelegationStatusNotification(
   run: Pick<DelegationRunRow, "id" | "call_name" | "child_session_id">,
   payload: DelegationStatusPayload,
+  continuation?: PartialContinuation,
 ): string {
   const title = payload.status === "completed"
     ? "Delegation completed"
     : payload.status === "partial"
-      ? "Delegation partial — continuation scheduled"
+      ? partialTitle(continuation)
     : payload.status === "failed"
       ? "Delegation failed"
       : "Delegation running";

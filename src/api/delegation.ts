@@ -1113,7 +1113,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       const text = buildDelegationStatusNotification(updated, {
         ...parsed.data,
         status: notifiedStatus({ partialFailure: !!partialFailureError, workPartial: isPartial, waitOnlyPartial, persisted: persistedStatus }),
-      });
+      }, waitOnlyPartial
+        ? { kind: "wait-only" }
+        : isPartial
+          ? (continuation === "in-session" ? { kind: "in-session" } : { kind: "requeued", runId: requeuedRun?.id ?? null })
+          : undefined);
       deps.sessions?.appendEvent({
         session_id: updated.parent_session_id,
         ts: nowSec(),

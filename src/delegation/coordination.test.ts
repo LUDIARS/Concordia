@@ -28,6 +28,19 @@ describe("delegation coordination pure helpers", () => {
     expect(text).toContain("result: PR ready");
   });
 
+  it("titles a partial report by what actually happened to the remaining work", () => {
+    const run = { id: "run-1", call_name: "opus", child_session_id: "child-1" };
+    const partial = { status: "partial" as const, remaining: [{ title: "審査環境でのテスト実行" }] };
+    expect(buildDelegationStatusNotification(run, partial, { kind: "requeued", runId: "run-2" }))
+      .toContain("Delegation partial — continuation scheduled (run run-2): opus");
+    expect(buildDelegationStatusNotification(run, partial, { kind: "in-session" }))
+      .toContain("Delegation partial — continuing in the same session: opus");
+    const waitOnly = buildDelegationStatusNotification(run, partial, { kind: "wait-only" });
+    expect(waitOnly).toContain("no continuation scheduled");
+    expect(waitOnly).not.toContain("— continuation scheduled");
+    expect(buildDelegationStatusNotification(run, partial)).toContain("Delegation partial: opus");
+  });
+
   it("relays a child question to the parent with answer instructions", () => {
     const text = buildDelegationQuestionRelayText({
       runId: "run-1",

@@ -65,6 +65,7 @@ execution ledger remains a reference/association index, not a second authority.
   old/import null compatibility, explicit claim/release and stale-release denial,
   preserved metadata, scope rejection, and surfaced remote failures. Rollback
   leaves these optional fields in Actio; no historical backfill or live migration.
+- 回帰検査（Actio `actio:b83d93f2-145b-41f1-9b10-38a2bc3df0d3`）では、同じ未割当状態を前提とする二つの担当変更のうち一方だけが成功し、成功した担当が Actio と Cc の台帳に一致して残ることを確認する。PATCH が失敗した場合は、同じタスクで再試行が成功するまで台帳を更新しない。
 
 Approved by neco on 2026-09-26: 「実装とテストを進める」 after design confirmation.
 Implementation and regression tests are authorized; service restart is not.

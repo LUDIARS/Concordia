@@ -81,4 +81,6 @@ Gen5 の現在工程は受付担当が回答先頭の `Gen5工程: <工程名>` 
 
 ## テスト
 
+- Actio `actio:b83d93f2-145b-41f1-9b10-38a2bc3df0d3`（2026-11-26、Revisor #4194 の全件テストで配達順の検査が失敗）。受付待ちの二件が枠を保持し、先行依頼の終了観測で三件目が配達されることを、注入した時計と dispatcher の処理完了を使って確認する。同じ時刻に処理可能な依頼はすべて処理してから配達を検査する。
+
 `src/desk/desk.test.ts` (受付の冪等・結果不明の照合・起動期限・コスト上限中の待ち)、`src/api/desk.test.ts`、`src/discord/desk.test.ts`、`web/src/pages/Desk.test.tsx`。

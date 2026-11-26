@@ -7,6 +7,8 @@ import { DeskRepository } from "./repository.js";
 import { DeskRoutingDispatcher, type DeskRoutingPorts } from "./routing-dispatcher.js";
 import { canOfferDeskRequest, currentProjectControl, resolveDeskProject, type ProjectControlSession } from "./routing-policy.js";
 import { DeskService } from "./service.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:4cbdfaf5 */
+import augurContract_a3b2cc89 from './routing-capacity-test.contract.js'; /* augur-inject:contract-predicate:fe68a44a */
 
 const project = { code: "Cc", name: "Concordia", repoPath: "/repos/Concordia" };
 const otherProject = { code: "At", name: "Actio", repoPath: "/repos/Actio" };
@@ -63,7 +65,19 @@ function setup(options: { launch?: DeskRoutingPorts["launch"] } = {}) {
     dispatcher.tick();
     await dispatcher.settle();
   };
-  return { repo, service, createTask, delegate, deliver, launch, sessions, submit, tick, tasks, runs,
+  const drainDue = async () => {
+    for (let count = 0; repo.dueForRouting(now()); count++) {
+      if (count === 20) throw new Error("Desk routing did not settle");
+      await tick();
+    }
+  };
+  const advanceToRetry = (requestId: string) => {
+    const retryAt = repo.find(requestId)?.retry_at;
+    if (retryAt === undefined) throw new Error(`Missing retry time for Desk request ${requestId}`);
+    time = Math.max(time, retryAt);
+  };
+  return { repo, service, createTask, delegate, deliver, launch, sessions, submit, tick, tasks, runs, drainDue,
+    advanceToRetry,
     register(id: string, idle = true) {
       const session = { id, idle, spawnId: repo.projectLaunch(project.code)?.spawn_id ?? null };
       controllers.add(id);
@@ -72,6 +86,31 @@ function setup(options: { launch?: DeskRoutingPorts["launch"] } = {}) {
     },
   };
 }
+
+export async function observeDeskCapacity(h: ReturnType<typeof setup>) {
+  const first = h.submit("[Cc] 先");
+  await h.tick();
+  h.register("control");
+  h.advanceToRetry(first);
+  await h.drainDue();
+  const second = h.submit("[Cc] 次", "web:abcdefgh2");
+  await h.drainDue();
+  const third = h.submit("[Cc] 後", "web:abcdefgh3");
+  await h.drainDue();
+
+  const deliveries = () => h.deliver.mock.calls.map((call) => call[1] as string);
+  const beforeCompletion = deliveries();
+  const thirdDelivery = h.repo.find(third)?.delivery;
+  h.tasks.get(h.repo.find(first)!.task_reference!)!.runtime!.status = "done";
+  h.advanceToRetry(first);
+  await h.drainDue();
+  h.advanceToRetry(third);
+  await h.drainDue();
+  return { requestIds: [first, second, third], beforeCompletion, thirdDelivery,
+    firstState: h.repo.find(first)?.state, afterCompletion: deliveries() };
+}
+// @ts-expect-error augur-inject
+observeDeskCapacity = contract(observeDeskCapacity, { ...augurContract_a3b2cc89, contractId: 'desk-capacity-test-C-103', mode: 'observe', sample: 1, where: 'src/desk/routing.test.ts:88', rule: 'contract-wrap', id: 'a3b2cc89' }); /* augur-inject:contract-wrap:a3b2cc89 */
 
 describe("Actio 依頼のルーティング", () => {
   it("最新予約の管制だけを使い、重複登録は確定しない", () => {
@@ -159,27 +198,11 @@ describe("Actio 依頼のルーティング", () => {
   });
 
   it("受付待ちの 2 件が枠を保持し、完了後に次の依頼を届ける", async () => {
-    const h = setup();
-    const first = h.submit("[Cc] 先");
-    await h.tick();
-    h.register("control");
-    await h.tick(10_000);
-    await h.tick();
-    await h.tick();
-    const second = h.submit("[Cc] 次", "web:abcdefgh2");
-    await h.tick();
-    await h.tick();
-    const third = h.submit("[Cc] 後", "web:abcdefgh3");
-    await h.tick();
-    await h.tick();
-    expect(h.deliver.mock.calls.map((call) => call[1])).toEqual([first, second]);
-    expect(h.repo.find(third)?.delivery).toBe("waiting");
-    h.tasks.get("actio:task-1")!.runtime!.status = "done";
-    await h.tick(60_000);
-    await h.tick();
-    await h.tick();
-    await h.tick(10_000);
-    expect(h.deliver.mock.calls.map((call) => call[1])).toEqual([first, second, third]);
+    const observed = await observeDeskCapacity(setup());
+    expect(observed.beforeCompletion).toEqual(observed.requestIds.slice(0, 2));
+    expect(observed.thirdDelivery).toBe("waiting");
+    expect(observed.firstState).toBe("finished");
+    expect(observed.afterCompletion).toEqual(observed.requestIds);
   });
 
   it("終了した子の失敗を 1 回だけ再委託する", async () => {

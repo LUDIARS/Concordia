@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActioOverviewCache } from "./actio-overview-cache.js";
 import type { TaskOverviewScan } from "./store.js";
 import type { TaskDocument } from "./types.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:a1c9a7c9 */
+import augurContract_690472e9 from './overview-refresh-test.contract.js'; /* augur-inject:contract-predicate:f9581be9 */
 
 function row(id: string, title = id): TaskDocument {
   return { path: `actio:${id}`, repoPath: "/workspace/cc", body: "", title,
@@ -14,6 +16,13 @@ function postponedRead() {
   const promise = new Promise<TaskOverviewScan>((resolve) => { finish = resolve; });
   return { load: vi.fn(() => promise), finish };
 }
+
+export async function readSettledOverview(cache: ActioOverviewCache, load: () => Promise<TaskOverviewScan>): Promise<TaskOverviewScan> {
+  await vi.advanceTimersByTimeAsync(0);
+  return cache.read(null, load);
+}
+// @ts-expect-error augur-inject
+readSettledOverview = contract(readSettledOverview, { ...augurContract_690472e9, contractId: 'actio-overview-test-C-104', mode: 'observe', sample: 1, where: 'src/taskflow/actio-overview-cache.test.ts:18', rule: 'contract-wrap', id: '690472e9' }); /* augur-inject:contract-wrap:690472e9 */
 
 afterEach(() => vi.useRealTimers());
 
@@ -41,6 +50,7 @@ describe("Actio overview cache", () => {
   });
 
   it("retains the previous complete snapshot and time through partial reads and timeouts", async () => {
+    vi.useFakeTimers();
     let now = 0;
     const cache = new ActioOverviewCache(() => now);
     const load = vi.fn<() => Promise<TaskOverviewScan>>()
@@ -53,22 +63,26 @@ describe("Actio overview cache", () => {
 
     now += 30_000;
     expect((await cache.read(null, load)).freshness).toMatchObject({ stale: true, refreshing: true });
-    expect(await cache.read(null, load)).toMatchObject({
+    expect(await readSettledOverview(cache, load)).toMatchObject({
       documents: [row("original")],
-      freshness: { fetched_at: first.freshness?.fetched_at, stale: true, refresh_error: "actio_unreachable" },
+      freshness: { fetched_at: first.freshness?.fetched_at, stale: true, refreshing: false, refresh_error: "actio_unreachable" },
     });
 
     now += 5_000;
     await cache.read(null, load);
-    expect(await cache.read(null, load)).toMatchObject({
-      documents: [row("original")], freshness: { refresh_error: "actio_read_timeout" },
+    expect(await readSettledOverview(cache, load)).toMatchObject({
+      documents: [row("original")],
+      freshness: { fetched_at: first.freshness?.fetched_at, stale: true, refreshing: false, refresh_error: "actio_read_timeout" },
     });
     now += 5_000;
     await cache.read(null, load);
-    expect(await cache.read(null, load)).toMatchObject({ documents: [], freshness: { stale: false, refresh_error: null } });
+    expect(await readSettledOverview(cache, load)).toMatchObject({
+      documents: [], freshness: { stale: false, refreshing: false, refresh_error: null },
+    });
   });
 
   it("keeps a confirmed write visible while an older refresh finishes", async () => {
+    vi.useFakeTimers();
     let now = 0;
     const cache = new ActioOverviewCache(() => now);
     const original = row("task");
@@ -83,22 +97,26 @@ describe("Actio overview cache", () => {
       documents: [updated, row("created")], freshness: { fetched_at: first.freshness?.fetched_at, stale: true },
     });
     stale.finish({ documents: [original] });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(0);
     const next = postponedRead();
     expect((await cache.read(null, next.load)).documents).toEqual([updated, row("created")]);
     expect(next.load).toHaveBeenCalledTimes(1);
     next.finish({ documents: [updated, row("created")] });
+    expect(await readSettledOverview(cache, next.load)).toMatchObject({
+      documents: [updated, row("created")], freshness: { refreshing: false },
+    });
   });
 
   it("withdraws cached rows when Actio reports an ownership failure", async () => {
+    vi.useFakeTimers();
     let now = 0;
     const cache = new ActioOverviewCache(() => now);
     await cache.read(null, async () => ({ documents: [row("previously-visible")] }));
     now += 30_000;
     const deny = async () => { throw new Error("Actio task ownership mismatch"); };
     await cache.read(null, deny);
-    expect(await cache.read(null, deny)).toMatchObject({
-      documents: [], freshness: { fetched_at: null, refresh_error: "actio_scope_denied" },
+    expect(await readSettledOverview(cache, deny)).toMatchObject({
+      documents: [], freshness: { fetched_at: null, refreshing: false, refresh_error: "actio_scope_denied" },
     });
   });
 });

@@ -159,7 +159,7 @@ describe("TaskflowStateStore", () => {
       INSERT INTO taskflow_task_state(
         repo_path, task_path, task_slug, status, memoria_registration_state, updated_at
       ) VALUES (?, ?, ?, 'pending', 'idle', ?)
-    `).run("e:/repo", "spec/tasks/task-2.md", second.frontmatter.task, Date.now());
+    `).run("e:/repo", "spec/tasks/task-2.md", second.frontmatter.task, 1);
     store.claimMemoriaCreation(first);
     store.recordMemoriaTaskId(first, 1);
 

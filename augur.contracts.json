@@ -3,6 +3,9 @@
   "contractsDir": "src/harness/reliability/contracts",
   "importFrom": "./ontime-runtime.js",
   "contracts": [
+    { "id": "desk-capacity-test-C-103", "criterion": "C-103 observeDeskCapacity(h): 受付待ちの二件で枠を保持し、先行依頼の完了を観測してから三件目を配達する", "symbol": "observeDeskCapacity", "file": "src/desk/routing.test.ts", "module": "src/desk/routing-capacity-test.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "actio-overview-test-C-104", "criterion": "C-104 readSettledOverview(cache, load): 更新の完了後に一覧を読み、更新中の状態を返さない", "symbol": "readSettledOverview", "file": "src/taskflow/actio-overview-cache.test.ts", "module": "src/taskflow/overview-refresh-test.contract.ts", "mode": "observe", "sample": 1 },
+    { "id": "actio-handover-test-C-105", "criterion": "C-105 raceHandovers(store): 同じ未割当タスクへの二つの担当変更のうち一つだけが成功する", "symbol": "raceHandovers", "file": "src/taskflow/task-session-flow.test.ts", "module": "src/taskflow/handover-race-test.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "federation-shutdown-C-101", "criterion": "C-101 acceptsFederationFrames(closing, readyState): 終了開始後や閉じかけのソケットからのフレームを処理しない", "symbol": "acceptsFederationFrames", "file": "src/federation/hq-listener.ts", "module": "src/federation/hq-listener-shutdown.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "line-relay-test-C-102", "criterion": "C-102 relayToLineTestUpstream(input, upstream): ルートが組み立てたヘッダと本文を記録してからサービスの結果を返す", "symbol": "relayToLineTestUpstream", "file": "tests/helpers/line-webhook-upstream.ts", "module": "tests/helpers/line-webhook-upstream.contract.ts", "mode": "observe", "sample": 1 },
     { "id": "control-card-action-C-1", "criterion": "C-1 normalizeHumanAction(value): 入力を伏字とメンション無効化済みの80文字以内の一行にする", "symbol": "normalizeHumanAction", "file": "src/control-cards/human-action.ts", "module": "src/control-cards/human-action.contract.ts", "mode": "observe", "sample": 1 },

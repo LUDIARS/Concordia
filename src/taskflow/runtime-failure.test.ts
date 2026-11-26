@@ -28,12 +28,20 @@ function fixture() {
   } as unknown as TaskflowRuntimeDeps);
   const events: ConcordiaEvent[] = [];
   const stopEvents = eventBus.subscribe((event) => events.push(event));
+  let stopWaiting: (() => void) | undefined;
+  const nextEvent = (matches: (event: ConcordiaEvent) => boolean) => new Promise<ConcordiaEvent>((resolve) => {
+    stopWaiting = eventBus.subscribe((event) => {
+      if (!matches(event)) return;
+      stopWaiting?.();
+      resolve(event);
+    });
+  });
   const handle = runtime.start();
   const decide = vi.spyOn(CompletionBlackbox.prototype, "decide")
     .mockResolvedValue({ verdict: "completed", decisionId: 1 });
-  return { row, sessions, revisor, store, events, decide,
+  return { row, sessions, revisor, store, events, decide, nextEvent,
     fire: () => eventBus.emit({ type: "session.event", session_id: row.id, kind: "final_answer", ts: 1 }),
-    close: () => { handle.stop(); stopEvents(); decide.mockRestore(); },
+    close: () => { handle.stop(); stopEvents(); stopWaiting?.(); decide.mockRestore(); },
   };
 }
 
@@ -41,8 +49,9 @@ describe("interactive completion failure boundary", () => {
   it("passes the Revisor reader into goal evaluation and recognizes an existing local PR", async () => {
     const f = fixture();
     try {
+      const checked = f.nextEvent((event) => event.type === "taskflow.residual_checked" && event.session_id === f.row.id);
       f.fire();
-      await vi.waitFor(() => expect(f.events.some((event) => event.type === "taskflow.residual_checked")).toBe(true));
+      await checked;
       expect(f.revisor.listLocalPrs).toHaveBeenCalledTimes(2);
       expect(f.events.filter((event) => event.type === "taskflow.user_decision")).toEqual([]);
     } finally { f.close(); }
@@ -52,8 +61,9 @@ describe("interactive completion failure boundary", () => {
     const f = fixture();
     try {
       f.revisor.listLocalPrs.mockRejectedValue(new Error("secret-token response"));
+      const notified = f.nextEvent((event) => event.type === "taskflow.user_decision" && event.target_session_id === f.row.id);
       f.fire();
-      await vi.waitFor(() => expect(f.events.some((event) => event.type === "taskflow.user_decision")).toBe(true));
+      await notified;
       expect(f.decide).not.toHaveBeenCalled();
       expect(f.store.findForProject).not.toHaveBeenCalled();
       const notices = f.events.filter((event) => event.type === "taskflow.user_decision");
@@ -71,9 +81,9 @@ describe("interactive completion failure boundary", () => {
     const f = fixture();
     try {
       f.decide.mockRejectedValue(new Error("database secret-token"));
+      const notified = f.nextEvent((event) => event.type === "taskflow.user_decision" && event.target_session_id === f.row.id);
       f.fire();
-      await vi.waitFor(() => expect(f.events.some((event) => event.type === "taskflow.user_decision")).toBe(true));
-      const notice = f.events.find((event) => event.type === "taskflow.user_decision");
+      const notice = await notified;
       expect(notice).toMatchObject({ text: expect.stringContaining("taskflow_internal_error") });
       expect(JSON.stringify(notice)).not.toContain("secret-token");
       expect(f.store.findForProject).not.toHaveBeenCalled();
@@ -97,8 +107,9 @@ describe("interactive completion failure boundary", () => {
     try {
       f.row.metadata = JSON.stringify({ human_response_confirmation: true });
       f.revisor.listLocalPrs.mockRejectedValue(new Error('private response token=secret-value'));
+      const recorded = f.nextEvent((event) => event.type === "session.event" && event.session_id === f.row.id && event.kind === "taskflow.failure");
       eventBus.emit({ type: 'session.inject', target_session_id: f.row.id, source: 'revisor', text: 'review complete', ts: 1 });
-      await vi.waitFor(() => expect(JSON.parse(f.row.metadata).taskflow_last_failure).toBeDefined());
+      await recorded;
       expect(JSON.parse(f.row.metadata).taskflow_last_failure).toMatchObject({
         version: 1, operation: 'revisor-notice', reason: 'revisor_lookup_unavailable', status: 503,
       });

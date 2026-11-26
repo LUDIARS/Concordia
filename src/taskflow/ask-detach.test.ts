@@ -65,7 +65,7 @@ describe("startAskDetachWatch", () => {
     vi.useFakeTimers();
     const { sessions, questions, runs, service, run } = setup(makeRun());
     const question = questions.insert({ session_id: "child-1", question: "どちらにしますか?", options: ["A", "B"] });
-    // 質問 ts は実時間 (秒)。 scan 側の now を detachSec より先へ進めて経過超過にする。
+    // 質問の保存時刻を基準に、scan の時計を切り離し時刻まで進める。
     const nowSec = () => question.ts + 1800;
     const watch = startAskDetachWatch({
       sessions,
@@ -115,7 +115,7 @@ describe("startAskDetachWatch", () => {
     }
   });
 
-  it("回答が来たら worktree / branch / runtime を継承した新 run で再開する", async () => {
+  it("回答が来たら worktree / branch / runtime を継承した新 run で再開する", () => {
     const run = makeRun({
       status: "blocked",
       error: "awaiting_question:7",
@@ -140,7 +140,7 @@ describe("startAskDetachWatch", () => {
         answer_text: "B 案で進めて",
         ts: 100,
       });
-      await vi.waitFor(() => expect(service.invoke).toHaveBeenCalledOnce());
+      expect(service.invoke).toHaveBeenCalledOnce();
       const input = service.invoke.mock.calls[0]![0]!;
       expect(input.call_name).toBe("claude-impl");
       expect(input.args).toEqual({ task: "do the thing" });
@@ -158,7 +158,7 @@ describe("startAskDetachWatch", () => {
     }
   });
 
-  it("別の質問への回答では再開しない", async () => {
+  it("別の質問への回答では再開しない", () => {
     const run = makeRun({ status: "blocked", error: "awaiting_question:7" });
     const { sessions, questions, runs, service } = setup(run);
     const watch = startAskDetachWatch({
@@ -178,14 +178,13 @@ describe("startAskDetachWatch", () => {
         answer_text: "違う質問",
         ts: 100,
       });
-      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(service.invoke).not.toHaveBeenCalled();
     } finally {
       watch.stop();
     }
   });
 
-  it("worktree が無い run は spawn_cwd へフォールバックして再開する", async () => {
+  it("worktree が無い run は spawn_cwd へフォールバックして再開する", () => {
     const run = makeRun({
       status: "blocked",
       error: "awaiting_question:7",
@@ -209,7 +208,7 @@ describe("startAskDetachWatch", () => {
         answer_text: "OK",
         ts: 100,
       });
-      await vi.waitFor(() => expect(service.invoke).toHaveBeenCalledOnce());
+      expect(service.invoke).toHaveBeenCalledOnce();
       const input = service.invoke.mock.calls[0]![0]!;
       expect(input.cwd).toBe("E:/repo");
     } finally {

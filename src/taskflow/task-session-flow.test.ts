@@ -15,6 +15,8 @@ import type { TaskCreateInput } from "./store.js";
 import { TaskflowRuntime } from "./runtime.js";
 import type { ConfirmIntakeDeps } from "../release/confirm-intake.js";
 import { eventBus } from "../events.js";
+import { contract } from './ontime-runtime.js'; /* augur-inject:import:ff2af5ac */
+import augurContract_80dba593 from './handover-race-test.contract.js'; /* augur-inject:contract-predicate:7f36907e */
 
 const REPO = "E:/Document/Ars/Concordia";
 const databases: ReturnType<typeof makeTestDb>[] = [];
@@ -28,10 +30,14 @@ function fixture() {
     repo_origin: null, branch: "main", host: "h", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null,
   });
   let task: Record<string, unknown> | null = null;
+  const beforePatch = vi.fn<() => void>();
   const request = vi.fn(async (_binding: unknown, method: string, path: string, body?: Record<string, unknown>) => {
     if (method === "GET" && path.startsWith("/api/tasks?")) return { tasks: task ? [structuredClone(task)] : [] };
     if (method === "POST") task = { id: "t1", createdAt: "2026-09-26T00:00:00Z", ownerId: "local-owner", teamId: null, ...body };
-    if (method === "PATCH") task = { ...task, ...body };
+    if (method === "PATCH") {
+      beforePatch();
+      task = { ...task, ...body };
+    }
     return { task: structuredClone(task) };
   });
   const binding = { repoPath: REPO, project: "Concordia", projectId: "Cc", ownerId: "local-owner", tokenEnv: "TOKEN", teamId: null, subsidiaryId: null };
@@ -44,9 +50,17 @@ function fixture() {
   });
   const patch = (body: Record<string, unknown>) => app.request("/tasks/state", { method: "PATCH",
     headers: { "content-type": "application/json" }, body: JSON.stringify({ repo_path: REPO, task_path: "actio:t1", ...body }) });
-  return { db, app, store, state, sessions, delegation, request, create, patch,
+  return { db, app, store, state, sessions, delegation, request, beforePatch, create, patch,
     task: () => task!, replace: (value: Record<string, unknown>) => { task = value; } };
 }
+
+const handoverWorkers = ["worker", "successor"] as const;
+
+export async function raceHandovers(store: ActioTaskStore): Promise<PromiseSettledResult<void>[]> {
+  return Promise.allSettled(handoverWorkers.map((worker) => store.setWorkingSession(REPO, "actio:t1", worker, null, null)));
+}
+// @ts-expect-error augur-inject
+raceHandovers = contract(raceHandovers, { ...augurContract_80dba593, contractId: 'actio-handover-test-C-105', mode: 'observe', sample: 1, where: 'src/taskflow/task-session-flow.test.ts:57', rule: 'contract-wrap', id: '80dba593' }); /* augur-inject:contract-wrap:80dba593 */
 
 describe("task session provenance across API and Actio", () => {
   it("records issuer, assigns another worker, hands over and rejects the old worker's release", async () => {
@@ -106,16 +120,24 @@ describe("task session provenance across API and Actio", () => {
 
   it("serializes simultaneous handovers and leaves failed remote writes out of the local ledger", async () => {
     const f = fixture(); await f.create();
-    const outcomes = await Promise.allSettled([
-      f.store.setWorkingSession(REPO, "actio:t1", "worker", null, null),
-      f.store.setWorkingSession(REPO, "actio:t1", "successor", null, null),
-    ]);
-    expect(outcomes.map(x => x.status)).toEqual(["fulfilled", "rejected"]);
-    f.request.mockRejectedValueOnce(new Error("Actio task request outcome unknown; reconcile using the same task identity"));
-    await expect(f.store.setWorkingSession(REPO, "actio:t1", "successor", null, "worker")).rejects.toThrow("outcome unknown");
-    expect(f.state.find({ repoPath: REPO, taskPath: "actio:t1" })?.source_session).toBe("worker");
-    await f.store.setWorkingSession(REPO, "actio:t1", "successor", null, "worker");
-    expect(f.state.find({ repoPath: REPO, taskPath: "actio:t1" })?.source_session).toBe("successor");
+    const outcomes = await raceHandovers(f.store);
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const won = outcomes[0]?.status === "fulfilled" ? 0 : 1;
+    const winner = handoverWorkers[won];
+    const next = handoverWorkers[1 - won]!;
+    expect(outcomes[1 - won]).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: "Task working session changed" }) });
+    expect(f.beforePatch).toHaveBeenCalledOnce();
+    expect(f.task().pluginPayload).toMatchObject({ working_session_id: winner });
+
+    const localWorker = () => f.state.find({ repoPath: REPO, taskPath: "actio:t1" })?.source_session;
+    expect(localWorker()).toBe(winner);
+    f.beforePatch.mockImplementationOnce(() => { throw new Error("Actio task request outcome unknown"); });
+    await expect(f.store.setWorkingSession(REPO, "actio:t1", next, null, winner)).rejects.toThrow("outcome unknown");
+    expect(f.beforePatch).toHaveBeenCalledTimes(2);
+    expect(localWorker()).toBe(winner);
+    await f.store.setWorkingSession(REPO, "actio:t1", next, null, winner);
+    expect(f.task().pluginPayload).toMatchObject({ working_session_id: next });
+    expect(localWorker()).toBe(next);
   });
 
   it("assigns the registered delegation child rather than its issuing parent, and releases on end", async () => {
@@ -139,7 +161,9 @@ describe("task session provenance across API and Actio", () => {
     const handle = runtime.start();
     try {
       eventBus.emit({ type: "session.ended", session_id: "worker", ts: 123 });
-      await vi.waitFor(() => expect(f.task().pluginPayload).toMatchObject({ issued_by_session_id: "issuer", working_session_id: null }));
+      expect(release).toHaveBeenCalledExactlyOnceWith("worker");
+      await release.mock.results[0]!.value;
+      expect(f.task().pluginPayload).toMatchObject({ issued_by_session_id: "issuer", working_session_id: null });
     } finally { handle.stop(); }
     eventBus.emit({ type: "session.ended", session_id: "worker", ts: 124 });
     expect(release).toHaveBeenCalledTimes(1);

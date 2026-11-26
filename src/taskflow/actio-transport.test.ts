@@ -11,6 +11,7 @@ const BINDING: ActioBinding = {
 };
 
 const RUNNING = { name: "actio", state: "running", port: 5175 };
+const fixedNow = () => 1_000;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -138,7 +139,7 @@ describe("ActioTransport", () => {
     const fetchImpl = vi.fn(async (url: string) => (url.endsWith("/api/health/live")
       ? json({ status: "ok", service: "actio" }) : json({ id: "owner-1" })));
     const log = vi.fn();
-    const transport = new ActioTransport({ findService } as never, () => "token", fetchImpl as never, 10_000, Date.now, log);
+    const transport = new ActioTransport({ findService } as never, () => "token", fetchImpl as never, 10_000, fixedNow, log);
     await transport.request(BINDING, "GET", "/api/tasks");
     await expect(transport.request(BINDING, "GET", "/api/tasks")).resolves.toEqual({ id: "owner-1" });
     expect(fetchImpl.mock.calls.map(([url]) => url)).toContain("http://127.0.0.1:5175/api/health/live");
@@ -152,7 +153,7 @@ describe("ActioTransport", () => {
       .mockResolvedValue({ name: "actio", state: "stopped" });
     const fetchImpl = vi.fn(async (url: string) => (url.endsWith("/api/health/live")
       ? json({ status: "ok", service: "actio" }) : json({ id: "owner-1" })));
-    const transport = new ActioTransport({ findService } as never, () => "token", fetchImpl as never, 10_000, Date.now, vi.fn());
+    const transport = new ActioTransport({ findService } as never, () => "token", fetchImpl as never, 10_000, fixedNow, vi.fn());
     await transport.request(BINDING, "GET", "/api/tasks");
     await transport.request(BINDING, "GET", "/api/tasks");
     expect(fetchImpl.mock.calls.at(-1)?.[0]).toMatch(/^http:\/\/127\.0\.0\.1:5175\/api\/tasks$/);
@@ -161,7 +162,7 @@ describe("ActioTransport", () => {
   it("stays unavailable when the catalog disagrees and nothing answers as Actio", async () => {
     const fetchImpl = vi.fn(async () => json({ status: "ok", service: "other" }));
     const log = vi.fn();
-    const transport = new ActioTransport(catalog({ ...RUNNING, state: "stopped" }), () => "token", fetchImpl as never, 10_000, Date.now, log);
+    const transport = new ActioTransport(catalog({ ...RUNNING, state: "stopped" }), () => "token", fetchImpl as never, 10_000, fixedNow, log);
     await expect(transport.request(BINDING, "GET", "/api/tasks")).rejects.toThrow("Actio task service unavailable");
     expect(log).toHaveBeenCalledWith(expect.stringContaining("no live Actio endpoint"));
   });

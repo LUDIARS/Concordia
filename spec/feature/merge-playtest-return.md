@@ -28,6 +28,7 @@ Muse に同じコミットの試遊を依頼できる。Revisor が PR の採否
   同じマージを複数の連携が観測した場合もスキップを記録する。保存が中断された受付は次の観測で再試行する。
   保存済みの遮断・無効・設定不備はその観測の終端。途中で停止したビルドは Conflux の既存の失敗記録で照合する。
   各記録の `build_mode` は `conflux` (ビルド依頼あり)、`agent` (エージェントが自分でビルド)、`null` (払い出し無し) を示す。
+  各記録には CC-RET-INV-06 の読み取り投影 (`instruction_state` / `instruction_finished_at` / `relay`) も付く。
 - CC-RET-INV-05 値の `build` は省略可の真偽値で、既定 `true` は CC-RET-INV-01/03 のとおり Conflux ビルドを依頼する。
   `build: false` のプロジェクトは Conflux ビルドを依頼せず、Conflux Flow 有効化とビルドランナー設定も要求しない。
   帰還受付と Muse の `playtest` 指令だけを同じトランザクションで保存し、CC-RET-INV-02 の一度だけの払い出し・遮断確認・dedupe は維持する。
@@ -38,6 +39,16 @@ Muse に同じコミットの試遊を依頼できる。Revisor が PR の採否
   `src/conflux/merge-return-instruction.ts` (指令本文)、`src/conflux/merge-return-repository.ts` (`build_mode` 判定)。
   契約 `gen5-return-C-4` の述語は `src/conflux/merge-return-instruction.contract.ts` に置く。
   Amicii (`Ai`) は Muse が iMac で GitHub から取得してビルドするため `build: false` で有効化する (neco 2026-11-23、Actio `4ce26882`)。
+
+- CC-RET-INV-06 管制 API の帰還記録は、台帳の `status` (受付の判断) を書き換えずに、所有者の記録から読んだ進み具合を並べて返す
+  (Actio `ecaed900-33ce-4ce6-b85b-67fb771f5454`)。`queued` は受付済みを表すだけで、試遊の完了を表さない。
+  - `build_status` は Conflux のビルド記録の状態 (`build_mode: conflux` のときだけ。`agent` / `null` では `null`)。
+  - `instruction_state` は `instruction_id` の指令の状態を `waiting` (pending)・`running` (acked)・`done`・`failed` に写す。
+    指令を読めない・未知の状態は `unknown`、指令を払い出していない記録は `null`。`instruction_finished_at` は done / failed のときだけ。
+  - `relay` は done の指令に中継台帳の行があるときだけ `{ voluptas_state, announce_state }` を返す。
+  - 指令の本文・params・result の要約と詳細、中継のエラー文と Voluptas の ID は投影しない (新たな公開をしない)。
+  実装: `src/conflux/merge-return-progress.ts` (投影)、`src/conflux/runtime.ts` (`recentMergeReturns`)、
+  `src/bootstrap/core.ts` (中継状態の接続)。契約 `gen5-return-C-5` の述語は `src/conflux/merge-return-progress.contract.ts` に置く。
 
 - 再試遊の指令 (type `playtest`) に Muse が `done` で返す result に `detail.review` があれば、Cc が Voluptas へ保存して
   本社の宛先へ告知する ([AI プレイテスト感想の投稿](playtest-review-notify.md) の「Muse の結果の中継」、形は

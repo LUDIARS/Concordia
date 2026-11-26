@@ -2782,7 +2782,7 @@ export async function startBackend(): Promise<BackendHandle> {
     meetingLinks: new MeetingLinkStore(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
-    controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: conflux.recentMergeReturns, sessionProgress: v5.sessionProgress },
+    controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: () => conflux.recentMergeReturns((id) => musePlaytestRelay.viewOf(id)), sessionProgress: v5.sessionProgress },
     desk: v5.deskApi,
     controlCards: v5.cardsApi,
     actioChat: {

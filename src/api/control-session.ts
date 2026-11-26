@@ -15,7 +15,7 @@ import type { ControlBoardRowWithLink } from "../control-session/session-link.js
 import type { ControlHolder } from "../control-session/holder-store.js";
 import type { DispatchResult, InstructionOrigin } from "../control-session/instruction-dispatch.js";
 import type { ExternalBridgeReader } from "../control-session/external-bridge-status.js";
-import type { MergeReturnRecord } from "../conflux/merge-return-repository.js";
+import type { MergeReturnView } from "../conflux/merge-return-progress.js";
 import type { SessionWithProgress } from "../control-session/session-progress-view.js";
 
 const InstructionSchema = z.object({
@@ -30,7 +30,7 @@ export interface ControlSessionApiDeps {
   currentControlSessionId(): string | null;
   boardRows(): ControlBoardRowWithLink[];
   externalBridges?: ExternalBridgeReader;
-  mergeReturns?: () => (MergeReturnRecord & { build_status: string | null })[];
+  mergeReturns?: () => MergeReturnView[];
   /** ボードの行 + プランと進捗 (Cc v5 実装メモ 13)。無ければ /sessions は 404。 */
   sessionProgress?: () => Promise<SessionWithProgress[]>;
   dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult>;

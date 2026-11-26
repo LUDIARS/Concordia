@@ -10,7 +10,8 @@ import { readConfluxConfig } from "./config.js";
 import { confluxIdentity } from "./identity.js";
 import { confluxProject, createConfluxLaunch } from "./launch.js";
 import { createMergeObserver } from "./merge-observer.js";
-import { MergeReturnRepository, mergeReturnBuildMode } from "./merge-return-repository.js";
+import { projectMergeReturn, type MergeReturnProgressLookups } from "./merge-return-progress.js";
+import { MergeReturnRepository } from "./merge-return-repository.js";
 import { MergeReturnService } from "./merge-return-service.js";
 import { ConfluxRepository } from "./repository.js";
 import { ConfluxRequests } from "./requests.js";
@@ -25,7 +26,7 @@ export function createConfluxRuntime(deps: Omit<LaunchDeps, "destinations"> & {
   revisor: Pick<RevisorClient, "getLocalPrDetail" | "listMergedLocalPrFactsSince">;
   projects: Pick<ProjectCodesRepo, "findByCode" | "findByRepoOrigin" | "list">;
   breaker: () => { status: "OPEN" | "CLOSED"; reason: string | null };
-  instructions: Pick<InstructionService, "register">;
+  instructions: Pick<InstructionService, "register" | "get">;
   publicHost?: string;
 }) {
   const log = createChildLogger("conflux-integration");
@@ -79,10 +80,11 @@ export function createConfluxRuntime(deps: Omit<LaunchDeps, "destinations"> & {
         (id) => id === "hq" || deps.subsidiaries.find(id)?.enabled === 1),
     },
     hookEvidence: () => ({ configured: config.hook !== null, ...repo.hookEvidence() }),
-    recentMergeReturns: () => mergeReturnRepo.recent().map((record) => ({
-      ...record,
-      build_mode: mergeReturnBuildMode(record),
-      build_status: record.build_key ? repo.buildStatus(record.build_key) : null,
+    /** Read-only control view: intake + build + linked instruction (+ relay when given). */
+    recentMergeReturns: (relay?: MergeReturnProgressLookups["relay"]) => mergeReturnRepo.recent().map((record) => projectMergeReturn(record, {
+      buildStatus: (key) => repo.buildStatus(key),
+      instruction: (id) => deps.instructions.get(id),
+      relay,
     })),
     stop: worker.stop,
   };

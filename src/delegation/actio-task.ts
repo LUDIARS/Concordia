@@ -1,6 +1,7 @@
 import type { TaskStore } from "../taskflow/store.js";
 import type { TaskDocument } from "../taskflow/types.js";
 import type { DelegationDefinition, InvokeInput } from "./contracts.js";
+import { ACTIO_CONTENT_FETCH_RULE } from "./actio-content-fetch-rule.js";
 import { substituteVars } from "./prompt.js";
 import { deriveTaskTitle } from "./task-title.js";
 import { resolveWorkUnit } from "./work-key.js";
@@ -51,7 +52,8 @@ export async function sealDelegationTask(input: {
   const prompt = [
     `Actio タスク参照: ${task.path}`,
     "自分の session_id を使い、GET /v1/taskflow/tasks/content?session_id=<自分>&reference=" + task.path + " から本文を取得して実装してください。",
-    "取得できなければ停止して報告してください。本文をファイルや PR へ自動転記しないでください。",
+    ACTIO_CONTENT_FETCH_RULE,
+    "本文をファイルや PR へ自動転記しないでください。",
   ].join("\n");
   store.associate?.(task, input.runId, null);
   try {

@@ -16,6 +16,7 @@
  */
 
 import { injectSlot, renderCapturedInject } from "../control/inject-template-values.js";
+import { ACTIO_CONTENT_FETCH_RULE } from "./actio-content-fetch-rule.js";
 
 import {
   ASK_MARKER_RULE,
@@ -105,7 +106,7 @@ function implementationTemplate(input: ImplementationInjectInput, values: Record
   ];
   const taskLines = [input.taskReference ? "### Actio タスク" : "### Memoria タスク", ""];
   if (input.taskReference) {
-    taskLines.push(`- reference: ${input.taskReference}`, "- 本文は Actio から必要時に取得する。取得できなければ停止する。");
+    taskLines.push(`- reference: ${input.taskReference}`, `- 本文は Actio から必要時に取得する。${ACTIO_CONTENT_FETCH_RULE}`);
   } else if (input.memoria) {
     taskLines.push(`- id: ${input.memoria.id}`, `- link: ${input.memoria.url}`);
   } else {

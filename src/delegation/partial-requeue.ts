@@ -60,6 +60,24 @@ function parseArgs(raw: string): Record<string, unknown> {
   } catch { return {}; }
 }
 
+/**
+ * Arguments for the continuation run.
+ *
+ * A run whose content was sealed into Actio stores only `target_repo` and
+ * `taskflow_reference` (delegation/actio-task.ts), while the template still
+ * requires `task`. Re-invoking with the stored args then fails as "invalid args".
+ * The continuation text becomes `task` so the template validates and the sealing
+ * appends it to the same Actio task.
+ */
+export function continuationArgs(
+  stored: Record<string, unknown>,
+  continuation: string,
+): { args: Record<string, unknown>; extraPrompt: string | undefined } {
+  const sealed = typeof stored.taskflow_reference === "string" && typeof stored.task !== "string";
+  if (!sealed) return { args: stored, extraPrompt: continuation };
+  return { args: { ...stored, task: continuation }, extraPrompt: undefined };
+}
+
 export async function requeuePartialRun(input: {
   run: DelegationRunRow;
   remaining: readonly RemainingWork[];
@@ -75,9 +93,16 @@ export async function requeuePartialRun(input: {
     item.scope_dirs?.length ? `   scope_dirs: ${item.scope_dirs.join(", ")}` : "",
   ].filter(Boolean).join("\n")).join("\n");
   const cwd = input.run.spawn_worktree_path ?? input.run.spawn_cwd ?? undefined;
+  const continuation = [
+    `前 run ${input.run.id} の残作業を引き継いだワンショット実行です。`,
+    "以下を完了し、完了後は status API で報告してください。",
+    remainingText,
+    input.resolvedAnswers,
+  ].filter(Boolean).join("\n\n");
+  const { args, extraPrompt } = continuationArgs(parseArgs(input.run.args_json), continuation);
   return input.service.invoke({
     call_name: input.run.call_name,
-    args: parseArgs(input.run.args_json),
+    args,
     cwd,
     branch: input.run.spawn_branch ?? undefined,
     // 既存 worktree を引き継ぐ。新規 worktree を同じ branch に作ろうとしない。
@@ -85,11 +110,6 @@ export async function requeuePartialRun(input: {
     parent_session_id: input.run.parent_session_id,
     triggered_by: `partial-requeue:${input.run.id}`,
     ...inheritDelegationRuntime(input.run),
-    extra_prompt: [
-      `前 run ${input.run.id} の残作業を引き継いだワンショット実行です。`,
-      "以下を完了し、完了後は status API で報告してください。",
-      remainingText,
-      input.resolvedAnswers,
-    ].filter(Boolean).join("\n\n"),
+    extra_prompt: extraPrompt,
   });
 }

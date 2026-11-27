@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { initializeNotifications } from "./receipt-notification.js";
 import { initializeThreadMaterials, queueThreadMaterials } from "./thread-materials.js";
 import type { assess } from "./article-analysis.js";
 export type Report = Awaited<ReturnType<typeof assess>>;
@@ -9,6 +10,7 @@ export interface Article {
     state: string;
 }
 export function initializeLedger(db: Database) {
+    initializeNotifications(db);
     initializeThreadMaterials(db);
     db.exec(`CREATE TABLE IF NOT EXISTS knowledge_flow_jobs (
     article_id INTEGER PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, task_ref TEXT, repo TEXT, attempts INTEGER DEFAULT 0,
@@ -17,9 +19,6 @@ export function initializeLedger(db: Database) {
     CREATE TABLE IF NOT EXISTS knowledge_flow_decisions (
       id INTEGER PRIMARY KEY, article_id INTEGER NOT NULL, action TEXT NOT NULL, document TEXT NOT NULL, actor TEXT NOT NULL,
       decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS knowledge_flow_notifications (
-      id TEXT PRIMARY KEY, channel TEXT NOT NULL, thread TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
-      retry_after INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS knowledge_flow_documents (
       article_id INTEGER NOT NULL, kind TEXT NOT NULL, markdown TEXT NOT NULL, PRIMARY KEY(article_id,kind));
   `);

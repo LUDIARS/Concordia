@@ -39,6 +39,7 @@
     {"source":"src/taskflow/actio-task-client.ts","tests":["src/taskflow/actio-task-client.test.ts"],"contracts":[]},
     {"source":"src/knowledge-flow/slack-article.ts","tests":["src/knowledge-flow/slack-receipt.test.ts"],"contracts":[]},
     {"source":"src/knowledge-flow/slack-receipt.ts","tests":["src/knowledge-flow/slack-receipt.test.ts"],"contracts":[]},
+    {"source":"src/knowledge-flow/receipt-notification.ts","tests":["src/knowledge-flow/slack-receipt.test.ts","src/knowledge-flow/discord-channel.test.ts"],"contracts":[]},
     {"source":"src/discord/message-attachments.ts","tests":["src/discord/message-attachments.test.ts","src/discord/team-discussion.test.ts","src/discord/test-forum-message.test.ts"],"contracts":[]},
     {"source":"src/discord/team-attachment-reader.ts","tests":["src/discord/team-attachment-reader.test.ts"],"contracts":[]},
     {"source":"src/discord/team-attachment-fetcher.ts","tests":["src/discord/team-attachment-fetcher.test.ts"],"contracts":[]},

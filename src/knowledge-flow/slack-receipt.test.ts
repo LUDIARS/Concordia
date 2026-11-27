@@ -15,6 +15,9 @@ it("stores only allowed links, preserves parent and distinguishes redelivery fro
         expect(db.prepare("SELECT url FROM knowledge_flow_articles ORDER BY id").all()).toEqual([
             { url: "https://example.org/a" }, { url: "https://example.org/b" }
         ]);
+        expect(db.prepare("SELECT id,thread FROM knowledge_flow_notifications ORDER BY rowid").all()).toEqual([
+            {id:"receipt-1",thread:"1"}, {id:"duplicate-2",thread:"1"}, {id:"receipt-3",thread:"1"}
+        ]);
         expect(db.prepare("SELECT duplicate,thread_ts FROM knowledge_flow_receipts ORDER BY event_id").all()).toEqual([
             { duplicate: 0, thread_ts: "1" }, { duplicate: 1, thread_ts: "1" }, { duplicate: 0, thread_ts: "1" }
         ]);

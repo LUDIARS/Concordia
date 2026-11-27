@@ -52,6 +52,8 @@ it("accepts the management command only from a guild manager and routes results 
     flow.receive(message("https://example.org"));
     notifyArticle(db,1,"review");
     await vi.advanceTimersByTimeAsync(2500);
+    expect(send).toHaveBeenCalledWith({content:"記事 #1 を受け付けました。ナレッジとして取り込みます。",allowedMentions:{parse:[]}});
+    await vi.advanceTimersByTimeAsync(2000);
     expect(send).toHaveBeenCalledWith({content:"review",allowedMentions:{parse:[]}});
     expect(slack).not.toHaveBeenCalled();expect(other).not.toHaveBeenCalled();
   }finally{await Promise.all([stopDiscord(),stopOther(),stopSlack()]);vi.useRealTimers();db.close();}

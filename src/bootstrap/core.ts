@@ -798,7 +798,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 記事マップの要約・まとめは既存の one-shot runner (haiku、 tools 無効・会話専用)。
     runner: (prompt, opts) => runClaude(prompt, opts),
-    // Notion の取得 (MCP 経路): 利用者の claude.ai Notion コネクタの読み取りツールだけを許した claude -p。 トークンは使わない。
+    // Canalis checks first; preserve the authenticated route for pages it cannot read publicly.
     notionRunner: (prompt, opts) => runClaude(prompt, opts),
     mergedPrs: (sinceMs) => revisorClient.listMergedLocalPrsSince(sinceMs),
     confidentialTerms: () => loadConfidentialTerms(process.env.CONCORDIA_CONFIDENTIAL_TERMS_FILE?.trim()

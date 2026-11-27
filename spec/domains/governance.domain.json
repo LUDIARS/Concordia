@@ -5,6 +5,12 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)scripts/bootstrap(\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/patch-canalis-notion(\\.test)?\\.mjs$"
+    },
+    {
       "pathPattern": "(^|/)src/control/push-warning-dispatch(?:\\.test)?\\.ts$"
     },
     {
@@ -79,6 +85,7 @@
   ],
   "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
   "specRefs": [
+    "spec/setup/notion-canalis.md",
     "spec/feature/planning-adjustment.md",
     "spec/feature/approval-inbox.md",
     "spec/feature/danger-command-approval.md",

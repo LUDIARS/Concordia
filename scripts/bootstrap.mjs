@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const vestigiumDirectory = join(root, "lib", "vestigium");
+const canalisDirectory = join(root, "lib", "canalis");
 const packageDirectories = [root, join(root, "web")];
 const npmCiArgs = ["ci", "--include=dev"];
 const command = process.platform === "win32" ? process.env.ComSpec ?? "cmd.exe" : "npm";
@@ -54,6 +55,11 @@ try {
   initializeSubmodules();
   buildVestigium();
   installWorkspacePackages();
+  // Only production reader dependencies: omit Kuzu/Vitest/esbuild development tools and all install hooks.
+  runNpm(["ci", "--omit=dev", "--ignore-scripts"], canalisDirectory);
+  // Reuse the workspace compiler; compile only the reader boundary of the pinned library.
+  runNpm(["exec", "--", "tsc", "-p", "tsconfig.canalis.json"], root);
+  execFileSync(process.execPath, [join(root, "scripts", "patch-canalis-notion.mjs")], { cwd: root, stdio: "inherit" });
   process.stdout.write("[bootstrap] Concordia is ready for build, test, and lint.\n");
 } catch (error) {
   const detail = error instanceof Error ? error.message : String(error);

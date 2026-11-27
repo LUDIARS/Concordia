@@ -24,6 +24,8 @@ export interface FetchedNotionPage {
   lastEditedMs: number | null;
   /** 本文 (テキスト、 上限バイト以下)。 */
   text: string;
+  /** Versioned fingerprint of the full rendered body, before excerpt clipping. */
+  contentFingerprint?: string;
   /** 子ページ (子データベースの行を含む)。 */
   children: NotionPageRef[];
   /** 本文中の他ページへの参照 (link_to_page・mention・リンク)。 */
@@ -44,6 +46,10 @@ export interface NotionFetchLimits {
 }
 
 export interface NotionPageSource {
+  /** A failed full-text check must not replace a root with an incomplete traversal. */
+  preserveRootOnFailure?: boolean;
+  /** Release browser resources after a collection, including failure paths. */
+  close?(): Promise<void>;
   /** 1 ページを取る。 見つからない・共有されていないページは null。 経路が使えなければ NotionSourceUnavailable。 */
   fetchPage(ref: NotionPageRef, limits: NotionFetchLimits): Promise<FetchedNotionPage | null>;
 }

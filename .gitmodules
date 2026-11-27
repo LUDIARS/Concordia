@@ -4,3 +4,6 @@
 [submodule "lib/lapilli"]
 	path = lib/lapilli
 	url = https://github.com/LUDIARS/Lapilli.git
+[submodule "lib/canalis"]
+	path = lib/canalis
+	url = https://github.com/LUDIARS/Canalis.git

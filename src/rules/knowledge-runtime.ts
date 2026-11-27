@@ -24,10 +24,9 @@ import { buildConsultNotionMapContext } from "./notion-map-consult.js";
 import { createNotionMapCollector } from "./notion-map-crawl.js";
 import { excludeWords, parseRoots } from "./notion-map-rules.js";
 import { NOTION_MAP_DEFAULT_LIMITS, type NotionMapLimits } from "./notion-map-types.js";
+import { createCanalisNotionSource } from "./notion-source-canalis.js";
 import { createMcpNotionSource, type NotionToolRunner } from "./notion-source-mcp.js";
-import { createPublicNotionSource } from "./notion-source-public.js";
-import { createRoutedNotionSource } from "./notion-source-route.js";
-import { NotionSourceUnavailable, type NotionPageSource } from "./notion-source-types.js";
+import type { NotionPageSource } from "./notion-source-types.js";
 import type { OneShotRunner } from "./render-patrol.js";
 
 /** /rules の「知識」に出す Notion の起点ごとの状態 (秘密値は含まない)。 */
@@ -111,12 +110,10 @@ export function buildKnowledgeRuntime(deps: {
   notionLimits?: () => Partial<NotionMapLimits>;
   /** 要約・まとめを作る one-shot runner (haiku)。 未注入なら解析しない (題・本文の断片だけ)。 */
   runner?: OneShotRunner | null;
-  /** Notion の読み取りツールだけを許した claude -p (MCP 経路)。 未注入なら MCP 経路は「未設定」。 */
+  /** Existing authenticated retrieval, used only when Canalis cannot read public content. */
   notionRunner?: NotionToolRunner | null;
-  /** Notion のページの取得経路の差し替え (テスト用)。 未注入なら公開ページのクロール → MCP。 */
+  /** Notion reader injection for tests. Production always checks with Canalis first. */
   notionSource?: NotionPageSource | null;
-  /** 公開ページのクロールの fetch。 */
-  fetchImpl?: typeof fetch;
   nowMs?: () => number;
   log?: { warn: (msg: string) => void };
 }): KnowledgeRuntime {
@@ -126,12 +123,9 @@ export function buildKnowledgeRuntime(deps: {
   const nowMs = deps.nowMs ?? (() => Date.now());
   const roots = () => parseRoots(deps.notionRoots?.() ?? null);
   const rootIds = () => roots().map((r) => r.id);
-  const unavailableMcp: NotionPageSource = {
-    fetchPage: async () => { throw new NotionSourceUnavailable("notion connector runner is not wired"); },
-  };
-  const source = deps.notionSource ?? createRoutedNotionSource({
-    public: createPublicNotionSource(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
-    mcp: deps.notionRunner ? createMcpNotionSource({ runner: deps.notionRunner }) : unavailableMcp,
+  const source = deps.notionSource ?? createCanalisNotionSource({
+    ...(deps.notionRunner ? { fallback: createMcpNotionSource({ runner: deps.notionRunner }) } : {}),
+    ...(deps.log ? { log: deps.log } : {}),
   });
   const limits = (): NotionMapLimits => {
     const set = deps.notionLimits?.() ?? {};

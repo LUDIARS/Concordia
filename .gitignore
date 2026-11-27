@@ -92,6 +92,7 @@ review/*
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
 /lib/*
+!/lib/canalis
 !/lib/aop-metrics/
 !/lib/aop-metrics/**
 /plugins/

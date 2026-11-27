@@ -23,6 +23,7 @@ afterEach(() => { for (const db of open.splice(0)) db.close(); });
 const id = (n: number) => n.toString(16).padStart(32, "0");
 
 interface FakePage {
+  fingerprint?: string;
   title: string;
   edited?: number | null;
   text: string;
@@ -42,6 +43,7 @@ function fakeSource(pages: Record<number, FakePage>, opts: { unavailable?: boole
       const p = pages[n];
       if (!p || opts.missing?.has(n)) return null;
       const page: FetchedNotionPage = {
+        contentFingerprint: p.fingerprint,
         id: ref.id, title: p.title, url: `https://www.notion.so/example-${ref.id}`, lastEditedMs: p.edited === undefined ? 1000 : p.edited,
         text: p.text, children: (p.children ?? []).map((c) => ({ id: id(c.n), url: null, title: c.title ?? null })),
         links: (p.links ?? []).map(id), via: "mcp",
@@ -81,6 +83,30 @@ function lessonPages(): Record<number, FakePage> {
 }
 
 describe("notion map crawl", () => {
+  it("preserves unchanged full-text summaries even on manual refresh and detects edits outside excerpts", async () => {
+    const pages = { 1: { title: "Lesson", text: "same excerpt", fingerprint: "canalis-v1:before" } };
+    const h = harness(pages);
+    expect((await h.run()).docs).toHaveLength(1);
+    expect((await h.run(true)).docs).toHaveLength(0);
+    pages[1].fingerprint = "canalis-v1:after";
+    expect((await h.run()).docs).toHaveLength(1);
+  });
+
+  it("closes the reader and retains the old root when full-text checking a child fails", async () => {
+    const h = harness(lessonPages());
+    await h.run();
+    const old = h.repo.pages();
+    h.fake.source.preserveRootOnFailure = true;
+    h.fake.source.close = vi.fn(async () => undefined);
+    const fetch = h.fake.source.fetchPage;
+    h.fake.source.fetchPage = async (ref, limits) => {
+      if (ref.id === id(2)) throw new Error("render failed");
+      return fetch(ref, limits);
+    };
+    await expect(h.run()).rejects.toThrow(/all notion map roots failed/);
+    expect(h.repo.pages()).toEqual(old);
+    expect(h.fake.source.close).toHaveBeenCalledOnce();
+  });
   it("stops only Notion as not configured when the MCP connector is unavailable", async () => {
     const h = harness(lessonPages(), { unavailable: true });
     expect(await h.collector({ cursor: null, full: false })).toEqual({ notConfigured: "notion connector unavailable: not authenticated" });
@@ -251,12 +277,13 @@ describe("notion map in the knowledge runtime", () => {
     expect(runtime.notionRoots()).toMatchObject([{ root_id: id(1), title: "例の授業資料", pages: 4, excluded: 0 }]);
   });
 
-  it("reports Notion as not configured when no MCP runner is wired and the page is not public", async () => {
+  it("reports an unavailable Canalis reader without starting a real browser or Claude", async () => {
     const db = new Database(":memory:");
     open.push(db);
     applyMigrations(db);
     const runtime = buildKnowledgeRuntime({
       db, projects: () => [], publicProjects: () => [], confidentialTerms: async () => [], notionRoots: () => [id(1)],
+      notionSource: { fetchPage: async () => { throw new NotionSourceUnavailable("Canalis not configured"); } },
     });
     expect(await runtime.ingest.refresh(["notion"])).toMatchObject([{ kind: "notion", status: "not-configured" }]);
   });

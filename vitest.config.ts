@@ -12,6 +12,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       "lib/lapilli/**",
+      "lib/canalis/**",
       "lib/aop-metrics/src/**/*.test.ts",
       "lib/blackbox/src/**/*.test.ts",
       // node:test で書かれ、.augur/tests.jsonl で `node --test` (runner=command) として登録されているもの。

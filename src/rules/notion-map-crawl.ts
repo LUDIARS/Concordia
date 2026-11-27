@@ -106,7 +106,7 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
         // 起点のページが取れないときは起点ごと止める (MCP が使えないならクロール全体を止める)。
         // 配下の 1 ページの失敗は「使えない」と答えたときも含めてそのページだけを飛ばす
         // (同じ起点で読めていたのに LLM がツールを呼ばずに unavailable と答えて全体が止まった実例がある)
-        if (item.depth === 0) throw err;
+        if (item.depth === 0 || deps.source.preserveRootOnFailure) throw err;
         failedPages += 1;
         deps.log?.warn(`notion map: page ${item.ref.id} under root ${root.id} failed: ${redactReason((err as Error).message || String(err), [])}`);
         continue;
@@ -121,10 +121,11 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
         continue;
       }
       if (item.depth === 0) rootTitle = page.title;
-      const hash = contentHash(page.text);
+      const hash = page.contentFingerprint ?? contentHash(page.text);
       const prior = deps.repo.page(page.id);
-      const changed = opts.full || !prior || prior.path !== path
-        || (page.lastEditedMs !== null ? prior.last_edited_ms !== page.lastEditedMs : prior.content_hash !== hash);
+      const changed = (opts.full && page.contentFingerprint === undefined) || !prior || prior.path !== path
+        || (page.contentFingerprint !== undefined ? prior.content_hash !== hash
+          : page.lastEditedMs !== null ? prior.last_edited_ms !== page.lastEditedMs : prior.content_hash !== hash);
       for (const child of page.children) edges.push({ from: page.id, to: child.id, kind: "child" });
       for (const to of page.links) edges.push({ from: page.id, to, kind: "link" });
       if (changed) {
@@ -208,5 +209,9 @@ export function createNotionMapCollector(deps: NotionMapCrawlDeps): KnowledgeCol
     };
   };
 
-  return Object.assign(collect, { lastReport: () => report });
+  const collectAndClose: KnowledgeCollector = async (options) => {
+    try { return await collect(options); }
+    finally { await deps.source.close?.(); }
+  };
+  return Object.assign(collectAndClose, { lastReport: () => report });
 }

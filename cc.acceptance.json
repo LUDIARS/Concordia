@@ -1,6 +1,12 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"scripts/bootstrap.mjs","tests":["scripts/bootstrap.test.mjs"],"contracts":["CC-NOTION-FULLTEXT-01"]},
+    {"source":"scripts/patch-canalis-notion.mjs","tests":["scripts/patch-canalis-notion.test.mjs"],"contracts":["CC-NOTION-FULLTEXT-01"]},
+    {"source":"src/rules/notion-source-canalis.ts","tests":["src/rules/notion-source-canalis.test.ts"],"contracts":["CC-NOTION-FULLTEXT-01"]},
+    {"source":"src/rules/notion-map-crawl.ts","tests":["src/rules/notion-map-crawl.test.ts"],"contracts":["CC-NOTION-FULLTEXT-01"]},
+    {"source":"src/rules/knowledge-runtime.ts","tests":["src/rules/notion-map-crawl.test.ts"],"contracts":["CC-NOTION-FULLTEXT-01"]},
+    {"source":"src/rules/notion-source-types.ts","tests":["src/rules/notion-source-canalis.test.ts","src/rules/notion-map-crawl.test.ts"],"contracts":["CC-NOTION-FULLTEXT-01"]},
     {"source":"src/knowledge-flow/watched-channels.ts","tests":["src/knowledge-flow/discord-channel.test.ts"],"contracts":[]},
     {"source":"src/discord/knowledge-flow.ts","tests":["src/knowledge-flow/discord-channel.test.ts"],"contracts":[]},
     {"source":"src/api/knowledge-channels.ts","tests":["src/knowledge-flow/discord-channel.test.ts"],"contracts":[]},

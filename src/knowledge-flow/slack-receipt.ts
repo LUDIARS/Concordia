@@ -1,9 +1,9 @@
 import type { Database } from "better-sqlite3";
 import { articleSubmission, type ArticleEvent } from "./slack-article.js";
 // A receipt owns the message-to-article association, independently of worker availability.
-export function createArticleInbox(db: Database, scopes: readonly string[]) {
+export function createArticleInbox(db: Database, scopes: readonly string[], watches?: (team: string, channel: string) => boolean) {
     const allowed = new Set(scopes);
-    if (allowed.size)
+    if (allowed.size || watches)
         db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_flow_articles (
       id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, state TEXT NOT NULL DEFAULT 'open',
@@ -23,12 +23,14 @@ export function createArticleInbox(db: Database, scopes: readonly string[]) {
             const article = db.prepare("SELECT id FROM knowledge_flow_articles WHERE url=?").get(url) as {
                 id: number;
             };
+            // A Discord partial update may not include the previous text.
+            if (event.subtype === "message_changed" && db.prepare("SELECT 1 FROM knowledge_flow_receipts WHERE team=? AND channel=? AND message_ts=? AND article_id=?").get(team,channel,submission.ts,article.id)) continue;
             db.prepare(`INSERT INTO knowledge_flow_receipts(team,channel,event_id,message_ts,thread_ts,article_id,duplicate)
         VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`).run(team, channel, id, submission.ts, submission.thread, article.id, Number(!result.changes));
         }
     });
     return (team: string | undefined, eventId: string | undefined, event: ArticleEvent, bot: string | null): void => {
-        if (!team || !event.channel || !allowed.has(team + "/" + event.channel))
+        if (!team || !event.channel || !(allowed.has(team + "/" + event.channel) || watches?.(team,event.channel)))
             return;
         if (!eventId)
             throw new Error("Missing Slack event identity");

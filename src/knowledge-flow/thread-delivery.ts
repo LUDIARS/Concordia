@@ -1,8 +1,10 @@
 import type { Database } from "better-sqlite3";
-export function startThreadDelivery(db: Database, send: (channel: string, thread: string, text: string, id: string) => Promise<void>, warn: (message: string) => void) {
+export function startThreadDelivery(db: Database, send: (channel: string, thread: string, text: string, id: string) => Promise<void>, warn: (message: string) => void, discordGuild?: string) {
     let active: Promise<void> | undefined;
     async function deliver() {
-        const row = db.prepare("SELECT * FROM knowledge_flow_notifications WHERE state='pending' AND retry_after<=unixepoch() ORDER BY rowid LIMIT 1").get() as {
+        const route = discordGuild ? "channel LIKE ?" : "channel NOT LIKE ?";
+        const prefix = discordGuild ? "discord:" + discordGuild + ":%" : "discord:%";
+        const row = db.prepare("SELECT * FROM knowledge_flow_notifications WHERE state='pending' AND retry_after<=unixepoch() AND "+route+" ORDER BY rowid LIMIT 1").get(prefix) as {
             id: string;
             channel: string;
             thread: string;
@@ -21,7 +23,10 @@ export function startThreadDelivery(db: Database, send: (channel: string, thread
                     error?: string;
                 };
             }).data?.error;
-            const state = code && ["channel_not_found", "not_in_channel", "missing_scope", "is_archived"].includes(code) ? "failed" : code ? "pending" : "unknown";
+            const discordError = discordGuild ? (error as {status?:number}).status : undefined;
+            const state = discordError === 429 ? "pending"
+                : discordError && discordError >= 400 && discordError < 500 ? "failed"
+                : code && ["channel_not_found", "not_in_channel", "missing_scope", "is_archived"].includes(code) ? "failed" : code ? "pending" : "unknown";
             db.prepare("UPDATE knowledge_flow_notifications SET state=?,retry_after=unixepoch()+60 WHERE id=?").run(state, row.id);
             return;
         }

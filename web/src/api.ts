@@ -829,6 +829,8 @@ export interface UsageBudgetDiscordRoleGuild {
 }
 
 export const api = {
+  knowledgeChannels: () => get<{channels:{platform:string;team:string;channel:string}[]}>("/v1/admin/knowledge-channels"),
+  knowledgeChannelSet: (target:string,enabled:boolean) => post<{channels:{platform:string;team:string;channel:string}[]}>("/v1/admin/knowledge-channels",{target,enabled}),
   allSettings: () => get<{ sections: SettingsSectionPayload[] }>("/v1/admin/settings"),
   updateSettings: putSettings,
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),

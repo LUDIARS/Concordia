@@ -40,6 +40,7 @@ import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-clie
 import { detachFromCategory, ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
+import { discordArticleFlow } from "./knowledge-flow.js";
 import { DirectorRepo } from "../director/repo.js";
 import { renderCaseStatusCard } from "../director/step-card.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
@@ -1272,7 +1273,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     timer.unref?.();
     backgroundTimers.add(timer);
   };
+  let stopArticleDelivery: (() => Promise<void>) | undefined;
   const clearRuntimeTimers = async (): Promise<void> => {
+    const deliveryStopped = stopArticleDelivery?.();
+    stopArticleDelivery = undefined;
     const discussionStopped = teamDiscussionFacilitation?.stop();
     choresDiscord?.stopChores();
     choresDiscord = null;
@@ -1313,6 +1317,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (reactionListenerTimer) { clearInterval(reactionListenerTimer); reactionListenerTimer = null; }
     if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
     await discussionStopped;
+    await deliveryStopped;
   };
   const stopAfterGatewayInstability = (status: string, error: string): void => {
     if (gatewayClosed || stopping) return;
@@ -2005,10 +2010,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     })
       .catch(() => log.warn(`project work post failed for message ${message.id}`));
   };
+  const articles = discordArticleFlow(deps.db,client,env.guildId);
   const onMessageCreate = instrumentDiscord("messageCreate", (msg) => {
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
+    if (/^ナレッジ監視\s+(登録|解除)(?:\s|$)/.test(msg.content ?? "")) {
+      void articles.command(msg).catch(error => log.warn("Article channel command failed: "+String(error)));
+      return;
+    }
+    try { articles.receive(msg); } catch (error) { log.warn("Discord article receipt failed: "+String(error)); }
     companyPinSharing.pinNotice(msg);
     forwardWorkPost(msg);
     // サービスへ中継する指定チャンネル (spec/feature/discord-chat-relay.md)。 受け持った発言は他の ingress へ回さない。
@@ -2199,11 +2210,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   clientListenerCleanup.push(() => client.off(Events.MessageCreate, onMessageCreate));
 
   // デイリーゴールの元投稿の編集は下書きの読み直し (spec/feature/daily-goal-run.md §2)。 他の用途には使わない。
-  const onMessageUpdate = instrumentDiscord("messageUpdate", (_old: unknown, updated: Message | PartialMessage) => {
+  const onMessageUpdate = instrumentDiscord("messageUpdate", (old: Message | PartialMessage, updated: Message | PartialMessage) => {
     if (gatewayClosed || stopping || !inScope(updated.guildId)) return;
     const surface = dailyGoalDiscord;
     void (async () => {
       const channel = updated.channel;
+      if (articles.monitored(updated)) {
+        const edited = updated.partial ? await updated.fetch() : updated;
+        if (edited.editedTimestamp && !/^ナレッジ監視\s/.test(edited.content)) articles.receive(edited,old);
+      }
       const parent = channel.isThread() ? channel.parent : channel;
       const owner = parent && "parentId" in parent ? discussionOwner(deps.db, parent.id, parent.parentId) : null;
       const routed = owner !== null && teamOwnedByRuntime(owner) && channel.type !== ChannelType.PrivateThread;
@@ -3529,6 +3544,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   }
   if (gatewayClosed) throw new Error("discord gateway closed during startup");
   pushWarning?.start();
+  stopArticleDelivery = articles.startDelivery(message=>log.warn(message));
 
   return {
     name: "discord",

@@ -47,8 +47,9 @@ export function notifyArticle(db: Database, id: number, body: string) {
     };
     const chars = Array.from(body);
     const insert = db.prepare("INSERT INTO knowledge_flow_notifications(id,channel,thread,text) VALUES (?,?,?,?)");
-    for (let n = 0; n < chars.length; n += 3000)
-        insert.run(randomUUID(), target.channel, target.thread_ts, chars.slice(n, n + 3000).join(""));
+    const chunkSize = target.channel.startsWith("discord:") ? 1000 : 3000;
+    for (let n = 0; n < chars.length; n += chunkSize)
+        insert.run(randomUUID(), target.channel, target.thread_ts, chars.slice(n, n + chunkSize).join(""));
 }
 export function renderReport(id: number, title: string, report: Report) {
     const e = report.evaluation;

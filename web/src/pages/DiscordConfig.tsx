@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { KnowledgeChannels } from "./KnowledgeChannels.js";
 import { api, type DiscordConfigStatus, type SlackBotActionResult } from "../api.js";
 
 // Discord 連携をサービス内 (この画面) から設定する (Slack 設定と対の構成)。
@@ -232,6 +233,7 @@ export function DiscordSettingsSection() {
         {msg && <div className="text-xs text-subtle">{msg}</div>}
       </section>
 
+      <KnowledgeChannels />
       <section className="bg-surface border border-border rounded p-4 text-xs text-subtle space-y-1">
         <h2 className="font-semibold text-text mb-1">補足</h2>
         <p>

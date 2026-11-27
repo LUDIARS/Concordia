@@ -47,8 +47,10 @@ export async function advanceArticle(db: Database, cfg: WorkerSettings) {
     const delay = db.prepare("UPDATE knowledge_flow_jobs SET retry_after=unixepoch()+30 WHERE article_id=?");
     delay.run(job.id);
     if (!job.task_ref) {
+        const fromDiscord = db.prepare("SELECT 1 FROM knowledge_flow_receipts WHERE article_id=? AND duplicate=0 AND channel LIKE 'discord:%'").get(job.id);
+        const source = fromDiscord ? "Discord" : "Slack";
         const created = z.object({ reference: z.string().startsWith("actio:"), repo_path: z.string() }).parse(await cc(cfg, "/v1/taskflow/tasks", "POST", {
-            session_id: cfg.session, request_id: job.request_id, kind: "knowledge-article", title: "記事 #" + job.id, body: "指定Slackチャンネルの公開記事を審査する。対象 " + job.url
+            session_id: cfg.session, request_id: job.request_id, kind: "knowledge-article", title: "記事 #" + job.id, body: "指定"+source+"チャンネルの公開記事を審査する。対象 " + job.url
         }));
         db.prepare("UPDATE knowledge_flow_jobs SET task_ref=?,repo=? WHERE article_id=?").run(created.reference, created.repo_path, job.id);
         job.task_ref = created.reference;

@@ -3,6 +3,8 @@
  */
 
 import { Hono } from "hono";
+import { localKnowledgeAdmin } from "./knowledge-channels.js";
+import { parseWatchTarget, type WatchedChannels } from "../knowledge-flow/watched-channels.js";
 import os from "node:os";
 import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
@@ -51,6 +53,7 @@ function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
 }
 
 export interface ChatApiDeps {
+  articleChannels?: WatchedChannels;
   chat: ChatRepo;
   resolveWorkspaceRoots: () => string[];
   resolveMentionAdmin?: () => string | null;
@@ -69,6 +72,15 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     }
     const attachmentError = await validateAttachments(parsed.data.attachment_paths, deps);
     if (attachmentError) return c.json(attachmentError, 400);
+    const command = /^ナレッジ監視\s+(登録|解除)\s+(\S+)\s*$/.exec(parsed.data.text.trim());
+    if (command) {
+      if (!localKnowledgeAdmin(c)) return c.json({error:"本社PCのCcから変更してください"},403);
+      if (!deps.articleChannels) return c.json({error:"記事受付を利用できません"},503);
+      const target = parseWatchTarget(command[2]);
+      if (!target) return c.json({error:"有効なチャンネルリンクを指定してください"},400);
+      deps.articleChannels.change(target,command[1]==="登録");
+      parsed.data.text += "\n（"+command[1]+"済み）";
+    }
 
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";

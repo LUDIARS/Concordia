@@ -17,6 +17,8 @@ import { createChildLogger } from "../shared/logger.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { chatRouter } from "./chat.js";
+import { knowledgeChannelsRouter } from "./knowledge-channels.js";
+import type { WatchedChannels } from "../knowledge-flow/watched-channels.js";
 import { chatAttachmentsRouter } from "./chat-attachments.js";
 import {
   reactionSkillWorkflowRouter,
@@ -45,6 +47,7 @@ export interface DiscordBotAdmin {
 }
 
 export interface ChatDeps {
+  articleChannels?: WatchedChannels;
   meetingLinks?: MeetingLinkStore;
   repo: SessionsRepo;
   metrics?: MetricsStore;
@@ -113,7 +116,9 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     metrics: deps.metrics,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
   }));
+  if (deps.articleChannels) app.route("/v1/admin/knowledge-channels",knowledgeChannelsRouter(deps.articleChannels));
   app.route("/v1/chat", chatRouter({
+    articleChannels: deps.articleChannels,
     chat: deps.chat,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
     resolveMentionAdmin: () => deps.adminState.getMentionUserId(),

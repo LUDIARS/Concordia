@@ -8,6 +8,7 @@ import type { Database } from "better-sqlite3";
 import { WebClient } from "@slack/web-api";
 import { SocketModeClient } from "@slack/socket-mode";
 import { createArticleInbox } from "../knowledge-flow/slack-receipt.js";
+import { watchedChannels } from "../knowledge-flow/watched-channels.js";
 import { initializeLedger } from "../knowledge-flow/article-ledger.js";
 import { startThreadDelivery } from "../knowledge-flow/thread-delivery.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
@@ -699,8 +700,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
   // ─── ingress: Slack message → Concordia inject / chat ──────────────────────
   const articleScopes = (process.env.CC_KNOWLEDGE_SLACK_SCOPES ?? "").split(",").map(scope => scope.trim()).filter(Boolean);
-  const saveArticleReceipt = createArticleInbox(deps.db, articleScopes);
-  if (articleScopes.length) initializeLedger(deps.db);
+  const watches = watchedChannels(deps.db);
+  const saveArticleReceipt = createArticleInbox(deps.db, articleScopes, (team,channel) => watches.has("slack",team,channel));
+  initializeLedger(deps.db);
   socket.on("message", async ({ event, body, ack }: { event: SlackMessageEvent; body?: {team_id?: string; event_id?: string}; ack: () => Promise<void> }) => {
     try {
       if (event) saveArticleReceipt(body?.team_id, body?.event_id, event, botUserId);
@@ -1106,10 +1108,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   socket.on("error", (e: Error) => log.warn(`socket error: ${e?.message ?? String(e)}`));
 
   await socket.start();
-  const stopArticleDelivery = articleScopes.length ? startThreadDelivery(deps.db, async (channel, thread, text) => {
+  const stopArticleDelivery = startThreadDelivery(deps.db, async (channel, thread, text) => {
     await web.chat.postMessage({channel, thread_ts: thread, text: sanitizeSlackMentions(text),
       mrkdwn: false, unfurl_links: false, unfurl_media: false});
-  }, message => log.warn(message)) : undefined;
+  }, message => log.warn(message));
   log.info(`Slack platform connected (channel=${channelId}, bot=${botUserId ?? "?"})`);
 
   await archiveLifecycle.start();

@@ -1,6 +1,7 @@
 // @spec ハーネス信頼性の実装境界
 import { createChoresRuntime } from "../chores/runtime.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
+import { watchedChannels } from "../knowledge-flow/watched-channels.js";
 import { createManagementRuntime } from "../management/runtime.js";
 import { startManagementRemote } from "../management/remote-startup.js";
 import { ManagementRepository } from "../management/repository.js";
@@ -2783,6 +2784,7 @@ export async function startBackend(): Promise<BackendHandle> {
     ownCloudBatchSchedule: stop => { cloudBatchScheduleStops.push(stop); },
     bindKaizenCloud: (cloud) => { kaizenCloud = cloud; },
     meetingLinks: new MeetingLinkStore(db),
+    articleChannels: watchedChannels(db),
     sprintDialogues: new SprintDialoguesRepository(db),
     dailyGoals: dailyGoalRuntime.service,
     controlSession: { ...controlRuntime.api, externalBridges, mergeReturns: () => conflux.recentMergeReturns((id) => musePlaytestRelay.viewOf(id)), sessionProgress: v5.sessionProgress },

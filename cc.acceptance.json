@@ -25,6 +25,8 @@
     {"source":"src/config/settings/definitions/chat.ts","tests":["src/config/settings/coverage.test.ts"],"contracts":[]},
     {"source":"pc/probe.mjs","tests":["pc/probe.test.mjs"],"contracts":[]},
     {"source":"src/knowledge-flow/article-analysis.ts","tests":["src/knowledge-flow/article-review.test.ts"],"contracts":[]},
+    {"source":"src/knowledge-flow/thread-materials.ts","tests":["src/knowledge-flow/article-review.test.ts"],"contracts":[]},
+    {"source":"src/knowledge-flow/memoria-publication.ts","tests":["src/knowledge-flow/article-review.test.ts"],"contracts":[]},
     {"source":"src/knowledge-flow/article-ledger.ts","tests":["src/knowledge-flow/article-review.test.ts"],"contracts":[]},
     {"source":"src/knowledge-flow/article-worker.ts","tests":["src/knowledge-flow/article-worker.test.ts"],"contracts":[]},
     {"source":"src/knowledge-flow/local-worker.ts","tests":["src/knowledge-flow/article-worker.test.ts"],"contracts":[]},

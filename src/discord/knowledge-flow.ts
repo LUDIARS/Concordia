@@ -2,6 +2,7 @@ import { ChannelType, PermissionFlagsBits, type Client, type Message, type Parti
 import type { Database } from "better-sqlite3";
 import { createArticleInbox } from "../knowledge-flow/slack-receipt.js";
 import { initializeLedger } from "../knowledge-flow/article-ledger.js";
+import { threadMaterials } from "../knowledge-flow/thread-materials.js";
 import { startThreadDelivery } from "../knowledge-flow/thread-delivery.js";
 import { parseWatchTarget, watchedChannels } from "../knowledge-flow/watched-channels.js";
 
@@ -45,11 +46,12 @@ export function discordArticleFlow(db: Database, client: Client, guild: string) 
       await message.reply({content:"記事の監視を"+match[1]+"しました。 <#"+target.channel+">",allowedMentions:{parse:[]}});
     },
     startDelivery(warn: (message:string)=>void) {
-      return startThreadDelivery(db,async (_channel, destination, text)=>{
+      return startThreadDelivery(db,async (_channel, destination, text, notice)=>{
         const [kind,channelId,messageId]=destination.split(":");
         const source=await client.channels.fetch(channelId);
         if (!source || !("guildId" in source) || source.guildId!==guild) throw new Error("Article reply channel unavailable");
-        const options={content:text,allowedMentions:{parse:[] as never[]}};
+        const files=threadMaterials(db,notice).map(doc=>({name:doc.name,attachment:Buffer.from(doc.markdown,"utf8")}));
+        const options={content:text,allowedMentions:{parse:[] as never[]},...(files.length?{files}:{})};
         if (kind==="thread" && source.isThread()) {await source.send(options);return;}
         if (kind!=="post" || !source.isTextBased() || !("messages" in source)) throw new Error("Article thread unavailable");
         const post=await source.messages.fetch(messageId);

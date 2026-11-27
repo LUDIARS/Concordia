@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { initializeThreadMaterials, queueThreadMaterials } from "./thread-materials.js";
 import type { assess } from "./article-analysis.js";
 export type Report = Awaited<ReturnType<typeof assess>>;
 export interface Article {
@@ -8,6 +9,7 @@ export interface Article {
     state: string;
 }
 export function initializeLedger(db: Database) {
+    initializeThreadMaterials(db);
     db.exec(`CREATE TABLE IF NOT EXISTS knowledge_flow_jobs (
     article_id INTEGER PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, task_ref TEXT, repo TEXT, attempts INTEGER DEFAULT 0,
     body_hash TEXT, page TEXT, report TEXT, error TEXT, sync_status TEXT, retry_after INTEGER DEFAULT 0);
@@ -96,6 +98,7 @@ export function decide(db: Database, id: number, action: string) {
                     put.run(id, "skill", "---\nname: article-" + id + "\ndescription: " + JSON.stringify(report.evaluation.summary) + "\n---\n\n" + procedure);
             }
         }
+        if (action !== "skip") queueThreadMaterials(db,id,page.title,page.url,report.evaluation,action==="skill");
         db.prepare("INSERT INTO knowledge_flow_decisions(article_id,action,document,actor) VALUES (?,?,?,'本社PCのローカル利用者')").run(id, action, document);
         db.prepare("UPDATE knowledge_flow_jobs SET sync_status='done' WHERE article_id=?").run(id);
         db.prepare("UPDATE knowledge_flow_articles SET state='done' WHERE id=?").run(id);

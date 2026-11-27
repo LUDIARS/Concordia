@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import { initializeLedger } from "./article-ledger.js";
 import { advanceArticle, type WorkerSettings } from "./article-worker.js";
 import { reviewServer } from "./review-server.js";
+import { memoriaBaseUrl } from "../config/service-urls.js";
+import { publishApprovedArticle } from "./memoria-publication.js";
 import { setTimeout as wait } from "node:timers/promises";
 function required(name: string): string { const v = process.env[name]?.trim(); if (!v)
     throw new Error("Missing " + name); return v; }
@@ -26,6 +28,10 @@ try {
         catch (e) {
             process.stderr.write("Knowledge flow worker: " + (e instanceof Error ? e.name : "error") + "\n");
         }
+        if (!stopped)
+            await publishApprovedArticle(db, memoriaBaseUrl()).catch(error => {
+                process.stderr.write("Memoria publication: " + (error instanceof Error ? error.message : "failed") + "\n");
+            });
         if (!stopped)
             await wait(2000);
     }

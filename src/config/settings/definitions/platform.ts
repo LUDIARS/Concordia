@@ -45,6 +45,8 @@ function envBoolean(
 }
 
 export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
+  envString("workflow.project_work_actions", "workflow", "作業投稿の振り分け設定ファイル", "CC_PROJECT_WORK_ACTIONS", null, "Discord の投稿先・役割とプロジェクトの作業受付を対応付ける JSON ファイル。未指定なら受付対象は空。"),
+  envString("services.grok_home", "services", "Grok のデータフォルダ", "GROK_HOME", null, "利用量の集計で logs/unified.jsonl を読む場所。未指定時はホームフォルダ内の .grok を使う。"),
   {
     key: "services.excubitor_runtime_config", section: "services",
     label: "Excubitor 注入設定",
@@ -219,6 +221,8 @@ export const OBSERVABILITY_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const LOGGING_SETTINGS: readonly SettingDefinition[] = [
+  envString("logging.victorialogs_url", "logging", "Cc の VictoriaLogs 接続先", "CONCORDIA_LOGS_VICTORIALOGS_URL", null, "エラー監視で参照するログの URL。Vestigium の共通設定に優先する。"),
+  envString("logging.vestigium_victorialogs_url", "logging", "Vestigium の VictoriaLogs 接続先", "VESTIGIUM_VICTORIALOGS_URL", null, "Cc 専用の接続先が未指定のとき、エラー監視で参照する共通の URL。"),
   {
     key: "logging.level",
     section: "logging",

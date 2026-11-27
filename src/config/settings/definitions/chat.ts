@@ -217,6 +217,17 @@ export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
 
 export const SLACK_SETTINGS: readonly SettingDefinition[] = [
   {
+    key: "slack.knowledge_scopes",
+    section: "slack",
+    label: "記事を受け付けるチャンネル",
+    description: "ワークスペースID/チャンネルIDをカンマ区切りで指定する。空欄なら記事を受け付けない。",
+    kind: "string",
+    envName: "CC_KNOWLEDGE_SLACK_SCOPES",
+    dbKey: null,
+    defaultValue: "",
+    editable: false,
+  },
+  {
     key: "slack.enabled",
     section: "slack",
     label: "Slack bot を有効化",

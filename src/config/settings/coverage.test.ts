@@ -21,6 +21,12 @@ const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 describe("設定レジストリのカバレッジ", () => {
   const scanned = scanSourceSettingKeys(SRC_ROOT);
 
+  it("exposes the Slack knowledge channel setting and keeps the OS temp path outside settings", () => {
+    expect(registeredEnvNames().has("CC_KNOWLEDGE_SLACK_SCOPES")).toBe(true);
+    expect(ENV_COVERAGE_EXCLUSIONS.TEMP).toContain("OS 提供");
+    expect(registeredEnvNames().has("TEMP")).toBe(false);
+  });
+
   it("TEAM_ID is only child launch context; real model settings are registered", () => {
     expect(scanned.envNames.has("CONCORDIA_TEAM_ID")).toBe(true);
     expect(ENV_COVERAGE_EXCLUSIONS.CONCORDIA_TEAM_ID).toContain("書き出し専用");

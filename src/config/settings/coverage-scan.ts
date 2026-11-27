@@ -66,6 +66,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   NODE_ENV: "Node 実行モード。 Concordia の設定ではない",
   VITEST: "vitest が立てるフラグ。 テスト時のみ",
   COMSPEC: "Windows のシェルパス (OS 提供)",
+  TEMP: "OS 提供の一時ディレクトリ。記事取得時に Canalis の子プロセスへ引き継ぐ。",
   LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
   XDG_STATE_HOME: "POSIX のユーザー別状態ディレクトリ (XDG Base Directory、OS 提供)。role map の既定の書き出し先を決めるときに読むだけで、Concordia の設定ではない",
   USERPROFILE: "Windows のユーザーホーム (OS 提供)。 claude.exe の既定の置き場所を探すときに読むだけで、 Concordia の設定ではない",

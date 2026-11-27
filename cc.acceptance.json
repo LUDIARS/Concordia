@@ -5969,7 +5969,7 @@
     {"source":"src/control-session/charter.ts","tests":["src/control-session/charter.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
     {"source":"src/control-session/supervisor.ts","tests":["src/control-session/supervisor.test.ts"],"contracts":[]},
     {"source":"src/control-session/channel-service.ts","tests":["src/control-session/channel-service.test.ts","src/control-session/runtime.test.ts"],"contracts":[]},
-    {"source":"src/control-session/runtime.ts","tests":["src/control-session/runtime.test.ts"],"contracts":[]},
+    {"source":"src/control-session/runtime.ts","tests":["src/control-session/runtime.test.ts","src/control-session/runtime-session-lookup.test.ts"],"contracts":[]},
     {"source":"src/control/session-classify.ts","tests":["src/control/session-classify.test.ts","src/control-session/patrol.test.ts"],"contracts":[]},
     {"source":"src/control/nudge-skip-record.ts","tests":["src/control/nudge-skip-record.test.ts","src/control/stalled-session-nudge.test.ts"],"contracts":[]},
     {"source":"src/control-session/classify-facts.ts","tests":["src/control-session/classify-facts.test.ts","src/control-session/patrol.test.ts"],"contracts":[]},

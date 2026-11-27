@@ -85,12 +85,15 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
   let surfaceReady = false;
   let loop: SupervisedIntervalHandle | null = null;
 
+  // 巡回と一括指示へ渡す照会。repo のメソッドを裸で渡すと this が外れる (SessionsRepo は this.db を読む) ので受け手ごと包む。
+  const findSession = (sessionId: string): SessionRow | null => deps.sessions.findSession(sessionId);
+
   // 管制セッション自身かは supervisor が知っているので、判定は遅延で結ぶ。
   let isControl: (session: Pick<SessionRow, "metadata">) => boolean = () => false;
   const probes: EligibilityProbes = {
     ...deps.probes,
     isControlSession: (sessionId) => {
-      const session = deps.sessions.findSession(sessionId);
+      const session = findSession(sessionId);
       return !!session && isControl(session);
     },
   };
@@ -144,7 +147,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
   const patrol = deps.patrol ? createControlPatrol({
     board,
     facts: { ...deps.patrol, probes: deps.probes },
-    findSession: deps.sessions.findSession,
+    findSession,
     probes,
     inject: deps.inject,
     postToChannel: postIfReady,
@@ -162,7 +165,7 @@ export function createControlRuntime(deps: ControlRuntimeDeps) {
 
   async function dispatch(input: { targets: string[]; text: string; origin: InstructionOrigin }): Promise<DispatchResult> {
     const result = await dispatchControlInstruction({
-      ...input, findSession: deps.sessions.findSession, probes, inject: deps.inject, nowMs: now(),
+      ...input, findSession, probes, inject: deps.inject, nowMs: now(),
     });
     if (surface && result.delivered.length) {
       const who = input.origin.kind === "control" ? `管制セッション第 ${input.origin.generation} 世代`

@@ -44,14 +44,18 @@ describe("/v1/instructions (spec/feature/agent-instructions-bridge.md)", () => {
     const { json, get } = setup();
     const created = await json("POST", "/v1/instructions", instruction);
     expect(created.status).toBe(201);
-    const { data } = await created.json() as { data: { instruction: { id: string; status: string; createdAt: string } } };
-    expect(data.instruction).toEqual({ id: expect.stringMatching(/^inst:muse:20261121T000000Z:[0-9a-f]{6}$/), status: "pending", createdAt: "2026-11-21T00:00:00Z" });
+    const { data } = await created.json() as { data: { instruction: { id: string; status: string; createdAt: string; dedupeKey: string } } };
+    expect(data.instruction).toEqual({
+      id: expect.stringMatching(/^inst:muse:20261121T000000Z:[0-9a-f]{6}$/), status: "pending", createdAt: "2026-11-21T00:00:00Z",
+      dedupeKey: expect.stringMatching(/^dk_[0-9a-f]{32}$/),
+    });
+    const dedupeKey = data.instruction.dedupeKey;
     const id = data.instruction.id;
 
     const polled = await get("/v1/instructions?agent=muse&status=pending&limit=10");
     expect(polled.status).toBe(200);
     expect(polled.headers.get("cache-control")).toBe("no-store");
-    expect(await polled.json()).toEqual({ data: { instructions: [{ id, type: "run_task", title: "指令の件名", body: "Muse に実行させたい内容", params: {}, createdAt: "2026-11-21T00:00:00Z" }] } });
+    expect(await polled.json()).toEqual({ data: { instructions: [{ id, type: "run_task", title: "指令の件名", body: "Muse に実行させたい内容", params: { dedupe_key: dedupeKey }, createdAt: "2026-11-21T00:00:00Z" }] } });
 
     const acked = await json("POST", `/v1/instructions/${encodeURIComponent(id)}/ack`, { agent: "muse" });
     expect(acked.status).toBe(202);
@@ -239,7 +243,7 @@ describe("/v1/instructions/history (一覧の口、 loopback のみ)", () => {
     const { data } = await listed.json() as { data: { instructions: Array<Record<string, unknown>> } };
     expect(data.instructions.map((item) => item.id)).toEqual([second, first]);
     expect(data.instructions[1]).toMatchObject({
-      agent: "muse", status: "done", body: "Muse に実行させたい内容", resultSummary: "済み", resultDetail: { b: 1 }, params: {},
+      agent: "muse", status: "done", body: "Muse に実行させたい内容", resultSummary: "済み", resultDetail: { b: 1 }, params: { dedupe_key: expect.stringMatching(/^dk_[0-9a-f]{32}$/) },
     });
     const onlyDots = await (await get("/v1/instructions/history?agent=dots")).json() as { data: { instructions: Array<{ id: string }> } };
     expect(onlyDots.data.instructions.map((item) => item.id)).toEqual([second]);

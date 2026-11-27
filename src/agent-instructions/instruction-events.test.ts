@@ -76,7 +76,7 @@ describe("InstructionService.history (一覧の口)", () => {
     expect(service.history({ limit: 50 }).map((row) => row.id)).toEqual([second.id, first.id]);
     expect(service.history({ agent: "dots", limit: 50 }).map((row) => row.id)).toEqual([second.id]);
     expect(service.history({ status: "done", limit: 50 })).toEqual([expect.objectContaining({
-      id: first.id, agent: "muse", body: "本文", params: { a: 1 }, resultSummary: "済み", resultDetail: { ok: true },
+      id: first.id, agent: "muse", body: "本文", params: { a: 1, dedupe_key: first.dedupeKey }, resultSummary: "済み", resultDetail: { ok: true },
     })]);
     expect(service.history({ limit: 1 }).map((row) => row.id)).toEqual([second.id]);
     // 一覧は poll の順序・意味を変えない。

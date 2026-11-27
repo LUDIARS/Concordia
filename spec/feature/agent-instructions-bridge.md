@@ -37,6 +37,9 @@ Muse のカスタムコネクタは 1 要求に秘密 1 つまでしか送れな
   公開経由の鍵は全宛先で 1 つ (`agent_instructions.intake_token`) を共用する (同日 neco 指示「鍵は1つでいい」)。宛先の取り違えは、
   名乗った `agent` と指令の宛先が違う ack / result を 404 にすることで防ぐ (他の宛先の指令は見えない)。
 - **type**: 許可リスト `notify_only` (通知だけ) / `run_task` (タスク依頼) / `status_query` (状態の問い合わせ) / `playtest` ([マージ後の再試遊](merge-playtest-return.md)) / `card_triage` ([管制カードの捌き](control-cards.md)、dots 宛て。2026-11-24 neco 指示で追加)。増やすときは指示書の改訂として扱う。
+- **重複判定キー (dedupe_key)**: 指令ごとに 1 つ、登録時に `params.dedupe_key` として確定する (CC-INST-INV-11)。登録者が空でない文字列で入れていればそのまま使い
+  (例: マージ後の再試遊の `merge-return:<project>:<merge_commit_sha>`)、無ければ Cc がワンタイムトークン `dk_<32 桁 hex>` を発行する。
+  2026-11-23 neco 指示「重複はワンタイムトークンとしてCcが発行しようか」。受け手は 30 分の再配信 (CC-INST-INV-05) で同じ指令が届いても、このキーで二重に実行しない。
 - **状態**: `pending` → `acked` → `done` / `failed`。`done` / `failed` は終端。
 
 ```
@@ -56,6 +59,38 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 - 閉じたときも `finished` の出来事を出す (「muse-指令」チャンネルに出る)。detail は `{closed_by:"concordia", fallback:"delegation"}` で、定時ジョブの結果の引き取りはこれを反映しない。
 - 前回の所見として、`params.job` が同じ `done` の最新の要約を次の指令の data に入れる (`lastDoneSummary`)。
 
+### type を増やす手順
+
+type は Cc と受け手 (Muse / dots) の取り決めなので、片側だけで増やさない。
+
+**受け手側の書式の置き場所と中身** (Muse は `~/workspace/concordia-bridge/`):
+`TASK_FORMAT.md` が全 type 共通の書式 (dedupe_key 必須など)、type ごとに `<TYPE>_SPEC.md` (例: `PLAYTEST_SPEC.md`) を置く。`<TYPE>_SPEC.md` に書くこと:
+
+| 節 | 中身 |
+|---|---|
+| 見分け方 | どの `type` をこの手順で扱うか。`title` / `body` に頼らず `type` で決める |
+| params 表 | 項目名・型・必須か・意味。`dedupe_key` と、対象を一意に決めるキーを必ず含める |
+| 手順 | 受け取ったら即 ack → `dedupe_key` で実行済みか確認 (済みなら前回と同じ結果を返して終える) → 実行 → 失敗時の扱い (`failed` で返す条件、途中まで進んだときの後始末) |
+| 結果の返し方 | `summary` は 400 字以内で人が読む要約。`detail` の形 (キー名と型) を固定して書く |
+| やらないこと | 権限外の操作・承認が要る操作・この type の範囲外の作業 |
+
+記入例は playtest の SPEC (`PLAYTEST_SPEC.md`、[マージ後の再試遊](merge-playtest-return.md))。
+
+**流れ**:
+
+1. Cc: 許可リスト `INSTRUCTION_TYPES` (`src/agent-instructions/instruction-policy.ts`) と本書 (業務用語の type・CC-INST-INV-02) を改訂し、neco の承認を得る。
+2. 受け手: `<TYPE>_SPEC.md` を作り、ポーリングの処理に組み込む。
+3. テスト指令を 1 件登録し、ack と result が返ること、30 分の再配信や同じ指令の再送で二重に実行されないこと (dedupe_key) を確かめる。
+4. 結果を本書の「検証」と受け手側の SPEC に記録する。
+
+**共通の取り決め**:
+
+- type 名は小文字の snake_case。既存の type と意味を重ねない (同じ仕事は params で分ける)。
+- 対象を一意に決めるキーを params に入れる (例: 再試遊の `merge_commit_sha`)。登録者が対象から決まる dedupe_key を持てるならそれを入れる。
+- 不可逆な操作 (金銭・送信・削除) の承認境界は type を増やしても変わらない。受け手側のユーザ承認を飛ばす type は作らない。
+- Muse のジョブは 1 回 1 時間が上限。超えうる type は、続け方 (途中で `done` にして続きを別指令にする・進み具合を `detail` に残すなど) を SPEC に書く。
+  Cc は ack から 30 分 result が無いと `pending` に戻して再配信する (CC-INST-INV-05) ので、30 分を超える仕事は再配信を dedupe_key で受け流し、実行中の二重起動をしない。
+
 ## 不変条件
 
 | ID | 内容 | 実装 |
@@ -70,6 +105,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 | CC-INST-INV-08 | 指令の出来事 (登録・受領・回答・30 分での再配信) は「muse-指令」チャンネルへ後追い・best-effort で流す。投稿の失敗 (同期の throw も非同期の reject も) は warn ログだけで、登録・ack・result・再配信は失敗させない。受け手が未接続の間の出来事は溜めずに捨てる。「muse-指令」チャンネル (attach) とは別に、管制カードが subscribe で回答 (finished) を受ける (Cc v5、同じく best-effort) | `src/agent-instructions/instruction-events.ts` / `instruction-service.ts` |
 | CC-INST-INV-09 | チャンネルへ出す題・本文・回答は信頼できない入力として扱い、mention (`@everyone` / `@here` / `<@…>`) とリンクの自動展開を無効化し、送信側でも `allowedMentions` を空にする。回答の詳細のコードブロックは閉じさせない。鍵・秘密は載せない | `src/agent-instructions/instruction-posts.ts` / `src/discord/muse-instructions-channel.ts` |
 | CC-INST-INV-10 | 一覧は Muse 向けの poll と別の口にし、poll の意味 (agent 必須・status 省略時 `pending`・古い順・limit 1〜20) は変えない | `src/agent-instructions/instruction-requests.ts` `parseHistoryQuery` |
+| CC-INST-INV-11 | 重複判定キー `params.dedupe_key` は登録時に確定する。登録者が空でない文字列で指定していれば維持し、無ければ Cc がワンタイムトークン (`dk_<32 桁 hex>`) を発行して params に足し、登録応答の `dedupeKey` でも返す。受け手は同じキーの指令を二重に実行しない | `instruction-policy.ts` `withDedupeKey` / `instruction-service.ts` |
 
 ## 口 (`src/api/agent-instructions.ts`)
 
@@ -77,7 +113,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 
 | 口 | 呼ぶ側 | 公開経由 | 成功 |
 |---|---|---|---|
-| `POST /v1/instructions` | 自宅側 (Web monitor・自宅エージェント・curl) | 403 | 201 `{data:{instruction:{id,status:"pending",createdAt}}}` |
+| `POST /v1/instructions` | 自宅側 (Web monitor・自宅エージェント・curl) | 403 | 201 `{data:{instruction:{id,status:"pending",createdAt,dedupeKey}}}` |
 | `GET /v1/instructions?agent=muse&status=pending&limit=10` | Muse | 鍵が一致したときのみ | 200 `{data:{instructions:[{id,type,title,body,params,createdAt}]}}` (古い順、0 件は空配列) |
 | `POST /v1/instructions/:id/ack` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{duplicate, data:{instruction:{id,status,ackedAt}}}` |
 | `POST /v1/instructions/:id/result` | Muse | 鍵が一致したときのみ | 202 / 再送 200 `{delivered:true, failed:false, duplicate, data:{instruction:{id,status,finishedAt}}}` |
@@ -88,7 +124,7 @@ Muse 自身の権限・承認ルールは指令で拡張されない (金銭・�
 
 | 口 | 項目 |
 |---|---|
-| 登録 | `agent` (`muse`)、`type` (許可リスト)、`title` 1〜200 文字、`body` 1〜4000 文字、`params` 省略可 (JSON オブジェクト、8000 バイト以内、省略時 `{}`) |
+| 登録 | `agent` (`muse`)、`type` (許可リスト)、`title` 1〜200 文字、`body` 1〜4000 文字、`params` 省略可 (JSON オブジェクト、8000 バイト以内、省略時 `{}`。`dedupe_key` が無ければ Cc が足す、CC-INST-INV-11) |
 | ack | `agent` のみ |
 | result | `agent`、`status` (`done` / `failed`)、`summary` 1〜400 文字 (保存は 2000 文字で切り詰め)、`detail` 省略可 (JSON オブジェクト、16000 バイト以内) |
 
@@ -192,6 +228,7 @@ type `playtest` の指令に `done` で返す result の `detail` には `review
 - `src/api/agent-instructions.test.ts`: 指示書 §6-2〜7 を Hono の要求で再現 (実 DB。公開経由はトンネル由来ヘッダーと鍵の有無で再現)。
 - `src/agent-instructions/*.test.ts`: 判定・要求の形・use case・鍵の判定・入口判定・結線。`tests/sweeper.test.ts`: sweeper からの掃除。
 - `src/agent-instructions/instruction-events.test.ts`: 出来事の送出と、受け手が throw / reject しても登録・ack・result が成功すること (CC-INST-INV-08)、一覧の並びと絞り込み。
+- `instruction-policy.test.ts` / `instruction-service.test.ts` / `src/api/agent-instructions.test.ts`: dedupe_key の維持と発行、登録応答の `dedupeKey` (CC-INST-INV-11)。`src/conflux/merge-return-service.test.ts`: 再試遊の dedupe_key が発行に置き換わらないこと。
 - `src/agent-instructions/instruction-posts.test.ts`: 投稿文の組み立てと無害化・上限 (CC-INST-INV-09)。`src/discord/muse-instructions-channel.test.ts`: チャンネルの用意と返信先。
 - `src/api/agent-instructions.test.ts`: 一覧が loopback 限定 (公開経由は鍵があっても 403)、poll の互換、dots の poll / ack / result (共用の鍵、宛先違いは 404)。`web/src/pages/MuseInstructions.test.tsx`: 画面。
 - `src/scheduler/agent-dispatch.test.ts` / `agent-fallback.test.ts`: cron 由来の `registerOnce` の重複防止と、`closeUnreceived` が pending だけを閉じ、閉じた後の ack / result が 409 になること。

@@ -17,6 +17,7 @@ import {
   redeliveryCutoff,
   retentionCutoff,
   storedSummary,
+  withDedupeKey,
   type FinalStatus,
   type InstructionAgent,
   type InstructionStatus,
@@ -86,6 +87,8 @@ export interface InstructionServiceDeps {
   store: AgentInstructionStore;
   now?: () => Date;
   randomSuffix?: () => string;
+  /** dedupe_key の発行元 (CC-INST-INV-11)。 既定は dk_<32 桁 hex>。 */
+  dedupeToken?: () => string;
   /** 出来事の受け手 (「muse-指令」チャンネル)。 後追い・best-effort で、 失敗しても遷移は失敗させない (CC-INST-INV-08)。 */
   events?: (event: InstructionEvent) => void;
 }
@@ -109,8 +112,9 @@ export class InstructionService {
     this.now = deps.now ?? (() => new Date());
   }
 
-  register(input: RegisterInput): { id: string; status: "pending"; createdAt: string } {
+  register(input: RegisterInput): { id: string; status: "pending"; createdAt: string; dedupeKey: string } {
     const at = this.now();
+    const { params, dedupeKey } = withDedupeKey(input.params, this.deps.dedupeToken);
     const createdAt = isoSeconds(at);
     // 秒精度 + 24bit 乱数なので衝突はまず無いが、 起きたら引き直す (PK 違反で 500 にしない)。
     for (let attempt = 0; ; attempt++) {
@@ -121,10 +125,10 @@ export class InstructionService {
       }
       this.deps.store.insert({
         id, agent: input.agent, type: input.type, title: input.title, body: input.body,
-        params: JSON.stringify(input.params), created_at: createdAt,
+        params: JSON.stringify(params), created_at: createdAt,
       });
       this.emit({ kind: "registered", id, agent: input.agent, type: input.type, title: input.title, body: input.body, createdAt });
-      return { id, status: "pending", createdAt };
+      return { id, status: "pending", createdAt, dedupeKey };
     }
   }
 

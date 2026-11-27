@@ -116,7 +116,15 @@ const agentTarget = { project_code: "Ai", merge_commit_sha: "c".repeat(40), bran
 
 it("queues only the Muse instruction for build:false projects without requiring a Conflux build runner", () => {
   const { buildRepo, returnRepo, instructions, service } = makeFixture({ canBuild: false });
-  expect(service().observe("one", agentTarget, "LUDIARS/Amicii")).toBe("queued");
+  const issued: string[] = [];
+  const recording = service((input) => {
+    const registered = instructions.register(input);
+    issued.push(registered.dedupeKey);
+    return registered;
+  });
+  expect(recording.observe("one", agentTarget, "LUDIARS/Amicii")).toBe("queued");
+  // CC-INST-INV-11: the merge return key wins over a Cc-issued token.
+  expect(issued).toEqual([`merge-return:Ai:${agentTarget.merge_commit_sha}`]);
   expect(service().observe("two", agentTarget, "LUDIARS/Amicii")).toBe("duplicate");
   expect(buildRepo.claimBuild()).toBeUndefined();
   const pending = instructions.poll("muse", "pending", 10);

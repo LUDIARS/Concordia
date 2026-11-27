@@ -10,6 +10,7 @@ import {
   redeliveryCutoff,
   retentionCutoff,
   storedSummary,
+  withDedupeKey,
 } from "./instruction-policy.js";
 
 describe("instruction policy (spec/feature/agent-instructions-bridge.md)", () => {
@@ -50,6 +51,19 @@ describe("instruction policy (spec/feature/agent-instructions-bridge.md)", () =>
   it("truncates stored summaries to 2000 characters", () => {
     expect(Array.from(storedSummary("あ".repeat(2500)))).toHaveLength(2000);
     expect(storedSummary("short")).toBe("short");
+  });
+
+  it("CC-INST-INV-11: keeps a given dedupe_key and issues one when it is missing, empty or not a string", () => {
+    const issue = () => "dk_issued";
+    expect(withDedupeKey({ a: 1, dedupe_key: "merge-return:Cc:abc" }, issue)).toEqual({
+      params: { a: 1, dedupe_key: "merge-return:Cc:abc" }, dedupeKey: "merge-return:Cc:abc",
+    });
+    for (const params of [{ a: 1 }, { a: 1, dedupe_key: "" }, { a: 1, dedupe_key: "  " }, { a: 1, dedupe_key: 7 }, { a: 1, dedupe_key: null }]) {
+      expect(withDedupeKey(params, issue)).toEqual({ params: { a: 1, dedupe_key: "dk_issued" }, dedupeKey: "dk_issued" });
+    }
+    const first = withDedupeKey({}).dedupeKey;
+    expect(first).toMatch(/^dk_[0-9a-f]{32}$/);
+    expect(withDedupeKey({}).dedupeKey).not.toBe(first);
   });
 
   it("computes the 30 minute redelivery and 90 day retention cutoffs", () => {

@@ -11,6 +11,7 @@ function setup(start = "2026-11-21T00:00:00Z") {
     store: new SqliteAgentInstructionStore(db),
     now: () => clock.now,
     randomSuffix: () => (seq++).toString(16).padStart(6, "0"),
+    dedupeToken: () => `dk_${seq}`,
   });
   const advance = (ms: number) => { clock.now = new Date(clock.now.getTime() + ms); };
   return { db, service, advance };
@@ -24,15 +25,22 @@ describe("InstructionService (spec/feature/agent-instructions-bridge.md)", () =>
     const first = service.register(input);
     advance(1000);
     const second = service.register({ ...input, title: "second" });
-    expect(first).toEqual({ id: "inst:muse:20261121T000000Z:000000", status: "pending", createdAt: "2026-11-21T00:00:00Z" });
+    expect(first).toEqual({ id: "inst:muse:20261121T000000Z:000000", status: "pending", createdAt: "2026-11-21T00:00:00Z", dedupeKey: "dk_0" });
     expect(service.poll("muse", "pending", 10).map((item) => item.id)).toEqual([first.id, second.id]);
-    expect(service.poll("muse", "pending", 1)[0]).toEqual({ id: first.id, type: "run_task", title: "t", body: "b", params: { a: 1 }, createdAt: first.createdAt });
+    expect(service.poll("muse", "pending", 1)[0]).toEqual({ id: first.id, type: "run_task", title: "t", body: "b", params: { a: 1, dedupe_key: "dk_0" }, createdAt: first.createdAt });
 
     expect(service.ack(first.id, "muse")).toMatchObject({ kind: "accepted", status: "acked" });
     expect(service.ack(first.id, "muse")).toMatchObject({ kind: "duplicate" });
     expect(service.recordResult(first.id, { agent: "muse", status: "done", summary: "ok", detail: { x: 1 } })).toMatchObject({ kind: "accepted", status: "done" });
     expect(service.poll("muse", "pending", 10).map((item) => item.id)).toEqual([second.id]);
     expect(service.get(first.id)).toMatchObject({ status: "done", resultSummary: "ok", finishedAt: expect.any(String) });
+  });
+
+  it("CC-INST-INV-11: keeps a dedupe_key given by the caller and returns it", () => {
+    const { service } = setup();
+    const given = service.register({ ...input, params: { a: 1, dedupe_key: "merge-return:Cc:abc" } });
+    expect(given.dedupeKey).toBe("merge-return:Cc:abc");
+    expect(service.poll("muse", "pending", 10)[0].params).toEqual({ a: 1, dedupe_key: "merge-return:Cc:abc" });
   });
 
   it("CC-INST-INV-04: identical result is duplicate, a different one conflicts, ack after finish conflicts", () => {

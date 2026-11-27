@@ -60,6 +60,19 @@ export function newInstructionId(agent: InstructionAgent, at: Date, random: () =
   return `inst:${agent}:${stamp}:${random()}`;
 }
 
+/**
+ * 重複判定キー dedupe_key を確定する (CC-INST-INV-11)。 登録者が params に文字列で入れていればそのまま使い、
+ * 無ければ Cc がワンタイムトークンとして発行する。 受け手 (Muse など) は同じキーの再配信を二重に実行しない。
+ */
+export function withDedupeKey(
+  params: Record<string, unknown>, issue: () => string = () => `dk_${randomBytes(16).toString("hex")}`,
+): { params: Record<string, unknown>; dedupeKey: string } {
+  const given = params.dedupe_key;
+  if (typeof given === "string" && given.trim() !== "") return { params, dedupeKey: given };
+  const dedupeKey = issue();
+  return { params: { ...params, dedupe_key: dedupeKey }, dedupeKey };
+}
+
 /** UTF-8 のバイト数。 */
 export function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, "utf8");

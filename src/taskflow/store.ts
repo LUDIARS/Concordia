@@ -64,6 +64,7 @@ export interface TaskStore {
   /** 指示参照の関連付け・表示専用。旧来タスクも返すが、作業・状態更新には使わない (CC-TASK-LINKED-FOLLOWUP)。 */
   readReference?(repoPath: string, reference: string, subsidiaryId: string | null): Promise<TaskDocument>;
   updateStatus?(repoPath: string, reference: string, status: TaskStatus, subsidiaryId: string | null): Promise<void>;
+  blockArticle?(repoPath: string, reference: string, subsidiaryId: string | null): Promise<void>;
   setWorkingSession?(repoPath: string, reference: string, sessionId: string | null, subsidiaryId: string | null, expected?: string | null): Promise<void>;
   releaseWorkingSession?(sessionId: string): Promise<void>;
   associate?(document: TaskDocument, runId: string, sessionId: string | null): void;

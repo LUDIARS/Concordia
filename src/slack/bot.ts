@@ -7,6 +7,9 @@
 import type { Database } from "better-sqlite3";
 import { WebClient } from "@slack/web-api";
 import { SocketModeClient } from "@slack/socket-mode";
+import { createArticleInbox } from "../knowledge-flow/slack-receipt.js";
+import { initializeLedger } from "../knowledge-flow/article-ledger.js";
+import { startThreadDelivery } from "../knowledge-flow/thread-delivery.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import { upsertCostCanvas, type CostCanvasClient } from "./cost-canvas.js";
 import type { ConcordiaEvent } from "../events.js";
@@ -695,7 +698,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   });
 
   // ─── ingress: Slack message → Concordia inject / chat ──────────────────────
-  socket.on("message", async ({ event, ack }: { event: SlackMessageEvent; ack: () => Promise<void> }) => {
+  const articleScopes = (process.env.CC_KNOWLEDGE_SLACK_SCOPES ?? "").split(",").map(scope => scope.trim()).filter(Boolean);
+  const saveArticleReceipt = createArticleInbox(deps.db, articleScopes);
+  if (articleScopes.length) initializeLedger(deps.db);
+  socket.on("message", async ({ event, body, ack }: { event: SlackMessageEvent; body?: {team_id?: string; event_id?: string}; ack: () => Promise<void> }) => {
+    try {
+      if (event) saveArticleReceipt(body?.team_id, body?.event_id, event, botUserId);
+    } catch (error) {
+      log.warn(`Knowledge flow receipt failed: ${(error as Error).message}`);
+      return;
+    }
     try { await ack(); } catch {}
     try {
       if (!event) return;
@@ -1094,6 +1106,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   socket.on("error", (e: Error) => log.warn(`socket error: ${e?.message ?? String(e)}`));
 
   await socket.start();
+  const stopArticleDelivery = articleScopes.length ? startThreadDelivery(deps.db, async (channel, thread, text) => {
+    await web.chat.postMessage({channel, thread_ts: thread, text: sanitizeSlackMentions(text),
+      mrkdwn: false, unfurl_links: false, unfurl_media: false});
+  }, message => log.warn(message)) : undefined;
   log.info(`Slack platform connected (channel=${channelId}, bot=${botUserId ?? "?"})`);
 
   await archiveLifecycle.start();
@@ -1162,6 +1178,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (stopped) return;
       stopped = true;
       await stopLifecycle([
+        { name: "knowledge article delivery", stop: async () => { await stopArticleDelivery?.(); } },
         { name: "cost canvas timer", stop: () => clearInterval(costCanvasTimer) },
         { name: "event subscription", stop: () => unsubscribe() },
         { name: "working indicators", stop: () => {

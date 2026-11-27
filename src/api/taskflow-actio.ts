@@ -63,6 +63,18 @@ export function registerActioTaskRoutes(app: Hono, deps: {
     const task = await deps.store.read(sessionWorkingRepoPath(session), reference, readSubsidiaryId(session.metadata));
     return c.json({ reference: task.path, title: task.title, body: task.body, memory_links: task.frontmatter.memory_links, status: task.runtime?.status,
       issued_by_session_id: task.frontmatter.issued_by_session_id ?? null,
-      working_session_id: task.frontmatter.working_session_id ?? null });
+      working_session_id: task.frontmatter.working_session_id ?? null, ...(task.frontmatter.actio_status ? {actio_status:task.frontmatter.actio_status} : {}) });
+  });
+  app.post("/tasks/article-block", async c => {
+    const input = z.object({session_id:z.string(),reference:z.string().startsWith("actio:")}).safeParse(await c.req.json().catch(()=>null));
+    if(!input.success) return c.json({error:"invalid_article"},400);
+    const session=deps.sessions.findSession(input.data.session_id);
+    if(!session || !deps.store.read || !deps.store.blockArticle) return c.json({error:"article_task_unavailable"},503);
+    const repo=sessionWorkingRepoPath(session), org=readSubsidiaryId(session.metadata);
+    const task=await deps.store.read(repo,input.data.reference,org);
+    if(task.frontmatter.issued_by_session_id!==session.id || task.frontmatter.kind!=="knowledge-article") return c.json({error:"scope_mismatch"},403);
+    if(!["in_progress","blocked"].includes(String(task.frontmatter.actio_status))) return c.json({error:"state_changed"},409);
+    await deps.store.blockArticle(repo,input.data.reference,org);
+    return c.json({ok:true});
   });
 }

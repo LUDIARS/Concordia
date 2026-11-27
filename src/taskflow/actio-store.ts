@@ -172,6 +172,12 @@ export class ActioTaskStore implements TaskStore {
     this.overviewCache.record(this.overviewDocument(this.document(binding, task)));
   }
 
+  async blockArticle(repoPath: string, reference: string, subsidiaryId: string | null): Promise<void> {
+    const binding = await this.binding(repoPath, subsidiaryId);
+    const task = await this.client.setStatus(binding, this.id(reference), "blocked");
+    this.overviewCache.record(this.overviewDocument(this.document(binding, task)));
+  }
+
   async setWorkingSession(repoPath: string, reference: string, sessionId: string | null, subsidiaryId: string | null, expected?: string | null): Promise<void> {
     const binding = await this.binding(repoPath, subsidiaryId);
     const id = this.id(reference);

@@ -1,0 +1,15 @@
+{
+  "name": "knowledge-flow",
+  "description": "Slack記事の受領、出典照合、人による知見と手順の採用。UX-CC-KNOWLEDGE-01。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {"pathPattern":"(^|/)pc/probe(?:\\.test)?\\.mjs$"},
+    {
+      "pathPattern": "(^|/)src/knowledge-flow/[^/]+$"
+    }
+  ],
+  "specRefs": [
+    "spec/feature/slack-knowledge-flow.md"
+  ]
+}

@@ -1,0 +1,24 @@
+# Slack の記事レビューとローカルナレッジ
+
+UX-CC-KNOWLEDGE-01。指定チャンネルで記事を共有した人は同じスレッドで裏付けと条件を読める。採用担当は本社PCで根拠を確認し、判断と文書を保存する。記事受付・証拠・採用履歴の状態所有者は knowledge-flow。業務タスクの状態所有者は Actio。Slack の接続・配送は chat-platforms が所有する。
+
+- KF-1。SQLite で記事 URL・投稿・親スレッドを確定してから Socket Mode の受領応答を行う。設定は `CC_KNOWLEDGE_SLACK_SCOPES=T…/C…,T…/C…`。指定が空なら機能は無効。保存先は Slack サービスが開いている本社PCの Cc SQLite。以前の投稿は収集しない。
+- KF-2。処理依頼には保存済み request UUID を用いる。同一URLは元の記事番号へ、同文転載は本文ハッシュで元の記事へ対応させる。Cc が利用できない間は保存済みの依頼を保持する。
+- KF-3。Canalis のネイティブ実行ファイルで公開記事を取得し、Grok は支持・反例を個別検索する。本社の比較履歴はローカルモデルに渡す。外部送信は公開記事情報と検索指示。子プロセスにはモデル鍵を継承しない。新しい npm 依存、インストール時スクリプト、公開待受の追加はない。
+- KF-4。採用はレビュー画面の操作で確定する。照合不足は保留。手順は番号順で提示し、技術記事のスキルは個別に採用する。採用済み Markdown と通知予約を判断と同じトランザクションに記録する。
+
+## 本社PCへの導入
+
+既存の Cc ビルドに Slack 受付とワーカーが含まれる。Cc 本体で実際に使う SQLite ファイルの絶対パスを `CC_KNOWLEDGE_DB` に設定する。Slack の設定は既存 Bot を使用し、対象チャンネルのメッセージイベントと投稿権限を Slack 管理側で設定する。ワーカーは別プロセスで `node dist/knowledge-flow/local-worker.js` を使う。レビューは http://127.0.0.1:8787 。後日追加するナレッジベース URL は初版の設定に不要。
+
+| ワーカー設定 | 値 |
+|---|---|
+| CC_KNOWLEDGE_CC_URL / CC_KNOWLEDGE_SESSION | この拠点の Cc ローカル API と、Cc プロジェクトに紐付いた運用セッション。途中でタスクの組織を切り替えない |
+| CC_KNOWLEDGE_CANALIS | ネイティブ Canalis の実行ファイルの絶対パス |
+| CC_KNOWLEDGE_SOURCE_HOSTS | 裏付けに使用する公開ホスト名（カンマ区切り） |
+| XAI_API_KEY / CC_KNOWLEDGE_GROK_MODEL | xAI の鍵と検索対応モデル。鍵は環境設定から渡す |
+| CC_KNOWLEDGE_HQ_CHAT_URL / CC_KNOWLEDGE_HQ_MODEL | 本社PC内の chat completions 互換 URL とモデル名 |
+
+取得診断は `node pc/probe.mjs <公開URL>`。ワーカー停止中は受領済みの記事を保持する。結果不明の Slack 通知は自動再送しない。設定・権限を直した後の恒久配送エラーはレビュー画面から再送する。停止・切戻しはワーカー停止と対象チャンネル設定の解除で行い、SQLite は採用履歴として保持する。
+
+実 Slack・Canalis・モデルとの接続、本社PCへの配備は導入先での確認対象。

@@ -148,12 +148,12 @@ export class ActioWorkflowClient {
     return { task, existed: false };
   }
 
-  async setStatus(binding: ActioBinding, id: string, status: TaskStatus): Promise<ActioWorkflowTask> {
+  async setStatus(binding: ActioBinding, id: string, status: TaskStatus | "blocked"): Promise<ActioWorkflowTask> {
     return this.serializeMetadata(binding, id, async () => {
       await this.get(binding, id);
       const updated = this.decode(binding, await this.transport.request(binding, "PATCH", `/api/tasks/${encodeURIComponent(id)}`, { status: this.remoteStatus(status) }));
       if (updated.id !== id) throw new Error("Actio task identity mismatch");
-      if (workflowStatus(updated.status) !== status) throw new Error("Invalid Actio task response");
+      if ((status === "blocked" ? updated.status : workflowStatus(updated.status)) !== status) throw new Error("Invalid Actio task response");
       return updated;
     });
   }
@@ -251,7 +251,7 @@ export class ActioWorkflowClient {
     return updated;
   }
 
-  private remoteStatus(status: TaskStatus): string {
+  private remoteStatus(status: TaskStatus | "blocked"): string {
     return status === "pending" ? "open" : status === "delegated" ? "in_progress" : status;
   }
 

@@ -156,4 +156,16 @@ describe("GET /tasks/content", () => {
     expect((await app.request("/tasks/content?reference=actio:task-1")).status).toBe(400);
     expect((await app.request("/tasks/content?session_id=missing&reference=actio:task-1")).status).toBe(404);
   });
+
+  it("only blocks an article issued by the requesting session", async () => {
+    const task = document();
+    const blockArticle = vi.fn(async () => {});
+    const { app } = fixture({ read: async () => task, blockArticle });
+    const request = () => app.request("/tasks/article-block", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: "s1", reference: task.path }) });
+    expect((await request()).status).toBe(403);
+    Object.assign(task.frontmatter, { issued_by_session_id: "s1", kind: "knowledge-article", actio_status: "in_progress" });
+    expect((await request()).status).toBe(200);
+    expect(blockArticle).toHaveBeenCalledWith(REPO, task.path, "sub-1");
+  });
 });

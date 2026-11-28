@@ -54,6 +54,7 @@ import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { createDependencyReadinessChecker } from "./operations/dependency-readiness.js";
 import { runClaude } from "./rules/claude-runner.js";
+import { buildKnowledgeSearchRuntime } from "./knowledge-search/runtime.js";
 import { repinSession } from "./control/repin-session.js";
 import { resolveAgentHomeCwd, setWorkspaceRootsResolver } from "./control/spawner.js";
 import { makeDiscordConfigRepo, makeDiscordPendingQuestionsRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
@@ -366,6 +367,8 @@ async function main(): Promise<void> {
   };
   const slackDeps: SlackBotDeps = {
     db,
+    // ナレッジ検索は検索だけ (OKF タグの付与は Cc 本体が進める)。
+    knowledgeSearch: buildKnowledgeSearchRuntime({ db, runner: (prompt, opts) => runClaude(prompt, opts), log: { warn: (m) => log.warn(m) } }),
     readModel,
     slackConfigRepo: slackConfig,
     concordiaUrl,

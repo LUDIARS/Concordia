@@ -24,6 +24,8 @@ import augurContract_0bdfc2ea from './notion-mcp-tools.contract.js'; /* augur-in
 export const NOTION_MCP_READ_TOOLS: readonly string[] = Object.freeze([
   "mcp__claude_ai_Notion__notion-fetch",
   "mcp__claude_ai_Notion__notion-search",
+  // 起点がデータベースのとき、 行 (ページ) の一覧は fetch では返らないため読み取りの照会を許す。
+  "mcp__claude_ai_Notion__notion-query-data-sources",
 ]);
 
 export const NOTION_MCP_TIMEOUT_MS = 120_000;
@@ -48,7 +50,8 @@ export function buildMcpFetchPrompt(ref: NotionPageRef, limits: NotionFetchLimit
     `Notion の読み取りツール (notion-fetch) で次のページを 1 回だけ取得する: ${target}`,
     "他のページは取得しない。 書き込み・作成・更新・削除はしない。",
     // 他のコネクタ (Claude Docs 等) の読み取りツールで Notion の URL を読もうとして許可待ちで止まった実例がある
-    `使ってよいツールは ${NOTION_MCP_READ_TOOLS[0]} だけ。 Claude Docs など他のコネクタのツールは使わない。`,
+    `使ってよいツールは ${NOTION_MCP_READ_TOOLS[0]} と、 データベースの行の一覧に使う ${NOTION_MCP_READ_TOOLS[2]} だけ (ToolSearch はこれらを読み込むためだけに使う)。 Claude Docs など他のコネクタのツールは使わない。`,
+    `対象がデータベースなら、 ${NOTION_MCP_READ_TOOLS[2]} で行 (ページ) を一覧し、 その行を children に入れる。`,
     "JSON の形:",
     `{"status": "ok", "page": {"id": ページ ID, "title": 題, "url": URL, "last_edited_time": ISO 8601 or null,` +
       ` "text": 本文のテキスト (${limits.pageTextBytes} バイトまで), "children": [{"id": 子ページか子データベースの行の ID, "title": 題, "url": URL or null}] (${limits.maxChildren} 件まで),` +

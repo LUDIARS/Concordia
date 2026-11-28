@@ -23,10 +23,10 @@ const ok = (page: Record<string, unknown>) => JSON.stringify({ status: "ok", pag
 describe("notionMcpRunOptions", () => {
   it("allows only the Notion read tools", () => {
     const opts = notionMcpRunOptions();
-    expect(opts.allowedTools).toEqual(["mcp__claude_ai_Notion__notion-fetch", "mcp__claude_ai_Notion__notion-search"]);
-    expect(opts.allowedTools.every((t) => /^mcp__claude_ai_Notion__notion-(fetch|search)$/.test(t))).toBe(true);
+    expect(opts.allowedTools).toEqual(["mcp__claude_ai_Notion__notion-fetch", "mcp__claude_ai_Notion__notion-search", "mcp__claude_ai_Notion__notion-query-data-sources"]);
+    expect(opts.allowedTools.every((t) => /^mcp__claude_ai_Notion__notion-(fetch|search|query-data-sources)$/.test(t))).toBe(true);
     expect(opts.allowedTools.some((t) => /create|update|delete|move|comment|upload/.test(t))).toBe(false);
-    expect(NOTION_MCP_READ_TOOLS).toHaveLength(2);
+    expect(NOTION_MCP_READ_TOOLS).toHaveLength(3);
   });
 
   it("asks for one page only, without writing", () => {
@@ -35,7 +35,8 @@ describe("notionMcpRunOptions", () => {
     expect(prompt).toContain("1 回だけ");
     expect(prompt).toContain("書き込み・作成・更新・削除はしない");
     expect(prompt).toContain("unavailable");
-    expect(prompt).toContain(`使ってよいツールは ${NOTION_MCP_READ_TOOLS[0]} だけ`);
+    expect(prompt).toContain(`使ってよいツールは ${NOTION_MCP_READ_TOOLS[0]} と、 データベースの行の一覧に使う ${NOTION_MCP_READ_TOOLS[2]} だけ`);
+    expect(prompt).toContain("データベースなら");
   });
 });
 

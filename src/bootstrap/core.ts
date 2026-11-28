@@ -2,6 +2,7 @@
 import { createChoresRuntime } from "../chores/runtime.js";
 import { MeetingLinkStore } from "../meeting-links/store.js";
 import { watchedChannels } from "../knowledge-flow/watched-channels.js";
+import { KNOWLEDGE_SEARCH_TAG_TICK_MS, buildKnowledgeSearchRuntime } from "../knowledge-search/runtime.js";
 import { createManagementRuntime } from "../management/runtime.js";
 import { startManagementRemote } from "../management/remote-startup.js";
 import { ManagementRepository } from "../management/repository.js";
@@ -811,6 +812,12 @@ export async function startBackend(): Promise<BackendHandle> {
       .catch((err: unknown) => log.warn({ err }, "chat knowledge tick failed"));
   }, KNOWLEDGE_TICK_MS);
   chatKnowledgeTimer.unref?.();
+  // Slack のナレッジ検索 (spec/feature/slack-knowledge-search.md)。 OKF タグの付与は本体だけで進める (chat-worker は検索のみ)。
+  const knowledgeSearch = buildKnowledgeSearchRuntime({ db, runner: (prompt, opts) => runClaude(prompt, opts), log: { warn: (m) => log.warn(m) } });
+  const knowledgeSearchTagTimer = setInterval(() => {
+    void knowledgeSearch.tagTick().catch((err: unknown) => log.warn({ err }, "knowledge search tagging failed"));
+  }, KNOWLEDGE_SEARCH_TAG_TICK_MS);
+  knowledgeSearchTagTimer.unref?.();
   const patrolRuntime = buildPatrolRuntime({
     db,
     chat,
@@ -2565,6 +2572,7 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   slackBotDeps = {
     db,
+    knowledgeSearch,
     readModel: chatReadModel,
     // 部署の出力方針 (途中の発言・Cc の指令の転記、 departments.md §9.4)。 Discord と同じ解決で出し分ける。
     relayOutputPolicy: (sessionId) => resolveRelayOutputPolicy({

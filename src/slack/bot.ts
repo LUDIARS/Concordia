@@ -9,6 +9,8 @@ import { WebClient } from "@slack/web-api";
 import { SocketModeClient } from "@slack/socket-mode";
 import { createArticleInbox } from "../knowledge-flow/slack-receipt.js";
 import { watchedChannels } from "../knowledge-flow/watched-channels.js";
+import { KNOWLEDGE_SEARCH_FUNCTION_ID, knowledgeSearchSlack, type KnowledgeSearchSlackClient } from "../knowledge-search/slack-adapter.js";
+import { httpTrialSpawner } from "../knowledge-search/trial-spawn-http.js";
 import { initializeLedger } from "../knowledge-flow/article-ledger.js";
 import { startThreadDelivery } from "../knowledge-flow/thread-delivery.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
@@ -174,6 +176,8 @@ export interface SlackBotDeps {
    * 未注入なら全部流す。
    */
   relayOutputPolicy?: (sessionId: string) => RelayOutputPolicy;
+  /** Slack のナレッジ検索 (spec/feature/slack-knowledge-search.md)。 未注入なら受け付けない。 */
+  knowledgeSearch?: import("../knowledge-search/runtime.js").KnowledgeSearchRuntime;
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
   socketClient?: SocketModeClient;
@@ -251,6 +255,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   } catch (e) {
     log.warn(`auth.test failed: ${(e as Error).message}`);
   }
+  const knowledgeSearchIngress = deps.knowledgeSearch
+    ? knowledgeSearchSlack({
+      runtime: deps.knowledgeSearch,
+      client: web as unknown as KnowledgeSearchSlackClient,
+      botUserId: () => botUserId,
+      isLaunchAllowed: (userId) => isSlackLaunchAuthorized(slashDepsFor(userId)),
+      spawner: httpTrialSpawner(deps.concordiaUrl),
+      log,
+    })
+    : null;
 
   // ライブカードの状態を session 行から組む（同期・純粋寄り）。
   // ended の poem は呼び出し側 (renderEndedCard) が埋める。
@@ -713,6 +727,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     try { await ack(); } catch {}
     try {
       if (!event) return;
+      if (knowledgeSearchIngress?.onMessage(body?.team_id, event)) return;
       const route = routeSlackChannelMessage({
         event,
         hubChannelId: channelId,
@@ -911,6 +926,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     try {
       const action = body?.actions?.[0];
       if (!action?.action_id) return;
+      if (knowledgeSearchIngress && await knowledgeSearchIngress.onTrialAction({
+        actionId: action.action_id, value: action.value, userId: body.user?.id, channelId: body.channel?.id,
+        threadTs: body.message?.thread_ts ?? body.message?.ts,
+      })) return;
       const other = parseOtherAnswerActionId(action.action_id);
       if (other) {
         const sessionRow = body.channel?.id ? channels.findByChannelId(body.channel.id) : null;
@@ -1023,6 +1042,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       const execId = event?.function_execution_id;
       if (!execId) return;
       try {
+        if (event.function?.callback_id === KNOWLEDGE_SEARCH_FUNCTION_ID) {
+          if (!knowledgeSearchIngress) throw new Error("ナレッジ検索は有効になっていません");
+          const kin = event.inputs ?? {};
+          const result = await knowledgeSearchIngress.onFunction({ executionId: execId, query: kin.query, channelId: kin.channel_id, userId: event.user_id ?? kin.user_id });
+          await web.functions.completeSuccess({ function_execution_id: execId, outputs: { result } });
+          return;
+        }
         if (event.function?.callback_id !== "spawn_session") return; // 想定外の function は無視
         const inputs = event.inputs ?? {};
         const actorUserId = event.user_id ?? inputs.user_id;
@@ -1030,7 +1056,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         await web.functions.completeSuccess({ function_execution_id: execId, outputs: { result } });
       } catch (e) {
         const msg = (e as Error).message;
-        log.warn(`function_executed(spawn_session) handler: ${msg}`);
+        log.warn(`function_executed(${event.function?.callback_id ?? "?"}) handler: ${msg}`);
         try { await web.functions.completeError({ function_execution_id: execId, error: msg }); } catch {}
       }
     },
@@ -1225,6 +1251,6 @@ interface SlackFunctionExecutedEvent {
   function?: { callback_id?: string };
   /** Slack workflow actor. If the event omits it, a workflow input must carry user_id. */
   user_id?: string;
-  inputs?: { provider?: string; cwd?: string; user_id?: string };
+  inputs?: { provider?: string; cwd?: string; user_id?: string; query?: string; channel_id?: string };
   function_execution_id?: string;
 }

@@ -91,10 +91,17 @@ export interface RunClaudeOptions {
   allowedTools?: readonly string[];
 }
 
-/** allowedTools を指定したときの claude の引数 (組み込みツールなし・スラッシュコマンドなし・指定ツールだけ許す)。 */
+/**
+ * allowedTools を指定したときの claude の引数 (スラッシュコマンドなし・指定ツールだけ許す)。
+ * 組み込みツールは外すが、 MCP のツールを含むときは ToolSearch だけ残す。 claude.ai コネクタのツールは
+ * 遅延読み込み (ToolSearch で読み込んでから呼ぶ) になるため、 ToolSearch まで外すと接続済みでも呼べない。
+ */
 export function allowedToolArgs(tools: readonly string[]): string[] {
   const names = tools.map((t) => t.trim()).filter((t) => /^[A-Za-z0-9_.:-]+$/.test(t));
-  return names.length ? ["--tools=", "--disable-slash-commands", "--allowedTools", names.join(",")] : [];
+  if (!names.length) return [];
+  const needsToolSearch = names.some((t) => t.startsWith("mcp__"));
+  const allowed = needsToolSearch && !names.includes("ToolSearch") ? ["ToolSearch", ...names] : names;
+  return [needsToolSearch ? "--tools=ToolSearch" : "--tools=", "--disable-slash-commands", "--allowedTools", allowed.join(",")];
 }
 
 export type RunClaudeFn = (

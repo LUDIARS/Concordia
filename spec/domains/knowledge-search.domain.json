@@ -1,0 +1,14 @@
+{
+  "name": "knowledge-search",
+  "description": "Slack からのナレッジ検索。OKF タグ付け、ローカル文書の決定的検索、サマリーと役職別スキル HTML の返信。UX-CC-KSEARCH-01。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/knowledge-search/[^/]+$"
+    }
+  ],
+  "specRefs": [
+    "spec/feature/slack-knowledge-search.md"
+  ]
+}

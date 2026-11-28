@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { makeTestApp } from "./helpers/test-app.js";
 import { SEED_ARS_ROOT } from "../src/control/seed-cwd-rebase.js";
 import type { SpawnRequest } from "../src/control/spawner.js";
+import { isKnowledgeArticleCallName } from "../src/delegation/knowledge-article-templates.js";
 
 const EXPECTED_SEED_CALLS = [
   // 2026-10-14 neco 指示: Opus を先頭、Fable を 5 番目。
@@ -45,6 +46,7 @@ const EXPECTED_SEED_CALLS = [
   "ai-note-biweekly-review",
   // メール検知後に Quaestor の mail-actions が invoke する受け皿 2 本。 cron からは呼ばない。
   "ci-failure-fix",
+  "claude-notion-knowledge-article",
   "daily-review-autofix",
   "deps-sweep-daily",
   "deps-sweep-repo",
@@ -94,7 +96,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 15, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 15, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
@@ -179,8 +181,8 @@ describe("delegation seed regression", () => {
         expect(existsSync(json.prompt_file_path)).toBe(true);
 
         const promptFile = readFileSync(json.prompt_file_path, "utf8");
-        if (template.call_name === "grok-knowledge-article") {
-          expect(promptFile).toBe(`記事を取得し、原文と要約を保存してください。\nURL: ${args.url}\n保存先: ${args.save_path}`);
+        if (isKnowledgeArticleCallName(template.call_name)) {
+          expect(promptFile, template.call_name).toBe(json.rendered_prompt);
         } else if (template.category === "parttimer") {
           // パートタイマーはタスク本文を先頭に置く別書式 (delegation/parttimer-inject.ts)。
           // 見出しは template title、 run のメタ情報は末尾へ回す。

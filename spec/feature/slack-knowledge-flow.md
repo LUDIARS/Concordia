@@ -6,7 +6,8 @@ UX-CC-KNOWLEDGE-01。指定チャンネルで記事を共有した人は同じ�
 - KF-2。処理依頼には保存済み request UUID を用いる。同一URLは元の記事番号へ、同文転載は本文ハッシュで元の記事へ対応させる。Cc が利用できない間は保存済みの依頼を保持する。
 - KF-3。Canalis のネイティブ実行ファイルで公開記事を取得し（Notion は KF-6）、Grok は支持・反例を個別検索する。本社の比較履歴はローカルモデルに渡す。外部送信は公開記事情報と検索指示。子プロセスにはモデル鍵を継承しない。新しい npm 依存、インストール時スクリプト、公開待受の追加はない。
 - KF-4。採用はレビュー画面の操作で確定する。照合不足は保留。手順は番号順で提示し、技術記事のスキルは個別に採用する。採用済み Markdown と通知予約を判断と同じトランザクションに記録する。
-- KF-6。監視チャンネル（環境設定の scope・登録済みの Discord/Slack 監視先と、その公開スレッド）の投稿はナレッジフローが受け持ち、Cc の通常の受付（業務投稿・セッション振り分け・チャット・リアクションワークフロー）へは回さない。記事 URL の無い投稿も同じ。Slack のナレッジ検索（`@Bot ナレッジ検索`）は従来どおり先に判定する。Notion の URL（notion.so・*.notion.site）の本文は Canalis ではなく、Claude の claude.ai Notion コネクタで読む（巡回チャットと同じ `claude -p` の読み取りツール限定の経路。ワーカーを動かす PC の Claude で Notion コネクタを認証しておく）。ナレッジフローは Notion へ書き込まない。MELPOT では結果を Slack のスレッドに投稿するだけにする（2026-11-28 人間指示）。
+- KF-6。監視チャンネル（環境設定の scope・登録済みの Discord/Slack 監視先と、その公開スレッド）の投稿はナレッジフローが受け持ち、Cc の通常の受付（業務投稿・セッション振り分け・チャット・リアクションワークフロー）へは回さない。記事 URL の無い投稿も同じ。Slack のナレッジ検索（`@Bot ナレッジ検索`）は従来どおり先に判定する。Notion の URL（notion.so・*.notion.site）の本文は Canalis ではなく、Claude の claude.ai Notion コネクタで読む（KF-7 の委託。Cc が委託先を起動する PC の Claude で Notion コネクタを認証しておく）。ナレッジフローは Notion へ書き込まない。MELPOT では結果を Slack のスレッドに投稿するだけにする（2026-11-28 人間指示）。
+- KF-7。記事本文の取得経路はナレッジフローが決め、Grok・Claude の起動（spawn）は Cc の委託が受け持つ。X の投稿は `grok-knowledge-article`、Notion のページは `claude-notion-knowledge-article` を、ワーカーが Cc の `POST /v1/delegations/invoke` で起動させる。引数は記事 URL と保存先（`CC_KNOWLEDGE_ARTICLE_DIR` 配下）。委託先は `# 題`・`## 原文`（本文そのまま）・`## 要約` の Markdown を保存し、ワーカーは巡回ごとに保存先と `GET /v1/delegations/runs/:id/status` を見る。待つ間も他の記事の巡回は止めない。原文が保存されないまま委託が終わる、または 15 分を超えたら取得失敗として数える（4 回で保留）。委託の run は記事の Actio task に結びつけない。ふつうの Web ページは委託せず Canalis で読む。裏付けの検索（支持・反例）と本社モデルの評価は委託しない（2026-11-28 人間判断）。
 
 ## 本社PCへの導入
 
@@ -20,6 +21,7 @@ Discord の投稿・編集・スレッド返信の記事 URL も同じ SQLite �
 |---|---|
 | CC_KNOWLEDGE_CC_URL / CC_KNOWLEDGE_SESSION | この拠点の Cc ローカル API と、Cc プロジェクトに紐付いた運用セッション。途中でタスクの組織を切り替えない |
 | CC_KNOWLEDGE_CANALIS | ネイティブ Canalis の実行ファイルの絶対パス |
+| CC_KNOWLEDGE_ARTICLE_DIR | 記事本文の取得委託（KF-7）に保存させるディレクトリの絶対パス |
 | CC_KNOWLEDGE_SOURCE_HOSTS | 裏付けに使用する公開ホスト名（カンマ区切り） |
 | XAI_API_KEY / CC_KNOWLEDGE_GROK_MODEL | xAI の鍵と検索対応モデル。鍵は環境設定から渡す |
 | CC_KNOWLEDGE_HQ_CHAT_URL / CC_KNOWLEDGE_HQ_MODEL | 本社PC内の chat completions 互換 URL とモデル名 |
@@ -28,9 +30,9 @@ Discord の投稿・編集・スレッド返信の記事 URL も同じ SQLite �
 
 実 Slack・Canalis・モデルとの接続、本社PCへの配備は導入先での確認対象。
 
-記事取得専用の Grok 委託 `grok-knowledge-article` は、原文と要約を保存する依頼、記事 URL、呼び出し元が指定した保存先を初期指示に渡す。委託の状態は Cc が管理する。
+記事取得専用の委託 `grok-knowledge-article`（Grok）と `claude-notion-knowledge-article`（Claude の Notion コネクタ）は、原文と要約を保存する依頼、記事 URL、呼び出し元が指定した保存先、保存形式（KF-7）だけを初期指示に渡す。委託の状態は Cc が管理する。
 
-記事と照合資料の本文は、X（旧 Twitter）のリンクなら Grok の X Search、それ以外の公開 Web ページなら Canalis で取得する。X 投稿では引用先の投稿番号を照合し、対象の引用や本文を取得できなかった場合は取得失敗として扱う。
+記事の本文は KF-7 の経路で取得する。照合資料の本文は、X（旧 Twitter）のリンクなら Grok の X Search、それ以外の公開 Web ページなら Canalis で取得する。X 投稿では引用先の投稿番号を照合し、対象の引用や本文を取得できなかった場合は取得失敗として扱う。
 
 監視中の Discord・Slack 投稿で記事 URL を受け付けたら、保存と同時に元スレッドへの受付返信を予約する。
 記事番号と取り込み予定を伝え、分析ワーカーの起動を待たない。同じイベントの再送は返信を増やさず、

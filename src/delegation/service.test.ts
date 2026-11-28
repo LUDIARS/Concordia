@@ -177,7 +177,7 @@ describe("DelegationService.invoke", () => {
     const result = await svc.invoke({call_name: template.call_name, args: {url: "https://x.com/a/status/1", save_path: "articles/1.md"}});
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(readFileSync(result.prompt_file_path, "utf8")).toBe("記事を取得し、原文と要約を保存してください。\nURL: https://x.com/a/status/1\n保存先: articles/1.md");
+    expect(readFileSync(result.prompt_file_path, "utf8")).toBe(template.prompt_template.replace("${url}", "https://x.com/a/status/1").replace("${save_path}", "articles/1.md"));
   });
 
   it("allocates Astra before spawn when an Opus quota is exhausted", async () => {

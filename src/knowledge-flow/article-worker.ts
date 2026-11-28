@@ -1,12 +1,13 @@
 import type { Database } from "better-sqlite3";
 import { assess, readArticleSource, type AnalysisSettings } from "./article-analysis.js";
-import { isXSource } from "./x-source.js";
-import { isNotionSource } from "./notion-article-source.js";
+import { articleRoute, delegatedArticle } from "./article-delegation.js";
 import { notifyArticle, renderReport, seedJobs, type Article } from "./article-ledger.js";
 import { z } from "zod";
 export interface WorkerSettings extends AnalysisSettings {
     session: string;
     ccUrl: string;
+    /** 記事本文の取得委託の保存先ディレクトリ (絶対パス)。 */
+    articleDir: string;
 }
 interface Job extends Article {
     request_id: string;
@@ -78,10 +79,19 @@ export async function advanceArticle(db: Database, cfg: WorkerSettings) {
             await cc(cfg, "/v1/taskflow/tasks/state", "PATCH", { repo_path: job.repo, task_path: job.task_ref, status: "delegated" });
         db.prepare("UPDATE knowledge_flow_articles SET state='analyzing' WHERE id=?").run(job.id);
     }
-    let stage = isXSource(job.url) ? "Grok X本文取得（投稿URL・引用・公開範囲を確認）" : isNotionSource(job.url) ? "Notion本文取得（Claude の Notion コネクタの認証・ページの共有を確認）" : "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）";
+    // 本文の取得経路はナレッジフローが決め、 Grok / Claude (Notion) の起動は Cc の委託に任せる (KF-7)。
+    const route = articleRoute(job.url);
+    let stage = {
+        grok: "Grok 委託でX本文取得（Cc の委託・投稿URL・公開範囲を確認）",
+        notion: "Claude 委託でNotion本文取得（Cc の委託・Notion コネクタの認証・ページの共有を確認）",
+        canalis: "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）",
+    }[route];
     try {
         await permit();
-        const article = await readArticleSource(job.url, cfg);
+        const article = route === "canalis" ? await readArticleSource(job.url, cfg)
+            : await delegatedArticle(db, cfg, (path, method, body) => cc(cfg, path, method, body), job, route);
+        if (!article)
+            return;
         const same = db.prepare("SELECT article_id FROM knowledge_flow_jobs WHERE body_hash=? AND article_id<>? ORDER BY article_id LIMIT 1").get(article.hash, job.id) as {
             article_id: number;
         } | undefined;

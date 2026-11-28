@@ -5,13 +5,12 @@ import { reviewServer } from "./review-server.js";
 import { memoriaBaseUrl } from "../config/service-urls.js";
 import { publishApprovedArticle } from "./memoria-publication.js";
 import { setTimeout as wait } from "node:timers/promises";
-import { runClaude } from "../rules/claude-runner.js";
 function required(name: string): string { const v = process.env[name]?.trim(); if (!v)
     throw new Error("Missing " + name); return v; }
 const cfg: WorkerSettings = { session: required("CC_KNOWLEDGE_SESSION"), ccUrl: required("CC_KNOWLEDGE_CC_URL"), canalis: required("CC_KNOWLEDGE_CANALIS"),
     hosts: required("CC_KNOWLEDGE_SOURCE_HOSTS").split(",").map(s => s.trim().toLowerCase()).filter(Boolean), xaiKey: required("XAI_API_KEY"), grok: required("CC_KNOWLEDGE_GROK_MODEL"),
     hqUrl: required("CC_KNOWLEDGE_HQ_CHAT_URL"), hqModel: required("CC_KNOWLEDGE_HQ_MODEL"),
-    notion: (prompt, opts) => runClaude(prompt, opts) };
+    articleDir: required("CC_KNOWLEDGE_ARTICLE_DIR") };
 const db = new Database(required("CC_KNOWLEDGE_DB"), { fileMustExist: true });
 db.pragma("busy_timeout=5000");
 const server = reviewServer(db);

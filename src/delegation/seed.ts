@@ -7,6 +7,7 @@
 import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
 import { ASTRA_WITH_SIDECAR_PROFILE, ASTRA_WITH_SIDECAR_TITLE } from "./sidecar/profile.js";
 import { TEMPLATE_CALL_NAME_RENAMES } from "./template-call-names.js";
+import { KNOWLEDGE_ARTICLE_TEMPLATES } from "./knowledge-article-templates.js";
 import { BOUNTY_TRIAGE_TEMPLATE } from "../bounty/triage-template.js";
 import { AGY_OPUS_DEFAULT_EFFORT, AGY_OPUS_MODEL_BY_EFFORT, OPUS_AGY_TEMPLATE_IDENTITY } from "./opus-agy-identity.js";
 
@@ -530,21 +531,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     default_cwd: null,
     is_active: true,
   },
-  {
-    call_name: "grok-knowledge-article",
-    title: "Grok 記事取得",
-    description: "指定記事の原文と要約を取得し、呼び出し元が指定した場所に保存する。",
-    target_provider: "grok",
-    model: "grok",
-    call_only: true,
-    category: "freelancer",
-    prompt_template: "記事を取得し、原文と要約を保存してください。\nURL: ${url}\n保存先: ${save_path}",
-    input_schema: [
-      { name: "url", type: "string", required: true, description: "記事のURL" },
-      { name: "save_path", type: "string", required: true, description: "保存先ファイル" },
-    ],
-    is_active: true,
-  },
+  ...KNOWLEDGE_ARTICLE_TEMPLATES,
   {
     call_name: "sonnet-ask",
     title: "設計相談 (Director 問診)",

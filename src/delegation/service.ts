@@ -5,6 +5,7 @@ import { resolveMajorInjectContent } from "../control/major-inject-resolver.js";
  * spec/delegation.md §3-4.
  */
 
+import { isKnowledgeArticleCallName } from "./knowledge-article-templates.js";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -334,7 +335,7 @@ export class DelegationService {
     if (!plan.ok) return plan;
     // 委託前にドメインを確定して指示書の先頭へ織り込む (設計 §5 C-2 / §12.3 C-11)。
     // Anatomia が居ない / 索引に無い / ドメイン定義が無いときは何も足さずに進む。
-    let renderedPrompt = def.call_name === "grok-knowledge-article" ? plan.renderedPrompt : await this.applyDomainPreamble(def, input, plan.renderedPrompt);
+    let renderedPrompt = isKnowledgeArticleCallName(def.call_name) ? plan.renderedPrompt : await this.applyDomainPreamble(def, input, plan.renderedPrompt);
 
     // 指示書の本文と構造化 branch を突き合わせる。 本文だけが branch を指している
     // 場合は呼び出し元の渡し忘れなので、 worktree を作らないまま spawn させない
@@ -724,7 +725,7 @@ export class DelegationService {
     // Concordia が足すのは「本文が全文」「迷っても止まらない」「終わり方」の 3 点だけ。
     // 経緯は delegation/parttimer-inject.ts 冒頭 (2026-09-03 neco 指示)。
     const isParttimer = def.category === "parttimer";
-    const articleBrief = def.call_name === "grok-knowledge-article";
+    const articleBrief = isKnowledgeArticleCallName(def.call_name);
     // Genius command-pattern (定型作業のコマンド列) を task 文面で照会して差し込む。
     // Genius 不在・不一致・失敗は注入なしで委託を続行する (fail-soft)。
     // パートタイマーは対象外 — 本文が手順まで書き切っている定時作業なので、 一致しない

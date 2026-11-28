@@ -2,6 +2,7 @@ import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { initializeNotifications } from "./receipt-notification.js";
 import { initializeThreadMaterials, queueThreadMaterials } from "./thread-materials.js";
+import { initializeArticleDelegation } from "./article-delegation.js";
 import type { assess } from "./article-analysis.js";
 export type Report = Awaited<ReturnType<typeof assess>>;
 export interface Article {
@@ -22,6 +23,7 @@ export function initializeLedger(db: Database) {
     CREATE TABLE IF NOT EXISTS knowledge_flow_documents (
       article_id INTEGER NOT NULL, kind TEXT NOT NULL, markdown TEXT NOT NULL, PRIMARY KEY(article_id,kind));
   `);
+    initializeArticleDelegation(db);
 }
 export function seedJobs(db: Database) {
     db.transaction(() => {

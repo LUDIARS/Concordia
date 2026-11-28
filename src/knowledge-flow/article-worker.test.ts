@@ -23,7 +23,7 @@ it("uses X Search for a post and accepts only the requested post's citation and 
 });
 it("retains the same request identity when Cc is unavailable, and pauses a manually blocked task", async () => {
     const db = new Database(":memory:");
-    const cfg: WorkerSettings = { ccUrl: "http://localhost", session: "session", canalis: "unused", hosts: [], grok: "unused", xaiKey: "unused", hqModel: "unused", hqUrl: "http://localhost" };
+    const cfg: WorkerSettings = { ccUrl: "http://localhost", session: "session", canalis: "unused", hosts: [], grok: "unused", xaiKey: "unused", hqModel: "unused", hqUrl: "http://localhost", notion: async () => ({ ok: false, stdout: "", stderr: "unused" }) };
     try {
         const save = createArticleInbox(db, ["T/C"]);
         initializeLedger(db);

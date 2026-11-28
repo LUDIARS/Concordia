@@ -7,7 +7,7 @@
 import type { Database } from "better-sqlite3";
 import { WebClient } from "@slack/web-api";
 import { SocketModeClient } from "@slack/socket-mode";
-import { createArticleInbox } from "../knowledge-flow/slack-receipt.js";
+import { articleChannelOwner, createArticleInbox } from "../knowledge-flow/slack-receipt.js";
 import { watchedChannels } from "../knowledge-flow/watched-channels.js";
 import { KNOWLEDGE_SEARCH_FUNCTION_ID, knowledgeSearchSlack, type KnowledgeSearchSlackClient } from "../knowledge-search/slack-adapter.js";
 import { httpTrialSpawner } from "../knowledge-search/trial-spawn-http.js";
@@ -715,7 +715,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // ─── ingress: Slack message → Concordia inject / chat ──────────────────────
   const articleScopes = (process.env.CC_KNOWLEDGE_SLACK_SCOPES ?? "").split(",").map(scope => scope.trim()).filter(Boolean);
   const watches = watchedChannels(deps.db);
-  const saveArticleReceipt = createArticleInbox(deps.db, articleScopes, (team,channel) => watches.has("slack",team,channel));
+  const watchesSlack = (team: string, channel: string) => watches.has("slack",team,channel);
+  const saveArticleReceipt = createArticleInbox(deps.db, articleScopes, watchesSlack);
+  const ownsArticleChannel = articleChannelOwner(articleScopes, watchesSlack);
   initializeLedger(deps.db);
   socket.on("message", async ({ event, body, ack }: { event: SlackMessageEvent; body?: {team_id?: string; event_id?: string}; ack: () => Promise<void> }) => {
     try {
@@ -728,6 +730,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     try {
       if (!event) return;
       if (knowledgeSearchIngress?.onMessage(body?.team_id, event)) return;
+      // ナレッジフローの監視チャンネルの投稿はナレッジフローが受け持つ。 Cc の通常の受付 (セッション振り分け・チャット) へは回さない (KF-6)。
+      if (ownsArticleChannel(body?.team_id, event.channel)) return;
       const route = routeSlackChannelMessage({
         event,
         hubChannelId: channelId,

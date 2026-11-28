@@ -1,6 +1,7 @@
 import type { Database } from "better-sqlite3";
 import { assess, readArticleSource, type AnalysisSettings } from "./article-analysis.js";
 import { isXSource } from "./x-source.js";
+import { isNotionSource } from "./notion-article-source.js";
 import { notifyArticle, renderReport, seedJobs, type Article } from "./article-ledger.js";
 import { z } from "zod";
 export interface WorkerSettings extends AnalysisSettings {
@@ -77,7 +78,7 @@ export async function advanceArticle(db: Database, cfg: WorkerSettings) {
             await cc(cfg, "/v1/taskflow/tasks/state", "PATCH", { repo_path: job.repo, task_path: job.task_ref, status: "delegated" });
         db.prepare("UPDATE knowledge_flow_articles SET state='analyzing' WHERE id=?").run(job.id);
     }
-    let stage = isXSource(job.url) ? "Grok X本文取得（投稿URL・引用・公開範囲を確認）" : "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）";
+    let stage = isXSource(job.url) ? "Grok X本文取得（投稿URL・引用・公開範囲を確認）" : isNotionSource(job.url) ? "Notion本文取得（Claude の Notion コネクタの認証・ページの共有を確認）" : "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）";
     try {
         await permit();
         const article = await readArticleSource(job.url, cfg);

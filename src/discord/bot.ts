@@ -2019,7 +2019,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void articles.command(msg).catch(error => log.warn("Article channel command failed: "+String(error)));
       return;
     }
-    try { articles.receive(msg); } catch (error) { log.warn("Discord article receipt failed: "+String(error)); }
+    // ナレッジフローの監視チャンネル (と公開スレッド) の投稿はナレッジフローが受け持つ。
+    // Cc の通常の受付 (業務投稿・セッション振り分け・チャット) へは回さない (spec/feature/slack-knowledge-flow.md KF-6)。
+    if (articles.monitored(msg)) {
+      try { articles.receive(msg); } catch (error) { log.warn("Discord article receipt failed: "+String(error)); }
+      return;
+    }
     companyPinSharing.pinNotice(msg);
     forwardWorkPost(msg);
     // サービスへ中継する指定チャンネル (spec/feature/discord-chat-relay.md)。 受け持った発言は他の ingress へ回さない。
@@ -2218,6 +2223,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (articles.monitored(updated)) {
         const edited = updated.partial ? await updated.fetch() : updated;
         if (edited.editedTimestamp && !/^ナレッジ監視\s/.test(edited.content)) articles.receive(edited,old);
+        return;
       }
       const parent = channel.isThread() ? channel.parent : channel;
       const owner = parent && "parentId" in parent ? discussionOwner(deps.db, parent.id, parent.parentId) : null;

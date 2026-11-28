@@ -5,6 +5,8 @@ import { isAbsolute } from "node:path";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { isXSource, readXSource } from "./x-source.js";
+import { isNotionSource, readNotionSource } from "./notion-article-source.js";
+import type { NotionToolRunner } from "../rules/notion-source-mcp.js";
 const run = promisify(execFile);
 const page = z.object({ url: z.string().url(), title: z.string(), text: z.string().min(1), fetchedAt: z.string().optional(), fetched_at: z.string().optional() });
 export async function readPage(url: string, binary: string) {
@@ -70,9 +72,12 @@ export interface AnalysisSettings {
     grok: string;
     hqUrl: string;
     hqModel: string;
+    /** Notion のページを読む Claude の one-shot runner (claude.ai Notion コネクタ)。 */
+    notion: NotionToolRunner;
 }
 export async function readArticleSource(url: string, cfg: AnalysisSettings): Promise<Page> {
     if (isXSource(url)) return readXSource(url, cfg.grok, payload => jsonRequest("https://api.x.ai/v1/responses", cfg.xaiKey, payload));
+    if (isNotionSource(url)) return readNotionSource(url, cfg.notion);
     return readPage(url, cfg.canalis);
 }
 

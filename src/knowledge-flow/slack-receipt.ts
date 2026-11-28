@@ -1,9 +1,16 @@
 import type { Database } from "better-sqlite3";
 import { articleSubmission, type ArticleEvent } from "./slack-article.js";
 import { acknowledgeReceipt, initializeNotifications } from "./receipt-notification.js";
+/** 監視チャンネル (環境設定の scope または登録済みの監視先) か。 該当する投稿はナレッジフローが受け持つ。 */
+export function articleChannelOwner(scopes: readonly string[], watches?: (team: string, channel: string) => boolean) {
+    const allowed = new Set(scopes);
+    return (team: string | undefined, channel: string | undefined): boolean =>
+        Boolean(team && channel && (allowed.has(team + "/" + channel) || watches?.(team, channel)));
+}
 // A receipt owns the message-to-article association, independently of worker availability.
 export function createArticleInbox(db: Database, scopes: readonly string[], watches?: (team: string, channel: string) => boolean) {
     const allowed = new Set(scopes);
+    const owns = articleChannelOwner(scopes, watches);
     if (allowed.size || watches) {
         initializeNotifications(db);
         db.exec(`
@@ -34,7 +41,7 @@ export function createArticleInbox(db: Database, scopes: readonly string[], watc
         }
     });
     return (team: string | undefined, eventId: string | undefined, event: ArticleEvent, bot: string | null): void => {
-        if (!team || !event.channel || !(allowed.has(team + "/" + event.channel) || watches?.(team,event.channel)))
+        if (!team || !event.channel || !owns(team, event.channel))
             return;
         if (!eventId)
             throw new Error("Missing Slack event identity");

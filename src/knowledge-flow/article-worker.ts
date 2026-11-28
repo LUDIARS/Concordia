@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
-import { assess, readPage, type AnalysisSettings } from "./article-analysis.js";
+import { assess, readArticleSource, type AnalysisSettings } from "./article-analysis.js";
+import { isXSource } from "./x-source.js";
 import { notifyArticle, renderReport, seedJobs, type Article } from "./article-ledger.js";
 import { z } from "zod";
 export interface WorkerSettings extends AnalysisSettings {
@@ -76,10 +77,10 @@ export async function advanceArticle(db: Database, cfg: WorkerSettings) {
             await cc(cfg, "/v1/taskflow/tasks/state", "PATCH", { repo_path: job.repo, task_path: job.task_ref, status: "delegated" });
         db.prepare("UPDATE knowledge_flow_articles SET state='analyzing' WHERE id=?").run(job.id);
     }
-    let stage = "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）";
+    let stage = isXSource(job.url) ? "Grok X本文取得（投稿URL・引用・公開範囲を確認）" : "Canalis 公開HTML取得（CC_KNOWLEDGE_CANALIS・URL・公開範囲を確認）";
     try {
         await permit();
-        const article = await readPage(job.url, cfg.canalis);
+        const article = await readArticleSource(job.url, cfg);
         const same = db.prepare("SELECT article_id FROM knowledge_flow_jobs WHERE body_hash=? AND article_id<>? ORDER BY article_id LIMIT 1").get(article.hash, job.id) as {
             article_id: number;
         } | undefined;

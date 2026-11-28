@@ -29,6 +29,7 @@ export interface ManualKindSource {
 const IMPL_HINTS = ["impl", "fix", "refactor", "employee", "実装"];
 
 export function resolveManualKind(template: ManualKindSource): InjectManualKind {
+  if (template.call_name === "grok-knowledge-article") return "雑用";
   if (template.category === "parttimer") return "雑用";
   const haystack = `${template.call_name} ${template.title}`.toLowerCase();
   if (IMPL_HINTS.some((hint) => haystack.includes(hint))) return "実装";

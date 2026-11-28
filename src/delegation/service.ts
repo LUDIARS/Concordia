@@ -334,7 +334,7 @@ export class DelegationService {
     if (!plan.ok) return plan;
     // 委託前にドメインを確定して指示書の先頭へ織り込む (設計 §5 C-2 / §12.3 C-11)。
     // Anatomia が居ない / 索引に無い / ドメイン定義が無いときは何も足さずに進む。
-    let renderedPrompt = await this.applyDomainPreamble(def, input, plan.renderedPrompt);
+    let renderedPrompt = def.call_name === "grok-knowledge-article" ? plan.renderedPrompt : await this.applyDomainPreamble(def, input, plan.renderedPrompt);
 
     // 指示書の本文と構造化 branch を突き合わせる。 本文だけが branch を指している
     // 場合は呼び出し元の渡し忘れなので、 worktree を作らないまま spawn させない
@@ -724,12 +724,13 @@ export class DelegationService {
     // Concordia が足すのは「本文が全文」「迷っても止まらない」「終わり方」の 3 点だけ。
     // 経緯は delegation/parttimer-inject.ts 冒頭 (2026-09-03 neco 指示)。
     const isParttimer = def.category === "parttimer";
+    const articleBrief = def.call_name === "grok-knowledge-article";
     // Genius command-pattern (定型作業のコマンド列) を task 文面で照会して差し込む。
     // Genius 不在・不一致・失敗は注入なしで委託を続行する (fail-soft)。
     // パートタイマーは対象外 — 本文が手順まで書き切っている定時作業なので、 一致しない
     // 手順ブロックを push すると「本文が全文」という前提を崩す。
     let commandPatternBlock: string | null = null;
-    if (!isParttimer && this.deps.commandPatterns) {
+    if (!articleBrief && !isParttimer && this.deps.commandPatterns) {
       try {
         commandPatternBlock = await this.deps.commandPatterns(renderedPrompt);
       } catch {
@@ -738,7 +739,7 @@ export class DelegationService {
     }
     // パートタイマーの協調文脈は parttimer-inject が本文内に必要分だけ持つので、
     // 前置きの Concordia コンテキストは載せない。
-    const contextBlock = isParttimer ? "" : buildDelegationContext(
+    const contextBlock = articleBrief || isParttimer ? "" : buildDelegationContext(
       this.deps.concordiaUrl,
       manualContent ? { kind: manualKind, content: manualContent } : null,
       commandPatternBlock,
@@ -823,7 +824,7 @@ export class DelegationService {
     }
     // 別リポの正本はパスを書いても子は読めない (cwd の外)。 明示された参照だけ本文を
     // 同梱する (spec/feature/task-workflow.md §3.2)。 パートタイマーは本文が全文なので対象外。
-    if (!isParttimer) {
+    if (!articleBrief && !isParttimer) {
       const bundle = await buildExternalDocBundle({
         refs: collectExternalDocRefs({ args: input.args ?? null, memoryLinks: input.memory_links ?? null }),
         spawnCwd: cwd ?? null,
@@ -844,7 +845,7 @@ ${bundle.section}`;
       return { ok: false, error: `failed to create prompts dir: ${(err as Error).message}` };
     }
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = isParttimer
+    const promptBody = articleBrief ? renderedPrompt : isParttimer
       ? renderParttimerPromptFile(def, promptSection, runId, provider, spawn.effectiveModel)
       : renderPromptFile(
         def,

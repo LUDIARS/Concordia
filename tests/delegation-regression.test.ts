@@ -57,6 +57,7 @@ const EXPECTED_SEED_CALLS = [
   "genius-ingest-daily",
   // GitHub Issue (Cc ラベル) 検知後に Cc が invoke する受け皿。 cron からは呼ばない。
   "github-issue-fix",
+  "grok-knowledge-article",
   "kaizen-daily",
   "ludiars-review-daily-dual",
   "ludiars-review-weekly",
@@ -93,7 +94,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 15, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([5, 6, 12, 13, 14, 15, 20, 25, 29, 45, 46, 47, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "luna-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
@@ -178,7 +179,9 @@ describe("delegation seed regression", () => {
         expect(existsSync(json.prompt_file_path)).toBe(true);
 
         const promptFile = readFileSync(json.prompt_file_path, "utf8");
-        if (template.category === "parttimer") {
+        if (template.call_name === "grok-knowledge-article") {
+          expect(promptFile).toBe(`記事を取得し、原文と要約を保存してください。\nURL: ${args.url}\n保存先: ${args.save_path}`);
+        } else if (template.category === "parttimer") {
           // パートタイマーはタスク本文を先頭に置く別書式 (delegation/parttimer-inject.ts)。
           // 見出しは template title、 run のメタ情報は末尾へ回す。
           expect(promptFile.split(/\r?\n/)[0], template.call_name).toBe(`# ${template.title}`);

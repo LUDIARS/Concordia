@@ -531,6 +531,21 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     is_active: true,
   },
   {
+    call_name: "grok-knowledge-article",
+    title: "Grok 記事取得",
+    description: "指定記事の原文と要約を取得し、呼び出し元が指定した場所に保存する。",
+    target_provider: "grok",
+    model: "grok",
+    call_only: true,
+    category: "freelancer",
+    prompt_template: "記事を取得し、原文と要約を保存してください。\nURL: ${url}\n保存先: ${save_path}",
+    input_schema: [
+      { name: "url", type: "string", required: true, description: "記事のURL" },
+      { name: "save_path", type: "string", required: true, description: "保存先ファイル" },
+    ],
+    is_active: true,
+  },
+  {
     call_name: "sonnet-ask",
     title: "設計相談 (Director 問診)",
     description: "Director が検出した停滞・失敗について、読み取り専用で Decision Request を組み立てる。",

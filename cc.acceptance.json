@@ -1,6 +1,8 @@
 {
   "version": 1,
   "implementations": [
+    {"source":"src/delegation/manual-kind.ts","tests":["src/delegation/service.test.ts"],"contracts":[]},
+    {"source":"src/delegation/seed.ts","tests":["src/delegation/service.test.ts"],"contracts":[]},
     {"source":"scripts/bootstrap.mjs","tests":["scripts/bootstrap.test.mjs"],"contracts":["CC-NOTION-FULLTEXT-01"]},
     {"source":"scripts/patch-canalis-notion.mjs","tests":["scripts/patch-canalis-notion.test.mjs"],"contracts":["CC-NOTION-FULLTEXT-01"]},
     {"source":"src/rules/notion-source-canalis.ts","tests":["src/rules/notion-source-canalis.test.ts"],"contracts":["CC-NOTION-FULLTEXT-01"]},

@@ -170,6 +170,16 @@ describe("DelegationService.invoke", () => {
     expect(readFileSync(path, "utf8")).toBe("自由テキストの初回指示\n2行目");
   });
 
+  it("sends just the article request, URL and output path to Grok", async () => {
+    const { plannedSeedTemplates } = await import("./seed.js");
+    const template = plannedSeedTemplates().find(item => item.call_name === "grok-knowledge-article")!;
+    repo.createTemplate(template);
+    const result = await svc.invoke({call_name: template.call_name, args: {url: "https://x.com/a/status/1", save_path: "articles/1.md"}});
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(readFileSync(result.prompt_file_path, "utf8")).toBe("記事を取得し、原文と要約を保存してください。\nURL: https://x.com/a/status/1\n保存先: articles/1.md");
+  });
+
   it("allocates Astra before spawn when an Opus quota is exhausted", async () => {
     repo.createTemplate({ call_name: "astra", title: "Astra", target_provider: "codex",
       model: "gpt-6.2-astra", prompt_template: "${msg}", input_schema: [] });
